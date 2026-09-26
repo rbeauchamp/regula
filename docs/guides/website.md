@@ -19,15 +19,19 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 | Open review obligations and trusted mechanisms | Each rule's `residuals` in `Guide` (the obligations [rule-coverage.md](rule-coverage.md) associates with it), typed as the checker's `Residual`; `Residual.all` and `Trusted` from [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) | Every page also states that each accepted result lists all residual obligations as open. The per-rule selection is reviewed, not derived. |
 | Page construction, escaping, filters, diffs, link checking | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
 | Evidence admission, generation, rendering, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
+| The standard: normative text, checked Lean examples, section and checklist-row anchors | [`website/RegulaStandard.lean`](../../website/RegulaStandard.lean) and [`website/RegulaStandard/`](../../website/RegulaStandard/) (Verso, the only source), with the code blocks of [`RegulaExample`](../../website/RegulaExample.lean) | Included by the generated home page under `standard/`. Each `lean` block is elaborated where it is written, in a fresh [`regula-example`](../../website/RegulaExampleMain.lean) process with exactly its own imports. |
 | Colours and stylesheet | [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) (claimed; contrast proved) | Written by the builder as `website/Generated/regula.css`, copied to each edition's root and linked from every page. |
 | Rendering and theme script | [`website/`](../../website/): pinned Verso package (search feature only), `RegulaSite` extension (raw-HTML block and theme script) | `website/Generated/` is generated and ignored by Git. |
 | Published revision snapshots | The append-only `site-archive-regula` branch (`rev/<commit>/` directories only), read by [`Regula.Site.Deployment`](../../lean/Regula/Site/Deployment.lean) | Copied verbatim into every artifact. |
 | Publication | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) | `site`, `deploy-gate`, `archive`, `deploy` and `verify-deployment` jobs. |
 
-The normative standard stays in `docs/standard/`. Rule pages link each rule's registry clauses
-at the build commit, resolved to the section heading in that file; the site does not republish
-or restate the standard's normative text. The generator refuses a clause whose file or section
-heading does not exist, and a cited repository path that does not exist.
+The site publishes the standard under `standard/` of every edition, next to the rule pages. A
+rule page links each registry clause ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)
+`Clause`) to its section anchor and each checklist row to its anchor on module 9, in the same
+edition; rule pages do not restate the standard's normative text. Ordinary acceptance's
+registry checks require each cited section's exact heading and tag and each linked row in the
+Verso source, and the artifact's link check requires every anchor in the rendered pages. The
+generator refuses a cited repository path that does not exist.
 
 ## What the build establishes
 
@@ -56,6 +60,12 @@ fails and removes `_site/`:
   `htmlBlock` (`htmlBlock_ok`). Each diff is admitted only when it reproduces both line lists (`admitDiff`); a change of only
   the final line terminator is stated in words. The check requires the escaped text of every displayed fixture and finding
   detail in the rendered page. A file is attributed to a fixture only when its bytes are identical.
+- **The standard.** Every build removes the standard's earlier build outputs and elaborates it
+  again, because Lake does not trace the root-package modules its examples import. Each `lean`
+  block must elaborate as its kind requires (no error or warning, or an error matching its
+  pattern) in a fresh process whose environment is exactly the block's own imports, and
+  rendering resolves every cross-reference and checklist-row anchor. Classifying the same
+  blocks' declarations and axioms is the documentation step of acceptance, not the site build.
 - **Links and base path.** Every `href` and `src` attribute the tokenizer finds in each
   HTML file of the artifact, archived snapshots included, is resolved against its page and `<base href>`, following RFC 3986 for
   schemes; `linkErrors_nil_iff` proves an empty result means each of those links reaches an
@@ -95,6 +105,11 @@ lake exe cache get                                   # root setup (Mathlib artif
 ./scripts/verify.sh diagnostics rule-examples 2/2    # corpus shard 2 (420 s)
 ./scripts/verify.sh site                             # build and check _site/ (420 s)
 ```
+
+The website package shares the root's `.lake/packages` (its `packagesDir`), so one Mathlib
+checkout and its artifacts serve both workspaces; the shared entries of the two lock manifests
+must stay equal. Verso setup is also required before `./scripts/verify.sh docs`, which builds
+the standard.
 
 Any change to a module source, the corpus or the Lake configuration makes earlier shard
 exports stale; the site build refuses them, so rerun both shards. The checker embeds its commit when

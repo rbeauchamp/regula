@@ -40,13 +40,22 @@ namespace Regula.Site.Build
 open Lean System Regula.Site Regula.Qualification
 
 /-- Render the generated manual. The website package pins its own Verso lock; the root
-package's search path is removed so the two workspaces never mix. -/
-def render (root : FilePath) (destination : FilePath) : IO (List (String × ByteArray)) := do
+package's search path is removed so the two workspaces never mix. The standard's `lean`
+blocks import root-package modules that Lake does not trace for the standard's modules (their
+`needs` only orders the build), so the standard's build outputs are removed first and every
+example is elaborated again. Repository links of the standard name `revision`. -/
+def render (root : FilePath) (destination : FilePath) (revision : String) : IO (List (String × ByteArray)) := do
   let website := root / "website"
   if ← destination.pathExists then IO.FS.removeDirAll destination
+  for dir in [website / ".lake/build/lib/lean", website / ".lake/build/ir"] do
+    if ← dir.pathExists then
+      for entry in ← dir.readDir do
+        if entry.fileName.startsWith "RegulaStandard" then
+          if ← entry.path.isDir then IO.FS.removeDirAll entry.path else IO.FS.removeFile entry.path
   let built ← run website "lake" #["build"] cleanEnv
   requireChecks [⟨s!"Verso site build\n{built.stdout}{built.stderr}", built.exitCode == 0⟩]
-  let rendered ← run website "lake" #["exe", "regula-site", "--output", destination.toString] cleanEnv
+  let rendered ← run website "lake" #["exe", "regula-site", "--output", destination.toString]
+    (cleanEnv.push ("REGULA_SOURCE_REVISION", some revision))
   requireChecks [⟨s!"Verso rendering\n{rendered.stdout}{rendered.stderr}", rendered.exitCode == 0⟩]
   snapshotTree (destination / "html-multi")
 
@@ -213,7 +222,7 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   let archive := archiveDirectory root / "tree"
   let g ← evidence root ident archived evidencePaths
   generate root g
-  let edition ← render root (root / "tmp/site-render")
+  let edition ← render root (root / "tmp/site-render") ident.revision.val
   try
     assemble out g edition archive
     checkArtifact root out g archive

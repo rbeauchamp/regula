@@ -4,12 +4,16 @@ import Mathlib.Tactic.NormNum
 import Audit.DocPrelude
 
 /-!
-Dogfooding declarations mirrored from the standard's examples. The module owns:
-unit-interval `Probability` and exact complement; Core's reverse-append result;
-proof-bearing `SystemState` and composition preservation; positive-domain
-`safeDiv`; the exponential `DecayingValue` formula, antitonicity theorem, and
-joint-satisfiability witness; nominal discrete `Tick` values with transported natural order; and timestamped `Event` values with an
-`IsStrictOrder`-lawful `CausalOrder` on the declared event subtype.
+Dogfooding declarations for the standard's examples. The module owns: the unit-interval
+`Probability` and its inhabitance; Core's reverse-append result; the proof-bearing
+`SystemState` and its inhabitance; positive-domain `safeDiv` and its defining equation;
+the exponential `DecayingValue` formula, antitonicity theorem, and joint-satisfiability
+witness; and nominal discrete `Tick` values with transported natural order. Examples of the
+standard import `reverse_append_correct`, `DecayingValue`, `decay_monotone`,
+`decay_monotone_nonvacuous` and `Tick`; the others carry the inhabitance and defining-equation
+claims that no example states. Declarations whose exact statements the standard's own `lean` blocks elaborate where
+they are written (the even-number inhabitance witness, `Probability.complement`,
+`compose_preserves_safety`, `Event` and `CausalOrder`) are not repeated here.
 
 Each result states only its displayed binders and hypotheses. Inhabitance proves
 only existence, the decay witness proves only joint satisfiability of its listed
@@ -18,23 +22,12 @@ external-system claim. Mathlib/Core predicates and structures are reused where
 they match.
 -/
 
-/- ── Module 0 §Non-Vacuity: an inhabitance witness for the constrained type ── -/
-example : Nonempty {n : ℕ // n % 2 = 0} := ⟨⟨4, by omega⟩⟩
-
 /- ── Module 2 §2.2: dependent types for invariants ── -/
 namespace Glossary
 
 /-- A probability reuses Mathlib's canonical closed unit interval. The type
 enforces exactly membership in `[0, 1]` — no more (module 2 §2.2). -/
 abbrev Probability : Type := unitInterval
-
-/-- Unit-interval complement: the result's underlying real value is exactly
-`1 - p`; `unitInterval.symm` also carries the proof that this value remains in
-`[0, 1]`. No probability-distribution or external-runtime property is claimed.
-The wrapper retains the glossary's vocabulary for Mathlib's existing operation;
-it defines no new complement algorithm or mathematical notion. -/
-def Probability.complement (p : Probability) : Probability :=
-  unitInterval.symm p
 
 /-- Non-vacuity for the constrained type: at least one probability exists.
 This proves inhabitance, nothing stronger. -/
@@ -58,13 +51,6 @@ structure SystemState where
   activeProposals : ℕ
   inv : activeProposals ≤ participants
 
-/-- Composition preserves the invariant stated above, without side
-conditions on `f` or `g` — this is exactly the theorem stated, and nothing
-stronger (module 1 §1.6). -/
-theorem compose_preserves_safety (f g : SystemState → SystemState) :
-    ∀ s, ((f ∘ g) s).activeProposals ≤ ((f ∘ g) s).participants := fun s =>
-  (f (g s)).inv
-
 /-- Non-vacuity: states satisfying the invariant exist. -/
 example : Nonempty SystemState := ⟨⟨3, 1, by omega⟩⟩
 
@@ -74,7 +60,7 @@ an error. A restricted domain is encoded by the API when desired. -/
 /-- Division restricted to positive denominators: the domain restriction is
 part of the type, so callers must supply the proof. Mathlib's `PNat` (`ℕ+`)
 names this same subtype. The explicit subtype is retained to mirror the
-docs/standard/3 §3.2.1 teaching example; division itself reuses `Nat.div`. -/
+standard §3.2.1 teaching example; division itself reuses `Nat.div`. -/
 def safeDiv (a : ℕ) (d : {d : ℕ // d > 0}) : ℕ := a / d.val
 
 /-- `safeDiv` agrees with the underlying total division. -/
@@ -141,22 +127,5 @@ instance : LinearOrder Tick :=
 
 /-- The transported order compares exactly the underlying natural counts. -/
 theorem Tick.le_iff (a b : Tick) : a ≤ b ↔ a.val ≤ b.val := Iff.rfl
-
-/- ── Module 4 §4.3: a strict causal relation with Mathlib's laws. ── -/
-
-/-- Minimal event used by the causal-order example. Its identifier is
-phantom-typed so event IDs cannot be used as another ID domain directly. -/
-structure Event where
-  id : Id EventTag
-  timestamp : Time
-  content : OpaqueData
-
-/-- A causal relation on the declared event set, carrying Mathlib's exact
-`IsStrictOrder` interface (irreflexivity and transitivity). It does not claim
-a reflexive `PartialOrder`. -/
-structure CausalOrder where
-  events : Set Event
-  precedes : {e : Event // e ∈ events} → {e : Event // e ∈ events} → Prop
-  laws : IsStrictOrder {e : Event // e ∈ events} precedes
 
 end Glossary

@@ -3,7 +3,7 @@
 Select materially relevant sections; independence follows AGENTS.md for delivery reviews, while the
 number of assignments follows distinct risks. Combine compatible questions without merging
 the author and reviewer roles. In full-compliance mode reconcile assignments against every
-current docs/standard/9 ID: these focus lists are navigation, not an alternate checklist. A reviewer
+current standard module 9 ID: these focus lists are navigation, not an alternate checklist. A reviewer
 inspects one frozen subject and returns findings with coverage evidence or `CLEAN`; it does not
 edit shared files, launch duplicate reviewers, or silently claim uninspected rows.
 

@@ -24,7 +24,7 @@ def probeModuleNames : Array String :=
   RegulaPolicy.reporterModuleNames.map (·.toString)
 
 /-- The probe modules no claimed module may import. `Regula.Contract` (the
-executable-contract interface, docs/standard/8 §8.12) and `Regula.MaterialClaim` (the
+executable-contract interface, standard §8.12) and `Regula.MaterialClaim` (the
 `@[regula_material]` registration, §5.2) are the published interfaces a claimed surface
 imports by design (§8.10); the probe and its report records are
 checker tooling that reach an audited environment only through the force

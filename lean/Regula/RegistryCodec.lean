@@ -75,7 +75,9 @@ def descriptorJson (id : RuleId) : Json :=
     ("remedy", toJson d.remedy), ("rewrites", toJson d.rewrites), ("examples", examplesJson id),
     ("category", toJson (categoryText d.category)),
     ("scope", toJson (scopeText d.scope)), ("evidenceKind", toJson (evidenceText d.evidenceKind)),
-    ("normativeClauses", toJson d.normativeClauses),
+    ("normativeClauses", toJson (d.normativeClauses.map fun c => Json.mkObj [
+      ("section", toJson c.number), ("title", toJson c.title), ("source", toJson c.source),
+      ("url", toJson c.url)])),
     ("applicability", toJson d.applicability),
     ("defaultStrictSeverity", toJson d.defaultStrictSeverity.spelling),
     ("evidenceModes", toJson (d.evidenceModes.map modeText)),

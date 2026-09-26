@@ -1,7 +1,7 @@
 # Lean sources
 
 These modules implement the contracts and checkers and supply checked examples for
-the [standard](../docs/standard/README.md). The package's source directory is `lean/`;
+the [standard](https://rbeauchamp.github.io/regula/dev/standard/). The package's source directory is `lean/`;
 imports retain their Lean module names, such as `Audit.Research` and
 `Regula.Contract`.
 
@@ -35,7 +35,7 @@ Those files, not this navigation table or folder names, own the inventory.
 
 The checkers and the `ExecutableContract` interface share the `Regula`
 library. The interface may be imported by a claimed surface as described in the
-[standard](../docs/standard/8-tooling-and-machine-audit.md#810-dogfooding);
+[standard](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#810-dogfooding);
 this does not make the operational checker a claimed proof surface.
 
 For runnable consumers with their own configurations, use the

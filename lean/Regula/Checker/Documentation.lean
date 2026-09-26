@@ -213,6 +213,123 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
     problems := problems.push s!"{origin}:{marker.line}: marker left at end of file"
   return { fences, problems }
 
+/-- The code-block spellings a Verso documentation source may use, with the meaning the
+standard's `lean` block (`website/RegulaExample.lean`) gives each: `lean` is a positive
+example, `lean +trustedCompiler` a trusted teaching example and `lean (fails := "PATTERN")` a
+negative example (`some` classification); `leanSketch`, `sh`, `text` and `toml` are not Lean
+(`none`). Every other spelling, including an unnamed block, is refused, so a misspelled or
+extended argument fails instead of changing an example's kind: `versoBlockKind_positive`,
+`versoBlockKind_trusted`, `versoBlockKind_other` and `versoBlockKind_fail` state that each
+classification comes only from its canonical spelling. -/
+def versoBlockKind (info : String) : Except String (Option (Option MarkerKind)) :=
+  let pre := "lean (fails := \""
+  let post := "\")"
+  if info == "lean" then .ok (some none)
+  else if info == "lean +trustedCompiler" then .ok (some (some .trusted))
+  else if ["leanSketch", "sh", "text", "toml"].contains info then .ok none
+  else if info.startsWith pre && info.endsWith post && info.length ≥ pre.length + post.length then
+    let pattern := ((info.drop pre.length).dropEnd post.length).toString
+    if pattern.contains '"' || pattern.contains '\\' then
+      .error "diagnostic pattern contains a quote or backslash"
+    else match validatePattern pattern with
+      | .ok _ => .ok (some (some (.fail pattern)))
+      | .error error => .error s!"invalid lean-fail pattern: {error}"
+  else .error s!"unsupported Verso code block `{info}`"
+
+/-- Only the exact spelling `lean` is a positive example. -/
+theorem versoBlockKind_positive {info : String} (h : versoBlockKind info = .ok (some none)) :
+    info = "lean" := by
+  unfold versoBlockKind at h
+  dsimp only at h
+  repeat' split at h
+  all_goals simp_all
+
+/-- Only the exact spelling `lean +trustedCompiler` is a trusted teaching example. -/
+theorem versoBlockKind_trusted {info : String}
+    (h : versoBlockKind info = .ok (some (some .trusted))) :
+    info = "lean +trustedCompiler" := by
+  unfold versoBlockKind at h
+  dsimp only at h
+  repeat' split at h
+  all_goals simp_all
+
+/-- Only the four listed names are non-Lean blocks. -/
+theorem versoBlockKind_other {info : String} (h : versoBlockKind info = .ok none) :
+    info ∈ ["leanSketch", "sh", "text", "toml"] := by
+  unfold versoBlockKind at h
+  dsimp only at h
+  repeat' split at h
+  all_goals simp_all
+
+/-- A negative example is spelled `lean (fails := "PATTERN")` exactly, `PATTERN` is the text
+between that prefix and suffix, and the scanner's grammar accepts it. -/
+theorem versoBlockKind_fail {info pattern : String}
+    (h : versoBlockKind info = .ok (some (some (.fail pattern)))) :
+    info.startsWith "lean (fails := \"" ∧ info.endsWith "\")" ∧
+      pattern = ((info.drop "lean (fails := \"".length).dropEnd "\")".length).toString ∧
+      validatePattern pattern = .ok () := by
+  unfold versoBlockKind at h
+  dsimp only at h
+  repeat' split at h
+  all_goals simp_all
+
+/-- Fail-closed, balanced scanner of the code blocks of a Verso source (`versoBlockKind`). Lean
+examples must open in the first column, so the scanned body is exactly the string Verso
+elaborates; the block's info string is its whole classification. -/
+def scanVerso (text origin : String) (sourceURI : Option String := none) : ScanResult := Id.run do
+  let lines := text.splitOn "\n" |>.toArray
+  let mut fences : Array Fence := #[]
+  let mut problems : Array String := #[]
+  let mut openState : Option (Nat × Option (Option MarkerKind)) := none
+  let mut openLine := 0
+  let mut opening : RegulaPolicy.ByteRange := ⟨0, 0⟩
+  let mut bodyStart := 0
+  let mut offset := 0
+  let mut body : Array String := #[]
+  for index in [:lines.size] do
+    let lineNo := index + 1
+    let line := lines[index]!
+    let lineOffset := offset
+    offset := offset + line.utf8ByteSize + (if index + 1 < lines.size then 1 else 0)
+    if let some (length, kind) := openState then
+      if closingFence line '`' length then
+        if let some marker := kind then
+          fences := fences.push {
+            document := ⟨sourceURI.getD origin, text⟩
+            opening
+            bodyRange := ⟨bodyStart, if body.isEmpty then bodyStart else lineOffset - 1⟩
+            closing := ⟨lineOffset, lineOffset + line.utf8ByteSize⟩
+            body := "\n".intercalate body.toList
+            line := openLine
+            failPattern := marker.bind fun | .fail pattern => some pattern | .trusted => none
+            trusted := marker.any fun | .trusted => true | .fail _ => false
+            markerLine := none
+          }
+        openState := none
+        body := #[]
+      else
+        body := body.push line
+      continue
+    if let some (character, count, info) := fenceRun? line then
+      let kind ← match versoBlockKind info with
+        | .ok kind => pure kind
+        | .error error =>
+          problems := problems.push s!"{origin}:{lineNo}: {error}"
+          pure none
+      if character != '`' then
+        problems := problems.push s!"{origin}:{lineNo}: a Verso code block opens with back-ticks"
+      if kind.isSome && line.startsWith " " then
+        problems := problems.push s!"{origin}:{lineNo}: a Lean example must open in the first column"
+      openState := some (count, kind)
+      openLine := lineNo
+      opening := ⟨lineOffset, lineOffset + line.utf8ByteSize⟩
+      bodyStart := offset
+      body := #[]
+  if openState.isSome then
+    problems := problems.push s!"{origin}:{openLine}: code block opened but never closed"
+  return { fences, problems }
+
+
 inductive Kind where
   | positive
   | negative
@@ -616,6 +733,51 @@ def checkMarkdown (root : FilePath) (documents : Array RegulaPolicy.SourceSnapsh
     throw <| IO.userError "documentation inventory changed"
   unless current == documents do throw <| IO.userError "documentation source changed"
 
+/-- Exact module sources of `library` in the Lake package at `dir`, discovered through
+Lake's elaborated package model, in path order. -/
+def captureVerso (dir : FilePath) (library : Name) : IO (Array RegulaPolicy.SourceSnapshot) := do
+  let paths ← Workspace.withRootWorkspace dir fun ws => do
+    let some lib := ws.root.leanLibs.find? (·.name == library)
+      | throw <| IO.userError s!"Verso package {dir} has no library {library}"
+    let modules ← lib.getModuleArray
+    if modules.isEmpty then throw <| IO.userError s!"Verso library {library} has no modules"
+    -- Re-anchor Lake's real paths at `dir` as given, so document identities stay relative.
+    let real := (← IO.FS.realPath dir).normalize.components
+    modules.mapM fun m => do
+      let file := (← IO.FS.realPath m.leanFile).normalize.components
+      unless real.isPrefixOf file do
+        throw <| IO.userError s!"Verso module {m.name} is outside its package {dir}"
+      return (file.drop real.length).foldl (· / ·) dir
+  let paths := paths.qsort (fun left right => left.toString < right.toString)
+  paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
+
+/-- The documentation one run covers: every Markdown file below `markdown` and, when given,
+every module of the Verso library `verso.2` of the Lake package at `verso.1`. -/
+structure Sources where
+  markdown : FilePath
+  verso : Option (FilePath × Name) := none
+
+def Sources.capture (sources : Sources) : IO (Array RegulaPolicy.SourceSnapshot) := do
+  let markdown ← captureMarkdown sources.markdown
+  let verso ← match sources.verso with
+    | some (dir, library) => captureVerso dir library
+    | none => pure #[]
+  return markdown ++ verso
+
+def Sources.check (sources : Sources) (documents : Array RegulaPolicy.SourceSnapshot) : IO Unit := do
+  let current ← sources.capture
+  unless current.map (·.uri) == documents.map (·.uri) do
+    throw <| IO.userError "documentation inventory changed"
+  unless current == documents do throw <| IO.userError "documentation source changed"
+
+/-- Parse `DIR:LIBRARY`, the Verso documentation option of the audit commands. -/
+def parseVersoOption (value : String) : Except String (FilePath × Name) :=
+  match value.splitOn ":" with
+  | [dir, library] =>
+    if dir.isEmpty || library.isEmpty then .error s!"expected DIR:LIBRARY, got {value}"
+    else .ok (FilePath.mk dir, library.toName)
+  | _ => .error s!"expected DIR:LIBRARY, got {value}"
+
 /-- Audit all documentation against the caller's freshly built isolated workspace.
 The standalone command creates that workspace itself; combined verification owns
 it from declaration admission through the last fence inspection. -/
@@ -628,13 +790,15 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
     (emit : Regula.Finding → IO Unit := fun _ => pure ())
     (observe : Array Result → IO Unit := fun _ => pure ())
     (observeAccepted : (claim : RegulaPolicy.Claim) → RegulaPolicy.AcceptedRun claim → IO Unit := fun _ _ => pure ())
-    (sharedSnapshot : Option RegulaPolicy.AdmittedSnapshot := none) : IO UInt32 := do
+    (sharedSnapshot : Option RegulaPolicy.AdmittedSnapshot := none)
+    (verso : Option (FilePath × Name) := none) : IO UInt32 := do
+  let sources : Sources := ⟨docsRoot, verso⟩
   let outcome : Except ProducerReport.AdmissionFailure UInt32 ←
     SourceBinding.withUnchanged sourceBindings configuration do
       if documents.isEmpty then
         IO.println s!"FAIL: no Markdown files found recursively below {docsRoot}"
         return 1
-      checkMarkdown docsRoot documents
+      sources.check documents
       let snapshot ← match sharedSnapshot with
         | some snapshot => pure snapshot
         | none => do
@@ -647,8 +811,13 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       let mut structural : Array String := #[]
       for document in documents do
         let path := FilePath.mk document.uri
-        let relative := relativeDisplay docsRoot path
-        let scan := Documentation.scan document.source relative (some document.uri)
+        -- Markdown documents below `docsRoot`; Verso sources (`.lean`) by repository path.
+        let (relative, scan) := if path.extension == some "lean" then
+            let relative := relativeDisplay (docsRoot.parent.getD docsRoot) path
+            (relative, Documentation.scanVerso document.source relative (some document.uri))
+          else
+            let relative := relativeDisplay docsRoot path
+            (relative, Documentation.scan document.source relative (some document.uri))
         structural := structural ++ scan.problems
         for fence in scan.fences do
           tasks := tasks.push {
@@ -673,7 +842,7 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       let fenceScratch := repo / "tmp" / "fence-build"
       IO.FS.createDirAll fenceScratch
       let results ← auditTasks repo fenceScratch jobs tasks sourceBindings configuration inventory.leanPath (some inventory.leanLibDir)
-      checkMarkdown docsRoot documents
+      sources.check documents
       Snapshot.inputsUnchanged inventory dependencies
       let accepted ← match frozen with
         | some frozen =>
@@ -713,7 +882,7 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
           for (rule, decl) in result.policyProblems do
             -- Ranges are relative to the exact verbatim snippet, explicitly a virtual source.
             let snapshot : Regula.SourceSnapshot := {
-              uri := s!"{docsRoot}/{result.task.origin}#lean-snippet"
+              uri := s!"{if (FilePath.mk result.task.fence.document.uri).extension == some "lean" then docsRoot.parent.getD docsRoot else docsRoot}/{result.task.origin}#lean-snippet"
               source := result.task.fence.body }
             let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation decl (some snapshot)
             let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding rule

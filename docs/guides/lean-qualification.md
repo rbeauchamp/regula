@@ -211,7 +211,7 @@ is not bounded by this limit. To keep a kernel-exhausting unfolding from consumi
 headroom a supplied proof needs, supplied and then discovered theorem candidates are tried
 before the kernel-defeq check, so a replacement with both reports `proved:` evidence. Kernel
 resource exhaustion is not conflated with rejection. As
-[§8.6](../standard/8-tooling-and-machine-audit.md#86-classify-lean-computation-mechanisms-exactly)
+[§8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly)
 requires, a definitional comparison that could not complete is unresolved, with the reason
 that the kernel ran out of resources before deciding definitional correspondence, and only a
 completed negative comparison leaves the replacement trusted. `DefeqComparison.classify` is

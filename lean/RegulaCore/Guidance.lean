@@ -81,7 +81,8 @@ def explain (id : RuleId) : String :=
   "- Category: " ++ d.category.label ++ "; scope: " ++ d.scope.label ++ "; subreason: `" ++
     d.applicability ++ "`\n" ++
   "- Checked in: " ++ ", ".intercalate (d.evidenceModes.map Regula.Site.modeLabel) ++ "\n" ++
-  "- Normative clauses: " ++ ", ".intercalate d.normativeClauses ++ "\n" ++
+  "- Normative clauses: " ++ "; ".intercalate (d.normativeClauses.map fun c =>
+    c.label ++ " (`" ++ c.source ++ "`, " ++ c.url ++ ")") ++ "\n" ++
   "- Message form: `" ++ d.messageTemplate ++ "`\n" ++
   "- Rule page: " ++ helpUrl id ++ "\n\n" ++
   "## Problem\n\n" ++ packageProse g.problem ++ "\n\n" ++

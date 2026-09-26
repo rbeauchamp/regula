@@ -20,10 +20,10 @@ published checker interfaces: the proof-requiring executable-contract type and t
 framework; no definition or proof here uses it. Its material
 claims `RequiredContracts`, `requiredContracts` and `checkedExecutable` are registered with
 `@[regula_material]`, so RG5002/RG5003 require each to carry a docstring with a nonempty Intent
-section (docs/standard/5 §5.2); whether each Intent states the right requirement remains
+section (standard §5.2); whether each Intent states the right requirement remains
 semantic review.
 
-Reuse account (docs/standard/1 §1.4, docs/standard/3 §3.2.5): the state, interpreter, and
+Reuse account (standard §1.4, §3.2.5): the state, interpreter, and
 monad stack reuse `Option`, `List.foldl`, `ExceptT`, and `StateM` from the
 prelude. The bespoke types are `Limiter` (the proof-bearing state), `Op`,
 `Fits` (this application's per-prefix precondition, which no Core/Std/Mathlib

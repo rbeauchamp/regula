@@ -1,10 +1,10 @@
 # Adopt the standard
 
-To adopt the [standard](../standard/README.md), identify the correctness claims your
+To adopt the [standard](https://rbeauchamp.github.io/regula/dev/standard/), identify the correctness claims your
 project presents as established, express them precisely in types or propositions, and
 supply kernel-checked evidence. Review whether those statements capture the intended
 claims, including their assumptions and execution boundaries. Conformance requires every
-applicable row of the [compliance checklist](../standard/9-compliance-audit.md); the
+applicable row of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/); the
 checker supports that review by checking the mechanical requirements.
 
 The steps below cover checker setup and the semantic review needed for a conformance
@@ -13,7 +13,7 @@ claim. Use the [supported toolchain](../../README.md#supported-toolchain).
 This is the ordinary path from an existing Lean project to a conformance claim. It uses
 your project's own layout, module names, and lakefile format; nothing named `Audit`,
 `Fixtures`, or `tmp` from this repository is required. The normative definitions behind
-each step are in [docs/standard/8 §8.11](../standard/8-tooling-and-machine-audit.md#811-adopting-the-checker-in-another-project).
+each step are in [standard §8.11](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#811-adopting-the-checker-in-another-project).
 
 ## 0. Brief your agent
 
@@ -95,7 +95,7 @@ if your own code imports them.
 
 Conformance is claimed per Lake library or executable, and the checker discovers modules
 through Lake's elaborated inventory, not through your umbrella import or a file list
-([docs/standard/8 §8.2](../standard/8-tooling-and-machine-audit.md#82-define-surfaces-through-lake-semantics)).
+([standard §8.2](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#82-define-surfaces-through-lake-semantics)).
 Give every claimed library a glob that covers its intended modules:
 
 - `lakefile.lean`: ``globs := #[.andSubmodules `Widget]``
@@ -126,7 +126,7 @@ Write `foundation_manifest.json` at your project root classifying every root-pac
 ```
 
 `claim` is the strongest foundation any declaration on the surface may use
-([docs/standard/4 §4.5](../standard/4-mathematical-foundations.md#45-foundation-strength-kernel-only-choice-free-standard-logical)):
+([standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical)):
 
 | Profile | Permitted transitive axioms |
 | --- | --- |
@@ -141,7 +141,7 @@ foundation profile; inspect its actual transitive dependencies. Compiler-trustin
 (for example from `native_decide`) never fit any profile and are reported separately.
 
 `execution` states what you claim about compiled code
-([docs/standard/8 §8.6](../standard/8-tooling-and-machine-audit.md#86-classify-lean-computation-mechanisms-exactly)):
+([standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly)):
 
 | Mode | Meaning |
 | --- | --- |
@@ -181,7 +181,7 @@ lake exe docFenceAudit --jobs 4                            # elaborate every doc
 ```
 
 `docFenceAudit` applies when your project keeps Lean teaching examples in Markdown under
-`docs/` using the [fence convention](../standard/README.md#lean-example-convention).
+`docs/` using the [fence convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention).
 
 ## 5. Read a failure
 
@@ -218,15 +218,15 @@ style preference:
 
 | Reason | Meaning | Where the rule lives |
 | --- | --- | --- |
-| `project-axiom` | An owned `axiom` declaration outside Lean's foundation. Make the assumption a binder or proof-bearing field. | [docs/standard/3 §3.4](../standard/3-logic-proof-patterns.md#34-foundation-strength-axioms-are-reported-never-assumed) |
-| `hole` | The declaration depends on `sorryAx` (`sorry`, `admit`, or an unfinished tactic). | [docs/standard/3 §3.4](../standard/3-logic-proof-patterns.md#34-foundation-strength-axioms-are-reported-never-assumed) |
-| `unknown-axiom` | A transitive axiom outside `propext`, `Quot.sound`, `Classical.choice` other than `sorryAx` and the compiler-trusting axioms, which have their own reasons. | [docs/standard/4 §4.5](../standard/4-mathematical-foundations.md#45-foundation-strength-kernel-only-choice-free-standard-logical) |
-| `label-exceeds-claim` | The declaration's exact label is stronger than the surface's `claim`. Prove the same statement using fewer axioms, or explicitly revise the permitted foundation profile and its rationale. | [docs/standard/4 §4.5](../standard/4-mathematical-foundations.md#45-foundation-strength-kernel-only-choice-free-standard-logical) |
-| `compiler-trusting` | A native-evaluation proof axiom (for example `native_decide`) on a positive surface. | [docs/standard/8 §8.5](../standard/8-tooling-and-machine-audit.md#85-proof-completeness-and-foundation-strength) |
-| `escape-hatch` | An authored `partial` or `unsafe` declaration on a positive surface. | [docs/standard/8 §8.6](../standard/8-tooling-and-machine-audit.md#86-classify-lean-computation-mechanisms-exactly) |
-| `executable-contract` | An `ExecutableContract` registration is not closed, does not name a complete implementation constant, or names an ineligible implementation: missing, noncomputable, unsafe, partial, proposition-valued, type-producing, or not an executable definition. The Lean type checker separately checks the supplied proof against the registered predicate. | [docs/standard/8 §8.12](../standard/8-tooling-and-machine-audit.md#812-opt-in-enforcing-build-linter) |
-| `execution-unresolved` | A compiled path whose replacement, `extern`, or unsafe target cannot be classified. Blocks the execution claim in every mode. | [docs/standard/8 §8.6](../standard/8-tooling-and-machine-audit.md#86-classify-lean-computation-mechanisms-exactly) |
-| `execution-trusted-boundary` | A runtime replacement or `extern` boundary without kernel-checked correspondence on a surface claiming `checked` execution. | [docs/standard/8 §8.6](../standard/8-tooling-and-machine-audit.md#86-classify-lean-computation-mechanisms-exactly) |
+| `project-axiom` | An owned `axiom` declaration outside Lean's foundation. Make the assumption a binder or proof-bearing field. | [standard §3.4](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#34-foundation-strength-axioms-are-reported-never-assumed) |
+| `hole` | The declaration depends on `sorryAx` (`sorry`, `admit`, or an unfinished tactic). | [standard §3.4](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#34-foundation-strength-axioms-are-reported-never-assumed) |
+| `unknown-axiom` | A transitive axiom outside `propext`, `Quot.sound`, `Classical.choice` other than `sorryAx` and the compiler-trusting axioms, which have their own reasons. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
+| `label-exceeds-claim` | The declaration's exact label is stronger than the surface's `claim`. Prove the same statement using fewer axioms, or explicitly revise the permitted foundation profile and its rationale. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
+| `compiler-trusting` | A native-evaluation proof axiom (for example `native_decide`) on a positive surface. | [standard §8.5](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#85-proof-completeness-and-foundation-strength) |
+| `escape-hatch` | An authored `partial` or `unsafe` declaration on a positive surface. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |
+| `executable-contract` | An `ExecutableContract` registration is not closed, does not name a complete implementation constant, or names an ineligible implementation: missing, noncomputable, unsafe, partial, proposition-valued, type-producing, or not an executable definition. The Lean type checker separately checks the supplied proof against the registered predicate. | [standard §8.12](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter) |
+| `execution-unresolved` | A compiled path whose replacement, `extern`, or unsafe target cannot be classified. Blocks the execution claim in every mode. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |
+| `execution-trusted-boundary` | A runtime replacement or `extern` boundary without kernel-checked correspondence on a surface claiming `checked` execution. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |
 
 Surface-level failures name the Lake fact. `build-failed` means the claimed surface did not
 elaborate warning-free from empty output (a zero exit with a warning still fails);
@@ -356,7 +356,7 @@ Lake details that affect what ran:
 
 A `lakefile.lean` project can also enforce during plain `lake build` with the
 [build-lint example](../../examples/build-lint/)'s sole-default `policy` target; see
-[docs/standard/8 §8.12](../standard/8-tooling-and-machine-audit.md#812-opt-in-enforcing-build-linter)
+[standard §8.12](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter)
 for its scope and cache semantics. `lakefile.toml` has no custom targets, so TOML projects
 use `lake lint`. Direct `lean`, editor elaboration, an explicit build of another target and
 `--builtin-only` do not run the strict gate and are never reported as enforced.
@@ -413,7 +413,7 @@ which describes the latest deployed revision of `main`.
 A green gate establishes hole-freedom, exact axiom sets, module coverage, and boundary
 classification. The current checker does not establish that your theorems say what your prose says, that your
 required contracts are complete, or that your types encode the invariant you advertise.
-Those are the semantic-review rows of [docs/standard/9](../standard/9-compliance-audit.md), including
+Those are the semantic-review rows of [standard module 9](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/), including
 `SCOPE-*`, `TYPE-*`, `THEOREM-*`, `COMP-01`, `COMP-04`, `DOC-01`, and `DOC-02`.
 Conformance is the whole matrix with one terminal result (`PASS`, `FAIL`, or `INCOMPLETE`),
 not the gate alone.

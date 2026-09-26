@@ -21,7 +21,7 @@ diagnostic and the `regula` command also print. This module holds only the longe
 
 ## Boundaries
 
-The prose is original Lean-specific explanation written against `docs/standard/` and the
+The prose is original Lean-specific explanation written against the standard (`website/RegulaStandard`) and the
 checker sources it names. Its fidelity to the standard and to the detectors is semantic
 review (R-DOC, R-INTENT); nonemptiness is the only mechanical property checked here. Text
 uses Verso inline markup. A link target `@repo/PATH` denotes `PATH` in this repository at the
@@ -108,7 +108,7 @@ def guide : RuleId → Guide
         "A metaprogram that adds declarations still produces owned constants; they are inspected like authored ones."]
       residuals := [.intent, .nonvacuity]
       checklist := ["FOUND-01", "TYPE-04", "THEOREM-09", "THEOREM-01", "DECL-03", "BUILD-01"]
-      sources := ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean", "lean/Regula/Findings.lean", "docs/standard/3-logic-proof-patterns.md"] }
+      sources := ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean", "lean/Regula/Findings.lean", "website/RegulaStandard/LogicProofPatterns.lean"] }
   | .proofHole => {
       problem := "The declaration depends on `sorryAx`: a `sorry`, an `admit`, an unfinished tactic proof, or an imported declaration with such a hole occurs in its transitive axiom set. The proposition is not proved."
       trigger := [
@@ -191,7 +191,7 @@ def guide : RuleId → Guide
         "The label is computed from the exact transitive set; a proof that merely could avoid an axiom still carries it until rewritten."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
-      sources := ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean", "docs/standard/4-mathematical-foundations.md"] }
+      sources := ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean", "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
       problem := "An owned declaration is marked `unsafe` or `partial` and is not the exactly authenticated code-generation helper of a safe recursive definition."
       trigger := [
@@ -379,7 +379,7 @@ def guide : RuleId → Guide
         "Proof search is deliberately incomplete: a candidate whose remaining premises cannot be instantiated supplies no evidence, and the boundary stays trusted."]
       residuals := [.intent, .invariant, .qualify]
       checklist := ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
-      sources := ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean", "docs/standard/8-tooling-and-machine-audit.md"] }
+      sources := ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean", "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
   | .fenceStructure => {
       problem := "A Markdown file in the checked documentation tree has a malformed Lean fence classification: an orphan, misplaced, duplicated or misspelled marker, an invalid expected-error pattern, or an unclosed fence."
       trigger := [
@@ -474,7 +474,7 @@ def guide : RuleId → Guide
         "The editor reports this rule only when the module has finished elaborating without errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.doc]
       checklist := ["DOC-01"]
-      sources := ["lean/Regula/Linter/Documentation.lean", "lean/Regula/Checker/AxiomGate.lean", "docs/standard/5-documentation-standards.md"] }
+      sources := ["lean/Regula/Linter/Documentation.lean", "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/DocumentationStandards.lean"] }
   | .materialDocumentation => {
       problem := "A public declaration registered with `@[regula_material]` as evidence for a material normative claim has no docstring."
       trigger := [

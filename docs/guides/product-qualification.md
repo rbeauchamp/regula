@@ -4,7 +4,7 @@ This is the integrated account of the Regula linter and its rule-reference websi
 (issue #10). It records, per rule and per supported route, what is proved about the executed
 code, what is checked by a command, what was observed, what is trusted and what remains
 semantic review. It is repository practice, not part of the normative standard; the rule
-predicates live in [`docs/standard/`](../standard/README.md) and the
+predicates live in [the standard](https://rbeauchamp.github.io/regula/dev/standard/) and the
 [coverage map](rule-coverage.md). Observations, commands, timings and revisions of the
 qualification run are recorded in the [qualification record][q10].
 

@@ -1,13 +1,14 @@
 # Work on this repository
 
 This guide describes this repository's layout and development commands. The
-[standard](../standard/README.md) defines conformance; these instructions do not
+[standard](https://rbeauchamp.github.io/regula/dev/standard/) defines conformance; these instructions do not
 prescribe a directory layout for other Lean projects. Read the current
 [repository instructions](../../AGENTS.md) before changing the project.
 
 ## Find the relevant artifact
 
-- **Rules and teaching:** [standard chapters](../standard/README.md).
+- **Rules and teaching:** [standard chapters](https://rbeauchamp.github.io/regula/dev/standard/);
+  their only source is the Verso library in [`website/RegulaStandard/`](../../website/RegulaStandard/).
 - **Contracts, examples, and checker internals:** [Lean module map](../../lean/README.md).
 - **Standalone consumers:** [example projects](../../examples/README.md).
 
@@ -20,22 +21,23 @@ discovery; directory names alone do not establish audit ownership.
 ## Develop and verify
 
 Provision [elan](https://github.com/leanprover/elan), the pinned toolchain,
-Mathlib artifacts (`lake exe cache get`), GNU coreutils timeout, and ShellCheck
+Mathlib artifacts (`lake exe cache get`), the website package's pinned Verso
+(`(cd website && lake build verso/VersoManual)`), GNU coreutils timeout, and ShellCheck
 before verification. On macOS, `brew install coreutils shellcheck` supplies the
 last two tools. Verification runs offline against those pinned dependencies.
 
 ```sh
 lake build                         # incremental development check
 ./scripts/verify.sh                 # ordinary acceptance (project surfaces)
-./scripts/verify.sh docs            # documentation fences, linked to that acceptance
+./scripts/verify.sh docs            # documentation examples and the Verso standard, linked to that acceptance
 ./scripts/verify.sh diagnostics fixtures # focused diagnostic qualification
 ```
 
 Ordinary acceptance builds its checker executables, type-checks the diagnostic
 modules and audits the claimed Lean surfaces from fresh output. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
-then checks every Lean example under `docs/` and refuses unless its own freshly
-captured inputs have the same identity. Each command has its own hard seven-minute
+then checks every Lean example under `docs/` and in the Verso standard, builds and renders
+the standard fresh, and refuses unless its own freshly captured inputs have the same identity. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. Provisioning happens before
 that limit. CI runs both commands, in that order in one job, after restoring or
 provisioning pinned dependency caches.
@@ -77,7 +79,7 @@ Omitting `PARTITION` requests the `checkerSelftest` campaign; the `producers`, `
 `rule-examples` campaigns remain separate explicit selections. Each invocation uses the
 same deadline; choose affected checks rather than treating every campaign as a routine
 prerequisite. Run `./scripts/verify.sh serialized-graph` only for the separate serialized-graph
-claim. See the [verification sequence](../standard/9-compliance-audit.md#repository-verification-sequence)
+claim. See the [verification sequence](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#repository-verification-sequence)
 for evidence requirements. Diagnostics do not replace a failed acceptance run.
 
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers` and
@@ -109,14 +111,14 @@ not claimed as formally verified Lean implementations.
 ## Change prose and code together
 
 Keep a teaching example beside the prose when it helps readers. Every Lean fence
-under `docs/`, including this guides directory, follows the
-[checked fence convention](../standard/README.md#lean-example-convention).
+under `docs/`, including this guides directory, and every `lean` block of the Verso standard
+follows the [checked example convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention).
 Link to the actual Lean module for larger definitions and proofs; do not copy an
 implementation merely to mirror the chapter structure.
 
 For review, use the repository-local
 [review toolkit](../../.agents/skills/pr-review-toolkit/SKILL.md) and the applicable
-[compliance checklist](../standard/9-compliance-audit.md). Scope verification to
+[compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/). Scope verification to
 the affected claims, retain required checks, and distinguish historical results
 from evidence for the current revision.
 

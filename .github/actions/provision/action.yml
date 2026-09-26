@@ -4,6 +4,14 @@ description: >-
   restore or provision pinned Lake dependency artifacts. Provisioning only: no policy,
   validation or test orchestration.
 
+inputs:
+  verso:
+    description: >-
+      Also restore or provision the website package's pinned Verso dependencies, which share
+      the root package's `.lake/packages` (the standard's check and the site need them).
+    required: false
+    default: 'false'
+
 runs:
   using: composite
   steps:
@@ -59,3 +67,34 @@ runs:
       with:
         path: .lake/packages
         key: ${{ steps.dependencies.outputs.cache-primary-key }}
+
+    # The website package's own dependencies (Verso, SubVerso, MD4Lean, illuminate), pinned by
+    # its lock manifest in the shared `.lake/packages`; its other entries are the root's.
+    - name: Restore pinned Verso dependencies
+      if: inputs.verso == 'true'
+      id: verso
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          .lake/packages/verso
+          .lake/packages/subverso
+          .lake/packages/MD4Lean
+          .lake/packages/illuminate
+        key: verso-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('website/lean-toolchain', 'website/lake-manifest.json') }}
+
+    - name: Provision pinned Verso
+      if: inputs.verso == 'true'
+      shell: bash
+      working-directory: website
+      run: lake build verso/VersoManual
+
+    - name: Save pinned Verso dependencies
+      if: inputs.verso == 'true' && steps.verso.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          .lake/packages/verso
+          .lake/packages/subverso
+          .lake/packages/MD4Lean
+          .lake/packages/illuminate
+        key: ${{ steps.verso.outputs.cache-primary-key }}

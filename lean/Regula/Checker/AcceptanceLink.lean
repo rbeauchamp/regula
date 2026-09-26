@@ -39,7 +39,12 @@ def identityJson (projectRoot docsRoot : FilePath)
       ("configuration", toJson (dependency.configurationCaptures.map fun (path, entry) =>
         (rel path, entry.map fun ((canonical, bytes) : String × ByteArray) =>
           (rel canonical, bytes.data.toList.map UInt8.toNat))))])),
-    ("documents", toJson (documents.map fun document => (relative docsRoot document.uri, document.source)))]
+    -- Markdown by its path below `docsRoot`; any other document (a Verso source) by its path
+    -- below the repository, the parent of `docsRoot`.
+    ("documents", toJson (documents.map fun document =>
+      let below := relative docsRoot document.uri
+      (if below != document.uri then below else relative (docsRoot.parent.getD docsRoot) document.uri,
+        document.source)))]
 
 /-- SHA-256 of the compact identity bytes, computed by the external `shasum` tool. -/
 def identity (scratch projectRoot docsRoot : FilePath)

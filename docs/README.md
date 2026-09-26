@@ -1,17 +1,19 @@
 # Documentation
 
-The [Regula standard](standard/README.md) defines the rules for mathematical proofs
+The [Regula standard](https://rbeauchamp.github.io/regula/dev/standard/) defines the rules for mathematical proofs
 and verified functional programs in Lean. The [guides](#practical-guides)
 explain how to use and maintain this repository without adding conformance rules.
+The standard's only source is Verso in [`website/RegulaStandard/`](../website/RegulaStandard/),
+where it can also be read without network access; see the [standard's README](standard/README.md).
 
 ## Read the standard
 
-Start with the [core philosophy](standard/0-core-philosophy.md), then choose a route:
+Start with the [core philosophy](https://rbeauchamp.github.io/regula/dev/standard/0-core-philosophy/), then choose a route:
 
-- **Understand the rules:** use the [chapter index](standard/README.md#document-structure).
-- **Review a Lean project:** read [critical violations](standard/critical-violations.md),
-  then complete the [compliance checklist](standard/9-compliance-audit.md).
-- **Understand the checker:** read [tooling and machine audit](standard/8-tooling-and-machine-audit.md),
+- **Understand the rules:** use the [chapter index](https://rbeauchamp.github.io/regula/dev/standard/introduction/#document-structure).
+- **Review a Lean project:** read [critical violations](https://rbeauchamp.github.io/regula/dev/standard/critical-violations/),
+  then complete the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/).
+- **Understand the checker:** read [tooling and machine audit](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/),
   then follow the [Lean module map](../lean/README.md) into the implementation.
 
 ## Practical guides
@@ -66,7 +68,7 @@ Implementation accounts:
   verification, and review.
 
 Every Lean fence anywhere below `docs/` follows the
-[checked example convention](standard/README.md#lean-example-convention), including
+[checked example convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention), including
 fences in guides. A guide's location does not exempt its teaching examples from checking.
 
 Return to the [project overview](../README.md).

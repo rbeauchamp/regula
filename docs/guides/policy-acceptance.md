@@ -5,8 +5,8 @@ operational adapters described below. The [domain guide](policy-domain.md) ident
 admitted data; the [proof guide](policy-proofs.md) gives theorem hypotheses and caller
 linkage. The [architecture](linter-architecture.md) owns the product and the
 [coverage map](rule-coverage.md) owns the twenty-one rules and nine residual accounts.
-Normative meaning remains [chapter 8](../standard/8-tooling-and-machine-audit.md)
-and the [chapter 9 checklist](../standard/9-compliance-audit.md).
+Normative meaning remains [chapter 8](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/)
+and the [chapter 9 checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/).
 
 Con-leche and its authors/contributors, maintained by Joachim Breitner at Lean FRO,
 are credited for [complete indexed result assembly][installed] and
@@ -551,7 +551,7 @@ No promise of exact legacy JSON bytes, broader supported inputs or improved runt
 **No new acceleration/certificate API is selected.** The existing replacement correspondence
 cache in `Probe.environmentReport` stores checked results by name pair in one fixed environment;
 replacement-history worker output is shared within one audit only under the identical-input
-condition of [standard §8.6](../standard/8-tooling-and-machine-audit.md#86-classify-lean-computation-mechanisms-exactly).
+condition of [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly).
 Preserve these scopes. A future
 cross-environment cache would need equality of all relevant inputs plus revalidated evidence
 and a proof that varying candidate data cannot weaken acceptance. None is justified here.

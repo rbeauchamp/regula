@@ -95,7 +95,7 @@ normative claim. Its persistent Lean tag selects the RG5002 and RG5003 obligatio
 names follow Lean's own visibility representation and do not enter that public
 selector. `Lean.findDocString?` accepts ordinary, Verso and inherited docstrings.
 RG5002 reports a missing docstring. RG5003 reports a docstring without a nonempty labelled
-Intent section ([standard §5.2](../standard/5-documentation-standards.md#52-faithful-explanation-of-formal-claims)):
+Intent section ([standard §5.2](https://rbeauchamp.github.io/regula/dev/standard/5-documentation-standards/#52-faithful-explanation-of-formal-claims)):
 an ATX heading whose text is exactly `Intent`, with no closing sequence (write `# Intent`; a top-level Verso
 docstring header must be `#`), followed before the next heading of equal or higher level by a non-heading
 line with non-whitespace text; text under deeper subsection headings counts.

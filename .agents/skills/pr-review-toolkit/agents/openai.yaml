@@ -1,6 +1,6 @@
 interface:
   display_name: "Regula Review"
   short_description: "Independent Lean PR and conformance review"
-  default_prompt: "Use $pr-review-toolkit to review this Regula change within the requested scope using the docs/standard/9 checklist and any applicable issue; repair findings only within the authorized scope."
+  default_prompt: "Use $pr-review-toolkit to review this Regula change within the requested scope using the standard's module 9 checklist and any applicable issue; repair findings only within the authorized scope."
 policy:
   allow_implicit_invocation: true
