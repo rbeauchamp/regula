@@ -3,7 +3,7 @@ name: regula
 description: Regula, the strict standard that this project's Lean code and proofs must meet. Use before writing or changing Lean definitions, theorems, proofs, lakefile or foundation_manifest.json, or Lean examples in Markdown, and when `lake lint` reports an RG rule ID.
 ---
 
-# Regula: strict Lean standard, agent briefing
+# Regula agent briefing
 
 This project's Lean code and proofs must meet the Regula standard. Apply these rules while writing Lean, not only after the linter runs. This is the complete mechanical rule set of the installed Regula version, ordered for writing code.
 

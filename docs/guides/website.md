@@ -167,8 +167,9 @@ Actions are pinned by commit SHA.
 ## Retention
 
 Each deployment replaces the whole Pages site, so published `rev/<commit>/` snapshots are kept
-in the `site-archive-regula` branch and copied into every later artifact. Invariant: **a published
-snapshot is never dropped by a later deployment.** The argument:
+in the `site-archive-regula` branch and copied into every later artifact. Snapshots are archived
+only for the base path they were built for. Invariant: **a snapshot published under `/regula/`
+is never dropped by a later deployment.** The argument:
 
 1. The archive is append-only: its only writer, the `archive` job, pushes without force, so a
    push that is not a fast-forward of the current head fails.
@@ -182,22 +183,16 @@ snapshot is never dropped by a later deployment.** The argument:
 4. Deployments are serialized, so every earlier deployment finished, and archived its
    snapshots, before a later one checks the archive head.
 
-Hence every snapshot an earlier deployment published is in the archive when a later deployment
-checks it, and so in that deployment. A failed deploy after a successful `archive` leaves an
-archived, validated snapshot that is not yet published; the next deployment publishes it. The
-residual window is the time between the deploy job's archive check and `deploy-pages`
-completing; within it only another run's `archive` job could write, and that run's own
-deployment waits for this one and then contains every snapshot. Rules 1 and 4 rest on GitHub
-(the workflow's non-force push and the concurrency group); a repository rule forbidding force
-pushes and deletion of `site-archive-regula` would enforce rule 1 against every writer and is an
-operator setting that is not yet configured. An unreachable archive fails the build and the
-gate; an absent branch is the empty archive.
-
-The invariant is per base path. As Plumb for Lean, the project published its snapshots under
-`/lean-plumb/`. Those snapshots stay unchanged in the `site-archive` branch, but nothing reads
-that branch: their absolute links name `/lean-plumb/` and the former `PL` rule IDs, so the link
-check would reject them under `/regula/`. After the repository rename, GitHub Pages answered the
-former path with HTTP 404 (observed once, 2026-09-26).
+Hence every snapshot an earlier deployment published under `/regula/` is in the archive when a
+later deployment checks it, and so in that deployment. A failed deploy after a successful
+`archive` leaves an archived, validated snapshot that is not yet published; the next deployment
+publishes it. The residual window is the time between the deploy job's archive check and
+`deploy-pages` completing; within it only another run's `archive` job could write, and that
+run's own deployment waits for this one and then contains every snapshot. Rules 1 and 4 rest on
+GitHub (the workflow's non-force push and the concurrency group); a repository rule forbidding
+force pushes and deletion of `site-archive-regula` would enforce rule 1 against every writer and
+is an operator setting that is not yet configured. An unreachable archive fails the build and
+the gate; an absent branch is the empty archive.
 
 The archive grows linearly with deployments to `main`: one snapshot is about 190 files and
 about 1.9 MB (an estimate for the current build, not a measurement of the archive), so
@@ -227,8 +222,9 @@ pages would need the same kind of retention as revision snapshots.
 `verify.sh` mode; it is separate from, and never a partition of, the two acceptance commands.
 In CI the site tooling is built in the preceding step (20-minute step limit) and Verso is
 provisioned from cache (20-minute step limit on a miss). The site build's work grows with the
-number of archived snapshots ([retention](#retention)). Observed timings are recorded in the
-delivery evidence of the change that measured them; they are observations, not guarantees.
+number of archived snapshots ([retention](#retention)). Observed timings are recorded with the
+change that measured them, such as the [site delivery record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-15-site.md#observed-locally);
+they are observations, not guarantees.
 
 ## Changing a rule
 
@@ -256,12 +252,13 @@ category, evidence-mode and availability filters are radio buttons driven by gen
 **Reset filters** is a form reset. The no-match notice is emitted for exactly the filter
 combinations that list no rule (`mem_emptySelections`); that the generated CSS rules and row
 classes implement `Selection.admits` holds by construction of the generator and was observed
-for several combinations, not proved. Status is carried by text and `+`/`-`
-diff markers, not colour alone. Tables that can exceed a narrow screen scroll inside a
-keyboard-focusable region. Search and the collapsible table of contents are Verso's bundled
-JavaScript. Browser observations of these behaviors are recorded with the delivering change;
-they are bounded observations, not proofs of usability. The site sets no cookies and has no
-accounts or analytics.
+for several combinations
+([record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-15-site.md#browser-observations-bounded-not-proofs)),
+not proved. Status is carried by text and `+`/`-` diff markers, not colour alone. Tables that
+can exceed a narrow screen scroll inside a keyboard-focusable region. Search and the collapsible
+table of contents are Verso's bundled JavaScript. Browser observations of these behaviors are in
+the same record; they are bounded observations, not proofs of usability. The site sets no
+cookies and has no accounts or analytics.
 
 ## Credits and licenses
 

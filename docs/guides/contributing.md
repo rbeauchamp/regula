@@ -135,7 +135,7 @@ Trace the actual theorem-to-execution path and preserve all source/admission gua
 An axiom census or theorem-statement reference alone does not establish semantic linkage.
 Collection proofs establish universal finite-data guarantees; public positive/refusal/
 restored controls qualify the IO boundary. Record commands, exact relevant input identity,
-failed attempts and pending gates in the issue evidence rather than inferring coverage
+failed attempts and pending gates in the issue or its PR rather than inferring coverage
 from a few mutations or a worker exit.
 
 ## Linter and website development

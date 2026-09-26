@@ -130,7 +130,7 @@ def briefRule (id : RuleId) : String :=
 
 /-- The agent briefing: how to check, how findings read, and every rule for writing code. -/
 def agentGuide : String :=
-  "# Regula: strict Lean standard, agent briefing\n\n" ++
+  "# Regula agent briefing\n\n" ++
   "This project's Lean code and proofs must meet the Regula standard. Apply these rules while " ++
   "writing Lean, not only after the linter runs. This is the complete mechanical rule set of the " ++
   "installed Regula version, ordered for writing code.\n\n" ++

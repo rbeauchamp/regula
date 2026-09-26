@@ -13,9 +13,7 @@ lean --run lean/Regula/Site/Deployment.lean verify ARTIFACT_DIR      # after dep
 ```
 
 The site archive is the branch `site-archive-regula`. It holds only `rev/<commit>/` snapshot
-directories, each with a `build.json` naming its commit. Snapshots published under the former
-`/lean-plumb/` base path stay in the branch `site-archive`, which nothing reads: their absolute
-links name that base path, so they cannot pass the artifact link check under `/regula/`. `archive` fetches its head (an absent
+directories, each with a `build.json` naming its commit. `archive` fetches its head (an absent
 branch is the empty archive) and extracts it; the site builder copies every archived snapshot
 into the artifact verbatim.
 

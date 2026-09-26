@@ -2,8 +2,8 @@
 
 ## Mission and scope
 
-- This repository delivers a strict Lean linter and linked rule-reference website backed
-  by a strict public standard for dependent types, theorem statements,
+- This repository delivers Regula, a strict linter for Lean with a linked rule-reference website,
+  backed by a strict public standard for dependent types, theorem statements,
   proofs, axioms, elaboration, modules, and Lean code in Lean 4 projects, especially where
   correctness is critical.
 - `docs/standard/` defines normative meaning; `docs/guides/` contains practical guidance.

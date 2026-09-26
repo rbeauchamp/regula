@@ -1,11 +1,9 @@
 # Optional con-leche export research: decision record
 
-*Plumb, named in the evidence recorded at `56c53c2`, is the project now called Regula.*
-
 This is the maintained research record for [#8](https://github.com/rbeauchamp/regula/issues/8),
 the optional con-leche export study. It is supplementary to the linter and website and does not
 gate core delivery ([#10](https://github.com/rbeauchamp/regula/issues/10)). Recorded on
-2026-09-25 against Plumb `56c53c2bb3ab5c2a7ddbbcb45759e65502b24c0d` (Lean `v4.34.0`, Mathlib
+2026-09-25 against revision `56c53c2bb3ab5c2a7ddbbcb45759e65502b24c0d` (Lean `v4.34.0`, Mathlib
 `5ed2965256430c3649e86755f9576b54eca72435`).
 
 ## Decision: no-go
@@ -46,7 +44,7 @@ The reasons, in the order the study took them:
 The order was value first. On 2026-09-25 the operator directed that the claim con-leche could add
 be written down before any compatibility or export work, and that the study stop at a no-go if
 the claim did not justify the cost. It did not. So **no export was produced and con-leche was
-never run on a Plumb artifact**: the compatibility question is unperformed, not passed or failed.
+never run on a Regula artifact**: the compatibility question is unperformed, not passed or failed.
 Nothing below is evidence that Regula's export is compatible or incompatible.
 
 ## What con-leche could add
@@ -90,7 +88,7 @@ What it cannot do:
 | --- | --- | --- | --- |
 | con-leche | [`ae0c0c4e4ce6a0081648aff03fe9c39d002c4526`](https://github.com/leanprover/con-leche/tree/ae0c0c4e4ce6a0081648aff03fe9c39d002c4526) (`master`, 2026-09-21) | Apache 2.0 | Toolchain `leanprover/lean4:v4.33.0`. No GitHub releases. The package has no Lake dependencies. |
 | lean4export | tag `v4.34.0` = [`076e8e57707e813375e8f9da8bf989799ace9680`](https://github.com/leanprover/lean4export/tree/076e8e57707e813375e8f9da8bf989799ace9680) | Apache 2.0 | Toolchain `v4.34.0`. The `v4.34.0` Lean distribution has no bundled `leanexport` binary (checked in the local toolchain's `bin/`). |
-| Plumb source | Lean `v4.34.0` (`293d5d0c`) | MIT | Not downgraded. |
+| Regula source | Lean `v4.34.0` (`293d5d0c`) | MIT | Not downgraded. |
 
 The earlier research pin `c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0` (Lean 4.33.0) is superseded
 for this record by `ae0c0c4`. Links below use the new pin.
@@ -183,25 +181,25 @@ The theorem statements are cited from the source, and the proofs rely on upstrea
 
 ## Coverage and correspondence ledger
 
-The expected inventory comes from Plumb's own gate, `lake exe axiomGate -- --json-out`, at
+The expected inventory comes from the project's own gate, `lake exe axiomGate -- --json-out`, at
 `56c53c2`: `status` `completed`, toolchain `4.34.0`. Its `scope.surfaces[].report.declarations`
-list the owned declarations of the six claimed surfaces: `PlumbPolicy`, `PlumbVerification`,
-`PlumbQualification`, `PlumbCore`, `Audit` and `AuditApp`, which includes the claimed executable
+list the owned declarations of the six claimed surfaces: the policy, verification, qualification
+and core libraries, `Audit` and `AuditApp`, which includes the claimed executable
 root `Main`. A temporary probe cross-checked it. The probe took the modules from
 `lake query <lib>:modules` for the six libraries and took ownership from Lean's `const2ModIdx`,
-the rule `Plumb.Probe.ownedConstants` uses.
+the rule `Probe.ownedConstants` uses.
 
 | Item | Observed | Consequence for an export claim |
 | --- | --- | --- |
 | Owned declaration entries (gate) | 8,351 entries, 8,349 unique names: 4,454 `def`, 3,074 `theorem`, 192 `inductive`, 437 `ctor`, 193 `recursor`, 1 `opaque`. Of these, 716 are private and 32 are partial. | The export root list must be this whole inventory. Equal counts would not show coverage. |
 | Library-only probe | 8,347 names. Missing: `main.match_1` and `main.match_3` from the executable root `Main`, which `lake query <lib>:modules` does not list. | Roots must come from the manifest's claimed libraries *and* executable roots, not library globs. |
-| Name collision | `main` is declared by both `PlumbVerification` and `Main`. | No single environment, and so no single stream, holds both. The full surface needs at least two exports whose union must be reconciled. |
-| Realized equation lemma | `Plumb.ExecutableContract.run.eq_1` is owned by two surfaces (`PlumbPolicy.Screening`, `PlumbQualification.Json`). | Ownership of realized generated declarations is not unique per module. A stream records one copy. |
-| Generated `_unsafe_rec` helpers | 32, all `partial`: `PlumbPolicy` 18, `PlumbQualification` 5, `PlumbCore` 5, `Audit` 2, `AuditApp` 2. They match the gate's authorized helper count. | lean4export skips them by default. They carry no logical evidence, but an adapter must list them as authenticated exclusions, not as silent omissions. |
+| Name collision | `main` is declared by both the verification library and `Main`. | No single environment, and so no single stream, holds both. The full surface needs at least two exports whose union must be reconciled. |
+| Realized equation lemma | The equation lemma `ExecutableContract.run.eq_1` is owned by two surfaces (a policy module and a qualification module). | Ownership of realized generated declarations is not unique per module. A stream records one copy. |
+| Generated `_unsafe_rec` helpers | 32, all `partial`: policy library 18, qualification library 5, core library 5, `Audit` 2, `AuditApp` 2. They match the gate's authorized helper count. | lean4export skips them by default. They carry no logical evidence, but an adapter must list them as authenticated exclusions, not as silent omissions. |
 | Name literals | All 8,347 probe names round-tripped through `Syntax.decodeNameLit`, the exporter's root parser. | Private names can be passed as roots. |
-| Inductive blocks | 192 inductive types in 191 blocks (the generated `PlumbQualification.Template.Maps.below` and `Maps.below_1` share one mutual block), with 437 constructors and 193 recursors. Mutual and nested blocks are modelled in-process. | Outside `checkDecls_consts`. Their preservation is not proved. |
+| Inductive blocks | 192 inductive types in 191 blocks (the generated `Template.Maps.below` and `Maps.below_1` share one mutual block), with 437 constructors and 193 recursors. Mutual and nested blocks are modelled in-process. | Outside `checkDecls_consts`. Their preservation is not proved. |
 | Axioms in the dependency closure | Exactly `propext`, `Classical.choice` and `Quot.sound`. No `sorryAx`, `Lean.ofReduceBool` or `Lean.trustCompiler`. | Con-leche accepts these three. It also tolerates an unused `sorryAx` declaration and admits the compiler-trust family (`Lean.trustCompiler`, `Lean.ofReduceBool`, `Lean.ofReduceNat`) through pins; none of those occurs here. The axioms would not cause a decline. |
-| Static dependency closure | 30,132 safe, non-partial constants from the 8,347 library-module roots, which omit `Main`'s `main.match_1` and `main.match_3`: `Init` 10,792, `Mathlib` 8,499, owned 8,315, `Std` 2,328, `Lean` 103, `Batteries` 89, `Plumb` 6. Computed by a temporary probe that follows lean4export's traversal, not by an export. | This sizes the stream an export would be. No export exists to confirm it. |
+| Static dependency closure | 30,132 safe, non-partial constants from the 8,347 library-module roots, which omit `Main`'s `main.match_1` and `main.match_3`: `Init` 10,792, `Mathlib` 8,499, owned 8,315, `Std` 2,328, `Lean` 103, `Batteries` 89, the project's excluded operational library 6. Computed by a temporary probe that follows lean4export's traversal, not by an export. | This sizes the stream an export would be. No export exists to confirm it. |
 
 Missing obligations if the work were revived:
 - a theorem or checked relation from the exporter to the environment;
@@ -214,7 +212,7 @@ Missing obligations if the work were revived:
 
 This plan was fixed before any export or checker run:
 
-- **Stage 1:** one representative dependency cone, the `PlumbPolicy.Codec` and `AuditApp`
+- **Stage 1:** one representative dependency cone, the `RegulaPolicy.Codec` and `AuditApp`
   roots. The first cone is Mathlib-free and the second uses Mathlib. Together they cover
   structures, inductives and well-founded definitions.
 - **Stage 2:** the complete surface as two streams, and only if stage 1 raised no blocker.
@@ -235,7 +233,7 @@ evidence. Machine: 14 hardware threads, 24 GiB, macOS 27.0 arm64.
 - `con-leche --help` exited `0` and printed the usage, modes, worker, switch and verdict-count
   text. The meanings of exits `1` and `3` and the out-of-memory rule come from the `Main.lean`
   module docstring.
-- The gate run that produced the inventory took 107 s wall time. It is ordinary Plumb evidence.
+- The gate run that produced the inventory took 107 s wall time. It is ordinary gate evidence.
 
 Checker runs: **none performed.** Stage 1 and stage 2 are incomplete by design, because the
 value decision stopped the study first. Upstream CI and upstream PERF timings are upstream data,
@@ -266,7 +264,7 @@ This option was never taken; Regula stays on `v4.34.0`.
 ## Reproduction
 
 ```sh
-# Plumb inventory at the recorded revision (ordinary gate, ~110 s); owned
+# Inventory at the recorded revision (ordinary gate, ~110 s); owned
 # declarations are under scope.surfaces[].report.declarations of the JSON output.
 git checkout 56c53c2bb3ab5c2a7ddbbcb45759e65502b24c0d
 lake exe axiomGate -- --json-out /path/to/gate.json
@@ -288,7 +286,7 @@ declaration records.
 
 The temporary inventory and closure probes, the upstream clones and their builds lived in the
 ignored `tmp/` directory and were removed after these results were recorded. The gate command
-above reproduces the inventory counts at the recorded Plumb revision; later revisions add
+above reproduces the inventory counts at the recorded revision; later revisions add
 owned declarations. The closure count is a derived observation from that
 removed probe.
 

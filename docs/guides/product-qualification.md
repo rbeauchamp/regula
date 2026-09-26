@@ -6,8 +6,7 @@ code, what is checked by a command, what was observed, what is trusted and what 
 semantic review. It is repository practice, not part of the normative standard; the rule
 predicates live in [`docs/standard/`](../standard/README.md) and the
 [coverage map](rule-coverage.md). Observations, commands, timings and revisions of the
-qualification run are recorded in
-[issue-10 evidence](../../session/evidence/issue-10-qualification.md).
+qualification run are recorded in the [qualification record][q10].
 
 Evidence classes used below:
 
@@ -98,9 +97,8 @@ the `D` theorems are stated above; the others are the observations named in each
 **Evidence commands.** Each "Qualification" entry names a campaign run by
 `./scripts/verify.sh diagnostics <partition>` (fixtures, structural, cli, environments,
 build-policy, lint-driver, producers, history, rule-examples 1/2 and 2/2) or inside ordinary
-acceptance (registry, native and CLI qualification). The runs for this change, with exact
-revision and timings, are listed in the [evidence record](../../session/evidence/issue-10-qualification.md#commands-and-results-for-the-10-change);
-campaigns not listed there were not rerun and keep their earlier recorded evidence.
+acceptance (registry, native and CLI qualification). The #10 runs, with exact revisions and
+timings, are listed in the [qualification record][q10-runs].
 
 Every declaration, context and execution finding is a `Diagnostic id` whose `helpUrl id` is the
 development route of `id` (`Regula.Site.Build.helpUrl_dev`), and whose text is
@@ -114,13 +112,13 @@ compliant example (or the correction, where the checked files are qualification 
 
 | Route | What runs | Result | Evidence |
 | --- | --- | --- | --- |
-| Editor, `import Regula.Linter` | Command and module hooks over the current snapshot | `editorSnapshot` feedback: RG1001–RG1007, RG2002, RG2005, RG5001–RG5003 at their ranges; never project acceptance | Proved editor/project equality above; observed in VS Code ([#14 journeys](../../session/evidence/issue-14-editor-journeys.md), #10 journey) |
-| `lake lint` | `regula/lint` driver: builds the manifest's targets with the audit-build marker (local findings off whatever the source sets `linter.regula` to), then the `axiomGate` project audit | `incrementalProject`; exit 0/1/2/3 | `accepted_sound`, `checkedClassify`; `liveFeedback_auditBuild`; lint-driver campaign (17 controls); #10 fresh-adopter journey |
-| `lake lint -- --fresh` | Same audit in an isolated copy from empty build output | `freshProject`, the only fresh whole-project claim | Observed PASS in the fresh adopter |
-| `lake lint -- --json-out PATH` | Same audit, result schema 3 | `status`, the stage evidence `stages` and `stagesCompleted` with `complete` and `stagesNotRun`, diagnostics in run order with source ranges, `remedy` and `helpUrl`, and each fired rule's guidance (`rules`) | `ResultProtocol.admitGuidance` on every rule-example result; observed |
+| Editor, `import Regula.Linter` | Command and module hooks over the current snapshot | `editorSnapshot` feedback: RG1001–RG1007, RG2002, RG2005, RG5001–RG5003 at their ranges; never project acceptance | Proved editor/project equality above; observed in VS Code ([editor journeys][j14], [#10 journey][q10-editor]) |
+| `lake lint` | `regula/lint` driver: builds the manifest's targets with the audit-build marker (local findings off whatever the source sets `linter.regula` to), then the `axiomGate` project audit | `incrementalProject`; exit 0/1/2/3 | `accepted_sound`, `checkedClassify`; `liveFeedback_auditBuild`; lint-driver campaign (17 controls); [#10 fresh-adopter journey][q10-cli] |
+| `lake lint -- --fresh` | Same audit in an isolated copy from empty build output | `freshProject`, the only fresh whole-project claim | Observed PASS in the [fresh adopter][q10-cli] |
+| `lake lint -- --json-out PATH` | Same audit, result schema 3 | `status`, the stage evidence `stages` and `stagesCompleted` with `complete` and `stagesNotRun`, diagnostics in run order with source ranges, `remedy` and `helpUrl`, and each fired rule's guidance (`rules`) | `ResultProtocol.admitGuidance` on every rule-example result |
 | `lake exe regula explain\|rules\|agent-guide\|skill` | Prints registry-generated Markdown; no audit | Exit 0, or 2 for an invalid invocation | `parseCommand_sound`, `parseCommand_arguments`; committed skill checked equal in acceptance |
-| `lake lint -- --explain-config`, `--help` | No audit | Exit 2; establish nothing | Observed (both); lint-driver campaign covers `--explain-config` |
-| `lake exe lint` | Same driver without Lake dispatch | As `lake lint` | Observed PASS in the fresh adopter; for packages whose `lintDriver` is taken |
+| `lake lint -- --explain-config`, `--help` | No audit | Exit 2; establish nothing | Observed (both, [record][q10]); lint-driver campaign covers `--explain-config` |
+| `lake exe lint` | Same driver without Lake dispatch | As `lake lint` | Observed PASS in the [fresh adopter][q10-routes]; for packages whose `lintDriver` is taken |
 | Build-lint `policy` target | Sole default target runs `axiomGate --build-lint` | Incremental audit; failure fails `lake build` | build-policy campaign |
 | `lake exe axiomGate` | Fresh project audit (default), `--incremental`, `--file F [--claim P]`, `--with-docs` | Accepted account and exit status | Ordinary acceptance dogfoods it on six claimed libraries |
 | `docFenceAudit`, `./scripts/verify.sh docs` | Every Lean fence under `docs/` | `documentationExample` | Acceptance step 2 |
@@ -133,38 +131,40 @@ Incremental and cached paths re-evaluate current policy on every run: the driver
 (lint-driver repeated cached violation and build-policy cached-failure and
 configuration-change controls). Local
 options (`linter.regula`, `regula.localFoundation`, `warningAsError`) change only local feedback;
-the project audit still rejects. A cancelled editor collection reports nothing for that declaration (observed in the
-[#14 journeys](../../session/evidence/issue-14-editor-journeys.md#stale-and-cancelled-snapshots)),
-and a failed one reports RG2005 (`Regula.Linter` `unavailable`), never an invented rule or a PASS. Unknown rules cannot occur: the
-registry is closed, and codecs refuse unknown IDs, fields and modes.
+the project audit still rejects. A cancelled editor collection reports nothing for that
+declaration (observed in VS Code, [record][j14-snapshots]), and a failed one reports RG2005
+(`Regula.Linter` `unavailable`), never an invented rule or a PASS. Unknown rules cannot occur:
+the registry is closed, and codecs refuse unknown IDs, fields and modes.
 
 ## Adopter journeys
 
-On a new project that requires Plumb by Git revision `a52bf1f` (the published `main` before this
-change) and follows the [adoption guide](adoption.md) (details in the evidence record). These
-runs exercised the base revision; the #10 changes to evidence modes, message rendering,
-explanations and credits are covered instead by ordinary acceptance, both corpus shards, the site
-build and the lint-driver and producers campaigns at this change's revision. They predate the
-rename to Regula, so they record the former names: package `plumb`, rule IDs `PL####` (now
-`RG####`) and option `linter.plumb`.
+On a new project that required the linter by Git revision `a52bf1f` and followed the
+[adoption guide](adoption.md) ([record][q10]). These runs exercised that revision; the #10
+changes to evidence modes, message rendering, explanations and credits were covered instead by
+ordinary acceptance, both corpus shards, the site build and the lint-driver and producers
+campaigns at the #10 revisions ([record][q10-runs]).
 
 - `lake lint` accepted the clean project (exit 0), and `lake lint -- --fresh` gave fresh
   whole-project acceptance.
-- A project axiom gave PL1001 at its declaration with the rule URL (exit 1); a Choice-Free
-  surface using `Classical.byCases` gave PL1005 (exit 1), and the documented fix (a proof with
-  fewer axioms) returned exit 0; an unclassified library gave PL2002 (exit 2), fixed by an
-  exclusion; a missing module docstring gave PL5001 (exit 1); an unused-variable warning gave
-  PL2003 (exit 3); `set_option linter.plumb false` did not hide a PL1001 violation (exit 1).
+- A project axiom gave the project-logical-axiom finding at its declaration with the rule URL
+  (exit 1); a Choice-Free surface using `Classical.byCases` gave the axiom-profile finding
+  (exit 1), and the documented fix (a proof with fewer axioms) returned exit 0; an unclassified
+  library gave the configuration-classification finding (exit 2), fixed by an exclusion; a
+  missing module docstring gave the module-documentation finding (exit 1); an unused-variable
+  warning gave the warning-free-elaboration finding (exit 3); turning the linter's
+  live-feedback option off did not hide a project-logical-axiom violation (exit 1).
 - A second library importing `Mathlib.Algebra.Group.Basic` (Standard-Logical) was accepted by
   `lake lint` and `lake lint -- --fresh`.
-- A `sorry` gave PL2003 (exit 3), not PL1002: Lean's own warning stops the audit first. The
-  RG1002 page and the adoption guide now say so.
-- In VS Code, the same `sorry` showed Lean's warning and PL1002 at the declaration with code
-  `Plumb.PL1002`, the text URL and Lean's **View explanation** anchor (`target=_blank`,
-  `rel="noreferrer noopener"`, no Lean-manual link). A trusted click reached the anchor, and the configured
-  external browser started immediately afterwards; the URL it received and the page it showed
-  were not observable from this environment. The same URL served the matching PL1002 page of
-  the deployed commit. The documented fix cleared the diagnostic, and `lake lint` accepted.
+- A `sorry` gave the warning-free-elaboration finding (exit 3), not the proof-hole finding:
+  Lean's own warning stops the audit first. The proof-hole rule's page (RG1002) and the adoption
+  guide say so.
+- In VS Code, the same `sorry` showed Lean's warning and the proof-hole finding at the
+  declaration with its rule code, the text URL and Lean's **View explanation** anchor
+  (`target=_blank`, `rel="noreferrer noopener"`, no Lean-manual link). A trusted click reached
+  the anchor, and the configured external browser started immediately afterwards; the URL it
+  received and the page it showed were not observable from this environment. The same URL
+  served the matching rule page of the deployed commit. The documented fix cleared the
+  diagnostic, and `lake lint` accepted.
 
 These are bounded observations of real runs, not theorems about the tools.
 
@@ -180,12 +180,13 @@ These are bounded observations of real runs, not theorems about the tools.
   set, example text in pages, `axiomGate --validate-site`, byte-identical editions, size budget.
   CI's `verify-deployment` checks the live `build.json`, every rule page of every edition and
   the 404 route byte for byte against the validated artifact.
-- **Observed** on the live site (deployed `a52bf1f`, before this change): all 21 `dev/` and `rev/` rule routes return their pages;
-  unknown IDs, unreleased versions and unpublished revisions return the not-available page (HTTP
-  404) without redirecting; search finds rules; keyboard traversal reaches the table of contents
-  and rule index with visible focus; the index lists 21 rules. At 390 px every rule page scrolled
-  horizontally because the attribution's commit hash did not wrap; #10 adds wrapping for inline code and
-  links; its local build of this change showed no horizontal scroll at 390 px on any
+- **Observed** on the live site (deployed `a52bf1f`, before #10; [record][q10]): all 21 `dev/`
+  and `rev/` rule routes return their pages; unknown IDs, unreleased versions and unpublished
+  revisions return the not-available page (HTTP 404) without redirecting; search finds rules;
+  keyboard traversal reaches the table of contents and rule index with visible focus; the index
+  lists 21 rules. At 390 px every rule page scrolled horizontally because the attribution's
+  commit hash did not wrap; #10 adds wrapping for inline code and links; its local build
+  showed no horizontal scroll at 390 px on any
   rule page or on the index, versions and credits pages (the credits page's long plain-text URL,
   also present on the live site, is covered by paragraph wrapping).
 - **Hosting**: GitHub Pages project site from GitHub Actions, no custom domain, no release, no
@@ -245,3 +246,11 @@ Review of the delivered product found and fixed:
 checked, so export compatibility is unperformed rather than passed or failed. Neither issue was
 part of or blocked core delivery. The optional serialized-graph claim remains `freshChecker`.
 Con-ron is excluded.
+
+[q10]: https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-10-qualification.md
+[q10-cli]: https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-10-qualification.md#fresh-adopter-cli-journey
+[q10-editor]: https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-10-qualification.md#editor-journey-vs-code
+[q10-routes]: https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-10-qualification.md#additional-route-observations-base-a52bf1f-fresh-adopter
+[q10-runs]: https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-10-qualification.md#commands-and-results-for-the-10-change
+[j14]: https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-14-editor-journeys.md
+[j14-snapshots]: https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-14-editor-journeys.md#stale-and-cancelled-snapshots

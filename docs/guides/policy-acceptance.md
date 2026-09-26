@@ -3,9 +3,7 @@
 The POLICY-01 design is implemented by the pure `RegulaPolicy` contracts and
 operational adapters described below. The [domain guide](policy-domain.md) identifies
 admitted data; the [proof guide](policy-proofs.md) gives theorem hypotheses and caller
-linkage. [Issue 7 evidence](../../session/evidence/issue-7-verification.md) distinguishes
-implemented boundaries, scoped observations and delivery gates still pending.
-The [architecture](linter-architecture.md) owns the product and the
+linkage. The [architecture](linter-architecture.md) owns the product and the
 [coverage map](rule-coverage.md) owns the twenty-one rules and nine residual accounts.
 Normative meaning remains [chapter 8](../standard/8-tooling-and-machine-audit.md)
 and the [chapter 9 checklist](../standard/9-compliance-audit.md).
@@ -189,8 +187,7 @@ occurrences. The helper alone is not an arbitrary raw-occurrence admission API.
 
 This establishes relations among supplied observations. Lean/Lake extraction,
 compiler admission, source reads, process completion, and compiled execution retain
-their existing trusted boundaries. Current compilation and qualification results
-belong in the CI repair evidence, not in the historical baseline receipts.
+their existing trusted boundaries.
 
 `InfrastructureOrigin` is limited to exact reporter, codec and conditional collector
 identities. The IO adapter compares canonical actual artifacts with the running
@@ -564,9 +561,10 @@ not freely variable candidate data. Con-leche's [parameterized pin/check pattern
 is a reference for separating these roles, not a reason to make our trust pins optional.
 No speculative scheduling or fast/reference implementation is proposed.
 
-The [issue7 evidence](../../session/evidence/issue-7-verification.md) owns the
-implementation's compiler results, axiom coverage, qualification and pending delivery
-gates. Earlier PRODUCT-01 runtime results remain historical, scoped evidence; they do
+The [issue 7 verification record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-7-verification.md) holds the
+implementation's compiler results, axiom coverage and qualification at its 2026-09-23
+closeout, including the gates still open then.
+Earlier PRODUCT-01 runtime results remain historical, scoped evidence; they do
 not validate later implementation changes. Use the [contributor guide](contributing.md)
 for the complete acceptance command and setup requirements.
 
@@ -591,10 +589,9 @@ remains separate. If implementation cost becomes decision-bearing, define the
 measurement and resource budget before evaluating it.
 
 Implemented proof coverage is recorded in the [domain](policy-domain.md) and
-[proof](policy-proofs.md) guides, with exact axiom evidence in their delivery records.
-The success map in §1 owns implemented collector/worker linkage and acceptance routes;
-[issue7 evidence](../../session/evidence/issue-7-verification.md#pending-delivery-gates)
-recorded the delivery obligations open at #7 (historical). Editor/adopter and website integration
+[proof](policy-proofs.md) guides; ordinary acceptance checks each claimed declaration's exact
+axiom set against its profile. The success map in §1 owns implemented collector/worker linkage
+and acceptance routes. Editor/adopter and website integration
 were delivered by #14 and #15; the [product qualification](product-qualification.md) records
 their integrated evidence. Unsupported compiler versions, incomplete census/admission,
 ambiguous role origin and unresolved execution are refusals. Any failed proof or pin

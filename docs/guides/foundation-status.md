@@ -35,10 +35,7 @@ Global integration has one owner: [#7](https://github.com/rbeauchamp/regula/issu
 with [PR #33](https://github.com/rbeauchamp/regula/pull/33). The #38 baseline
 above remains historical. The current implementation below includes PR #33's
 environment-indexed integration at `e19018e47b73ac732853ad90297bcc94d15854b3`
-and the [retained-role repair](../../session/evidence/ci-role-retention.md).
-The [corpus projection receipt](../../session/evidence/ci-corpus-projection.md)
-records the subsequent exact qualifier correspondence, adapter reviews and
-current local qualification evidence, preserving earlier failed attempts.
+and the [retained-role repair](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/ci-role-retention.md).
 That checkpoint's hosted ordinary gate exceeded 420 seconds; local success does
 not establish hosted readiness. Implementation linkage is present, while final
 qualification, exact-head hosted CI and integrated delivery remain separate gates.
@@ -144,13 +141,13 @@ help/configuration output remain distinct. Preserve source admission, provenance
 all rule/example categories and unknown refusal; do not weaken global identity
 to repair composition collisions. Use the existing PR, not a second collector.
 
-The PR #33 CI repair retains this document's #38 baseline above. Its current
+The PR #33 CI repair retains this document's #38 baseline above and adds the
 environment-indexed census, exact occurrence collector and public success-path
-integration are tracked in [the repair receipt](../../session/evidence/ci-environment-census.md).
+integration ([repair receipt](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/ci-environment-census.md)).
 F05/F06/F10/F11/F12 are not marked closed until the applicable proof, independent
-review, complete cold acceptance and diagnostic evidence is recorded there and
-delivery is integrated. The successor boundaries below remain unchanged; #39 is
-not a prerequisite for completing #7. (#7 is now closed; see the #43 closure.)
+review, complete cold acceptance and diagnostic evidence pass and delivery is integrated.
+The successor boundaries below remain unchanged; #39 is not a prerequisite for
+completing #7. (#7 is now closed; see the #43 closure.)
 
 ### #39: close the selected component relations
 

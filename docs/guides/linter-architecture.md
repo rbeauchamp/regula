@@ -192,7 +192,7 @@ The retired prototype verified serialized named kind, source location, policy re
 fallback URL; the former package-owned widget has been removed. The supported VS Code infoview interaction
 was observed for opening the URL, the Problems-panel text fallback, code serialization,
 non-BMP and CRLF ranges, stale and cancelled snapshots, and the absence of any Lean-manual
-link ([record](../../session/evidence/issue-14-editor-journeys.md)). An ordinary browser
+link ([record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-14-editor-journeys.md)). An ordinary browser
 link check is not editor acceptance. No Lean fork or new
 language server is selected.
 

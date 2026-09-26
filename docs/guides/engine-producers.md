@@ -293,8 +293,6 @@ diagnostic demonstrations, never accepted conformance or accepted positive/rejec
 the full corpus and its matching/export adapter are documented in
 [rule examples](rule-examples.md). Their qualified diagnostic result is not global Accepted.
 
-The [closure verification record](../../session/evidence/issue-13-closure-verification.md)
-records the proved domain, exact axiom sets and focused qualification at its pre-integration
-snapshot. Its "pending" delivery gates are historical: ENGINE-01 was integrated through
+ENGINE-01 was integrated through
 [#30](https://github.com/rbeauchamp/regula/pull/30) and
 [#31](https://github.com/rbeauchamp/regula/pull/31), and issue #13 closed on 2026-09-16.

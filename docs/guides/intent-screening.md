@@ -319,9 +319,7 @@ answer is 0.72.
 Apart from that correspondence warning, the remaining answers below 0.5 are for judgments
 without calibrated thresholds, so they raise no finding and escalate to review:
 
-- `checkedExecutable`: coverage 0.31, strength 0.27. The rename to Regula changed its rendered
-  statement (`Regula.ExecutableContract`), so it was screened again on 2026-09-26; the earlier
-  answers were 0.32 and 0.29. Read against the statement, the claim
+- `checkedExecutable`: coverage 0.31, strength 0.27. Read against the statement, the claim
   matches its Intent: the registered relation admits exactly positive capacities, starts each
   admitted limiter idle at that capacity and runs the strict interpreter.
 - `demo_checked_error`: coverage 0.41. The statement is exact for the fixed demonstration
@@ -331,7 +329,7 @@ without calibrated thresholds, so they raise no finding and escalate to review:
   bundle.
 
 Spend: seven runs sent 14 requests and were billed 25,760 input tokens, about $0.0011 at the
-list price. The last run, for the renamed `checkedExecutable`, sent 1 request and was billed
+list price. The last run sent 1 request, for `checkedExecutable`, and was billed
 1,508 input tokens; the other 6 answers came from the cache.
 
 ## Calibration protocol

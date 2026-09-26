@@ -52,7 +52,7 @@ enforcement remain separate.
 The native import chain uses Lean's module system, with metaprogramming
 initializers registered in the meta phase. Proof-facing dependencies expose their
 existing definitions so exported proofs and downstream reduction retain their
-meaning. This requires some formerly private computational helpers to have public
+meaning. This requires some computational helpers to have public
 bodies. Raw helpers such as `declarationFailure`, `labelOf`, `compilerAxiom` and
 `boundaryEvidenceCandidate` are computational kernels over supplied data; they
 are not receipt/admission APIs. `policyFor`/`foundationFor` and their member forms
@@ -86,8 +86,7 @@ jobs and complete result assembly belong to the
 #13 retains the complete twenty-one-rule example corpus and #15 the published
 [rule reference](website.md). The `lake lint` driver and its configuration explanation are in the
 [adoption guide](adoption.md#6-enforce-with-lake-lint-lake-build-and-ci); the observed
-VS Code journeys are in
-[session/evidence/issue-14-editor-journeys.md](../../session/evidence/issue-14-editor-journeys.md).
+VS Code journeys are in the [editor journeys record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-14-editor-journeys.md).
 
 ## Documentation presence
 

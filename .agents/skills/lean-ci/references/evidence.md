@@ -7,8 +7,8 @@ than copying a historical budget from this file.
 
 ## Regula: distinguish decisions, scheduling and orchestration
 
-The [issue-13 CI and responsiveness record](../../../../session/evidence/issue-13-corpus-ci-responsiveness.md)
-binds the following observations to their exact revisions and commands.
+The [CI responsiveness record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-13-corpus-ci-responsiveness.md)
+records the revisions, commands and hosted runs behind the following items.
 
 1. **Equivalent canonical-set decisions.** `RegulaPolicy/Collections.lean` proves
    adjacent strict ordering equivalent to the existing normalization equality under its
@@ -47,22 +47,21 @@ use already-live snapshots and provisioned imports, not fresh project admission.
 
 ## Regula: invocation-local Lake environment capture
 
-The [launcher repair record](../../../../session/evidence/main-ci-launcher-repair.md)
+The [launcher repair record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/main-ci-launcher-repair.md)
 separates a post-merge 420s failure from an observed local overhead reduction. Repeated
 `lake env lean` calls loaded an unchanged workspace for each of 36 controls. Capturing
 the actual environment for each parent-environment state retained individual compiler
 children and exact control outcomes. The bounded paired diagnostic compares sources,
 arguments, effective environments/executables and outputs; it does not certify fresh
-root inputs or isolate all timing effects. The record marks platform-specific observations
-and remaining delivery gates explicitly. Use paired timing as focused repair evidence,
+root inputs or isolate all timing effects, and its observations are platform-specific.
+Use paired timing as focused repair evidence,
 not a recurring CI gate: scheduling noise can reverse the observed delta without changing
-functional results. Consult the repair record for platform qualification and remaining
-delivery gates. Follow the actual post-merge main workflow:
+functional results. Follow the actual post-merge main workflow:
 identical trees and green synthetic-merge checks did not establish main CI success.
 
 ## Regula: sequential diagnostic budgets and shared writes
 
-The [issue7 diagnostic budget record](../../../../session/evidence/issue-7-diagnostic-budget.md)
+The [diagnostic budget record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-7-diagnostic-budget.md)
 records the changed resource contract. At `0d2d6142192967f4873305cbf1ec5d8227607a36`,
 ordinary hosted verification passed, while the combined producer/history420 run finished
 all 21 producer invocations but only 2 of 17 history invocations. The aggregate failed;

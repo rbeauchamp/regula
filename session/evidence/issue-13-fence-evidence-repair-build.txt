@@ -1,9 +1,0 @@
-✔ [89/97] Built StrictLean.Checker.Documentation (1.1s)
-✔ [90/97] Built StrictLean.Checker.Documentation:c.o (805ms)
-✔ [91/97] Built StrictLean.Checker.DocFenceAudit (859ms)
-✔ [93/97] Built StrictLean.Checker.CheckerSelftest (2.2s)
-✔ [94/97] Built StrictLean.Checker.AxiomGate (2.2s)
-✔ [95/97] Built docFenceAudit:exe (1.8s)
-✔ [96/97] Built StrictLean.Checker.AxiomGate:c.o (2.4s)
-✔ [97/97] Built axiomGate:exe (741ms)
-Build completed successfully (97 jobs).

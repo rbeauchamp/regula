@@ -347,7 +347,7 @@ theorem localExecution_preserves_flattened (c : Claim)
   exact ⟨retained, accepted.2.1, accepted.2.2.1,
     fun request membership => accepted.2.2.2 request (requests request membership)⟩
 
-/-- Data-level correspondence for restricting a formerly valid combined observation.
+/-- Data-level correspondence for restricting a valid combined observation.
 This is a proof relation, not another acceptance evaluator. Admission records may be
 projected; every other constructor retains its exact evidence. Source/role coherence
 is required only for the retained declaration or module. -/

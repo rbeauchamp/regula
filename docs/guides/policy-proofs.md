@@ -166,11 +166,8 @@ The implementation targets the [supported toolchain](../../README.md#supported-t
 The pure policy library's import boundary is owned by
 [the acceptance contract](policy-acceptance.md#5-pure-module-boundary-and-migration).
 
-The [POLICY-03 evidence](../../session/evidence/issue-6-verification.md) records its
-historical Mathlib revision, declaration and
-axiom census, applicable diagnostics, independent reviews and complete acceptance
-result. [Issue7 evidence](../../session/evidence/issue-7-verification.md) owns current
-collection/integration qualification and pending delivery gates. Explicit theorem hypotheses are distinct from transitive logical axioms.
+Ordinary acceptance checks each claimed declaration's exact axiom set against its profile.
+Explicit theorem hypotheses are distinct from transitive logical axioms.
 The manifest's Standard-Logical profile is an upper bound, not a claim that every
 proof uses all three permitted axioms. Optional serialized-graph checking and
 unrun broader operational campaigns are separate claims.
