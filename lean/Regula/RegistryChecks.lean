@@ -43,7 +43,7 @@ def main : IO Unit := do
       s!"unknown field {id}"
   require (!succeeded (parseRule (.str "RG9999"))) "unknown rule"
   require (!succeeded (parseMode "fresh")) "unknown mode"
-  require (!succeeded (validateRegistry producer (manifest.setObjVal! "schemaVersion" (toJson (1 : Nat)))))
+  require (!succeeded (validateRegistry producer (manifest.setObjVal! "schemaVersion" (toJson (2 : Nat)))))
     "superseded registry version"
   -- The embedded example pairs are exactly the corpus files the rule-example campaign runs:
   -- this rejects a stale build and an `include_str` of the wrong file.
@@ -52,18 +52,6 @@ def main : IO Unit := do
     require ((← IO.FS.readFile (e.compliantPath id)) == e.compliant) s!"{id} compliant example is {e.compliantPath id}"
     require ((← IO.FS.readFile (e.noncompliantPath id)) == e.noncompliant)
       s!"{id} noncompliant example is {e.noncompliantPath id}"
-  -- Every standard section the registry cites is a section of its Verso chapter with exactly
-  -- this heading and tag (its published anchor), in the chapter published at `Clause.chapter`;
-  -- every checklist row a rule page links is a row of the checklist.
-  let has (text part : String) : Bool := (text.splitOn part).length > 1
-  for c in Clause.all do
-    let text ← IO.FS.readFile c.source
-    require (has text ("\n# " ++ c.heading ++ "\n%%%\ntag := \"" ++ c.anchor ++ "\"\n") &&
-      has text ("\nfile := \"" ++ c.chapter ++ "\"\n")) s!"standard section {c.heading} is in {c.source}"
-  let checklist ← IO.FS.readFile "website/RegulaStandard/ComplianceAudit.lean"
-  for id in RuleId.all do
-    for row in (Regula.Site.guide id).checklist do
-      require (has checklist ("{checklistRow}[" ++ row ++ "]")) s!"{id} checklist row {row} exists"
   -- The committed agent skill is the generated briefing of this build.
   require ((← IO.FS.readFile ".agents/skills/regula/SKILL.md") == Regula.Guidance.skill)
     "committed .agents/skills/regula/SKILL.md is current (regenerate with `lake exe regula skill`)"

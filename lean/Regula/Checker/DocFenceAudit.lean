@@ -1,10 +1,12 @@
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
 import Regula.Checker.AcceptanceLink
+import RegulaCore.Site
 
 /-! Public Lean executable for documentation fence auditing: every Lean fence of the
 Markdown below the documentation root and, with `--verso DIR:LIBRARY:RENDER`, every `lean`
-block of that Verso library, whose build and rendering are then also required. -/
+block of that Verso library, the standard, whose build and rendering are then also required,
+and whose rendered pages must define every anchor the rule registry links. -/
 
 namespace Regula.Checker.DocFenceAudit
 
@@ -18,22 +20,13 @@ structure Options where
   manifest : Option FilePath := none
   project : Option FilePath := none
   acceptanceLink : Option FilePath := none
-  verso : Option (FilePath × Name × String) := none
+  verso : Option VersoPackage := none
   verbose : Bool := false
   help : Bool := false
 
 private def usage : String :=
   "usage: lake exe docFenceAudit -- [--jobs N] [--verbose] [--docs-root PATH] " ++
   "[--project DIR] [--manifest PATH] [--acceptance-link PATH] [--verso DIR:LIBRARY:RENDER]"
-
-/-- `DIR:LIBRARY:RENDER`: the Verso package directory (relative to the project), its
-documentation library, and the executable that renders that library alone. -/
-private def parseVerso (value : String) : IO (FilePath × Name × String) := do
-  let (dir, library) ← IO.ofExcept <| parseVersoOption (":".intercalate ((value.splitOn ":").take 2))
-  let [_, _, render] := value.splitOn ":"
-    | throw <| IO.userError s!"--verso expects DIR:LIBRARY:RENDER, got {value}"
-  if render.isEmpty then throw <| IO.userError s!"--verso expects DIR:LIBRARY:RENDER, got {value}"
-  return (dir, library, render)
 
 private def parseArgs : List String → Options → IO Options
   | [], options => return options
@@ -50,7 +43,7 @@ private def parseArgs : List String → Options → IO Options
   | "--acceptance-link" :: value :: rest, options =>
       parseArgs rest { options with acceptanceLink := some (FilePath.mk value) }
   | "--verso" :: value :: rest, options => do
-      parseArgs rest { options with verso := some (← parseVerso value) }
+      parseArgs rest { options with verso := some (← IO.ofExcept (parseVersoOption value)) }
   | "--verbose" :: rest, options => parseArgs rest { options with verbose := true }
   | "--help" :: rest, options | "-h" :: rest, options =>
       parseArgs rest { options with help := true }
@@ -74,32 +67,49 @@ private def sharedPinMismatch (root package : FilePath) : IO (Option String) := 
       unless url == url' && rev == rev' do return some name
   return none
 
+/-- The rendered pages below `root`, by their paths below it. -/
+private def renderedPages (root : FilePath) : IO (List Regula.Site.Page) := do
+  let components := root.normalize.components
+  (← root.walkDir).toList.filterMapM fun path => do
+    if path.extension != some "html" then return none
+    let relative := "/".intercalate (path.normalize.components.drop components.length)
+    return some (Regula.Site.Page.ofHtml relative (← IO.FS.readFile path))
+
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
 is written by the library's own code block, and render it alone, which resolves every
-cross-reference. The copy's library sources and Verso package inputs must be exactly the
+cross-reference. The rendered pages must define every section and checklist-row anchor the
+rule registry links (`Regula.Site.standardAnchors`), and each cited section's source must be a
+module of the library. The copy's library sources and Verso package inputs must be exactly the
 audited and linked ones (`linked`). -/
-private def buildVerso (repo copy scratch : FilePath) (dir : FilePath) (library : Name) (render : String)
+private def buildVerso (repo copy scratch : FilePath) (verso : VersoPackage)
     (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
-  let package := copy / dir.toString
-  let versoDir := repo / dir.toString
+  let package := copy / verso.dir.toString
+  let versoDir := repo / verso.dir.toString
   -- The Verso package shares the root's `.lake/packages`: a differing pin would make its build
   -- check out another revision of a shared dependency.
   if let some mismatch ← sharedPinMismatch copy package then
     return some s!"the Verso package pins {mismatch} differently from the root package"
-  let copied := (← captureVerso package library) ++ (← captureVersoPackage package)
-  let original := (← captureVerso versoDir library) ++ (← captureVersoPackage versoDir)
+  let library ← captureVerso { verso with dir := versoDir }
+  let copied := (← captureVerso { verso with dir := package }) ++ (← captureVersoPackage { verso with dir := package })
+  let original := library ++ (← captureVersoPackage { verso with dir := versoDir })
   let relative (root : FilePath) (d : RegulaPolicy.SourceSnapshot) :=
     ((d.uri.dropPrefix (root.toString ++ "/")).toString, d.source)
   unless copied.map (relative package) == original.map (relative versoDir) && original.all linked.contains do
     return some "the isolated copy's Verso sources and package inputs are not the audited ones"
   let (_, failure) ← timedPhase "Verso documentation build" <|
-    Lake.buildCheckedObservation package #[library.toString, render] "fresh"
+    Lake.buildCheckedObservation package #[verso.library.toString, verso.render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
   let output := scratch / "verso-render"
   let rendered ← timedPhase "Verso documentation rendering" <|
-    runProcess package "lake" #["exe", render, "--output", output.toString] scrubbedLeanPathEnv
+    runProcess package "lake" #["exe", verso.render, "--output", output.toString] scrubbedLeanPathEnv
   unless rendered.succeeded do
     return some s!"Verso rendering failed ({rendered.exitCode}): {rendered.output}"
+  let missing := Regula.Site.missingAnchors (← renderedPages (output / "html-multi")) Regula.Site.standardAnchors
+  unless missing.isEmpty do
+    return some s!"the rendered standard does not define anchors the rule registry links: {missing}"
+  let unknown := Regula.Clause.all.filter fun c => !library.any (·.uri == (repo / c.source).toString)
+  unless unknown.isEmpty do
+    return some s!"cited sections whose source is not a module of {verso.library}: {unknown.map (·.heading)}"
   return none
 
 unsafe def run (args : List String) : IO UInt32 := do
@@ -110,7 +120,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     | some dir => findRepoRoot dir
     | none => repoRoot
   let docsRoot := options.docsRoot.map (resolve repo) |>.getD (repo / "docs")
-  let verso := options.verso.map fun (dir, library, _) => (repo / dir.toString, library)
+  let verso := options.verso.map fun verso => { verso with dir := repo / verso.dir.toString }
   let sources : Sources := ⟨docsRoot, verso⟩
   let documents ← sources.capture
   -- The linked identity also brackets the Verso package's inputs.
@@ -142,13 +152,13 @@ unsafe def run (args : List String) : IO UInt32 := do
         (← IO.getStdout).flush
         let result ← Documentation.auditBuiltProject copy docsRoot inventory sources configuration dependencies documents (Acceptance.buildObservation buildProcess) options.jobs options.verbose (verso := verso)
         if result != 0 then return result
-        let some (dir, library, render) := options.verso | return result
-        if let some failure ← buildVerso repo copy scratch dir library render linked then
-          IO.println s!"FAIL: Verso documentation {library}: {failure}"
+        let some requested := options.verso | return result
+        if let some failure ← buildVerso repo copy scratch requested linked then
+          IO.println s!"FAIL: Verso documentation {requested.library}: {failure}"
           return 1
         Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ linked
         SourceBinding.unchanged sources
-        IO.println s!"Verso documentation {library}: built fresh (every `lean` block elaborated where it is written) and rendered"
+        IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block elaborated where it is written), rendered, and defines every anchor the rule registry links"
         return 0
     let outcome := outcome.bind id
     match outcome with

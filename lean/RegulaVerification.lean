@@ -77,10 +77,10 @@ documentation step refuses unless its own identity is equal. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
 /-- The standard's Verso source: package directory, library and its render-only executable.
-Both acceptance steps capture its sources in the linked identity; the documentation step also
-builds (elaborating every `lean` block where it is written) and renders it. -/
-def versoStandard : String := "website:RegulaStandard"
-def versoStandardRender : String := versoStandard ++ ":regula-standard"
+Both acceptance steps capture its sources and the package inputs its check reads in the linked
+identity; the documentation step also builds (elaborating every `lean` block where it is
+written) and renders it, and requires every anchor the rule registry links. -/
+def versoStandard : String := "website:RegulaStandard:regula-standard"
 
 /-- Evidence receipt of one rule-example shard. -/
 def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of2.json"
@@ -110,7 +110,7 @@ def commands : Mode → List Command
       lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .docs => [
       lake #["build", "docFenceAudit"],
-      lake #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandardRender]]
+      lake #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .graph => [lake #["exe", "freshChecker", "--verbose"]]
   | .diagnostics => [lake #["exe", "checkerSelftest", "--build-bound", "--jobs", "4"]]
   | .producers => [

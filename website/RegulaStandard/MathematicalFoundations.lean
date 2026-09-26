@@ -366,16 +366,16 @@ A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conformin
   * `{}`
   * Kernel-only; `1 + 1 = 2` proved by `rfl` in `Audit.Basic`
 *
-  * `Glossary.reverse_append_correct`
+  * `reverse_append_correct`
   * `{propext}`
-  * Choice-Free; delegates to Core's `List.reverse_append`
+  * Choice-Free; delegates to Core's `List.reverse_append` in the example of {ref "322-property-based-testing-as-refutation-aid"}[§3.2.2]
 *
   * `Glossary.decay_monotone`
   * `{propext, Classical.choice, Quot.sound}`
   * Standard-Logical; the conditional real-valued antitonicity theorem in §4.1
 :::
 
-These assertions import the actual declarations from {repo "lean/Audit/Basic.lean"}[Basic] and {repo "lean/Audit/DocClaims.lean"}[DocClaims]. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
+These assertions import the actual declarations from {repo "lean/Audit/Basic.lean"}[Basic] and {repo "lean/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_correct` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
 
 ```lean
 import Audit.Basic
@@ -388,10 +388,6 @@ import Audit.DocClaims
 /-- info: 'Audit.smoke' does not depend on any axioms -/
 #guard_msgs in
 #print axioms Audit.smoke
-
-/-- info: 'Glossary.reverse_append_correct' depends on axioms: [propext] -/
-#guard_msgs in
-#print axioms Glossary.reverse_append_correct
 
 /-- info: 'Glossary.decay_monotone' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

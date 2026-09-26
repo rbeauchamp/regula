@@ -49,6 +49,9 @@ structure SystemState where
   -- Invariant: can't have more proposals than participants
   inv : activeProposals ≤ participants
 
+/-- Non-vacuity: states satisfying the invariant exist. -/
+example : Nonempty SystemState := ⟨⟨3, 1, by omega⟩⟩
+
 /-- Adding a participant maintains the invariant -/
 def addParticipant (s : SystemState) : SystemState where
   participants := s.participants + 1
@@ -156,6 +159,9 @@ example : (1 : ℕ) / 0 = 0 := rfl
     the denominator subtype carries the proof obligation. -/
 def safeDiv (a : ℕ) (d : {d : ℕ // d > 0}) : ℕ := a / d.val
 
+/-- `safeDiv` agrees with the underlying total division. -/
+theorem safeDiv_eq (a : ℕ) (d : {d : ℕ // d > 0}) : safeDiv a d = a / d.val := rfl
+
 example : safeDiv 6 ⟨2, by decide⟩ = 3 := rfl
 ```
 
@@ -194,6 +200,10 @@ import Mathlib.Data.Nat.Notation
 theorem reverse_append_correct (l₁ l₂ : List ℕ) :
     (l₁ ++ l₂).reverse = l₂.reverse ++ l₁.reverse :=
   @List.reverse_append ℕ l₁ l₂
+
+/-- info: 'reverse_append_correct' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms reverse_append_correct
 ```
 
 A discovered counterexample can become a checked refutation, and a discovered witness can become a checked existence proof. A corrected universal statement requires its own proof; the preceding test run does not establish it.

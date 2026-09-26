@@ -17,9 +17,11 @@ section a registry entry cites, with its number, heading, chapter and source fil
 
 ## Boundaries
 
-That the Verso source has a section with exactly this heading and tag is checked when the
-registry is checked (`lean/Regula/RegistryChecks.lean`, part of ordinary acceptance); that the
-published page has the anchor is the site build's link check. Nothing here reads the standard.
+That the rendered standard's chapter page defines each section's anchor, and that its source
+is a module of the standard, is checked when the documentation acceptance step renders it
+(`Regula.Site.standardAnchors`, `lake exe docFenceAudit --verso`); that the section is written
+in that module under this heading is by inspection. The published site's links are the site
+build's link check. Nothing here reads the standard.
 -/
 
 namespace Regula
@@ -110,8 +112,11 @@ end Regula
 
 namespace Regula
 
+/-- The route of the compliance checklist (module 9) below `standard/`. -/
+def checklistChapter : String := "9-compliance-audit"
+
 /-- The path of a compliance-checklist row below an edition root: the row identifier is its
-anchor on the checklist page (module 9). -/
-def checklistRoute (row : String) : String := "standard/9-compliance-audit/#" ++ row
+anchor on the checklist page. -/
+def checklistRoute (row : String) : String := "standard/" ++ checklistChapter ++ "/#" ++ row
 
 end Regula

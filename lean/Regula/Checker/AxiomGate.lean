@@ -32,7 +32,7 @@ structure Options where
   jsonOut : Option FilePath := none
   resultOut : Option FilePath := none
   acceptanceLink : Option FilePath := none
-  verso : Option (FilePath × Name) := none
+  verso : Option Documentation.VersoPackage := none
   withDocs : Bool := false
   incremental : Bool := false
   buildLint : Bool := false
@@ -40,7 +40,7 @@ structure Options where
   help : Bool := false
 
 private def usage : String :=
-  "usage: lake exe axiomGate -- [--verbose] [--project DIR] [--manifest PATH] [--json-out PATH] [--with-docs] [--acceptance-link PATH [--verso DIR:LIBRARY]]\n" ++
+  "usage: lake exe axiomGate -- [--verbose] [--project DIR] [--manifest PATH] [--json-out PATH] [--with-docs] [--acceptance-link PATH [--verso DIR:LIBRARY:RENDER]]\n" ++
   "       lake exe axiomGate -- --file FILE [--claim PROFILE] [--execution MODE] [--json-out PATH]\n" ++
   "profiles: kernel-only, choice-free, standard-logical, compiler-trusting\n" ++
   "execution modes: report (default), checked"
@@ -735,7 +735,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     (observeConfiguration : FilePath → Array (FilePath × Option String) → IO Unit := fun _ _ => pure ())
     (observeSources : Array ProducerReport.SourceBinding → IO Unit := fun _ => pure ())
     (buildLint : Bool := false) (acceptanceLink : Bool := false)
-    (verso : Option (FilePath × Name) := none) :
+    (verso : Option Documentation.VersoPackage := none) :
     IO (UInt32 × Option AcceptanceLink.Pending) :=
   if incremental then do
     let configuration ← SourceBinding.configuration repo (manifest.getD (Manifest.defaultPath repo))
@@ -1161,7 +1161,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           let result ← auditSurface repo (options.manifest.map (resolve repo))
             options.incremental options.verbose jsonOut options.withDocs composed resultOut observeConfiguration observeSources
             (buildLint := options.buildLint) (acceptanceLink := acceptanceLink.isSome)
-            (verso := options.verso.map fun (dir, library) => (repo / dir.toString, library))
+            (verso := options.verso.map fun verso => { verso with dir := repo / verso.dir.toString })
           return result
     catch error => return (← reportFailure error, none)
   -- A configuration-read failure still records the request, with no configuration read.

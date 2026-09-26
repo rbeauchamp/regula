@@ -123,6 +123,10 @@ abbrev Probability : Type := unitInterval
 /-- Smart constructor for probabilities -/
 def mkProbability (p : ℝ) (h : 0 ≤ p ∧ p ≤ 1) : Probability := ⟨p, h⟩
 
+/-- Non-vacuity: at least one probability exists. This proves inhabitance,
+    nothing stronger. -/
+example : Nonempty Probability := ⟨mkProbability 0 ⟨le_rfl, zero_le_one⟩⟩
+
 /-- Mathlib's interval symmetry proves complement closure once. -/
 def Probability.complement (p : Probability) : Probability :=
   unitInterval.symm p

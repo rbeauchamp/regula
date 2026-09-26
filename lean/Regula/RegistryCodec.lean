@@ -115,9 +115,11 @@ def identityFields (p : ProducerIdentity) (schemaVersion : Nat := 1) : List (Str
   ("schemaVersion", toJson schemaVersion), ("producerVersion", toJson p.producerVersion),
   ("toolchain", toJson p.toolchain), ("sourceRevision", toJson p.sourceRevision)]
 
-/-- Registry schema 2 adds each rule's requirement, rationale, remedy, rewrites and checked
-example pair to schema 1. -/
-def registrySchemaVersion : Nat := 2
+/-- Registry schema 3 gives each rule's `normativeClauses` as objects with the cited section's
+number (`section`), heading (`title`), Verso source path (`source`) and development URL
+(`url`), where schema 2 gave `PATH §N` strings. Schema 2 added each rule's requirement,
+rationale, remedy, rewrites and checked example pair to schema 1. -/
+def registrySchemaVersion : Nat := 3
 
 def registryJson (p : ProducerIdentity) : Json :=
   Json.mkObj (identityFields p registrySchemaVersion ++ [("rules", toJson (RuleId.all.map descriptorJson))])

@@ -89,7 +89,7 @@ Cancelled/stale/unsupported/unknown results cannot construct accepted evidence. 
 never construct a fresh whole-project result.
 
 The implemented output schemas are versioned independently from manifest schema 2: registry
-export is at schema 2 and result envelopes are at schema 3 (see [rule registry](rule-registry.md)).
+export is at schema 3 and result envelopes are at schema 3 (see [rule registry](rule-registry.md)).
 Both have top-level schemaVersion, producerVersion, toolchain and sourceRevision, plus rules
 (registry export) or scope/mode/status/stages/stagesCompleted/complete/stagesNotRun/diagnostics/rules/unresolved
 (result export).
