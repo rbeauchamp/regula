@@ -21,7 +21,9 @@ The documentation acceptance step (`lake exe docFenceAudit --verso`) checks each
 the standard: its render executable (`website/StandardMain.lean`) requires a part of the
 elaborated standard with the clause's tag and exactly its heading inside the chapter whose
 `file` is the clause's chapter; the rendered chapter page must define the anchor
-(`Regula.Site.standardAnchors`); and the source must be a module of the standard. That the
+(`Regula.Site.standardAnchors`); and the source must be a module of the standard. The same step
+requires the coverage map to link exactly the rendered checklist rows, the elements of class
+`checklistRowClass` (`Regula.Site.rowMapMismatch`). That the
 chapter is written in that module is by inspection. The published site's links are the site
 build's link check. Nothing here reads the standard.
 -/
@@ -120,5 +122,10 @@ def checklistChapter : String := "9-compliance-audit"
 /-- The path of a compliance-checklist row below an edition root: the row identifier is its
 anchor on the checklist page. -/
 def checklistRoute (row : String) : String := "standard/" ++ checklistChapter ++ "/#" ++ row
+
+/-- The class of the element whose `id` is a checklist row identifier on the rendered checklist
+page. The standard's `checklistRow` role (`website/RegulaExample.lean`) gives it to each row
+identifier, and nothing else in the standard carries it. -/
+def checklistRowClass : String := "checklist-row"
 
 end Regula

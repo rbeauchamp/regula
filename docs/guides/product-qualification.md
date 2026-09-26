@@ -189,7 +189,10 @@ These are bounded observations of real runs, not theorems about the tools.
   every cross-reference and checklist-row anchor resolves, every section the registry cites is a
   part of the elaborated standard with its tag and exact heading in its chapter
   (`website/StandardMain.lean`), and the rendered standard defines the anchor of every cited
-  section and every row a rule page links (`Regula.Site.standardAnchors`, `missingAnchors_nil_iff`).
+  section and every row a rule page links (`Regula.Site.standardAnchors`, `missingAnchors_nil_iff`)
+  and every page and anchor `docs/` links in the development standard
+  (`Regula.Site.documentAnchors`), and the [coverage map](rule-coverage.md#complete-chapter-9-row-map)
+  links exactly the rendered checklist rows, in order (`Regula.Site.rowMapMismatch_eq_none_iff`).
 - **Observed** on the live site (deployed `a52bf1f`, before #10; [record][q10]): all 21 `dev/`
   and `rev/` rule routes return their pages; unknown IDs, unreleased versions and unpublished
   revisions return the not-available page (HTTP 404) without redirecting; search finds rules;

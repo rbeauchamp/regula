@@ -151,69 +151,74 @@ is an open obligation, not a completed review. Change this list and that type to
 
 ## Complete chapter 9 row map
 
-Each row below names its mechanical contribution and residual account. The linked chapter 9 row
-states the full exact required result and verification, and the clause table above supplies its
-normative domain. No row can be discharged solely by a presence check or a checker PASS.
+Each row links its requirement on the published checklist, the only source of its required result
+and verification; the clause table above supplies its normative domain. This map adds only each
+row's mechanical contribution and residual account. No row can be discharged solely by a
+presence check or a checker PASS.
 
-| Row | Exact required result (normative summary) | Mechanical contribution | Residual obligation |
-| --- | --- | --- | --- |
-| `SCOPE-01` | Every normative requirement concerns Lean, dependent types, proofs, elaboration, modules, or a Lean-code claim. | None; technical scope review | R-INTENT |
-| `SCOPE-02` | Prose states no result stronger than the exact Lean declaration it cites. | RG1007/2005 for named formal evidence only | R-INTENT |
-| `SCOPE-03` | A theorem about a model is not presented as a theorem about an unrelated implementation, runtime, or external system. | RG1007/3001/3002 for registered correspondence | R-INVARIANT, R-INTENT |
-| `SCOPE-04` | Universal rules are technical Lean rules, not arbitrary style or application-domain policy. | None; rationale review | R-INTENT |
-| `SCOPE-05` | The object and kind of every material claim are clear: abstract mathematical, executable Lean definition, refinement/correspondence, or external/effectful boundary. Combined claims keep these scopes distinct. An unresolved execution path or a partial surface presented as whole-application coverage blocks the affected claim. | RG2002/2004/3001/3002 | R-INTENT, R-INVARIANT |
-| `TYPE-01` | Each unary admitted-value invariant is enforced intrinsically by default; a justified raw representation has verified admission and every write boundary closing the same invariant. Reachability and relational claims are stated separately. | Lean type/contract checking, RG1007/2005 | R-INVARIANT |
-| `TYPE-02` | Every semantic distinction claimed to be enforced by Lean is represented in the interface types or constructors, with its exact scope stated. | Lean type/constructor checking | R-INTENT |
-| `TYPE-03` | Totalized operations and restricted domains are described accurately; a restriction appears in the API only when claimed. | Lean domain/proof checking | R-INTENT |
-| `TYPE-04` | Abstract models express assumptions as parameters, hypotheses, or proof-bearing fields rather than project logical axioms. | RG1001/1002/1003 | R-INTENT |
-| `TYPE-05` | Claimed orders, algebras, and other mathematical interfaces provide their laws and reuse matching Lean/Mathlib structures. | Lean law fields and instance synthesis | R-LAWS |
-| `TYPE-06` | Every claimed abstraction boundary is the boundary Lean actually enforces. | Lean separate importing-client checks | R-BOUNDARY |
-| `THEOREM-01` | Every material behavior claim presented as established has kernel-checked evidence in a type, proof-bearing construction, or theorem with the exact intended quantifiers, assumptions, and conclusion. | RG1001–1007/2005 and exact Lean evidence | R-INTENT, R-INVARIANT |
-| `THEOREM-02` | Every claimed typeclass law follows from proof-requiring fields of the operational class or a required `Prop`-valued lawful mixin, directly or by checked derivation under the advertised hypotheses. Every law-bearing instance discharges its required primitive fields, and required instances are available directly or from stronger assumptions. | Lean required law fields/mixin synthesis | R-LAWS |
-| `THEOREM-03` | Admission and every update establish the claimed invariant by proof-bearing results or the justified raw-boundary contracts; transition/history/resource-use claims have exact proofs, including initialization, preservation, and composition where the claim requires them. | RG1007/2005 and actual boundary proofs | R-INVARIANT |
-| `THEOREM-04` | Important claims are non-vacuous at the exact strength claimed; non-vacuity is relative to the claim. | Lean exact witness/refutation proofs | R-NONVACUITY |
-| `THEOREM-05` | Logical totality, termination, complexity, and native execution are distinguished; each claimed property has evidence about the exact definitions and semantics it concerns. | RG1006/3001/3002; Lean recursion checking | R-COST, R-INTENT |
-| `THEOREM-06` | Sampled tests and unchecked evaluation do not replace proofs of universal or existential Lean claims. Counterexample search is an optional aid to refutation. | RG1002/1004 reject holes/native proofs | R-INTENT, R-QUALIFY |
-| `THEOREM-07` | Material functional contracts state the component’s exact input/output meaning, rejection and normalization behavior, intended updates and frames, state/error composition, and promised fold relation where applicable. Admission completeness is proved when promised. | RG1007/2005 exact registered predicates | R-INVARIANT |
-| `THEOREM-08` | Stateful safety transfer has checked correspondence over the exact state and transition semantics. The forward-simulation method in §3.9 supplies initialization, finite abstract matching, preservation, and relation-to-concrete implication; another method must prove the same claimed transfer. Observations and liveness are separate claims. | Lean checked simulation/transfer proofs | R-INVARIANT, R-INTENT |
-| `THEOREM-09` | A research statement is adequate to its source mathematics, the presented result's status is exactly one of proved unconditionally, proved under explicit binder hypotheses, or open, and an open target is a `Prop` definition or binder rather than a hole, project axiom, or claimed proof. | RG1001–1003; Lean statement/proof distinction | R-INTENT, R-NONVACUITY |
-| `THEOREM-10` | Every cost claim names its domain — elaboration/search, proof artifact, kernel replay, or native execution — and no speed, tactic name, native result, theorem count, sample, or audit digest is presented as evidence of correctness or foundation strength; a well-founded definition's own axiom set is reported exactly. | RG1004/1005 actual dependencies | R-COST |
-| `FOUND-01` | No owned declaration is a project logical `axiom` (Lean 4 has no `constant` command; `opaque` is classified under `COMP-01`); domain assumptions are binders or proof-bearing fields. | RG1001 | R-INTENT only for assumption presentation |
-| `FOUND-02` | No owned declaration depends transitively on `sorryAx`; no `sorry` or `admit` survives under alternate syntax, attributes, definitions, or instances. | RG1002 | R-QUALIFY |
-| `FOUND-03` | Every owned declaration has its exact transitive axiom set reported. An admissible set receives the least permissive logical label containing it; the selected surface profile is an upper bound. Forbidden and compiler-trusting sets are rejected from conforming positive surfaces. | RG1003/1004/1005 | R-QUALIFY |
-| `FOUND-04` | No Choice-Free surface depends directly or transitively on `Classical.choice`; a selected Standard-Logical surface may. | RG1005 | R-QUALIFY |
-| `FOUND-05` | Native/compiler-generated proof axioms are classified separately and rejected from the conforming positive proof surface; final-environment metadata alone cannot spoof the classification. | RG1004/2005 | R-QUALIFY |
-| `DECL-01` | Every exact module in each claimed Lake library and every claimed standalone executable root is discovered and elaborated from source in fresh root-package build state, warning-free, under the declared exact elaboration environment, with completed owned logical declaration and dependency admission under §8.3. | RG2001–2005 | R-QUALIFY; source/dependency identity boundary |
-| `DECL-02` | Every constant in every owned module is inventoried; proof-valued definitions and instances are not omitted. | RG2004/2005 | R-QUALIFY |
-| `DECL-03` | Ownership uses Lean/Lake semantics. Generated-role exceptions require fresh frontend attribution and the exact semantic relationship in §8.4–§8.5; names or forgeable final metadata alone cannot authorize them. | RG2004/2005 plus RG1001/1004/1006 | R-QUALIFY |
-| `DECL-04` | Missing/malformed manifests, unknown metadata, omitted declarations, and unexpected project modules fail closed. | RG2001/2002/2004/2005 | R-QUALIFY |
-| `COMP-01` | `noncomputable`, `opaque`, logical `Decidable`, executable decision procedures, kernel reduction, and native evaluation are distinguished accurately. | RG1004/1007 and metadata reporting | R-INTENT |
-| `COMP-02` | Partial and unsafe declarations are excluded from positive proof surfaces, except for the range-less partial code-generation helper admitted under the exact semantic and fresh frontend conditions in §8.4 for a safe recursive `def`. | RG1006/2005 | R-QUALIFY |
-| `COMP-03` | Every boundary in the §8.6 conservative execution closure has its exact kind and correspondence state reported; retained compiler edges are distinguished from candidates and historical choices. In `"execution": "checked"` mode, every non-native-runtime boundary in that closure is checked. Unresolved paths block the affected execution claim in every mode. | RG3001/3002 | R-QUALIFY, R-INVARIANT for intended roots |
-| `COMP-04` | Transfer from a Lean reference definition to a replacement requires sufficient checked correspondence. Keep remaining trust assumptions for native and external execution explicit. | RG3002/2005 | R-INTENT; external execution remains trusted |
-| `BUILD-01` | The documented enabled ordinary `lake build`, and `lake lint` with the `lint` driver, reject every emitted warning, policy violation, and unresolved claimed execution path. Source-local warning/linter options cannot authorize policy exceptions. | RG1001–1007/2002–2005/3001/3002 through the actual enabled build or lint driver | R-QUALIFY (build-policy and lint-driver campaigns) |
-| `BUILD-02` | Declared profiles are transitively enforced, with classical erased proofs permitted under Standard-Logical and executable promises checked separately. | RG1005/1007 | R-QUALIFY |
-| `BUILD-03` | Required executable evidence inhabits the exact predicate of the actual named implementation, and registered private/imported roots retain execution coverage. | RG1007/2004/3001/3002 | R-INVARIANT, R-QUALIFY |
-| `BUILD-04` | Cached modules and changed configuration cannot reuse a stale policy verdict; exact claimed Lake coverage and supported-context limits are explicit. | RG2002/2004/2005; uncached policy job | R-QUALIFY |
-| `DOC-01` | Public declarations supporting material normative claims have docstrings stating their formal purpose, relevant assumptions, result, and invariant boundary; every claimed module documents its material declarations and assumptions. | RG5001/5002 presence and explicit selection | R-DOC |
-| `DOC-02` | English explanations of normative Lean statements faithfully convey their quantifiers, hypotheses, conclusions, relevant definitions, and limitations, and identify the authoritative Lean declaration. Each material claim's docstring carries a nonempty Intent section. | RG5003 Intent-section presence for explicit selection; no general prose-equivalence detector | R-DOC, R-INTENT |
-| `DOC-03` | Every Lean fence in the normative documentation tree (here every `lean` block of the standard's Verso source, `website/RegulaStandard`) is structurally classified; malformed markers/fences fail closed. | RG4001 | R-QUALIFY |
-| `DOC-04` | Every positive Lean fence elaborates exactly as printed, warning-free, then passes owned logical admission and declaration/axiom classification. | RG4002 and underlying declaration/admission rules | R-INTENT, R-QUALIFY |
-| `DOC-05` | Every negative fence fails for its non-empty expected diagnostic, and trusted-compiler teaching fences are classified but never counted as conforming. | RG4003/4004 | R-QUALIFY |
-| `MUT-01` | A checker that classifies foundation profiles has positive controls for all three profiles through its actual detection implementation, with public-path qualification as required by §8.8. | Focused actual profile controls | R-QUALIFY |
-| `MUT-02` | A checker implementation has an independent intended-reason mutation for every violation class it advertises. | Intended-reason mutation harness | R-QUALIFY |
-| `MUT-03` | A checker qualification harness cannot overwrite positive sources or leave stale Lean artifacts, and its restored control passes fresh. | Unique disposable roots and restoration | R-QUALIFY |
-| `MUT-04` | Checker qualification establishes a fresh warning-free configured-module baseline and keeps mutation artifacts from satisfying restored controls. | Warning-free isolated baseline | R-QUALIFY |
-| `MUT-05` | When separate serialized-graph checking is claimed, the exact claimed module graph is rechecked in a compatible fresh checker state. | Existing freshChecker, optional new adapter only on go | R-GRAPH |
-| `DOGFOOD-01` | The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples and the `AuditApp` complete application with its standalone `Main` executable root — satisfy every applicable row above. | All applicable selected rules over Audit/AuditApp/Main | R-INTENT, R-INVARIANT, R-LAWS, R-BOUNDARY, R-DOC |
-| `DOGFOOD-02` | Intentionally invalid fixtures are isolated from the positive elaborated environment. | RG2002/2004 | R-QUALIFY |
-| `DOGFOOD-03` | Normative prose, representative Lean fixtures, checker diagnostics, and status text make no stronger claim than the same verified property. | Generated registry/example agreement plus checks | R-INTENT, R-DOC |
-| `DOGFOOD-04` | Examples and fixtures reuse or extend matching Lean/Mathlib mathematical definitions. Custom mathematical definitions state their meaning and why existing definitions do not fit; proofs follow the economy guidance in §3.2.5. | Lean canonical definitions/proofs | R-LAWS, R-COST |
-| `DOGFOOD-05` | The complete application enforces its explicit required propositions: omitting executable classification, removing or weakening required evidence while its proposition remains, or weakening admission fails the gate. Semantic review rejects a narrowed requirement set or bypassed application linkage. | RG1007/2004/2005 plus actual application contracts | R-INVARIANT, R-QUALIFY |
+| Row | Mechanical contribution | Residual obligation |
+| --- | --- | --- |
+| [`SCOPE-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-01) | None; technical scope review | R-INTENT |
+| [`SCOPE-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-02) | RG1007/2005 for named formal evidence only | R-INTENT |
+| [`SCOPE-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-03) | RG1007/3001/3002 for registered correspondence | R-INVARIANT, R-INTENT |
+| [`SCOPE-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-04) | None; rationale review | R-INTENT |
+| [`SCOPE-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-05) | RG2002/2004/3001/3002 | R-INTENT, R-INVARIANT |
+| [`TYPE-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-01) | Lean type/contract checking, RG1007/2005 | R-INVARIANT |
+| [`TYPE-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-02) | Lean type/constructor checking | R-INTENT |
+| [`TYPE-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-03) | Lean domain/proof checking | R-INTENT |
+| [`TYPE-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-04) | RG1001/1002/1003 | R-INTENT |
+| [`TYPE-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-05) | Lean law fields and instance synthesis | R-LAWS |
+| [`TYPE-06`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-06) | Lean separate importing-client checks | R-BOUNDARY |
+| [`THEOREM-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-01) | RG1001–1007/2005 and exact Lean evidence | R-INTENT, R-INVARIANT |
+| [`THEOREM-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-02) | Lean required law fields/mixin synthesis | R-LAWS |
+| [`THEOREM-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-03) | RG1007/2005 and actual boundary proofs | R-INVARIANT |
+| [`THEOREM-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-04) | Lean exact witness/refutation proofs | R-NONVACUITY |
+| [`THEOREM-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-05) | RG1006/3001/3002; Lean recursion checking | R-COST, R-INTENT |
+| [`THEOREM-06`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-06) | RG1002/1004 reject holes/native proofs | R-INTENT, R-QUALIFY |
+| [`THEOREM-07`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-07) | RG1007/2005 exact registered predicates | R-INVARIANT |
+| [`THEOREM-08`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-08) | Lean checked simulation/transfer proofs | R-INVARIANT, R-INTENT |
+| [`THEOREM-09`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-09) | RG1001–1003; Lean statement/proof distinction | R-INTENT, R-NONVACUITY |
+| [`THEOREM-10`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-10) | RG1004/1005 actual dependencies | R-COST |
+| [`FOUND-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-01) | RG1001 | R-INTENT only for assumption presentation |
+| [`FOUND-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-02) | RG1002 | R-QUALIFY |
+| [`FOUND-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-03) | RG1003/1004/1005 | R-QUALIFY |
+| [`FOUND-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-04) | RG1005 | R-QUALIFY |
+| [`FOUND-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-05) | RG1004/2005 | R-QUALIFY |
+| [`DECL-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-01) | RG2001–2005 | R-QUALIFY; source/dependency identity boundary |
+| [`DECL-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-02) | RG2004/2005 | R-QUALIFY |
+| [`DECL-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-03) | RG2004/2005 plus RG1001/1004/1006 | R-QUALIFY |
+| [`DECL-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-04) | RG2001/2002/2004/2005 | R-QUALIFY |
+| [`COMP-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-01) | RG1004/1007 and metadata reporting | R-INTENT |
+| [`COMP-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-02) | RG1006/2005 | R-QUALIFY |
+| [`COMP-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-03) | RG3001/3002 | R-QUALIFY, R-INVARIANT for intended roots |
+| [`COMP-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-04) | RG3002/2005 | R-INTENT; external execution remains trusted |
+| [`BUILD-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-01) | RG1001–1007/2002–2005/3001/3002 through the actual enabled build or lint driver | R-QUALIFY (build-policy and lint-driver campaigns) |
+| [`BUILD-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-02) | RG1005/1007 | R-QUALIFY |
+| [`BUILD-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-03) | RG1007/2004/3001/3002 | R-INVARIANT, R-QUALIFY |
+| [`BUILD-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-04) | RG2002/2004/2005; uncached policy job | R-QUALIFY |
+| [`DOC-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-01) | RG5001/5002 presence and explicit selection | R-DOC |
+| [`DOC-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-02) | RG5003 Intent-section presence for explicit selection; no general prose-equivalence detector | R-DOC, R-INTENT |
+| [`DOC-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-03) | RG4001 | R-QUALIFY |
+| [`DOC-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-04) | RG4002 and underlying declaration/admission rules | R-INTENT, R-QUALIFY |
+| [`DOC-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-05) | RG4003/4004 | R-QUALIFY |
+| [`MUT-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-01) | Focused actual profile controls | R-QUALIFY |
+| [`MUT-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-02) | Intended-reason mutation harness | R-QUALIFY |
+| [`MUT-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-03) | Unique disposable roots and restoration | R-QUALIFY |
+| [`MUT-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-04) | Warning-free isolated baseline | R-QUALIFY |
+| [`MUT-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-05) | Existing freshChecker, optional new adapter only on go | R-GRAPH |
+| [`DOGFOOD-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-01) | All applicable selected rules over Audit/AuditApp/Main | R-INTENT, R-INVARIANT, R-LAWS, R-BOUNDARY, R-DOC |
+| [`DOGFOOD-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-02) | RG2002/2004 | R-QUALIFY |
+| [`DOGFOOD-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-03) | Generated registry/example agreement plus checks | R-INTENT, R-DOC |
+| [`DOGFOOD-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-04) | Lean canonical definitions/proofs | R-LAWS, R-COST |
+| [`DOGFOOD-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-05) | RG1007/2004/2005 plus actual application contracts | R-INVARIANT, R-QUALIFY |
 
-The 53-row equality check is an exhaustive check over this closed documentation inventory,
-not a proof that natural-language requirements were interpreted adequately. Independent review
-must confirm the mapping. Semantic-review rows remain required after all twenty-one rules ship.
+`./scripts/verify.sh docs` renders the standard and requires this map's links into the checklist
+page to be exactly the rendered checklist rows, each once and in the checklist's order
+(`Regula.Site.rowMapMismatch`, `rowMapMismatch_eq_none_iff`), so a row added, removed or renamed
+in the standard fails acceptance until this map follows. The equality covers row identifiers,
+not whether a row's contribution and residual account fit its current requirement: a changed
+requirement updates this map with semantic review, and independent review confirms the mapping.
+Semantic-review rows remain required after all twenty-one rules ship.
 
 ## Attribution
 

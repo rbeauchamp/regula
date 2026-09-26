@@ -79,7 +79,8 @@ def linkPath : String := "tmp/acceptance-link.json"
 /-- The standard's Verso source: package directory, library and its render-only executable.
 Both acceptance steps capture its sources and the package inputs its check reads in the linked
 identity; the documentation step also builds (elaborating every `lean` block where it is
-written) and renders it, and requires every anchor the rule registry links. -/
+written) and renders it, requires every anchor the rule registry and the documentation link, and
+requires the coverage map to link exactly the checklist's rows. -/
 def versoStandard : String := "website:RegulaStandard:regula-standard"
 
 /-- Evidence receipt of one rule-example shard. -/
