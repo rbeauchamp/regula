@@ -160,7 +160,8 @@ From your project root, or with `--project DIR`:
 lake exe axiomGate --json-out tmp/axiom-report.json
 ```
 
-The gate copies your project into an isolated temporary directory under your `tmp/`,
+The gate copies your project into an isolated temporary directory under your
+`tmp/.regula-scratch/`, which Regula owns,
 shares your pinned dependency checkouts, builds the claimed surface from empty output with
 warnings as errors, inspects the elaborated environment, and removes the copy. The JSON
 report holds every owned declaration with its exact transitive axiom set and every

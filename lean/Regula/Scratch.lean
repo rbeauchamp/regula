@@ -1,81 +1,81 @@
-/-! Scratch directories under a checkout's `tmp/`, and reclamation of those whose run died.
+/-! Scratch directories in Regula's own `tmp/.regula-scratch/` under a checkout, and
+reclamation of those whose run died.
 
-Every scratch directory is created and removed while its process holds a shared lock on
-`tmp/.scratch.lock`. A process that dies, for example at `scripts/verify.sh`'s SIGKILL
-deadline, cannot remove its directory, but the kernel releases its lock. So whenever the
-lock can be taken exclusively, no scratch owner is alive and every scratch-named directory
-is an orphan; the next scratch user removes them before creating its own. A name is
-admitted at creation only if the recognizer that reclamation uses accepts it, so every
-directory created here is reclaimable. File locking, process death and directory removal
-are trusted operating-system effects; a directory that another program gives a
-scratch-shaped name under `tmp/` is reclaimed too. -/
+Each scratch directory `<name>` is created only after its ownership marker `<name>.owner` was
+created exclusively beside it, and the marker is removed only after the directory. Every
+scratch directory is created and removed while its process holds a shared lock on `.lock`
+there. A process that dies, for example at `scripts/verify.sh`'s SIGKILL deadline, cannot
+remove its directory, but the kernel releases its lock. So whenever the lock can be taken
+exclusively, no scratch owner is alive and every marked directory is an orphan; the next
+scratch user removes them, then their markers, before creating its own. Nothing else is
+removed: no unmarked entry, and nothing outside Regula's directory. File locking, exclusive
+creation, process death and directory removal are trusted operating-system effects. -/
 namespace Regula.Scratch
 open System
 
-/-- The lock file, directly under `tmp/`. -/
-def lockName : String := ".scratch.lock"
+/-- Regula's own scratch directory, directly under `tmp/`. -/
+def dirName : String := ".regula-scratch"
 
-/-- A nonempty decimal numeral. -/
-def isNumeral (part : String) : Bool :=
-  !part.isEmpty && part.all Char.isDigit
+/-- The lock file, directly under Regula's scratch directory. -/
+def lockName : String := ".lock"
 
-/-- A nonempty stem part of letters, digits, `_` or `.`, not starting with `.`. -/
-def isStemPart (part : String) : Bool :=
-  !part.isEmpty && !part.startsWith "." && part.all fun c => c.isAlphanum || c == '_' || c == '.'
-
-/-- Names created here, `<stem>-<pid>-<nanos>-<random>`, and the earlier qualification form
-`<stem>-<byte>-…-<byte>-` with sixteen bytes, whose orphans are reclaimed as well. Either is
-one path component: parts contain no separator. -/
-def isScratchName (name : String) : Bool :=
-  let parts := name.splitOn "-"
-  let stemOf (suffix : Nat) := parts.length > suffix && (parts.take (parts.length - suffix)).all isStemPart
-  let current := stemOf 3 && (parts.drop (parts.length - 3)).all isNumeral
-  let earlier := stemOf 17 && parts.getLast? == some "" &&
-    ((parts.drop (parts.length - 17)).take 16).all isNumeral
-  current || earlier
+/-- The extension of an ownership marker, beside the directory it marks. -/
+def markerExtension : String := "owner"
 
 private def suffix : IO String := do
   let bytes ← IO.getRandomBytes 8
   let random := bytes.foldl (fun value byte => value * 256 + byte.toNat) 0
   return s!"{← IO.Process.getPID}-{← IO.monoNanosNow}-{random}"
 
-/-- Remove every scratch-named directory directly under `tmp`, never following a link.
-The caller holds the scratch lock exclusively. A failed removal is reported, not fatal. -/
-private def reclaim (tmp : FilePath) : IO Unit := do
-  let mut reclaimed := 0
-  for entry in ← tmp.readDir do
-    if isScratchName entry.fileName then
-      try
-        if (← entry.path.symlinkMetadata).type == .dir then
-          IO.FS.removeDirAll entry.path
-          reclaimed := reclaimed + 1
-      catch error =>
-        IO.eprintln s!"scratch: could not reclaim {entry.path}: {error}"
-  if reclaimed > 0 then
-    IO.eprintln s!"scratch: reclaimed {reclaimed} orphaned scratch directories under {tmp}"
+/-- Kind of the path itself, without following a final symbolic link. -/
+private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
+  try return some (← path.symlinkMetadata).type catch _ => return none
 
-/-- Run `action` in a fresh scratch directory under `root/tmp` and remove it on normal or
-exceptional return, holding the scratch lock shared throughout. When no scratch owner is
-alive, orphans are reclaimed first. Returns the value and the removed directory's path;
-the path is returned only after its removal returned. Random naming is not a logical
-freshness proof. -/
+/-- Remove every marked directory directly under `dir`, then its marker, never following a
+link. The caller holds the scratch lock exclusively. A failed removal is reported, not fatal. -/
+private def reclaim (dir : FilePath) : IO Unit := do
+  let mut reclaimed := 0
+  for entry in ← dir.readDir do
+    unless entry.path.extension == some markerExtension do continue
+    let some name := entry.path.fileStem | continue
+    let path := dir / name
+    try
+      if (← kind? entry.path) == some .file then
+        match ← kind? path with
+        | some .dir =>
+          IO.FS.removeDirAll path
+          IO.FS.removeFile entry.path
+          reclaimed := reclaimed + 1
+        | none => IO.FS.removeFile entry.path
+        | some _ => pure ()
+    catch error =>
+      IO.eprintln s!"scratch: could not reclaim {path}: {error}"
+  if reclaimed > 0 then
+    IO.eprintln s!"scratch: reclaimed {reclaimed} orphaned scratch directories under {dir}"
+
+/-- Run `action` in a fresh, marked scratch directory under `root/tmp/.regula-scratch` and
+remove it, then its marker, on normal or exceptional return, holding the scratch lock shared
+throughout. When no scratch owner is alive, orphans are reclaimed first. Returns the value and
+the removed directory's path; the path is returned only after its removal returned. Random
+naming is not a logical freshness proof. -/
 def withScratch (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × FilePath) := do
-  let tmp := root / "tmp"
-  IO.FS.createDirAll tmp
-  let lock ← IO.FS.Handle.mk (tmp / lockName) .append
+  let dir := root / "tmp" / dirName
+  IO.FS.createDirAll dir
+  let lock ← IO.FS.Handle.mk (dir / lockName) .append
   if ← lock.tryLock then
-    try reclaim tmp finally lock.unlock
+    try reclaim dir finally lock.unlock
   lock.lock (exclusive := false)
   try
-    let name := s!"{stem}-{← suffix}"
-    unless isScratchName name do
-      throw <| IO.userError s!"scratch name {name} would not be reclaimable"
-    let path := tmp / name
+    let path := dir / s!"{stem}-{← suffix}"
+    let marker := path.addExtension markerExtension
     if ← path.pathExists then
       throw <| IO.userError s!"refusing to reuse scratch path {path}"
+    discard <| IO.FS.Handle.mk marker .writeNew
     IO.FS.createDir path
-    let value ← try action path finally IO.FS.removeDirAll path
+    let value ← try action path finally
+      IO.FS.removeDirAll path
+      IO.FS.removeFile marker
     return (value, path)
   finally
     lock.unlock

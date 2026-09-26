@@ -26,8 +26,8 @@ admits the copy's pins. The pure planning decisions below carry proofs; Git, Lak
 `chmod`, `ln`, rename and file locking are trusted process and filesystem effects. GitHub
 Actions keeps provisioning with `lake exe cache get`, so this program does nothing there.
 
-Run `lean --run lean/RegulaProvision.lean` from the repository root; `scripts/verify.sh`
-runs it before its deadline. -/
+Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
+`scripts/verify.sh` runs it before its deadline. -/
 namespace RegulaProvision
 open System Lean
 
@@ -73,7 +73,7 @@ structure Receipt where
 def receiptSchema : Nat := 1
 
 /-- The shared directory serves a copy only when it holds this Mathlib revision for this
-toolchain and records every package the copy pins under the same name at the same revision. -/
+toolchain and records no package the copy pins at a different revision. -/
 def admits (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin) : Bool :=
   receipt.schemaVersion == receiptSchema && receipt.mathlibRev == mathlibRev &&
     receipt.leanGithash == githash &&
@@ -100,7 +100,8 @@ inductive Observed where
   /-- A symbolic link; `target` is its resolved location (empty when it dangles). -/
   | link (target : String)
   /-- A real directory: its Git `HEAD` (`none` when it is not a Git checkout) and whether
-  `git status --porcelain` reported nothing. -/
+  it is clean: `git status --porcelain`, `git stash list` and the commits of `HEAD` and local
+  branches that no remote-tracking branch holds all report nothing. -/
   | directory (head : Option String) (clean : Bool)
   /-- Any other kind of file. -/
   | other
@@ -121,7 +122,7 @@ inductive Step where
   deriving DecidableEq, Repr
 
 /-- Mathlib's step: only a link to the shared checkout is kept. A real directory is
-replaced when it is a clean Git checkout (reproducible from its pins) and otherwise refused,
+replaced when it is a clean Git checkout (its work is held by its remotes) and otherwise refused,
 so no per-copy Mathlib survives provisioning and no local change is discarded. -/
 def mathlibStep (target : String) : Observed → Step
   | .absent => .install
@@ -226,9 +227,10 @@ private def observe (path : FilePath) : IO Observed := do
     -- Without its own `.git`, Git would answer for the enclosing repository instead.
     unless ← (path / ".git").pathExists do return .directory none false
     let head ← run path "git" #["rev-parse", "HEAD"]
-    let status ← run path "git" #["status", "--porcelain"]
+    let reports ← [#["status", "--porcelain"], #["stash", "list"],
+      #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path "git")
     let head := if head.exitCode == 0 then some head.stdout.trimAscii.toString else none
-    return .directory head (status.exitCode == 0 && status.stdout.trimAscii.isEmpty)
+    return .directory head (reports.all fun ran => ran.exitCode == 0 && ran.stdout.trimAscii.isEmpty)
   | some _ => return .other
 
 /-- Remove what `observe` classified, never following a link into its target. -/
@@ -511,7 +513,7 @@ def provision (repo : FilePath) : IO Unit := do
 
 end RegulaProvision
 
-/-- Standalone entrypoint: `lean --run lean/RegulaProvision.lean` in the repository root. -/
+/-- Standalone entrypoint, run by `scripts/provision.sh` in the repository root. -/
 def main : IO Unit := do
   if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
     IO.println "provisioning: skipped on GitHub Actions (CI provisions .lake/packages with `lake exe cache get`)"

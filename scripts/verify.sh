@@ -24,7 +24,11 @@ if [[ $("$timeout_command" --version) != *"GNU coreutils"* ]]; then
   exit 127
 fi
 # Setup, not verification: point this copy at the shared, read-only Mathlib
-# (lean/RegulaProvision.lean; a no-op on GitHub Actions) before the deadline starts.
-lean --run lean/RegulaProvision.lean
+# (scripts/provision.sh; a no-op on GitHub Actions) under its own limit, before the
+# acceptance deadline starts.
+"$timeout_command" --signal=KILL 1800s scripts/provision.sh || {
+  echo "verification did not start: scripts/provision.sh failed or exceeded its 1800-second limit (exit $?)" >&2
+  exit 1
+}
 exec "$timeout_command" --signal=KILL 420s \
   lean --run lean/RegulaVerification.lean "$@"

@@ -288,7 +288,8 @@ push to `main`, and nightly. None is part of acceptance.
   and success reporting. `scripts/verify.sh` only selects the root/GNU timeout and starts
   this runner under the external deadline, including all root-package builds.
 - `lean/RegulaProvision.lean`: a separately claimed toolchain-only setup program that
-  `scripts/verify.sh` runs before that deadline. It links the copy to one shared, read-only
+  `scripts/provision.sh` runs, and `scripts/verify.sh` through it before that deadline under
+  its own 1800-second GNU timeout. It links the copy to one shared, read-only
   Mathlib ([contributing guide](contributing.md#share-one-mathlib-across-local-copies));
   provisioning is not verification.
 - `lean/Regula/Site/`: the rule-reference site builder (`lake exe site`) and the
