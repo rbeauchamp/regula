@@ -10,6 +10,8 @@ file := "1-core-principles"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "1-overview"

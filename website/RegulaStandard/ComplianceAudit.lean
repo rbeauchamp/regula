@@ -10,6 +10,8 @@ file := "9-compliance-audit"
 number := false
 %%%
 
+{pageAnchor}
+
 # Purpose
 %%%
 tag := "purpose"

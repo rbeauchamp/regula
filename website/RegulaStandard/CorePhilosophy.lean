@@ -10,6 +10,8 @@ file := "0-core-philosophy"
 number := false
 %%%
 
+{pageAnchor}
+
 *Fundamental Principle*: Every property presented as established and material to a Lean development's correctness or purpose MUST be expressed as a precise type or proposition and supported by a kernel-checked term. The evidence MUST establish the exact claim, including any required non-vacuity, without proof holes or project logical axioms. Assumptions and transitive axiom dependencies MUST be explicit. The checked term establishes that formal claim under its explicit assumptions and the axioms on which it depends, directly or indirectly.
 
 In practice:

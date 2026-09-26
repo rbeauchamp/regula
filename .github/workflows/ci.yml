@@ -99,9 +99,11 @@ jobs:
           path: tmp
           merge-multiple: true
 
+      # Also the root libraries the standard's examples import, so the timed site build elaborates
+      # the standard without building them.
       - name: Build site tooling
         timeout-minutes: 20
-        run: lake build axiomGate ruleExampleQualification site
+        run: lake build axiomGate ruleExampleQualification site Audit AuditApp
 
       - name: Build and check the site (seven-minute limit)
         run: ./scripts/verify.sh site

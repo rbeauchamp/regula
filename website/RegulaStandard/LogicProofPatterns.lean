@@ -10,6 +10,8 @@ file := "3-logic-proof-patterns"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "3-overview"

@@ -10,6 +10,8 @@ file := "8-tooling-and-machine-audit"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "8-overview"

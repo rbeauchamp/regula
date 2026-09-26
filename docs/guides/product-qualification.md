@@ -184,6 +184,10 @@ These are bounded observations of real runs, not theorems about the tools.
   set, example text in pages, `axiomGate --validate-site`, byte-identical editions, size budget.
   CI's `verify-deployment` checks the live `build.json`, every rule page of every edition and
   the 404 route byte for byte against the validated artifact.
+- **Checked** for the standard (`./scripts/verify.sh docs` and the site build): every `lean` block
+  elaborates where it is written as its kind requires, the fence audit classifies the same blocks,
+  every cross-reference and checklist-row anchor resolves, and the registry's cited sections and
+  linked rows exist with their exact headings and tags (`RegulaCore.Standard`, registry checks).
 - **Observed** on the live site (deployed `a52bf1f`, before #10; [record][q10]): all 21 `dev/`
   and `rev/` rule routes return their pages; unknown IDs, unreleased versions and unpublished
   revisions return the not-available page (HTTP 404) without redirecting; search finds rules;

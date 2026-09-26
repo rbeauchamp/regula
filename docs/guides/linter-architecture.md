@@ -211,13 +211,14 @@ The site builder (`lake exe site`, in the root package) generates Verso source f
 (`descriptor`, including the requirement, rationale, remedy, rewrites and example pair that
 every finding also prints), the typed explanations (`RegulaCore.Guide`, one exhaustive definition over
 `RuleId`, the explicit prose input the design allowed in place of `website/Rules/<ID>.lean`) and
-the admitted rule-example exports of the same commit. Generation runs in the root package
-because the website package cannot import the registry without resolving the root package's
-Mathlib dependency. Checked sources render as escaped text; no re-elaboration by the documentation
+the admitted rule-example exports of the same commit. Generation runs in the root package. The
+website package requires the root package (sharing its `.lake/packages`) only so that the
+standard's examples can import root-package modules and Mathlib, each in its own helper process;
+its executables link neither the registry nor Mathlib. Checked sources render as escaped text; no re-elaboration by the documentation
 compiler is claimed. Optional SubVerso highlighting may replace presentation only with exact
-source/output correspondence. Generated Verso files are never edited or committed. Current
-Markdown stays authoritative; the site links the standard at the build commit rather than
-republishing it. No GitHub Wiki source repository is used.
+source/output correspondence. Generated Verso files are never edited or committed. The
+standard's only source is its Verso library (`website/RegulaStandard`), which the site publishes
+under `standard/`; rule pages link its sections and checklist rows in the same edition. No GitHub Wiki source repository is used.
 
 Each page contains identity/category/default behavior, applicability and exact cause, normative
 clauses, violation and fixed examples, the checked findings and their real locations, rationale,

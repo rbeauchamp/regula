@@ -10,6 +10,8 @@ file := "5-documentation-standards"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "5-overview"

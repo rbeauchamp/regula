@@ -10,6 +10,8 @@ file := "6-code-organization"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "6-overview"

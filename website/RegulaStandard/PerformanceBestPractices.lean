@@ -10,6 +10,8 @@ file := "7-performance-best-practices"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "7-overview"

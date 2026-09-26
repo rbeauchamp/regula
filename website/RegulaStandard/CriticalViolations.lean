@@ -10,6 +10,8 @@ file := "critical-violations"
 number := false
 %%%
 
+{pageAnchor}
+
 This triage list summarizes the {ref "9-compliance-and-quality-audit"}[compliance and quality audit]. It does not introduce new requirements or reduce the compliance level. Record an established violation as `FAIL` and missing required evidence as `INCOMPLETE`. Either result blocks the affected conformance claim. When a violation and missing evidence coexist, report `FAIL` and identify both. The absence of the issues below does not establish compliance but only shows these specific failures were not found.
 
 1. *Forbidden assumptions or an incorrect foundation claim.* Project logical axioms, proof holes, unknown or compiler-trusting proof axioms, and dependencies outside the selected foundation profile are not permitted on the positive surface. Inspect every owned declaration’s exact transitive axiom set and reported actual label or separate classification, distinguishing it from the selected surface maximum. Check `FOUND-01` through `FOUND-05` in {ref "axioms-and-foundation-strength"}[Axioms and Foundation Strength].

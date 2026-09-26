@@ -10,6 +10,8 @@ file := "2-type-design-patterns"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "2-overview"

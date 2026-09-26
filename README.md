@@ -51,10 +51,10 @@ Conformance means satisfying every applicable row of the [compliance checklist](
 
 | Area | Purpose |
 | --- | --- |
-| [docs/](docs/README.md) | Normative standard and practical guides. |
+| [docs/](docs/README.md) | Practical guides and the map to the standard. |
 | [lean/](lean/README.md) | Contracts, checked examples, checkers, and isolated qualification fixtures. |
 | [examples/](examples/README.md) | Self-contained adopting projects, each with its own README and Lake configuration. |
-| [website/](docs/guides/website.md) | Pinned Verso package that renders the generated rule reference. |
+| [website/](docs/guides/website.md) | Pinned Verso package: the normative standard's only source (`RegulaStandard`) and the renderer of the rule reference that publishes it. |
 
 Root configuration files keep this a directly usable Lake package. Tool-owned hidden directories stay in their expected locations; build output and temporary probes are not maintained content areas.
 

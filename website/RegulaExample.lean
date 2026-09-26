@@ -220,3 +220,30 @@ def checklistRow : RoleExpanderOf Unit
     ``(Verso.Doc.Inline.other (Inline.row $(quote row)) #[])
 
 end RegulaExample
+
+namespace RegulaExample
+
+/- An empty element carrying the enclosing part's HTML id. Verso links a part that is its own
+page as `route/#id` but gives the page heading no `id`; this block supplies it, derived from
+the part itself. -/
+block_extension Block.pageAnchor where
+  data := .null
+  traverse _ _ _ := pure none
+  toTeX := none
+  toHtml :=
+    open Verso.Output.Html in
+    some <| fun _ _ _ _ _ => do
+      let some header := (← read).traverseContext.headers.back?
+        | Verso.reportError "page anchor outside a part"; pure .empty
+      let some id := header.metadata.bind (·.id)
+        | Verso.reportError s!"page anchor in untagged part {header.titleString}"; pure .empty
+      let some link := (← read).traverseState.externalTags[id]?
+        | Verso.reportError s!"page anchor in part without HTML id {header.titleString}"; pure .empty
+      return {{<span id={{link.htmlId.toString}}></span>}}
+
+/-- `{pageAnchor}`: the `id` of the enclosing part, for a part rendered as its own page. -/
+@[block_command]
+def pageAnchor : BlockCommandOf Unit
+  | () => ``(Verso.Doc.Block.other Block.pageAnchor #[])
+
+end RegulaExample

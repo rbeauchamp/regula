@@ -10,6 +10,8 @@ file := "4-mathematical-foundations"
 number := false
 %%%
 
+{pageAnchor}
+
 # Overview
 %%%
 tag := "4-overview"

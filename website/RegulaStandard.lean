@@ -21,6 +21,8 @@ file := "standard"
 number := false
 %%%
 
+{pageAnchor}
+
 This standard specifies requirements for mathematical proofs and verified functional programs in Lean.
 
 # Introduction
@@ -29,6 +31,8 @@ tag := "standard-introduction"
 file := "introduction"
 number := false
 %%%
+
+{pageAnchor}
 
 ## Overview
 %%%
