@@ -7,7 +7,7 @@ import RegulaCore.Site
 Markdown below the documentation root and, with `--verso DIR:LIBRARY:RENDER`, every `lean`
 block of that Verso library, the standard, whose build and rendering are then also required,
 and whose rendered pages must define every anchor the rule registry and the Markdown link, with
-the coverage map linking exactly the checklist's rows. -/
+the coverage map linking exactly the checklist's rows, each labelled with its row. -/
 
 namespace Regula.Checker.DocFenceAudit
 
@@ -77,7 +77,7 @@ private def renderedPages (root : FilePath) : IO (List Regula.Site.Page) := do
     return some (Regula.Site.Page.ofHtml relative (← IO.FS.readFile path))
 
 /-- The coverage map below the documentation root: its links into the checklist page must be
-exactly the checklist's rows (`Regula.Site.linkedRows`). -/
+exactly the checklist's rows, each labelled with its row (`Regula.Site.linkedRows`). -/
 private def coverageMap : FilePath := "guides" / "rule-coverage.md"
 
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
@@ -85,9 +85,10 @@ is written by the library's own code block, and render it alone, which resolves 
 cross-reference. The rendered pages must define every section and checklist-row anchor the
 rule registry links (`Regula.Site.standardAnchors`) and every anchor the linked Markdown below
 `docsRoot` links (`Regula.Site.documentAnchors`); the coverage map must link exactly the rows
-of the rendered checklist, in its order (`Regula.Site.rowMapMismatch`); and each cited section's
-source must be a module of the library. The copy's library sources and Verso package inputs
-must be exactly the audited and linked ones (`linked`). -/
+of the rendered checklist, in its order, each labelled with its row
+(`Regula.Site.rowMapMismatch`); and each cited section's source must be a module of the library.
+The copy's library sources and Verso package inputs must be exactly the audited and linked ones
+(`linked`). -/
 private def buildVerso (repo docsRoot copy scratch : FilePath) (verso : VersoPackage)
     (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
   let package := copy / verso.dir.toString
@@ -176,7 +177,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           return 1
         Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ linked
         SourceBinding.unchanged sources
-        IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block elaborated where it is written), rendered, defines every anchor the rule registry and the documentation link, and the coverage map links exactly its checklist rows"
+        IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block elaborated where it is written), rendered, defines every anchor the rule registry and the documentation link, and the coverage map links exactly its checklist rows, each labelled with its row"
         return 0
     let outcome := outcome.bind id
     match outcome with

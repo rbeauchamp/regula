@@ -35,7 +35,7 @@ section's anchor on its chapter page and each linked row's anchor on module 9
 (`Regula.Site.standardAnchors`), each page and anchor the `docs/` Markdown links in the
 development standard (`Regula.Site.documentAnchors`), and the
 [coverage map](rule-coverage.md#complete-chapter-9-row-map)'s links into module 9 to be exactly
-its rendered rows, in order (`Regula.Site.rowMapMismatch`; a row is the `id` of an element of
+its rendered rows, in order, each labelled with its row (`Regula.Site.rowMapMismatch`; a row is the `id` of an element of
 class `Regula.checklistRowClass`); the artifact's link check requires every anchor in the
 rendered site. The
 generator refuses a cited repository path that does not exist.

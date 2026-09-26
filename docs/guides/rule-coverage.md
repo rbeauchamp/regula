@@ -213,7 +213,8 @@ presence check or a checker PASS.
 | [`DOGFOOD-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-05) | RG1007/2004/2005 plus actual application contracts | R-INVARIANT, R-QUALIFY |
 
 `./scripts/verify.sh docs` renders the standard and requires this map's links into the checklist
-page to be exactly the rendered checklist rows, each once and in the checklist's order
+page to be exactly the rendered checklist rows, each once and in the checklist's order, each
+labelled with exactly its row identifier as one code span
 (`Regula.Site.rowMapMismatch`, `rowMapMismatch_eq_none_iff`), so a row added, removed or renamed
 in the standard fails acceptance until this map follows. The equality covers row identifiers,
 not whether a row's contribution and residual account fit its current requirement: a changed

@@ -32,8 +32,9 @@ decision it takes about that data is a function here.
   anchors the registry links, checked against the rendered standard's pages.
 - `standardUrl`, `routesAfter`, `routeAnchor`, `documentAnchors`: the pages and anchors that
   documentation links in the development standard, checked by the same `missingAnchors`.
-- `renderedRows`, `linkedRows`, `rowMapMismatch`, `rowMapMismatch_eq_none_iff`: the checklist
-  rows of a rendered page and the rows a row map links, which must be the same list.
+- `renderedRows`, `codeLinkLabel`, `linkedRows`, `rowMapMismatch`, `rowMapMismatch_eq_none_iff`:
+  the checklist rows of a rendered page and the labels and rows a row map links, each of which
+  must be that list.
 
 ## Assumptions and boundaries
 
@@ -730,37 +731,56 @@ def renderedRows (html : String) : List String :=
   (scanTags html).filterMap fun t =>
     if t.get? "class" == some checklistRowClass then t.get? "id" else none
 
-/-- The checklist rows a document links, in order: the fragment after each occurrence of the
-checklist page's URL followed by `#`. -/
-def linkedRows (text : String) : List String :=
-  routesAfter (standardUrl ++ checklistChapter ++ "/#") text
+/-- The label of a link whose destination follows `before`, when that label is one code span:
+`some label` exactly when `before` ends with ``[`label`](`` and `label` has no backtick. -/
+def codeLinkLabel (before : String) : Option String :=
+  match before.toList.reverse with
+  | '(' :: ']' :: '`' :: rest =>
+    let label := rest.takeWhile (· != '`')
+    match rest.drop label.length with
+    | '`' :: '[' :: _ => some (String.ofList label.reverse)
+    | _ => none
+  | _ => none
 
-/-- How the rows a row map links differ from the checklist's rows, or `none` when they are the
-same list. -/
-def rowMapMismatch (linked rows : List String) : Option String :=
-  if linked == rows then none else
-    some s!"rows it does not link: {rows.filter (· ∉ linked)}; linked fragments that are not rows: {linked.filter (· ∉ rows)}; otherwise a row is linked more than once or out of the checklist's order"
+/-- The checklist rows a document links, in order: for each occurrence of the checklist page's
+URL followed by `#`, the link's code-span label (`codeLinkLabel`) and the fragment after it. -/
+def linkedRows (text : String) : List (Option String × String) :=
+  let url := standardUrl ++ checklistChapter ++ "/#"
+  ((text.splitOn url).dropLast.map codeLinkLabel).zip (routesAfter url text)
+
+/-- How the rows a row map links differ from the checklist's rows, or `none` when each link is
+labelled with its fragment and the fragments are the same list. -/
+def rowMapMismatch (linked : List (Option String × String)) (rows : List String) : Option String :=
+  if linked == rows.map fun row => (some row, row) then none else
+    let fragments := linked.map (·.2)
+    some s!"rows it does not link: {rows.filter (· ∉ fragments)}; linked fragments that are not rows: {fragments.filter (· ∉ rows)}; links not labelled with their fragment as one code span: {(linked.filter fun link => link.1 != some link.2).map (·.2)}; otherwise a row is linked more than once or out of the checklist's order"
 
 /-- The executed row-map check passes exactly when the map links the checklist's rows, each
-once, in the checklist's order, and links no other fragment of the checklist page. -/
-theorem rowMapMismatch_eq_none_iff (linked rows : List String) :
-    rowMapMismatch linked rows = none ↔ linked = rows := by
+once, in the checklist's order, each labelled with exactly its row as one code span, and links
+no other fragment of the checklist page. -/
+theorem rowMapMismatch_eq_none_iff (linked : List (Option String × String)) (rows : List String) :
+    rowMapMismatch linked rows = none ↔ linked = rows.map fun row => (some row, row) := by
   unfold rowMapMismatch
   split <;> simp_all
 
 /-- Registered contract of the executed row-map check. -/
 theorem checkedRowMapMismatch : Regula.ExecutableContract rowMapMismatch (fun run =>
-    ∀ linked rows, run linked rows = none ↔ linked = rows) :=
+    ∀ linked rows, run linked rows = none ↔ linked = rows.map fun row => (some row, row)) :=
   ⟨rowMapMismatch_eq_none_iff⟩
 
 /-! Evaluated controls (observations of the compiled scanners, not proofs): a route ends at a
 Markdown delimiter or a sentence's closing `.`, an autolink and a code span count, a page route
-names its `index.html`, and only elements of the row class are rows. -/
+names its `index.html`, a row link's label is read only from a code span that is the whole link
+text, and only elements of the row class are rows. -/
 #guard documentAnchors ["[a](" ++ standardUrl ++ "9-compliance-audit/#DOC-04). <" ++ standardUrl ++
   ">; `" ++ standardUrl ++ "introduction/`."] ==
   [("9-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
 #guard linkedRows ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
-  "9-compliance-audit/)") == ["A-1"]
+  "9-compliance-audit/)") == [(some "A-1", "A-1")]
+#guard linkedRows ("[`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-2) [A-3](" ++ standardUrl ++
+  "9-compliance-audit/#A-3) [x `A-4`](" ++ standardUrl ++ "9-compliance-audit/#A-4)") ==
+  [(some "A-1", "A-2"), (none, "A-3"), (none, "A-4")]
+#guard rowMapMismatch [(some "A-1", "A-2")] ["A-2"] != none
 #guard renderedRows "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==
   ["A-1"]
 

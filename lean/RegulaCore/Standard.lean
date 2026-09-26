@@ -23,7 +23,7 @@ elaborated standard with the clause's tag and exactly its heading inside the cha
 `file` is the clause's chapter; the rendered chapter page must define the anchor
 (`Regula.Site.standardAnchors`); and the source must be a module of the standard. The same step
 requires the coverage map to link exactly the rendered checklist rows, the elements of class
-`checklistRowClass` (`Regula.Site.rowMapMismatch`). That the
+`checklistRowClass`, each labelled with its row (`Regula.Site.rowMapMismatch`). That the
 chapter is written in that module is by inspection. The published site's links are the site
 build's link check. Nothing here reads the standard.
 -/
