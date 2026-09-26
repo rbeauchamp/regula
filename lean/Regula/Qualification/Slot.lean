@@ -13,7 +13,8 @@ shared and must have no writer during the window. `SharedIdentity` checks the en
 state of that requirement fail-closed: a content-level identity of every entry under every shared
 root is captured before any producer starts and must be equal after every producer
 has been joined. Shared permissions are never changed, so no permission state can
-outlive the campaign (a killed campaign's scratch directory can remain). Producer children are waited and stream holders closed before
+outlive the campaign (a killed campaign's scratch directory remains until the next scratch user
+reclaims it; see `Regula.Scratch`). Producer children are waited and stream holders closed before
 return (source-verified joined-worker discipline; no universal detached-grandchild
 termination is claimed); the consumer path — control admission and terminal
 qualification — consumes captured data and the real ROOT checkout and never

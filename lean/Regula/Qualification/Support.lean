@@ -1,4 +1,5 @@
 import RegulaQualification.Checks
+import Regula.Scratch
 import Lean
 
 /-! Operational qualification support. Pure assertions go through `checkedEvaluation`.
@@ -54,18 +55,13 @@ structure Cleaned where
   private mk ::
   path : FilePath
 
-/-- Fresh scratch under the worktree, with cleanup on normal or exceptional return.
-On normal return it also yields the cleanup witness, constructed only after the
-finalizer's removal returned. Random naming and OS directory operations are not
-logical freshness proofs. -/
+/-- Fresh scratch under the worktree, with cleanup on normal or exceptional return; orphans
+of dead runs are reclaimed (`Regula.Scratch`). On normal return it also yields the cleanup
+witness, constructed only after the finalizer's removal returned. Random naming and OS
+directory operations are not logical freshness proofs. -/
 def withScratchCleaned (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × Cleaned) := do
-  IO.FS.createDirAll (root / "tmp")
-  let bytes ← IO.getRandomBytes 16
-  let suffix := bytes.foldl (fun s b => s ++ s!"{b.toNat}-") ""
-  let path := root / "tmp" / s!"{stem}-{suffix}"
-  IO.FS.createDir path
-  let value ← try action path finally IO.FS.removeDirAll path
+  let (value, path) ← Regula.Scratch.withScratch root stem action
   return (value, ⟨path⟩)
 
 /-- Fresh scratch under the worktree, with cleanup on normal or exceptional return. -/

@@ -1,6 +1,7 @@
 #!/bin/bash
-# Only bootstrap/root selection, failure-safe stale-verdict invalidation, and the
-# external, no-grace process-group deadline.
+# Only bootstrap/root selection, failure-safe stale-verdict invalidation, local
+# dependency provisioning before the deadline, and the external, no-grace
+# process-group deadline.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # Invalidate the rule-examples verdict unconditionally once at wrapper entry,
@@ -22,5 +23,8 @@ if [[ $("$timeout_command" --version) != *"GNU coreutils"* ]]; then
   echo "verification requires GNU coreutils timeout" >&2
   exit 127
 fi
+# Setup, not verification: point this copy at the shared, read-only Mathlib
+# (lean/RegulaProvision.lean; a no-op on GitHub Actions) before the deadline starts.
+lean --run lean/RegulaProvision.lean
 exec "$timeout_command" --signal=KILL 420s \
   lean --run lean/RegulaVerification.lean "$@"

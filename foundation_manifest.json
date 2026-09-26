@@ -14,6 +14,12 @@
       "rationale": "Cold-start verification driver with exact proof-bearing argument selection. Recipes are interpreted through a trusted process IO boundary under verify.sh's single external deadline; the proof does not authenticate subprocess execution."
     },
     {
+      "library": "RegulaProvision",
+      "claim": "standard-logical",
+      "execution": "report",
+      "rationale": "Toolchain-only local provisioning of one shared, read-only Mathlib per pinned revision and toolchain. The proofs concern the pure decisions it executes: receipt admission is exact, only a link to the shared checkout is kept for Mathlib, and removal is confined to links and clean Git checkouts. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
+    },
+    {
       "library": "RegulaQualification",
       "claim": "standard-logical",
       "execution": "report",

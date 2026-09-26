@@ -102,7 +102,7 @@ detector qualification, not a proof that the detectors are correct for all input
 After provisioning the root dependencies and the pinned Verso package once:
 
 ```sh
-lake exe cache get                                   # root setup (Mathlib artifacts)
+lean --run lean/RegulaProvision.lean                 # root setup (shared, read-only Mathlib)
 (cd website && lake build verso/VersoManual)         # Verso setup
 ./scripts/verify.sh diagnostics rule-examples 1/2    # corpus shard 1 (420 s)
 ./scripts/verify.sh diagnostics rule-examples 2/2    # corpus shard 2 (420 s)
