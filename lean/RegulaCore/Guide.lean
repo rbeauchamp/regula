@@ -126,7 +126,7 @@ def guide : RuleId → Guide
       configuration := [noLocalException, projectCommands]
       limitations := [
         "In the editor the rule is reported for completed declarations of the current snapshot. A cancelled collection reports nothing for that declaration; a failed one is reported as RG2005 (incomplete), never as an invented RG1002.",
-        "The checked example below comes from a diagnostic single-file inspection that keeps Lean's `sorry` warning as related evidence and continues to policy inspection; the ordinary project commands stop earlier with RG2003, as described above."]
+        "The checked example comes from a diagnostic single-file inspection that keeps Lean's `sorry` warning as related evidence and continues to policy inspection; the ordinary project commands stop earlier with RG2003, as described above."]
       residuals := [.qualify, .intent]
       checklist := ["FOUND-02", "THEOREM-06", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
       sources := ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean", "lean/Regula/Findings.lean"] }
@@ -281,7 +281,7 @@ def guide : RuleId → Guide
       problem := "The claimed source did not elaborate warning-free under the audit's build: the build failed or emitted a warning."
       trigger := [
         "The audit builds the claimed targets itself and checks both the exit status and every emitted diagnostic. Any warning fails, including when the source sets `warningAsError` to false locally (for a single-file audit, when any `--claim` is requested). The original compiler message is preserved in the finding.",
-        "In project runs (`lake lint`, `axiomGate`, the build-lint `policy` target) a warning or failed build stops the audit before policy inspection, so the finding is incomplete and the result INCOMPLETE (`lake lint` exit 3). A single-file `axiomGate --file F --claim P` audit reports a completed source rejection as a violation, as in the example below; without `--claim` warnings do not fail a file audit (an elaboration error is still a RG2003 violation), a file that elaborates and passes the declaration rules is CLASSIFIED rather than accepted, and a failed build of the manifest's claimed targets it depends on is INCOMPLETE."]
+        "In project runs (`lake lint`, `axiomGate`, the build-lint `policy` target) a warning or failed build stops the audit before policy inspection, so the finding is incomplete and the result INCOMPLETE (`lake lint` exit 3). A single-file `axiomGate --file F --claim P` audit reports a completed source rejection as a violation, as in the checked example; without `--claim` warnings do not fail a file audit (an elaboration error is still a RG2003 violation), a file that elaborates and passes the declaration rules is CLASSIFIED rather than accepted, and a failed build of the manifest's claimed targets it depends on is INCOMPLETE."]
       rationaleDetail := []
       proofShape := [
         "The fix must not change the proposition or behavior being claimed; if it does, review the statement again."]

@@ -56,11 +56,17 @@ extension. The rest of Regula is MIT licensed ([LICENSE](../../LICENSE)).
 The rule reference is rendered by Verso (Lean FRO and contributors, Apache 2.0) as a
 pinned dependency ([license](https://github.com/leanprover/verso/blob/cad4b633e75ea769b851f12f9ca3b4f0dfcc625f/LICENSE)); the search and
 table-of-contents scripts and stylesheets are Verso's, and the third-party components it bundles
-(elasticlunr, fuzzysort, KaTeX, the W3C APG combobox) are listed with their licenses on the
+(elasticlunr, fuzzysort, the W3C APG combobox) are listed with their licenses on the
 generated credits page, together with the marked library that pages load from the jsDelivr CDN. The documentation/example toolchain separation follows
 David Thrane Christiansen's package-docs template; no template text is copied. Microsoft's
 CA1416 rule page is one illustrative reference for the page structure; no .NET content is used
-and no affiliation with or endorsement by Microsoft is implied. Crediting any project here
+and no affiliation with or endorsement by Microsoft is implied. The site's own theme layer
+(`RegulaCore.SiteTheme` and the theme script in `website/RegulaSite.lean`) follows patterns
+observed on other linters' references: ESLint's explicit Light, System and Dark buttons with
+`aria-pressed`, Ruff's site-scoped theme storage key and its single rule table with select filters,
+and Biome's and ESLint's rejected/accepted example labels. Its theme icons are drawn in the common
+24-pixel stroke style of open icon sets such as Lucide; no stylesheet, script or icon file of
+those projects is copied. Crediting any project here
 implies no endorsement of Regula by it.
 The explanations and site code are original. The site documents the registry, whose canonical
 design credits con-leche above; con-leche did not design the site.

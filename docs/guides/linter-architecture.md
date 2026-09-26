@@ -50,7 +50,7 @@ Implement these modules under the existing root package (no mandatory Mathlib im
 | `lean/Regula/Linter/Rules.lean` | Adapters to existing detection, plus selected documentation-presence gaps; request and declaration decisions run the claimed `RegulaCore/EditorPolicy.lean` contracts, proved equal to the project checker's on the editor domain. |
 | `lean/Regula/Checker/Lint.lean` | Whole-project `lint` driver: the `axiomGate` project audit, not another checker; its exit classification is the claimed `RegulaCore/Lint.lean` contract. |
 | `lean/Regula/Contract.lean` | Preserve existing executable-proof API and admission meaning. |
-| `website/` | Separate pinned Verso Lake package: the `RegulaSite` extension and site entry point. The original explanatory prose is `lean/RegulaCore/Guide.lean`; generated pages are never committed. |
+| `website/` | Separate pinned Verso Lake package: the `RegulaSite` extension (raw-HTML block and theme script) and site entry point; the stylesheet is generated from `lean/RegulaCore/SiteTheme.lean`. The original explanatory prose is `lean/RegulaCore/Guide.lean`; generated pages are never committed. |
 | `examples/rules/<ID>/` | Actual violation/fix source plus typed expected outcome specification; isolated negatives. |
 | `lean/RegulaCore/Site*.lean`, `lean/Regula/Site/` | Site generation, validation and assembly: proved pure decisions in the claimed core and the operational `site` builder, run through Lake; no Python or additional shell scripts. |
 

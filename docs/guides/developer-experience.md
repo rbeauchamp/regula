@@ -193,8 +193,8 @@ complete static catalog. The site remains generated from one registry and actual
 examples, with the builder-observation trust boundary explicit.
 
 #15 implements this in the [rule reference](website.md): a no-JavaScript catalogue whose
-category, evidence-mode and availability filters are CSS radio groups with a form reset and an
-exact no-match notice; search by ID, title and page text through Verso's search box, with
+category, evidence-mode and availability filters are native selects driven by generated CSS, with a
+form reset and an exact no-match notice; search by ID, title and page text through Verso's search box, with
 find-in-page on the complete catalogue as the no-JavaScript path; and pages that start with the
 problem and action. Its bounded browser observations are recorded with that delivery.
 

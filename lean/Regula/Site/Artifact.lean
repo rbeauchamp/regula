@@ -52,7 +52,7 @@ def render (root : FilePath) (destination : FilePath) : IO (List (String × Byte
 
 private def page (title body : String) : String :=
   "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" ++
-  "<title>" ++ escape title ++ "</title><style>body{font-family:system-ui,sans-serif;line-height:1.5;max-width:44rem;margin:2rem auto;padding:0 1rem;color:#1b1b1b;background:#fff}a{color:#0b57d0}code{font-family:ui-monospace,monospace}@media (prefers-color-scheme:dark){body{color:#e8e8e8;background:#161616}a{color:#8ab4f8}}</style></head><body><main>" ++
+  "<title>" ++ escape title ++ "</title><style>" ++ plainPageCss ++ "</style></head><body><main>" ++
   body ++ "</main></body></html>\n"
 
 /-- The project-site root: a link (and immediate refresh) to the development edition. -/

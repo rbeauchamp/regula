@@ -175,7 +175,11 @@ These are bounded observations of real runs, not theorems about the tools.
   (`pageFiles_nodup`, `mem_pageFiles`), escaping (`escape_safe`, `htmlBlock_ok`), filter no-match
   set (`mem_emptySelections`), link-check soundness for scanned links (`linkErrors_nil_iff`), the
   nine sections (`ruleSections_headings`), nonempty explanations (`guide_wellFormed`), archive
-  monotonicity (`artifactRevisions_mono`), and `helpUrl_dev` for every emitted help link.
+  monotonicity (`artifactRevisions_mono`), the lossless single "Project" index label
+  (`projectModes_coincide`), WCAG 2.x contrast of every text token on every background token in
+  both colour themes (`ink_on_paper`, `control_on_paper` over the brackets of `channel_bracket`:
+  exact integer statements, read as WCAG ratios through one argued step about real powers), and
+  `helpUrl_dev` for every emitted help link.
 - **Checked** by `./scripts/verify.sh site`: evidence identity and freshness, exact rule-route
   set, example text in pages, `axiomGate --validate-site`, byte-identical editions, size budget.
   CI's `verify-deployment` checks the live `build.json`, every rule page of every edition and

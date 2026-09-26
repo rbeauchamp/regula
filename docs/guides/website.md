@@ -13,13 +13,14 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 
 | Content | Owner | How it reaches the page |
 | --- | --- | --- |
-| Rule identity, title, category, scope, subreason, modes, availability, lifecycle, message form, clauses, route, help URL, and the agent-facing requirement, rationale, remedy (action), rewrites (how to fix it) and example correction that every finding and `lake exe regula` also print | [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean) (`descriptor`, closed `RuleId`) | Projected by the page constructors; the index iterates `RuleId.all`. |
+| Rule identity, title, category, scope, subreason, modes, availability, lifecycle, message form, clauses, route, help URL, and the agent-facing requirement, rationale, remedy (what to do), rewrites (how to fix it) and example correction that every finding and `lake exe regula` also print | [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean) (`descriptor`, closed `RuleId`) | Projected by the page constructors; the index iterates `RuleId.all`. |
 | Explanation sections (problem, trigger, further rationale, proof shape, established and not established, configuration, limitations, residual obligations, checklist rows, sources) | [`RegulaCore.Guide`](../../lean/RegulaCore/Guide.lean) (`guide`, one exhaustive definition over `RuleId`) | Rendered in a fixed section order. A new rule without an explanation does not compile. |
 | Violating and corrected inputs, findings, statuses | [`examples/rules/<ID>/`](../../examples/rules/) and [`corpus.json`](../../examples/rules/corpus.json), run by the rule-example campaign | The builder reads the campaign's exports for the same commit and renders the recorded bytes and findings. |
 | Open review obligations and trusted mechanisms | Each rule's `residuals` in `Guide` (the obligations [rule-coverage.md](rule-coverage.md) associates with it), typed as the checker's `Residual`; `Residual.all` and `Trusted` from [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) | Every page also states that each accepted result lists all residual obligations as open. The per-rule selection is reviewed, not derived. |
 | Page construction, escaping, filters, diffs, link checking | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
 | Evidence admission, generation, rendering, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
-| Rendering and styles | [`website/`](../../website/): pinned Verso package, `RegulaSite` extension (raw-HTML block and CSS) | `website/Generated/` is generated and ignored by Git. |
+| Colours and stylesheet | [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) (claimed; contrast proved) | Written by the builder as `website/Generated/regula.css`, copied to each edition's root and linked from every page. |
+| Rendering and theme script | [`website/`](../../website/): pinned Verso package (search feature only), `RegulaSite` extension (raw-HTML block and theme script) | `website/Generated/` is generated and ignored by Git. |
 | Published revision snapshots | The append-only `site-archive-regula` branch (`rev/<commit>/` directories only), read by [`Regula.Site.Deployment`](../../lean/Regula/Site/Deployment.lean) | Copied verbatim into every artifact. |
 | Publication | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) | `site`, `deploy-gate`, `archive`, `deploy` and `verify-deployment` jobs. |
 
@@ -48,7 +49,7 @@ fails and removes `_site/`:
   built; it lives in the excluded operational library), and the artifact check requires that
   page to exist for every rule, so every emitted help link names a page of the artifact.
 - **Page structure.** `ruleSections_headings` proves every rule page has the nine required
-  sections in order; `guide_wellFormed` (kernel-checked over all rules) proves every required
+  sections in order, the checked example first; `guide_wellFormed` (kernel-checked over all rules) proves every required
   field is a nonempty string or list. Whether the content is adequate is review. The check also finds every heading in the rendered page.
 - **Exact examples.** Displayed example text is the recorded bytes, escaped by `escape`
   (`escape_safe`: no markup character or backtick survives) and inserted only through
@@ -194,8 +195,8 @@ force pushes and deletion of `site-archive-regula` would enforce rule 1 against 
 is an operator setting that is not yet configured. An unreachable archive fails the build and
 the gate; an absent branch is the empty archive.
 
-The archive grows linearly with deployments to `main`: one snapshot is about 190 files and
-about 1.9 MB (an estimate for the current build, not a measurement of the archive), so
+The archive grows linearly with deployments to `main`: one snapshot is about 125 files and
+about 1.9 MB (measured on a local build of the current site, not a measurement of the archive), so
 GitHub Pages' 1 GB limit on a published site would be reached after roughly 500 deployments.
 The build refuses an artifact above `artifactBudget` (900 MB of file bytes); reaching it stops
 deployment rather than dropping snapshots. Link checking, byte comparison and deployment
@@ -248,17 +249,52 @@ review toolkit's [rule and site changes](../../.agents/skills/pr-review-toolkit/
 ## Accessibility and interface
 
 Every explanation, link and the full rule catalogue work without JavaScript. The index's
-category, evidence-mode and availability filters are radio buttons driven by generated CSS;
-**Reset filters** is a form reset. The no-match notice is emitted for exactly the filter
+category, reported-in (evidence mode) and availability filters are native selects driven by
+generated CSS; **Reset** is a form reset. The no-match notice is emitted for exactly the filter
 combinations that list no rule (`mem_emptySelections`); that the generated CSS rules and row
 classes implement `Selection.admits` holds by construction of the generator and was observed
 for several combinations
 ([record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-15-site.md#browser-observations-bounded-not-proofs)),
-not proved. Status is carried by text and `+`/`-` diff markers, not colour alone. Tables that
-can exceed a narrow screen scroll inside a keyboard-focusable region. Search and the collapsible
-table of contents are Verso's bundled JavaScript. Browser observations of these behaviors are in
-the same record; they are bounded observations, not proofs of usability. The site sets no
-cookies and has no accounts or analytics.
+not proved. The index shows one "Project" label for the incremental and fresh project modes;
+`projectModes_coincide` proves that no registered rule has only one of them, and the filter keeps
+the exact modes. On narrow screens index rows become cards; other wide tables scroll inside a
+keyboard-focusable region.
+
+The theme described below covers `dev/` and every snapshot built with it. Snapshots archived
+before it stay byte-identical to the archive (see [retention](#retention)), so they have no theme
+control and still ship the KaTeX files that Verso bundled then.
+
+Every colour is a token of [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) with
+exactly one light and one dark value, emitted once with CSS `light-dark()`. In both themes,
+`ink_on_paper` proves that every text token has at least 7:1 (body text and headings) or 4.5:1
+(all other text) against every background token, and `control_on_paper` that the control
+boundary has 3:1 (WCAG 1.4.11). The proofs are exact integer computations of the WCAG 2.x
+relative-luminance formula (`channel_bracket` brackets every 8-bit channel), so a token change
+that breaks a pair fails the build; reading them as real-valued ratios rests on one argued step
+(`p ^ 5 ≤ x ^ 12` exactly when `p ≤ x ^ (12 / 5)` for nonnegative reals). The layer outside the
+token block is checked by evaluation to write no hexadecimal or functional colour literal; that it
+draws text and backgrounds only from the tokens, and overrides every colour of Verso's own
+stylesheets the pages show, is review. Status is always carried by a word or a `+`/`-`/✗/✓
+marker as well as colour. There are no web fonts and no third-party requests besides Verso's CDN
+script.
+
+The theme control (Light, Dark, System; System by default) is three buttons with
+`aria-pressed`, in the header and, on narrow screens, at the foot of the table-of-contents
+drawer. Its script is inlined in every page's `<head>`, so a stored choice applies before the
+first paint. The choice is kept in the browser's `localStorage` under `regula-theme`, covers
+every themed edition, and follows other open tabs; System stores nothing and follows the
+operating system, including live changes. Without JavaScript there is no control and the pages
+follow the operating system. The script also makes `/` focus the search box and patches
+defects of Verso's page template until they are fixed upstream: it sets `lang="en"`, removes the
+viewport's zoom lock, names the table-of-contents toggles and gives the search box the
+`combobox` role that its `aria-expanded` state requires. Search and the collapsible table of
+contents are Verso's bundled JavaScript; only Verso's search feature is enabled, so themed editions
+ship no KaTeX. `prefers-reduced-motion` turns transitions off.
+
+Lighthouse's accessibility category (Chrome headless, 2026-09-26, a local preview of the theme
+change) scored 1.0 for the rule index and RG1002 in both themes at 1280 pixels, and for RG1002
+on a 390-pixel phone viewport. These are bounded observations, not proofs of usability. The site
+sets no cookies and has no accounts or analytics.
 
 ## Credits and licenses
 
