@@ -79,8 +79,8 @@ def admits (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin) 
     receipt.leanGithash == githash &&
     pins.all fun pin => receipt.packages.all fun held => held.name != pin.name || held.rev == pin.rev
 
-/-- Admission is exact: the revision and toolchain match, and no admitted pin names a
-package that the receipt records at another revision. -/
+/-- Admission is sound: when it admits, the revision and toolchain match, and no admitted pin
+names a package that the receipt records at another revision. -/
 theorem admits_sound (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin)
     (h : admits receipt mathlibRev githash pins = true) :
     receipt.mathlibRev = mathlibRev ∧ receipt.leanGithash = githash ∧
@@ -151,8 +151,7 @@ theorem mathlibStep_keep_iff (target : String) (observed : Observed) :
   | directory head clean => cases head <;> cases clean <;> simp [mathlibStep]
   | other => simp [mathlibStep]
 
-/-- Provisioning never leaves Mathlib as a real directory: every step on one replaces or
-refuses. -/
+/-- Every step on a real Mathlib directory replaces it or refuses. -/
 theorem mathlibStep_directory (target : String) (head : Option String) (clean : Bool) :
     mathlibStep target (.directory head clean) = .replace ∨
       ∃ reason, mathlibStep target (.directory head clean) = .refuse reason := by

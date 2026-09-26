@@ -1349,10 +1349,12 @@ uses), which the §8.3 isolated copy must re-anchor to the original project;
 its setup verifies that the relative path really names this repository. -/
 private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
+  let depth := (← IO.FS.realPath scratch).components.length + 1 -
+    (← IO.FS.realPath repo).components.length
   let variants : Array (String × String × String × (String → String)) := #[
     ("toml", "toml", repo.toString, adopterTomlLakefile),
     ("lean", "lean", repo.toString, adopterLeanLakefile),
-    ("relative", "toml", "../../..", adopterTomlLakefile)
+    ("relative", "toml", "/".intercalate (List.replicate depth ".."), adopterTomlLakefile)
   ]
   for (label, format, checkerDir, lakefileText) in variants do
     let adopter := scratch / label
