@@ -240,7 +240,8 @@ pages would need the same kind of retention as revision snapshots.
 `./scripts/verify.sh site` runs under the same hard 420-second deadline as every
 `verify.sh` mode; it is separate from, and never a partition of, the two acceptance commands.
 In CI the site tooling is built in the preceding step (20-minute step limit) and Verso is
-provisioned from cache (20-minute step limit on a miss). The site build's work grows with the
+provisioned from cache by the shared provisioning action (within the job's 45-minute limit on
+a miss). The site build's work grows with the
 number of archived snapshots ([retention](#retention)). Observed timings are recorded with the
 change that measured them, such as the [site delivery record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-15-site.md#observed-locally);
 they are observations, not guarantees.

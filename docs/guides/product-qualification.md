@@ -121,7 +121,7 @@ compliant example (or the correction, where the checked files are qualification 
 | `lake exe lint` | Same driver without Lake dispatch | As `lake lint` | Observed PASS in the [fresh adopter][q10-routes]; for packages whose `lintDriver` is taken |
 | Build-lint `policy` target | Sole default target runs `axiomGate --build-lint` | Incremental audit; failure fails `lake build` | build-policy campaign |
 | `lake exe axiomGate` | Fresh project audit (default), `--incremental`, `--file F [--claim P]`, `--with-docs` | Accepted account and exit status | Ordinary acceptance dogfoods it on six claimed libraries |
-| `docFenceAudit`, `./scripts/verify.sh docs` | Every Lean fence under `docs/` | `documentationExample` | Acceptance step 2 |
+| `docFenceAudit`, `./scripts/verify.sh docs` | Every Lean fence under `docs/` and, with `--verso`, every `lean` block of the Verso standard, which it builds and renders | `documentationExample` | Acceptance step 2 |
 | Workers | `axiomGate` inspection and fence diagnostic workers, with indexed result admission (`checkedIndexedResults`) | A crashed, abnormally terminated or incomplete worker is INCOMPLETE, never a pass | Proved admission; fixtures and fence-corpus controls (abnormal termination) |
 | `freshChecker` | Optional serialized-graph recheck (§8.9) | Emits no rule findings | Optional MUT-05 claim; not part of product acceptance |
 | Direct `lean`, `lake build <other target>`, `lake lint --builtin-only`, TOML `lake build` | Nothing of Regula's project audit | Not enforcement | Documented as such everywhere |
