@@ -260,6 +260,10 @@ not proved. The index shows one "Project" label for the incremental and fresh pr
 the exact modes. On narrow screens index rows become cards; other wide tables scroll inside a
 keyboard-focusable region.
 
+The theme described below covers `dev/` and every snapshot built with it. Snapshots archived
+before it stay byte-identical to the archive (see [retention](#retention)), so they have no theme
+control and still ship the KaTeX files that Verso bundled then.
+
 Every colour is a token of [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) with
 exactly one light and one dark value, emitted once with CSS `light-dark()`. In both themes,
 `ink_on_paper` proves that every text token has at least 7:1 (body text and headings) or 4.5:1
@@ -278,14 +282,14 @@ The theme control (Light, Dark, System; System by default) is three buttons with
 `aria-pressed`, in the header and, on narrow screens, at the foot of the table-of-contents
 drawer. Its script is inlined in every page's `<head>`, so a stored choice applies before the
 first paint. The choice is kept in the browser's `localStorage` under `regula-theme`, covers
-`dev/` and every snapshot, and follows other open tabs; System stores nothing and follows the
+every themed edition, and follows other open tabs; System stores nothing and follows the
 operating system, including live changes. Without JavaScript there is no control and the pages
 follow the operating system. The script also makes `/` focus the search box and patches
 defects of Verso's page template until they are fixed upstream: it sets `lang="en"`, removes the
 viewport's zoom lock, names the table-of-contents toggles and gives the search box the
 `combobox` role that its `aria-expanded` state requires. Search and the collapsible table of
-contents are Verso's bundled JavaScript; only Verso's search feature is enabled, so no KaTeX is
-shipped. `prefers-reduced-motion` turns transitions off.
+contents are Verso's bundled JavaScript; only Verso's search feature is enabled, so themed editions
+ship no KaTeX. `prefers-reduced-motion` turns transitions off.
 
 Lighthouse's accessibility category (Chrome headless, 2026-09-26, a local preview of the theme
 change) scored 1.0 for the rule index and RG1002 in both themes at 1280 pixels, and for RG1002
