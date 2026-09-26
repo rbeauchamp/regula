@@ -139,9 +139,10 @@ the registry is closed, and codecs refuse unknown IDs, fields and modes.
 ## Adopter journeys
 
 On a new project that required the linter by Git revision `a52bf1f` and followed the
-[adoption guide](adoption.md) ([record][q10]). These runs exercised that revision; later
-changes to evidence modes, message rendering, explanations and credits are covered by ordinary
-acceptance, both corpus shards, the site build and the lint-driver and producers campaigns.
+[adoption guide](adoption.md) ([record][q10]). These runs exercised that revision; the #10
+changes to evidence modes, message rendering, explanations and credits were covered instead by
+ordinary acceptance, both corpus shards, the site build and the lint-driver and producers
+campaigns at the #10 revisions ([record][q10-runs]).
 
 - `lake lint` accepted the clean project (exit 0), and `lake lint -- --fresh` gave fresh
   whole-project acceptance.
