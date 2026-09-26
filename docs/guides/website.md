@@ -29,9 +29,11 @@ The site publishes the standard under `standard/` of every edition, next to the 
 rule page links each registry clause ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)
 `Clause`) to its section anchor and each checklist row to its anchor on module 9, in the same
 edition; rule pages do not restate the standard's normative text. The documentation
-acceptance step renders the standard alone and requires each cited section's anchor on its
-chapter page and each linked row's anchor on module 9 (`Regula.Site.standardAnchors`), and the
-artifact's link check requires every anchor in the rendered site. The
+acceptance step renders the standard alone and requires each cited section in the elaborated
+standard with its tag and exact heading in its chapter (`website/StandardMain.lean`), each cited
+section's anchor on its chapter page and each linked row's anchor on module 9
+(`Regula.Site.standardAnchors`), and the artifact's link check requires every anchor in the
+rendered site. The
 generator refuses a cited repository path that does not exist.
 
 ## What the build establishes

@@ -186,9 +186,10 @@ These are bounded observations of real runs, not theorems about the tools.
   the 404 route byte for byte against the validated artifact.
 - **Checked** for the standard (`./scripts/verify.sh docs` and the site build): every `lean` block
   elaborates where it is written as its kind requires, the fence audit classifies the same blocks,
-  every cross-reference and checklist-row anchor resolves, and the rendered standard defines the
-  anchor of every section the registry cites and every row a rule page links
-  (`Regula.Site.standardAnchors`, `missingAnchors_nil_iff`).
+  every cross-reference and checklist-row anchor resolves, every section the registry cites is a
+  part of the elaborated standard with its tag and exact heading in its chapter
+  (`website/StandardMain.lean`), and the rendered standard defines the anchor of every cited
+  section and every row a rule page links (`Regula.Site.standardAnchors`, `missingAnchors_nil_iff`).
 - **Observed** on the live site (deployed `a52bf1f`, before #10; [record][q10]): all 21 `dev/`
   and `rev/` rule routes return their pages; unknown IDs, unreleased versions and unpublished
   revisions return the not-available page (HTTP 404) without redirecting; search finds rules;

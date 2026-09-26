@@ -17,10 +17,12 @@ section a registry entry cites, with its number, heading, chapter and source fil
 
 ## Boundaries
 
-That the rendered standard's chapter page defines each section's anchor, and that its source
-is a module of the standard, is checked when the documentation acceptance step renders it
-(`Regula.Site.standardAnchors`, `lake exe docFenceAudit --verso`); that the section is written
-in that module under this heading is by inspection. The published site's links are the site
+The documentation acceptance step (`lake exe docFenceAudit --verso`) checks each clause against
+the standard: its render executable (`website/StandardMain.lean`) requires a part of the
+elaborated standard with the clause's tag and exactly its heading inside the chapter whose
+`file` is the clause's chapter; the rendered chapter page must define the anchor
+(`Regula.Site.standardAnchors`); and the source must be a module of the standard. That the
+chapter is written in that module is by inspection. The published site's links are the site
 build's link check. Nothing here reads the standard.
 -/
 
