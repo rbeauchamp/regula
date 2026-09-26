@@ -169,7 +169,7 @@ def run (args : List String) : IO Unit := do
     if ← System.FilePath.pathExists siteOutput then IO.FS.removeDirAll siteOutput
   for command in [Command.mk "git" #["diff", "--check"],
       Command.mk "git" #["diff", "--cached", "--check"],
-      Command.mk "shellcheck" #["scripts/verify.sh"]] ++ commands selection.val do
+      Command.mk "shellcheck" #["scripts/verify.sh", "scripts/provision.sh"]] ++ commands selection.val do
     execute command
   IO.println (match selection.val with
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; semantic review is separate; run `scripts/verify.sh docs` for documentation)"

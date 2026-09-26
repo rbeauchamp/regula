@@ -98,6 +98,11 @@
   Those remain Lean-driven after provisioning. Expanding this exception requires
   explicit operator approval. Installation and runtime mechanisms remain trusted,
   not formally verified by the project's Lean contracts.
+- Operator-approved exception: `scripts/provision.sh` may use shell solely to run
+  `lean/RegulaProvision.lean` from the repository root, the local setup linking a copy to
+  the shared, read-only Mathlib. `scripts/verify.sh` runs it before its deadline under its
+  own 1800-second GNU timeout and stops with a message if it fails or times out. It must
+  not implement policy decisions, validation logic, or test orchestration.
 - Use Lean/Lake APIs for orchestration where available. Distinguish pure proved
   behavior from trusted compiler/runtime, filesystem, and process effects; qualification
   observations do not prove those external mechanisms.
@@ -130,8 +135,9 @@
   questions or corpus invalidates the committed calibration in `examples/intent-screening/`
   until a new, disclosed test run.
 
-Use `lake build` for the Lean development loop. Complete local acceptance is two commands,
-run in this order:
+In a fresh copy, run `./scripts/provision.sh` before the first `lake build`; otherwise Lake
+clones and builds a per-copy Mathlib. Then use `lake build` for the Lean development loop.
+Complete local acceptance is two commands, run in this order:
 
 ```sh
 ./scripts/verify.sh
@@ -139,7 +145,9 @@ run in this order:
 ```
 
 Each has its own hard, no-exception 420-second deadline; the first includes cold
-root-package builds.
+root-package builds. Before that deadline starts, each `verify.sh` invocation runs
+`scripts/provision.sh` as setup under its own separate 1800-second limit; a failure or
+timeout there stops the run before verification begins.
 There is no override or grace period; GNU coreutils timeout sends SIGKILL to the
 verification process group at the deadline. A partial or over-budget run fails.
 Do not bypass the deadline by treating separately run inner checks as acceptance.
