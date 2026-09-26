@@ -287,6 +287,10 @@ push to `main`, and nightly. None is part of acceptance.
   the pinned toolchain. It owns argument selection, command recipes, sequential execution
   and success reporting. `scripts/verify.sh` only selects the root/GNU timeout and starts
   this runner under the external deadline, including all root-package builds.
+- `lean/RegulaProvision.lean`: a separately claimed toolchain-only setup program that
+  `scripts/verify.sh` runs before that deadline. It links the copy to one shared, read-only
+  Mathlib ([contributing guide](contributing.md#share-one-mathlib-across-local-copies));
+  provisioning is not verification.
 - `lean/Regula/Site/`: the rule-reference site builder (`lake exe site`) and the
   toolchain-only deployment check. Their pure decisions are proved in the claimed
   `RegulaCore.Site*` modules; see the [website guide](website.md).
@@ -482,7 +486,8 @@ checker or all project-owned Lean code as formally verified.
 
 The supported compiler, filesystem, process runtime and GNU timeout are trusted mechanisms.
 Unique scratch directories are removed on normal or exceptional return; a killed process
-cannot promise to run its cleanup handler. Each supported public invocation has one
+cannot promise to run its cleanup handler, so the next scratch user in the checkout reclaims
+its directory once no live process holds the scratch lock (`Regula.Scratch`). Each supported public invocation has one
 non-foreground GNU timeout owning the whole process group, including descendants with
 inherited output handles. Acceptance passes an internal `--under-deadline` protocol flag
 to `qualify` so it does not detach a nested timer/group. That private flag is not a bounded

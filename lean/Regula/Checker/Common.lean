@@ -1,5 +1,6 @@
 import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
+import Regula.Scratch
 import RegulaPolicy.ResultState
 import Lean
 import Lake.Load.Manifest
@@ -152,22 +153,11 @@ def checkerPackageLibDir : IO (Option FilePath) := do
     return some libDir
   return none
 
-private def randomSuffix : IO String := do
-  let pid ← IO.Process.getPID
-  let nanos ← IO.monoNanosNow
-  let bytes ← IO.getRandomBytes 8
-  let random := bytes.foldl (fun value byte => value * 257 + byte.toNat) 0
-  return s!"{pid}-{nanos}-{random}"
-
+/-- A fresh scratch directory under `repo/tmp`, removed on return; orphans of dead runs are
+reclaimed (`Regula.Scratch`). -/
 def withScratch (repo : FilePath) (stem : String)
-    (action : FilePath → IO α) : IO α := do
-  let tmp := repo / "tmp"
-  IO.FS.createDirAll tmp
-  let path := tmp / s!"{stem}-{← randomSuffix}"
-  if ← path.pathExists then
-    throw <| IO.userError s!"refusing to reuse scratch path {path}"
-  IO.FS.createDir path
-  try action path finally IO.FS.removeDirAll path
+    (action : FilePath → IO α) : IO α :=
+  return (← Regula.Scratch.withScratch repo stem action).1
 
 /-- Lake resolves a manifest `path` dependency relative to the workspace
 root, so a relative `dir` copied verbatim would name a different directory

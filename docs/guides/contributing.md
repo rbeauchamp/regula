@@ -21,12 +21,13 @@ discovery; directory names alone do not establish audit ownership.
 ## Develop and verify
 
 Provision [elan](https://github.com/leanprover/elan), the pinned toolchain,
-Mathlib artifacts (`lake exe cache get`), the website package's pinned Verso
+the shared Mathlib (`lean --run lean/RegulaProvision.lean`), the website package's pinned Verso
 (`(cd website && lake build verso/VersoManual)`), GNU coreutils timeout, and ShellCheck
 before verification. On macOS, `brew install coreutils shellcheck` supplies the
 last two tools. Verification runs offline against those pinned dependencies.
 
 ```sh
+lean --run lean/RegulaProvision.lean # link this copy to the shared, read-only Mathlib
 lake build                         # incremental development check
 ./scripts/verify.sh                 # ordinary acceptance (project surfaces)
 ./scripts/verify.sh docs            # documentation examples and the Verso standard, linked to that acceptance
@@ -41,6 +42,34 @@ the standard fresh, and refuses unless its own freshly captured inputs have the 
 limit; a timeout is an incomplete run, not acceptance. Provisioning happens before
 that limit. CI runs both commands, in that order in one job, after restoring or
 provisioning pinned dependency caches.
+
+### Share one Mathlib across local copies
+
+Locally, every copy uses one unpacked Mathlib per pinned revision and toolchain instead of
+its own. [`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean) unpacks Mathlib's
+archive cache (`~/.cache/mathlib`) once into
+`~/.cache/mathlib-packages/<mathlib-rev>-lean-<toolchain-commit>/`, compiles every
+module's native object there (executables that import Mathlib link them), makes it
+read-only, and links the copy's `.lake/packages/mathlib` to it. The rest of Mathlib's closure
+(Batteries, Aesop, ...) becomes writable copy-on-write clones, since executables compile
+native objects into them, and each workspace under `examples/` links its `.lake/packages`
+to the root's. `./scripts/verify.sh` runs it before its deadline. The first run for a new
+pin takes about four minutes and needs the network; later copies take a few seconds and no
+Mathlib space. The receipt `regula-provisioned.json` in the shared directory records its
+revisions. A clean per-copy Mathlib checkout is replaced by the link; one with local
+changes is refused.
+
+- Do not run `lake exe cache get` locally: it unpacks a full Mathlib into the copy, and
+  with the link in place it fails on the read-only directory. A Lake write into the shared
+  Mathlib fails the same way, which is how an unintended rebuild shows up.
+- Write probes that need Mathlib as single files under `tmp/` and check them with
+  `lake env lean tmp/Probe.lean`; a separate Lake project there would fetch its own Mathlib.
+- Scratch directories of killed runs (for example at the seven-minute limit) are reclaimed
+  by the next run that creates one while no other run in the copy holds scratch; so is any
+  directory under `tmp/` named like one (`<name>-<n>-<n>-<n>`).
+- GitHub Actions keeps `lake exe cache get` and its dependency cache; provisioning does
+  nothing there. A shared directory is never modified; remove one with
+  `chmod -R u+w <dir> && rm -rf <dir>` once no copy links it.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
