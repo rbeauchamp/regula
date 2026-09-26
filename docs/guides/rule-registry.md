@@ -162,7 +162,9 @@ declarations, execution inventory from its owned roots, jobs and diagnostics, pl
 constant-size record per dependency; this is an argument from construction, not a
 theorem about serialized byte counts.
 
-Registry (schema 2, which adds each rule's guidance and example pair to schema 1) and result
+Registry (schema 3, whose `normativeClauses` are `{section, title, source, url}` objects, the
+cited section's number, heading, Verso source path and development URL, where schema 2 had
+`PATH §N` strings; schema 2 added each rule's guidance and example pair to schema 1) and result
 (schema 3) envelopes contain `schemaVersion`, `producerVersion`,
 `toolchain` and `sourceRevision`. Registry output contains the canonical `rules`.
 Result output contains `scope`, `mode`, `status`, `stages`, `stagesCompleted`, `complete`,

@@ -6,7 +6,9 @@
   backed by a strict public standard for dependent types, theorem statements,
   proofs, axioms, elaboration, modules, and Lean code in Lean 4 projects, especially where
   correctness is critical.
-- `docs/standard/` defines normative meaning; `docs/guides/` contains practical guidance.
+- The standard defines normative meaning: its only source is the Verso library in
+  `website/RegulaStandard/`, published under `standard/` of the rule-reference site.
+  `docs/guides/` contains practical guidance.
   `lean/Audit/` and the Lean-oriented checkers must dogfood the applicable rules.
 - `lean/Regula/` implements mechanically checkable requirements; `examples/build-lint/`
   is the reference build integration. Keep enforced rules, required proof evidence, and
@@ -36,7 +38,8 @@
   When working an open issue, that issue is authoritative until closed; existing green checks
   are scoped results only.
 - For a PR review, pre-merge pass, or independent compliance audit, use the repository-local
-  `.agents/skills/pr-review-toolkit/SKILL.md`. `docs/standard/9-compliance-audit.md` is the checklist SSOT.
+  `.agents/skills/pr-review-toolkit/SKILL.md`. The standard's module 9
+  (`website/RegulaStandard/ComplianceAudit.lean`) is the checklist SSOT.
 - Every delivery PR requires independent review by at least one fresh-context reviewer.
   Scope reading and checks to the changed claims; use distinct reviewers for materially
   different semantic and implementation risks. The local review skill owns assignments
@@ -111,11 +114,11 @@
   and application governance in the universal standard.
 - Keep documentation, diagnostics, checker names, and checker output no stronger than the exact
   Lean property established.
-- Respect the assurance boundary stated in `docs/standard/8`: custom or ambiguous evaluator paths fail
+- Respect the assurance boundary stated in standard module 8: custom or ambiguous evaluator paths fail
   generated-role exceptions, but a modified Lean executable, compromised process, and arbitrary
   trusted plugins are outside this Lean-source standard. Do not recursively expand reviews into
   stronger threat models after the documented boundary has direct positive and negative evidence.
-- For a PR, establish the `docs/standard/9` rows affected by its changes and dependencies.
+- For a PR, establish the standard's module 9 rows affected by its changes and dependencies.
   A full repository-compliance claim requires every applicable row across all claimed surfaces
   to be `PASS`; a scoped PR review does not establish that broader claim.
   `MUT-*` applies when checker behavior is implemented or changed; `DOGFOOD-*` applies
@@ -140,22 +143,24 @@ root-package builds.
 There is no override or grace period; GNU coreutils timeout sends SIGKILL to the
 verification process group at the deadline. A partial or over-budget run fails.
 Do not bypass the deadline by treating separately run inner checks as acceptance.
-Provision pinned dependency artifacts and GNU coreutils timeout before verification;
-network/toolchain installation is setup, not a verification pass. OS scheduling and
+Provision pinned dependency artifacts (including the website package's pinned Verso,
+`(cd website && lake build verso/VersoManual)`) and GNU coreutils timeout before
+verification; network/toolchain installation is setup, not a verification pass. OS scheduling and
 signal delivery are trusted mechanisms, not a hard real-time theorem.
 
 The first builds the acceptance executables and type-checks the diagnostic modules,
 checks every claimed declaration with fresh source elaboration and kernel admission, and
 records the content identity of its inputs: the inputs it accepted plus the `docs/`
-Markdown it only brackets, not accepts. The second audits every
-documentation example and refuses unless its own inputs have that identity. This exact
+Markdown and the standard's Verso package sources it only brackets, not accepts. The second audits
+every documentation example, builds the Verso standard fresh (elaborating each `lean` block
+where it is written) and renders it, and refuses unless its own inputs have that identity. This exact
 two-step split is the only permitted division of acceptance. Diagnostic native binaries
 are built when those diagnostics are requested.
 Complete applicable theorem/type/prose review too; command success alone is not full
 semantic conformance.
 
 Checker changes receive focused qualification for affected capabilities and invocation
-paths under docs/standard/8 §8.8. Long mutation, external-adopter, build-integration,
+paths under standard §8.8. Long mutation, external-adopter, build-integration,
 and optional serialized-graph campaigns are diagnostics, not automatic merge gates.
 Retain their controls and applicable evidence; never relabel an unrun campaign PASS.
 `./scripts/verify.sh diagnostics [partition]` runs a selected existing campaign under

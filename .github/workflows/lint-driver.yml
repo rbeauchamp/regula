@@ -1,6 +1,6 @@
 name: Lint driver
 
-# The `lake lint` dispatch and the maintained adopter fixtures (docs/standard/8 §8.8).
+# The `lake lint` dispatch and the maintained adopter fixtures (standard §8.8).
 # They cross Lake, process and filesystem boundaries that the driver's proofs do not
 # cover, so this campaign runs when the driver or anything it imports changes, always
 # on main, and nightly.

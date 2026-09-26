@@ -4,7 +4,7 @@ A strict linter and correctness standard for Lean.
 
 Regula pairs a Lean linter and linked rule-reference website with a standard requiring precise types, propositions, and kernel-checked evidence.
 
-The [standard](docs/standard/README.md) defines normative meaning. The current checker enforces declaration, foundation, execution-boundary, and checked-example requirements; the [product architecture](docs/guides/linter-architecture.md) specifies the typed rule catalogue, editor integration, and GitHub Pages website. Adopters run it with `lake lint` and receive editor diagnostics from `import Regula.Linter` ([adoption guide](docs/guides/adoption.md)). Every diagnostic carries its fix and links to its explanation in the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/), generated from the rule registry and checked examples and published by CI from `main` ([website guide](docs/guides/website.md)). Its scope is Lean: dependent types, theorem statements, proofs, foundations, elaboration, modules, and executable Lean code. It serves both mathematical research and application development, with explicit assumptions and execution boundaries.
+The [standard](https://rbeauchamp.github.io/regula/dev/standard/) defines normative meaning. The current checker enforces declaration, foundation, execution-boundary, and checked-example requirements; the [product architecture](docs/guides/linter-architecture.md) specifies the typed rule catalogue, editor integration, and GitHub Pages website. Adopters run it with `lake lint` and receive editor diagnostics from `import Regula.Linter` ([adoption guide](docs/guides/adoption.md)). Every diagnostic carries its fix and links to its explanation in the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/), generated from the rule registry and checked examples and published by CI from `main` ([website guide](docs/guides/website.md)). Its scope is Lean: dependent types, theorem statements, proofs, foundations, elaboration, modules, and executable Lean code. It serves both mathematical research and application development, with explicit assumptions and execution boundaries.
 
 ## Agent-first
 
@@ -41,20 +41,20 @@ which requirements are sound, useful, and practical for real Lean projects.
 
 ## Start here
 
-- **Read the standard:** begin with the [core philosophy](docs/standard/0-core-philosophy.md), then use the [document map](docs/README.md) to find the relevant rules.
+- **Read the standard:** begin with the [core philosophy](https://rbeauchamp.github.io/regula/dev/standard/0-core-philosophy/), then use the [document map](docs/README.md) to find the relevant rules.
 - **Use it in a project:** follow the [adoption guide](docs/guides/adoption.md) and the [standalone examples](examples/README.md).
 - **Inspect or improve it:** explore the [Lean module map](lean/README.md) and the [contributor guide](docs/guides/contributing.md).
 
-Conformance means satisfying every applicable row of the [compliance checklist](docs/standard/9-compliance-audit.md). A passing checker command establishes its stated property; semantic review still determines whether the theorems express the intended claims and complete contracts.
+Conformance means satisfying every applicable row of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/). A passing checker command establishes its stated property; semantic review still determines whether the theorems express the intended claims and complete contracts.
 
 ## Repository map
 
 | Area | Purpose |
 | --- | --- |
-| [docs/](docs/README.md) | Normative standard and practical guides. |
+| [docs/](docs/README.md) | Practical guides and the map to the standard. |
 | [lean/](lean/README.md) | Contracts, checked examples, checkers, and isolated qualification fixtures. |
 | [examples/](examples/README.md) | Self-contained adopting projects, each with its own README and Lake configuration. |
-| [website/](docs/guides/website.md) | Pinned Verso package that renders the generated rule reference. |
+| [website/](docs/guides/website.md) | Pinned Verso package: the normative standard's only source (`RegulaStandard`) and the renderer of the rule reference that publishes it. |
 
 Root configuration files keep this a directly usable Lake package. Tool-owned hidden directories stay in their expected locations; build output and temporary probes are not maintained content areas.
 

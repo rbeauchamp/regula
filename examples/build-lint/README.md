@@ -59,14 +59,14 @@ or run it concurrently with another build of its claimed modules.
 
 Native arithmetic remains trusted even with checked execution. This linter enforces declared
 requirements, not their adequacy or completeness, fresh-source conformance, kernel normalization,
-or native correctness. See [the exact scope and limits](../../docs/standard/8-tooling-and-machine-audit.md#812-opt-in-enforcing-build-linter).
+or native correctness. See [the exact scope and limits](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter).
 Qualification copies these actual files and mutates disposable adopters through plain
 `lake build`; it is included in `lake exe checkerSelftest --build-bound --jobs 4`. The `lint-driver`
 partition (`./scripts/verify.sh diagnostics lint-driver`) qualifies `lake lint` the same way.
 
 ## Enforcement boundary
 
-The [compliance checklist](../../docs/standard/9-compliance-audit.md) remains the rule
+The [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/) remains the rule
 inventory. Its `BUILD-01`–`BUILD-04` rows describe this integration:
 
 - **Build enforcement:** the enabled policy target rejects warnings and policy violations,
@@ -79,7 +79,7 @@ inventory. Its `BUILD-01`–`BUILD-04` rows describe this integration:
   remain review obligations under the checklist's `SCOPE-*`, `TYPE-*`, `THEOREM-*`, and
   documentation rows. A passing build alone does not establish full conformance.
 
-See [module 8 §8.12](../../docs/standard/8-tooling-and-machine-audit.md#812-opt-in-enforcing-build-linter)
+See [module 8 §8.12](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter)
 for the supported adapter and exact enforcement limits. Editor elaboration does not run
 this build policy. For live editor diagnostics, see [lake-lint-toml](../lake-lint-toml/README.md).
 

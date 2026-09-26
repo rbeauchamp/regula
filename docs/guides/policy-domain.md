@@ -2,7 +2,7 @@
 
 `RegulaPolicy` is the public, pure library used by the checker. Import
 `RegulaPolicy` for its current domain and admission APIs. The normative meaning
-of the rules remains in [the standard](../standard/README.md); the
+of the rules remains in [the standard](https://rbeauchamp.github.io/regula/dev/standard/); the
 [policy proofs guide](policy-proofs.md) describes the semantic guarantees. The
 [acceptance contract](policy-acceptance.md) specifies complete-result integration.
 

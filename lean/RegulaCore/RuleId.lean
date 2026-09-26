@@ -6,7 +6,7 @@ module
 Closed public rule identity. Canonical construction is inspired by con-leche's
 `PropWhen.lean` and `Cached/Installed.lean`, revision
 c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0 (Lean FRO, Joachim Breitner and contributors).
-No upstream code or proof is copied. Normative predicates remain in docs/standard.
+No upstream code or proof is copied. Normative predicates remain in the standard (`website/RegulaStandard`).
 -/
 namespace Regula
 

@@ -28,7 +28,7 @@
     {
       "library": "Audit",
       "claim": "standard-logical",
-      "rationale": "The Audit library contains Real-based examples. Every declaration is still labeled from its own exact axiom set under docs/standard/4 \u00a74.5."
+      "rationale": "The Audit library contains Real-based examples. Every declaration is still labeled from its own exact axiom set under standard \u00a74.5."
     },
     {
       "library": "AuditApp",

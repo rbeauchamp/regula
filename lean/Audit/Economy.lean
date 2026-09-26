@@ -2,15 +2,15 @@ import Mathlib.Tactic.Ring
 import Mathlib.Basic.Real.Basic
 
 /-!
-Checked examples for proof economy (docs/standard/3 §3.2.5) and lawful mixins
-(docs/standard/3 §3.2.3). Every declaration is hole-free and uses no project axiom.
+Checked examples for proof economy (standard §3.2.5) and lawful mixins
+(standard §3.2.3). Every declaration is hole-free and uses no project axiom.
 
 **Cost domains.** `sumTo` and `sumWf` have the same recursive equations
 and illustrate distinct elaboration and kernel-reduction behavior. Elaboration:
 `sumTo` is structurally recursive and unfolds at default transparency, so
 `decide` closes `sumTo 100 = 5050`; `sumWf` is well-founded and therefore
 `@[irreducible]`, so the elaborator's `decide` stops at it (the negative
-fence in docs/standard/3 §3.2.5). Kernel replay: the kernel can replay both, `sumTo`
+fence in standard §3.2.5). Kernel replay: the kernel can replay both, `sumTo`
 by unfolding the recursor and `sumWf` through the fixpoint term it elaborated
 to (`WellFounded.Nat.fix` for its `Nat` measure on this pin, unfolded by
 `Nat.rec` on an eager fuel bound rather than through an accessibility
@@ -24,7 +24,7 @@ loop. The analytic theorem `two_mul_sumTo` replaces per-instance replay with
 one induction for every `n`, and kernel reduction of `sumTo` is unchanged by
 the `csimp` attribute.
 
-Retention reason (docs/standard/9 `DOGFOOD-04`): Mathlib's
+Retention reason (standard checklist row `DOGFOOD-04`): Mathlib's
 `Finset.sum_range_id_mul_two : (∑ i ∈ range n, i) * 2 = n * (n - 1)` states
 the Gauss identity at a shifted index (`range (n + 1)` corresponds to
 `sumTo n`), but that sum is a `Multiset`-quotient object whose kernel
@@ -42,7 +42,7 @@ is a `Prop`-valued mixin that holds every law. A generic claim that uses a
 law requires the mixin directly (`measure_enhance_ge`) or obtains its instance
 from stronger assumptions; a use at a
 concrete type obtains it from a discharged instance; an instance of the
-mixin must discharge every law (docs/standard/3 §3.2.3 negative fences). The class is
+mixin must discharge every law (standard §3.2.3 negative fences). The class is
 retained rather than replaced by a Mathlib structure because no pinned
 Core/Std/Mathlib class states an inflationary binary operation together with
 a real-valued monotone measure; the ℝ instance reuses `le_max_left` and
@@ -106,7 +106,7 @@ example : sumTo 100 = 5050 := by rw [sumTo_eq_closedSum]; rfl
 /-- The stable interface of the well-founded definition is its equation
 theorem; proofs go through it rather than through transparency changes. This
 wrapper presents the generated equation with a non-dependent `if`, matching
-the equations taught in docs/standard/3 §3.2.5; `rw [sumWf]` reuses that generated
+the equations taught in standard §3.2.5; `rw [sumWf]` reuses that generated
 equation rather than proving the recursion again. -/
 theorem sumWf_unfold (n : Nat) :
     sumWf n = if n = 0 then 0 else sumWf (n - 1) + n := by

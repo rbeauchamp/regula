@@ -43,7 +43,7 @@ def main : IO Unit := do
       s!"unknown field {id}"
   require (!succeeded (parseRule (.str "RG9999"))) "unknown rule"
   require (!succeeded (parseMode "fresh")) "unknown mode"
-  require (!succeeded (validateRegistry producer (manifest.setObjVal! "schemaVersion" (toJson (1 : Nat)))))
+  require (!succeeded (validateRegistry producer (manifest.setObjVal! "schemaVersion" (toJson (2 : Nat)))))
     "superseded registry version"
   -- The embedded example pairs are exactly the corpus files the rule-example campaign runs:
   -- this rejects a stale build and an `include_str` of the wrong file.

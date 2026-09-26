@@ -32,6 +32,7 @@ structure Options where
   jsonOut : Option FilePath := none
   resultOut : Option FilePath := none
   acceptanceLink : Option FilePath := none
+  verso : Option Documentation.VersoPackage := none
   withDocs : Bool := false
   incremental : Bool := false
   buildLint : Bool := false
@@ -39,7 +40,7 @@ structure Options where
   help : Bool := false
 
 private def usage : String :=
-  "usage: lake exe axiomGate -- [--verbose] [--project DIR] [--manifest PATH] [--json-out PATH] [--with-docs] [--acceptance-link PATH]\n" ++
+  "usage: lake exe axiomGate -- [--verbose] [--project DIR] [--manifest PATH] [--json-out PATH] [--with-docs] [--acceptance-link PATH [--verso DIR:LIBRARY:RENDER]]\n" ++
   "       lake exe axiomGate -- --file FILE [--claim PROFILE] [--execution MODE] [--json-out PATH]\n" ++
   "profiles: kernel-only, choice-free, standard-logical, compiler-trusting\n" ++
   "execution modes: report (default), checked"
@@ -67,6 +68,8 @@ private def parseArgs : List String → Options → IO Options
       parseArgs rest { options with jsonOut := some (FilePath.mk value) }
   | "--acceptance-link" :: value :: rest, options =>
       parseArgs rest { options with acceptanceLink := some (FilePath.mk value) }
+  | "--verso" :: value :: rest, options => do
+      parseArgs rest { options with verso := some (← IO.ofExcept (Documentation.parseVersoOption value)) }
   | "--with-docs" :: rest, options =>
       parseArgs rest { options with withDocs := true }
   | "--incremental" :: rest, options =>
@@ -731,7 +734,8 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     (incremental verbose : Bool) (jsonOut : Option FilePath) (withDocs : Bool) (composed : IO.Ref (Option Json)) (resultOut : Option FilePath := none)
     (observeConfiguration : FilePath → Array (FilePath × Option String) → IO Unit := fun _ _ => pure ())
     (observeSources : Array ProducerReport.SourceBinding → IO Unit := fun _ => pure ())
-    (buildLint : Bool := false) (acceptanceLink : Bool := false) :
+    (buildLint : Bool := false) (acceptanceLink : Bool := false)
+    (verso : Option Documentation.VersoPackage := none) :
     IO (UInt32 × Option AcceptanceLink.Pending) :=
   if incremental then do
     let configuration ← SourceBinding.configuration repo (manifest.getD (Manifest.defaultPath repo))
@@ -745,9 +749,9 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     observeConfiguration copy (← SourceBinding.configuration copy manifestPath)
     if withDocs then Documentation.snapshotMarkdown (repo / "docs") (copy / "docs")
     let documents ← if withDocs then Documentation.captureMarkdown (copy / "docs") else pure #[]
-    -- The link covers the Markdown the separate documentation step will audit.
-    let linkedDocuments ← if acceptanceLink then Documentation.captureMarkdown (repo / "docs")
-      else pure #[]
+    -- The link covers the Markdown and Verso sources the separate documentation step audits.
+    let linkedSources : Documentation.Sources := ⟨repo / "docs", verso⟩
+    let linkedDocuments ← if acceptanceLink then linkedSources.captureLinked else pure #[]
     let project ← IO.mkRef (none : Option ProjectEvidence)
     let linked ← IO.mkRef (none : Option AcceptanceLink.Pending)
     -- The identity is computed after acceptance and before the success line, so an identity
@@ -755,7 +759,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let observe (evidence : ProjectEvidence) : IO Unit := do
       project.set (some evidence)
       if acceptanceLink then
-        Documentation.checkMarkdown (repo / "docs") linkedDocuments
+        linkedSources.checkLinked linkedDocuments
         let digest ← AcceptanceLink.identity scratch copy (repo / "docs") evidence.sources
           evidence.configuration evidence.dependencies linkedDocuments
         linked.set (some { digest, account := Account.account evidence.accepted })
@@ -1106,6 +1110,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     throw <| IO.userError "--with-docs requires fresh surface mode"
   if options.acceptanceLink.isSome && (options.file.isSome || options.incremental || options.withDocs) then
     throw <| IO.userError "--acceptance-link requires fresh surface mode without --with-docs"
+  if options.verso.isSome && options.acceptanceLink.isNone then
+    throw <| IO.userError "--verso applies only to --acceptance-link"
   let repo ← match options.project with
     | some dir => findRepoRoot dir
     | none => repoRoot
@@ -1155,6 +1161,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           let result ← auditSurface repo (options.manifest.map (resolve repo))
             options.incremental options.verbose jsonOut options.withDocs composed resultOut observeConfiguration observeSources
             (buildLint := options.buildLint) (acceptanceLink := acceptanceLink.isSome)
+            (verso := options.verso.map fun verso => { verso with dir := repo / verso.dir.toString })
           return result
     catch error => return (← reportFailure error, none)
   -- A configuration-read failure still records the request, with no configuration read.

@@ -517,7 +517,7 @@ private def fenceCorpusCases : Array (String × String × String) := #[
   ("nonlean-target", "<!-- lean-fail: Type mismatch -->\n```text\ndef n : Nat := \"x\"\n```\n", "not attached to a ```lean fence"),
   ("eof-marker", "<!-- lean-fail: Type mismatch -->", "left at end of file"),
   ("positive", "```lean\ntheorem nested_ok : 1 = 1 := rfl\n```\n", "positive.md:1 PASS"),
-  ("raw-import", "```lean\ntheorem missing_import : Glossary.Probability = Glossary.Probability := rfl\n```\n", "did not elaborate verbatim"),
+  ("raw-import", "```lean\ntheorem missing_import : Glossary.Time = Glossary.Time := rfl\n```\n", "did not elaborate verbatim"),
   ("warning", "```lean\nset_option warningAsError false in\ndef hidden_warning (unused : Nat) : Nat := 1\n```\n", "emitted warning"),
   ("hole", "```lean\ntheorem docs_hole : False := by sorry\n```\n", "hole.md:1 FAIL"),
   ("project-axiom", "```lean\naxiom docs_axiom : False\n```\n", "project-axiom"),

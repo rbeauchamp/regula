@@ -44,15 +44,15 @@ reader comes to do, in order. -/
 def homePage (ident : Identity) : Except String String := do
   let notice ← htmlBlock (pageAnchor "regula" ++ editionHtml ident "")
   let doc (path text : String) := "[" ++ text ++ "](" ++ blobUrl ident path ++ ")"
-  return header ["Generated.Rules", "Generated.Versions", "Generated.Credits"] "Regula rule reference" "regula" none ++
+  return header ["Generated.Rules", "RegulaStandard", "Generated.Versions", "Generated.Credits"] "Regula rule reference" "regula" none ++
     notice ++ "\n" ++
     "Regula is a strict linter for Lean 4. This reference shows exactly what each of its rules holds your agents' code to.\n\n" ++
     "1. **Look up a rule.** Every finding names a rule ID such as `RG1002` (editor code `Regula.RG1002`) and ends with the URL of its page here, such as `" ++ devUrl .proofHole ++ "`; the editor's *View explanation* link opens the same page. A rule page starts with what is wrong, what to do and a checked example. Open the [rule index](rules/), or press `/` to search.\n" ++
     "2. **Review a Regula pass.** A finding is a violation, which makes the result FAIL, or incomplete, which makes it INCOMPLETE because required evidence is missing; neither is accepted. A pass is mechanical: under *What a passing result establishes*, each rule page states what the check establishes and which review obligations stay with you. " ++ doc "docs/guides/rule-coverage.md" "Rule coverage" ++ " lists every obligation.\n" ++
     "3. **Decide whether to adopt.** The [rule index](rules/) lists all " ++ toString RuleId.all.length ++ " rules. Each is strict: a violation fails the result, and missing evidence never passes. The " ++ doc "docs/guides/adoption.md" "adoption guide" ++ " covers installation, `lake lint`, editor feedback and CI; " ++
-      doc "docs/standard/README.md" "the standard" ++ " and its " ++ doc "docs/standard/9-compliance-audit.md" "compliance checklist" ++ " define what the rules enforce.\n" ++
+      "[the standard](standard/) and its [compliance checklist](standard/9-compliance-audit/) define what the rules enforce; every Lean example of the standard is elaborated when this site is built.\n" ++
     "4. **Challenge a rule.** Each rule page gives the rule's rationale, its normative clauses and its detector sources at the commit the page was built from. To dispute a rule or report a wrong result, [open an issue](" ++ repository ++ "/issues).\n\n" ++
-    "{include Generated.Rules}\n\n{include Generated.Versions}\n\n{include Generated.Credits}\n"
+    "{include Generated.Rules}\n\n{include RegulaStandard}\n\n{include Generated.Versions}\n\n{include Generated.Credits}\n"
 
 /-- The rule index part, which includes every rule page. -/
 def indexPage (ident : Identity) : Except String String := do

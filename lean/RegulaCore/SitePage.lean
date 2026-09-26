@@ -221,7 +221,7 @@ def sourceFactsHtml (ident : Identity) (id : RuleId) (clauses : List Clause) (ch
   fact "Evidence modes" (escape (joinComma (d.evidenceModes.map modeLabel))) ++
   fact "Lifecycle" (escape (lifecycleText d.lifecycle)) ++
   fact "Normative clauses" (joinComma (clauses.map fun c => link c.url (escape c.label))) ++
-  fact "Checklist rows" (escape (joinComma checklist)) ++
+  fact "Checklist rows" (joinComma (checklist.map fun r => link (checklistRoute r) (code r))) ++
   fact "Help URL" (code (devUrl id)) ++
   fact "Detector, policy and proof sources" (joinComma (sources.map fun p => link (blobUrl ident p) (code p))) ++ "</dl>"
 

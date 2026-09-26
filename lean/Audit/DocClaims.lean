@@ -1,84 +1,21 @@
 import Mathlib.Analysis.SpecialFunctions.Exp
-import Mathlib.Topology.UnitInterval
 import Mathlib.Tactic.NormNum
 import Audit.DocPrelude
 
 /-!
-Dogfooding declarations mirrored from the standard's examples. The module owns:
-unit-interval `Probability` and exact complement; Core's reverse-append result;
-proof-bearing `SystemState` and composition preservation; positive-domain
-`safeDiv`; the exponential `DecayingValue` formula, antitonicity theorem, and
-joint-satisfiability witness; nominal discrete `Tick` values with transported natural order; and timestamped `Event` values with an
-`IsStrictOrder`-lawful `CausalOrder` on the declared event subtype.
+Dogfooding declarations for the standard's examples. The module owns the exponential
+`DecayingValue` formula, antitonicity theorem, and joint-satisfiability witness, and nominal
+discrete `Tick` values with transported natural order; examples of the standard import them.
+Declarations the standard's own `lean` blocks display, with their inhabitance, defining-equation
+and axiom claims, are elaborated where they are written and are not repeated here.
 
-Each result states only its displayed binders and hypotheses. Inhabitance proves
-only existence, the decay witness proves only joint satisfiability of its listed
-hypotheses, and no definition or theorem is promoted to a native-runtime or
-external-system claim. Mathlib/Core predicates and structures are reused where
-they match.
+Each result states only its displayed binders and hypotheses. The decay witness
+proves only joint satisfiability of its listed hypotheses, and no definition or
+theorem is promoted to a native-runtime or external-system claim. Mathlib/Core
+predicates and structures are reused where they match.
 -/
 
-/- ── Module 0 §Non-Vacuity: an inhabitance witness for the constrained type ── -/
-example : Nonempty {n : ℕ // n % 2 = 0} := ⟨⟨4, by omega⟩⟩
-
-/- ── Module 2 §2.2: dependent types for invariants ── -/
 namespace Glossary
-
-/-- A probability reuses Mathlib's canonical closed unit interval. The type
-enforces exactly membership in `[0, 1]` — no more (module 2 §2.2). -/
-abbrev Probability : Type := unitInterval
-
-/-- Unit-interval complement: the result's underlying real value is exactly
-`1 - p`; `unitInterval.symm` also carries the proof that this value remains in
-`[0, 1]`. No probability-distribution or external-runtime property is claimed.
-The wrapper retains the glossary's vocabulary for Mathlib's existing operation;
-it defines no new complement algorithm or mathematical notion. -/
-def Probability.complement (p : Probability) : Probability :=
-  unitInterval.symm p
-
-/-- Non-vacuity for the constrained type: at least one probability exists.
-This proves inhabitance, nothing stronger. -/
-example : Nonempty Probability :=
-  ⟨⟨(1 : ℝ) / 2, by constructor <;> norm_num⟩⟩
-
-/-- Reversing an append swaps the operands and reverses each one. The proof
-delegates to core Lean's `List.reverse_append` rather than re-proving it. -/
-theorem reverse_append_correct (l₁ l₂ : List ℕ) :
-    (l₁ ++ l₂).reverse = l₂.reverse ++ l₁.reverse := @List.reverse_append ℕ l₁ l₂
-
-/- ── Module 3 §3.1: invariants as fields make obligations structural.
-
-`SystemState` enforces exactly one relation — `activeProposals ≤
-participants` — for every value that can be constructed. What other properties
-a state "should" satisfy is a modeling decision, not a type-checker fact. -/
-
-/-- A system state whose single documented invariant is a proof field. -/
-structure SystemState where
-  participants : ℕ
-  activeProposals : ℕ
-  inv : activeProposals ≤ participants
-
-/-- Composition preserves the invariant stated above, without side
-conditions on `f` or `g` — this is exactly the theorem stated, and nothing
-stronger (module 1 §1.6). -/
-theorem compose_preserves_safety (f g : SystemState → SystemState) :
-    ∀ s, ((f ∘ g) s).activeProposals ≤ ((f ∘ g) s).participants := fun s =>
-  (f (g s)).inv
-
-/-- Non-vacuity: states satisfying the invariant exist. -/
-example : Nonempty SystemState := ⟨⟨3, 1, by omega⟩⟩
-
-/- ── Module 3 §3.2.1: `Nat.div` is total — zero denominators yield zero, not
-an error. A restricted domain is encoded by the API when desired. -/
-
-/-- Division restricted to positive denominators: the domain restriction is
-part of the type, so callers must supply the proof. Mathlib's `PNat` (`ℕ+`)
-names this same subtype. The explicit subtype is retained to mirror the
-docs/standard/3 §3.2.1 teaching example; division itself reuses `Nat.div`. -/
-def safeDiv (a : ℕ) (d : {d : ℕ // d > 0}) : ℕ := a / d.val
-
-/-- `safeDiv` agrees with the underlying total division. -/
-theorem safeDiv_eq (a : ℕ) (d : {d : ℕ // d > 0}) : safeDiv a d = a / d.val := rfl
 
 /- ── Module 4 §4.1: the monotonic decay statement and its non-vacuity. ── -/
 
@@ -141,22 +78,5 @@ instance : LinearOrder Tick :=
 
 /-- The transported order compares exactly the underlying natural counts. -/
 theorem Tick.le_iff (a b : Tick) : a ≤ b ↔ a.val ≤ b.val := Iff.rfl
-
-/- ── Module 4 §4.3: a strict causal relation with Mathlib's laws. ── -/
-
-/-- Minimal event used by the causal-order example. Its identifier is
-phantom-typed so event IDs cannot be used as another ID domain directly. -/
-structure Event where
-  id : Id EventTag
-  timestamp : Time
-  content : OpaqueData
-
-/-- A causal relation on the declared event set, carrying Mathlib's exact
-`IsStrictOrder` interface (irreflexivity and transitivity). It does not claim
-a reflexive `PartialOrder`. -/
-structure CausalOrder where
-  events : Set Event
-  precedes : {e : Event // e ∈ events} → {e : Event // e ∈ events} → Prop
-  laws : IsStrictOrder {e : Event // e ∈ events} precedes
 
 end Glossary

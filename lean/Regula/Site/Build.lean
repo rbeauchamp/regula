@@ -214,19 +214,6 @@ def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO (Exa
   return (ex, { rule := id, kind := ex.kind, violationStatus := ex.violationStatus.spelling, fixedStatus := ex.fixedStatus.spelling,
                 emitted := (findings.map (·.rule)).eraseDups, shard := "" })
 
-/-- Resolve a registry clause `PATH §N` to its heading anchor in `PATH` at the build revision.
-Refuses when the file or the section heading does not exist. -/
-def resolveClause (root : FilePath) (ident : Identity) (clause : String) : IO Clause := do
-  let [path, number] := clause.splitOn " §" | throw <| IO.userError s!"unrecognized clause: {clause}"
-  let file := root / path
-  requireChecks [⟨s!"normative file exists: {path}", ← file.pathExists⟩]
-  let headings := ((← IO.FS.readFile file).splitOn "\n").filterMap fun line =>
-    match line.dropPrefix? "## " with
-    | some rest => if rest.toString.startsWith (number ++ " ") then some rest.toString else none
-    | none => none
-  let [heading] := headings | throw <| IO.userError s!"no unique heading §{number} in {path}"
-  return { label := clause, url := blobUrl ident path ++ "#" ++ headingSlug heading }
-
 private def writeModule (dir : FilePath) (name : String) (content : String) : IO Unit := do
   let path := dir / (System.FilePath.mk ((name.replace "." "/") ++ ".lean"))
   if let some parent := path.parent then IO.FS.createDirAll parent
@@ -329,5 +316,9 @@ def generate (root : FilePath) (g : Generated) : IO Unit := do
   for (id, ex) in g.examples do
     for p in (guide id).repositoryPaths do
       requireChecks [⟨s!"{id.spelling}: cited repository path exists: {p}", ← (root / p).pathExists⟩]
-    let clauses ← (descriptor id).normativeClauses.mapM (resolveClause root g.ident)
+    -- Each cited section of the standard, on its page in the same edition (`Clause.route` is
+    -- relative to the edition root, like every generated link); the artifact link check
+    -- requires the anchor to exist.
+    let clauses := (descriptor id).normativeClauses.map fun c =>
+      ({ label := c.label, url := c.route } : Regula.Site.Clause)
     writeModule dir (ruleModule id) (← IO.ofExcept (rulePage g.ident id clauses ex))

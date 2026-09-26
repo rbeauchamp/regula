@@ -12,7 +12,8 @@ interface evidence. The [coverage map](rule-coverage.md) accounts for the comple
 ## Product and authority
 
 Regula delivers an enforcing Lean linter and a linked rule-reference website, backed
-by a precise standard. `docs/standard/` remains authoritative for normative meaning.
+by a precise standard. The standard (Verso source in `website/RegulaStandard/`) remains
+authoritative for normative meaning.
 The Lean registry supplies machine metadata and diagnostic identity; checked source supplies
 website examples. Neither a prose-only repository nor a green lint command establishes full
 conformance. Every applicable chapter 9 row still needs its stated evidence.
@@ -88,7 +89,7 @@ Cancelled/stale/unsupported/unknown results cannot construct accepted evidence. 
 never construct a fresh whole-project result.
 
 The implemented output schemas are versioned independently from manifest schema 2: registry
-export is at schema 2 and result envelopes are at schema 3 (see [rule registry](rule-registry.md)).
+export is at schema 3 and result envelopes are at schema 3 (see [rule registry](rule-registry.md)).
 Both have top-level schemaVersion, producerVersion, toolchain and sourceRevision, plus rules
 (registry export) or scope/mode/status/stages/stagesCompleted/complete/stagesNotRun/diagnostics/rules/unresolved
 (result export).
@@ -128,7 +129,7 @@ boundaries while strengthening the pure core.
 
 The checker/examples use the [supported toolchain](../../README.md#supported-toolchain).
 Check version/commit before pin-sensitive inspection; the compiler-dependent account
-is specified in [module 8 §8.6](../standard/8-tooling-and-machine-audit.md#execution-roots-and-conservative-coverage).
+is specified in [module 8 §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#execution-roots-and-conservative-coverage).
 Use Core/Std/Lean APIs without importing Mathlib into the linter. Adopters may use Mathlib;
 transitive package resolution does not require compiling its mathematical modules.
 
@@ -210,13 +211,14 @@ The site builder (`lake exe site`, in the root package) generates Verso source f
 (`descriptor`, including the requirement, rationale, remedy, rewrites and example pair that
 every finding also prints), the typed explanations (`RegulaCore.Guide`, one exhaustive definition over
 `RuleId`, the explicit prose input the design allowed in place of `website/Rules/<ID>.lean`) and
-the admitted rule-example exports of the same commit. Generation runs in the root package
-because the website package cannot import the registry without resolving the root package's
-Mathlib dependency. Checked sources render as escaped text; no re-elaboration by the documentation
+the admitted rule-example exports of the same commit. Generation runs in the root package. The
+website package requires the root package (sharing its `.lake/packages`) only so that the
+standard's examples can import root-package modules and Mathlib, each in its own helper process;
+its executables link neither the registry nor Mathlib. Checked sources render as escaped text; no re-elaboration by the documentation
 compiler is claimed. Optional SubVerso highlighting may replace presentation only with exact
-source/output correspondence. Generated Verso files are never edited or committed. Current
-Markdown stays authoritative; the site links the standard at the build commit rather than
-republishing it. No GitHub Wiki source repository is used.
+source/output correspondence. Generated Verso files are never edited or committed. The
+standard's only source is its Verso library (`website/RegulaStandard`), which the site publishes
+under `standard/`; rule pages link its sections and checklist rows in the same edition. No GitHub Wiki source repository is used.
 
 Each page contains identity/category/default behavior, applicability and exact cause, normative
 clauses, violation and fixed examples, the checked findings and their real locations, rationale,

@@ -1,4 +1,5 @@
 import RegulaCore.Account
+import RegulaCore.Guide
 import Regula.Contract
 import Std.Data.HashMap
 
@@ -27,6 +28,8 @@ decision it takes about that data is a function here.
 - `Tag`, `scanTags`, `LinkOK`, `linkErrors`, `linkErrors_nil_iff`: link validation of an
   output tree against the project base path, through an index of the pages by path
   (`mem_pageIndex`, `linkOKIn_pageIndex`).
+- `standardAnchors`, `missingAnchors`, `missingAnchors_nil_iff`: the section and checklist-row
+  anchors the registry links, checked against the rendered standard's pages.
 
 ## Assumptions and boundaries
 
@@ -655,5 +658,31 @@ punctuation removed. -/
 def headingSlug (heading : String) : String :=
   String.ofList ((heading.toLower.toList.filter (fun c => c.isAlphanum || c == ' ' || c == '-' || c == '_')).map
     (fun c => if c == ' ' then '-' else c))
+
+/-- Every anchor the registry links in the standard, as its page below the standard's root and
+its fragment: each cited section on its chapter page and each checklist row a rule page lists
+on the checklist page. -/
+def standardAnchors : List (String × String) :=
+  Clause.all.map (fun c => (c.chapter ++ "/index.html", c.anchor)) ++
+    ((RuleId.all.flatMap fun id => (guide id).checklist).eraseDups.map
+      fun row => (checklistChapter ++ "/index.html", row))
+
+/-- The anchors that no page with their path defines. -/
+def missingAnchors (pages : List Page) (anchors : List (String × String)) : List (String × String) :=
+  let index := pageIndex pages
+  anchors.filter fun anchor => !((index.getD anchor.1 []).any fun page => page.ids.contains anchor.2)
+
+/-- The executed check returns nothing exactly when each anchor is an `id` of a page at its
+path. -/
+theorem missingAnchors_nil_iff (pages : List Page) (anchors : List (String × String)) :
+    missingAnchors pages anchors = [] ↔
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ anchor.2 ∈ page.ids := by
+  simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex]
+
+/-- Registered contract of the executed anchor check. -/
+theorem checkedMissingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
+    ∀ pages anchors, run pages anchors = [] ↔
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ anchor.2 ∈ page.ids) :=
+  ⟨missingAnchors_nil_iff⟩
 
 end Regula.Site

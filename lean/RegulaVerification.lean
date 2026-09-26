@@ -76,6 +76,12 @@ private def lake (args : Array String) : Command := ⟨"lake", args⟩
 documentation step refuses unless its own identity is equal. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
+/-- The standard's Verso source: package directory, library and its render-only executable.
+Both acceptance steps capture its sources and the package inputs its check reads in the linked
+identity; the documentation step also builds (elaborating every `lean` block where it is
+written) and renders it, and requires every anchor the rule registry links. -/
+def versoStandard : String := "website:RegulaStandard:regula-standard"
+
 /-- Evidence receipt of one rule-example shard. -/
 def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of2.json"
 
@@ -101,10 +107,10 @@ def commands : Mode → List Command
         "+Regula.Screen.Main:olean"],
       lake #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
       lake #["exe", "qualify", "--under-deadline", "combined"],
-      lake #["exe", "axiomGate", "--acceptance-link", linkPath]]
+      lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .docs => [
       lake #["build", "docFenceAudit"],
-      lake #["exe", "docFenceAudit", "--acceptance-link", linkPath]]
+      lake #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .graph => [lake #["exe", "freshChecker", "--verbose"]]
   | .diagnostics => [lake #["exe", "checkerSelftest", "--build-bound", "--jobs", "4"]]
   | .producers => [
@@ -167,7 +173,7 @@ def run (args : List String) : IO Unit := do
     execute command
   IO.println (match selection.val with
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; semantic review is separate; run `scripts/verify.sh docs` for documentation)"
-    | .docs => "documentation verification: PASS (every docs/ Lean fence; inputs equal the accepted ordinary inputs)"
+    | .docs => "documentation verification: PASS (every docs/ Lean fence and every lean block of the Verso standard, which built fresh and rendered; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from acceptance; publication is verified after deployment)"
     | _ => "diagnostic qualification: PASS (selected scope only; not ordinary verification)")

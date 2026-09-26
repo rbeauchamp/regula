@@ -6,7 +6,7 @@ JSON parser, registry adapter, or a user's intended specification.
 
 The [domain guide](policy-domain.md) describes the input types. The
 [acceptance contract](policy-acceptance.md) records the concrete operational
-acceptance boundary. Normative meaning comes from [chapter 8](../standard/8-tooling-and-machine-audit.md).
+acceptance boundary. Normative meaning comes from [chapter 8](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/).
 
 ## What the theorems establish
 

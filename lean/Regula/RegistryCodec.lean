@@ -75,7 +75,9 @@ def descriptorJson (id : RuleId) : Json :=
     ("remedy", toJson d.remedy), ("rewrites", toJson d.rewrites), ("examples", examplesJson id),
     ("category", toJson (categoryText d.category)),
     ("scope", toJson (scopeText d.scope)), ("evidenceKind", toJson (evidenceText d.evidenceKind)),
-    ("normativeClauses", toJson d.normativeClauses),
+    ("normativeClauses", toJson (d.normativeClauses.map fun c => Json.mkObj [
+      ("section", toJson c.number), ("title", toJson c.title), ("source", toJson c.source),
+      ("url", toJson c.url)])),
     ("applicability", toJson d.applicability),
     ("defaultStrictSeverity", toJson d.defaultStrictSeverity.spelling),
     ("evidenceModes", toJson (d.evidenceModes.map modeText)),
@@ -113,9 +115,11 @@ def identityFields (p : ProducerIdentity) (schemaVersion : Nat := 1) : List (Str
   ("schemaVersion", toJson schemaVersion), ("producerVersion", toJson p.producerVersion),
   ("toolchain", toJson p.toolchain), ("sourceRevision", toJson p.sourceRevision)]
 
-/-- Registry schema 2 adds each rule's requirement, rationale, remedy, rewrites and checked
-example pair to schema 1. -/
-def registrySchemaVersion : Nat := 2
+/-- Registry schema 3 gives each rule's `normativeClauses` as objects with the cited section's
+number (`section`), heading (`title`), Verso source path (`source`) and development URL
+(`url`), where schema 2 gave `PATH §N` strings. Schema 2 added each rule's requirement,
+rationale, remedy, rewrites and checked example pair to schema 1. -/
+def registrySchemaVersion : Nat := 3
 
 def registryJson (p : ProducerIdentity) : Json :=
   Json.mkObj (identityFields p registrySchemaVersion ++ [("rules", toJson (RuleId.all.map descriptorJson))])

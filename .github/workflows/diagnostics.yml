@@ -1,6 +1,6 @@
 name: Diagnostics
 
-# Capability-triggered qualification campaigns (docs/standard/8 §8.8): they run when
+# Capability-triggered qualification campaigns (standard §8.8): they run when
 # the checker, rules, rule examples, Lake configuration or manifests change, always on
 # main, and nightly. They are diagnostics, not a partition of ordinary acceptance.
 # The two rule-example shards run in CI on every change, where they feed the site build;

@@ -21,13 +21,16 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; each verify.sh step enforces exactly 420 seconds.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/provision
+        with:
+          # The documentation step builds the Verso standard, which needs pinned Verso.
+          verso: 'true'
 
       # Includes RegulaPolicy collection/finalization proofs and all acceptance
       # adapters through the existing executable and diagnostic-owner build targets.
@@ -35,12 +38,13 @@ jobs:
       - name: Verify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh
 
-      # Second required step with its own 420 seconds: every docs/ Lean fence, admitted
-      # only when its inputs equal the accepted ordinary inputs at this same commit.
+      # Second required step with its own 420 seconds: every docs/ Lean fence and every `lean`
+      # block of the Verso standard (built fresh and rendered), admitted only when its inputs
+      # equal the accepted ordinary inputs at this same commit.
       - name: Verify documentation fences (same command and seven-minute limit as local)
         run: ./scripts/verify.sh docs
 
-  # The rule-example corpus: detector qualification (docs/standard/8 §8.8) and the only
+  # The rule-example corpus: detector qualification (standard §8.8) and the only
   # source of the site's examples. Diagnostics, not a partition of acceptance.
   rule-examples:
     name: diagnostics rule-examples ${{ matrix.shard }}
@@ -85,25 +89,8 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/provision
-
-      - name: Restore pinned Verso dependencies
-        id: verso
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: website/.lake/packages
-          key: verso-website-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('website/lean-toolchain', 'website/lake-manifest.json') }}
-
-      - name: Provision pinned Verso
-        timeout-minutes: 20
-        working-directory: website
-        run: lake build verso/VersoManual
-
-      - name: Save pinned Verso dependencies
-        if: steps.verso.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: website/.lake/packages
-          key: ${{ steps.verso.outputs.cache-primary-key }}
+          verso: 'true'
 
       - name: Receive this run's corpus exports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -112,9 +99,11 @@ jobs:
           path: tmp
           merge-multiple: true
 
+      # Also the root libraries the standard's examples import, so the timed site build elaborates
+      # the standard without building them.
       - name: Build site tooling
         timeout-minutes: 20
-        run: lake build axiomGate ruleExampleQualification site
+        run: lake build axiomGate ruleExampleQualification site Audit AuditApp
 
       - name: Build and check the site (seven-minute limit)
         run: ./scripts/verify.sh site

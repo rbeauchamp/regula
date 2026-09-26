@@ -4,7 +4,7 @@ This is the integrated account of the Regula linter and its rule-reference websi
 (issue #10). It records, per rule and per supported route, what is proved about the executed
 code, what is checked by a command, what was observed, what is trusted and what remains
 semantic review. It is repository practice, not part of the normative standard; the rule
-predicates live in [`docs/standard/`](../standard/README.md) and the
+predicates live in [the standard](https://rbeauchamp.github.io/regula/dev/standard/) and the
 [coverage map](rule-coverage.md). Observations, commands, timings and revisions of the
 qualification run are recorded in the [qualification record][q10].
 
@@ -121,7 +121,7 @@ compliant example (or the correction, where the checked files are qualification 
 | `lake exe lint` | Same driver without Lake dispatch | As `lake lint` | Observed PASS in the [fresh adopter][q10-routes]; for packages whose `lintDriver` is taken |
 | Build-lint `policy` target | Sole default target runs `axiomGate --build-lint` | Incremental audit; failure fails `lake build` | build-policy campaign |
 | `lake exe axiomGate` | Fresh project audit (default), `--incremental`, `--file F [--claim P]`, `--with-docs` | Accepted account and exit status | Ordinary acceptance dogfoods it on six claimed libraries |
-| `docFenceAudit`, `./scripts/verify.sh docs` | Every Lean fence under `docs/` | `documentationExample` | Acceptance step 2 |
+| `docFenceAudit`, `./scripts/verify.sh docs` | Every Lean fence under `docs/` and, with `--verso`, every `lean` block of the Verso standard, which it builds and renders | `documentationExample` | Acceptance step 2 |
 | Workers | `axiomGate` inspection and fence diagnostic workers, with indexed result admission (`checkedIndexedResults`) | A crashed, abnormally terminated or incomplete worker is INCOMPLETE, never a pass | Proved admission; fixtures and fence-corpus controls (abnormal termination) |
 | `freshChecker` | Optional serialized-graph recheck (§8.9) | Emits no rule findings | Optional MUT-05 claim; not part of product acceptance |
 | Direct `lean`, `lake build <other target>`, `lake lint --builtin-only`, TOML `lake build` | Nothing of Regula's project audit | Not enforcement | Documented as such everywhere |
@@ -184,6 +184,12 @@ These are bounded observations of real runs, not theorems about the tools.
   set, example text in pages, `axiomGate --validate-site`, byte-identical editions, size budget.
   CI's `verify-deployment` checks the live `build.json`, every rule page of every edition and
   the 404 route byte for byte against the validated artifact.
+- **Checked** for the standard (`./scripts/verify.sh docs` and the site build): every `lean` block
+  elaborates where it is written as its kind requires, the fence audit classifies the same blocks,
+  every cross-reference and checklist-row anchor resolves, every section the registry cites is a
+  part of the elaborated standard with its tag and exact heading in its chapter
+  (`website/StandardMain.lean`), and the rendered standard defines the anchor of every cited
+  section and every row a rule page links (`Regula.Site.standardAnchors`, `missingAnchors_nil_iff`).
 - **Observed** on the live site (deployed `a52bf1f`, before #10; [record][q10]): all 21 `dev/`
   and `rev/` rule routes return their pages; unknown IDs, unreleased versions and unpublished
   revisions return the not-available page (HTTP 404) without redirecting; search finds rules;

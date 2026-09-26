@@ -5,7 +5,7 @@ DESIGN-01 (#20), researched 2026-09-15 against Regula
 not a claim that the remaining engine, editor adapters or public website have shipped.
 The [architecture](linter-architecture.md) records package boundaries;
 [developer experience](developer-experience.md) specifies the resulting interactions.
-The [standard](../standard/README.md) remains the normative authority.
+The [standard](https://rbeauchamp.github.io/regula/dev/standard/) remains the normative authority.
 
 ## Recommendation
 

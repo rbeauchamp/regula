@@ -3,7 +3,7 @@ import RegulaQualification.History
 
 /-! Actual project/file history qualification. Every control runs in its own fresh
 workspace with its own output path, so no restored rerun repeats an earlier positive
-control (docs/standard/8 §8.8).
+control (standard §8.8).
 
 Each control is kept for a genuinely external boundary: it observes what the real
 `axiomGate` process, Lean elaborator and collector emit for one source. What the pure

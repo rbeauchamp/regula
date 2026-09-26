@@ -10,7 +10,7 @@ not sampled by mutation. Each invocation and rule shares one
 workspace: the Violation audit runs over the prior Fixed build, so the incremental and
 build-lint paths must detect the violation rather than accept stale artifacts. Because
 that mutation shares its workspace, the Fixed control is re-established afterwards from a
-cleared build (docs/standard/8 §8.8). The fresh-project
+cleared build (standard §8.8). The fresh-project
 RG5001/RG5002 observations are the rule-example corpus records, which that campaign
 validates with this same producer oracle. The source files remain authoritative; this
 driver copies their bytes rather than maintaining another theorem fixture. -/

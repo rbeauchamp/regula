@@ -2,7 +2,8 @@
 
 This is the complete PRODUCT-01 delivery inventory, not a claim that every rule is already
 implemented or every checklist row passes. It accompanies [the architecture](linter-architecture.md).
-Normative meaning remains in `docs/standard/`; chapter 9 is the checklist source of truth.
+Normative meaning remains in the standard (Verso source in `website/RegulaStandard/`); chapter 9
+is the checklist source of truth.
 The map was read against all numbered chapters, the standard README and critical-violations list
 at baseline `f943f41c50876b25c8c5c2285e6ae4315645521e`. Changes to those requirements must update
 this map and affected typed descriptors together, with semantic review.
@@ -196,7 +197,7 @@ normative domain. No row can be discharged solely by a presence check or a check
 | `BUILD-04` | Cached modules and changed configuration cannot reuse a stale policy verdict; exact claimed Lake coverage and supported-context limits are explicit. | RG2002/2004/2005; uncached policy job | R-QUALIFY |
 | `DOC-01` | Public declarations supporting material normative claims have docstrings stating their formal purpose, relevant assumptions, result, and invariant boundary; every claimed module documents its material declarations and assumptions. | RG5001/5002 presence and explicit selection | R-DOC |
 | `DOC-02` | English explanations of normative Lean statements faithfully convey their quantifiers, hypotheses, conclusions, relevant definitions, and limitations, and identify the authoritative Lean declaration. Each material claim's docstring carries a nonempty Intent section. | RG5003 Intent-section presence for explicit selection; no general prose-equivalence detector | R-DOC, R-INTENT |
-| `DOC-03` | Every Lean fence in the normative documentation tree (`docs/standard/**/*.md` here) is structurally classified; malformed markers/fences fail closed. | RG4001 | R-QUALIFY |
+| `DOC-03` | Every Lean fence in the normative documentation tree (here every `lean` block of the standard's Verso source, `website/RegulaStandard`) is structurally classified; malformed markers/fences fail closed. | RG4001 | R-QUALIFY |
 | `DOC-04` | Every positive Lean fence elaborates exactly as printed, warning-free, then passes owned logical admission and declaration/axiom classification. | RG4002 and underlying declaration/admission rules | R-INTENT, R-QUALIFY |
 | `DOC-05` | Every negative fence fails for its non-empty expected diagnostic, and trusted-compiler teaching fences are classified but never counted as conforming. | RG4003/4004 | R-QUALIFY |
 | `MUT-01` | A checker that classifies foundation profiles has positive controls for all three profiles through its actual detection implementation, with public-path qualification as required by §8.8. | Focused actual profile controls | R-QUALIFY |

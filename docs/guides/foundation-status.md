@@ -813,4 +813,4 @@ Successors update these same rows with exact integrated definitions, changed
 coverage, evidence and remaining boundaries. Keep the source baseline distinguishable
 from later closure; do not append another competing status document. Repository
 workflow and deadlines remain in [AGENTS.md](../../AGENTS.md); normative meaning
-remains in the [standard](../standard/README.md).
+remains in the [standard](https://rbeauchamp.github.io/regula/dev/standard/).

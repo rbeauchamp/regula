@@ -5,7 +5,8 @@ import RegulaCore.Account
 /-! Link between the two required verification steps: ordinary project acceptance and
 the separately timed documentation-fence audit. Each step computes one location-independent
 content identity from its own fresh captures of the root sources, configuration,
-dependency inputs and Markdown documents. Ordinary acceptance records the identity only
+dependency inputs, Markdown documents and, when given, a Verso documentation library with its
+package's inputs (`Documentation.Sources.captureLinked`). Ordinary acceptance records the identity only
 after its accepted success has passed every freshness recheck with exit code 0; the
 documentation step refuses unless its own identity is
 equal. The SHA-256 digest is computed by the trusted external `shasum` tool; equality
@@ -39,7 +40,12 @@ def identityJson (projectRoot docsRoot : FilePath)
       ("configuration", toJson (dependency.configurationCaptures.map fun (path, entry) =>
         (rel path, entry.map fun ((canonical, bytes) : String × ByteArray) =>
           (rel canonical, bytes.data.toList.map UInt8.toNat))))])),
-    ("documents", toJson (documents.map fun document => (relative docsRoot document.uri, document.source)))]
+    -- Markdown by its path below `docsRoot`; any other document (a Verso source) by its path
+    -- below the repository, the parent of `docsRoot`.
+    ("documents", toJson (documents.map fun document =>
+      let below := relative docsRoot document.uri
+      (if below != document.uri then below else relative (docsRoot.parent.getD docsRoot) document.uri,
+        document.source)))]
 
 /-- SHA-256 of the compact identity bytes, computed by the external `shasum` tool. -/
 def identity (scratch projectRoot docsRoot : FilePath)

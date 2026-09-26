@@ -1,6 +1,7 @@
 module
 
 public import RegulaCore.RuleId
+public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
 
@@ -177,7 +178,7 @@ website are generated from these fields. -/
 structure RuleDescriptor (id : RuleId) where
   title : String
   category : RuleCategory
-  normativeClauses : List String
+  normativeClauses : List Clause
   applicability : String
   availability : Availability
   evidenceModes : List EvidenceMode
@@ -276,7 +277,7 @@ directory as a Lake input, so editing an example rebuilds this module. -/
 def descriptor : (id : RuleId) → RuleDescriptor id
   | .projectAxiom => {
       title := "Project logical axioms are forbidden", category := .foundation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.5"]
+      normativeClauses := [.proofCompleteness]
       applicability := "project-axiom"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
@@ -295,7 +296,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction proves the same `∀ n : Nat, n = n` by `rfl` instead of assuming it, under the unchanged Kernel-only claim." } }
   | .proofHole => {
       title := "Proof holes are forbidden", category := .foundation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.5"]
+      normativeClauses := [.proofCompleteness]
       applicability := "hole"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
@@ -314,7 +315,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction fills the same reflexivity proof with `rfl`. The checked violation records Lean's original `sorry` warning as well; the corrected file passes the ordinary warning-rejecting gate." } }
   | .unknownAxiom => {
       title := "Unknown transitive axioms are forbidden", category := .foundation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.5"]
+      normativeClauses := [.proofCompleteness]
       applicability := "unknown-axiom"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
@@ -333,7 +334,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The dependency proves the same reflexivity statement instead of declaring it as an axiom, and the file that imports it is unchanged." } }
   | .compilerTrusting => {
       title := "Compiler-trusting proofs require separate classification", category := .foundation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.5"]
+      normativeClauses := [.proofCompleteness]
       applicability := "compiler-trusting"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
@@ -352,7 +353,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction proves the same concrete equality `(2 : Nat) = 2` by `rfl`. The violation reports both the generated axiom and its parent theorem." } }
   | .profileExceeded => {
       title := "Transitive axioms must fit the selected profile", category := .foundation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.5"]
+      normativeClauses := [.proofCompleteness]
       applicability := "label-exceeds-claim"
       availability := .existingChecker
       evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
@@ -371,7 +372,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction proves the same universally quantified reflexivity with an empty axiom set, under the unchanged Kernel-only claim, instead of routing through `propext`." } }
   | .escapeHatch => {
       title := "Unsafe and partial declarations require exact helper authentication", category := .declaration
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.4"]
+      normativeClauses := [.declarationInventory]
       applicability := "escape-hatch"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
@@ -390,7 +391,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction keeps identity's domain and body and removes the unnecessary `unsafe` marker." } }
   | .executableContract => {
       title := "Executable contracts require supported closed evidence", category := .execution
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.12", "docs/standard/8-tooling-and-machine-audit.md §8.5"]
+      normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
       applicability := "executable-contract"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
@@ -409,7 +410,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction moves the complete natural-number domain inside the identity contract's predicate, retaining the same pointwise equality." } }
   | .environment => {
       title := "The declared Lean environment must be available", category := .environment
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.1"]
+      normativeClauses := [.elaborationEnvironment]
       applicability := "environment"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
@@ -428,7 +429,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction removes a Lake dependency that cannot be resolved (the violating workspace adds `require unavailable from \"./missing\"`); the Lean source is unchanged." } }
   | .configuration => {
       title := "Configuration must classify the complete Lake surface", category := .configuration
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.2"]
+      normativeClauses := [.lakeSurfaces]
       applicability := "configuration"
       availability := .existingChecker
       evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
@@ -448,7 +449,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The examples are `foundation_manifest.json` files. The correction removes the unknown manifest key without changing the selected source, profile or execution requirement." } }
   | .sourceBuild => {
       title := "Claimed source must elaborate warning-free", category := .elaboration
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.3"]
+      normativeClauses := [.cleanElaboration]
       applicability := "source-build"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
@@ -467,7 +468,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction removes a dead lambda binding while preserving identity's complete natural-number behavior. No warning or linter is disabled." } }
   | .coverage => {
       title := "Owned coverage must match the exact Lake inventory", category := .coverage
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.2"]
+      normativeClauses := [.lakeSurfaces]
       applicability := "coverage"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject]
@@ -486,7 +487,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction removes an unused forbidden reporter import; the reflexivity statement and its assumptions are unchanged." } }
   | .admission => {
       title := "Required admission and source evidence must be complete", category := .admission
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.3"]
+      normativeClauses := [.cleanElaboration]
       applicability := "admission"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
@@ -505,7 +506,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction replaces ill-typed unchecked evidence with a checked proof of the same reflexivity statement." } }
   | .executionUnresolved => {
       title := "Execution closure must have no unresolved paths", category := .execution
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.6"]
+      normativeClauses := [.computationMechanisms]
       applicability := "execution-unresolved"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
@@ -524,7 +525,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction removes a no-effect `run_cmd` metaprogramming command that prevents history authentication; the reference, replacement and correspondence theorem are unchanged." } }
   | .executionBoundary => {
       title := "Checked execution requires admitted correspondence", category := .execution
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.6"]
+      normativeClauses := [.computationMechanisms]
       applicability := "execution-trusted-boundary"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
@@ -543,7 +544,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction adds the missing equality between the reference and its replacement on the full natural-number domain, keeping the checked execution claim and both implementations." } }
   | .fenceStructure => {
       title := "Documentation fences must have a valid classification", category := .documentation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.7"]
+      normativeClauses := [.documentationChecks]
       applicability := "fence-structure"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
@@ -562,7 +563,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction removes the orphan marker; the positive reflexivity fence is unchanged." } }
   | .positiveExample => {
       title := "Positive examples require warning-free elaboration and admission", category := .documentation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.7"]
+      normativeClauses := [.documentationChecks]
       applicability := "positive-example"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
@@ -581,7 +582,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction proves the same reflexivity claim in the positive fence; the violation reports the RG1001 underlying rejection alongside RG4002." } }
   | .negativeExample => {
       title := "Negative examples require completed intended rejection", category := .documentation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.7"]
+      normativeClauses := [.documentationChecks]
       applicability := "negative-example"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
@@ -600,7 +601,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction labels an already valid reflexivity proof as a positive example instead of inventing a compiler failure." } }
   | .trustedExample => {
       title := "Teaching examples require authenticated compiler classification", category := .documentation
-      normativeClauses := ["docs/standard/8-tooling-and-machine-audit.md §8.7"]
+      normativeClauses := [.documentationChecks]
       applicability := "trusted-example"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
@@ -618,7 +619,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction labels the same kernel proof as a positive example rather than as native teaching." } }
   | .moduleDocumentation => {
       title := "Claimed modules require module documentation", category := .documentation
-      normativeClauses := ["docs/standard/5-documentation-standards.md §5.3"]
+      normativeClauses := [.moduleDocumentation]
       applicability := "module-documentation"
       availability := .existingChecker
       evidenceModes := projectModes
@@ -636,7 +637,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction adds module documentation to the unchanged reflexivity evidence." } }
   | .materialDocumentation => {
       title := "Registered public material declarations require docstrings", category := .documentation
-      normativeClauses := ["docs/standard/5-documentation-standards.md §5.1"]
+      normativeClauses := [.inlineDocumentation]
       applicability := "material-documentation"
       availability := .existingChecker
       evidenceModes := projectModes
@@ -654,7 +655,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction adds the registered theorem's docstring, including its `# Intent` section; registration, proposition and proof are unchanged." } }
   | .materialIntent => {
       title := "Registered public material declarations require an Intent section", category := .documentation
-      normativeClauses := ["docs/standard/5-documentation-standards.md §5.2"]
+      normativeClauses := [.faithfulExplanation]
       applicability := "material-intent"
       availability := .existingChecker
       evidenceModes := projectModes
