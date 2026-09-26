@@ -1,6 +1,7 @@
 import Regula.Qualification.RuleExamples
 import Regula.Checker.ResultProtocol
 import RegulaCore.SiteDocs
+import RegulaCore.SiteTheme
 
 /-! # Rule-reference site builder
 
@@ -23,8 +24,8 @@ site archive and checks it.
 ## Boundaries
 
 Process, filesystem, Git and Verso observations are trusted operational inputs. The pure
-decisions (routes, escaping, filters, diffs, links, page structure) are proved in
-`RegulaCore.Site`, `RegulaCore.SitePage` and `RegulaCore.SiteDocs`. Workspace paths of the
+decisions (routes, escaping, filters, diffs, links, page structure, colour contrast) are proved in
+`RegulaCore.Site`, `RegulaCore.SitePage`, `RegulaCore.SiteDocs` and `RegulaCore.SiteTheme`. Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
 exact records remain in the corpus export this build consumed.
 -/
@@ -203,11 +204,14 @@ def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO (Exa
   let result ← get violation "result"
   let findings ← (← arr result "diagnostics").toList.mapM (findingOf project)
   requireChecks [⟨s!"{id.spelling}: the violating run reports the rule", findings.any (·.rule == id)⟩]
+  let status (s : String) : IO RunStatus := match RunStatus.parse? s with
+    | some st => pure st
+    | none => throw <| IO.userError s!"{id.spelling}: unknown run status {s}"
   let ex : Example := {
     kind := ← str violation "kind", request := ← requestText request mode,
-    violationStatus := ← str result "status", fixedStatus := ← str (← get fixed "result") "status",
+    violationStatus := ← status (← str result "status"), fixedStatus := ← status (← str (← get fixed "result") "status"),
     changed, context, findings }
-  return (ex, { rule := id, kind := ex.kind, violationStatus := ex.violationStatus, fixedStatus := ex.fixedStatus,
+  return (ex, { rule := id, kind := ex.kind, violationStatus := ex.violationStatus.spelling, fixedStatus := ex.fixedStatus.spelling,
                 emitted := (findings.map (·.rule)).eraseDups, shard := "" })
 
 /-- Resolve a registry clause `PATH §N` to its heading anchor in `PATH` at the build revision.
@@ -308,18 +312,18 @@ def evidence (root : FilePath) (ident : Identity) (archived : List Commit) (shar
     summaries := summaries ++ [{ summary with shard }]
   return { ident, archived, examples, summaries, shards }
 
-/-- Generate every Verso module of the manual into `website/Generated`. -/
+/-- Generate every Verso module of the manual into `website/Generated`, with the site
+stylesheet (`Regula.Site.stylesheet`) as `website/Generated/regula.css`, which the website
+package copies to each edition's root. -/
 def generate (root : FilePath) (g : Generated) : IO Unit := do
   let out := root / "website/Generated"
   if ← out.pathExists then IO.FS.removeDirAll out
   let top := root / "website/Generated.lean"
-  let kinds (id : RuleId) : String :=
-    match g.examples.find? (·.1 == id) with
-    | some (_, ex) => if ex.kind == "diagnosticDemonstration" then "Diagnostic demonstration" else "Checked policy rejection"
-    | none => "None"
   IO.FS.writeFile top (← IO.ofExcept (homePage g.ident))
+  IO.FS.createDirAll out
+  IO.FS.writeFile (out / "regula.css") stylesheet
   let dir := root / "website"
-  writeModule dir "Generated.Rules" (← IO.ofExcept (indexPage g.ident kinds))
+  writeModule dir "Generated.Rules" (← IO.ofExcept (indexPage g.ident))
   writeModule dir "Generated.Versions" (← IO.ofExcept (versionsPage g.ident g.summaries))
   writeModule dir "Generated.Credits" (← IO.ofExcept (creditsPage g.ident))
   for (id, ex) in g.examples do
