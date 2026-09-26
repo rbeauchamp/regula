@@ -151,7 +151,7 @@ signal delivery are trusted mechanisms, not a hard real-time theorem.
 The first builds the acceptance executables and type-checks the diagnostic modules,
 checks every claimed declaration with fresh source elaboration and kernel admission, and
 records the content identity of its inputs: the inputs it accepted plus the `docs/`
-Markdown and the standard's Verso sources it only brackets, not accepts. The second audits
+Markdown and the standard's Verso package sources it only brackets, not accepts. The second audits
 every documentation example, builds the Verso standard fresh (elaborating each `lean` block
 where it is written) and renders it, and refuses unless its own inputs have that identity. This exact
 two-step split is the only permitted division of acceptance. Diagnostic native binaries

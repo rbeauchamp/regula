@@ -76,21 +76,22 @@ private def sharedPinMismatch (root package : FilePath) : IO (Option String) := 
 
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
 is written by the library's own code block, and render it alone, which resolves every
-cross-reference. The copy's library sources must be exactly the audited `documents`. -/
+cross-reference. The copy's library sources and Verso package inputs must be exactly the
+audited and linked ones (`linked`). -/
 private def buildVerso (repo copy scratch : FilePath) (dir : FilePath) (library : Name) (render : String)
-    (documents : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
+    (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
   let package := copy / dir.toString
+  let versoDir := repo / dir.toString
   -- The Verso package shares the root's `.lake/packages`: a differing pin would make its build
   -- check out another revision of a shared dependency.
   if let some mismatch ← sharedPinMismatch copy package then
     return some s!"the Verso package pins {mismatch} differently from the root package"
-  let copied ← captureVerso package library
-  let original ← captureVerso (repo / dir.toString) library
+  let copied := (← captureVerso package library) ++ (← captureVersoPackage package)
+  let original := (← captureVerso versoDir library) ++ (← captureVersoPackage versoDir)
   let relative (root : FilePath) (d : RegulaPolicy.SourceSnapshot) :=
     ((d.uri.dropPrefix (root.toString ++ "/")).toString, d.source)
-  unless copied.map (relative package) == original.map (relative (repo / dir.toString)) &&
-      original.all documents.contains do
-    return some "the isolated copy's Verso sources are not the audited documents"
+  unless copied.map (relative package) == original.map (relative versoDir) && original.all linked.contains do
+    return some "the isolated copy's Verso sources and package inputs are not the audited ones"
   let (_, failure) ← timedPhase "Verso documentation build" <|
     Lake.buildCheckedObservation package #[library.toString, render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
@@ -112,6 +113,8 @@ unsafe def run (args : List String) : IO UInt32 := do
   let verso := options.verso.map fun (dir, library, _) => (repo / dir.toString, library)
   let sources : Sources := ⟨docsRoot, verso⟩
   let documents ← sources.capture
+  -- The linked identity also brackets the Verso package's inputs.
+  let linked ← sources.captureLinked
   withScratch repo "doc-fence-audit" fun scratch => do
     let copy := scratch / "project"
     copyProject repo copy scratch
@@ -124,7 +127,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       let dependencies ← Snapshot.dependencies inventory
       -- A linked run audits only the inputs ordinary acceptance already accepted.
       if let some link := options.acceptanceLink.map (resolve repo) then
-        let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration dependencies documents
+        let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration dependencies linked
         AcceptanceLink.require link digest
         IO.println s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
       SourceBinding.withUnchanged sources configuration do
@@ -140,10 +143,10 @@ unsafe def run (args : List String) : IO UInt32 := do
         let result ← Documentation.auditBuiltProject copy docsRoot inventory sources configuration dependencies documents (Acceptance.buildObservation buildProcess) options.jobs options.verbose (verso := verso)
         if result != 0 then return result
         let some (dir, library, render) := options.verso | return result
-        if let some failure ← buildVerso repo copy scratch dir library render documents then
+        if let some failure ← buildVerso repo copy scratch dir library render linked then
           IO.println s!"FAIL: Verso documentation {library}: {failure}"
           return 1
-        Documentation.Sources.check ⟨docsRoot, verso⟩ documents
+        Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ linked
         SourceBinding.unchanged sources
         IO.println s!"Verso documentation {library}: built fresh (every `lean` block elaborated where it is written) and rendered"
         return 0

@@ -233,8 +233,10 @@ block_extension Block.pageAnchor where
   toHtml :=
     open Verso.Output.Html in
     some <| fun _ _ _ _ _ => do
+      -- The document root is not linked by fragment (the standard is the root only when it is
+      -- rendered alone, for its cross-reference check).
       let some header := (← read).traverseContext.headers.back?
-        | Verso.reportError "page anchor outside a part"; pure .empty
+        | pure .empty
       let some id := header.metadata.bind (·.id)
         | Verso.reportError s!"page anchor in untagged part {header.titleString}"; pure .empty
       let some link := (← read).traverseState.externalTags[id]?

@@ -751,6 +751,31 @@ def captureVerso (dir : FilePath) (library : Name) : IO (Array RegulaPolicy.Sour
   let paths := paths.qsort (fun left right => left.toString < right.toString)
   paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
 
+/-- The inputs of the Verso package at `dir` that decide how its documentation is checked and
+rendered: its Lake configuration and lock files and the source of every module of its
+libraries and every executable root, discovered through Lake, in path order. The linked
+acceptance identity brackets them together with the documentation itself. -/
+def captureVersoPackage (dir : FilePath) : IO (Array RegulaPolicy.SourceSnapshot) := do
+  let modules ← Workspace.withRootWorkspace dir fun ws => do
+    let real := (← IO.FS.realPath dir).normalize.components
+    let anchor (file : FilePath) : IO FilePath := do
+      let components := (← IO.FS.realPath file).normalize.components
+      unless real.isPrefixOf components do
+        throw <| IO.userError s!"Verso package source {file} is outside its package {dir}"
+      return (components.drop real.length).foldl (fun (acc : FilePath) (part : String) => acc / part) dir
+    let mut files : Array FilePath := #[]
+    for lib in ws.root.leanLibs do
+      for m in ← lib.getModuleArray do files := files.push (← anchor m.leanFile)
+    for exe in ws.root.leanExes do files := files.push (← anchor exe.root.leanFile)
+    return files
+  let config ← (["lakefile.toml", "lakefile.lean", "lake-manifest.json", "lean-toolchain"] : List String).filterMapM
+    fun (name : String) => do
+      let path : FilePath := dir / name
+      return if ← path.pathExists then some path else none
+  let paths := (modules ++ config.toArray).qsort (fun left right => left.toString < right.toString)
+  let paths := paths.toList.eraseDups.toArray
+  paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
+
 /-- The documentation one run covers: every Markdown file below `markdown` and, when given,
 every module of the Verso library `verso.2` of the Lake package at `verso.1`. -/
 structure Sources where
@@ -769,6 +794,18 @@ def Sources.check (sources : Sources) (documents : Array RegulaPolicy.SourceSnap
   unless current.map (·.uri) == documents.map (·.uri) do
     throw <| IO.userError "documentation inventory changed"
   unless current == documents do throw <| IO.userError "documentation source changed"
+
+/-- The documentation together with its Verso package's inputs (`captureVersoPackage`): what the
+linked acceptance identity brackets. -/
+def Sources.captureLinked (sources : Sources) : IO (Array RegulaPolicy.SourceSnapshot) := do
+  let package ← match sources.verso with
+    | some (dir, _) => captureVersoPackage dir
+    | none => pure #[]
+  return (← sources.capture) ++ package
+
+def Sources.checkLinked (sources : Sources) (linked : Array RegulaPolicy.SourceSnapshot) : IO Unit := do
+  unless (← sources.captureLinked) == linked do
+    throw <| IO.userError "documentation or its Verso package changed"
 
 /-- Parse `DIR:LIBRARY`, the Verso documentation option of the audit commands. -/
 def parseVersoOption (value : String) : Except String (FilePath × Name) :=

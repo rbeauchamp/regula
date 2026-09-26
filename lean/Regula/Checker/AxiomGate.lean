@@ -751,7 +751,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let documents ← if withDocs then Documentation.captureMarkdown (copy / "docs") else pure #[]
     -- The link covers the Markdown and Verso sources the separate documentation step audits.
     let linkedSources : Documentation.Sources := ⟨repo / "docs", verso⟩
-    let linkedDocuments ← if acceptanceLink then linkedSources.capture else pure #[]
+    let linkedDocuments ← if acceptanceLink then linkedSources.captureLinked else pure #[]
     let project ← IO.mkRef (none : Option ProjectEvidence)
     let linked ← IO.mkRef (none : Option AcceptanceLink.Pending)
     -- The identity is computed after acceptance and before the success line, so an identity
@@ -759,7 +759,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let observe (evidence : ProjectEvidence) : IO Unit := do
       project.set (some evidence)
       if acceptanceLink then
-        linkedSources.check linkedDocuments
+        linkedSources.checkLinked linkedDocuments
         let digest ← AcceptanceLink.identity scratch copy (repo / "docs") evidence.sources
           evidence.configuration evidence.dependencies linkedDocuments
         linked.set (some { digest, account := Account.account evidence.accepted })

@@ -181,7 +181,8 @@ lake exe docFenceAudit --jobs 4                            # elaborate every doc
 ```
 
 `docFenceAudit` applies when your project keeps Lean teaching examples in Markdown under
-`docs/` using the [fence convention](https://rbeauchamp.github.io/regula/dev/standard/introduction/#lean-example-convention).
+`docs/` using the [Markdown fence protocol](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#87-check-lean-documentation-verbatim)
+(`<!-- lean-fail: PATTERN -->` and `<!-- lean-trusted-compiler -->` markers).
 
 ## 5. Read a failure
 
