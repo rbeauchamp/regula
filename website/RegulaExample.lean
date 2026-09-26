@@ -205,7 +205,8 @@ inline_extension Inline.row (row : String) where
       let .str row := data
         | Verso.reportError s!"Expected a row identifier, got {data}"; pure .empty
       match (← Verso.Doc.Html.HtmlT.state).externalTags[id]? with
-      | some link => return {{<code id={{link.htmlId.toString}}>{{row}}</code>}}
+      -- A row identifier is never broken across lines.
+      | some link => return {{<code id={{link.htmlId.toString}} style="white-space:nowrap">{{row}}</code>}}
       | none => Verso.reportError s!"Untagged checklist row {row}"; return {{<code>{{row}}</code>}}
 
 /-- `{checklistRow}[ID]`: a checklist row identifier, displayed as code and used as its anchor. -/
