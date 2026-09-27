@@ -21,21 +21,55 @@ them. -/
 
 namespace Regula
 
+/-- How an audit collected its evidence (editor snapshot, incremental or fresh project, fresh
+file, documentation example or serialized graph): the policy's `RegulaPolicy.EvidenceMode`. -/
 abbrev EvidenceMode := RegulaPolicy.EvidenceMode
+/-- The stable text of an evidence mode, as `RegulaPolicy.EvidenceMode.spelling` gives it. -/
 abbrev EvidenceMode.spelling (mode : EvidenceMode) : String := RegulaPolicy.EvidenceMode.spelling mode
 
 /-- Retired IDs remain descriptors; replacement cannot be the retired ID itself. -/
 inductive Lifecycle (id : RuleId) where
+  /-- The rule is in force; `introduced` names the release that added it. -/
   | active (introduced : String)
+  /-- The rule was added in release `introduced` and retired in `version`; `replacement` is the
+  rule that takes over its checks, if any, and cannot be `id` itself. -/
   | retired (introduced version : String) (replacement : Option { other : RuleId // other ≠ id })
 
+/-- The kind of property a rule checks; the rule index groups and filters rules by it. -/
 inductive RuleCategory where
-  | foundation | declaration | execution | environment | configuration
-  | elaboration | coverage | admission | documentation
+  /-- The logical foundation of declarations: axioms, proof holes, compiler trust and the
+  surface profile (RG1001–RG1005). -/
+  | foundation
+  /-- The form of a declaration itself, such as `unsafe` or `partial` (RG1006). -/
+  | declaration
+  /-- Executable contracts and the execution closure of executable roots (RG1007, RG3001,
+  RG3002). -/
+  | execution
+  /-- Availability of the declared Lean environment (RG2001). -/
+  | environment
+  /-- The surface manifest and the Lake build configuration (RG2002, RG2006). -/
+  | configuration
+  /-- Warning-free elaboration of claimed source (RG2003). -/
+  | elaboration
+  /-- Attribution of owned modules to classified targets (RG2004). -/
+  | coverage
+  /-- Kernel-replay admission and source evidence (RG2005). -/
+  | admission
+  /-- Documentation fences, module headers and docstrings (RG4001–RG4004, RG5001–RG5003). -/
+  | documentation
   deriving Repr, BEq, DecidableEq
 
+/-- The severity of a finding: of a rule's findings under a strict claim, and of an intent-screen
+finding (`ScreenSeverity.toSeverity` maps the screen's levels onto these). -/
 inductive Severity where
-  | error | warning | information
+  /-- The highest level; `RuleDescriptor.defaultStrictSeverity` defaults to it. -/
+  | error
+  /-- Below `error`: the level of an intent-screen finding whose support falls below the
+  `warning` threshold but not the `error` one. No registered rule defaults to it. -/
+  | warning
+  /-- The lowest level: an intent-screen finding whose support falls below only the
+  `information` threshold. No registered rule defaults to it. -/
+  | information
   deriving Repr, BEq, DecidableEq
 
 /-- The severity names used by the registry, diagnostics and the intent screen's configuration. -/
@@ -44,18 +78,31 @@ def Severity.spelling : Severity → String
 
 /-- Availability names the detector, not completion of every future adapter. -/
 inductive Availability where
-  | existingChecker | plannedEngine
+  /-- The existing checker detects the rule. -/
+  | existingChecker
+  /-- The rule is registered for a planned detector that does not run yet. -/
+  | plannedEngine
   deriving Repr, BEq, DecidableEq
 
+/-- Credit for an outside project whose idea a rule's design follows, as the registry export and
+rule pages state it. -/
 structure Attribution where
+  /-- The credited project's name. -/
   project : String
+  /-- Its authors, as credited. -/
   authors : String
+  /-- A link to the credited source file. -/
   url : String
+  /-- The source revision the credit refers to. -/
   revision : String
+  /-- What was taken from the project, and what was not. -/
   idea : String
+  /-- Whether any of the project's code was copied. -/
   copiedCode : Bool
   deriving Repr
 
+/-- The credit every rule carries by default: the con-leche `PropWhen` design idea, with no code
+copied and no correctness theorem imported. -/
 def registryAttribution : Attribution := {
   project := "con-leche"
   authors := "Joachim Breitner and contributors, Lean FRO"
@@ -64,16 +111,52 @@ def registryAttribution : Attribution := {
   idea := "Canonical typed representation and complete indexed metadata; no imported correctness theorem"
   copiedCode := false }
 
+/-- What one finding of a rule is about. -/
 inductive RuleScope where
-  | declaration | project | executionRoot | documentationFence | module | materialDeclaration
+  /-- One owned declaration. -/
+  | declaration
+  /-- The project: its environment, configuration, build, inventory or admission. -/
+  | project
+  /-- One executable root and its execution closure. -/
+  | executionRoot
+  /-- One Lean fence of the checked documentation. -/
+  | documentationFence
+  /-- One claimed module. -/
+  | module
+  /-- One declaration registered with `@[regula_material]`. -/
+  | materialDeclaration
   deriving Repr, BEq, DecidableEq
 
+/-- The evidence a rule's decision reads. -/
 inductive EvidenceKind where
-  | kernelAxioms | generatedRole | contractEvidence | environment | configuration
-  | compilation | inventory | admission | executionClosure | fenceGrammar
-  | checkedExample | metadataPresence
+  /-- The transitive axiom sets of declarations. -/
+  | kernelAxioms
+  /-- The authenticated role of a generated declaration, such as the auxiliary of a
+  `native_decide` proof or the helper of an `unsafe` or `partial` definition. -/
+  | generatedRole
+  /-- `ExecutableContract` registrations. -/
+  | contractEvidence
+  /-- The loaded Lake workspace, toolchain and dependencies. -/
+  | environment
+  /-- The surface manifest or Lake's resolved build configuration. -/
+  | configuration
+  /-- Elaboration messages of the claimed source. -/
+  | compilation
+  /-- The Lake module inventory and module attribution. -/
+  | inventory
+  /-- Kernel-replay admission and source-identity evidence. -/
+  | admission
+  /-- The execution closure of executable roots. -/
+  | executionClosure
+  /-- The marker and fence structure of documentation. -/
+  | fenceGrammar
+  /-- The outcome of elaborating a documentation example. -/
+  | checkedExample
+  /-- The presence of module and declaration docstrings. -/
+  | metadataPresence
   deriving Repr, BEq, DecidableEq
 
+/-- The scope of each rule's findings; `RuleDescriptor.scope` defaults to it. -/
 def scopeFor : RuleId → RuleScope
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract => .declaration
@@ -84,6 +167,7 @@ def scopeFor : RuleId → RuleScope
   | .moduleDocumentation => .module
   | .materialDocumentation | .materialIntent => .materialDeclaration
 
+/-- The evidence each rule's decision reads; `RuleDescriptor.evidenceKind` defaults to it. -/
 def evidenceFor : RuleId → EvidenceKind
   | .projectAxiom | .proofHole | .unknownAxiom | .profileExceeded => .kernelAxioms
   | .compilerTrusting | .escapeHatch => .generatedRole
@@ -118,7 +202,12 @@ def helpUrl (id : RuleId) : String :=
 
 /-- Source language of a rule's example files. -/
 inductive ExampleLanguage where
-  | lean | json | markdown
+  /-- Lean source, including a `lakefile.lean`. -/
+  | lean
+  /-- JSON, such as a `foundation_manifest.json` or a qualification runner request. -/
+  | json
+  /-- Markdown documentation. -/
+  | markdown
   deriving Repr, BEq, DecidableEq
 
 /-- File extension of the example files, as in `examples/rules/<ID>/Fixed.<ext>`. -/
@@ -146,10 +235,15 @@ fixed phase passes a completed positive check, and the violating phase produces 
 findings. `correction` states what the correction changes and preserves; for qualification
 inputs it is the adopter-facing form of the fix. -/
 structure ExamplePair where
+  /-- The language of both files, which fixes their extension. -/
   language : ExampleLanguage
+  /-- Whether an adopter can apply the files as shown, or they are qualification inputs. -/
   audience : ExampleAudience
+  /-- The bytes of `Fixed.<ext>`, the compliant file. -/
   compliant : String
+  /-- The bytes of `Violation.<ext>`, the noncompliant file. -/
   noncompliant : String
+  /-- What the correction from the noncompliant to the compliant file changes and preserves. -/
   correction : String
 
 /-- The compliant file an agent can apply as shown; none for qualification inputs. -/
@@ -180,11 +274,17 @@ no defaults: omitting one from a rule is a compile error, and `RuleDescriptor.we
 one. Every diagnostic, the `regula` command, the agent guide, the registry export and the
 website are generated from these fields. -/
 structure RuleDescriptor (id : RuleId) where
+  /-- The rule's short name, stated as the property it demands. -/
   title : String
+  /-- The kind of property the rule checks. -/
   category : RuleCategory
+  /-- The sections of the standard the rule enforces. -/
   normativeClauses : List Clause
+  /-- The subreason every finding of the rule carries, such as `project-axiom` for RG1001. -/
   applicability : String
+  /-- Whether the existing checker detects the rule or a planned detector will. -/
   availability : Availability
+  /-- The evidence modes whose runs report the rule's findings. -/
   evidenceModes : List EvidenceMode
   /-- What the rule demands, in one line. -/
   requirement : String
@@ -196,14 +296,21 @@ structure RuleDescriptor (id : RuleId) where
   rewrites : List String
   /-- The checked compliant and noncompliant examples. -/
   examples : ExamplePair
+  /-- Whether the rule is active or retired, and since which release. -/
   lifecycle : Lifecycle id := .active "unreleased"
+  /-- The severity of the rule's findings under a strict claim. -/
   defaultStrictSeverity : Severity := .error
+  /-- What one finding is about, derived from the ID by default. -/
   scope : RuleScope := scopeFor id
+  /-- The evidence the rule's decision reads, derived from the ID by default. -/
   evidenceKind : EvidenceKind := evidenceFor id
+  /-- Credit for the design idea the rule's representation follows. -/
   attribution : Attribution := registryAttribution
 
 namespace RuleDescriptor
+/-- The ID the descriptor is indexed by. -/
 def identity {id : RuleId} (_ : RuleDescriptor id) : RuleId := id
+/-- The rule page's route, `rules/<ID>/`, derived from the ID. -/
 def helpRoute {id : RuleId} (_ : RuleDescriptor id) : String := id.route
 /-- The message form is derived from the index, never an independent field. -/
 def messageTemplate {id : RuleId} (_ : RuleDescriptor id) : String := messageForm id
@@ -211,10 +318,15 @@ end RuleDescriptor
 
 /-- Size budgets, in UTF-8 bytes, that keep inline feedback and the agent guide compact. -/
 def requirementBudget : Nat := 200
+/-- The largest `rationale`, in UTF-8 bytes. -/
 def rationaleBudget : Nat := 480
+/-- The largest `remedy`, in UTF-8 bytes. -/
 def remedyBudget : Nat := 300
+/-- The largest single entry of `rewrites`, in UTF-8 bytes. -/
 def rewriteBudget : Nat := 480
+/-- The most entries `rewrites` may have. -/
 def rewriteCountBudget : Nat := 4
+/-- The largest compliant or noncompliant example file, in UTF-8 bytes. -/
 def exampleBudget : Nat := 512
 /-- The Lean community's line limit (Mathlib's `linter.style.longLine`), for example files, whose
 lines every rule page, finding and agent briefing shows verbatim. -/
@@ -249,6 +361,9 @@ def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
     | .adopter => true
     | .qualification files => 0 < files.utf8ByteSize)
 
+/-- The modes that audit declarations outside the editor: incremental and fresh project,
+fresh file and documentation example. A rule that also reports in the editor adds
+`.editorSnapshot` to them. -/
 def declarationModes : List EvidenceMode :=
   [.incrementalProject, .freshProject, .freshFile, .documentationExample]
 
@@ -524,21 +639,23 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "community-configuration"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Each claimed target turns `autoImplicit` and `relaxedAutoImplicit` off in \
-        `leanOptions`, disables no linter beyond the §6.7 exclusions and with Mathlib enables its \
-        standard set; no `-D` undoes this."
+      requirement := "Each claimed target sets in `leanOptions`: automatic implicits off, \
+        `linter.missingDocs` on, no linter off beyond the §6.7 exclusions and, with Mathlib, its \
+        standard set on; no `-D` undoes this."
       rationale := "An automatic implicit adds a binder the source does not show, so the elaborated \
         statement can quantify over more than the text a reviewer compares with the intent. A \
-        linter turned off for a whole target hides its warnings from the warning-free build \
-        (RG2003). A `-D` extra `lean` argument can override `leanOptions`, where the audit reads \
-        these options."
+        linter reports only where it is on: without `linter.missingDocs`, or with a linter off \
+        for a whole target, the warning-free build (RG2003) never sees those warnings. A `-D` \
+        extra `lean` argument can override `leanOptions`, where the audit reads these options."
       remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
-        false and, with Mathlib, the standard set and its three §6.7 exclusions; remove other \
-        linter disables and each `-D` extra `lean` argument that overrides these options."
+        false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
+        exclusions; remove other linter disables and each `-D` extra `lean` argument that \
+        overrides these options."
       rewrites := [
-        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩`` to `leanOptions` \
-          (`autoImplicit = false` and `relaxedAutoImplicit = false` under `[leanOptions]` in \
-          `lakefile.toml`), then declare each universe and implicit the build reports as unknown.",
+        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
+          ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
+          `lakefile.toml`), then declare each universe and implicit the build reports as unknown \
+          and document each declaration it reports.",
         "With Mathlib, also set `weak.linter.mathlibStandardSet` to true and \
           `weak.linter.style.header`, `weak.linter.hashCommand` false and \
           `weak.linter.style.longFile` 0.",
@@ -552,8 +669,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         compliant := include_str "../../examples/rules/RG2006/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2006/Violation.lean"
         correction := "The examples are the package's `lakefile.lean` (the corpus run adds its \
-          `require regula` line). The correction turns automatic implicits off without changing \
-          the library, its source or its other options." } }
+          `require regula` line). The correction adds the three options every claimed target \
+          sets, automatic implicits off and `linter.missingDocs` on, without changing the \
+          library or its source." } }
   | .executionUnresolved => {
       title := "Execution closure must have no unresolved paths", category := .execution
       normativeClauses := [.computationMechanisms]

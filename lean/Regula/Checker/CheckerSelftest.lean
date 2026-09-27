@@ -50,30 +50,50 @@ open Regula.Checker
 open Regula.Checker.Documentation
 open Regula.Checker.Policy
 
+/-- The verdict a fixture declares in `fixtures.json` (`expect`). -/
 inductive Expectation where
+  /-- The checker must accept the fixture. -/
   | pass
+  /-- The checker must reject the fixture, for the declared reasons. -/
   | fail
   deriving Repr, BEq
 
+/-- One entry of `Fixtures/fixtures.json`, resolved to its Lake fixture module. -/
 structure FixtureSpec where
+  /-- The fixture's module name, the entry's key. -/
   moduleName : String
+  /-- The fixture's source file, as Lake resolves it in the `Fixtures` library. -/
   source : FilePath
+  /-- Whether the checker must accept or reject the fixture. -/
   expectation : Expectation
+  /-- For a rejection, the exact set of `VIOLATION[...]` reasons expected, or
+  `#["compile-error"]` for a fixture that must fail to compile. -/
   reasons : Array String := #[]
+  /-- The foundation profile passed as `--claim`, when the entry sets one. -/
   claim : Option Profile := none
+  /-- The execution mode passed as `--execution`, when the entry sets one. -/
   execution : Option String := none
+  /-- For an accepted fixture, a foundation label some declaration must be reported with. -/
   label : Option String := none
+  /-- For a compile-error fixture, the pattern its output must match (default `error`). -/
   pattern : Option String := none
+  /-- Texts the checker output must contain, whatever the verdict. -/
   output : Array String := #[]
   deriving Repr
 
 /-- Disjoint groups whose union is the complete build-bound qualification. -/
 inductive Partition where
+  /-- In-process fixture verdicts, the Markdown scanner and the fence corpus. -/
   | fixtures
+  /-- Structural, compiler-path and manifest controls. -/
   | structural
+  /-- Every fixture through a real `axiomGate --file` invocation. -/
   | cli
+  /-- The end-to-end fence corpus and the external-adopter and clean-checkout controls. -/
   | environments
+  /-- Ordinary-build enforcement controls (`build-policy`). -/
   | buildPolicy
+  /-- `lake lint` dispatch and exit-class controls (`lint-driver`). -/
   | lintDriver
   deriving Repr, BEq, DecidableEq
 
@@ -93,11 +113,17 @@ private theorem Partition.all_complete (partition : Partition) : partition ∈ a
 
 private theorem Partition.all_nodup : all.Nodup := by decide
 
+/-- The parsed `checkerSelftest` command-line options. -/
 structure Options where
+  /-- `--jobs N`: the number of parallel workers; must be positive. -/
   jobs : Nat := 4
+  /-- `--structural-only`: run only the structural controls after the baseline build. -/
   structuralOnly : Bool := false
+  /-- `--build-bound`: also run the conditional, build-bound tier. -/
   buildBound : Bool := false
+  /-- `--partition NAME`: run only this build-bound group; requires `--build-bound`. -/
   partition : Option Partition := none
+  /-- `--help` or `-h`: print the usage and exit. -/
   help : Bool := false
 
 private def usage : String :=
@@ -561,7 +587,7 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"diagnostic_control\"\n[leanOptions]\nautoImplicit = false\n" ++
-      "relaxedAutoImplicit = false\n[[lean_lib]]\nname = \"SetupSentinel\"\n"
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"SetupSentinel\"\n"
   let source := project / "SetupSentinel.lean"
   let artifact := output / "SetupSentinel.olean"
   IO.FS.writeFile source "def setupValue : Nat := 0\n"
@@ -880,7 +906,7 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
           #["kernel-admission", "admissionFalse"] then
         failures.modify (·.push failure)
   withNewFile (sources / "AuditApp" / "DiscoveryAxiom.lean")
-      "/-! Discovery control for an otherwise unused owned axiom. -/\naxiom selftest_discovered_axiom : False\n" do
+      "/-! Discovery control for an otherwise unused owned axiom. -/\n/-- An unused owned axiom, which RG1001 rejects. -/\naxiom selftest_discovered_axiom : False\n" do
     if let some failure := expectedFailure "add-only-discovery" (← gate)
         #["project-axiom", "selftest_discovered_axiom"] then
       failures.modify (·.push failure)
@@ -972,7 +998,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
   -- mutation under test.
   let claimedManifestText ← auditAppVariant repo #["selftestTool"] true
   let claimedGate := gate #["--manifest", claimedManifest.toString, "--incremental"]
-  withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\ndef main : IO Unit := pure ()\n" do
+  withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n" do
     withReplacedFile lakefile (originalLakefile ++ exeDecl) do
       if let some failure := expectedFailure "unclassified-exe" (← gate)
           #["manifest-incomplete", "selftestTool"] then
@@ -993,7 +1019,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
             #["lake-query-malformed", "invalid source"] then
           failures.modify (·.push failure)
   withNewFile (sources / "SelftestMain.lean")
-      "import Fixtures.Mutations.DirectAxiom\n/-! Standalone import-contamination control. -/\ndef main : IO Unit := pure ()\n" do
+      "import Fixtures.Mutations.DirectAxiom\n/-! Standalone import-contamination control. -/\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n" do
     withReplacedFile lakefile (originalLakefile ++ exeDecl) do
       IO.FS.writeFile claimedManifest claimedManifestText
       if let some failure := expectedFailure "exe-contamination" (← claimedGate)
@@ -1239,7 +1265,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     IO.FS.createDirAll (sources / "FreshControl")
     for stem in freshControlStems do
       IO.FS.writeFile ((sources / "FreshControl") / s!"{stem}.lean")
-        s!"prelude\n/-! Import-free clean-checkout freshChecker root. -/\ninductive FreshControl.{stem} : Type where\n  | unit\n"
+        s!"prelude\n/-! Import-free clean-checkout freshChecker root. -/\n/-- A type with one value. -/\ninductive FreshControl.{stem} : Type where\n  /-- Its one value. -/\n  | unit\n"
     let lakefile := dir / "lakefile.lean"
     IO.FS.writeFile lakefile ((← IO.FS.readFile lakefile) ++
       "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n")
@@ -1289,7 +1315,7 @@ private def adopterOmittedExeText : String :=
 
 private def adopterTomlLakefile (checkerPath : String) : String :=
   "name = \"widget_adopter\"\n\n" ++
-  "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n\n" ++
+  "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\nlinter.missingDocs = true\n\n" ++
   "[[require]]\nname = \"regula\"\n" ++
   s!"path = \"{checkerPath}\"\n\n" ++
   "[[lean_lib]]\nname = \"Widget\"\nglobs = [\"Widget\", \"Widget.+\"]\n\n" ++
@@ -1298,7 +1324,7 @@ private def adopterTomlLakefile (checkerPath : String) : String :=
 private def adopterLeanLakefile (checkerPath : String) : String :=
   "import Lake\nopen Lake DSL\n\n" ++
   "package «widget_adopter» where\n" ++
-  "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\n\n" ++
+  "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n\n" ++
   s!"require «regula» from \"{checkerPath}\"\n\n" ++
   "@[default_target]\nlean_lib «Widget» where\n  globs := #[.andSubmodules `Widget]\n\n" ++
   "lean_exe «widget_tool» where\n  root := `Main\n"
@@ -1354,7 +1380,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
     IO.FS.writeFile (adopter / "Widget.lean") "import Widget.Extra\n/-! Re-export the arithmetic identity in Widget.Extra. -/\n"
     IO.FS.writeFile (adopter / "Widget" / "Extra.lean")
       "/-! Closed natural-number arithmetic identity. -/\ntheorem widget_extra_thm : 1 + 1 = 2 := rfl\n"
-    IO.FS.writeFile (adopter / "Main.lean") "/-! Standalone no-effect IO entrypoint. -/\ndef main : IO Unit := pure ()\n"
+    IO.FS.writeFile (adopter / "Main.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
     IO.FS.writeFile (adopter / "foundation_manifest.json") (adopterManifestText ++ "\n")
     writeJson (adopter / "lake-manifest.json") lakeManifest
     IO.FS.createDirAll (adopter / ".lake")
@@ -1385,7 +1411,7 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
         #["manifest-incomplete", "widget_tool"] then
       failures.modify (·.push failure)
     withNewFile (adopter / "Widget" / "Rogue.lean")
-        "/-! Discovery control for a glob-owned axiom. -/\naxiom widget_rogue_axiom : False\n" do
+        "/-! Discovery control for a glob-owned axiom. -/\n/-- A glob-owned axiom, which RG1001 rejects. -/\naxiom widget_rogue_axiom : False\n" do
       if let some failure := expectedFailure s!"adopter/{label}/rogue-module" (← gate)
           #["project-axiom", "widget_rogue_axiom"] then
         failures.modify (·.push failure)
@@ -1545,7 +1571,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
     IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\n" ++
-        "relaxedAutoImplicit = false\n[[lean_lib]]\nname = \"Snapshot\"\n" ++
+        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Snapshot\"\n" ++
         "[[lean_lib]]\nname = \"Companion\"\n"
     IO.FS.writeFile (Manifest.defaultPath project)
       "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Control\"},{\"library\":\"Companion\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Parallel surface control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
@@ -1599,6 +1625,10 @@ private def forcedCollectorQualification (repo scratch : FilePath) : IO (Array S
   unless restored.succeeded do failures := failures.push s!"forced-collector-restored: {restored.output}"
   return failures
 
+/-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
+transcript worker when the arguments name it, otherwise the baseline build and then the
+selected tiers or partition. Prints each failure and returns `1` when any control fails, `0`
+otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   if args == ["--forced-collector-only"] then
     let repo ← repoRoot
@@ -1735,6 +1765,9 @@ unsafe def run (args : List String) : IO UInt32 := do
 
 end Regula.Checker.CheckerSelftest
 
+/-- The `checkerSelftest` executable: initializes Lean's search path, enables initializer
+execution and runs `Regula.Checker.CheckerSelftest.run`, printing any exception as `FAIL:` and
+returning `1`. -/
 unsafe def main (args : List String) : IO UInt32 := do
   try
     Regula.Checker.initializeLeanSearchPath

@@ -20,6 +20,10 @@ elab "regula_build_revision" : term => do
   let suffix := if state.stdout.isEmpty then "" else ":unreleased-worktree"
   return mkStrLit (head.stdout.trimAscii.toString ++ suffix)
 
+/-- This checker build's producer identity in reports and worker packets: version
+`unreleased`, the Lean version string, and the Git revision of the checker source captured
+when this module was elaborated, suffixed `:unreleased-worktree` when that worktree had
+changes. -/
 def identity : RegistryCodec.ProducerIdentity := {
   producerVersion := "unreleased"
   toolchain := Lean.versionString

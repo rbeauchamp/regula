@@ -10,21 +10,31 @@ The IO adapter is responsible for faithfully obtaining configuration, Lake and s
 namespace RegulaPolicy
 open Lean (Name)
 
+/-- The kind of a Lake target of the root package. -/
 inductive TargetKind where
-  | library | executable
+  /-- A `lean_lib` target. -/
+  | library
+  /-- A `lean_exe` target. -/
+  | executable
   deriving Repr, DecidableEq
 
 /-- Actual Lake target observation, retaining its semantic module array. -/
 structure DiscoveredTarget where
+  /-- Whether the target is a library or an executable. -/
   kind : TargetKind
+  /-- The target's Lake name. -/
   name : String
+  /-- The target's modules as Lake resolves them; an executable's root module alone. -/
   modules : Array Name
   deriving Repr, DecidableEq
 
 /-- Parsed target classification: none excludes, some names the owning positive surface. -/
 structure TargetAssignment where
+  /-- Whether the classified target is a library or an executable. -/
   kind : TargetKind
+  /-- The classified target's Lake name. -/
   name : String
+  /-- The claimed surface that owns the target, or `none` when the manifest excludes it. -/
   surface : Option String
   deriving Repr, DecidableEq
 
@@ -57,11 +67,17 @@ def infrastructureModuleNames : Array Name :=
 adapter obtains both paths independently from actual resolution and the checker library;
 this type proves equality of those observations, not filesystem or compiler authenticity. -/
 structure InfrastructureOrigin where
+  /-- The infrastructure module this receipt is for. -/
   moduleKey : ModuleKey
+  /-- The canonical path of the `.olean` the probed environment loaded the module from. -/
   actual : String
+  /-- The canonical path of the module's `.olean` in the checker package's own library. -/
   expected : String
+  /-- Proof that the module is one of `infrastructureModuleNames`. -/
   eligible : moduleKey.name.name ∈ infrastructureModuleNames
+  /-- Proof that the observed path is nonempty. -/
   nonempty : actual ≠ ""
+  /-- Proof that the observed and expected paths are equal. -/
   agrees : actual = expected
   deriving DecidableEq
 
@@ -85,11 +101,16 @@ theorem admitInfrastructureOrigin_exact (origin : InfrastructureOrigin) :
 /-- A standalone file is compiled in an isolated module. Retain both identities and
 exact byte equality; this does not authenticate either filesystem read. -/
 structure FileSourceBinding where
+  /-- The snapshot of the file the audit was asked to check. -/
   requested : SourceSnapshot
+  /-- The snapshot of the isolated copy that was compiled. -/
   compiled : SourceSnapshot
+  /-- Proof that both snapshots hold the same source text. -/
   sameBytes : requested.source = compiled.source
   deriving DecidableEq
 
+/-- Bind the requested file to its compiled copy when their source texts are equal, and
+refuse otherwise. -/
 def admitFileSourceBinding (requested compiled : SourceSnapshot) : Except String FileSourceBinding :=
   if h : requested.source = compiled.source then .ok ⟨requested, compiled, h⟩
   else .error "standalone source copy differs from requested file"
@@ -101,55 +122,91 @@ theorem fileSourceBinding_bytes (binding : FileSourceBinding) :
 Material declarations are the explicit public evidence-registration census; its adequacy
 remains semantic review. Imported modules are separate from claimed owned modules. -/
 structure EnvironmentCensus where
+  /-- The request this environment answers: its key and positive module assignment. -/
   request : EnvironmentRequest
+  /-- The admitted declaration inventory of the environment's owned modules. -/
   policy : Inventory
+  /-- The admitted execution roots and their closure accounts. -/
   execution : ExecutionInventory
+  /-- The positive (owned) modules the request assigns to this environment. -/
   modules : Array ModuleKey
+  /-- Loaded modules that are neither owned nor infrastructure: the import closure. -/
   importedModules : Array ModuleKey
+  /-- Origin receipts of the loaded checker infrastructure modules. -/
   infrastructure : Array InfrastructureOrigin := #[]
+  /-- The name, `.olean` path and direct imports of every loaded module. -/
   origins : Array ModuleOrigin := #[]
+  /-- Captured source snapshots of infrastructure modules, where a source was captured. -/
   infrastructureSources : Array (ModuleKey × SourceSnapshot) := #[]
+  /-- The captured source snapshot of each owned module, in `modules` order. -/
   moduleSources : Array (ModuleKey × SourceSnapshot)
+  /-- For a single-file audit, the binding of the requested file to its compiled copy. -/
   fileSource : Option FileSourceBinding := none
+  /-- Captured source snapshots of imported modules, where a source was captured. -/
   importedSources : Array (ModuleKey × SourceSnapshot)
+  /-- Loaded modules built into the project's own output that no Lake target configures and
+  that are neither owned nor infrastructure; `EnvironmentCensusOK` requires none. -/
   unclassifiedRootImports : Array ModuleKey
+  /-- The modules whose declarations the kernel-admission replay covered. -/
   admissionModules : Array ModuleKey := #[]
+  /-- The declarations the replay had to admit: every owned one that is neither `unsafe` nor
+  `partial`. -/
   admissionDeclarations : Array DeclarationKey
+  /-- The keys of the policy inventory's declarations, in inventory order. -/
   declarations : Array DeclarationKey
+  /-- The keys of the admitted execution roots, in root order. -/
   roots : Array RootKey
+  /-- The declarations registered as material evidence (`@[regula_material]`). -/
   materialDeclarations : Array DeclarationKey
   deriving DecidableEq
 
+/-- The module keys of the environment's infrastructure receipts. -/
 def EnvironmentCensus.infrastructureModules (i : EnvironmentCensus) : Array ModuleKey := i.infrastructure.map (·.moduleKey)
 
+/-- Every module of the environment: owned, then imported, then infrastructure. -/
 def EnvironmentCensus.allModules (i : EnvironmentCensus) : Array ModuleKey :=
   i.modules ++ i.importedModules ++ i.infrastructureModules
 
+/-- Every captured source of the environment: owned, then imported, then infrastructure. -/
 def EnvironmentCensus.allModuleSources (i : EnvironmentCensus) : Array (ModuleKey × SourceSnapshot) :=
   i.moduleSources ++ i.importedSources ++ i.infrastructureSources
 
 /-- One complete original request with separately admitted Lean environments. -/
 structure Census where
+  /-- The environment requests of the run, in coordinator order. -/
   requests : Array EnvironmentRequest
+  /-- One environment census per request, in the same order. -/
   environments : Array EnvironmentCensus
+  /-- Every positive (owned) module of the run, over all environments. -/
   modules : Array ModuleKey
+  /-- The captured source of every positive module, over all environments. -/
   moduleSources : Array (ModuleKey × SourceSnapshot)
+  /-- The manifest's classification of each Lake target. -/
   configuredTargets : Array TargetAssignment
+  /-- The Lake targets of the root package as Lake resolves them. -/
   discoveredTargets : Array DiscoveredTarget
+  /-- The documentation fences a documentation audit checks. -/
   fences : Array FenceKey := #[]
+  /-- In the serialized-graph mode, the root modules the serialized-graph checker runs on. -/
   graphRoots : Array ModuleKey := #[]
+  /-- In the serialized-graph mode, the positive modules each graph root's check covers. -/
   graphCoverage : Array (ModuleKey × Array ModuleKey) := #[]
   deriving DecidableEq
 
+/-- Every module of every environment of the census. -/
 def Census.allModules (i : Census) : Array ModuleKey := i.environments.flatMap (·.allModules)
 
+/-- A generated-role receipt (`Roles`) for the policy inventory of every environment. -/
 abbrev CensusRoles (i : Census) := (slot : Fin i.environments.size) → Roles i.environments[slot].policy
 
+/-- The claim's source snapshots: its own sources, then every dependency's files. -/
 def snapshotSources (c : Claim) : Array SourceSnapshot :=
   c.val.snapshot.sources ++ c.val.snapshot.dependencies.flatMap (·.files)
 
+/-- The Lean module names of the keys, in order. -/
 def moduleNames (ms : Array ModuleKey) : Array Name := ms.map (·.name.name)
 
+/-- The (module, declaration) name pairs of the keys, in order. -/
 def declarationNames (ds : Array DeclarationKey) : Array (Name × Name) :=
   ds.map (fun d => (d.moduleKey.name.name, d.name.name))
 
@@ -372,6 +429,9 @@ def profileForModule (c : Claim) (m : Name) : Option ConformingProfile :=
   | .file _ p _ | .editor _ _ p _ => some p
   | .documentation _ => some .standardLogical
 
+/-- A module's execution claim, derived from the claim: in a project, that of the surface
+owning the module (none when no surface does); in a file or editor audit, the requested one;
+none for documentation. -/
 def executionForModule (c : Claim) (m : Name) : Option ExecutionClaim :=
   match c.val.scope with
   | .project => (c.val.surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map (·.execution)
@@ -400,6 +460,8 @@ def localStageSubjects (i : EnvironmentCensus) : Stage → Array LocalJobSubject
   | .documentationPresence => i.modules.map .module ++ i.materialDeclarations.map .declaration
   | _ => #[]
 
+/-- The subjects of a stage's jobs over the whole census: the scope for a whole-run stage, each
+fence for `example`, and otherwise every environment's local subjects under its request key. -/
 def stageSubjects (i : Census) : Stage → Array JobSubject
   | .configuration | .discovery | .build | .documentScan | .graph => #[.scope]
   | .example => i.fences.map .fence
@@ -489,9 +551,13 @@ theorem planOK_decide_eq_previous (c : Claim) (i : Census) :
 /-- The fixed JobKeys exactly realize the independently derived plan. Admission cannot
 accept a caller-selected shorter list, duplicates, or another claim's keys. -/
 structure Plan (c : Claim) (i : Census) where
+  /-- The job keys, one per required job, in the order of `requiredJobs`. -/
   jobs : Array JobKey
+  /-- Proof that the census and its derived plan satisfy `PlanOK`. -/
   valid : PlanOK c i
+  /-- Proof that the jobs' stages and subjects are exactly `requiredJobs c i`, in order. -/
   exactJobs : jobs.map (fun k => (k.stage, k.subject)) = requiredJobs c i
+  /-- Proof that every job key belongs to the claim `c`. -/
   exactClaim : ∀ k ∈ jobs, k.claim = c
 
 /-- Validate the proposed keyed realization without dropping any record. -/

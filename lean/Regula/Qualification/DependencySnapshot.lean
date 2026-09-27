@@ -8,15 +8,20 @@ observations qualify trusted Lake/filesystem boundaries, not universal IO behavi
 namespace Regula.Qualification.DependencySnapshot
 open Lean System
 
+/-- Throws, labelled with the process's combined output, unless it exited with code 0. -/
 def success (result : IO.Process.Output) : IO Unit :=
   requireChecks [⟨result.stdout ++ result.stderr, result.exitCode == 0⟩]
 
+/-- Removes the file at `path` when it exists; a missing file is not an error. -/
 def removeFile (path : FilePath) : IO Unit := do
   if ← path.pathExists then IO.FS.removeFile path
 
+/-- Copies the Regula root's `lean-toolchain` file into the directory `target`. -/
 def toolchain (root target : FilePath) : IO Unit := do
   IO.FS.writeBinFile (target / "lean-toolchain") (← IO.FS.readBinFile (root / "lean-toolchain"))
 
+/-- Writes `project`'s `foundation_manifest.json` (schema 2): one surface, the `Example`
+library with foundation claim `claim` and execution mode `report`, and no exclusions. -/
 def manifest (project : FilePath) (claim : String) : IO Unit :=
   writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
@@ -25,6 +30,8 @@ def manifest (project : FilePath) (claim : String) : IO Unit :=
     ("excluded-libraries", toJson (#[] : Array Json)),
     ("excluded-executables", toJson (#[] : Array Json))])
 
+/-- A checker result packet counts as accepted when its `status` is `"completed"` and it has
+an `acceptance` field. -/
 def accepted (result : Json) : Bool :=
   (result.getObjValAs? String "status").toOption == some "completed" &&
     (result.getObjVal? "acceptance").toOption.isSome
@@ -158,6 +165,10 @@ private def gitStatusControls (root : FilePath) : IO Unit :=
     IO.FS.writeFile (scratch / "outside.lean") "outside\n"
     expectCase "input outside the root" #[scratch / "outside.lean"] "refused" "refused"
 
+/-- Runs the snapshot control group `group`: `git-status` (Git status controls only),
+`dependencies` (dependency snapshot retention on a Git and a non-Git local dependency),
+`history` (RG3001 history controls in fresh, incremental and build-lint modes), or `all`.
+Any other group, and any failed check, throws. -/
 def check (group : String) : IO Unit := do
   requireChecks [⟨"known snapshot group",
     #["all", "dependencies", "history", "git-status"].contains group⟩]
@@ -183,7 +194,7 @@ def check (group : String) : IO Unit := do
     IO.FS.createDirAll project
     toolchain root project
     IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
+      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\nlinter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
     success (← run project "lake" #["update"] cleanEnv)
     if group != "history" then
@@ -207,7 +218,7 @@ def check (group : String) : IO Unit := do
             !encoded.contains (toJson (marker.toUTF8.toList.map UInt8.toNat)).compress⟩]
         IO.println s!"dependency snapshot {kind}: PASS"
     if group == "dependencies" then return
-    IO.FS.writeFile (project / "lakefile.toml") "name = \"history_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"Example\"\n"
+    IO.FS.writeFile (project / "lakefile.toml") "name = \"history_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \"Example\"\n"
     removeFile (project / "lake-manifest.json")
     success (← run project "lake" #["update"] cleanEnv)
     manifest project "standard-logical"

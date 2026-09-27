@@ -7,6 +7,8 @@ import RegulaCore.Guidance
 proved parser `Regula.Guidance.parseCommand` admits; the texts are generated from the
 installed registry, so they match this build and need no network. -/
 
+/-- The `regula` executable: print the output of the command `parseCommand` admits and exit 0,
+or print the usage and the parse error to standard error and exit 2. -/
 def main (args : List String) : IO UInt32 := do
   match Regula.Guidance.parseCommand args with
   | .ok command =>

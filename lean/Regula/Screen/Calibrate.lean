@@ -22,31 +22,50 @@ open Questions
 
 /-- Whether the explanation describes the item's own statement or its base's. -/
 inductive Variant where
-  | faithful | stale
+  /-- The item's own explanation, which describes its own statement. -/
+  | faithful
+  /-- The base item's explanation paired with a mutant's statement, so the mutation shows
+  only in the Lean statement. -/
+  | stale
   deriving Repr, DecidableEq
 
+/-- The variant's name in the report and evidence rows: `faithful` or `stale`. -/
 def Variant.spelling : Variant → String
   | .faithful => "faithful" | .stale => "stale"
 
 /-- One labelled judged answer. -/
 structure Row where
+  /-- The corpus item judged; for a correspondence row, the formal definition. -/
   item : Name
+  /-- The item's mutation kind; `formalCorrect` or `formalWrong` for a correspondence row. -/
   mutation : Mutation
+  /-- The corpus split the item belongs to. -/
   split : Split
+  /-- The state mode the question was asked under. -/
   mode : StateMode
+  /-- Whether the explanation sent was the item's own or its base's. -/
   variant : Variant
+  /-- The judgment this answer is for. -/
   judgment : Judgment
+  /-- What was judged: `clause i` for coverage, `claim` for the claim-level judgments, or the
+  English clause for a correspondence row. -/
   subject : String
+  /-- Whether the corpus labels this subject a defect in the judged respect. -/
   defect : Bool
+  /-- The model's support probability; a value below the threshold is a finding. -/
   support : Decimal
+  /-- The digest of the request that produced the answer (its cache key). -/
   digest : String
   /-- For strength: the most probable option and the labelled option. -/
   strength? : Option (String × Strength) := none
 
+/-- The strength option's name, as the question offers it and the evidence rows record it. -/
 def Strength.spelling : Strength → String
   | .equivalent => "equivalent" | .stronger => "stronger" | .weaker => "weaker"
   | .incomparable => "incomparable"
 
+/-- A strength label is a defect when the claim is weaker than the intent or incomparable
+with it. -/
 def isDefectStrength : Strength → Bool
   | .weaker | .incomparable => true
   | .equivalent | .stronger => false
@@ -83,11 +102,16 @@ def judgeItem (cache : System.FilePath) (model : PinnedModel) (item : Item) (tex
 
 /-- Rates at one threshold: false negatives among defects, false positives among the rest. -/
 structure Rates where
+  /-- How many rows are labelled defects. -/
   defects : Nat
+  /-- How many rows are not labelled defects. -/
   clean : Nat
+  /-- Defect rows whose support is at or above the threshold, so no finding is raised. -/
   falseNegatives : Nat
+  /-- Clean rows whose support is below the threshold, so a finding is raised. -/
   falsePositives : Nat
 
+/-- The counts of `Rates` for `rows` at `threshold`. -/
 def rates (rows : List Row) (threshold : Decimal) : Rates :=
   let defects := rows.filter (·.defect)
   let clean := rows.filter (!·.defect)
@@ -104,11 +128,14 @@ def aucTwice (rows : List Row) : Nat × Nat :=
     acc + (if d.support < c.support then 2 else if c.support < d.support then 0 else 1)) acc) 0
   (pairs, 2 * defects.length * clean.length)
 
+/-- `k/n` followed by `k / n` rounded to three decimals, as in `3/8 (0.375)`; `n/a`
+when `n` is 0. -/
 def ratio (k n : Nat) : String :=
   if n = 0 then "n/a" else
     let permille := (k * 1000 + n / 2) / n
     s!"{k}/{n} ({permille / 1000}.{"".pushn '0' (3 - (toString (permille % 1000)).length)}{permille % 1000})"
 
+/-- The thresholds the report tabulates, with their labels: 0.2, 0.5 and 0.6. -/
 def thresholds : List (String × Decimal) := [("0.2", ⟨2, 1⟩), ("0.5", ⟨5, 1⟩), ("0.6", ⟨6, 1⟩)]
 
 /-- AUC in thousandths, rounded; `none` without both defects and clean rows. -/
@@ -137,10 +164,14 @@ def tableRow (label : String) (rows : List Row) : String :=
   s!"| {label} | {rows.filter (·.defect) |>.length} / {rows.filter (!·.defect) |>.length} | " ++
     " | ".intercalate cells ++ s!" | {ratio auc total} |"
 
+/-- The Markdown header and separator rows of a rates table: false-negative and false-positive
+rates at each threshold, then AUC. -/
 def tableHeader : String :=
   "| group | defects / clean | FNR@0.2 | FPR@0.2 | FNR@0.5 | FPR@0.5 | FNR@0.6 | FPR@0.6 | AUC |\n" ++
   "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
 
+/-- A row as one evidence record: its labels, the rendered support probability, the request
+digest and, for a strength row, the most probable option and the labelled one. -/
 def rowJson (r : Row) : Json :=
   Json.mkObj ([("item", .str r.item.toString), ("mutation", .str r.mutation.spelling),
     ("split", .str (if r.split == .dev then "dev" else "test")), ("state", .str r.mode.spelling),

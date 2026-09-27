@@ -32,22 +32,24 @@ private def externalAttribute := "@[extern \"compiler_path_external\"] "
 private def cases : Array Case := #[
   { name := "init-module-origin"
     supportModule := "Init.Adopter"
-    body := "def target (n : Nat) := n\ndef entry (n : Nat) := target n + 1\n"
+    body := "/-- The identity. -/\ndef target (n : Nat) := n\n/-- The successor, through `target`. -/\ndef entry (n : Nat) := target n + 1\n"
     before := "def target", after := externalAttribute ++ "def target"
     expected := #["CompilerPath.target [external]", "module Init.Adopter"]
     positiveExpected := #["Nat.add [native-runtime]"]
     project := true },
   { name := "imported"
-    body := "def target (n : Nat) := n\ndef reference (n : Nat) := n\n" ++
+    body := "/-- The identity. -/\ndef target (n : Nat) := n\n" ++
+      "/-- The identity, compiled as `target`. -/\ndef reference (n : Nat) := n\n" ++
       "@[csimp] theorem optimize : reference = target := rfl\n" ++
-      "def entry (n : Nat) := reference n\n"
+      "/-- Runs `reference`. -/\ndef entry (n : Nat) := reference n\n"
     before := "def target", after := externalAttribute ++ "def target"
     expected := #["CompilerPath.target [external]", "compiler-callers="]
     project := true, emittedSymbol := some "compiler_path_external" },
   { name := "module-system"
-    body := "def target (n : Nat) := n\ndef reference (n : Nat) := n\n" ++
+    body := "/-- The identity. -/\ndef target (n : Nat) := n\n" ++
+      "/-- The identity, compiled as `target`. -/\ndef reference (n : Nat) := n\n" ++
       "@[csimp] theorem optimize : reference = target := rfl\n" ++
-      "def entry (n : Nat) := reference n\n"
+      "/-- Runs `reference`. -/\ndef entry (n : Nat) := reference n\n"
     before := "def target", after := externalAttribute ++ "def target"
     expected := #["CompilerPath.target [external]", "compiler-callers="]
     project := true, moduleSystem := true },
@@ -160,19 +162,24 @@ its unrelated unsafe declarations cannot mask the intended execution failure. -/
 private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO (Array String) := do
   let body := if negative then test.body.replace test.before test.after else test.body
   if negative && body == test.body then return #[s!"{test.name}: mutation anchor missing"]
-  let header := if test.moduleSystem then "module\npublic import Init\n@[expose] public section\n"
+  let header := if test.moduleSystem then "module\npublic import Init\n"
     else if test.importLean then "import Lean\n" else "import Init\n"
   let supportName := test.supportModule.toName
   let supportPath := Lean.modToFilePath scratch supportName "lean"
   if let some parent := supportPath.parent then IO.FS.createDirAll parent
+  -- The module docstring is the first command after the imports (RG5001).
   IO.FS.writeFile supportPath (header ++
     "/-! Imported execution-path qualification support. -/\n" ++
+    (if test.moduleSystem then "@[expose] public section\n" else "") ++
     "namespace CompilerPath\n" ++ body ++ "end CompilerPath\n")
   IO.FS.writeFile (scratch / "Wrapper.lean")
-    s!"import {test.supportModule}\n/-! Execution-path qualification consumer. -/\ndef callsImported (n : Nat) := CompilerPath.entry n\n"
+    s!"import {test.supportModule}\n/-! Execution-path qualification consumer. -/\n/-- Runs the imported entry. -/\ndef callsImported (n : Nat) := CompilerPath.entry n\n"
   IO.FS.writeFile (scratch / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  -- `linter.missingDocs` goes on each claimed library (RG2006): the support library is
+  -- claimed only in the project cases.
+  let supportOptions := if test.project then "leanOptions.linter.missingDocs = true\n" else ""
   IO.FS.writeFile (scratch / "lakefile.toml")
-    s!"name = \"compiler_path_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"{test.supportModule}\"\n[[lean_lib]]\nname = \"Wrapper\"\n"
+    s!"name = \"compiler_path_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"{test.supportModule}\"\n{supportOptions}[[lean_lib]]\nname = \"Wrapper\"\nleanOptions.linter.missingDocs = true\n"
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.

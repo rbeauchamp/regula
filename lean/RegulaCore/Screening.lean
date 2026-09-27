@@ -41,6 +41,7 @@ inductive EvidenceClass where
   | openReview
   deriving Repr, DecidableEq
 
+/-- The label a screen report prints for an evidence class. -/
 def EvidenceClass.spelling : EvidenceClass → String
   | .checked => "checked" | .screened => "screened" | .openReview => "open semantic review"
 
@@ -69,11 +70,16 @@ def _root_.RegulaPolicy.Screening.Judgment.findingId (j : Judgment) : String :=
 /-- One judged answer, as recorded evidence. `support` is the probability that the claim
 meets the intent in the judged respect (for strength, equivalent or stronger). -/
 structure Judged where
+  /-- Which question this answer judges. -/
   judgment : Judgment
   /-- The clause text, or `claim` for a whole-claim judgment. -/
   subject : String
+  /-- The pinned model identifier that answered. -/
   model : PinnedModel
+  /-- The recorded question text (`Questions.questionText`): instructions and criteria as
+  compact JSON. -/
   question : String
+  /-- The probability that the claim meets the intent in the judged respect. -/
   support : Decimal
   /-- Distribution confidence, reported for Choice answers only. -/
   confidence : Option Decimal
@@ -127,11 +133,14 @@ inductive ClauseEvidence where
   checked or judged, and it stays open for review. -/
   | refused (proof : Lean.Name) (reason : String)
 
+/-- The judged answer of a clause: the correspondence judgment of a discharge, the coverage
+judgment of a judged clause, and none for a refused discharge. -/
 def ClauseEvidence.judgedAnswer? : ClauseEvidence → Option Judged
   | .discharged _ _ _ j => some j
   | .judged j => some j
   | .refused .. => none
 
+/-- The clause's discharge reference was refused. -/
 def ClauseEvidence.isRefused : ClauseEvidence → Bool
   | .refused .. => true
   | _ => false
@@ -165,9 +174,14 @@ def ClauseEvidence.label (e : ClauseEvidence) : String :=
 
 /-- The screen of one material claim. -/
 structure ClaimScreen where
+  /-- The registered material declaration screened. -/
   claim : Lean.Name
+  /-- Each intent clause's text with how it was compared with the claim, in clause order. -/
   clauses : List (String × ClauseEvidence)
+  /-- The whole-claim strength judgment: the claim is equivalent to or stronger than the
+  intent. -/
   strength : Judged
+  /-- The whole-claim targeted judgments: quantifier order, totalization and exclusions. -/
   targeted : List Judged
 
 /-- Every judged answer of the screen. -/
@@ -177,9 +191,13 @@ def ClaimScreen.answers (s : ClaimScreen) : List Judged :=
 /-- The strongest status a screen can record. There is deliberately no checked or reviewed
 status. -/
 inductive Status where
-  | screened | escalated
+  /-- No discharge reference was refused and every answer stays screened under the policy. -/
+  | screened
+  /-- A discharge was refused or some answer escalates: the claim goes to semantic review. -/
+  | escalated
   deriving Repr, DecidableEq
 
+/-- The label a screen report prints for a status. -/
 def Status.spelling : Status → String
   | .screened => "screened" | .escalated => "escalated to review"
 

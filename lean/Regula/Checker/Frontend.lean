@@ -22,6 +22,8 @@ open Lean Lean.Elab
 open RegulaPolicy (EvaluatorRole)
 open Regula.Checker.PolicyCodec (exactFields)
 
+/-- One import of the elaborated module (`RegulaPolicy.Frontend.ImportRecord`), with the
+exact-field JSON codec the frontend workers exchange. -/
 abbrev ImportRecord := RegulaPolicy.Frontend.ImportRecord
 deriving instance ToJson for RegulaPolicy.Frontend.ImportRecord
 instance : FromJson RegulaPolicy.Frontend.ImportRecord := ⟨fun j => do
@@ -33,6 +35,8 @@ instance : FromJson RegulaPolicy.Frontend.ImportRecord := ⟨fun j => do
     isMeta := ← j.getObjValAs? _ "isMeta"
   }⟩
 
+/-- A source range as line/column start and end positions (`RegulaPolicy.Frontend.SyntaxRange`),
+with its exact-field JSON codec. -/
 abbrev SyntaxRange := RegulaPolicy.Frontend.SyntaxRange
 deriving instance ToJson for RegulaPolicy.Frontend.SyntaxRange
 instance : FromJson RegulaPolicy.Frontend.SyntaxRange := ⟨fun j => do
@@ -42,6 +46,9 @@ instance : FromJson RegulaPolicy.Frontend.SyntaxRange := ⟨fun j => do
     «end» := ← j.getObjValAs? _ "end"
   }⟩
 
+/-- One elaborator invocation read from a command's info tree: its role, elaborator, syntax
+kind, source range and whether it is pinned (`RegulaPolicy.Frontend.Evaluator`), with its
+exact-field JSON codec. -/
 abbrev Evaluator := RegulaPolicy.Frontend.Evaluator
 deriving instance ToJson for RegulaPolicy.Frontend.Evaluator
 instance : FromJson RegulaPolicy.Frontend.Evaluator := ⟨fun j => do
@@ -54,6 +61,8 @@ instance : FromJson RegulaPolicy.Frontend.Evaluator := ⟨fun j => do
     pinned := ← j.getObjValAs? _ "pinned"
   }⟩
 
+/-- One constant a command added: its name, kind and printed type
+(`RegulaPolicy.Frontend.AddedDeclaration`), with its exact-field JSON codec. -/
 abbrev AddedDeclaration := RegulaPolicy.Frontend.AddedDeclaration
 deriving instance ToJson for RegulaPolicy.Frontend.AddedDeclaration
 instance : FromJson RegulaPolicy.Frontend.AddedDeclaration := ⟨fun j => do
@@ -64,6 +73,8 @@ instance : FromJson RegulaPolicy.Frontend.AddedDeclaration := ⟨fun j => do
     «type» := ← j.getObjValAs? _ "type"
   }⟩
 
+/-- The binder site of a declared constant at its declaration identifier
+(`RegulaPolicy.Frontend.DeclarationBinding`), with its exact-field JSON codec. -/
 abbrev DeclarationBinding := RegulaPolicy.Frontend.DeclarationBinding
 deriving instance ToJson for RegulaPolicy.Frontend.DeclarationBinding
 instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
@@ -73,6 +84,8 @@ instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
     range := ← j.getObjValAs? _ "range"
   }⟩
 
+/-- One elaborated command that added constants, with its evaluators and binders
+(`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
 abbrev Command := RegulaPolicy.Frontend.Command
 deriving instance ToJson for RegulaPolicy.Frontend.Command
 instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
@@ -87,6 +100,8 @@ instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
     bindings := ← j.getObjValAs? _ "bindings"
   }⟩
 
+/-- The fresh-elaboration transcript of one module (`RegulaPolicy.Frontend.Transcript`),
+with its exact-field JSON codec. -/
 abbrev Transcript := RegulaPolicy.Frontend.Transcript
 deriving instance ToJson for RegulaPolicy.Frontend.Transcript
 instance : FromJson RegulaPolicy.Frontend.Transcript := ⟨fun j => do
@@ -472,9 +487,15 @@ unsafe def build (moduleName : Name) (sourcePath : System.FilePath)
   try buildCore moduleName sourcePath
   finally Lean.searchPathRef.set oldSearchPath
 
+/-- The request a `--frontend-worker` process reads: which module to elaborate, from which
+source file, with which extra search roots first. -/
 structure WorkerRequest where
+  /-- The module name the source is elaborated as. -/
   moduleName : Name
+  /-- The path of the source file to elaborate. -/
   source : String
+  /-- Search roots placed before the worker's own search path, such as freshly built
+  package outputs. -/
   searchRoots : Array String
   deriving ToJson
 

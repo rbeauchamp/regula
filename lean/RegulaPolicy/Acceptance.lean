@@ -19,6 +19,8 @@ def ResultBound {c : Claim} {i : Census} (p : Plan c i) (slot : Nat) (o : JobObs
 instance {c : Claim} {i : Census} (p : Plan c i) (slot : Nat) (o : JobObservation) :
     Decidable (ResultBound p slot o) := by unfold ResultBound; infer_instance
 
+/-- The result table of plan `p`: observations keyed by the plan's job slots, each occupied slot
+bound to its planned job key and the claim's snapshot (`ResultBound`). -/
 abbrev ResultTable {c : Claim} {i : Census} (p : Plan c i) := ResultState (requiredSlots p) (ResultBound p)
 
 /-- Completeness quantifies the independent plan, including discovery/build/scan slots when
@@ -52,8 +54,13 @@ def AllPolicyOK {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
 instance {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i) (s : ResultTable p) :
     Decidable (AllPolicyOK p roles s) := by unfold AllPolicyOK; infer_instance
 
+/-- Why `accept` refuses a result table. -/
 inductive AcceptanceFailure where
-  | incomplete | policyViolation
+  /-- Some planned slot has no completed observation (`CompleteFor` fails). -/
+  | incomplete
+  /-- Every slot completed, but some planned job's observation fails its policy
+  (`AllPolicyOK` fails). -/
+  | policyViolation
   deriving Repr, DecidableEq
 
 /-- Mechanical acceptance for these exact claim, census, plan and result inputs. A negative
@@ -62,7 +69,9 @@ No serialized accepted flag can construct either proof. The structure is a `Type
 `Prop`, although its fields are propositions: `accept` returns it as the success value of an
 `Except`, whose value type is a `Type`. -/
 structure Accepted {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i) (s : ResultTable p) : Type where
+  /-- Every planned slot holds a completed observation. -/
   complete : CompleteFor p s
+  /-- Every planned slot's observation meets its policy. -/
   policy : AllPolicyOK p roles s
 
 /-- Recompute completeness and actual pure policy relations after payload admission. -/
@@ -117,11 +126,17 @@ theorem accept_policyViolation {c : Claim} {i : Census} (p : Plan c i) (roles : 
 /-- Report projection carries the exact accepted inputs; it cannot substitute a different
 scope, inventory, job order, or payload table. Renderers and audit exits consume this in #7. -/
 structure AcceptedReport where
+  /-- The accepted claim. -/
   claim : Claim
+  /-- The census the plan was built from. -/
   census : Census
+  /-- The plan's job keys in slot order. -/
   jobs : Array JobKey
+  /-- The accepted observation of each slot, keyed by slot index. -/
   results : ExtTreeMap Nat JobObservation
 
+/-- The report of an acceptance: its claim, census, plan jobs and result entries, unchanged
+(`accepted_report_identity`). -/
 def Accepted.report {c : Claim} {i : Census} {p : Plan c i} {roles : CensusRoles i}
     {s : ResultTable p} (_ : Accepted p roles s) : AcceptedReport :=
   ⟨c, i, p.jobs, s.entries⟩
@@ -152,7 +167,9 @@ theorem accepted_covers_slot {c : Claim} {i : Census} {p : Plan c i} {roles : Ce
   exact (Option.some.inj hother).symm
 /-- Collection failures and completed-policy refusals remain distinct. -/
 inductive FinalizationFailure where
+  /-- A response could not be admitted into the result table (`ResultState.collect`). -/
   | collection (reason : AdmissionFailure)
+  /-- The collected table was refused by `accept`. -/
   | acceptance (reason : AcceptanceFailure)
   deriving Repr, DecidableEq
 
@@ -161,8 +178,11 @@ retains the full response sequence, including multiplicity, instead of trusting 
 This follows con-leche's checked-record/collection architecture without importing it. -/
 structure Finalized {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
     (inputs : List (Nat × JobObservation)) where
+  /-- The result table collected from `inputs`. -/
   table : ResultTable p
+  /-- `table` is what collecting every input into the empty table returns. -/
   collected : ResultState.collect .empty inputs = .ok table
+  /-- The acceptance of `table`. -/
   accepted : Accepted p roles table
 
 /-- The sole pure finalization path collects every response, then recomputes the approved
@@ -413,10 +433,15 @@ theorem finalize_singleton_transfer {c : Claim} {i : Census} (p : Plan c i) (rol
 obtained externally, while its plan, roles, collected observations and acceptance are
 all checked here. Constructors require every proof; serialized reports carry none. -/
 structure AcceptedRun (c : Claim) where
+  /-- The census the external collector reported for `c`. -/
   census : Census
+  /-- The admitted plan of `c` over `census`. -/
   plan : Plan c census
+  /-- The generated-role observations (`Roles`) of each environment of `census`. -/
   roles : CensusRoles census
+  /-- Every worker response as a slot and its observation, in arrival order, duplicates kept. -/
   inputs : List (Nat × JobObservation)
+  /-- The collection and acceptance of `inputs` under `plan` and `roles`. -/
   result : Finalized plan roles inputs
 
 /-- Renderers receive the report of the same accepted request, never an independently
@@ -478,14 +503,23 @@ theorem accepted_execution_resolves {c : Claim} {i : Census} {p : Plan c i}
 one exact snapshot and the requested Markdown inventory. Neither component is promoted
 to the other's scope; negative/teaching fences remain expectation evidence. -/
 structure CombinedAccepted (projectClaim documentClaim : Claim) (documents : Array SourceSnapshot) where
+  /-- The accepted whole-project run. -/
   project : AcceptedRun projectClaim
+  /-- The accepted documentation-example run. -/
   documentation : AcceptedRun documentClaim
+  /-- The project run's claim has the whole-project scope. -/
   projectScope : projectClaim.val.scope = .project
+  /-- The project run's claim is a fresh project audit. -/
   projectMode : projectClaim.val.mode = .freshProject
+  /-- The documentation run's claim covers exactly `documents`. -/
   documentScope : documentClaim.val.scope = .documentation documents
+  /-- The documentation run's claim checks documentation examples. -/
   documentMode : documentClaim.val.mode = .documentationExample
+  /-- Both claims name the same source snapshot. -/
   sameSnapshot : projectClaim.val.snapshot = documentClaim.val.snapshot
 
+/-- Pair a project run and a documentation run when their claims have the required scopes and
+modes and the same snapshot; otherwise an error naming the mismatch classes. -/
 def combineAccepted {pc dc : Claim} (documents : Array SourceSnapshot)
     (project : AcceptedRun pc) (documentation : AcceptedRun dc) :
     Except String (CombinedAccepted pc dc documents) :=

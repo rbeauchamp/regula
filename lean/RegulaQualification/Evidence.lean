@@ -22,15 +22,26 @@ def ids (j : Json) : Except String (List String) := do
 
 /-- Fixed expectation, selected before the public command runs. -/
 structure Expected where
+  /-- Whether the command must exit with a nonzero code. -/
   failure : Bool := false
+  /-- When set, the result's exact `mode`. -/
   mode : Option String := none
+  /-- The result's exact terminal `status`. -/
   status : String := "completed"
+  /-- The exact sequence of diagnostic IDs in the result; each must also occur in the
+  transcript. -/
   ids : List String := []
+  /-- Text the transcript must contain; for an RG2005 diagnostic, also its detail. -/
   reason : String := ""
+  /-- Whether the transcript must report a single inspection group of one fence. -/
   grouped : Bool := false
+  /-- Text a successful transcript must contain. -/
   positiveText : String := "PASS"
+  /-- When set, the `impact` every diagnostic must have. -/
   impact : Option String := none
+  /-- When set, the `mode` every diagnostic must have. -/
   diagnosticMode : Option String := none
+  /-- When set, the `subject` argument every RG2005 diagnostic must have. -/
   evidenceSubject : Option String := none
 
 /-- Exact observable requirements shared by fence and failed-operation controls.

@@ -26,12 +26,16 @@ namespace Regula.Checker.Manifest
 open Lean System
 open Regula.Checker.Policy RegulaPolicy.Guards
 
+/-- The default manifest location: `foundation_manifest.json` at the project root `repo`. -/
 def defaultPath (repo : FilePath) : FilePath :=
   repo / "foundation_manifest.json"
 
+/-- Every library the manifest names: the claimed surfaces' libraries, then the excluded ones. -/
 def libraries (manifest : Manifest) : Array String :=
   manifest.surfaces.map (·.library) ++ manifest.excludedLibraries.map (·.library)
 
+/-- Every executable the manifest names: the claimed surfaces' executables, then the excluded
+ones. -/
 def executables (manifest : Manifest) : Array String :=
   manifest.surfaces.flatMap (·.executables)
     ++ manifest.excludedExecutables.map (·.executable)
@@ -89,12 +93,16 @@ theorem stringField_ok {value : Json} {key location text : String}
     exact h ▸ hfield
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
+/-- Returns `value` when it is a well-formed target name (`TargetName`, by `targetName_sound`);
+otherwise fails with a `manifest-incomplete` message naming `location` and `kind`. -/
 def targetName (kind value location : String) : Except String String := do
   if value.isEmpty || value.trimAscii.toString != value
       || value.toList.any (fun c => c.isWhitespace || c == ',') then
     throw s!"manifest-incomplete: {location} must be a nonempty {kind} name"
   return value
 
+/-- Returns `value` when it is not blank after trimming ASCII whitespace; otherwise fails with a
+`manifest-incomplete` message that `location.rationale` is required. -/
 def rationale (value location : String) : Except String String := do
   if value.trimAscii.isEmpty then
     throw s!"manifest-incomplete: {location}.rationale is required"
@@ -161,12 +169,18 @@ theorem addExecutables_sound {location : String} :
 
 /-- Parsing state: the manifest so far plus every library and executable name seen. -/
 structure Acc where
+  /-- The claimed surfaces accepted so far, in manifest order. -/
   surfaces : Array Surface := #[]
+  /-- The excluded libraries accepted so far, in manifest order. -/
   excludedLibraries : Array ExcludedLibrary := #[]
+  /-- The excluded executables accepted so far, in manifest order. -/
   excludedExecutables : Array ExcludedExecutable := #[]
+  /-- Every library name accepted so far, claimed or excluded, used to refuse a duplicate. -/
   seen : Array String := #[]
+  /-- Every executable name accepted so far, claimed or excluded, used to refuse a duplicate. -/
   seenExes : Array String := #[]
 
+/-- The manifest accumulated so far, without the duplicate-tracking name lists. -/
 def Acc.manifest (acc : Acc) : Manifest := ⟨acc.surfaces, acc.excludedLibraries, acc.excludedExecutables⟩
 
 /-- A surface names a well-formed library and executables, a conforming claim and a rationale. -/
@@ -174,6 +188,9 @@ def SurfaceOK (s : Surface) : Prop :=
   TargetName s.library ∧ (∀ e ∈ s.executables, TargetName e) ∧
     s.claim ≠ .compilerTrusting ∧ s.rationale.trimAscii.isEmpty = false
 
+/-- The parsing invariant: the seen-name lists are exactly the accumulated manifest's library
+and executable names and have no duplicates, every surface satisfies `SurfaceOK`, and every
+exclusion has a well-formed name and a nonblank rationale. -/
 def Acc.Inv (acc : Acc) : Prop :=
   acc.seen = libraries acc.manifest ∧ acc.seen.toList.Nodup ∧
   acc.seenExes = executables acc.manifest ∧ acc.seenExes.toList.Nodup ∧
@@ -241,6 +258,8 @@ def surfaceExecutables (item : Json) (location : String) : Except String (Array 
   | .error _ => pure #[]
   | .ok value => stringArray s!"{location}.executables" value
 
+/-- Reads a surface's required `claim` string as a `Profile`, refusing any value other than
+`kernel-only`, `choice-free` or `standard-logical`. -/
 def surfaceClaim (item : Json) (location : String) : Except String Profile := do
   let claimText ← stringField item "claim" location
   let some claim := Profile.parse? claimText
@@ -263,6 +282,8 @@ theorem surfaceClaim_sound {item : Json} {location : String} {claim : Profile}
       decide
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
+/-- Reads a surface's optional `execution` field: `report` when absent, otherwise the parsed
+`ExecutionClaim` of the string, refusing any other value. -/
 def surfaceExecution (item : Json) (location : String) : Except String ExecutionClaim :=
   match item.getObjVal? "execution" with
   | .error _ => pure .report
@@ -327,13 +348,20 @@ def SurfaceDecodes (item : Json) (s : Surface) : Prop :=
       ExecutionClaim.parse? text = some s.execution) ∧
   item.getObjVal? "rationale" = .ok (.str s.rationale)
 
+/-- `l` is the decoding of the excluded-library JSON object `item`: its `library` and `rationale`
+strings. -/
 def ExcludedLibraryDecodes (item : Json) (l : ExcludedLibrary) : Prop :=
   item.getObjVal? "library" = .ok (.str l.library) ∧ item.getObjVal? "rationale" = .ok (.str l.rationale)
 
+/-- `e` is the decoding of the excluded-executable JSON object `item`: its `executable` and
+`rationale` strings. -/
 def ExcludedExecutableDecodes (item : Json) (e : ExcludedExecutable) : Prop :=
   item.getObjVal? "executable" = .ok (.str e.executable) ∧
     item.getObjVal? "rationale" = .ok (.str e.rationale)
 
+/-- Parses the surface at `surfaces[index]` and appends it to `acc`, refusing an unknown key, a
+malformed or duplicate library or executable name, a bad claim or execution, or a blank
+rationale. -/
 def parseSurface (acc : Acc) (index : Nat) (item : Json) : Except String Acc := do
   let location := s!"surfaces[{index}]"
   objectWithKeys item #["library", "executables", "claim", "execution", "rationale"] location
@@ -371,6 +399,8 @@ theorem parseSurface_inv {acc out : Acc} {index : Nat} {item : Json} (hi : acc.I
     · exact ⟨hname, fun e he' => hnames e (by simpa using he'), surfaceClaim_sound hclaim, hr⟩
 
 
+/-- Parses the entry at `excluded-libraries[index]` and appends it to `acc`, refusing an unknown
+key, a malformed or duplicate library name, or a blank rationale. -/
 def parseExcludedLibrary (acc : Acc) (index : Nat) (item : Json) : Except String Acc := do
   let location := s!"excluded-libraries[{index}]"
   objectWithKeys item #["library", "rationale"] location
@@ -398,6 +428,8 @@ theorem parseExcludedLibrary_inv {acc out : Acc} {index : Nat} {item : Json} (hi
     · exact hl l hl'
     · exact ⟨hname, hr⟩
 
+/-- Parses the entry at `excluded-executables[index]` and appends it to `acc`, refusing an
+unknown key, a malformed or duplicate executable name, or a blank rationale. -/
 def parseExcludedExecutable (acc : Acc) (index : Nat) (item : Json) : Except String Acc := do
   let location := s!"excluded-executables[{index}]"
   objectWithKeys item #["executable", "rationale"] location
@@ -523,6 +555,8 @@ def parseValue (value : Json) : Except String Manifest := do
   let acc ← parseAll parseExcludedExecutable excludedExeValues.toList 0 acc
   return acc.manifest
 
+/-- The executed manifest parser: parses `text` as JSON (a failure is `manifest-malformed`,
+naming `path`) and then decodes it with `parseValue`. -/
 def parse (path text : String) : Except String Manifest := do
   let value ← (Regula.Checker.PolicyCodec.parse text).mapError
     (fun error => s!"manifest-malformed: {path}: {error}")
@@ -865,11 +899,13 @@ def Acc.addSurface (acc : Acc) (s : Surface) : Acc :=
     seenExes := acc.seenExes ++ s.executables
     surfaces := acc.surfaces.push s }
 
+/-- The parsing state after accepting excluded library `l`. -/
 def Acc.addExcludedLibrary (acc : Acc) (l : ExcludedLibrary) : Acc :=
   { acc with
     seen := acc.seen.push l.library
     excludedLibraries := acc.excludedLibraries.push l }
 
+/-- The parsing state after accepting excluded executable `e`. -/
 def Acc.addExcludedExecutable (acc : Acc) (e : ExcludedExecutable) : Acc :=
   { acc with
     seenExes := acc.seenExes.push e.executable
@@ -1168,6 +1204,8 @@ theorem surfaceExecution_nonString {item field : Json} {location : String}
   · rename_i text htext; exact absurd (Except.ok.inj (hfield.symm.trans htext)) (hnot text)
   · simp [throw, throwThe, MonadExceptOf.throw]
 
+/-- Reads and parses the manifest file at `path`, failing with `manifest-missing` when it does not
+exist. -/
 def load (path : FilePath) : IO Manifest := do
   if !(← path.pathExists) then
     throw <| IO.userError s!"manifest-missing: {path}"
@@ -1328,9 +1366,11 @@ def surfaceJson (s : Surface) : Json :=
     ("claim", .str s.claim.toString), ("execution", .str (ExecutionClaim.toString s.execution)),
     ("rationale", .str s.rationale)]
 
+/-- One excluded library in the checker's own JSON schema. -/
 def excludedLibraryJson (l : ExcludedLibrary) : Json :=
   Json.mkObj [("library", .str l.library), ("rationale", .str l.rationale)]
 
+/-- One excluded executable in the checker's own JSON schema. -/
 def excludedExecutableJson (e : ExcludedExecutable) : Json :=
   Json.mkObj [("executable", .str e.executable), ("rationale", .str e.rationale)]
 

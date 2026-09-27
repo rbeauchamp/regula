@@ -36,7 +36,9 @@ def claim : String := "operational"
 
 /-- Observations of one module in its own imported environment. -/
 structure ModuleObservation where
+  /-- The observed module. -/
   «module» : Name
+  /-- The collected record of every constant the module owns, in `ownedConstants` order. -/
   declarations : Array RegulaPolicy.Declaration
   /-- Owned declarations of this module that kernel replay admitted. -/
   admitted : Nat
@@ -44,6 +46,8 @@ structure ModuleObservation where
   toolchain : Array Name
   /-- The module's RG5001 header observation, read from its Lake source file. -/
   header : RegulaPolicy.ModuleHeader.Observation
+  /-- Each public `@[regula_material]` declaration the module owns, with its RG5002/RG5003
+  documentation failure, or `none` when its docstring passes. -/
   material : Array (Name × Option MaterialDocumentationFailure)
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module. -/
@@ -99,14 +103,25 @@ private def declarationText (id : RuleId) (name : Name) (detail : String) (modul
 
 /-- One module's region-free verdict, transported from its worker process as JSON. -/
 structure ModuleResult where
+  /-- The audited module's name. -/
   «module» : String
+  /-- How many constants the module owns. -/
   declarations : Nat
+  /-- How many of its owned declarations kernel replay admitted. -/
   admitted : Nat
+  /-- How many of its declarations carry an executable-contract registration. -/
   contracts : Nat
+  /-- The rendered text of every finding: module documentation, material documentation and
+  declarations that `RegulaPolicy.operationalFailure` rejects. -/
   violations : Array String
+  /-- Declarations that are `unsafe` or `partial` and have no unsafe-recursion base, reported
+  rather than failed. -/
   unsafeDeclarations : Array String
+  /-- The opaque bases of the module's `partial def`s, reported rather than failed. -/
   partialDefinitions : Array String
+  /-- The admitted axioms, outside Standard-Logical, that a toolchain `Lake` module declares. -/
   toolchainAxioms : Array String
+  /-- Non-proposition declarations whose axioms include one of those toolchain axioms. -/
   toolchainDependents : Array String
   deriving ToJson, FromJson
 

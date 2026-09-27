@@ -36,49 +36,77 @@ open Regula.Checker.Account (Residual Trusted)
 
 /-- Exact identity of one site build. -/
 structure Identity where
+  /-- The checked-out commit the site is built from. -/
   revision : Commit
   /-- The build used uncommitted changes on top of `revision` (local previews only). -/
   dirty : Bool
+  /-- The Lean toolchain the checker executables were built with. -/
   toolchain : String
+  /-- The producer version the checker executables embed. -/
   producerVersion : String
+  /-- The Verso revision pinned in the website package's lock manifest. -/
   versoRevision : String
 
 /-- A displayed input file: its workspace-relative path, the repository fixture with
 byte-identical content if there is one, and its exact text. -/
 structure ShownFile where
+  /-- The workspace-relative path of the file in the example run. -/
   path : String
+  /-- The rule's `examples/rules` file whose content is byte-identical, if there is one. -/
   fixture : Option String
+  /-- The file's exact text. -/
   text : String
 
 /-- An input whose content differs between the violating and corrected runs. `none` means
 the file is absent in that run. -/
 structure ChangedFile where
+  /-- The workspace-relative path of the input. -/
   path : String
+  /-- The file in the violating run. -/
   violation : Option ShownFile
+  /-- The file in the corrected run. -/
   fixed : Option ShownFile
 
 /-- Display form of one checked finding of the violating run. -/
 structure FindingView where
+  /-- The rule the finding reports. -/
   rule : RuleId
+  /-- The recorded severity, such as `error`. -/
   severity : String
+  /-- The recorded impact: `violation` or `incomplete`. -/
   impact : String
+  /-- The spelling of the evidence mode the finding was reported in. -/
   mode : String
+  /-- The foundation claim of the run, when it had one. -/
   claim : Option String
   /-- What the finding is about (`Declaration`, `Execution root`, `Subject`) and its name. -/
   subjectKind : String
+  /-- The name or text of the subject, shown as code. -/
   subject : String
+  /-- The finding's detail text, with the example project's path shortened. -/
   detail : String
+  /-- Where the finding is: a source path with line and column, a module, or the project. -/
   location : String
 
 /-- The recorded status of a rule-example run, in the checker's result vocabulary
 (`Regula.Checker.Account.Status.spelling`). -/
 inductive RunStatus where
-  | completed | rejected | incomplete | classified
+  /-- The run was accepted. -/
+  | completed
+  /-- The run completed and found a violation. -/
+  | rejected
+  /-- Evidence was missing or incomplete, so the run reached no verdict. -/
+  | incomplete
+  /-- The run found no violation, but its result classifies rather than conforms, as a file
+  audit without a conforming claim does. -/
+  | classified
 
+/-- The status text of the checker's result vocabulary. -/
 def RunStatus.spelling : RunStatus → String
   | .completed => "completed" | .rejected => "rejected"
   | .incomplete => "incomplete" | .classified => "classified"
 
+/-- The run status a recorded status text names; any other text is refused. -/
 def RunStatus.parse? : String → Option RunStatus
   | "completed" => some .completed | "rejected" => some .rejected
   | "incomplete" => some .incomplete | "classified" => some .classified
@@ -89,26 +117,40 @@ theorem RunStatus.parse_spelling (s : RunStatus) : RunStatus.parse? s.spelling =
 
 /-- Display form of one rule's two admitted rule-example records. -/
 structure Example where
+  /-- The example kind the corpus recorded, such as `policyRejection` or
+  `diagnosticDemonstration` (`exampleKindText`). -/
   kind : String
+  /-- A description of the invocation that produced the runs. -/
   request : String
+  /-- The recorded status of the violating run. -/
   violationStatus : RunStatus
+  /-- The recorded status of the corrected run. -/
   fixedStatus : RunStatus
+  /-- The inputs whose content differs between the two runs, by path. -/
   changed : List ChangedFile
+  /-- The unchanged displayed source, shown for context. -/
   context : List ShownFile
+  /-- The findings of the violating run. -/
   findings : List FindingView
 
 /-- Resolved normative clause: its registry text and its URL at the build revision. -/
 structure Clause where
+  /-- The clause's citation text (`Regula.Clause.label`). -/
   label : String
+  /-- The clause's link target (the builder passes `Regula.Clause.route`, relative to the
+  edition root). -/
   url : String
 
 /-! ## Links -/
 
+/-- The first 12 characters of a commit identifier. -/
 def shortRevision (c : Commit) : String := String.ofList (c.val.toList.take 12)
 
+/-- The GitHub URL of repository file `path` at the build revision. -/
 def blobUrl (ident : Identity) (path : String) : String :=
   repository ++ "/blob/" ++ ident.revision.val ++ "/" ++ path
 
+/-- The GitHub URL of the repository tree at the build revision. -/
 def treeUrl (ident : Identity) : String := repository ++ "/tree/" ++ ident.revision.val
 
 /-- Resolve the `@repo/` link token of guide prose to the build revision. -/
@@ -154,6 +196,8 @@ def editionHtml (ident : Identity) (route : String) : String :=
 
 private def joinComma (xs : List String) : String := String.intercalate ", " xs
 
+/-- The lifecycle sentence of a rule page: active since a version, or retired with its
+replacement. -/
 def lifecycleText {id : RuleId} : Lifecycle id → String
   | .active introduced => "Active since " ++ introduced
   | .retired introduced version replacement =>
@@ -285,6 +329,8 @@ def diffHtml (d : List DiffLine) : String :=
     | .inr (.add l) => "<ins class=\"regula-add\">+ " ++ escape l ++ "</ins>\n"
     | .inr (.keep l) => keepHtml l) ++ "</code></pre>"
 
+/-- The HTML card of one finding: rule, severity and impact badges, mode and claim, subject and
+location, and the detail; all data is escaped. -/
 def findingHtml (f : FindingView) : String :=
   "<div class=\"regula-finding\"><p class=\"regula-finding-head\">" ++ code f.rule.spelling ++
   " <span class=\"regula-badge" ++ (if f.severity == "error" then " is-error" else "") ++ "\">" ++ escape f.severity ++
@@ -316,6 +362,7 @@ private def changedFix (ident : Identity) (status : RunStatus) (c : ChangedFile)
   return "<figure class=\"regula-diff-panel\"><figcaption>Change to " ++ code c.path ++ "</figcaption>" ++
     diffHtml d.val ++ "</figure>" ++ terminator ++ full
 
+/-- The sentence explaining an example kind; an unknown kind is shown as is. -/
 def exampleKindText : String → String
   | "policyRejection" => "Checked policy rejection: the violating input was completed by the checker and rejected with the findings below; the corrected input passed a completed positive check."
   | "diagnosticDemonstration" => "Diagnostic demonstration: the violating run is INCOMPLETE by design. It shows the exact diagnostic and is not accepted negative evidence. The corrected input passed a completed positive check."
@@ -354,6 +401,7 @@ private def bullets (ident : Identity) (xs : List String) : String :=
 def sectionHead (id : RuleId) (suffix heading : String) : String :=
   "# " ++ heading ++ "\n%%%\ntag := \"" ++ id.spelling ++ "-" ++ suffix ++ "\"\nnumber := false\n%%%\n\n"
 
+/-- What the review obligation `Residual` requires, as a rule page states it. -/
 def residualText : Residual → String
   | .intent => "the proposition expresses the intended requirement, with its quantifiers, hypotheses and limits"
   | .invariant => "the intended invariants, write paths and callers are all covered by proof-bearing interfaces"

@@ -159,9 +159,9 @@ transitive package resolution does not require compiling its mathematical module
   and scope match; do not re-implement upstream style rules as Regula rules.
   [Standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
   instead requires claimed libraries to enable `linter.missingDocs` and, with Mathlib, Mathlib's
-  standard linter set, whose build warnings RG2003 rejects. RG2006 checks the Lake options (except
-  `linter.missingDocs`, still review) with a proved decision over Lake's resolved configuration,
-  not by re-implementing any linter; RG5001 takes over the header linter's docstring-placement
+  standard linter set, whose build warnings RG2003 rejects. RG2006 checks the Lake options with a
+  proved decision over Lake's resolved configuration, not by re-implementing any linter; RG5001
+  takes over the header linter's docstring-placement
   and repeated-import checks, which the §6.7 configuration turns off with that linter.
 - Lake [PackageConfig.lintDriver][lake-config] accepts `"regula/lint"` in either
   lakefile format. The `lint` executable is qualified end to end by the `lint-driver`

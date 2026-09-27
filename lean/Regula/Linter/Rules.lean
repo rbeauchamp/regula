@@ -21,7 +21,9 @@ open RegulaPolicy
 /-- Feedback contains actual findings and names that still need fresh evidence.
 No accepted/project-PASS constructor exists at this scope. -/
 structure SnapshotResult where
+  /-- The rule findings the selected declarations already have. -/
   findings : Array Finding := #[]
+  /-- Declarations whose decision needs fresh evidence that a local snapshot cannot supply. -/
   pending : Array Name := #[]
 
 /-- The editor's optional foundation request never supplies Lake surface authority. -/

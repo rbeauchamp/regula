@@ -73,6 +73,7 @@ instance (s : String) : Decidable (IsCommit s) := inferInstanceAs (Decidable (_ 
 /-- A validated commit identifier. Revision routes only accept this type. -/
 abbrev Commit := { s : String // IsCommit s }
 
+/-- The commit identifier `s`, when it is 40 lowercase hexadecimal digits (`IsCommit`). -/
 def Commit.parse? (s : String) : Option Commit :=
   if h : IsCommit s then some ⟨s, h⟩ else none
 
@@ -80,7 +81,9 @@ def Commit.parse? (s : String) : Option Commit :=
 `rev c` is the snapshot of commit `c`. Released-package editions (`v/<version>/`) are part
 of the route policy but none is published, so the type has no constructor for them. -/
 inductive Edition where
+  /-- The development edition: the latest successful deployment of `main`. -/
   | dev
+  /-- The snapshot of commit `commit`. -/
   | rev (commit : Commit)
 
 /-- Artifact directory of an edition, relative to the project site root. -/
@@ -242,6 +245,7 @@ theorem escape_no_backtick (s : String) : (escape s).toList.contains '`' = false
 
 /-! ## Index filters -/
 
+/-- Every rule category, in the index filter's order (`mem_categories`). -/
 def categories : List RuleCategory :=
   [.foundation, .declaration, .execution, .environment, .configuration, .elaboration,
     .coverage, .admission, .documentation]
@@ -249,6 +253,7 @@ def categories : List RuleCategory :=
 theorem mem_categories (c : RuleCategory) : c ∈ categories := by
   cases c <;> simp [categories]
 
+/-- Every evidence mode, in the index filter's order (`mem_modes`). -/
 def modes : List EvidenceMode :=
   [.editorSnapshot, .incrementalProject, .freshProject, .freshFile, .documentationExample,
     .serializedGraph]
@@ -256,34 +261,41 @@ def modes : List EvidenceMode :=
 theorem mem_modes (m : EvidenceMode) : m ∈ modes := by
   cases m <;> simp [modes]
 
+/-- Every availability, in the index filter's order (`mem_availabilities`). -/
 def availabilities : List Availability := [.existingChecker, .plannedEngine]
 
 theorem mem_availabilities (a : Availability) : a ∈ availabilities := by
   cases a <;> simp [availabilities]
 
+/-- The category's identifier in the index filter's markup and CSS. -/
 def _root_.Regula.RuleCategory.slug : RuleCategory → String
   | .foundation => "foundation" | .declaration => "declaration" | .execution => "execution"
   | .environment => "environment" | .configuration => "configuration"
   | .elaboration => "elaboration" | .coverage => "coverage" | .admission => "admission"
   | .documentation => "documentation"
 
+/-- The category's display name. -/
 def _root_.Regula.RuleCategory.label : RuleCategory → String
   | .foundation => "Foundation" | .declaration => "Declaration" | .execution => "Execution"
   | .environment => "Environment" | .configuration => "Configuration"
   | .elaboration => "Elaboration" | .coverage => "Coverage" | .admission => "Admission"
   | .documentation => "Documentation"
 
+/-- The availability's identifier in the index filter's markup and CSS. -/
 def _root_.Regula.Availability.slug : Availability → String
   | .existingChecker => "existingChecker" | .plannedEngine => "plannedEngine"
 
+/-- The availability's display text. -/
 def _root_.Regula.Availability.label : Availability → String
   | .existingChecker => "Enforced by the checker" | .plannedEngine => "Planned"
 
+/-- The scope's display text. -/
 def _root_.Regula.RuleScope.label : RuleScope → String
   | .declaration => "declaration" | .project => "project" | .executionRoot => "execution root"
   | .documentationFence => "documentation fence" | .module => "module"
   | .materialDeclaration => "registered material declaration"
 
+/-- The evidence mode's display text. -/
 def modeLabel : EvidenceMode → String
   | .editorSnapshot => "editor snapshot" | .incrementalProject => "incremental project"
   | .freshProject => "fresh project" | .freshFile => "fresh file"
@@ -291,8 +303,11 @@ def modeLabel : EvidenceMode → String
 
 /-- One filter state: each dimension is either unrestricted (`none`) or one value. -/
 structure Selection where
+  /-- The selected rule category, or `none` for every category. -/
   category : Option RuleCategory
+  /-- The selected evidence mode, or `none` for every mode. -/
   mode : Option EvidenceMode
+  /-- The selected availability, or `none` for every availability. -/
   availability : Option Availability
 
 /-- A rule is listed under a selection when it matches every restricted dimension. -/
@@ -336,15 +351,20 @@ theorem mem_emptySelections (s : Selection) :
 
 /-- One line of a displayed diff. -/
 inductive DiffLine where
+  /-- A line present before and after the change. -/
   | keep (line : String)
+  /-- A line present only before the change. -/
   | remove (line : String)
+  /-- A line present only after the change. -/
   | add (line : String)
   deriving DecidableEq
 
+/-- The line this diff line contributes to the text before the change. -/
 def DiffLine.before : DiffLine → List String
   | .keep l | .remove l => [l]
   | .add _ => []
 
+/-- The line this diff line contributes to the text after the change. -/
 def DiffLine.after : DiffLine → List String
   | .keep l | .add l => [l]
   | .remove _ => []
@@ -374,7 +394,10 @@ theorem admitDiff_control :
 
 /-- One start tag: lowercase name and attributes with entity-decoded values. -/
 structure Tag where
+  /-- The lowercase tag name. -/
   name : String
+  /-- The attributes in order: lowercase name and entity-decoded value (empty when none is
+  given). -/
   attributes : List (String × String)
   deriving DecidableEq, Repr
 
@@ -417,7 +440,12 @@ def tagBody : List Char → Option Char → List Char
 
 /-- Tokenizer state: ordinary markup, or raw text of a comment or script/style element. -/
 inductive ScanMode where
-  | markup | comment | raw (element : String)
+  /-- Ordinary markup, where a `<` may start a tag. -/
+  | markup
+  /-- Inside an HTML comment, until `-->`. -/
+  | comment
+  /-- Inside the raw text of a `script` or `style` element, until its end tag. -/
+  | raw (element : String)
 
 /-- Start tags of an HTML document, skipping comments and script/style contents. -/
 def scanTags (html : String) : List Tag :=
@@ -455,19 +483,26 @@ def Tag.ids (t : Tag) : List String :=
 /-- One scanned output file: its artifact path, whether it is HTML, the fragment targets it
 defines, its `<base href>` if any, and the links it contains. -/
 structure Page where
+  /-- The file's path in the artifact. -/
   path : String
+  /-- The file is HTML and was scanned. -/
   html : Bool
+  /-- The fragment targets it defines: every `id`, and the `name` of each `a`. -/
   ids : List String
+  /-- The `href` of its first `base` element, if any. -/
   base : Option String
+  /-- The `href` and `src` values of its tags other than `base`. -/
   links : List String
   deriving DecidableEq, Repr
 
+/-- Scan the HTML file `source` at artifact path `path` for its targets, base and links. -/
 def Page.ofHtml (path source : String) : Page :=
   let tags := scanTags source
   { path, html := true, ids := tags.flatMap Tag.ids,
     base := (tags.find? (·.name == "base")).bind (·.get? "href"),
     links := tags.flatMap Tag.links }
 
+/-- A non-HTML file at `path`: it defines no targets and contains no links. -/
 def Page.ofOther (path : String) : Page := { path, html := false, ids := [], base := none, links := [] }
 
 /-- Directory part of an artifact path, with trailing `/`, or empty at the root. -/
@@ -491,8 +526,12 @@ def normalize (path : String) : Option String :=
 
 /-- What a link denotes after resolution against the base path. -/
 inductive Target where
+  /-- A reference with a scheme other than `javascript:` or `data:`. -/
   | external
+  /-- The artifact file `path` (a directory denotes its `index.html`), with `fragment` after
+  `#`, empty when there is none. -/
   | internal (path : String) (fragment : String)
+  /-- A refused link, for `reason`. -/
   | invalid (reason : String)
   deriving DecidableEq
 

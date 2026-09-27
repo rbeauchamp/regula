@@ -20,15 +20,22 @@ namespace Regula.Checker.Policy
 
 open RegulaPolicy (Declaration FoundationClass)
 
+/-- A foundation claim profile, as a surface manifest or `--claim` names it; `request` maps it to
+the inspection the checker runs. -/
 inductive Profile where
+  /-- `kernel-only`: no axioms. -/
   | kernelOnly
+  /-- `choice-free`: at most `propext` and `Quot.sound`. -/
   | choiceFree
+  /-- `standard-logical`: additionally `Classical.choice`. -/
   | standardLogical
+  /-- `compiler-trusting`: selects teaching inspection, not a conforming profile. -/
   | compilerTrusting
   deriving Repr, BEq, DecidableEq, Inhabited
 
 namespace Profile
 
+/-- The profile a manifest or command-line spelling names; any other text is refused. -/
 def parse? : String → Option Profile
   | "kernel-only" => some .kernelOnly
   | "choice-free" => some .choiceFree
@@ -36,6 +43,7 @@ def parse? : String → Option Profile
   | "compiler-trusting" => some .compilerTrusting
   | _ => none
 
+/-- The spelling of a profile, which `parse?` reads back (`Profile.parse?_eq_some_iff`). -/
 def toString : Profile → String
   | .kernelOnly => "kernel-only"
   | .choiceFree => "choice-free"
@@ -59,10 +67,14 @@ theorem Profile.parse?_eq_some_iff (text : String) (profile : Profile) :
 /-- Adapter groups one admitted inventory with its recomputed role evidence.
 `RegulaPolicy.Roles.eq_authorize` determines `roles` from `inventory`. -/
 structure PolicyScope where
+  /-- The admitted declaration inventory. -/
   inventory : RegulaPolicy.Inventory
+  /-- The generated-role evidence recomputed for `inventory`. -/
   roles : RegulaPolicy.Roles inventory
 
+/-- The `native_decide` axioms admitted as generated roles (`Roles.native`). -/
 def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
+/-- The `_unsafe_rec` helpers admitted as generated roles (`Roles.helpers`). -/
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers
 
 /-- A transcript-coordinate check over the declaration inventory. The operational

@@ -86,6 +86,8 @@ termination_by 2 * remaining start + 1
 decreasing_by all_goals omega
 end
 
+/-- Parse `text` as exactly one JSON value surrounded only by whitespace, rejecting an object
+with a repeated key; an error names what failed to parse. -/
 def parse (text : String) : Except String Json :=
   Parser.run (do ws; let j ← value; eof; return j) text
 

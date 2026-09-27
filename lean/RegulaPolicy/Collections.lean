@@ -17,6 +17,8 @@ open Std
 
 universe u
 
+/-- A finite set of `α` as Std's extensional ordered tree set: under a lawful order, two sets
+with the same members are equal whatever their tree shape (`ExtTreeSet.ext_mem`). -/
 abbrev CanonicalSet (α : Type u) [Ord α] := ExtTreeSet α
 
 namespace CanonicalSet

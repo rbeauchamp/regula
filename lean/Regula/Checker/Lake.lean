@@ -13,8 +13,13 @@ namespace Regula.Checker.Lake
 open Lean System
 open Regula.Checker
 
+/-- The root package facts the audit checks module origins against: its Lean library names and
+the directory its compiled modules are written to. -/
 structure RootInventory where
+  /-- The names of the root package's Lean libraries. -/
   libraries : Array String
+  /-- The root package's compiled-module output directory (Lake's `leanLibDir`); a module
+  whose `.olean` lies below it is root-package output. -/
   leanLibDir : FilePath
   deriving Repr, BEq
 
@@ -188,6 +193,8 @@ def buildChecked (repo : FilePath) (targets : Array String)
     (mode : String) : IO (Option (Array String)) := do
   return (← buildCheckedObservation repo targets mode).2
 
+/-- The modules `moduleName` imports transitively, as `lake query +MODULE:transImports`
+reports them in `repo`. -/
 def transitiveImports (repo : FilePath) (moduleName : String) : IO (Array String) := do
   jsonStringArray s!"transitive imports for {moduleName}" <|
     ← lakeQuery repo s!"+{moduleName}:transImports"

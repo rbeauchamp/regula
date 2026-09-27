@@ -12,24 +12,36 @@ namespace RegulaQualification.Native
 /-- Fields consumed from a native compiler diagnostic. Additional JSON fields are not
 used by this general oracle; case-specific range checks inspect the original JSON. -/
 structure Message where
+  /-- The message's named-error kind; empty for a compiler diagnostic, which has none. -/
   kind : String
+  /-- The message's severity, such as `warning` or `error`. -/
   severity : String
+  /-- The message text. -/
   data : String
+  /-- The file the message is attributed to. -/
   fileName : String
   deriving Repr
 
 /-- Expected compiler messages are ordered and matched by severity and text fragment. -/
 structure CompilerMessage where
+  /-- The severity the compiler message must have. -/
   severity : String
+  /-- A fragment the compiler message's text must contain. -/
   text : String
 
 /-- Exact observation requirements selected before running a source control. -/
 structure Expected where
+  /-- The kinds of the expected Regula messages, as a multiset. -/
   kinds : List String
+  /-- The file every Regula message must be attributed to. -/
   fileName : String
+  /-- Whether the compiler must exit with a nonzero code. -/
   errors : Bool := false
+  /-- The severity every Regula message must have. -/
   severity : String := "warning"
+  /-- The expected non-Regula compiler messages, in order. -/
   compiler : List CompilerMessage := []
+  /-- When set, text some Regula message must contain. -/
   detail : Option String := none
 
 /-- Regula owns precisely the native named-error prefix used by the old harness. -/

@@ -31,14 +31,34 @@ open RegulaPolicy
 /-- The residual semantic-review accounts of `docs/guides/rule-coverage.md`, exactly. A
 mechanical result never discharges one. -/
 inductive Residual where
-  | intent | invariant | laws | boundary | nonvacuity | doc | cost | qualify | graph
+  /-- R-INTENT: each material proposition and its explanation read back against its written
+  intent. -/
+  | intent
+  /-- R-INVARIANT: the intended invariants and every admission, write and caller path. -/
+  | invariant
+  /-- R-LAWS: chosen structures and instances against the intended algebra or order. -/
+  | laws
+  /-- R-BOUNDARY: module modes, exported constructors, projections and actual callers. -/
+  | boundary
+  /-- R-NONVACUITY: a witness at the strength actually claimed. -/
+  | nonvacuity
+  /-- R-DOC: completeness of material-claim registration and fidelity of documentation. -/
+  | doc
+  /-- R-COST: the cost domain and its mathematical argument or bounded observation. -/
+  | cost
+  /-- R-QUALIFY: claim-scoped qualification controls and exact invocation evidence. -/
+  | qualify
+  /-- R-GRAPH: the optional serialized-graph claim. -/
+  | graph
   deriving Repr, DecidableEq
 
+/-- The identifier of each obligation in `docs/guides/rule-coverage.md`, such as `R-INTENT`. -/
 def Residual.spelling : Residual → String
   | .intent => "R-INTENT" | .invariant => "R-INVARIANT" | .laws => "R-LAWS"
   | .boundary => "R-BOUNDARY" | .nonvacuity => "R-NONVACUITY" | .doc => "R-DOC"
   | .cost => "R-COST" | .qualify => "R-QUALIFY" | .graph => "R-GRAPH"
 
+/-- Every obligation once (`Residual.mem_all`), in the guide's order. -/
 def Residual.all : List Residual :=
   [.intent, .invariant, .laws, .boundary, .nonvacuity, .doc, .cost, .qualify, .graph]
 
@@ -52,10 +72,22 @@ theorem Residual.spelling_injective : Function.Injective Residual.spelling := by
 /-- What the accepted run's claim covers. Only a fresh project claim is whole-project
 acceptance; incremental, file, documentation, graph and editor results are not. -/
 inductive Coverage where
-  | freshWholeProject | incrementalProject | freshFile | documentation | serializedGraph
+  /-- A fresh audit of the whole project from empty build output. -/
+  | freshWholeProject
+  /-- A project audit over existing build state. -/
+  | incrementalProject
+  /-- A fresh audit of a single file. -/
+  | freshFile
+  /-- An audit of documentation examples. -/
+  | documentation
+  /-- A recheck of the serialized declaration graph. -/
+  | serializedGraph
+  /-- The editor's partial snapshot of the current file. -/
   | editorSnapshot
   deriving Repr, DecidableEq
 
+/-- The coverage a claim of each evidence mode has; `coverageOf_fresh_iff` shows only a fresh
+project claim has fresh whole-project coverage. -/
 def coverageOf : EvidenceMode → Coverage
   | .freshProject => .freshWholeProject
   | .incrementalProject => .incrementalProject
@@ -64,6 +96,7 @@ def coverageOf : EvidenceMode → Coverage
   | .serializedGraph => .serializedGraph
   | .editorSnapshot => .editorSnapshot
 
+/-- The machine name of each coverage in rendered results. -/
 def Coverage.spelling : Coverage → String
   | .freshWholeProject => "freshWholeProject" | .incrementalProject => "incrementalProject"
   | .freshFile => "freshFile" | .documentation => "documentation"
@@ -91,15 +124,26 @@ theorem fresh_scope (c : Claim) (h : c.val.mode = .freshProject) : c.val.scope =
 
 /-- Mechanisms every accepted run relies on without verifying. -/
 inductive Trusted where
-  | toolchain | acquisition | extraction | runtime
+  /-- Lean's elaborator, kernel and compiler at the snapshot's toolchain identity. -/
+  | toolchain
+  /-- Manifest parsing, Lake loading, and acquisition of source, configuration and
+  dependencies. -/
+  | acquisition
+  /-- Environment extraction, compiler and worker processes, and JSON transport. -/
+  | extraction
+  /-- The native runtime and every execution boundary reported as trusted. -/
+  | runtime
   deriving Repr, DecidableEq
 
+/-- Every trusted mechanism, the list each account reports. -/
 def Trusted.all : List Trusted := [.toolchain, .acquisition, .extraction, .runtime]
 
+/-- The machine name of each mechanism in the result's `trusted` entries. -/
 def Trusted.spelling : Trusted → String
   | .toolchain => "toolchain" | .acquisition => "acquisition"
   | .extraction => "extraction" | .runtime => "runtime"
 
+/-- The human description of each mechanism, as the result and account lines show it. -/
 def Trusted.detail : Trusted → String
   | .toolchain => "Lean elaborator, kernel and compiler at the snapshot's toolchain identity"
   | .acquisition => "manifest parsing, Lake loading, and source, configuration and dependency acquisition"
@@ -114,9 +158,13 @@ def acceptanceTheorem : Lean.Name := ``RegulaPolicy.accept_iff
 implementation it names, and the collector's rendering of the requirement Lean checked about
 that implementation. Its adequacy and caller coverage are `ContractAccount.unresolved`. -/
 structure ContractAccount where
+  /-- The declaration that registers the `ExecutableContract`. -/
   registration : Lean.Name
+  /-- The module that declares the registration. -/
   «module» : Lean.Name
+  /-- The implementation the contract names. -/
   implementation : Lean.Name
+  /-- The collector's rendering of the requirement Lean checked about the implementation. -/
   requirement : String
   deriving Repr, DecidableEq
 
@@ -127,31 +175,52 @@ def ContractAccount.unresolved : List Residual := [.intent, .invariant]
 /-- Fence expectations of an accepted documentation claim, by kind. Only positive fences are
 conforming evidence; expected rejections and trusted teaching are not interchangeable with it. -/
 structure FenceAccount where
+  /-- Unmarked fences expected to elaborate and pass: the only conforming evidence. -/
   positive : Nat
+  /-- `lean-fail` fences expected to fail elaboration with a matching error. -/
   compilerRejection : Nat
+  /-- Fences expected to be rejected by the policy with listed diagnostics. -/
   policyRejection : Nat
+  /-- `lean-trusted-compiler` teaching fences. -/
   trustedTeaching : Nat
   deriving Repr, DecidableEq
 
+/-- The fence expects to elaborate and pass: a conforming positive. -/
 def isPositive (f : FenceKey) : Bool := f.expectation matches .positive
+/-- The fence expects an elaboration error that matches its pattern. -/
 def isCompilerRejection (f : FenceKey) : Bool := f.expectation matches .compilerRejection ..
+/-- The fence expects rejection by the policy with listed diagnostics. -/
 def isPolicyRejection (f : FenceKey) : Bool := f.expectation matches .policyRejection ..
+/-- The fence is a trusted-compiler teaching example. -/
 def isTrustedTeaching (f : FenceKey) : Bool := f.expectation matches .trustedTeaching
 
 /-- The report account's data. Construct it only through `account`. -/
 structure AccountData where
+  /-- The claim's evidence mode. -/
   mode : EvidenceMode
+  /-- The claim's scope. -/
   scope : Scope
+  /-- The claim's surfaces with their assigned profiles. -/
   surfaces : Array SurfaceAssignment
+  /-- The toolchain identity of the claim's snapshot. -/
   toolchain : ToolchainIdentity
+  /-- The number of required jobs the run completed. -/
   jobs : Nat
+  /-- What the claim covers, from its mode. -/
   coverage : Coverage
+  /-- Every `ExecutableContract` registration of the accepted inventory. -/
   contracts : Array ContractAccount
+  /-- The execution counts of each accepted environment, in order. -/
   execution : Array ExecutionSummary
+  /-- The accepted fences counted by expectation. -/
   fences : FenceAccount
+  /-- The mechanisms the run relies on without verifying. -/
   trusted : List Trusted
+  /-- The semantic-review obligations left open. -/
   unresolved : List Residual
 
+/-- Every `ExecutableContract` registration among the census's declarations, with its module,
+implementation and rendered requirement, environment by environment. -/
 def contractsOf (i : Census) : Array ContractAccount :=
   i.environments.flatMap fun e => e.policy.declarations.filterMap fun d =>
     d.executableContract.map fun k => ⟨d.name, d.module, k.root, k.requirement⟩
@@ -260,9 +329,18 @@ theorem accepted (a : Account) :
 
 /-- Rendered result status. `completed` requires an accepted account; the refusals carry none. -/
 inductive Status where
+  /-- The run was accepted; `account` is its report account. -/
   | completed (account : Account)
-  | rejected | incomplete | classified
+  /-- The run completed and found a violation. -/
+  | rejected
+  /-- Evidence is missing or incomplete, so no verdict was reached. -/
+  | incomplete
+  /-- The run found no violation, but its result classifies rather than conforms: for example
+  expected-rejection or teaching fences, or a file audit without a conforming claim. -/
+  | classified
 
+/-- The status text of the result protocol; `completed` only for an accepted account
+(`Status.spelling_eq_completed_iff`). -/
 def Status.spelling : Status → String
   | .completed _ => "completed" | .rejected => "rejected"
   | .incomplete => "incomplete" | .classified => "classified"

@@ -17,6 +17,9 @@ def declarationName (decl : RegulaPolicy.Declaration) : Except String Name := do
   unless decl.name != .anonymous do throw "anonymous declaration identity"
   return decl.name
 
+/-- The violation finding of a declaration-scoped rule `id` for declaration `name`, with its
+detail, location, mode and claim. A rule outside the declaration domain, or a mode the rule
+does not support, is refused. -/
 def declarationFinding (id : RuleId) (name : Name) (detail : String)
     (location : Location) (mode : EvidenceMode) (claim : Option String) : Except String Finding :=
   let a : DeclarationArguments := ⟨name, detail⟩

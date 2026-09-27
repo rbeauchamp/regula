@@ -19,6 +19,7 @@ open scoped Regula.Report
 or invalid. Trusted operational checks supply this outcome; raw data construction
 does not authenticate it. Generic worker/import failures retain their own path. -/
 structure AdmissionFailure where
+  /-- What was unavailable or invalid; the decoder refuses an empty detail. -/
   detail : String
   deriving Repr, ToJson
 
@@ -28,6 +29,8 @@ instance : FromJson AdmissionFailure := ⟨fun j => do
   if detail.isEmpty then throw "empty owned-admission failure"
   return ⟨detail⟩⟩
 
+/-- The operational census of one report (`Regula.Report.Census`), with its exact-field JSON
+codec. -/
 abbrev Census := Regula.Report.Census
 deriving instance ToJson for Regula.Report.Census
 
@@ -41,8 +44,13 @@ instance : FromJson Census := ⟨fun j => do
 /-- Replay scope can exceed report scope. Required keys come from the original environment;
 admitted keys are observed in the separately replayed kernel after `Environment.replay`. -/
 structure AdmissionReceipt where
+  /-- The modules whose owned declarations were replayed: the owned modules and the checker
+  reporter modules that import one of them, without duplicates. -/
   modules : Array Name
+  /-- The `(module, declaration)` key of every owned declaration that is neither `unsafe` nor
+  `partial`, taken from the original environment. -/
   required : Array (Name × Name)
+  /-- The required keys found in the kernel environment after replay, in the same order. -/
   admitted : Array (Name × Name)
   deriving Repr, ToJson
 
@@ -74,8 +82,12 @@ instance : FromJson ModuleHeader.Observation := ⟨fun j => do
 is frozen before docstring lookup and retains exact owning modules, including empty modules.
 Each module carries its RG5001 header observation (`RegulaPolicy.ModuleHeader`). -/
 structure DocumentationObservation where
+  /-- Each claimed module with its RG5001 header observation, read from its bound source. -/
   modules : Array (Name × ModuleHeader.Observation)
+  /-- The `(module, declaration)` key of every owned declaration the material selector chose,
+  frozen before any docstring was read. -/
   materialDeclarations : Array (Name × Name)
+  /-- Each material key with the docstring `findDocString?` returned for it, if any. -/
   declarations : Array ((Name × Name) × Option String)
   deriving Repr, ToJson
 
@@ -110,8 +122,11 @@ def HistoryOutcome.edges : HistoryOutcome → Except String (Array (Name × Name
 /-- Exact source observed for one owned module; the caller binds it to the build
 request. Paths identify files, while content equality binds their actual text. -/
 structure SourceBinding where
+  /-- The owned module the source belongs to. -/
   moduleName : Name
+  /-- The path of the source file read. -/
   path : String
+  /-- The exact text read from that file. -/
   content : String
   deriving Repr, DecidableEq, ToJson
 
@@ -125,9 +140,13 @@ instance : FromJson SourceBinding := ⟨fun j => do
 The interactive probe alone has no admission/documentation receipt. Trusted loaders supply
 both; a consumer must validate the account before using its results. -/
 structure Environment extends Regula.Report.Collected where
+  /-- The kernel-replay receipt of the owned declarations, when the loader produced one. -/
   admission : Option AdmissionReceipt := none
+  /-- The documentation observation of the claimed modules, when the loader produced one. -/
   documentation : Option DocumentationObservation := none
+  /-- The replacement-history outcome of each module whose history was requested. -/
   histories : Array (Name × HistoryOutcome) := #[]
+  /-- The exact source observed for each owned module. -/
   sourceBindings : Array SourceBinding := #[]
   deriving Repr
 
@@ -162,6 +181,8 @@ def Environment.sourceEvidenceOK (r : Environment) : Bool :=
     r.declarations.all (fun d => r.sourceBindings.any (fun s => s.moduleName == d.module &&
       d.ranges.all (·.validFor s.content)))
 
+/-- Succeed when `sourceEvidenceOK` holds, and otherwise fail with a `producer-source`
+admission failure. -/
 def Environment.validateSourceEvidence (r : Environment) : Except AdmissionFailure Unit := do
   unless r.sourceEvidenceOK do
     throw ⟨"producer-source: source coverage or coordinates mismatch"⟩
@@ -765,7 +786,9 @@ theorem fromJson_admissible (j : Json) (r : Environment)
 /-- A report together with the proof that the executed validator admitted it. Holding
 this value replaces re-running `validate` or `admitExecution` on the same report. -/
 structure Admitted where
+  /-- The admitted report. -/
   report : Environment
+  /-- The executed validator accepted this report. -/
   valid : report.validate = .ok ()
 
 /-- Run `checked_validate` once and retain its success as a proof. -/
@@ -813,9 +836,13 @@ theorem fromJson_admitted (j : Json) :
 
 /-- Successful transport completion is distinct from successful logical admission. -/
 inductive Outcome where
+  /-- The producer completed and returned its report. -/
   | reported (report : Environment)
+  /-- The producer completed without a report because required admission or source evidence
+  was unavailable or invalid. -/
   | admissionFailed (failure : AdmissionFailure)
 
+/-- A report as `.reported` and an admission failure as `.admissionFailed`. -/
 def Outcome.ofExcept : Except AdmissionFailure Environment → Outcome
   | .ok report => .reported report
   | .error failure => .admissionFailed failure

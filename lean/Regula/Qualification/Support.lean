@@ -55,6 +55,7 @@ after that removal returned without error. It says nothing about processes the
 action did not join, and a killed process never obtains one. -/
 structure Cleaned where
   private mk ::
+  /-- The scratch directory that was removed. -/
   path : FilePath
 
 /-- Fresh scratch under the worktree, with cleanup on normal or exceptional return; orphans

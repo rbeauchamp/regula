@@ -126,7 +126,7 @@ private def setup (repo adopter : FilePath) : IO Unit := do
   IO.FS.writeFile (adopter / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (adopter / "lakefile.lean") <|
     "import Lake\nopen Lake DSL\npackage policy_adopter where\n" ++
-      "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\n" ++
+      "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\n" ++
       "require regula from " ++
       (toJson repo.toString).compress ++ "\n@[default_target] lean_lib PublicApi\n"
   IO.FS.writeFile (adopter / "foundation_manifest.json") <| Json.compress <| Json.mkObj [

@@ -32,6 +32,7 @@ open Lean System RegulaQualification
 
 /-- Producer-only writable environment ownership. -/
 structure ProducerSlot where
+  /-- The slot's directory; preparation copies the ROOT package into `root/root`. -/
   root : FilePath
   deriving Inhabited
 
@@ -39,17 +40,26 @@ structure ProducerSlot where
 the prepared bytes were compared equal to the captured input bytes, and
 `"relocated"` when preparation truthfully rewrote path-bearing configuration. -/
 structure FileProvenance where
+  /-- The prepared path relative to the slot (`root/...`), or a shared dependency's package
+  name. -/
   relativePath : String
+  /-- What was prepared: `source`, `config`, `build`, `git` or `dependency`. -/
   kind : String
+  /-- How the prepared entry relates to its input: `byte-identical`, `relocated`, `copy` (the
+  build directory or Git metadata) or `shared` (a dependency used in place). -/
   identity : String
 
 /-- Prepared-slot provenance: truthful relocation records and containment
 observations. No claim equates relocated bytes or relocated top-level paths with
 the original ROOT paths. -/
 structure SlotProvenance where
+  /-- The canonical (`realPath`) directory of the original ROOT package. -/
   originalRoot : String
+  /-- The canonical directory of the slot. -/
   slotRoot : String
+  /-- The Git `HEAD` of the slot's ROOT copy, checked equal to the original's. -/
   revision : String
+  /-- One provenance record per prepared entry, in preparation order. -/
   files : Array FileProvenance
 
 /-- Lexical path suffix of `path` under `root`. -/
@@ -284,10 +294,15 @@ resolution (or its failure) is recorded instead. The digest is a 64-bit
 non-cryptographic hash: it detects accidental persisting content changes, not adversarial
 collisions. -/
 structure SharedEntry where
+  /-- The entry's path relative to its shared root. -/
   relative : String
+  /-- The `lstat` type: `dir`, `file`, `symlink` or `other`. -/
   kind : String
+  /-- The byte length of a regular file; 0 for any other kind. -/
   bytes : Nat
+  /-- `ByteArray.hash` of a regular file's contents; 0 for any other kind. -/
   digest : UInt64
+  /-- A symlink's resolved path, or `<unresolvable>`; empty for any other kind. -/
   target : String
   deriving BEq, Inhabited
 
@@ -296,6 +311,7 @@ captured root, in capture order, each sorted by relative path so the value does
 not depend on directory enumeration order. Any added, removed, retyped,
 resized, rewritten or re-targeted entry changes the value. -/
 structure SharedIdentity where
+  /-- Each captured root, as given, with its entries sorted by relative path. -/
   roots : Array (String × Array SharedEntry)
   deriving BEq, Inhabited
 
@@ -443,7 +459,7 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   IO.FS.writeBinFile (project / "lean-toolchain")
     (← IO.FS.readBinFile (slot.root / "root" / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.lean")
-    s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\nrequire regula from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
+    s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
   writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),

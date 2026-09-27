@@ -17,6 +17,8 @@ private def nat (j : Json) (k : String) : Except String Nat := do
 private def byteRange (j : Json) : Except String ByteRange := do
   return ⟨← nat j "startByte", ← nat j "endByte"⟩
 
+/-- Decode a module, project or source location; a source location's coordinates must pass
+`admitSource`, and the input must equal the canonical `locationJson` of the result. -/
 def parseLocation (j : Json) : Except String Location := do
   let value ← match ← string j "kind" with
     | "module" => pure <| Location.module (← parseName (← field j "name"))
@@ -43,6 +45,9 @@ private def parseArguments (id : RuleId) (j : Json) : Except String (Payload id)
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
   | .moduleDocumentation => return ⟨← string j "subject", detail⟩
 
+/-- Decode one finding: its rule, payload, location, mode, claim, impact, severity and related
+locations, built through `makeDiagnostic`; the input must equal the canonical `diagnosticJson`
+of the result, so unknown fields and inconsistent coordinates are refused. -/
 def parseDiagnostic (j : Json) : Except String Finding := do
   let id ← parseRule (← field j "id")
   let arguments ← parseArguments id (← field j "arguments")

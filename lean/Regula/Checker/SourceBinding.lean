@@ -36,6 +36,7 @@ def checkSources (sources : Array ProducerReport.SourceBinding) : IO (Except Adm
         return .error ⟨s!"producer-source: source snapshot changed: {source.moduleName}"⟩
   return .ok ()
 
+/-- Throw an error when `checkSources` finds a source missing or changed. -/
 def unchanged (sources : Array ProducerReport.SourceBinding) : IO Unit := do
   IO.ofExcept <| (← checkSources sources).mapError (·.detail)
 
@@ -77,9 +78,15 @@ def checkConfiguration (snapshot : Array (FilePath × Option String)) : IO (Exce
         return .error ⟨s!"producer-source: configuration snapshot changed: {path}"⟩
   return .ok ()
 
+/-- Throw an error when `checkConfiguration` finds a configuration file changed, added or
+removed. -/
 def configurationUnchanged (snapshot : Array (FilePath × Option String)) : IO Unit := do
   IO.ofExcept <| (← checkConfiguration snapshot).mapError (·.detail)
 
+/-- Check the sources and configuration, run `action`, and check them again. A change is
+returned as an admission failure: before the action it skips the action, and after it it takes
+precedence over an action error. Otherwise the action's value is returned or its error
+rethrown. -/
 def withUnchanged {α : Type} (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (action : IO α) :
     IO (Except AdmissionFailure α) := do

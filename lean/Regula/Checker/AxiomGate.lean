@@ -25,20 +25,44 @@ open scoped Regula.Report
 open Regula.Checker
 open Regula.Checker.Policy
 
+/-- The command-line options of one `axiomGate` invocation, as `parseArgs` reads them; `run`
+rejects the combinations the usage text does not allow. -/
 structure Options where
+  /-- `--file FILE`: audit this one source file instead of the manifested project surfaces. -/
   file : Option FilePath := none
+  /-- `--claim PROFILE`: the foundation profile a single-file audit checks; only with `--file`. -/
   claim : Option Profile := none
+  /-- `--execution MODE`: the execution claim of a single-file audit (`report` by default). -/
   execution : ExecutionClaim := .report
+  /-- `--manifest PATH`: the surface manifest, by default `foundation_manifest.json` at the
+  project root. -/
   manifest : Option FilePath := none
+  /-- `--project DIR`: audit the nearest directory at or above `DIR` that has a Lake
+  configuration and a `lean-toolchain`, instead of the current one. -/
   project : Option FilePath := none
+  /-- `--legacy-json-out PATH`: where to write the legacy audit report JSON. -/
   jsonOut : Option FilePath := none
+  /-- `--json-out PATH`: where to write the versioned result JSON; exclusive with
+  `--legacy-json-out`. -/
   resultOut : Option FilePath := none
+  /-- `--acceptance-link PATH`: where a fresh project success records the identity of its
+  accepted inputs for the separately timed documentation step. -/
   acceptanceLink : Option FilePath := none
+  /-- `--verso DIR:LIBRARY:RENDER`: the Verso package whose sources the acceptance link also
+  brackets; only with `--acceptance-link`. -/
   verso : Option Documentation.VersoPackage := none
+  /-- `--with-docs`: also run the documentation stage on the same fresh snapshot and combine
+  its result with the project result. -/
   withDocs : Bool := false
+  /-- `--incremental`: audit the project in place with an incremental build instead of in an
+  isolated fresh copy. -/
   incremental : Bool := false
+  /-- `--build-lint`: run as the enforcing build linter, which also sets `incremental`. -/
   buildLint : Bool := false
+  /-- `--verbose`: also print every classified declaration and every execution root with a
+  boundary or an unresolved path. -/
   verbose : Bool := false
+  /-- `--help` or `-h`: print the usage text and exit. -/
   help : Bool := false
 
 private def usage : String :=
@@ -96,9 +120,14 @@ private def writeRemappedJson (path : FilePath) (value : Json)
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path (text ++ "\n")
 
+/-- The Lake inventory of one audited library or surface: its modules and their source files. -/
 structure LibraryInfo where
+  /-- The Lake library name. -/
   name : String
+  /-- Its modules as Lake reports them; for a surface, also the roots of its claimed
+  executables. -/
   modules : Array Name
+  /-- The source file Lake resolves for each of those modules. -/
   sources : Array Lake.SourceEntry
 
 private def infoFor (libraries : Array LibraryInfo) (name : String) :
@@ -1041,6 +1070,11 @@ def invalidateResults (args : List String) : IO Unit := do
       | _ => throw <| IO.userError "duplicate --project option"
     for path in relative do invalidate (resolve root path)
 
+/-- Run one `axiomGate` invocation and return its exit code. The internal forms
+`--validate-site`, `--registry-out`, `--validate-registry` and `--replacement-history-worker`
+do only that job; otherwise it invalidates earlier results at the requested output paths,
+parses and checks the options, audits the single file or the manifested project surfaces, and
+writes the result JSON, the legacy report and the acceptance link that were requested. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
   RunFeedback.reset

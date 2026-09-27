@@ -39,17 +39,29 @@ open Regula.Checker.Account (Residual)
 chapter 9 rows the rule contributes to; `sources` are repository paths of its detector,
 policy and proof modules. -/
 structure Guide where
+  /-- What goes wrong in a violating project: the page's lead paragraph and the *Problem*
+  section of `regula explain`. -/
   problem : String
+  /-- How the detector decides the rule, one paragraph each (*What triggers it*). -/
   trigger : List String
   /-- Rationale beyond the registry's short `rationale` (`descriptor id`); may be empty. -/
   rationaleDetail : List String
+  /-- The proof a checked project supplies, or that none is required (*Required proof shape*). -/
   proofShape : List String
+  /-- What a passing result of this rule establishes. -/
   established : List String
+  /-- What a passing result does not establish, listed under *It does not establish*. -/
   notEstablished : List String
+  /-- Which options, commands and flags affect the rule, and that none waives it
+  (*Configuration and exceptions*). -/
   configuration : List String
+  /-- Unsupported cases and limits of the detector (*Limitations and unsupported cases*). -/
   limitations : List String
+  /-- The review obligations of `rule-coverage.md` that a result of this rule leaves open. -/
   residuals : List Residual
+  /-- The module 9 checklist row IDs the rule contributes to, such as `DECL-01`. -/
   checklist : List String
+  /-- Repository paths of the rule's detector, policy and proof modules. -/
   sources : List String
 
 /-- Every required section has content and the page names its open obligations and sources. -/
@@ -341,17 +353,19 @@ def guide : RuleId → Guide
       checklist := ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03", "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04", "DOGFOOD-05"]
       sources := ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
-      problem := "A claimed library or executable is built with automatic implicits on, turns off \
-        a linter for all its modules beyond the three Mathlib-repository linters that standard \
-        §6.7 excludes, overrides these options with a `-D` extra `lean` argument, or, in a surface \
-        that imports Mathlib, leaves Mathlib's standard linter set or its exclusions unset."
+      problem := "A claimed library or executable is built with automatic implicits on or \
+        without Lean's `linter.missingDocs`, turns off a linter for all its modules beyond the \
+        three Mathlib-repository linters that standard §6.7 excludes, overrides these options \
+        with a `-D` extra `lean` argument, or, in a surface that imports Mathlib, leaves Mathlib's \
+        standard linter set or its exclusions unset."
       trigger := [
         "After the claimed surfaces build, the checker reads Lake's resolved configuration of \
           every claimed library and executable: its `leanOptions` (build type, package, then \
           target, a later entry replacing an earlier one) and its `weakLeanArgs` and \
           `moreLeanArgs`. The proved decision `RegulaPolicy.Community.failures` rejects the \
           target, with applicability `community-configuration`, when `autoImplicit` or \
-          `relaxedAutoImplicit` is not set to `false`, when any other `linter.…` option than \
+          `relaxedAutoImplicit` is not set to `false` or `linter.missingDocs` is not set to \
+          `true`, when any other `linter.…` option than \
           `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
           `false`, or when a `-D name=value` among the extra arguments gives a required option \
           another value or sets such a linter to `false`.",
@@ -376,8 +390,10 @@ def guide : RuleId → Guide
         "No proof obligation on the checked project. The decision is proved: \
           `RegulaPolicy.Community.failures_eq_nil_iff` shows that it reports nothing exactly when \
           the target meets `Conforming`, the declarative statement of its conditions, and \
-          `conforming_of_mathlib` that the Mathlib requirement includes the core-only one. \
-          `leanArgument_mem_failures_iff` shows that it reports a `-D` argument exactly when \
+          `conforming_of_mathlib` that the Mathlib requirement includes the core-only one; \
+          `conforming_missingDocs` states what a conforming target gives `linter.missingDocs`, \
+          and `missingDocs_unset_fails` that a target with only the automatic-implicit options \
+          fails with exactly that option. `leanArgument_mem_failures_iff` shows that it reports a `-D` argument exactly when \
           some `-D` form, stated over the characters of the arguments (`Defines`), sets a \
           checked option to a contradicting value; `autoImplicit_argument_fails`, \
           `maxHeartbeats_argument_passes`, `linter_argument_fails`, \
@@ -385,15 +401,14 @@ def guide : RuleId → Guide
           lists, taking as a hypothesis the name `lean` reads (`String.toName` is `partial`)."]
       established := [
         "Every claimed library and executable is built through Lake with automatic implicits \
-          off, turns off no linter target-wide beyond the §6.7 exclusions and, in a Mathlib \
-          surface, enables the standard set with exactly those exclusions; no `-D` extra `lean` \
-          argument overrides these options."]
+          off and `linter.missingDocs` on, turns off no linter target-wide beyond the §6.7 \
+          exclusions and, in a Mathlib surface, enables the standard set with exactly those \
+          exclusions; no `-D` extra `lean` argument overrides these options."]
       notEstablished := [
-        "That `linter.missingDocs` is enabled. Standard §6.7 requires it; review confirms it \
-          (`DECL-01`) until this rule checks it.",
         "That no module sets an option back in source, such as `set_option autoImplicit true` or \
           a linter disable; review checks source options (§6.2).",
-        "That the community linters' own checks pass; their warnings are RG2003's.",
+        "That the community linters' own checks pass, such as a docstring on every public \
+          declaration; their warnings are RG2003's.",
         "That extra `lean` arguments other than `-D`, such as `--plugin` or `--setup`, leave the \
           options unchanged."]
       configuration := [
@@ -583,7 +598,7 @@ def guide : RuleId → Guide
         "Every registered public material declaration has a docstring."]
       notEstablished := [
         "That every material declaration is registered, or that the docstring is faithful and adequate (R-DOC); registration completeness is semantic review.",
-        "Docstrings of unregistered declarations. Standard §6.7 requires claimed libraries to enable `linter.missingDocs`, whose reports RG2003 rejects; this rule does not check that option."]
+        "Docstrings of unregistered declarations. Standard §6.7 requires claimed libraries to enable `linter.missingDocs`, whose reports RG2003 rejects; RG2006, not this rule, checks that option."]
       configuration := [
         noLocalOption,
         "Registration is `@[regula_material]` from `Regula.MaterialClaim`. Removing a registration from a material declaration changes the reviewed claim, not only this rule's result.",

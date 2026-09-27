@@ -91,6 +91,8 @@ instance : FromJson EvaluatorRole := ⟨fun j => do
   | some role => return role
   | none => throw "unknown evaluator role"⟩
 
+/-- A source position, line and column (`RegulaPolicy.Position`), with its exact-field JSON
+codec. -/
 abbrev Position := RegulaPolicy.Position
 deriving instance ToJson for RegulaPolicy.Position
 instance : FromJson RegulaPolicy.Position := ⟨fun j => do
@@ -100,6 +102,8 @@ instance : FromJson RegulaPolicy.Position := ⟨fun j => do
     column := ← j.getObjValAs? _ "column"
   }⟩
 
+/-- A source range with codepoint and UTF-16 columns (`RegulaPolicy.Range`), with its
+exact-field JSON codec. -/
 abbrev Range := RegulaPolicy.Range
 deriving instance ToJson for RegulaPolicy.Range
 instance : FromJson RegulaPolicy.Range := ⟨fun j => do
@@ -111,6 +115,8 @@ instance : FromJson RegulaPolicy.Range := ⟨fun j => do
     endUtf16 := ← j.getObjValAs? _ "endUtf16"
   }⟩
 
+/-- The full and selection ranges Lean records for a declaration (`RegulaPolicy.Ranges`),
+with its exact-field JSON codec. -/
 abbrev Ranges := RegulaPolicy.Ranges
 deriving instance ToJson for RegulaPolicy.Ranges
 instance : FromJson RegulaPolicy.Ranges := ⟨fun j => do
@@ -120,6 +126,9 @@ instance : FromJson RegulaPolicy.Ranges := ⟨fun j => do
     selectionRange := ← j.getObjValAs? _ "selectionRange"
   }⟩
 
+/-- The collector's record of a registered executable contract: its root, rendered
+requirement and any refusal (`RegulaPolicy.ExecutableContract`), with its exact-field JSON
+codec. -/
 abbrev ExecutableContract := RegulaPolicy.ExecutableContract
 deriving instance ToJson for RegulaPolicy.ExecutableContract
 instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
@@ -130,6 +139,8 @@ instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
     failure := ← j.getObjValAs? _ "failure"
   }⟩
 
+/-- The Lean-semantic record of one owned constant (`RegulaPolicy.Declaration`), with its
+exact-field JSON codec. -/
 abbrev Declaration := RegulaPolicy.Declaration
 deriving instance ToJson for RegulaPolicy.Declaration
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
@@ -172,6 +183,9 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     executableContract := ← j.getObjValAs? _ "executableContract"
   }⟩
 
+/-- One execution boundary a root's closure reaches (`RegulaPolicy.ExecutionBoundary`), with a
+JSON codec whose decoder admits the boundary evidence through `admitBoundaryEvidence` and
+refuses a noncanonical payload. -/
 abbrev ExecutionBoundary := RegulaPolicy.ExecutionBoundary
 instance : ToJson RegulaPolicy.NativeOrigin := ⟨fun o => Json.mkObj [
   ("module", toJson o.moduleName), ("actual", toJson o.actual), ("expected", toJson o.expected)]⟩
@@ -202,6 +216,8 @@ instance : FromJson ExecutionBoundary := ⟨fun j => do
     replacement := ← j.getObjValAs? (Option Name) "replacement"
     compilerCallers := ← j.getObjValAs? (Array Name) "compilerCallers" }⟩
 
+/-- The execution account of one owned executable root (`RegulaPolicy.ExecutionRoot`), with
+the exact-field JSON codecs of it, its closure and its visits. -/
 abbrev ExecutionRoot := RegulaPolicy.ExecutionRoot
 deriving instance ToJson for RegulaPolicy.ExecutionVisit
 instance : FromJson RegulaPolicy.ExecutionVisit := ⟨fun j => do
@@ -237,6 +253,8 @@ instance : FromJson RegulaPolicy.ExecutionRoot := ⟨fun j => do
     closure := ← j.getObjValAs? _ "closure"
   }⟩
 
+/-- The resolved `.olean` path and direct imports of one loaded module
+(`RegulaPolicy.ModuleOrigin`), with its exact-field JSON codec. -/
 abbrev ModuleOrigin := RegulaPolicy.ModuleOrigin
 deriving instance ToJson for RegulaPolicy.ModuleOrigin
 instance : FromJson RegulaPolicy.ModuleOrigin := ⟨fun j => do
@@ -247,6 +265,8 @@ instance : FromJson RegulaPolicy.ModuleOrigin := ⟨fun j => do
     imports := ← j.getObjValAs? _ "imports"
   }⟩
 
+/-- The environment report of one requested module set (`RegulaPolicy.Environment`), with its
+exact-field JSON codec. -/
 abbrev Environment := RegulaPolicy.Environment
 deriving instance ToJson for RegulaPolicy.Environment
 instance : FromJson RegulaPolicy.Environment := ⟨fun j => do
@@ -263,8 +283,13 @@ instance : FromJson RegulaPolicy.Environment := ⟨fun j => do
 before each on-demand lookup during the walk.
 These are unbound operational inputs to POLICY-04's claim-indexed `Census`, not acceptance. -/
 structure Census where
+  /-- The owned modules the report was requested for. -/
   modules : Array Name
+  /-- The `(module, declaration)` key of every owned declaration, frozen before its record was
+  collected. -/
   declarations : Array (Name × Name)
+  /-- The `(module, root)` key of every executable root, when execution was inspected;
+  `none` otherwise. -/
   executionRoots : Option (Array (Name × Name))
   /-- (execution root, module) requests registered before consulting history results. -/
   historyRequests : Array (Name × Name)
@@ -273,6 +298,7 @@ structure Census where
 /-- Extraction keys alongside the original pure policy report. Operational transport
 and receipt validation live in the checker layer, outside the force-loaded replay closure. -/
 structure Collected extends RegulaPolicy.Environment where
+  /-- The keys collected alongside the report. -/
   census : Census
   deriving Repr
 

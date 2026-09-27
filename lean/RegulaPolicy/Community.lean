@@ -3,11 +3,12 @@ module
 /-! # Community build configuration decision
 
 The decision behind RG2006 for one claimed Lake target (standard §8.1, §6.7 and §6.2): the
-options Lake builds its modules with turn automatic implicits off, keep every linter on except
-the three Mathlib-repository linters §6.7 excludes, and, when the target imports Mathlib, enable
-Mathlib's standard linter set with exactly those exclusions. The target sets these options in
-Lake's `leanOptions`, where the audit reads them, and no `-D` among its extra `lean` arguments
-sets one of them to another value or turns off another linter.
+options Lake builds its modules with turn automatic implicits off, enable Lean's
+`linter.missingDocs`, keep every linter on except the three Mathlib-repository linters §6.7
+excludes, and, when the target imports Mathlib, enable Mathlib's standard linter set with exactly
+those exclusions. The target sets these options in Lake's `leanOptions`, where the audit reads
+them, and no `-D` among its extra `lean` arguments sets one of them to another value or turns
+off another linter.
 
 ## Main declarations
 
@@ -18,6 +19,10 @@ sets one of them to another value or turns off another linter.
 - `failures`: the executed decision, every failure of one target in a fixed order.
 - `failures_eq_nil_iff`: no failure exactly when `Conforming` holds.
 - `conforming_of_mathlib`: the Mathlib requirement strengthens the core-only one.
+- `conforming_autoImplicit`, `conforming_missingDocs`: what a conforming target gives the
+  automatic-implicit options and `linter.missingDocs`.
+- `missingDocs_unset_fails`: a target with only the automatic-implicit options fails with
+  exactly the missing `linter.missingDocs`.
 - `mem_argumentTexts_iff`: the `-D` reading holds exactly the settings of `Defines`, stated over
   the characters of the arguments.
 - `leanArgument_mem_failures_iff`: a `-D` argument fails exactly when some `-D` form sets a
@@ -48,8 +53,8 @@ command-line parser of the Lean executable is assumed, read from Lean's `Lean.Sh
 its getopt handling; it is neither proved nor observed. The decision does not read `set_option`
 commands in source, which review checks (`DECL-01`), nor options given to `lake` on its command
 line. Which targets are claimed and whether a target imports Mathlib are supplied by the
-operational adapter. The `linter.missingDocs` requirement of §6.7 is not part of this decision
-yet. -/
+operational adapter. That `linter.missingDocs` is on establishes only that Lean runs the linter;
+its reports are build warnings, which RG2003 rejects. -/
 
 @[expose] public section
 
@@ -314,9 +319,11 @@ theorem mem_argumentSettings_iff (arguments : List String) (n : Name) (v : Optio
   · rintro ⟨name, value, hd, rfl, rfl⟩
     exact ⟨name, value, hd, rfl, rfl⟩
 
-/-- The options every claimed target sets (standard §8.1): no automatic implicits. -/
+/-- The options every claimed target sets: no automatic implicits (standard §8.1), and Lean's
+linter that reports each public declaration without a docstring (standard §6.7). -/
 def baseline : List (Name × OptionValue) :=
-  [(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)]
+  [(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false),
+    (`linter.missingDocs, .bool true)]
 
 /-- Mathlib's standard linter set with its three Mathlib-repository exclusions (standard §6.7),
 set by a claimed target whose modules import Mathlib. -/
@@ -455,6 +462,26 @@ theorem conforming_autoImplicit (o : BuildOptions) (mathlib : Bool) (h : Conform
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hname
     rcases hname with rfl | rfl <;> simp [required, baseline]
   exact ⟨(h.1 _ hr).2, fun s hs hs' => (h.2.2 s hs).1 _ hr hs'⟩
+
+/-- Every conforming target enables `linter.missingDocs`: its options give the option at least
+once and only values Lean reads as `true`, and no `-D` among its extra `lean` arguments gives it
+another value. -/
+theorem conforming_missingDocs (o : BuildOptions) (mathlib : Bool) (h : Conforming o mathlib) :
+    valuesOf o `linter.missingDocs ≠ [] ∧
+      (∀ v ∈ valuesOf o `linter.missingDocs, v.readsAs (.bool true) = true) ∧
+      ∀ s ∈ argumentSettings o.arguments, optionOf s.1 = `linter.missingDocs →
+        s.2.readsAs (.bool true) = true := by
+  have hr : (`linter.missingDocs, OptionValue.bool true) ∈ required mathlib := by
+    simp [required, baseline]
+  exact ⟨(h.1 _ hr).1, (h.1 _ hr).2, fun s hs hs' => (h.2.2 s hs).1 _ hr hs'⟩
+
+/-- A core-only target that turns automatic implicits off and sets nothing else fails with
+exactly one failure: `linter.missingDocs` is not set. -/
+theorem missingDocs_unset_fails :
+    failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], []⟩ false =
+      [.option `linter.missingDocs (.bool true) []] := by
+  simp [failures, required, baseline, sets, valuesOf, optionOf, disables, rootOf, exclusions,
+    argumentSettings, argumentTexts, OptionValue.readsAs]
 
 /-- A `-D` string value contradicts the requirement exactly when it is not what Lean reads as a
 required option's value, or it is `"false"` for a linter outside the §6.7 exclusions. -/

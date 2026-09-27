@@ -20,8 +20,11 @@ open scoped Regula.Report
 module array is supplied by the coordinator's discovery, never copied from the response.
 The report is held with its transport admission proof, so freezing never re-validates it. -/
 structure RequestedInspection where
+  /-- The modules the coordinator requested this report for, from its own discovery. -/
   expectedModules : Array Name
+  /-- The producer's environment report, with the proof that it passed transport validation. -/
   admitted : ProducerReport.Admitted
+  /-- The frontend transcripts the producer recorded while elaborating those modules. -/
   transcripts : Array RegulaPolicy.Frontend.Transcript
 
 /-- The admitted report itself. -/

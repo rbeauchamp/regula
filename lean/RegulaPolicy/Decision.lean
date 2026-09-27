@@ -79,9 +79,15 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
 /-- Inventory-bound observations of the actual role validators. Supplying arbitrary
 name arrays cannot authorize a role: both equations must be proved for this inventory. -/
 structure Roles (inventory : Inventory) where
+  /-- Names of the declarations that satisfy `NativeTeachingOK`: the `native_decide` axioms
+  admitted as generated roles, in inventory order. -/
   native : Array Name
+  /-- Names of the declarations that satisfy `RecursiveHelperOK`: the generated `_unsafe_rec`
+  helpers admitted as generated roles, in inventory order. -/
   helpers : Array Name
+  /-- `native` is what `authorizedNativeAxioms` computes from this inventory. -/
   native_exact : native = authorizedNativeAxioms inventory.declarations inventory.transcripts
+  /-- `helpers` is what `authorizedUnsafeRecHelpers` computes from this inventory. -/
   helpers_exact : helpers = authorizedUnsafeRecHelpers inventory.declarations inventory.transcripts
 
 /-- Recompute both validators from the admitted data; no serialized proof is trusted. -/

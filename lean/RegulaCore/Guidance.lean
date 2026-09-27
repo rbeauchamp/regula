@@ -148,7 +148,7 @@ def agentGuide : String :=
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
   "Every claimed target enables `linter.missingDocs` (document every definition) in its " ++
-  "`leanOptions`, with the options RG2006 checks; `lake lint` " ++
+  "`leanOptions`, with the other options RG2006 checks; `lake lint` " ++
   "rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
   "Disable a community linter only for a single declaration, " ++
   "where its guidance allows, with the reason; that never discharges a rule.\n" ++
@@ -181,10 +181,15 @@ def plainFields (id : RuleId) : Bool :=
 
 /-- The `regula` command line. -/
 inductive Command where
+  /-- Print rule `id` in full as Markdown (`explain`). -/
   | explain (id : RuleId)
+  /-- Print the compact index of every rule (`rulesIndex`). -/
   | rules
+  /-- Print the agent briefing of the standard (`agentGuide`). -/
   | agentGuide
+  /-- Print the briefing as an Agent Skills `SKILL.md` (`skill`). -/
   | skill
+  /-- Print the usage text (`usage`). -/
   | help
   deriving DecidableEq
 
@@ -196,6 +201,7 @@ def Command.arguments : Command → List String
   | .skill => ["skill"]
   | .help => ["help"]
 
+/-- The usage text: every command, what it prints, and the exit codes. -/
 def usage : String :=
   "usage: lake exe regula explain <RULE-ID> | rules | agent-guide | skill | help\n" ++
   "  explain <RULE-ID>  the full rule as Markdown: requirement, rationale, remedy, examples\n" ++

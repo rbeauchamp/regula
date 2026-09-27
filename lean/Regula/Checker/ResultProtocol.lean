@@ -13,6 +13,7 @@ The accepted constructor requires the executed con-leche-inspired indexed finali
 namespace Regula.Checker.ResultProtocol
 open Lean
 
+/-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
 /-- Result schema 3 adds, for agents, each diagnostic's `remedy`, the top-level `rules` (the
@@ -31,11 +32,13 @@ def identityFields : List (String × Json) := RegistryCodec.identityFields produ
 missing or incomplete evidence (`Account.Status.completed_accepted`). -/
 abbrev Status := Regula.Checker.Account.Status
 
+/-- The text of a result status in the result JSON. -/
 def statusText (status : Status) : String := status.spelling
 
 /-- A stage of a run (`RegulaPolicy.Stage`). -/
 abbrev Stage := RegulaPolicy.Stage
 
+/-- The name of each stage in the result JSON's stage lists. -/
 def stageName : Stage → String
   | .configuration => "configuration" | .discovery => "discovery" | .build => "build"
   | .admission => "admission" | .declarationPolicy => "declarationPolicy"
@@ -261,11 +264,15 @@ def admitGuidance (j : Json) : Except String Unit := do
       (notRun required completed).isEmpty then
     throw "incomplete result without an incomplete finding reports every stage as run"
 
+/-- The JSON record of the request a result answers: its kind, project, subject, optional
+claim and execution mode, and each configuration file path with its text, if read. -/
 def requestJson (kind project subject : String) (claim execution : Option String)
     (configuration : Array (System.FilePath × Option String)) : Json :=
   toJson (⟨kind, project, subject, claim, execution,
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
+/-- Write the `resultJson` of these arguments as compact JSON and a final newline to `path`,
+creating its parent directories, and print how long encoding and writing took. -/
 def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status : Status)
     (findings : Array Finding) (expected completed : List Stage) (unresolved : Array String := #[]) :
     IO Unit := do
@@ -428,6 +435,8 @@ def acceptedValue {claim : RegulaPolicy.Claim}
     (.completed (Regula.Checker.Account.account accepted)) #[] stages stages #[]).setObjVal!
     "acceptance" (acceptedJson accepted)
 
+/-- Write `acceptedValue accepted scope` as compact JSON and a final newline to `path`,
+creating its parent directories, and print how long encoding and writing took. -/
 def writeAccepted {claim : RegulaPolicy.Claim} (path : System.FilePath)
     (accepted : RegulaPolicy.AcceptedRun claim) (scope : Json) : IO Unit := do
   let spanStart ← IO.monoMsNow

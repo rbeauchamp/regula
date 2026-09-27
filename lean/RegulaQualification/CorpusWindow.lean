@@ -11,9 +11,13 @@ namespace RegulaQualification.CorpusWindow
 /-- Window state over `total` productions consumed in fixed order: Tasks exist for the
 jobs `[0, launched)`, and the records `[0, consumed)` have been taken. -/
 structure State where
+  /-- The window size: how far ahead of `consumed` jobs are launched. -/
   width : Nat
+  /-- The number of productions in the corpus. -/
   total : Nat
+  /-- The number of jobs launched so far, the prefix `[0, launched)`. -/
   launched : Nat
+  /-- The number of records taken so far, the prefix `[0, consumed)`. -/
   consumed : Nat
   deriving Repr
 

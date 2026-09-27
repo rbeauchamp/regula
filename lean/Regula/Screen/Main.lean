@@ -86,6 +86,9 @@ private def severityText : Option ScreenSeverity → String
 private def routeText : Route → String
   | .screened => "screened" | .escalate => "escalate"
 
+/-- The machine record of one judged answer for `claim`: its evidence class, judgment, subject,
+model, question, support and confidence, request digest, and the severity and route `policy`
+gives it. -/
 def judgedJson (policy : Policy) (claim : Name) (j : Judged) : Json :=
   Json.mkObj [("claim", .str claim.toString), ("class", .str j.evidenceClass.spelling),
     ("judgment", .str j.judgment.spelling),
@@ -103,18 +106,26 @@ private def locationText : Regula.Location → String
 /-- One finding in the linter diagnostic shape (`Regula.RegistryCodec.diagnosticJson`), with
 its judgment's `findingId` in place of a registry rule and its evidence class. -/
 structure ScreenFinding where
+  /-- The screened claim's declaration. -/
   claim : Name
+  /-- Where the finding is reported: the claim's source range, or its module. -/
   location : Regula.Location
+  /-- The judged answer that raised the finding. -/
   answer : Judged
+  /-- The severity the policy's thresholds give the answer. -/
   severity : ScreenSeverity
 
+/-- The finding's detail: the judgment, the quoted subject and the answer's evidence. -/
 def ScreenFinding.detail (f : ScreenFinding) : String :=
   s!"{f.answer.judgment.spelling} of \"{f.answer.subject}\": {f.answer.evidence}"
 
+/-- The one-line terminal text: finding ID, evidence class, severity, location, claim and
+detail. -/
 def ScreenFinding.text (f : ScreenFinding) : String :=
   s!"{f.answer.judgment.findingId} [{f.answer.evidenceClass.spelling}; {f.severity.toSeverity.spelling}; " ++
     s!"{locationText f.location}]: {f.claim}: {f.detail}"
 
+/-- The finding as a diagnostic JSON object, with its evidence class and severity. -/
 def ScreenFinding.json (f : ScreenFinding) : Json :=
   Json.mkObj [("id", .str f.answer.judgment.findingId),
     ("arguments", Json.mkObj [("declaration", Regula.RegistryCodec.nameJson f.claim), ("detail", .str f.detail)]),
@@ -128,18 +139,32 @@ private unsafe def loadEnvironment (modules : Array Name) : IO Environment := do
   importModules (modules.map fun module => { module, importAll := true }) {} 0 (loadExts := true)
     (level := .private)
 
+/-- The parsed command line of `intentScreen`. -/
 structure Args where
+  /-- The subcommand: `screen` or `calibrate`; empty until one is given. -/
   command : String := ""
+  /-- The `--config` file. -/
   config : Option String := none
+  /-- Modules given with `--module`, in order. -/
   modules : Array Name := #[]
+  /-- Root Lean libraries given with `--library`, in order. -/
   libraries : Array String := #[]
+  /-- `--intent-sections`: also screen unregistered declarations whose docstrings RG5002 and
+  RG5003 would accept. -/
   intentSections : Bool := false
+  /-- Declarations given with `--declaration`; when any is given, only they are screened. -/
   declarations : Array Name := #[]
+  /-- The `--json` report path. -/
   json : Option String := none
+  /-- The corpus split `--split` names for `calibrate`: `dev` or `test`. -/
   split : Option String := none
+  /-- The Markdown report path `--report` names for `calibrate`. -/
   report : Option String := none
+  /-- The evidence rows path `--records` names for `calibrate`. -/
   records : Option String := none
 
+/-- Parse the arguments into `acc`, a later flag replacing an earlier single-valued one; the
+first bare word is the command, and any other argument is an error. -/
 def parseArgs (args : List String) (acc : Args := {}) : Except String Args :=
   match args with
   | [] => .ok acc
@@ -155,10 +180,13 @@ def parseArgs (args : List String) (acc : Args := {}) : Except String Args :=
   | cmd :: rest => if acc.command.isEmpty && !cmd.startsWith "-" then parseArgs rest { acc with command := cmd }
     else .error s!"unexpected argument {cmd}"
 
+/-- The two command forms, printed when the command line is not accepted. -/
 def usage : String :=
   "usage: intentScreen screen --config FILE (--module M | --library L) ... [--intent-sections] [--declaration NAME ...] [--json FILE]\n" ++
   "       intentScreen calibrate --config FILE --split dev|test --report FILE --records FILE"
 
+/-- The run's service usage line: requests sent, cache answers and billed input tokens, with the
+list price when the model is `jev-1.13.0`. -/
 def costNote (model : PinnedModel) (u : Usage) : String :=
   let price := if model.val == "jev-1.13.0" then
       "; the jev-1.13.0 list price was $0.042 per million input tokens on 2026-09-24" else ""
@@ -196,6 +224,12 @@ def reportJson (complete : Bool) (exitStatus : UInt32) (reason : Option String) 
 def writeUnfinished (path : System.FilePath) (reason : String) : IO Unit :=
   IO.FS.writeFile path (reportJson false 2 (some reason) #[] #[] #[] #[]).pretty
 
+/-- The `screen` command. It loads the listed modules (and every module of each listed library),
+selects the `--declaration` names or else every public `@[regula_material]` declaration of
+those modules (plus, with `--intent-sections`, each one RG5002/RG5003 would accept), screens
+each claim, prints its lines, findings and service usage, and writes the `--json` report when
+asked. It returns 2 when a discharge reference was refused, 1 when a finding has error severity,
+and 0 otherwise. -/
 unsafe def screen (args : Args) (cfg : Config) : IO UInt32 := do
   let mut modules := args.modules
   unless args.libraries.isEmpty do
@@ -284,6 +318,10 @@ def admitReportPath (path : System.FilePath) (others : List String) : IO Unit :=
     if earlier.isNone then
       throw <| IO.userError s!"--json {path} exists and is not an intentScreen report; it was left untouched"
 
+/-- The `intentScreen` entry point. It admits and pre-writes an unfinished `--json` report, reads
+the configuration and runs `screen` or `calibrate`. Any error prints
+`intent screen incomplete: …`, records the reason in the `--json` report when there is one,
+and returns 2. -/
 unsafe def main (argv : List String) : IO UInt32 := do
   let target? ← try
       match (flagValues "--json" argv).getLast? with
@@ -322,4 +360,5 @@ unsafe def main (argv : List String) : IO UInt32 := do
 
 end Regula.Screen.Main
 
+/-- The `intentScreen` executable's root: runs `Regula.Screen.Main.main`. -/
 unsafe def main (argv : List String) : IO UInt32 := Regula.Screen.Main.main argv

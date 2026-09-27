@@ -29,10 +29,14 @@ run_cmd do
 namespace Regula.Checker.RuleExampleQualification
 open Lean Regula Regula.Website
 
+/-- The value of `key` in the JSON object `j`, or an error when it has none. -/
 def field (j : Json) (key : String) : Except String Json := j.getObjVal? key
+/-- The string value of `key` in the JSON object `j`, or an error. -/
 def string (j : Json) (key : String) : Except String String := do
   (← field j key).getStr?
 
+/-- A JSON array of source snapshots, each an object with exactly the fields `uri` and
+`source`. -/
 def sources (j : Json) : Except String (Array RegulaPolicy.SourceSnapshot) := do
   (← j.getArr?).mapM fun source => do
     PolicyCodec.exactFields source ["uri", "source"]
@@ -54,6 +58,10 @@ theorem parseRequest_sound {json : Json} {r : ExampleRequest} (h : parseRequest 
     simp [c₂, throw, throwThe, MonadExceptOf.throw, pure, Except.pure, bind, Except.bind] at h <;>
     split at h <;> simp_all
 
+/-- The example binding of a receipt record: its `before` and `after` inputs must be equal;
+their sources and configuration, the result's toolchain and source revision and the record's
+checker sources form the admitted snapshot; the record's request must have that
+configuration's URI as its project and its parsed text as its configuration. -/
 def binding (record : Json) (mode : EvidenceMode) : Except String ExampleBinding := do
   let input ← field record "before"
   let after ← field record "after"
@@ -92,6 +100,9 @@ def observedSources (result : Json) (bound : ExampleBinding) :
   else if bound.request.kind == "documentation" then sources (← field scope "documents")
   else throw "missing result source account"
 
+/-- The producer's observed sources pass `admitExampleSources` against the bound snapshot
+and the displayed text, and a file or policy-negative request's own file was observed with
+exactly the displayed text. -/
 def sourceAccount (result : Json) (bound : ExampleBinding) (displayed : String) :
     Except String Unit := do
   let observed ← observedSources result bound
@@ -151,6 +162,8 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
             throw "effective surface claim or execution differs from request"
     | _ => throw "unknown example request kind"
 
+/-- The result's request, admitted as equal to the bound request, with its effective
+configuration and scope checked by `effectiveAccount`. -/
 def requestAccount (result : Json) (bound : ExampleBinding) : Except String ExampleRequest := do
   let observed ← parseRequest (← field result "request")
   let admitted ← admitExampleRequest bound.request observed

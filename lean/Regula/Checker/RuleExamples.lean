@@ -124,6 +124,9 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
     (Json.mkObj [("root", toJson configurationRoot), ("configuration", toJson configuration)]))
   return code
 
+/-- Run one rule-example production and return its exit code: `--policy-negative PROJECT
+SOURCE OUTPUT` runs `inspectNegative`, `--documentation PROJECT DOCS OUTPUT` runs
+`documentation`, and any other arguments throw the usage text. -/
 unsafe def run (args : List String) : IO UInt32 := do
   match args with
   | ["--policy-negative", repo, source, output] =>

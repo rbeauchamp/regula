@@ -39,7 +39,9 @@ open RegulaPolicy.Intent
 /-- A nonnegative decimal number with value `mantissa / 10 ^ exponent`. JSON numbers are
 decimal text, so the service's probabilities are represented without rounding. -/
 structure Decimal where
+  /-- The decimal digits as a natural number. -/
   mantissa : Nat
+  /-- The number of those digits after the decimal point. -/
   exponent : Nat
   deriving Repr, DecidableEq
 
@@ -150,7 +152,12 @@ theorem probability?_eq_some_iff (mantissa : Int) (exponent : Nat) (p : Probabil
 /-- Severity of a screening finding, in the rule-severity vocabulary (`Regula.Severity`:
 error, warning, information). A screen never produces a checked or passing verdict. -/
 inductive ScreenSeverity where
-  | information | warning | error
+  /-- Support below the information threshold only. -/
+  | information
+  /-- Support below the warning threshold. -/
+  | warning
+  /-- Support below the error threshold. -/
+  | error
   deriving Repr, DecidableEq
 
 /-- Order of findings: no finding, then information, then warning, then error. -/
@@ -164,10 +171,15 @@ def rank : Option ScreenSeverity → Nat
 error, below `warning` a warning, below `information` information. Well formed by
 construction. -/
 structure Thresholds where
+  /-- Support below this probability is an error. -/
   error : Decimal
+  /-- Support below this probability, and not below `error`, is a warning. -/
   warning : Decimal
+  /-- Support below this probability, and not below `warning`, is information. -/
   information : Decimal
+  /-- Proof that the error threshold does not exceed the warning threshold. -/
   error_le_warning : error ≤ warning
+  /-- Proof that the warning threshold does not exceed the information threshold. -/
   warningLeInformation : warning ≤ information
 
 /-- The executed severity decision. -/
@@ -245,7 +257,9 @@ inductive Route where
 is raised and every result escalates) and an optional minimum distribution confidence,
 applied only to answers that report one (Choice). -/
 structure JudgmentPolicy where
+  /-- The severity mapping; `none` raises no finding and escalates every result. -/
   thresholds : Option Thresholds := none
+  /-- A reported confidence below this value escalates the result; `none` sets no minimum. -/
   minConfidence : Option Decimal := none
 
 /-- Whether a reported confidence meets the policy's minimum. -/
@@ -528,14 +542,29 @@ theorem dischargeMarked_examples :
 /-- The judgments a screen asks. `correspondence` asks whether the formal statement of a
 discharged clause states its English text. -/
 inductive Judgment where
-  | coverage | correspondence | strength | quantifierOrder | totalization | exclusions
+  /-- Whether the claim, exactly as stated, guarantees one Intent clause. -/
+  | coverage
+  /-- Whether a discharged clause's formal statement states exactly its English text. -/
+  | correspondence
+  /-- How the whole claim compares with the whole intent (a `Strength` distribution). -/
+  | strength
+  /-- Whether the claim keeps the intent's quantifier structure and order. -/
+  | quantifierOrder
+  /-- Whether the claim avoids relying on a conventional value of a partial operation in a
+  case the intent treats as undefined or excluded. -/
+  | totalization
+  /-- Whether the claim honors every exclusion and limit the intent states. -/
+  | exclusions
   deriving Repr, DecidableEq
 
+/-- Every judgment, once each (`Judgment.mem_all`). -/
 def Judgment.all : List Judgment :=
   [.coverage, .correspondence, .strength, .quantifierOrder, .totalization, .exclusions]
 
 theorem Judgment.mem_all (j : Judgment) : j ∈ all := by cases j <;> decide
 
+/-- The judgment's name in the screen configuration; distinct judgments have distinct
+names (`Judgment.spelling_injective`). -/
 def Judgment.spelling : Judgment → String
   | .coverage => "coverage" | .correspondence => "correspondence" | .strength => "strength"
   | .quantifierOrder => "quantifier-order" | .totalization => "totalization"
@@ -553,7 +582,15 @@ def Judgment.reportsConfidence : Judgment → Bool
 
 /-- Strength of the formal claim relative to the intent (the options of the strength Choice). -/
 inductive Strength where
-  | equivalent | stronger | weaker | incomparable
+  /-- The claim establishes exactly what the intent requires. -/
+  | equivalent
+  /-- The claim establishes everything the intent requires and more. -/
+  | stronger
+  /-- The claim establishes less than the intent requires. -/
+  | weaker
+  /-- The claim misses a requirement and also asserts something the intent does not require
+  or excludes, or it concerns a different property. -/
+  | incomparable
   deriving Repr, DecidableEq
 
 /-- Support for the intent from a strength distribution: the probability that the claim

@@ -21,12 +21,16 @@ namespace Regula.Screen.Jev
 open Lean System
 open RegulaPolicy.Screening
 
+/-- The System One endpoint URL every request is POSTed to. -/
 def endpoint : String := "https://api.typesafe.ai/v1/systemone"
 
 /-- One typed answer. `support` is the Noul probability; a Choice answer carries every
 option's probability and its distribution confidence. -/
 inductive Answer where
+  /-- A true/false (Noul) answer: the probability that the question's `true` criterion holds. -/
   | noul (probability : Probability)
+  /-- A multiple-choice answer: each option's probability, and the distribution's
+  confidence. -/
   | choice (probabilities : List (String × Probability)) (confidence : Probability)
 
 /-- One completed request: the versioned model that answered, answers by question id, the
@@ -34,11 +38,18 @@ request digest and the input tokens the service billed (`none` when it reported 
 `cached` records whether this run reused an earlier response; `attempts` is the number of
 POSTs this run sent for it, retries included (0 when cached). -/
 structure Response where
+  /-- The model version the service answered with; a response is admitted only when it is
+  the pinned model. -/
   model : String
+  /-- The admitted answer to each question, keyed by question id. -/
   answers : List (String × Answer)
+  /-- The SHA-256 digest of the request, which names its cache entry. -/
   digest : String
+  /-- The input tokens the service billed, or `none` when it reported none. -/
   inputTokens : Option Nat
+  /-- Whether this run reused a cached response instead of sending the request. -/
   cached : Bool
+  /-- POSTs this run sent for the request, retries included; 0 when cached. -/
   attempts : Nat
 
 /-- The request body: model, state and questions, keys in canonical order. -/

@@ -18,14 +18,26 @@ private def base := "import Regula.Linter\n/-! Collector qualification control. 
 
 /-- One native control's invocation options and expected diagnostic contract. -/
 structure Control where
+  /-- The control's name, also the file stem of its scratch source `label.lean`. -/
   label : String
+  /-- The Lean source compiled for this control. -/
   source : String
+  /-- Rule IDs of the native diagnostics expected, with multiplicity and in any order; each
+  `id` is matched as the message kind `Regula.<id>._namedError`. -/
   ids : List String := []
+  /-- Whether the compiler process is expected to exit with a nonzero code. -/
   errors : Bool := false
+  /-- Extra `lean` arguments, placed before the output flag and the source path. -/
   options : Array String := #[]
+  /-- Whether `lean` also writes an `.olean` beside the source (`-o`). -/
   output : Bool := false
+  /-- The non-native compiler messages expected, in order, each by severity and a substring
+  of its text. -/
   compiler : List RegulaQualification.Native.CompilerMessage := []
+  /-- A substring that at least one native diagnostic's text must contain, when given. -/
   detail : Option String := none
+  /-- The severity every native diagnostic must have; by default `error` when `options`
+  contains `-DwarningAsError=true` and `warning` otherwise. -/
   nativeSeverity : Option String := none
 
 /-- Decode required message fields without silently defaulting malformed values. A

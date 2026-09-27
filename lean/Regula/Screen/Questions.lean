@@ -26,19 +26,26 @@ inductive StateMode where
   | explanation
   deriving Repr, DecidableEq, Inhabited
 
+/-- The mode's name in the configuration's `state` field and in reports. -/
 def StateMode.spelling : StateMode → String
   | .full => "full" | .statement => "statement" | .explanation => "explanation"
 
+/-- The mode `spelling` names; `none` for any other text. -/
 def StateMode.parse? : String → Option StateMode
   | "full" => some .full | "statement" => some .statement | "explanation" => some .explanation
   | _ => none
 
 /-- One claim as the screen reads it. `clauses` have any discharge marker removed. -/
 structure ClaimText where
+  /-- The Intent section's clauses, in order. -/
   clauses : List String
+  /-- The docstring's English explanation: its text before the Intent section. -/
   explanation : String
+  /-- The claim's elaborated Lean statement, pretty-printed by `Regula.Screen.statementText`. -/
   statement : String
 
+/-- The request state for `mode`: the intent clauses, with the statement, the explanation or
+both. -/
 def state (mode : StateMode) (c : ClaimText) : Json :=
   let intent := ("intent", toJson c.clauses)
   match mode with
@@ -56,6 +63,8 @@ def claimReference : StateMode → String
 def intentReference : String :=
   "`intent` lists the requirement clauses the formal claim is meant to establish."
 
+/-- A Noul (true/false) question with `instructions`, answered true when `yes` describes the
+case and false when `no` does. -/
 def noul (instructions : Json) (yes no : String) : Json :=
   Json.mkObj [("type", "noul"), ("instructions", instructions),
     ("criteria", Json.mkObj [("true", .str yes), ("false", .str no)])]
@@ -105,6 +114,8 @@ is only the clause pair, not the claim. -/
 def correspondenceState (clause formal : String) : Json :=
   Json.mkObj [("clause", .str clause), ("formal_clause", .str formal)]
 
+/-- The correspondence question, asked of a `correspondenceState`: does the formal clause state
+exactly the English clause? -/
 def correspondence : Json :=
   noul (Json.mkObj [("question", "Does the Lean proposition `formal_clause` state exactly the requirement in `clause`, with the same quantifiers, hypotheses, cases and conclusion?")])
     "The Lean proposition says exactly what the English clause requires, no more and no less."

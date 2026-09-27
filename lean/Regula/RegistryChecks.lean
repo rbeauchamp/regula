@@ -35,6 +35,11 @@ private def require (ok : Bool) (claim : String) : IO Unit :=
 private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
   | .ok _ => true | .error _ => false
 
+/-- The registry transport qualification that acceptance runs with `lean --run`: it checks
+every rule's descriptor codec, the embedded example pairs against their corpus files, the
+committed agent skill, and fixed accept and refuse controls for registry, page, source,
+result, diagnostic and example admission, throwing on the first failed check and printing
+`PASS` otherwise. These controls are observations, not proofs of the laws. -/
 def main : IO Unit := do
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer

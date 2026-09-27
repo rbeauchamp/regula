@@ -11,9 +11,44 @@ namespace RegulaVerification
 
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
-  | ordinary | docs | graph | diagnostics | fixtures | structural | cli | environments | buildPolicy | lintDriver | producers | history
-  | selfLint | selfAudit
-  | ruleExamples | ruleExamplesFirst | ruleExamplesSecond | site
+  /-- No argument: the first acceptance step, which builds the acceptance executables, runs the
+  registry checks and combined qualification, and audits the claimed surfaces. -/
+  | ordinary
+  /-- `docs`: the second acceptance step, the documentation audit and the Verso standard's
+  build and render, refused unless its inputs equal those the first step accepted. -/
+  | docs
+  /-- `serialized-graph`: the separate serialized-graph check (`freshChecker`). -/
+  | graph
+  /-- `diagnostics`: the checker self-test diagnostic, not acceptance. -/
+  | diagnostics
+  /-- `diagnostics fixtures`: the self-test's fixtures partition. -/
+  | fixtures
+  /-- `diagnostics structural`: the self-test's structural partition. -/
+  | structural
+  /-- `diagnostics cli`: the self-test's command-line partition. -/
+  | cli
+  /-- `diagnostics environments`: the self-test's environments partition. -/
+  | environments
+  /-- `diagnostics build-policy`: the self-test's build-policy partition. -/
+  | buildPolicy
+  /-- `diagnostics lint-driver`: the self-test's `lake lint` driver partition. -/
+  | lintDriver
+  /-- `diagnostics producers`: the producers qualification campaign. -/
+  | producers
+  /-- `diagnostics history`: the history qualification campaign. -/
+  | history
+  /-- `diagnostics self-lint`: this repository's own `lake lint`. -/
+  | selfLint
+  /-- `diagnostics self-audit`: the operational self-audit of the excluded `Regula` library. -/
+  | selfAudit
+  /-- `diagnostics rule-examples`: the whole rule-example corpus in one run. -/
+  | ruleExamples
+  /-- `diagnostics rule-examples 1/2`: the first of the corpus's two shards. -/
+  | ruleExamplesFirst
+  /-- `diagnostics rule-examples 2/2`: the second of the corpus's two shards. -/
+  | ruleExamplesSecond
+  /-- `site`: build and check the rule-reference site artifact from the shards' evidence. -/
+  | site
   deriving DecidableEq
 
 /-- Exactly the documented arguments for each mode, with no ignored trailing arguments. -/
@@ -69,7 +104,9 @@ theorem select_exact (args : List String) : (select args).map Subtype.val = pars
 
 /-- One argv invocation; there is no shell source in the recipe. -/
 structure Command where
+  /-- The program to run, found on `PATH`. -/
   program : String
+  /-- Its arguments, passed as they are. -/
   args : Array String
 
 private def lake (args : Array String) : Command := ⟨"lake", args⟩

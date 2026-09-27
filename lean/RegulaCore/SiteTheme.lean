@@ -39,8 +39,11 @@ namespace Regula.Site
 
 /-- An sRGB colour with 8-bit channels. -/
 structure Rgb where
+  /-- The red channel. -/
   r : Fin 256
+  /-- The green channel. -/
   g : Fin 256
+  /-- The blue channel. -/
   b : Fin 256
 
 private def byte (n : Nat) : Fin 256 := ⟨n % 256, Nat.mod_lt _ (by decide)⟩
@@ -114,35 +117,81 @@ def meets (x y : Rgb) (tenths : Nat) : Bool :=
 /-- The two colour themes. The site's System setting follows the operating system's choice
 between them. -/
 inductive Theme where
-  | light | dark
+  /-- The light colour theme. -/
+  | light
+  /-- The dark colour theme. -/
+  | dark
 
+/-- Both themes (`Theme.mem_all`). -/
 def Theme.all : List Theme := [.light, .dark]
 
 theorem Theme.mem_all (t : Theme) : t ∈ Theme.all := by cases t <;> simp [Theme.all]
 
 /-- A token's value: exactly one colour per theme. -/
 structure Tone where
+  /-- The colour in the light theme. -/
   light : Rgb
+  /-- The colour in the dark theme. -/
   dark : Rgb
 
+/-- The colour of a token value in theme `t`. -/
 def Tone.get (t : Tone) : Theme → Rgb
   | .light => t.light
   | .dark => t.dark
 
 /-- Background tokens. -/
 inductive Paper where
-  | bg | subtle | surface | accentBg | badBg | goodBg | delBg | insBg
+  /-- The page and header background. -/
+  | bg
+  /-- The sidebar background. -/
+  | subtle
+  /-- The background of code and tags. -/
+  | surface
+  /-- The background of the *What to do* paragraph. -/
+  | accentBg
+  /-- The background of a finding card and other rejected-result marks. -/
+  | badBg
+  /-- The background of a passing file and other passing-result marks. -/
+  | goodBg
+  /-- The background of a removed diff line. -/
+  | delBg
+  /-- The background of an added diff line. -/
+  | insBg
 
 /-- Text tokens. -/
 inductive Ink where
-  | text | heading | muted | accent | accentHover | bad | good
+  /-- Body text. -/
+  | text
+  /-- Headings. -/
+  | heading
+  /-- Secondary text, such as page metadata. -/
+  | muted
+  /-- Links and the focus outline. -/
+  | accent
+  /-- A hovered link. -/
+  | accentHover
+  /-- Text of a rejected result. -/
+  | bad
+  /-- Text of a passing result. -/
+  | good
 
 /-- Border tokens. `control` bounds inputs and the theme control; the others are decorative. -/
 inductive Line where
-  | border | control | badLine | goodLine
+  /-- The ordinary decorative border. -/
+  | border
+  /-- The border of inputs and the theme control, with at least 3:1 contrast against every
+  background token (`control_on_paper`). -/
+  | control
+  /-- The decorative border of a rejected-result mark, such as a finding card. -/
+  | badLine
+  /-- The decorative border of a passing-result mark. -/
+  | goodLine
 
+/-- Every background token (`Paper.mem_all`). -/
 def Paper.all : List Paper := [.bg, .subtle, .surface, .accentBg, .badBg, .goodBg, .delBg, .insBg]
+/-- Every text token (`Ink.mem_all`). -/
 def Ink.all : List Ink := [.text, .heading, .muted, .accent, .accentHover, .bad, .good]
+/-- Every border token (`Line.mem_all`). -/
 def Line.all : List Line := [.border, .control, .badLine, .goodLine]
 
 theorem Paper.mem_all (p : Paper) : p ∈ Paper.all := by cases p <;> simp [Paper.all]
@@ -154,10 +203,12 @@ def Paper.name : Paper → String
   | .bg => "bg" | .subtle => "bg-subtle" | .surface => "surface" | .accentBg => "accent-bg"
   | .badBg => "bad-bg" | .goodBg => "good-bg" | .delBg => "del-bg" | .insBg => "ins-bg"
 
+/-- CSS name of a text token: `--rg-` followed by this. -/
 def Ink.name : Ink → String
   | .text => "text" | .heading => "heading" | .muted => "muted" | .accent => "accent"
   | .accentHover => "accent-hover" | .bad => "bad" | .good => "good"
 
+/-- CSS name of a border token: `--rg-` followed by this. -/
 def Line.name : Line → String
   | .border => "border" | .control => "control" | .badLine => "bad-line" | .goodLine => "good-line"
 
@@ -188,6 +239,7 @@ def Ink.tone : Ink → Tone
   | .bad => ⟨rgb 0xb42318, rgb 0xff9186⟩
   | .good => ⟨rgb 0x0a7447, rgb 0x64d69e⟩
 
+/-- Decorative border, input and theme-control border, rejected mark, passing mark. -/
 def Line.tone : Line → Tone
   | .border => ⟨rgb 0xe3e5ea, rgb 0x272c36⟩
   | .control => ⟨rgb 0x80869a, rgb 0x737b8c⟩

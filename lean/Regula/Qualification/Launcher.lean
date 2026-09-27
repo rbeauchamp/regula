@@ -11,15 +11,23 @@ open Lean System RegulaQualification.Launcher
 
 /-- One validated mapping plus its actual PATH-resolved executable. -/
 structure Captured where
+  /-- The variables `lake env /usr/bin/env -0` printed, admitted by `admit` as `Valid`. -/
   environment : {env : RegulaQualification.Launcher.Environment // Valid env}
+  /-- The `lean` path that `which` resolved under that environment, joined to the root. -/
   executable : String
 
 /-- Invocation-local cache. No state survives a qualification invocation. -/
 structure State where
+  /-- Captured environments, keyed by the exact overrides they were captured with. -/
   cache : IO.Ref (Array (Array (String × Option String) × Captured))
+  /-- One record per compiler launch: argv, source, exit code, output and environment. -/
   records : IO.Ref (Array Observation)
+  /-- Wall-clock milliseconds of each compiler launch, in launch order. -/
   timings : IO.Ref (Array Nat)
+  /-- Total milliseconds spent obtaining environments, cache hits included. -/
   captureMillis : IO.Ref Nat
+  /-- Baseline mode: launch every compile through `lake env lean` instead of the captured
+  environment and executable. -/
   legacy : Bool := false
 
 /-- Allocate an empty launcher; it cannot reuse artifacts or verdicts. -/

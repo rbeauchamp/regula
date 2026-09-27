@@ -12,8 +12,11 @@ namespace Glossary
 
 /-- An immutable admitted value; the bound is required even by direct construction. -/
 structure Server where
+  /-- The number of requests served so far. -/
   served : Nat
+  /-- The maximum number of requests the server may serve. -/
   cap : Nat
+  /-- Proof that the served count is within the capacity. -/
   bounded : served ≤ cap
 
 /-- Dynamic admission of raw counts using computable natural-number comparison. -/

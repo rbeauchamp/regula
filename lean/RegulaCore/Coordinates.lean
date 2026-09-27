@@ -135,6 +135,8 @@ def CoordinatesAgree (column : Utf16Column) (declarations : Array Declaration)
   ∀ declaration ∈ declarations, declaration.module = transcript.module →
     ∀ ranges ∈ declaration.ranges, RangesConvert column (snapshotOf transcript) ranges
 
+/-- The obligation that `range` satisfies `RangeAgrees` in `fm`, refused as a coordinate
+disagreement. -/
 def rangeObligation (fm : FileMap) (range : SyntaxRange) : Obligation :=
   (RangeAgrees fm range, "transcript coordinates disagree with source snapshot")
 
@@ -180,6 +182,9 @@ def CoordinateContract
     Decides (check column declarations transcript)
       (coordinateObligations column declarations transcript)
 
+/-- Checks one transcript range against `fm`: both lines positive, both ends round-trip
+through `FileMap`, and start not after stop; `rangeCoordinates_decides` shows it refuses exactly
+when `rangeObligation` fails. -/
 def rangeCoordinates (fm : FileMap) (range : SyntaxRange) : Except String Unit := do
   let a : Lean.Position := ⟨range.start.line, range.start.column⟩
   let b : Lean.Position := ⟨range.end.line, range.end.column⟩
@@ -189,10 +194,14 @@ def rangeCoordinates (fm : FileMap) (range : SyntaxRange) : Except String Unit :
       fm.toPosition stop == b && start.byteIdx ≤ stop.byteIdx do
     throw "transcript coordinates disagree with source snapshot"
 
+/-- Checks that a command's `added` names equal the names of its `addedDeclarations`, in order. -/
 def commandInventory (command : Command) : Except String Unit :=
   unless command.added == command.addedDeclarations.map (·.name) do
     throw "transcript declaration inventory mismatch"
 
+/-- Checks one command: its declaration inventory, then its command, evaluator and binding
+ranges, refusing at the first failure in the order of `commandObligations`
+(`commandCoordinates_decides`). -/
 def commandCoordinates (fm : FileMap) (command : Command) : Except String Unit := do
   commandInventory command
   command.commandRange.toList.forM (rangeCoordinates fm)

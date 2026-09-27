@@ -12,8 +12,14 @@ open Std
 
 universe u v
 
+/-- Why `ResultState.insertResult` refused a result. -/
 inductive AdmissionFailure where
-  | unknownKey | duplicateResult | invalidBinding
+  /-- The result's key is not in the required key set. -/
+  | unknownKey
+  /-- The result's key already holds a result. -/
+  | duplicateResult
+  /-- The payload does not satisfy the binding relation for its key. -/
+  | invalidBinding
   deriving Repr, DecidableEq
 
 /-- Every occupied slot belongs to the fixed plan and satisfies its payload binding.
@@ -21,7 +27,9 @@ Std's extensional map supplies unique lookup. `insertResult` refuses occupied sl
 direct proof-bearing construction enforces only this stated subset/binding invariant. -/
 structure ResultState {κ : Type u} {β : Type v} [Ord κ] [TransOrd κ]
     (required : CanonicalSet κ) (bound : κ → β → Prop) where
+  /-- The admitted results, at most one per key. -/
   entries : ExtTreeMap κ β
+  /-- Proof that every stored key is required and its payload satisfies `bound`. -/
   valid : ∀ k v, entries[k]? = some v → k ∈ required ∧ bound k v
 
 namespace ResultState
@@ -255,7 +263,9 @@ end ResultState
 /-- An insertion refusal from `ResultState.collect`, in supplied order, or the first
 requested slot that received no result. -/
 inductive IndexedFailure where
+  /-- `ResultState.collect` refused a supplied response with `failure`. -/
   | admission (failure : AdmissionFailure)
+  /-- The requested slot `slot` received no result. -/
   | missing (slot : Nat)
   deriving Repr, DecidableEq
 

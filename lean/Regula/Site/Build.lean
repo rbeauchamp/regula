@@ -229,6 +229,8 @@ def snapshotTree (root : FilePath) : IO (List (String × ByteArray)) := do
       files := (relative, ← IO.FS.readBinFile path) :: files
   return files.mergeSort (fun a b => a.1 ≤ b.1)
 
+/-- Write each relative file name and its bytes under `destination`, creating parent
+directories; files already there that are not listed are left in place. -/
 def writeTree (destination : FilePath) (files : List (String × ByteArray)) : IO Unit := do
   for (relative, bytes) in files do
     let path := destination / relative
@@ -252,11 +254,15 @@ def fetchArchive (root : FilePath) : IO (List Commit) := do
 
 /-- Everything generated for one build, retained for the artifact check. -/
 structure Generated where
+  /-- The identity of the build: commit, dirtiness, toolchain and producer versions. -/
   ident : Identity
   /-- The snapshots of the site archive, in archive order. -/
   archived : List Commit
+  /-- Each rule's checked example, derived from its corpus records, in `RuleId.all` order. -/
   examples : List (RuleId × Example)
+  /-- Each rule's evidence row, with the corpus shard that ran it, in `RuleId.all` order. -/
   summaries : List EvidenceSummary
+  /-- The admitted corpus shard exports, in the order given. -/
   shards : List Json
 
 /-- Admit both shards and derive every rule's example. The two shards must select disjoint

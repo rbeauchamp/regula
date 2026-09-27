@@ -61,13 +61,24 @@ theorem captures_ne_of_stateOfCore_ne {root root' : String} {revision revision' 
 /-- Exact dependency captures at one freeze point: the raw bytes/texts observed
 by fresh reads, before any request-state construction. -/
 structure DependencyCaptures where
+  /-- The root of the checked project whose Lake discovery named this dependency. -/
   project : FilePath
+  /-- The dependency's Lake package name. -/
   package : String
+  /-- The dependency's canonical root directory. -/
   root : FilePath
+  /-- The `HEAD` commit, when the root is itself the top level of a Git repository; `none`
+  otherwise. -/
   revision : Option String
+  /-- `true` when there is no revision, or when `git status` reports a declared source or
+  configuration input (`dirtyOf`). -/
   dirty : Bool
+  /-- The requested source files: each module with its path as Lake resolved it. -/
   sourcePaths : Array (Name × FilePath)
+  /-- Each source read: module, requested path, canonical path and UTF-8 text. -/
   sourceCaptures : Array (Name × String × String × String)
+  /-- Each configuration read: requested path, then its canonical path and bytes, or `none`
+  when the file does not exist. -/
   configurationCaptures : Array (String × Option (String × ByteArray))
 
 /-- An actual dependency observation: exact captures plus the request state
@@ -75,15 +86,28 @@ derived from them, including dirty/path state, not only a lockfile pin. The
 `state_sound` field carries the derivation invariant by type, so any carried
 state value is known to be the pure derivation of the carried captures. -/
 structure DependencyObservation where
+  /-- The root of the checked project whose Lake discovery named this dependency. -/
   project : FilePath
+  /-- The dependency's Lake package name. -/
   package : String
+  /-- The dependency's canonical root directory. -/
   root : FilePath
+  /-- The `HEAD` commit, when the root is itself the top level of a Git repository; `none`
+  otherwise. -/
   revision : Option String
+  /-- `true` when there is no revision, or when `git status` reports a declared source or
+  configuration input (`dirtyOf`). -/
   dirty : Bool
+  /-- The requested source files: each module with its path as Lake resolved it. -/
   sourcePaths : Array (Name × FilePath)
+  /-- Each source read: module, requested path, canonical path and UTF-8 text. -/
   sourceCaptures : Array (Name × String × String × String)
+  /-- Each configuration read: requested path, then its canonical path and bytes, or `none`
+  when the file does not exist. -/
   configurationCaptures : Array (String × Option (String × ByteArray))
+  /-- The request state: root, revision, source and configuration captures as JSON. -/
   state : Json
+  /-- `state` is `stateOfCore` of the carried captures. -/
   state_sound : state = stateOfCore root.toString revision sourceCaptures configurationCaptures
 
 /-- The carried request state is exactly the pure derivation of the carried
@@ -183,7 +207,9 @@ rename or copy on either side, its original path. A field that is not UTF-8 is k
 as `none`: its bytes cannot equal a declared input, and no `…/` prefix of a UTF-8
 input can contain it, so dropping it cannot hide a declared input. -/
 structure StatusEntry where
+  /-- The reported path, or `none` when it is not UTF-8. -/
   path : Option String
+  /-- The original path of a rename or copy, or `none` when there is none or it is not UTF-8. -/
   original : Option String := none
   deriving BEq, Repr, Inhabited
 
@@ -360,11 +386,17 @@ private def inputsDirty (root : FilePath) (paths : Array FilePath) : IO Bool := 
 capture request it answers: package, canonical root, and the ordered source and
 configuration path strings. -/
 structure GitFacts where
+  /-- The dependency's Lake package name. -/
   package : String
+  /-- The dependency's canonical root directory. -/
   root : String
+  /-- The requested source paths, in request order. -/
   sourcePaths : Array String
+  /-- The requested configuration paths, in request order. -/
   configurationPaths : Array String
+  /-- The `HEAD` commit, when the root is itself the top level of a Git repository. -/
   revision : Option String
+  /-- The input-scoped dirty status, as `DependencyCaptures.dirty`. -/
   dirty : Bool
   deriving ToJson, FromJson, BEq, Inhabited
 

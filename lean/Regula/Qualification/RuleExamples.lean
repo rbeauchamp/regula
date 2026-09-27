@@ -57,8 +57,11 @@ def capture (paths : Array FilePath) : IO (Array (String × String)) :=
 /-- Constructed-value cache over exact captured sources. The `sound` field keeps
 the invariant `value = snapshotOf captured` by type. -/
 structure SnapshotCache where
+  /-- The path/source pairs the cached value was constructed from, in request order. -/
   captured : Array (String × String)
+  /-- The cached request snapshot. -/
   value : Json
+  /-- The cached snapshot is the construction for exactly the captured sources. -/
   sound : value = snapshotOf captured
 
 /-- The empty cache: the construction for no captured sources. -/

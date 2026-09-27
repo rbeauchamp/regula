@@ -90,9 +90,13 @@ def readTree (root : FilePath) : IO (List (String × ByteArray)) := do
 /-- A fetched archive: its head (`none` for an absent branch), its snapshot commits in path
 order, the scratch Git directory holding it and the directory it is extracted to. -/
 structure Archive where
+  /-- The fetched archive branch's head commit; `none` when the branch is absent. -/
   head : Option String
+  /-- The commits that have a `rev/<commit>/` snapshot, in path order. -/
   revisions : List String
+  /-- The scratch bare Git directory the archive was fetched into. -/
   gitDir : FilePath
+  /-- The directory the archive's files are extracted to. -/
   tree : FilePath
 
 /-- Fetch and extract the archive of `repository` into `dir`. Refuses an archive with any
@@ -193,6 +197,11 @@ def gate (artifact : FilePath) : IO Unit := do
   IO.FS.removeDirAll ("tmp" / "site-archive-gate")
   IO.println s!"deployment gate: PASS (clean artifact of {sha}, the current head of main, with all {archive.revisions.length} archived snapshots unchanged); archive commit {commit} on {if parent.isEmpty then "a new archive" else parent} written to tmp/site-archive.bundle"
 
+/-- Post-deployment observation of the site at `pageUrl`: the artifact must be a clean build
+for that site; its `build.json` must be served live (polled up to 20 times, 15 seconds
+apart); every rule page of every edition and every snapshot's `build.json` must be served
+with the artifact's bytes; and an unpublished route must return 404 with the artifact's
+`404.html`. Any difference fails. -/
 def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
   let recorded ← IO.FS.readBinFile (artifact / "build.json")
   let build ← IO.ofExcept (Json.parse (← IO.FS.readFile (artifact / "build.json")))
@@ -244,6 +253,10 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
 
 end Regula.Site.Deployment
 
+/-- Command line of `lean --run lean/Regula/Site/Deployment.lean`: `archive REPOSITORY DIR`
+fetches the site archive and writes its head and revisions to `DIR/archive.json`;
+`gate ARTIFACT_DIR` runs the deployment gate; `verify ARTIFACT_DIR` checks the live site at
+`REGULA_PAGE_URL`. Returns 2 on a usage error or a missing `REGULA_PAGE_URL`. -/
 def main (args : List String) : IO UInt32 := do
   match args with
   | ["archive", repository, dir] =>

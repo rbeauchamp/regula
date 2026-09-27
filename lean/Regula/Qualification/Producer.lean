@@ -58,7 +58,7 @@ def check (evidence : Option FilePath) : IO Unit := do
             ("rule", .str rule), ("case", .str kind), ("invocation", .str invocation),
             ("path", .str relative), ("source", .str source), ("result", report)])
           IO.println s!"{invocation} project {rule}/{kind}: PASS"
-    let mainSource := "/-! Standalone no-effect IO entrypoint. -/\ndef main : IO Unit := pure ()\n"
+    let mainSource := "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
     for phase in #["positive", "axiom"] do
       let project ← fresh s!"standalone-{phase}"
       IO.FS.writeBinFile (project / "Example.lean") (← IO.FS.readBinFile (root / "examples/rules/RG5002/Fixed.lean"))
@@ -70,7 +70,8 @@ def check (evidence : Option FilePath) : IO Unit := do
       let some surface := surfaces[0]? | throw <| IO.userError "missing scratch manifest surface"
       writeJson manifestPath (manifest.setObjVal! "surfaces"
         (toJson #[surface.setObjVal! "executables" (toJson #["sampleTool"])]))
-      let source := mainSource ++ (if phase == "axiom" then "axiom ownedAssumption : True\n" else "")
+      let source := mainSource ++
+        (if phase == "axiom" then "/-- An owned axiom, which RG1001 rejects. -/\naxiom ownedAssumption : True\n" else "")
       IO.FS.writeFile (project / "SelftestMain.lean") source
       let (result, report) ← observeProject root project (project / s!"standalone-{phase}.json") #[]
       IO.ofExcept (RegulaQualification.checked_decoded.run

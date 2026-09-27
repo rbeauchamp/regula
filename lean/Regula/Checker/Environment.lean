@@ -52,6 +52,8 @@ private def forcedPublicModule (report : Regula.Checker.ProducerReport.Environme
     throw <| IO.userError s!"{description} origin mismatch"
   return name
 
+/-- Returns `Regula.StructuralName` after checking that the report records exactly one origin
+for it and that its `.olean` is the running checker's own artifact; throws otherwise. -/
 def forcedStructuralName (report : Regula.Checker.ProducerReport.Environment) : IO Name :=
   forcedPublicModule report `Regula.StructuralName "structural-name codec"
 
@@ -355,6 +357,7 @@ unsafe def loadReportCurrentSearchPath (modules : Array Name)
   IO.ofExcept <| (← loadReportCurrentSearchPathOutcome modules moduleSources ownedOutput
     includeExecution includeModuleOrigins).mapError (·.detail)
 
+/-- `loadReportOutcome` with any admission failure raised as an `IO` error carrying its detail. -/
 unsafe def loadReport (modules : Array Name)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)

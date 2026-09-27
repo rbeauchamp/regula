@@ -15,9 +15,15 @@ public meta section
 namespace Regula.Linter
 open Lean Elab Command
 
+/-- Whether Regula reports local findings on the commands Lean elaborates (default `true`);
+turning it off stops only that local feedback, never a project check, and an audit build
+turns it off whatever its value. -/
 register_option linter.regula : Bool := {
   defValue := true
   descr := "Emit Regula local feedback; project checking remains required." }
+/-- The foundation profile local feedback checks against: `classification-only` (the
+default), `kernel-only`, `choice-free` or `standard-logical`. It configures only editor
+feedback, never a project claim. -/
 register_option regula.localFoundation : String := {
   defValue := "classification-only"
   descr := "Local feedback request: classification-only, kernel-only, choice-free or standard-logical." }

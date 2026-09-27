@@ -589,30 +589,72 @@ def Q_drop : Prop := ∀ l : List Nat, l ≠ [] → ∃ x, l.head? = some x
 
 /-! ### Formal clauses for the correspondence judgment -/
 
+/-- Formal clause labelled as stating the average clause: for a nonempty list, the sum divided
+by the length is at most the sum. -/
 def L_formal : Prop := ∀ l : List Nat, l ≠ [] → l.sum / l.length ≤ l.sum
+/-- Formal clause labelled as not stating the average clause: it omits the nonempty hypothesis. -/
 def L_formal_bad : Prop := ∀ l : List Nat, l.sum / l.length ≤ l.sum
+/-- Formal clause labelled as stating the predecessor clause: for positive `n`,
+`n - 1 + 1 = n`. -/
 def M_formal : Prop := ∀ n : Nat, 0 < n → n - 1 + 1 = n
+/-- Formal clause labelled as not stating the predecessor clause: it omits `0 < n`. -/
 def M_formal_bad : Prop := ∀ n : Nat, n - 1 + 1 = n
+/-- Formal clause labelled as stating the first-element clause: a nonempty list has a first
+element, and it belongs to the list. -/
 def Q_formal : Prop := ∀ l : List Nat, l ≠ [] → ∃ x, l.head? = some x ∧ x ∈ l
+/-- Formal clause labelled as not stating the first-element clause: it omits that the first
+element belongs to the list. -/
 def Q_formal_bad : Prop := ∀ l : List Nat, l ≠ [] → ∃ x, l.head? = some x
 
+/-- Formal clause labelled as stating the sorted-order clause: `mergeSort`'s output is pairwise
+nondecreasing. -/
 def C_formal_order : Prop := ∀ l : List Nat, l.mergeSort.Pairwise (· ≤ ·)
+/-- Formal clause labelled as not stating the sorted-order clause: it requires nonincreasing
+order. -/
 def C_formal_order_bad : Prop := ∀ l : List Nat, l.mergeSort.Pairwise (· ≥ ·)
+/-- Formal clause labelled as stating the same-elements clause: `mergeSort`'s output is a
+permutation of its input. -/
 def C_formal_perm : Prop := ∀ l : List Nat, l.mergeSort.Perm l
+/-- Formal clause labelled as not stating the same-elements clause: equal membership ignores
+multiplicity. -/
 def C_formal_perm_bad : Prop := ∀ l : List Nat, ∀ x, x ∈ l.mergeSort ↔ x ∈ l
+/-- Formal clause labelled as stating the quotient clause: for a nonzero divisor,
+`n / d * d ≤ n`. -/
 def D_formal_lower : Prop := ∀ n d : Nat, d ≠ 0 → n / d * d ≤ n
+/-- Formal clause labelled as not stating the quotient clause: it omits `d ≠ 0`. -/
 def D_formal_lower_bad : Prop := ∀ n d : Nat, n / d * d ≤ n
+/-- Formal clause labelled as stating the even-number clause: every `n` is exceeded by some
+even `m` chosen after `n`. -/
 def E_formal : Prop := ∀ n : Nat, ∃ m : Nat, m % 2 = 0 ∧ n < m
+/-- Formal clause labelled as not stating the even-number clause: its quantifiers are swapped,
+so one even `m` must exceed every `n`. -/
 def E_formal_bad : Prop := ∃ m : Nat, m % 2 = 0 ∧ ∀ n : Nat, n < m
+/-- Formal clause labelled as stating the subtract-and-add clause: `a - b + b = a` whenever
+`b ≤ a`. -/
 def G_formal : Prop := ∀ a b : Nat, b ≤ a → a - b + b = a
+/-- Formal clause labelled as not stating the subtract-and-add clause: it omits `b ≤ a`. -/
 def G_formal_bad : Prop := ∀ a b : Nat, a - b + b = a
+/-- Formal clause labelled as stating the admission clause: an admitted request keeps usage
+within capacity. -/
 def H_formal_sound : Prop := ∀ c u r : Nat, IntentCorpus.admits c u r = true → u + r ≤ c
+/-- Formal clause labelled as not stating the admission clause: it states the converse. -/
 def H_formal_sound_bad : Prop := ∀ c u r : Nat, u + r ≤ c → IntentCorpus.admits c u r = true
+/-- Formal clause labelled as stating the double-reversal clause: reversing twice returns the
+list. -/
 def I_formal : Prop := ∀ l : List Nat, l.reverse.reverse = l
+/-- Formal clause labelled as not stating the double-reversal clause: it states that reversal
+keeps the length. -/
 def I_formal_bad : Prop := ∀ l : List Nat, l.reverse.length = l.length
+/-- Formal clause labelled as stating the filtering clause: every element `filter` keeps is
+in the original list. -/
 def J_formal_member : Prop := ∀ (p : Nat → Bool) (l : List Nat) (x : Nat), x ∈ l.filter p → x ∈ l
+/-- Formal clause labelled as not stating the filtering clause: it concludes that the kept
+element satisfies the predicate instead. -/
 def J_formal_member_bad : Prop := ∀ (p : Nat → Bool) (l : List Nat) (x : Nat), x ∈ l.filter p → p x = true
+/-- Formal clause labelled as stating the minimum clause: a nonempty list has a minimum at most
+each of its elements. -/
 def K_formal : Prop := ∀ l : List Nat, l ≠ [] → ∃ m, l.min? = some m ∧ ∀ x ∈ l, m ≤ x
+/-- Formal clause labelled as not stating the minimum clause: its bound `m ≤ x + 1` is looser. -/
 def K_formal_bad : Prop := ∀ l : List Nat, l ≠ [] → ∃ m, l.min? = some m ∧ ∀ x ∈ l, m ≤ x + 1
 
 /-! ### A discharged clause, exercising the kernel-checked path -/
@@ -644,35 +686,67 @@ open RegulaPolicy.Screening
 /-- The five mutation kinds of issue #58, `base` and `rewrite` for correct pairs, and the two
 correspondence-pair kinds. -/
 inductive Mutation where
-  | base | rewrite | dropConjunct | swapQuantifiers | weakenInequality | addHypothesis | totalize
+  /-- A correct intent/claim pair. -/
+  | base
+  /-- The base requirement stated differently: a correct pair and false-positive control. -/
+  | rewrite
+  /-- The base claim with a required conjunct dropped. -/
+  | dropConjunct
+  /-- The base claim with its quantifier order changed. -/
+  | swapQuantifiers
+  /-- The base claim with an inequality or bound loosened. -/
+  | weakenInequality
+  /-- The base claim with an extra hypothesis. -/
+  | addHypothesis
+  /-- The base claim extended to a case the intent excludes, where it holds only by a partial
+  operation's conventional value. -/
+  | totalize
   /-- Correspondence pairs: a formal clause that does, or does not, state its English clause. -/
-  | formalCorrect | formalWrong
+  | formalCorrect
+  /-- A correspondence pair whose formal clause does not state its English clause. -/
+  | formalWrong
   deriving Repr, DecidableEq
 
+/-- The kind's kebab-case name in the evidence rows, such as `drop-conjunct`. -/
 def Mutation.spelling : Mutation → String
   | .base => "base" | .rewrite => "rewrite" | .dropConjunct => "drop-conjunct"
   | .swapQuantifiers => "swap-quantifiers" | .weakenInequality => "weaken-inequality"
   | .addHypothesis => "add-hypothesis" | .totalize => "totalize"
   | .formalCorrect => "formal-correct" | .formalWrong => "formal-wrong"
 
+/-- The part of the corpus an item belongs to; each calibration run judges one split. -/
 inductive Split where
-  | dev | test
+  /-- Bases `A` and `B`, used to exercise the runner and wording before the test run. -/
+  | dev
+  /-- Every other base, for the single test run; the correspondence pairs are also test items. -/
+  | test
   deriving Repr, DecidableEq
 
 /-- One labelled item. Targeted labels are `true` when the claim is acceptable in that
 respect (the Noul's yes). -/
 structure Item where
+  /-- The item's `IntentCorpus` definition, read as a claim. -/
   name : Lean.Name
+  /-- The base item it derives from (itself for a base), whose Intent clauses it must share
+  and whose explanation its stale variant is paired with. -/
   base : Lean.Name
+  /-- How the item's claim relates to its base's. -/
   mutation : Mutation
+  /-- The split the item belongs to. -/
   split : Split
   /-- Indexes of intent clauses the claim does not imply. -/
   uncovered : List Nat := []
+  /-- The labelled strength of the claim against the whole intent. -/
   strength : Strength
+  /-- Label: the claim keeps the quantifier order and dependence the intent requires. -/
   quantifierOrder : Bool := true
+  /-- Label: the claim does not depend on a partial operation's conventional value in a case
+  the intent leaves undefined. -/
   totalization : Bool := true
+  /-- Label: the claim honors every exclusion and limit the intent states. -/
   exclusions : Bool := true
 
+/-- The labelled calibration items, grouped by base (`A` to `Q`), each base first. -/
 def items : List Item := [
   -- A (dev)
   { name := ``IntentCorpus.A_base, base := ``IntentCorpus.A_base, mutation := .base, split := .dev, strength := .equivalent },
@@ -803,10 +877,15 @@ def items : List Item := [
 
 /-- One labelled English-clause / Lean-clause pair (test split). -/
 structure CorrespondenceItem where
+  /-- The English clause. -/
   clause : String
+  /-- The `IntentCorpus` definition whose value is the formal clause. -/
   formal : Lean.Name
+  /-- Label: `true` when the formal clause states exactly the English clause. -/
   label : Bool
 
+/-- The labelled correspondence pairs: for each of twelve English clauses, one formal clause
+labelled as stating it and one labelled as not stating it. -/
 def correspondenceItems : List CorrespondenceItem :=
   let sorted := "Sorting returns its output in nondecreasing order."
   let perm := "The output contains exactly the input's elements, each as many times as in the input."

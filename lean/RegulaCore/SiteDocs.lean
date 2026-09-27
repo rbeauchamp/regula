@@ -28,6 +28,7 @@ def ruleModule (id : RuleId) : String := "Generated.Rules." ++ id.spelling
 theorem ruleModule_injective {a b : RuleId} (h : ruleModule a = ruleModule b) : a = b :=
   RuleId.spelling_injective ((String.append_right_inj _).mp h)
 
+/-- The generated rule-page modules, one per rule in registry order. -/
 def ruleModules : List String := RuleId.all.map ruleModule
 
 /-- One generated module per rule and no duplicate module. -/
@@ -64,11 +65,17 @@ def indexPage (ident : Identity) : Except String String := do
 
 /-- One rule's evidence line on the versions page. -/
 structure EvidenceSummary where
+  /-- The rule whose checked example this row reports. -/
   rule : RuleId
+  /-- The example kind the corpus recorded for the violating run. -/
   kind : String
+  /-- The status of the violating run, as `RunStatus.spelling` prints it. -/
   violationStatus : String
+  /-- The status of the corrected run, as `RunStatus.spelling` prints it. -/
   fixedStatus : String
+  /-- The distinct rule IDs of the violating run's findings. -/
   emitted : List RuleId
+  /-- The corpus shard that produced the example, as `index/count`. -/
   shard : String
 
 private def evidenceRow (e : EvidenceSummary) : String :=

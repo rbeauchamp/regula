@@ -85,8 +85,11 @@ def ClassificationOK (axioms native : Array Name) (label : FoundationClass) : Pr
 /-- An ordered requirement relation selects the first unsatisfied obligation. This is a
 proposition about requirements and outcomes, not a second Boolean decision algorithm. -/
 inductive OrderedDecision : List (DeclarationFailure × Prop) → Option DeclarationFailure → Prop where
+  /-- With no requirement left, no failure is selected. -/
   | done : OrderedDecision [] none
+  /-- An unmet first requirement selects its own failure reason. -/
   | fail {reason requirement rest} : ¬ requirement → OrderedDecision ((reason, requirement) :: rest) (some reason)
+  /-- A met first requirement defers to the decision on the remaining requirements. -/
   | next {reason requirement rest result} : requirement → OrderedDecision rest result →
       OrderedDecision ((reason, requirement) :: rest) result
 

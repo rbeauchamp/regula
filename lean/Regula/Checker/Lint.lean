@@ -18,15 +18,27 @@ namespace Regula.Checker.Lint
 
 open Lean System
 
+/-- The command-line options of one `lake lint` run of this driver, as `parseArgs` reads them. -/
 structure Options where
+  /-- `--project DIR`: the project to audit instead of the current one. -/
   project : Option String := none
+  /-- `--manifest PATH`: the surface manifest instead of `foundation_manifest.json`. -/
   manifest : Option String := none
+  /-- `--json-out PATH`: where the audit writes its versioned result JSON. -/
   jsonOut : Option String := none
+  /-- `--fresh`: audit an isolated copy built from empty output instead of incrementally. -/
   fresh : Bool := false
+  /-- `--verbose`: pass `--verbose` to the audit, which then also prints every classified
+  declaration. -/
   verbose : Bool := false
+  /-- `--explain-config`: print the configuration an audit would use, run no audit and exit
+  with the configuration class. -/
   explain : Bool := false
+  /-- `--help` or `-h`: print the usage text, run no audit and exit with the configuration
+  class. -/
   help : Bool := false
 
+/-- The usage text: the accepted arguments and the meaning of each exit code. -/
 def usage : String :=
   "usage: lake lint [-- [--fresh] [--project DIR] [--manifest PATH] [--json-out PATH] [--verbose]]\n" ++
   "       lake lint -- --explain-config [--fresh] [--project DIR] [--manifest PATH]\n" ++

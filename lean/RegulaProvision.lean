@@ -61,16 +61,23 @@ def sharedKey (mathlibRev githash : String) : String :=
 
 /-- One package revision recorded by the shared directory or pinned by a copy. -/
 structure Pin where
+  /-- The package's name, which is also its checkout directory's name. -/
   name : String
+  /-- The Git commit of the package. -/
   rev : String
   deriving DecidableEq, Repr, ToJson, FromJson
 
 /-- The shared directory's receipt, written before it becomes visible. -/
 structure Receipt where
+  /-- The receipt format version; this program writes and accepts `receiptSchema`. -/
   schemaVersion : Nat
+  /-- The Mathlib commit the shared directory holds. -/
   mathlibRev : String
+  /-- The Git commit of the Lean toolchain that built the shared directory. -/
   leanGithash : String
+  /-- The version string of that Lean toolchain. -/
   leanVersion : String
+  /-- Each package checkout in the shared directory, at the commit it was materialized at. -/
   packages : Array Pin
   deriving Repr, ToJson, FromJson
 
@@ -268,8 +275,11 @@ theorem prunes_sound (current name : String) (copies : Array (String × Bool))
 
 /-- Captured result of one argv invocation; there is no shell. -/
 structure Ran where
+  /-- The process's exit code. -/
   exitCode : UInt32
+  /-- The process's standard output. -/
   stdout : String
+  /-- The process's standard error. -/
   stderr : String
 
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
@@ -361,9 +371,13 @@ private def installClone (path source : FilePath) : IO Unit := do
 /-- What the repository pins: the Git entries of its Lake manifest, each with the entry
 object exactly as the manifest records it. -/
 structure Pins where
+  /-- The manifest's `packagesDir`, `.lake/packages` when it gives none. -/
   packagesDir : FilePath
+  /-- The Git URL of the pinned Mathlib. -/
   mathlibUrl : String
+  /-- The pinned Mathlib commit. -/
   mathlibRev : String
+  /-- Every Git entry of the manifest, with its decoded name and commit. -/
   git : Array (Json × Pin)
 
 /-- Decode one manifest entry that Lake materializes from Git (`type` `git`); Lake names its

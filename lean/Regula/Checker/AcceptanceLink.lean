@@ -73,7 +73,9 @@ def invalidate (path : FilePath) : IO Unit :=
 /-- The identity of one accepted run's captured inputs, computed before its success line
 and held, unrecorded, until the run's outer freshness recheck has passed. -/
 structure Pending where
+  /-- The lowercase hexadecimal SHA-256 of the run's input identity, from `identity`. -/
   digest : String
+  /-- The run's account, whose accepted jobs `record` writes beside the digest. -/
   account : Account
 
 /-- Written only after accepted ordinary success. It cannot be called without a `Pending`, whose

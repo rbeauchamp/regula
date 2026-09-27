@@ -13,36 +13,63 @@ namespace Regula.Checker.FreshChecker
 open Lean System
 open Regula.Checker
 
+/-- The modules one manifest surface claims: its library's Lake modules and its executables'
+roots. -/
 structure ModuleSet where
+  /-- The surface's library name, as in `foundation_manifest.json`. -/
   library : String
+  /-- The library's Lake-resolved modules, then the root module of each claimed executable. -/
   modules : Array String
   deriving Repr
 
+/-- The claimed modules one fresh `leanchecker` root covers. -/
 structure Coverage where
+  /-- The root module passed to `lake env leanchecker --fresh`. -/
   root : String
+  /-- The root and its transitive imports that are claimed modules, sorted and without
+  duplicates. -/
   modules : Array String
   deriving Repr
 
+/-- The serialized-graph checking plan over every claimed module of the manifest. -/
 structure Plan where
+  /-- The claimed modules of each manifest surface, in manifest order. -/
   moduleSets : Array ModuleSet
+  /-- Every claimed module, sorted and without duplicates. -/
   modules : Array String
+  /-- The claimed modules no other claimed module imports, ordered by coverage size then name. -/
   roots : Array String
+  /-- The claimed modules each root covers, one entry per root in `roots` order. -/
   coverage : Array Coverage
   deriving Repr
 
+/-- The observed outcome of one `leanchecker --fresh` process. -/
 structure Check where
+  /-- The root module that was checked. -/
   root : String
+  /-- The claimed modules the plan says this root covers. -/
   coveredModules : Array String
+  /-- The process exit code; `0` is a completed check. -/
   exitCode : UInt32
   deriving Repr
 
+/-- The parsed `freshChecker` command-line options. -/
 structure Options where
+  /-- `--manifest PATH`: the surface manifest; `foundation_manifest.json` at the project root
+  when absent. -/
   manifest : Option FilePath := none
+  /-- `--project DIR`: a directory inside the project to check; the current repository when
+  absent. -/
   project : Option FilePath := none
+  /-- `--json-out PATH`: where to write the plan, checks and result status as JSON. -/
   jsonOut : Option FilePath := none
+  /-- `--plan-only`: compute and reconcile the plan without building or checking. -/
   planOnly : Bool := false
+  /-- `--fail-fast`: stop at the first root whose check fails. -/
   failFast : Bool := false
+  /-- `--verbose`: print the modules each root covers before checking it. -/
   verbose : Bool := false
+  /-- `--help` or `-h`: print the usage and exit. -/
   help : Bool := false
 
 private def usage : String :=
@@ -75,6 +102,10 @@ private def uniqueSorted (values : Array String) : Array String :=
 private def coverageFor (root : String) (imports modules : Array String) : Array String :=
   uniqueSorted <| (#[root] ++ imports).filter modules.contains
 
+/-- Builds the plan from the manifest and Lake's surface inventory: collects each surface's
+modules, selects as roots the claimed modules no other claimed module imports, and throws
+`fresh-coverage-incomplete` unless the roots' claimed transitive imports cover every claimed
+module. -/
 def buildPlan (repo manifestPath : FilePath) : IO Plan := do
   let manifest ← Manifest.load manifestPath
   let inventory ← Lake.surfaceInventory repo
@@ -214,6 +245,11 @@ private def optionValues (flag : String) : List String → List String
       else optionValues flag (value :: rest)
   | _ => []
 
+/-- Runs the serialized-graph qualification: invalidates every `--json-out` destination, builds
+the plan, and unless `--plan-only` builds the positive targets, runs
+`lake env leanchecker --fresh` on each root, rechecks the captured inputs and admits the result
+through `RegulaPolicy.finalize`, then writes the JSON result when requested. Returns `1` when the
+build or a check fails and `0` otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let destinations := (optionValues "--json-out" args).eraseDups.map FilePath.mk
   let invalidate (path : FilePath) :=
@@ -291,6 +327,8 @@ unsafe def run (args : List String) : IO UInt32 := do
 
 end Regula.Checker.FreshChecker
 
+/-- The `freshChecker` executable: initializes Lean's search path and runs
+`Regula.Checker.FreshChecker.run`, printing any exception as `FAIL:` and returning `1`. -/
 unsafe def main (args : List String) : IO UInt32 := do
   try
     Regula.Checker.initializeLeanSearchPath

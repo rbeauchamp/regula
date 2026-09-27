@@ -7,6 +7,7 @@ controls. The copied qualification executable is a test-only argv proxy. -/
 namespace Regula.Qualification.InputInventory
 open Lean System DependencySnapshot
 
+/-- The value of environment variable `name`; throws `missing name` when it is unset. -/
 def requiredEnv (name : String) : IO String := do
   let some value ← IO.getEnv name | throw <| IO.userError s!"missing {name}"
   return value
@@ -39,6 +40,13 @@ def worker (args : List String) : IO UInt32 := do
       ("addedBuilt", toJson (← (FilePath.mk ".lake/build/lib/lean/Example/New.olean").pathExists))])
   return code
 
+/-- Input-inventory fault controls in a scratch project, with this executable installed as a
+`lake` proxy on `PATH` that injects the fault during the checker's prerequisite build. Root
+inventory, under `--incremental` and `--build-lint`: a module added under `Example` after root
+discovery must be built and then refused with "root inventory changed:", incomplete status and no
+acceptance, while the unfaulted runs are accepted. Markdown inventory, through `docFenceAudit`
+and `ruleExamples`: editing or removing a `docs/` file during the build must be refused with no
+documentation acceptance. Any failed check throws. -/
 def check : IO Unit := do
   let root ← rootDirectory
   withScratch root "input-inventory" fun scratch => do
@@ -47,7 +55,7 @@ def check : IO Unit := do
     toolchain root project
     IO.FS.writeFile (project / "Example.lean") "/-! Empty declared surface. -/\n"
     IO.FS.writeFile (project / "lakefile.lean")
-      "import Lake\nopen Lake DSL\npackage inventory_control where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\nlean_lib Example where\n  globs := #[.andSubmodules `Example]\n"
+      "import Lake\nopen Lake DSL\npackage inventory_control where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nlean_lib Example where\n  globs := #[.andSubmodules `Example]\n"
     manifest project "kernel-only"
     success (← run project "lake" #["update"] cleanEnv)
     let tools := scratch / "tools"

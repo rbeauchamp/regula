@@ -23,30 +23,51 @@ open Lean System
 open Regula.Checker
 open Regula.Checker.Policy
 
+/-- The classification a fence marker (or a Verso block's info string) gives the next Lean fence. -/
 inductive MarkerKind where
+  /-- `<!-- lean-fail: PATTERN -->`: the example must fail to elaborate with a diagnostic that
+  matches `pattern`. -/
   | fail (pattern : String)
+  /-- `<!-- lean-trusted-compiler -->`: a teaching example that may rely on the compiler. -/
   | trusted
   deriving Repr
 
+/-- A marker the scanner has read but not yet attached to a fence. -/
 structure PendingMarker where
+  /-- The marker's classification. -/
   kind : MarkerKind
+  /-- The marker's 1-based line number; the fence must open on the next line. -/
   line : Nat
   deriving Repr
 
+/-- One Lean code fence found by `scan` or `scanVerso`, with its exact location. -/
 structure Fence where
+  /-- The scanned document: its URI and full text. -/
   document : RegulaPolicy.SourceSnapshot
+  /-- The byte range of the opening fence line. -/
   opening : RegulaPolicy.ByteRange
+  /-- The byte range of the body, without the newline before the closing line; empty at the
+  body's start when the body has no lines. -/
   bodyRange : RegulaPolicy.ByteRange
+  /-- The byte range of the closing fence line. -/
   closing : RegulaPolicy.ByteRange
+  /-- The body lines joined with newlines: the source compiled verbatim. -/
   body : String
+  /-- The 1-based line number of the opening fence line. -/
   line : Nat
+  /-- The expected-diagnostic pattern of a negative example, when it has one. -/
   failPattern : Option String
+  /-- The example is a trusted-compiler teaching example. -/
   trusted : Bool
+  /-- The 1-based line of the attached Markdown marker; `none` without one and for Verso. -/
   markerLine : Option Nat
   deriving Repr, DecidableEq
 
+/-- The outcome of scanning one document. -/
 structure ScanResult where
+  /-- The Lean fences found, in document order. -/
   fences : Array Fence
+  /-- The protocol violations found, each as `origin:line: message`. -/
   problems : Array String
   deriving Repr
 
@@ -324,52 +345,87 @@ def scanVerso (text origin : String) (sourceURI : Option String := none) : ScanR
   return { fences, problems }
 
 
+/-- How a documentation example is audited, from its fence's marker (`kindOf`). -/
 inductive Kind where
+  /-- An unmarked example: it must elaborate warning-free and meet the Standard-Logical
+  declaration rules. -/
   | positive
+  /-- A `lean-fail` example: it must fail to elaborate with a matching diagnostic. -/
   | negative
+  /-- A `lean-trusted-compiler` example: it must elaborate warning-free, meet the declaration
+  rules at the compiler-trusting profile and contain a compiler-trusting declaration. -/
   | trusted
   deriving Repr, BEq, DecidableEq, ToJson, FromJson
 
+/-- One documentation example to audit. -/
 structure Task where
+  /-- The fence holding the example. -/
   fence : Fence
+  /-- `path:line` of the fence, the path relative to the Markdown root, or for a Verso source to
+  the repository. -/
   origin : String
+  /-- How the example is audited. -/
   kind : Kind
   deriving Repr, DecidableEq
 
+/-- The verdict on one documentation example. -/
 inductive Status where
+  /-- A positive example elaborated warning-free and met the declaration rules. -/
   | pass
+  /-- A negative example failed with a diagnostic matching its pattern. -/
   | passNegative
+  /-- A trusted example elaborated warning-free, met the declaration rules and has a
+  compiler-trusting declaration. -/
   | passTrusted
+  /-- Any other outcome, including a check that did not complete. -/
   | fail
   deriving Repr, BEq, DecidableEq, ToJson, FromJson
 
 /-- Real compiler/group observations retained for finalization. Every unit carries
 its original fence and exact compiled source; classifications alone are not evidence. -/
 structure RawExample where
+  /-- The example's own compilation. -/
   compilation : SourceAudit.Compilation
+  /-- The inspection of the example's group, for a compiled positive or trusted example. -/
   group : Option SourceAudit.GroupReport := none
+  /-- Every example inspected in that group with its compilation; the example alone when it was
+  not inspected. -/
   units : Array (Task × SourceAudit.Compilation)
   deriving Repr
 
+/-- The audit result of one documentation example. -/
 structure Result where
+  /-- The audited example. -/
   task : Task
+  /-- Its verdict. -/
   status : Status
+  /-- Why the example failed; empty on success. -/
   detail : String := ""
+  /-- Each declaration of the example a declaration rule rejects, with that rule. -/
   policyProblems : Array (Regula.RuleId × Regula.Report.Declaration) := #[]
+  /-- The check did not complete, so a `fail` status is not evidence that the example is wrong. -/
   incomplete : Bool := false
+  /-- The source-evidence or report-admission failure that left the check incomplete, if any. -/
   admissionFailure : Option ProducerReport.AdmissionFailure := none
+  /-- The compiler and inspection observations `exampleObservation` finalizes. -/
   raw : Option RawExample := none
   deriving Repr
 
+/-- The kind, verdict and completeness of one result, without its evidence. -/
 structure Classification where
+  /-- The example's kind. -/
   kind : Kind
+  /-- The example's verdict. -/
   status : Status
+  /-- Whether the check did not complete. -/
   incomplete : Bool
   deriving DecidableEq, ToJson, FromJson
 
+/-- The classification of a result. -/
 def classification (result : Result) : Classification :=
   ⟨result.task.kind, result.status, result.incomplete⟩
 
+/-- The results are nonempty and each is a completed positive example that passed. -/
 def PositiveClassifications (results : Array Classification) : Prop :=
   results ≠ #[] ∧ ∀ result ∈ results,
     result.kind = .positive ∧ result.status = .pass ∧ result.incomplete = false
@@ -378,6 +434,8 @@ instance (results : Array Classification) : Decidable (PositiveClassifications r
   unfold PositiveClassifications
   infer_instance
 
+/-- Returns `results` with a proof of `PositiveClassifications`, or an error when they do not
+satisfy it. -/
 def admitPositiveClassifications (results : Array Classification) :
     Except String { checked : Array Classification // checked = results ∧ PositiveClassifications checked } :=
   if h : PositiveClassifications results then .ok ⟨results, rfl, h⟩
@@ -397,9 +455,12 @@ private def withSourceEvidence (tasks : Array Task)
       task, status := .fail, detail := failure.detail
       incomplete := true, admissionFailure := some failure }
 
+/-- A fence with a failure pattern is negative, otherwise a trusted one is trusted, otherwise it
+is positive. -/
 def kindOf (fence : Fence) : Kind :=
   if fence.failPattern.isSome then .negative else if fence.trusted then .trusted else .positive
 
+/-- The label a status is printed with. -/
 def statusName : Status → String
   | .pass => "PASS"
   | .passNegative => "PASS_NEG"
@@ -626,10 +687,15 @@ def Fence.key (fence : Fence) : Except String RegulaPolicy.FenceKey := do
 /-- Documentation has no positive project ownership. Its fixed fence inventory is
 independent of returned compilation results, including when a document has no fences. -/
 structure DocumentPlan (claim : RegulaPolicy.Claim) where
+  /-- A census holding only the fence inventory: no environment, module or target. -/
   census : RegulaPolicy.Census
+  /-- The job plan built for the claim and that census. -/
   plan : RegulaPolicy.Plan claim census
+  /-- The policy roles of the census's environment slots. -/
   roles : RegulaPolicy.CensusRoles census
 
+/-- Builds the document plan from the admitted fence key of every task, failing when a fence is
+not admissible (`Fence.key`) or the plan is refused. -/
 def freezeDocuments (claim : RegulaPolicy.Claim) (tasks : Array Task) :
     Except String (DocumentPlan claim) := do
   let fences ← tasks.mapM (·.fence.key)
@@ -714,12 +780,16 @@ def snapshotMarkdown (source target : FilePath) : IO Unit := do
     if let some parent := destination.parent then IO.FS.createDirAll parent
     IO.FS.writeFile destination (← IO.FS.readFile path)
 
+/-- Reads every `.md` file below `root`, recursively, in path order; fails when `root` is not a
+directory. -/
 def captureMarkdown (root : FilePath) : IO (Array RegulaPolicy.SourceSnapshot) := do
   unless ← root.isDir do throw <| IO.userError s!"documentation root is not a directory: {root}"
   let paths := ((← root.walkDir).filter (·.extension == some "md")).qsort
     (fun left right => left.toString < right.toString)
   paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
 
+/-- Rereads the Markdown below `root` and throws when its paths or contents differ from
+`documents`. -/
 def checkMarkdown (root : FilePath) (documents : Array RegulaPolicy.SourceSnapshot) : IO Unit := do
   let current ← captureMarkdown root
   unless current.map (·.uri) == documents.map (·.uri) do
@@ -729,8 +799,11 @@ def checkMarkdown (root : FilePath) (documents : Array RegulaPolicy.SourceSnapsh
 /-- A Verso documentation package, given as `DIR:LIBRARY:RENDER`: its directory, its
 documentation library and the executable that renders that library alone. -/
 structure VersoPackage where
+  /-- The Verso package's directory. -/
   dir : FilePath
+  /-- The documentation library whose modules are audited. -/
   library : Name
+  /-- The executable that renders that library. -/
   render : String
 
 /-- Parse `DIR:LIBRARY:RENDER`, the Verso documentation option of the audit commands. -/
@@ -828,9 +901,13 @@ def captureVersoPackage (verso : VersoPackage) : IO (Array RegulaPolicy.SourceSn
 /-- The documentation one run covers: every Markdown file below `markdown` and, when given,
 every module of the documentation library of the Verso package `verso`. -/
 structure Sources where
+  /-- The directory whose Markdown files, recursively, are covered. -/
   markdown : FilePath
+  /-- The Verso package whose documentation library is also covered, if any. -/
   verso : Option VersoPackage := none
 
+/-- The Markdown snapshots (`captureMarkdown`), then the Verso library's module sources
+(`captureVerso`). -/
 def Sources.capture (sources : Sources) : IO (Array RegulaPolicy.SourceSnapshot) := do
   let markdown ← captureMarkdown sources.markdown
   let verso ← match sources.verso with
@@ -838,6 +915,7 @@ def Sources.capture (sources : Sources) : IO (Array RegulaPolicy.SourceSnapshot)
     | none => pure #[]
   return markdown ++ verso
 
+/-- Recaptures the sources and throws when their paths or contents differ from `documents`. -/
 def Sources.check (sources : Sources) (documents : Array RegulaPolicy.SourceSnapshot) : IO Unit := do
   let current ← sources.capture
   unless current.map (·.uri) == documents.map (·.uri) do
@@ -852,6 +930,7 @@ def Sources.captureLinked (sources : Sources) : IO (Array RegulaPolicy.SourceSna
     | none => pure #[]
   return (← sources.capture) ++ package
 
+/-- Recaptures the linked sources (`captureLinked`) and throws when they differ from `linked`. -/
 def Sources.checkLinked (sources : Sources) (linked : Array RegulaPolicy.SourceSnapshot) : IO Unit := do
   unless (← sources.captureLinked) == linked do
     throw <| IO.userError "documentation or its Verso package changed"

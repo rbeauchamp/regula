@@ -17,22 +17,34 @@ open Lean
 
 /-- Raw tree spines retain order and duplicate fields before any map construction. -/
 inductive Wire where
+  /-- The JSON `null` value. -/
   | null
+  /-- A Boolean scalar. -/
   | bool (value : Bool)
+  /-- A natural-number scalar. -/
   | nat (value : Nat)
+  /-- A string scalar. -/
   | text (value : String)
+  /-- The end of an array spine: the empty array, or the tail after its last element. -/
   | arrayNil
+  /-- An array spine cell: the element `head`, then the rest of the spine `tail`. -/
   | arrayCons (head tail : Wire)
+  /-- The end of an object spine: the empty object, or the tail after its last field. -/
   | objectNil
+  /-- An object spine cell: the field `key` with `value`, then the rest of the spine `tail`;
+  a repeated key stays in place. -/
   | objectCons (key : String) (value tail : Wire)
 
 /-- Explicit tree spines keep recursion structural, including malformed raw trees.
 Array decoding below accepts only correctly terminated array spines. -/
 def Wire.array (items : List Wire) : Wire := items.foldr .arrayCons .arrayNil
 
+/-- The object spine holding `fields` in order, duplicates included. -/
 def Wire.object (fields : List (String × Wire)) : Wire :=
   fields.foldr (fun (key, value) tail => .objectCons key value tail) .objectNil
 
+/-- The elements of an array spine ending in `arrayNil`; any other tree is an error.
+`Wire.array_roundtrip` shows it inverts `Wire.array`. -/
 def Wire.arrayItems : Wire → Except String (List Wire)
   | .arrayNil => .ok []
   | .arrayCons head tail => return head :: (← tail.arrayItems)
@@ -53,6 +65,9 @@ def nameParts : Name → List Wire
   | .str p s => .array [.text "str", .text s] :: nameParts p
   | .num p n => .array [.text "num", .nat n] :: nameParts p
 
+/-- Decode the components `nameParts` writes, outermost first: each is a two-element array
+`["str", s]` or `["num", n]`; anything else is an error. `nameParts_roundtrip` shows it inverts
+`nameParts`. -/
 def parseNameParts : List Wire → Except String Name
   | [] => .ok .anonymous
   | .arrayCons (.text "str") (.arrayCons (.text s) .arrayNil) :: rest =>
@@ -61,8 +76,10 @@ def parseNameParts : List Wire → Except String Name
       return .num (← parseNameParts rest) n
   | _ => .error "invalid structural Lean name"
 
+/-- The wire encoding of a Lean name: the array of its `nameParts`. -/
 def nameWire (n : Name) : Wire := .array (nameParts n)
 
+/-- Decode a name from an array of components; `name_roundtrip` shows it inverts `nameWire`. -/
 def parseName (w : Wire) : Except String Name := do
   parseNameParts (← w.arrayItems)
 
@@ -82,6 +99,8 @@ def parseName (w : Wire) : Except String Name := do
 /-- Nonanonymous keys use the same wire tree with an additional admission check. -/
 def identityWire (i : Identity) : Wire := nameWire i.name
 
+/-- Decode a name with `parseName`, then admit it as an identity (`admitIdentity`), so the
+anonymous name is rejected. -/
 def parseIdentity (w : Wire) : Except String Identity := do
   admitIdentity (← parseName w)
 
@@ -95,6 +114,8 @@ def parseIdentity (w : Wire) : Except String Identity := do
 /-- Category tags share their proved spelling codec; no open strings enter the result. -/
 def categoryWire {α : Type u} (spelling : α → String) (x : α) : Wire := .text (spelling x)
 
+/-- Decode a category from a string scalar with the category's `parse`; an unknown spelling or
+a non-string tree is an error. -/
 def parseCategory {α : Type u} (parse : String → Option α) : Wire → Except String α
   | .text s => match parse s with
       | some x => .ok x

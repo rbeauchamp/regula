@@ -36,8 +36,11 @@ open Questions
 
 /-- A checked discharge: `proof` proves the claim implies `formal`, under exactly `axioms`. -/
 structure Discharge where
+  /-- The referenced theorem, of type `S → P` with `S` the claim's statement. -/
   proof : Name
+  /-- The pretty-printed conclusion `P`, the formal clause judged against the English one. -/
   formal : String
+  /-- The theorem's transitive axioms, sorted by name; all are Standard-Logical axioms. -/
   axioms : List Name
 
 /-- Axioms a discharge may use: the Standard-Logical foundation (standard §4.5). A project
@@ -47,12 +50,17 @@ def dischargeAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
 /-- The outcome of checking one discharge reference. -/
 inductive DischargeCheck where
+  /-- Every condition of `checkDischarge` held; `d` records the checked discharge. -/
   | admitted (d : Discharge)
+  /-- The reference `proof` failed a condition, or the marker was malformed; `reason` says
+  why. -/
   | refused (proof : Name) (reason : String)
 
 /-- One claim as read from its environment. -/
 structure ClaimInput where
+  /-- The claim's declaration. -/
   name : Name
+  /-- Its Intent clauses (discharge markers removed), explanation and statement text. -/
   text : ClaimText
   /-- Per clause: no discharge marker, or the outcome of checking its reference. -/
   discharges : List (Option DischargeCheck)
@@ -69,6 +77,7 @@ def statementExpr (info : ConstantInfo) : Expr :=
     else i.type
   | _ => info.type
 
+/-- `e` as Lean's pretty-printer renders it under the current options. -/
 def pretty (e : Expr) : MetaM String := do
   return toString (← ppExpr e)
 
@@ -177,18 +186,27 @@ def runMeta {α : Type} (env : Environment) (x : MetaM α) : IO α := do
 
 /-- Screening configuration. -/
 structure Config where
+  /-- The pinned model version every request names. -/
   model : PinnedModel
+  /-- The directory of cached request/response pairs. -/
   cache : System.FilePath
+  /-- What the request state holds: statement, explanation, or both. -/
   mode : StateMode
+  /-- Each judgment's thresholds and minimum confidence, which decide severity and route. -/
   policy : Policy
 
 /-- Accumulated service usage of a run. `requests` counts every POST sent, retries included.
 `inputTokens` is unknown once any billed response omitted its usage. -/
 structure Usage where
+  /-- POSTs sent, retries included. -/
   requests : Nat := 0
+  /-- Requests answered from the cache without a POST. -/
   cached : Nat := 0
+  /-- Billed input tokens of the requests sent, or `none` once one response omitted them. -/
   inputTokens : Option Nat := some 0
 
+/-- `u` after response `r`: its POST attempts are added, a cached answer is counted, and the
+input tokens of an uncached answer are added. -/
 def Usage.add (u : Usage) (r : Jev.Response) : Usage :=
   { requests := u.requests + r.attempts, cached := u.cached + (if r.cached then 1 else 0)
     inputTokens := if r.cached then u.inputTokens else do pure ((← u.inputTokens) + (← r.inputTokens)) }
@@ -199,6 +217,8 @@ def Usage.tokensText (u : Usage) : String :=
   | some n => toString n
   | none => "unknown"
 
+/-- The probability the Noul answer to question `id` gives; throws when `r` has no Noul answer
+with that ID. -/
 def noulOf (r : Jev.Response) (id : String) : IO Probability := do
   match r.answers.lookup id with
   | some (.noul p) => return p

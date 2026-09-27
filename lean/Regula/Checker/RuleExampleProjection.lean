@@ -17,6 +17,8 @@ open Lean RuleExampleQualification
 def payload (key : String) (value : Json) : Json :=
   if key == "acceptance" || key == "documentationAcceptance" then .null else value
 
+/-- A result object with its `acceptance` and `documentationAcceptance` values replaced by
+`null` and every other field unchanged; any other JSON value is returned unchanged. -/
 def resultView : Json → Json
   | .obj fields => .obj (fields.map payload)
   | value => value
@@ -82,6 +84,7 @@ theorem qualify_congr (a b ra rb : Json)
     requestAccount_congr ra rb _ hresult, sourceAccount_congr ra rb _ _ hresult]
 
 
+/-- The JSON value is an object whose underlying tree map is well-formed. -/
 def ObjectWF : Json → Prop
   | .obj t => t.WF
   | _ => False

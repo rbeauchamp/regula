@@ -49,8 +49,11 @@ namespace AuditApp
 slots in use — is a proof field. Every value that type-checks satisfies the
 invariant, so no caller can construct a state that violates it. -/
 structure Limiter where
+  /-- The number of slots the limiter can hand out. -/
   capacity : Nat
+  /-- The number of slots currently handed out. -/
   inUse : Nat
+  /-- The invariant: no more slots are in use than the capacity. -/
   bounded : inUse ≤ capacity
 
 /-- Admission boundary: a requested capacity becomes a state only when it is
@@ -156,8 +159,11 @@ theorem reset_capacity (l : Limiter) : (reset l).capacity = l.capacity := rfl
 /-- The update vocabulary a caller can apply to a limiter. A `grant` can be
 refused; `release` and `reset` are total. -/
 inductive Op where
+  /-- Take one free slot (`grant`); refused when none is free. -/
   | grant
+  /-- Free one slot if any is in use (`release`). -/
   | release
+  /-- Free every slot (`reset`). -/
   | reset
   deriving DecidableEq
 
@@ -423,39 +429,61 @@ it bounds every script's end state by the created capacity (`within_capacity`).
 - Timing, fairness and the IO shell are deliberately out of scope. -/
 @[regula_material]
 structure RequiredContracts : Prop where
+  /-- `admit` accepts exactly a positive capacity, as an idle limiter of that capacity. -/
   admission : ∀ capacity, admit capacity = if 0 < capacity then
     some ⟨capacity, 0, Nat.zero_le capacity⟩ else none
+  /-- A successful grant keeps the capacity and takes exactly one more slot. -/
   grant_success : ∀ {l l' : Limiter}, grant l = some l' →
     l'.capacity = l.capacity ∧ l'.inUse = l.inUse + 1
+  /-- A grant is refused exactly when every slot is in use. -/
   grant_refusal : ∀ {l : Limiter}, grant l = none ↔ l.inUse = l.capacity
+  /-- A release with slots in use frees exactly one. -/
   release_busy : ∀ {l : Limiter}, 0 < l.inUse → (release l).inUse = l.inUse - 1
+  /-- A release with no slot in use changes nothing. -/
   release_idle : ∀ {l : Limiter}, l.inUse = 0 → release l = l
+  /-- A reset leaves no slot in use. -/
   reset_empty : ∀ l, (reset l).inUse = 0
+  /-- A reset keeps the capacity. -/
   reset_frame : ∀ l, (reset l).capacity = l.capacity
+  /-- `step` applies the operation it is given; a refused grant leaves the state unchanged. -/
   dispatch : ∀ l op, step l op = match op with
     | .grant => (grant l).getD l
     | .release => release l
     | .reset => reset l
+  /-- `run` applies a script's operations in order with `step`. -/
   composition : ∀ ops l, run ops l = ops.foldl step l
+  /-- No single step changes the capacity. -/
   capacity_frame : ∀ l op, (step l op).capacity = l.capacity
+  /-- No script run by `run` changes the capacity. -/
   run_frame : ∀ l ops, (run ops l).capacity = l.capacity
+  /-- The requested capacity is the first argument read as a natural number, and 2 when
+  there is no argument or it does not parse. -/
   input_meaning : ∀ args, requestedCapacity args = match args with
     | [] => 2
     | arg :: _ => arg.toNat?.getD 2
+  /-- A strict step refuses a grant exactly when every slot is in use, keeping the state, and
+  otherwise succeeds with `step`. -/
   checked_step : ∀ op l, checkedStep op l =
     if op = .grant ∧ l.inUse = l.capacity then
       (.error (), l) else (.ok (), step l op)
+  /-- The strict runner succeeds exactly when the script `Fits`, ending where `run` ends. -/
   checked_success : ∀ ops l final,
     runChecked ops l = (.ok (), final) ↔ Fits ops l ∧ final = run ops l
+  /-- The strict runner fails exactly at a grant after a fitting prefix whose end state is
+  full, and returns that state. -/
   checked_error : ∀ ops l final,
     runChecked ops l = (.error (), final) ↔
       ∃ before after, ops = before ++ .grant :: after ∧
         Fits before l ∧ final = run before l ∧ final.inUse = final.capacity
+  /-- A concatenated script runs its first part, stops on its failure, and otherwise runs the
+  second part from the state reached. -/
   checked_composition : ∀ xs ys l,
     runChecked (xs ++ ys) l = match runChecked xs l with
       | (.error e, s) => (.error e, s)
       | (.ok _, s) => runChecked ys s
+  /-- The strict runner never changes the capacity, whether it succeeds or fails. -/
   checked_frame : ∀ ops l, (runChecked ops l).2.capacity = l.capacity
+  /-- `n` grants that fit take exactly `n` more slots. -/
   burst : ∀ l n, l.inUse + n ≤ l.capacity →
     (run (List.replicate n Op.grant) l).inUse = l.inUse + n
 

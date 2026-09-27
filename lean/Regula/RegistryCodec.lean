@@ -9,8 +9,11 @@ JSON syntax parsing and external producer/source identity remain trusted boundar
 namespace Regula.RegistryCodec
 open Lean
 
+/-- The text of an evidence mode in registry and result JSON (`EvidenceMode.spelling`). -/
 def modeText := EvidenceMode.spelling
 
+/-- The evidence mode a text names; it recovers every mode from its `modeText`
+(`mode_roundtrip`). -/
 def parseMode : String → Except String EvidenceMode
   | "editorSnapshot" => .ok .editorSnapshot
   | "incrementalProject" => .ok .incrementalProject
@@ -23,8 +26,11 @@ def parseMode : String → Except String EvidenceMode
 theorem mode_roundtrip (m : EvidenceMode) : parseMode (modeText m) = .ok m := by
   cases m <;> rfl
 
+/-- A rule ID as its JSON string, such as `"RG1001"`. -/
 def ruleJson (id : RuleId) : Json := .str id.spelling
 
+/-- The rule a JSON string names; it recovers every rule from its `ruleJson`
+(`rule_roundtrip`). -/
 def parseRule (j : Json) : Except String RuleId := do
   let s ← j.getStr?
   match RuleId.parse? s with
@@ -69,6 +75,9 @@ def examplesJson (id : RuleId) : Json :=
     ("noncompliant", Json.mkObj [("path", toJson (e.noncompliantPath id)), ("text", toJson e.noncompliant)]),
     ("correction", toJson e.correction)]
 
+/-- A rule's registry record: its guidance, checked examples, category, scope, evidence kind,
+cited clauses, modes, message template, help route and URL, lifecycle, availability and
+attribution, all read from its descriptor. -/
 def descriptorJson (id : RuleId) : Json :=
   let d := descriptor id
   Json.mkObj [
@@ -105,9 +114,14 @@ def parseDescriptor (j : Json) : Except String RuleId := do
   if j == descriptorJson id then return id
   else throw s!"noncanonical or stale descriptor: {id}"
 
+/-- The identity of the build that produced a registry or result: its version, toolchain and
+source revision. -/
 structure ProducerIdentity where
+  /-- The producer's version, such as `unreleased`. -/
   producerVersion : String
+  /-- The Lean version string of the toolchain it was built with. -/
   toolchain : String
+  /-- The Git revision of the producer's source, with any worktree marker. -/
   sourceRevision : String
   deriving BEq
 
@@ -123,6 +137,8 @@ number (`section`), heading (`title`), Verso source path (`source`) and developm
 rationale, remedy, rewrites and checked example pair to schema 1. -/
 def registrySchemaVersion : Nat := 3
 
+/-- The registry JSON: the identity fields at `registrySchemaVersion` and every rule's
+`descriptorJson`, in `RuleId.all` order. -/
 def registryJson (p : ProducerIdentity) : Json :=
   Json.mkObj (identityFields p registrySchemaVersion ++ [("rules", toJson (RuleId.all.map descriptorJson))])
 
@@ -134,6 +150,8 @@ def validateRegistry (p : ProducerIdentity) (j : Json) : Except String Unit :=
 private def rangeJson (r : ByteRange) : Json :=
   Json.mkObj [("startByte", toJson r.start), ("endByte", toJson r.stop)]
 
+/-- A location's JSON: its kind with the module name, the project identity, or the source's
+URI, text, byte ranges and LSP ranges. -/
 def locationJson : Location → Json
   | .module n => Json.mkObj [("kind", .str "module"), ("name", nameJson n)]
   | .project s => Json.mkObj [("kind", .str "project"), ("identity", .str s)]
@@ -156,6 +174,8 @@ private def argumentsJson : (id : RuleId) → Payload id → Json
   | .trustedExample, a | .moduleDocumentation, a =>
       Json.mkObj [("subject", toJson a.subject), ("detail", toJson a.detail)]
 
+/-- A finding's JSON: its rule, payload, locations, mode, claim, impact, severity, rendered
+text, remedy and help URL. -/
 def diagnosticJson (f : Finding) : Json :=
   let ⟨id, d⟩ := f
   Json.mkObj [
@@ -197,11 +217,19 @@ def rulesJson (ids : List RuleId) : Json := toJson ((firedRules ids).map guidanc
 
 /-- Website artifact admission uses actual produced pages, not descriptors pretending to be pages. -/
 structure Page where
+  /-- The rule the page documents. -/
   rule : RuleId
+  /-- The route the page was written at. -/
   route : String
+  /-- Whether the page includes the rule's checked example. -/
   checkedExample : Bool
+  /-- Whether the page advertises the rule as enforced by an existing checker. -/
   advertisedEnforced : Bool
 
+/-- Accept a site's pages only when the manifest equals `registryJson p`, the rules and routes
+are unique, there is one page for each rule of `required` and no other, each page is at its
+rule's route with a checked example, and a page advertises enforcement only for a rule with an
+existing checker. -/
 def validatePages (p : ProducerIdentity) (manifest : Json) (required : List RuleId)
     (pages : List Page) : Except String Unit := do
   validateRegistry p manifest

@@ -17,14 +17,26 @@ open Lean System
 open Regula.Checker
 open Regula.Checker.Documentation
 
+/-- The command-line options of one `docFenceAudit` invocation. -/
 structure Options where
+  /-- `--jobs N`: how many fence tasks run concurrently (4 by default; must be positive). -/
   jobs : Nat := 4
+  /-- `--docs-root PATH`: the Markdown documentation root, by default `docs` in the project. -/
   docsRoot : Option FilePath := none
+  /-- `--manifest PATH`: the surface manifest, by default `foundation_manifest.json`. -/
   manifest : Option FilePath := none
+  /-- `--project DIR`: audit the nearest directory at or above `DIR` that has a Lake
+  configuration and a `lean-toolchain`, instead of the current one. -/
   project : Option FilePath := none
+  /-- `--acceptance-link PATH`: the acceptance link that ordinary acceptance recorded; the
+  audit refuses unless its own inputs have the identity recorded there. -/
   acceptanceLink : Option FilePath := none
+  /-- `--verso DIR:LIBRARY:RENDER`: the Verso library whose `lean` blocks are also audited,
+  and which is then built fresh, rendered and checked for the anchors and rows it must define. -/
   verso : Option VersoPackage := none
+  /-- `--verbose`: print the full detail of each failed fence instead of its first part. -/
   verbose : Bool := false
+  /-- `--help` or `-h`: print the usage text and exit. -/
   help : Bool := false
 
 private def usage : String :=
@@ -133,6 +145,11 @@ private def buildVerso (repo docsRoot copy scratch : FilePath) (verso : VersoPac
     return some s!"cited sections whose source is not a module of {verso.library}: {unknown.map (·.heading)}"
   return none
 
+/-- Run one documentation fence audit and return its exit code. In an isolated copy of the
+project it builds the claimed surfaces fresh, compiles every Lean fence below the documentation
+root and, with `--verso`, builds and renders the Verso library and checks its anchors and
+checklist rows; with `--acceptance-link`, it first requires the inputs to equal the accepted
+ones. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
@@ -192,6 +209,8 @@ unsafe def run (args : List String) : IO UInt32 := do
 
 end Regula.Checker.DocFenceAudit
 
+/-- The `docFenceAudit` executable: initialize the Lean search path, then `run`, reporting
+any escaping error as `FAIL` with exit code 1. -/
 unsafe def main (args : List String) : IO UInt32 := do
   try
     Regula.Checker.initializeLeanSearchPath

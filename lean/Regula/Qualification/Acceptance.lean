@@ -155,6 +155,12 @@ def check (group : String) (evidence : FilePath) (attempt : Option String := non
   receipt.modify (·.setObjVal! "status" (toJson "completed"))
   save evidence (← receipt.get)
 
+/-- Documentation dependency-freeze control, run in a scratch project that requires a local
+`dep` package. Through both `docFenceAudit` and `ruleExamples` it checks that a fence over
+`Dep` passes when the dependency is unchanged, is refused with "dependency snapshot changed:"
+and no acceptance when the build itself rewrites `Dep.lean`, and passes again once restored;
+then a combined `--with-docs` run must accept both code and documentation on one snapshot.
+Any failed check throws. -/
 def documentationDependencies : IO Unit := do
   let root ← rootDirectory
   withScratch root "documentation-dependency" fun scratch => do
@@ -170,7 +176,7 @@ def documentationDependencies : IO Unit := do
     IO.FS.createDirAll (project / "docs")
     toolchain root project
     IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"documentation_dependency\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
+      "name = \"documentation_dependency\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\nlinter.missingDocs = true\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     manifest project "kernel-only"
     let source := "import Lean\nimport Dep\n/-! Documentation prerequisite. -/\ntheorem value : Dep.n = 1 := rfl\n"
     IO.FS.writeFile (project / "Example.lean") source

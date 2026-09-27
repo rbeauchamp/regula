@@ -219,7 +219,11 @@ private def executableContract? (env : Environment) (info : ConstantInfo) :
 /-- Acquisition stage, independent of whether a subsequent policy check succeeds.
 Local snapshots deliberately omit replay and whole-environment parent searches. -/
 inductive Stage where
+  /-- A local editor snapshot of the current command: the record without the replay-only
+  observations. -/
   | snapshot
+  /-- A declaration of the trusted environment probe: the record also gathers the
+  `unsafe rec` value and equation evidence and the native-decision evidence that replay needs. -/
   | replayCandidate
   deriving DecidableEq, Inhabited
 

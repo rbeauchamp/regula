@@ -14,6 +14,9 @@ namespace RegulaPolicy
 open Lean (Name)
 open Frontend
 
+/-- The declaration a generated `native_decide` axiom name belongs to: for
+`parent._native.native_decide.ax_N…` with a nonanonymous `parent` and a suffix of `ax_` then
+`_`-separated nonempty digit runs, `some parent`; otherwise `none`. -/
 def nativeParent? : Name → Option Name
   | .str (.str (.str parent "_native") "native_decide") suffix => do
       guard (parent != .anonymous && suffix.startsWith "ax_")
@@ -35,22 +38,34 @@ def needsFrontendTranscript (decls : Array Declaration) : Bool :=
   decls.any fun decl =>
     declarationNeedsTranscript decl.isUnsafe decl.isPartial decl.kind decl.name
 
+/-- Lean's command elaborator for a declaration command. -/
 def declarationElaborator := `Lean.Elab.Command.elabDeclaration
+/-- Lean's macro that expands a declaration with a namespaced name into a `namespace` block. -/
 def namespacedDeclarationElaborator :=
   `Lean.Elab.Command.expandNamespacedDeclaration
+/-- The syntax kind of a declaration command. -/
 def declarationKind := `Lean.Parser.Command.declaration
+/-- Lean's tactic elaborator for `native_decide`. -/
 def nativeDecideElaborator := `Lean.Elab.Tactic.evalNativeDecide
+/-- The syntax kind of the `native_decide` tactic. -/
 def nativeDecideKind := `Lean.Parser.Tactic.nativeDecide
 
+/-- The part of an evaluator observation that identifies it in an evaluator chain. -/
 structure EvaluatorKey where
+  /-- Whether the evaluator elaborated a command, a tactic or a term. -/
   role : EvaluatorRole
+  /-- The elaborator's declaration name (anonymous when none was recorded). -/
   elaborator : Name
+  /-- The syntax kind the evaluator elaborated. -/
   kind : Name
   deriving Repr, DecidableEq
 
+/-- The role, elaborator and syntax kind of an evaluator observation. -/
 def key (value : Evaluator) : EvaluatorKey :=
   { role := value.role, elaborator := value.elaborator, kind := value.kind }
 
+/-- The only non-term evaluator sequence `NativeCommand` accepts: the declaration command,
+then its `by` block and tactic sequence, then `native_decide`, in that order. -/
 def nativeDecideChain : Array EvaluatorKey := #[
   ⟨.command, declarationElaborator, declarationKind⟩,
   ⟨.tactic, .anonymous, `Lean.Parser.Term.byTactic⟩,
@@ -67,6 +82,7 @@ def PositionLE (a b : Position) : Prop :=
   a.line < b.line ∨ (a.line = b.line ∧ a.column ≤ b.column)
 instance (a b : Position) : Decidable (PositionLE a b) := by unfold PositionLE; infer_instance
 
+/-- The start and end of a declaration's full recorded range, when Lean recorded one. -/
 def declarationRange? (d : Declaration) : Option SyntaxRange :=
   d.ranges.map fun r => ⟨r.range.start, r.range.end⟩
 
