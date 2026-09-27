@@ -457,7 +457,7 @@ number := false
 * *Prefer reusable arguments when they eliminate repeated computation.* `two_mul_sumTo` proves the identity for every natural number by induction. Applying it avoids unfolding the recursive sum separately for each numeral. Reducing `sumTo n` traverses recursive cases. That observation alone is not a wall-clock complexity bound because arithmetic and checker overhead also cost time.
 * *Inspect the elaborated recursion and its dependencies.* On this pin, `sumWf` uses `WellFounded.Nat.fix`. A general well-founded relation can use `WellFounded.fix` and an accessibility proof. The former uses recursion over a natural-number fuel bound. `#print` shows the actual construction. A definition’s transitive axiom set includes its body, termination proof, and selected instances. The `omega` proof in this particular `sumWf` contributes `propext` and `Quot.sound`. Do not assign a foundation profile from the recursion scheme or tactic name alone.
 * *Compiler simplification preserves the logical definition.* The `@[csimp]` equality replaces compiled calls to `sumTo` with `closedSum`. It does not change the kernel reduction of `sumTo`. So it does not remove recursive computation from a `decide` proof about that definition (§3.6).
-* *Native proof evaluation changes the trust account.* Ordinary `#eval` produces an observed result, not a theorem. `native_decide` uses a generated axiom to accept a compiled result. On this pin, the SAT path of `bv_decide` likewise uses native certificate checking. A goal closed by normalization alone may have no such axiom. Inspect the exact axiom set. These mechanisms are classified as compiler-trusting and excluded from conforming positive proof surfaces (§3.4).
+* *Native proof evaluation changes the trust account.* Ordinary `#eval` produces an observed result, not a theorem. `native_decide` and `decide +native` use a generated axiom to accept a compiled result. On this pin, the SAT path of `bv_decide` likewise uses a generated axiom to accept native certificate checking. A goal closed by normalization alone may have no such axiom. Inspect the exact axiom set. These mechanisms are classified as compiler-trusting and excluded from conforming positive proof surfaces (§3.4).
 
 *Example - Same Equations, Different Kernel Cost, Analytic Discharge*:
 
@@ -499,7 +499,7 @@ example : Economy.sumWf 10 = 55 := by decide
 *Example - Same Statement, Different Trust*:
 
 ```lean +trustedCompiler
-import Init
+import Std.Tactic.BVDecide
 
 /-- Kernel-checked: `decide` produces a proof term the kernel re-checks. -/
 theorem gcd_1071_462_kernel : Nat.gcd 1071 462 = 21 := by decide
@@ -507,14 +507,22 @@ theorem gcd_1071_462_kernel : Nat.gcd 1071 462 = 21 := by decide
 /-- Compiler-trusting: `native_decide` trusts the compiled evaluation. -/
 theorem gcd_1071_462_native : Nat.gcd 1071 462 = 21 := by native_decide
 
+/-- Compiler-trusting: `decide +native` takes the same compiled path. -/
+theorem gcd_1071_462_decide_native : Nat.gcd 1071 462 = 21 := by decide +native
+
+/-- Compiler-trusting: `bv_decide` checks its SAT certificate with compiled code. -/
+theorem mul_comm_bv (x y : BitVec 8) : x * y = y * x := by bv_decide
+
 #print axioms gcd_1071_462_kernel
 -- 'gcd_1071_462_kernel' does not depend on any axioms
 #print axioms gcd_1071_462_native
 -- The output includes a per-invocation `._native.native_decide` axiom;
 -- inspect the printed name rather than relying on its generated suffix.
+#print axioms mul_comm_bv
+-- Likewise a per-invocation `._native.bv_decide` axiom.
 ```
 
-The second theorem relies on a compiler-generated axiom; it is a classified teaching example, not a conforming proof. The first theorem uses kernel reduction. Neither tactic choice alone states the cost or foundation of an arbitrary proof.
+The last three theorems rely on compiler-generated axioms, one per invocation and named after the tactic; they are classified teaching examples, not conforming proofs. The first theorem uses kernel reduction. Neither tactic choice alone states the cost or foundation of an arbitrary proof.
 
 *Proof maintenance*: Economy over time comes from four habits, none of which is a global tactic, style, or import mandate. State theorems against stable, elaborated interfaces (the API the definition exports, not its unfolded internals) so a representation change doesn't reopen every proof. Keep hypotheses local as binders rather than as global instances or options. Use automation intentionally: where the produced term matters for replay or readability, name the lemmas the automation may use; where it does not, closing the goal is enough. Match existing library abstractions ({ref "14-principled-mathematical-modeling"}[module 1 §1.4]) so their theorems, instances, and simp sets do the work instead of bespoke ones.
 

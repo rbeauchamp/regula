@@ -153,6 +153,15 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
         ids := ["RG1007"] },
       { label := "Pending", source := base ++
           "theorem nativeTruth : (2 + 2 : Nat) = 4 := by native_decide\n",
+        ids := ["RG2005"], detail := some "fresh generated-role evidence remains required" },
+      -- `decide +native` and `bv_decide` name their `nativeEqTrue` axioms after their own
+      -- tactic; the editor defers them like `native_decide` rather than reporting RG1001.
+      { label := "PendingDecideNative", source := base ++
+          "theorem decideNativeTruth : (2 + 2 : Nat) = 4 := by decide +native\n",
+        ids := ["RG2005"], detail := some "fresh generated-role evidence remains required" },
+      { label := "PendingBvDecide", source := base.replace "import Regula.Linter"
+          "import Regula.Linter\nimport Std.Tactic.BVDecide" ++
+          "theorem bvTruth (x y : BitVec 8) : x * y = y * x := by bv_decide\n",
         ids := ["RG2005"], detail := some "fresh generated-role evidence remains required" }]
     let malformed := base ++ "open Lean Elab Command in\nelab \"bad_range \" name:ident : command \
       => do\n  elabCommand (← `(axiom $name:ident : False))\n  let some ranges ← \
@@ -291,12 +300,12 @@ def paired : IO Unit := do
       let some before := observations[0]? | throw <| IO.userError "missing baseline"
       let some after := observations[1]? | throw <| IO.userError "missing candidate"
       requireChecks
-          [⟨"39 exact paired controls", RegulaQualification.Launcher.checked_equivalence.run
-              before after⟩]
+          [⟨s!"{before.size} exact paired controls",
+            RegulaQualification.Launcher.checked_equivalence.run before after⟩]
       report.modify fun value => (value.setObjVal! "equivalent" (.bool true)).setObjVal! "outcome"
                                   (.str "PASS")
-      IO.println "launcher diagnostic: PASS (39 exact paired controls; timing is an observation \
-        only)"
+      IO.println s!"launcher diagnostic: PASS ({before.size} exact paired controls; timing is an \
+        observation only)"
   catch e =>
     report.modify (·.setObjVal! "outcome" (.str "FAIL"))
     throw e

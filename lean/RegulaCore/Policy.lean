@@ -72,7 +72,7 @@ structure PolicyScope where
   /-- The generated-role evidence recomputed for `inventory`. -/
   roles : RegulaPolicy.Roles inventory
 
-/-- The `native_decide` axioms admitted as generated roles (`Roles.native`). -/
+/-- The native-proof axioms admitted as generated roles (`Roles.native`). -/
 def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
 /-- The `_unsafe_rec` helpers admitted as generated roles (`Roles.helpers`). -/
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers

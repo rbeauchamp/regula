@@ -266,11 +266,6 @@ private def replacementCorrespondence (env : Environment) (reference replacement
     return (.unresolved,
         some s!"cannot construct exact correspondence for {reference} and {replacement}")
 
-private def compilerTrustingAxiom (name : Name) : Bool :=
-  name == ``Lean.trustCompiler || name == ``Lean.ofReduceBool
-    || name == ``Lean.ofReduceNat
-    || (name.toString.splitOn "._native.native_decide.ax").length == 2
-
 /-- The pinned `CSimp.isConstantReplacement?` shape, indexed independently of
 the final scoped attribute state. This conservative candidate set includes
 proof-valued definitions, expired local registrations, and overwritten entries.
@@ -568,7 +563,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
                 logicalEdges := logicalEdges ++ dependencies.map (name, ·)
                 queue := queue ++ enqueue dependencies
     | .axiomInfo _ =>
-        if compilerTrustingAxiom name then
+        if RegulaPolicy.compilerTrustingAxiomName name then
           boundaries := boundaries.push <| (← entry .compilerTrustedProof .trusted none none)
     | .thmInfo _ | .ctorInfo _ | .inductInfo _ | .recInfo _ | .quotInfo _ => pure ()
   let cycles := cyclicReplacementPaths replacementEdges

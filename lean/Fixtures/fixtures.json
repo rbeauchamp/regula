@@ -120,6 +120,18 @@
    "unknown-axiom"
   ]
  },
+ "Fixtures.Mutations.DecideNativeProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.BvDecideProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.NativeTacticNameSpoof": {
+  "expect": "fail",
+  "reason": "project-axiom"
+ },
  "Fixtures.Mutations.TrustCompiler": {
   "expect": "fail",
   "reason": "compiler-trusting"

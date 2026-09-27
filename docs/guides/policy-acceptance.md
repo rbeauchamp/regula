@@ -455,11 +455,14 @@ exact literal/nested binder attribution, pinned evaluators and complete introduc
 Do not collapse exactness and definitional comparison, or set-normalize ordered groups.
 
 `NativeTeachingOK(decls,transcripts,a)` retains **all** guards in
-`authorizedNativeAxioms`: internal safe proposition axiom, exact Boolean shape and successful
-replay, permitted dependency set; same-module safe proposition parent of supported kind,
-exact parent-use shape, unique direct user; nested exact ranges; unique introducing command
-shared with parent; literal declaration, pinned complete evaluator chain and one native
-range. Names only locate candidates. This evidence only permits teaching classification;
+`authorizedNativeAxioms`: a name that `nativeEqTrue`'s scheme generates for `native_decide`,
+`decide +native` or `bv_decide` (`nativeAxiomOrigin?`), which fixes the parent and tactic;
+internal safe proposition axiom, that tactic's exact asserted statement and successful replay,
+permitted dependency set; same-module safe proposition parent of supported kind, the tactic's
+exact parent-use bridge, unique direct user; nested exact ranges; unique introducing command
+shared with parent, adding one axiom of that origin with the same asserted statement; literal
+declaration, pinned complete evaluator chain ending in that tactic's evaluator and one
+evaluator range equal to the axiom's. Names only locate candidates. This evidence only permits teaching classification;
 it never relaxes a conforming profile.
 
 Freeze these relations as independently written component predicates, then prove the

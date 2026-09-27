@@ -64,13 +64,13 @@ structure Observation where
   executable : String
   deriving BEq, DecidableEq
 
-/-- Exact full-sequence comparison also preserves order, multiplicity and all 39
+/-- Exact full-sequence comparison also preserves order, multiplicity and all 42
 controls. Equality includes the environment and resolved compiler path. -/
 def equivalent (before after : Array Observation) : Bool :=
-  decide (before.size = 39 ∧ before = after)
+  decide (before.size = 42 ∧ before = after)
 
 /-- The paired diagnostic consumes this proof-linked predicate; timing is separate. -/
 theorem checked_equivalence : Regula.ExecutableContract equivalent
-    (fun run => ∀ before after, run before after = true ↔ before.size = 39 ∧ before = after) :=
+    (fun run => ∀ before after, run before after = true ↔ before.size = 42 ∧ before = after) :=
   ⟨by intro before after; simp [equivalent]⟩
 end RegulaQualification.Launcher

@@ -371,7 +371,7 @@ Every Lean declaration has an exact transitive axiom set. `#print axioms` report
   * ⊆ `{propext, Quot.sound, Classical.choice}` — Lean's full standard base
 *
   * _compiler-trusting_
-  * _not a logical label_: the axiom set additionally contains compiler-trust axioms (`Lean.trustCompiler`, `Lean.ofReduceBool`, `Lean.ofReduceNat`, or the per-invocation `._native.` axioms `native_decide` elaborates to) — reported separately, never folded into a logical label
+  * _not a logical label_: the axiom set additionally contains compiler-trust axioms (`Lean.trustCompiler`, `Lean.ofReduceBool`, `Lean.ofReduceNat`, or the per-invocation `._native.` axioms that `native_decide`, `decide +native`, and `bv_decide` elaborate to) — reported separately, never folded into a logical label
 :::
 
 *Rules*:

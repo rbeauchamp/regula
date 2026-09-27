@@ -135,8 +135,9 @@ inductive RuleScope where
 inductive EvidenceKind where
   /-- The transitive axiom sets of declarations. -/
   | kernelAxioms
-  /-- The authenticated role of a generated declaration, such as the auxiliary of a
-  `native_decide` proof or the helper of an `unsafe` or `partial` definition. -/
+  /-- The authenticated role of a generated declaration, such as the axiom of a native proof
+  (`native_decide`, `decide +native` or `bv_decide`) or the helper of an `unsafe` or `partial`
+  definition. -/
   | generatedRole
   /-- `ExecutableContract` registrations. -/
   | contractEvidence
@@ -499,15 +500,18 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Claimed declarations use no compiler-trusting proof: no `native_decide`, \
-        `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`."
+        `decide +native`, `bv_decide`, `Lean.trustCompiler`, `Lean.ofReduceBool` or \
+        `Lean.ofReduceNat`."
       rationale := "Compiled evaluation is outside the kernel's checking. A compiler or runtime \
         defect could make a false proposition \"proved\". Compiler-trusting is therefore not one \
         of the three logical labels and never counts as conforming evidence."
       remedy := "Prove the same statement with a kernel-checked proof, for example `decide` \
         (kernel reduction), `rfl` or an ordinary proof."
       rewrites := [
-        "Replace `by native_decide` with `by decide` when kernel reduction of the decision \
-          procedure is feasible.",
+        "Replace `by native_decide` or `by decide +native` with `by decide` when kernel \
+          reduction of the decision procedure is feasible.",
+        "Replace `by bv_decide` with a proof from `BitVec` library lemmas, or with `bv_normalize` \
+          when normalization alone closes the goal.",
         "Otherwise give a structural proof, or prove a smaller lemma that `decide` can handle and \
           combine the pieces.",
         "If the example exists only to teach the mechanism, keep it in documentation as a \
@@ -517,8 +521,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG1004/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1004/Violation.lean"
-        correction := "The correction proves the same concrete equality `(2 : Nat) = 2` by `rfl`. \
-          The violation reports both the generated axiom and its parent theorem." } }
+        correction := "The correction proves the same three facts by kernel-checked proofs: `rfl`, \
+          `decide` by kernel reduction, and the library lemma `BitVec.mul_comm`. The violation \
+          reports each generated axiom and its parent theorem." } }
   | .profileExceeded => {
       title := "Transitive axioms must fit the selected profile", category := .foundation
       normativeClauses := [.proofCompleteness]
@@ -933,13 +938,15 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       rationale := "Conforming claims reject compiler-trusting proofs (RG1004). A teaching fence \
         is how the documentation shows one: it is classified and never counts as a conforming \
         positive. A marker on an ordinary example would hide it from positive checking."
-      remedy := "Use the marker only for an example that demonstrates `native_decide` (or another \
-        authenticated compiler-trusting mechanism); otherwise remove it."
+      remedy := "Use the marker only for an example that demonstrates `native_decide`, \
+        `decide +native` or `bv_decide` (or another authenticated compiler-trusting mechanism); \
+        otherwise remove it."
       rewrites := [
         "Remove the marker from an example that is an ordinary kernel proof; it is then checked as \
           a positive example.",
-        "For a genuine teaching example, keep the `native_decide` proof and import only the module \
-          that provides it (for example `import Init`)."]
+        "For a genuine teaching example, keep the native proof and import only the module that \
+          provides its tactic (for example `import Init`, or `import Std.Tactic.BVDecide` for \
+          `bv_decide`)."]
       examples := {
         language := .markdown
         audience := .adopter

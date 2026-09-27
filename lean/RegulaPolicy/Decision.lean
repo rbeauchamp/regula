@@ -81,8 +81,9 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
 /-- Inventory-bound observations of the actual role validators. Supplying arbitrary
 name arrays cannot authorize a role: both equations must be proved for this inventory. -/
 structure Roles (inventory : Inventory) where
-  /-- Names of the declarations that satisfy `NativeTeachingOK`: the `native_decide` axioms
-  admitted as generated roles, in inventory order. -/
+  /-- Names of the declarations that satisfy `NativeTeachingOK`: the native-proof axioms of
+  `native_decide`, `decide +native` and `bv_decide` admitted as generated roles, in inventory
+  order. -/
   native : Array Name
   /-- Names of the declarations that satisfy `RecursiveHelperOK`: the generated `_unsafe_rec`
   helpers admitted as generated roles, in inventory order. -/
@@ -205,12 +206,31 @@ theorem native_not_logical (i : Inventory) (roles : Roles i) (n : Name)
     (hn : n ∈ roles.native) : ¬ Permitted .standardLogical n := by
   rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, _, ha, hrole⟩
-  rcases hrole.2.2 with ⟨p, _, hparent, _⟩
+  rcases hrole.2.2 with ⟨p, _, _, hparent, _⟩
+  obtain ⟨_, _, hshape⟩ := nativeAxiomOrigin?_shape hparent
   intro hp
   rcases hp with hp | hp | hp
   all_goals
-    rw [ha, hp] at hparent
-    simp [nativeParent?] at hparent
+    rw [ha, hp] at hshape
+    simp at hshape
+
+/-- Every authenticated native role is a name the `nativeEqTrue` scheme generates for a native
+tactic, for the parent and tactic its relation authenticated. -/
+theorem native_generated (i : Inventory) (roles : Roles i) (n : Name) (hn : n ∈ roles.native) :
+    GeneratedNativeAxiom n := by
+  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
+  rcases hn with ⟨a, _, rfl, hrole⟩
+  rcases hrole.2.2 with ⟨p, _, t, hparent, _⟩
+  obtain ⟨idxs, hg, h⟩ := nativeAxiomOrigin?_sound hparent
+  exact ⟨p.name, t, idxs, hg, h⟩
+
+/-- The execution probe's name-level classification agrees on every authenticated native role. -/
+theorem native_compilerTrustingAxiomName (i : Inventory) (roles : Roles i) (n : Name)
+    (hn : n ∈ roles.native) : compilerTrustingAxiomName n = true := by
+  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
+  rcases hn with ⟨a, _, rfl, hrole⟩
+  rcases hrole.2.2 with ⟨p, _, t, hparent, _⟩
+  simp [compilerTrustingAxiomName, hparent]
 
 /-- The compiler-trusting and logical sets are disjoint for actual inventory-bound roles. -/
 theorem compiler_not_logical (i : Inventory) (roles : Roles i) (n : Name)

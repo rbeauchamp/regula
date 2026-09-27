@@ -149,7 +149,7 @@ Every declaration is labeled from its own exact axiom set and must fit the claim
 from the report, not from the kind of surface. For example, `def main : IO Unit := pure ()`
 depends on no axiom. Neither an `IO` type nor recursion alone determines a declaration's
 foundation profile; inspect its actual transitive dependencies. Compiler-trusting axioms
-(for example from `native_decide`) never fit any profile and are reported separately.
+(for example from `native_decide`, `decide +native` or `bv_decide`) never fit any profile and are reported separately.
 
 `execution` states what you claim about compiled code
 ([standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly)):
@@ -237,7 +237,7 @@ style preference:
 | `hole` | The declaration depends on `sorryAx` (`sorry`, `admit`, or an unfinished tactic). | [standard §3.4](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#34-foundation-strength-axioms-are-reported-never-assumed) |
 | `unknown-axiom` | A transitive axiom outside `propext`, `Quot.sound`, `Classical.choice` other than `sorryAx` and the compiler-trusting axioms, which have their own reasons. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
 | `label-exceeds-claim` | The declaration's exact label is stronger than the surface's `claim`. Prove the same statement using fewer axioms, or explicitly revise the permitted foundation profile and its rationale. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
-| `compiler-trusting` | A native-evaluation proof axiom (for example `native_decide`) on a positive surface. | [standard §8.5](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#85-proof-completeness-and-foundation-strength) |
+| `compiler-trusting` | A native-evaluation proof axiom (from `native_decide`, `decide +native` or `bv_decide`) on a positive surface. | [standard §8.5](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#85-proof-completeness-and-foundation-strength) |
 | `escape-hatch` | An authored `partial` or `unsafe` declaration on a positive surface. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |
 | `executable-contract` | An `ExecutableContract` registration is not closed, does not name a complete implementation constant, or names an ineligible implementation: missing, noncomputable, unsafe, partial, proposition-valued, type-producing, or not an executable definition. The Lean type checker separately checks the supplied proof against the registered predicate. | [standard §8.12](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter) |
 | `execution-unresolved` | A compiled path whose replacement, `extern`, or unsafe target cannot be classified. Blocks the execution claim in every mode. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |

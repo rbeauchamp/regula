@@ -12,6 +12,7 @@ public import Lean.Elab.PreDefinition.Structural.Eqns
 public import Lean.Elab.PreDefinition.WF.Eqns
 public import Lean.Meta.Match.MatcherInfo
 public import Lean.Meta.Native
+public import RegulaPolicy.NativeAxiom
 public import Lean.Meta.Eqns
 public import Lean.Meta.RecExt
 public import Lean.ProjFns
@@ -32,7 +33,8 @@ public section
 
 namespace Regula.Collect
 open Lean Elab Command
-open RegulaPolicy (DeclarationKind BoundaryKind Correspondence Safety Reducibility RecursionOrigin)
+open RegulaPolicy (DeclarationKind BoundaryKind Correspondence Safety Reducibility RecursionOrigin
+  NativeTactic)
 
 /-- Constant kind of a declaration, as reported by the environment. Public so
 the checker self-test can apply `Policy.declarationNeedsTranscript` to raw
@@ -130,45 +132,102 @@ private def unsafeRecValueEvidence (env : Environment) (name : Name)
   let definitional ← liftTermElabM <| Meta.isDefEq helper.value expected
   return some (origin, helper.value == expected, definitional)
 
-/-- Exact Boolean expression asserted by a native-proof-shaped axiom. -/
-private def nativeBoolExpr? (type : Expr) : Option Expr := do
+/-- The Boolean expression `e` of a type `e = true`. -/
+private def assertedBool? (type : Expr) : Option Expr := do
   let args := type.getAppArgs
   guard <| type.getAppFn.isConstOf ``Eq
   guard <| args.size == 3
   guard <| args[0]!.isConstOf ``Bool
   guard <| args[2]!.isConstOf ``Bool.true
-  let decideExpr := args[1]!
-  guard <| decideExpr.getAppFn.isConstOf ``Decidable.decide
-  guard <| decideExpr.getAppArgs.size == 2
-  return decideExpr
+  return args[1]!
 
-/-- Whether a declaration's entire proof is the exact native-decision bridge
-for `axiomName` and the same `decide` expression. -/
-private def isExactNativeUse (axiomName : Name) (decideExpr : Expr)
+/-- `Std.Tactic.BVDecide.Reflect.verifyBVExpr`, the check `bv_decide` evaluates natively. -/
+private def verifyBVExprName : Name := `Std.Tactic.BVDecide.Reflect.verifyBVExpr
+
+/-- `Std.Tactic.BVDecide.Reflect.unsat_of_verifyBVExpr_eq_true`, the lemma through which
+`bv_decide`'s proof consumes its axiom (`LratCert.toReflectionProof`). -/
+private def verifyBVExprBridgeName : Name :=
+  `Std.Tactic.BVDecide.Reflect.unsat_of_verifyBVExpr_eq_true
+
+/-- The asserted Boolean expression of a generated native-proof axiom, when it has the exact
+shape its tactic produces: `Decidable.decide p inst` (`elabNativeDecideCore`), or
+`verifyBVExpr expr cert` over the same run's `_expr_def` and `_cert_def` definitions
+(`LratCert.toReflectionProof`). The tactic comes from the name (`nativeAxiomOrigin?`). -/
+def nativeAsserted? (name : Name) (type : Expr) : Option (Name × NativeTactic × Expr) := do
+  let (parent, tactic) ← RegulaPolicy.nativeAxiomOrigin? name
+  let asserted ← assertedBool? type
+  match tactic with
+  | .nativeDecide | .decideNative => guard <| asserted.isAppOfArity ``Decidable.decide 2
+  | .bvDecide =>
+      guard <| asserted.isAppOfArity verifyBVExprName 2
+      guard <| ([asserted.appFn!.appArg!, asserted.appArg!].zip tactic.auxiliaryInfixes).all
+        fun (argument, kind) => argument.isConst &&
+          RegulaPolicy.generatedAuxParent? kind argument.constName! == some parent
+  return (parent, tactic, asserted)
+
+/-- `Declaration.nativeStatement` and `AddedDeclaration.nativeStatement`: the `repr` of the
+asserted expression, naming each auxiliary definition of the same tactic run by its unindexed
+base, so a fresh transcript and a build that index generated names differently agree. -/
+def nativeStatement? (name : Name) (type : Expr) : Option String := do
+  let (parent, tactic, asserted) ← nativeAsserted? name type
+  let unindexed := asserted.replace fun
+    | .const constant levels => tactic.auxiliaryInfixes.findSome? fun kind =>
+        if RegulaPolicy.generatedAuxParent? kind constant == some parent then
+          some (mkConst (Name.mkStr parent kind) levels)
+        else none
+    | _ => none
+  return toString (repr unindexed)
+
+/-- One application of `bv_decide`'s bridge to `axiomName` for the same asserted expression:
+`unsat_of_verifyBVExpr_eq_true expr cert axiomName`. -/
+private def isVerifyBVExprBridge (axiomName : Name) (asserted : Expr) (e : Expr) : Bool :=
+  e.isAppOfArity verifyBVExprBridgeName 3
+    && mkApp2 (mkConst verifyBVExprName) e.appFn!.appFn!.appArg! e.appFn!.appArg! == asserted
+    && e.appArg!.isConstOf axiomName
+
+/-- Whether a declaration's proof uses `axiomName` exactly through its tactic's bridge for the
+same asserted expression: for `native_decide` and `decide +native`, the entire proof is
+`of_decide_eq_true p inst axiomName`; for `bv_decide`, the proof applies
+`unsat_of_verifyBVExpr_eq_true expr cert axiomName` and mentions the axiom nowhere else. -/
+private def isExactNativeUse (tactic : NativeTactic) (axiomName : Name) (asserted : Expr)
     (info : ConstantInfo) : Bool :=
-  match valueOf? info with
-  | none => false
-  | some value =>
+  match valueOf? info, tactic with
+  | none, _ => false
+  | some value, .nativeDecide | some value, .decideNative =>
       let args := value.getAppArgs
       value.getAppFn.isConstOf ``of_decide_eq_true
         && args.size == 3
         && args[0]! == info.type
         && args[2]!.isConst
         && args[2]!.constName! == axiomName
-        && mkApp2 (mkConst ``Decidable.decide) args[0]! args[1]! == decideExpr
+        && mkApp2 (mkConst ``Decidable.decide) args[0]! args[1]! == asserted
+  | some value, .bvDecide =>
+      let bridge := isVerifyBVExprBridge axiomName asserted
+      (value.find? bridge).isSome &&
+        ((value.replace fun e => if bridge e then some (mkConst ``True.intro) else none).find?
+          (·.isConstOf axiomName)).isNone
+
+/-- Whether `candidate` can mention the constant `axiomName`: a constant only mentions constants
+of its own environment, and Lean orders imported modules after their own imports, so a user is in
+the current document, in the axiom's module or in a later one. Only the `bv_decide` search, which
+inspects whole proofs, is restricted this way. -/
+private def mayMention (env : Environment) (axiomName candidate : Name) : Bool :=
+  match env.getModuleIdxFor? candidate, env.getModuleIdxFor? axiomName with
+  | none, _ => true
+  | some _, none => false
+  | some candidateIdx, some axiomIdx => axiomIdx.toNat ≤ candidateIdx.toNat
 
 /-- Independently replay the Boolean native evaluation without retaining any
 declaration it creates. This remains compiler evidence, never a kernel proof. -/
-private def replayNative? (type : Expr) : CommandElabM (Option Bool) := do
-  let some decideExpr := nativeBoolExpr? type | return none
+private def replayNative (asserted : Expr) : CommandElabM Bool := do
   try
     let result ← liftTermElabM <| withoutModifyingEnv do
-      Meta.nativeEqTrue `audit_native_replay decideExpr
-    return some <| match result with
+      Meta.nativeEqTrue `audit_native_replay asserted
+    return match result with
       | .success _ => true
       | .notTrue   => false
   catch _ =>
-    return some false
+    return false
 
 /-- Classify the terminal result after Lean reduction, including aliases of
 function types and universes. Runtime roots cannot return erased types. -/
@@ -259,14 +318,17 @@ def declaration (name : Name) (stage : Stage) :
       unsafeRecValueEvidence env name info else pure none
   let unsafeRecEquationEvidence? ← if stage == .replayCandidate then
       unsafeRecEquationEvidence env name else pure none
-  let nativeReplay? ← if stage == .replayCandidate then replayNative? info.type else pure none
+  let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
+  let nativeReplay? ← native?.mapM fun (_, _, asserted) => replayNative asserted
   let nativeUseParents : Array Name :=
-    match if stage == .replayCandidate then nativeBoolExpr? info.type else none with
+    match native? with
     | none => #[]
-    | some decideExpr => env.constants.fold (init := #[]) fun parents parentName parentInfo =>
-        if isExactNativeUse name decideExpr parentInfo then
-          parents.push parentName
-        else parents
+    | some (_, tactic, asserted) =>
+        env.constants.fold (init := #[]) fun parents parentName parentInfo =>
+          if (tactic != .bvDecide || mayMention env name parentName) &&
+              isExactNativeUse tactic name asserted parentInfo then
+            parents.push parentName
+          else parents
   let levelParams : List Name := info.levelParams
   let all : List Name :=
     match info with
@@ -314,7 +376,7 @@ def declaration (name : Name) (stage : Stage) :
     unsafeRecEquationDefeq := unsafeRecEquationEvidence?.map fun (_, value, _) => value
     unsafeRecEquationAxioms := unsafeRecEquationEvidence?.map fun (_, _, values) =>
       RegulaPolicy.canonicalNames values
-    nativeBoolShape := (nativeBoolExpr? info.type).isSome
+    nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
     nativeUseParents
     ranges := ranges?.map rangesReport

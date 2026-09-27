@@ -1,6 +1,6 @@
 module
 
-public import RegulaPolicy.Foundation
+public import RegulaPolicy.NativeAxiom
 
 /-! # Generated-role relations
 
@@ -13,17 +13,6 @@ These finite decidable relations do not attest that a compiler observation is tr
 namespace RegulaPolicy
 open Lean (Name)
 open Frontend
-
-/-- The declaration a generated `native_decide` axiom name belongs to: for
-`parent._native.native_decide.ax_N…` with a nonanonymous `parent` and a suffix of `ax_` then
-`_`-separated nonempty digit runs, `some parent`; otherwise `none`. -/
-def nativeParent? : Name → Option Name
-  | .str (.str (.str parent "_native") "native_decide") suffix => do
-      guard (parent != .anonymous && suffix.startsWith "ax_")
-      let numbers := (suffix.drop 3).toString.splitOn "_"
-      guard (!numbers.isEmpty && numbers.all fun n => !n.isEmpty && n.toList.all Char.isDigit)
-      return parent
-  | _ => none
 
 /-- Only declaration kinds that could receive a generated-role exception need
 the extra fresh frontend transcript. This core works over primitive fields so
@@ -46,10 +35,6 @@ def namespacedDeclarationElaborator :=
   `Lean.Elab.Command.expandNamespacedDeclaration
 /-- The syntax kind of a declaration command. -/
 def declarationKind := `Lean.Parser.Command.declaration
-/-- Lean's tactic elaborator for `native_decide`. -/
-def nativeDecideElaborator := `Lean.Elab.Tactic.evalNativeDecide
-/-- The syntax kind of the `native_decide` tactic. -/
-def nativeDecideKind := `Lean.Parser.Tactic.nativeDecide
 
 /-- The part of an evaluator observation that identifies it in an evaluator chain. -/
 structure EvaluatorKey where
@@ -65,18 +50,21 @@ structure EvaluatorKey where
 def key (value : Evaluator) : EvaluatorKey :=
   { role := value.role, elaborator := value.elaborator, kind := value.kind }
 
-/-- The only non-term evaluator sequence `NativeCommand` accepts: the declaration command,
-then its `by` block and tactic sequence, then `native_decide`, in that order. -/
-def nativeDecideChain : Array EvaluatorKey := #[
+/-- The evaluator of native tactic `t`: its pinned tactic elaborator and syntax kind. -/
+def NativeTactic.evaluatorKey (t : NativeTactic) : EvaluatorKey :=
+  ⟨.tactic, t.elaborator, t.syntaxKind⟩
+
+/-- The only non-term evaluator sequence `NativeCommand t` accepts: the declaration command,
+then its `by` block and tactic sequence, then the tactic `t`, in that order. -/
+def nativeTacticChain (t : NativeTactic) : Array EvaluatorKey := #[
   ⟨.command, declarationElaborator, declarationKind⟩,
   ⟨.tactic, .anonymous, `Lean.Parser.Term.byTactic⟩,
   ⟨.tactic, .anonymous, `by⟩,
   ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq, `Lean.Parser.Tactic.tacticSeq⟩,
   ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq1Indented,
     `Lean.Parser.Tactic.tacticSeq1Indented⟩,
-  ⟨.tactic, nativeDecideElaborator, nativeDecideKind⟩
+  t.evaluatorKey
 ]
-
 
 /-- Source containment uses the lexicographic codepoint position order. -/
 def PositionLE (a b : Position) : Prop :=
@@ -97,14 +85,17 @@ def IntroducingCommand (ts : Array Transcript) (m n : Name) (c : Command) : Prop
 instance (ts : Array Transcript) (m n : Name) (c : Command) :
     Decidable (IntroducingCommand ts m n c) := by unfold IntroducingCommand; infer_instance
 
-/-- The native observation must match exactly one added axiom in exactly one command. -/
-def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (parent : Name)
-    (c : Command) : Prop :=
+/-- The native observation must match exactly one added axiom in exactly one command: the same
+generated origin and the same asserted statement. The statement names the tactic run's own
+auxiliary definitions by their unindexed base (`nativeStatement`), since a fresh transcript and
+an asynchronous build can index generated names differently. -/
+def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (t : NativeTactic)
+    (parent : Name) (c : Command) : Prop :=
   (moduleCommands ts a.module).filter (fun cmd =>
-    (cmd.addedDeclarations.filter (fun d => nativeParent? d.name == some parent &&
-      d.kind == .«axiom» && d.type == a.type)).size == 1) = #[c]
-instance (ts : Array Transcript) (a : Declaration) (p : Name) (c : Command) :
-    Decidable (NativeIntroducingCommand ts a p c) := by
+    (cmd.addedDeclarations.filter (fun d => nativeAxiomOrigin? d.name == some (parent, t) &&
+      d.kind == .«axiom» && d.nativeStatement == a.nativeStatement)).size == 1) = #[c]
+instance (ts : Array Transcript) (a : Declaration) (t : NativeTactic) (p : Name) (c : Command) :
+    Decidable (NativeIntroducingCommand ts a t p c) := by
         unfold NativeIntroducingCommand; infer_instance
 
 /-- Literal declaration origin, including the exact built-in dotted-name expansion. -/
@@ -137,18 +128,19 @@ instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
     (RecursiveCommand c b r) := by
   unfold RecursiveCommand; infer_instance
 
-/-- Native teaching permits exactly the pinned complete non-term evaluator sequence. -/
-def NativeCommand (c : Command) (r : SyntaxRange) : Prop :=
+/-- Native teaching permits exactly the pinned complete non-term evaluator sequence of `t`. -/
+def NativeCommand (t : NativeTactic) (c : Command) (r : SyntaxRange) : Prop :=
   LiteralDeclaration c r ∧ (∀ e ∈ c.evaluators, PinnedEvaluator e) ∧
-  (c.evaluators.filter (·.role != .term)).map key = nativeDecideChain
-instance (c : Command) (r : SyntaxRange) : Decidable (NativeCommand c r) := by
+  (c.evaluators.filter (·.role != .term)).map key = nativeTacticChain t
+instance (t : NativeTactic) (c : Command) (r : SyntaxRange) : Decidable (NativeCommand t c r) := by
   unfold NativeCommand; infer_instance
 
-/-- Native axiom shape and successful independent replay observations. -/
+/-- Native axiom shape, the asserted statement of its tactic and successful independent replay
+observations. -/
 def NativeAxiomShape (a : Declaration) : Prop :=
   a.kind = .«axiom» ∧ a.internal = true ∧ a.isProp = true ∧
   a.isUnsafe = false ∧ a.isPartial = false ∧ a.implementedBy = none ∧ a.extern = false ∧
-  a.nativeBoolShape = true ∧ a.nativeReplay = some true ∧ a.name ∈ a.axioms ∧
+  a.nativeStatement.isSome = true ∧ a.nativeReplay = some true ∧ a.name ∈ a.axioms ∧
   ∀ n ∈ a.axioms, n = a.name ∨ Permitted .standardLogical n
 instance (a : Declaration) : Decidable (NativeAxiomShape a) := by
     unfold NativeAxiomShape; infer_instance
@@ -162,17 +154,18 @@ instance (a p : Declaration) : Decidable (NativeParentShape a p) := by
     unfold NativeParentShape; infer_instance
 
 /-- All native teaching requirements jointly hold, including unique use and introduction.
-Names locate a candidate; the remaining relations supply the required data-level evidence. -/
+The name locates a candidate parent and native tactic (`nativeAxiomOrigin?`); the remaining
+relations supply the required data-level evidence, including that tactic's own evaluator. -/
 def NativeTeachingOK (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) : Prop :=
-  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds,
-    nativeParent? a.name = some p.name ∧ NativeParentShape a p ∧
+  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ t,
+    nativeAxiomOrigin? a.name = some (p.name, t) ∧ NativeParentShape a p ∧
     (ds.filter (fun d => d.valueConstants.contains a.name)) = #[p] ∧
     ∃ pr ∈ declarationRange? p, ∃ ar ∈ declarationRange? a,
       PositionLE pr.start ar.start ∧ PositionLE ar.end pr.end ∧
       ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
-        NativeIntroducingCommand ts a p.name c ∧ NativeCommand c pr ∧ p.name ∈ c.added ∧
+        NativeIntroducingCommand ts a t p.name c ∧ NativeCommand t c pr ∧ p.name ∈ c.added ∧
         ExactlyOne (c.evaluators.filter (fun e => e.role == .tactic &&
-          e.elaborator == nativeDecideElaborator && e.kind == nativeDecideKind)) (fun e =>
+          e.elaborator == t.elaborator && e.kind == t.syntaxKind)) (fun e =>
           e.range = some ar))
 instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance

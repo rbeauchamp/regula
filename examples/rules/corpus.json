@@ -179,12 +179,12 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 100,
-            "endByte": 105
+            "startByte": 108,
+            "endByte": 113
           },
           "range": {
-            "startByte": 92,
-            "endByte": 141
+            "startByte": 100,
+            "endByte": 149
           },
           "lspSelectionRange": {
             "start": {
@@ -227,12 +227,12 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 128,
-            "endByte": 141
+            "startByte": 136,
+            "endByte": 149
           },
           "range": {
-            "startByte": 128,
-            "endByte": 141
+            "startByte": 136,
+            "endByte": 149
           },
           "lspSelectionRange": {
             "start": {
@@ -273,6 +273,222 @@
             [
               "str",
               "equal"
+            ]
+          ]
+        },
+        "impact": "violation",
+        "claim": "kernel-only"
+      },
+      {
+        "id": "RG1004",
+        "subreason": "compiler-trusting",
+        "detailPattern": "compiler-trusting",
+        "location": {
+          "uri": "$SOURCE",
+          "source": "$SOURCE_TEXT",
+          "selectionRange": {
+            "startByte": 158,
+            "endByte": 166
+          },
+          "range": {
+            "startByte": 150,
+            "endByte": 211
+          },
+          "lspSelectionRange": {
+            "start": {
+              "line": 5,
+              "character": 8
+            },
+            "end": {
+              "line": 5,
+              "character": 16
+            }
+          },
+          "lspRange": {
+            "start": {
+              "line": 5,
+              "character": 0
+            },
+            "end": {
+              "line": 5,
+              "character": 61
+            }
+          },
+          "kind": "source"
+        },
+        "subject": {
+          "declaration": [
+            [
+              "str",
+              "gcdValue"
+            ]
+          ]
+        },
+        "impact": "violation",
+        "claim": "kernel-only"
+      },
+      {
+        "id": "RG1004",
+        "subreason": "compiler-trusting",
+        "detailPattern": "compiler-trusting",
+        "location": {
+          "uri": "$SOURCE",
+          "source": "$SOURCE_TEXT",
+          "selectionRange": {
+            "startByte": 197,
+            "endByte": 211
+          },
+          "range": {
+            "startByte": 197,
+            "endByte": 211
+          },
+          "lspSelectionRange": {
+            "start": {
+              "line": 5,
+              "character": 47
+            },
+            "end": {
+              "line": 5,
+              "character": 61
+            }
+          },
+          "lspRange": {
+            "start": {
+              "line": 5,
+              "character": 47
+            },
+            "end": {
+              "line": 5,
+              "character": 61
+            }
+          },
+          "kind": "source"
+        },
+        "subject": {
+          "declaration": [
+            [
+              "str",
+              "ax_1_1"
+            ],
+            [
+              "str",
+              "decide"
+            ],
+            [
+              "str",
+              "_native"
+            ],
+            [
+              "str",
+              "gcdValue"
+            ]
+          ]
+        },
+        "impact": "violation",
+        "claim": "kernel-only"
+      },
+      {
+        "id": "RG1004",
+        "subreason": "compiler-trusting",
+        "detailPattern": "compiler-trusting",
+        "location": {
+          "uri": "$SOURCE",
+          "source": "$SOURCE_TEXT",
+          "selectionRange": {
+            "startByte": 220,
+            "endByte": 227
+          },
+          "range": {
+            "startByte": 212,
+            "endByte": 276
+          },
+          "lspSelectionRange": {
+            "start": {
+              "line": 6,
+              "character": 8
+            },
+            "end": {
+              "line": 6,
+              "character": 15
+            }
+          },
+          "lspRange": {
+            "start": {
+              "line": 6,
+              "character": 0
+            },
+            "end": {
+              "line": 6,
+              "character": 64
+            }
+          },
+          "kind": "source"
+        },
+        "subject": {
+          "declaration": [
+            [
+              "str",
+              "commute"
+            ]
+          ]
+        },
+        "impact": "violation",
+        "claim": "kernel-only"
+      },
+      {
+        "id": "RG1004",
+        "subreason": "compiler-trusting",
+        "detailPattern": "compiler-trusting",
+        "location": {
+          "uri": "$SOURCE",
+          "source": "$SOURCE_TEXT",
+          "selectionRange": {
+            "startByte": 267,
+            "endByte": 276
+          },
+          "range": {
+            "startByte": 267,
+            "endByte": 276
+          },
+          "lspSelectionRange": {
+            "start": {
+              "line": 6,
+              "character": 55
+            },
+            "end": {
+              "line": 6,
+              "character": 64
+            }
+          },
+          "lspRange": {
+            "start": {
+              "line": 6,
+              "character": 55
+            },
+            "end": {
+              "line": 6,
+              "character": 64
+            }
+          },
+          "kind": "source"
+        },
+        "subject": {
+          "declaration": [
+            [
+              "str",
+              "ax_1_5"
+            ],
+            [
+              "str",
+              "bv_decide"
+            ],
+            [
+              "str",
+              "_native"
+            ],
+            [
+              "str",
+              "commute"
             ]
           ]
         },

@@ -92,7 +92,8 @@ inductive BoundaryKind where
   /-- Any other opaque constant; its body is checked only when no compiled helper replaces it. -/
   | «opaqueComputation»
   /-- An axiom that trusts the compiler, reached by execution: `Lean.trustCompiler`,
-  `Lean.ofReduceBool`, `Lean.ofReduceNat` or a `native_decide` axiom. -/
+  `Lean.ofReduceBool`, `Lean.ofReduceNat` or a name the `nativeEqTrue` scheme generates for
+  `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
   deriving Repr, DecidableEq, Inhabited
 
@@ -624,13 +625,18 @@ structure Declaration where
   /-- For such a helper: the axioms of the base's unfolding equation, sorted and without
   duplicates. -/
   unsafeRecEquationAxioms : Option (Array Lean.Name)
-  /-- The type has the shape `Decidable.decide p = true` that a `native_decide` axiom asserts. -/
-  nativeBoolShape : Bool
-  /-- For a replay candidate of that shape: whether an independent native evaluation of the
-  `decide` expression returned `true` (`false` also when the replay failed). -/
+  /-- For an axiom whose name the `nativeEqTrue` scheme generates for a native tactic
+  (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
+  (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
+  own auxiliary definitions for `bv_decide`): the `repr` of `e`, naming each of those auxiliary
+  definitions by its unindexed base. Otherwise `none`. -/
+  nativeStatement : Option String
+  /-- For a replay candidate with a statement: whether an independent native evaluation of
+  `e` returned `true` (`false` also when the replay failed). -/
   nativeReplay : Option Bool
-  /-- For a replay candidate of that shape: the declarations whose whole proof applies
-  `of_decide_eq_true` to this axiom for the same `decide` expression. -/
+  /-- For a replay candidate with a statement: the declarations whose proof uses this axiom only
+  through its tactic's bridge for the same `e` (the whole proof `of_decide_eq_true p inst ax`,
+  or each occurrence as `unsat_of_verifyBVExpr_eq_true expr cert ax`). -/
   nativeUseParents : Array Lean.Name
   /-- Lean's declaration ranges, when it recorded them. -/
   ranges : Option Ranges
@@ -976,6 +982,9 @@ structure AddedDeclaration where
   kind : DeclarationKind
   /-- The `repr` of its kernel type expression. -/
   «type» : String
+  /-- The native statement of a generated native-proof axiom, computed as
+  `Declaration.nativeStatement`; otherwise `none`. -/
+  nativeStatement : Option String := none
   deriving Repr, DecidableEq
 
 /-- A constant binder in a command's information tree: where a declared name is written. -/

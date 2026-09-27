@@ -1,4 +1,5 @@
 import Regula.Report
+import Regula.Collect
 import Regula.Diagnostic
 import RegulaCore.Coordinates
 import RegulaCore.EditorPolicy
@@ -61,16 +62,17 @@ instance : FromJson RegulaPolicy.Frontend.Evaluator := ⟨fun j => do
     pinned := ← j.getObjValAs? _ "pinned"
   }⟩
 
-/-- One constant a command added: its name, kind and printed type
+/-- One constant a command added: its name, kind, printed type and native statement
 (`RegulaPolicy.Frontend.AddedDeclaration`), with its exact-field JSON codec. -/
 abbrev AddedDeclaration := RegulaPolicy.Frontend.AddedDeclaration
 deriving instance ToJson for RegulaPolicy.Frontend.AddedDeclaration
 instance : FromJson RegulaPolicy.Frontend.AddedDeclaration := ⟨fun j => do
-  exactFields j ["name", "kind", "type"]
+  exactFields j ["name", "kind", "type", "nativeStatement"]
   return {
     name := ← j.getObjValAs? _ "name"
     kind := ← j.getObjValAs? _ "kind"
     «type» := ← j.getObjValAs? _ "type"
+    nativeStatement := ← j.getObjValAs? _ "nativeStatement"
   }⟩
 
 /-- The binder site of a declared constant at its declaration identifier
@@ -356,7 +358,8 @@ private def constantRecord (env : Environment) (name : Name) : AddedDeclaration 
   let info := env.constants.find! name
   { name := name
     kind := constantKind info
-    «type» := toString (repr info.type) }
+    «type» := toString (repr info.type)
+    nativeStatement := Regula.Collect.nativeStatement? name info.type }
 
 /-- In ordinary command snapshots, only the local map can gain declarations.
 When pointer identity confirms the same immutable imported map allocation, scan

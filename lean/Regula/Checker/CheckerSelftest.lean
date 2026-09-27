@@ -605,6 +605,24 @@ private def fenceCorpusCases : Array (String × String × String) := #[
     Nat.gcd 1071 462 = 21 := by native_decide\n```\n", "trusted-native.md:2 PASS_TRUSTED"),
   ("trusted-spoof", "<!-- lean-trusted-compiler -->\n```lean\naxiom \
     Attack._native.native_decide.ax_1 : False\n```\n", "trusted-spoof.md:2 FAIL"),
+  -- `decide +native` and `bv_decide` add their axioms through the same `nativeEqTrue`, named
+  -- after their own tactic: authenticated teaching passes, a positive fence reports the
+  -- compiler-trusting rule (not a project or unknown axiom), and a spoofed name still fails.
+  ("trusted-decide-native", "<!-- lean-trusted-compiler -->\n```lean\nimport Init\ntheorem \
+    docs_decide_native : Nat.gcd 1071 462 = 21 := by decide +native\n```\n",
+      "trusted-decide-native.md:2 PASS_TRUSTED"),
+  ("trusted-bv-decide", "<!-- lean-trusted-compiler -->\n```lean\nimport Std.Tactic.BVDecide\n\
+    theorem docs_bv_decide (x y : BitVec 8) : x * y = y * x := by bv_decide\n```\n",
+      "trusted-bv-decide.md:2 PASS_TRUSTED"),
+  ("positive-decide-native", "```lean\nimport Init\ntheorem docs_positive_decide_native : \
+    Nat.gcd 1071 462 = 21 := by decide +native\n```\n",
+      "compiler-trusting: docs_positive_decide_native"),
+  ("positive-bv-decide", "```lean\nimport Std.Tactic.BVDecide\ntheorem docs_positive_bv_decide \
+    (x y : BitVec 8) : x * y = y * x := by bv_decide\n```\n",
+      "compiler-trusting: docs_positive_bv_decide"),
+  ("trusted-tactic-spoof", "<!-- lean-trusted-compiler -->\n```lean\naxiom \
+    Attack._native.decide.ax_1 : False\naxiom Attack._native.bv_decide.ax_1 : False\n```\n",
+      "trusted-tactic-spoof.md:2 FAIL"),
   ("negative-compiles", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := 1\n```\n",
       "negative example elaborated successfully"),
   ("negative-other-diagnostic",
