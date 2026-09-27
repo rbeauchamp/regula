@@ -545,13 +545,31 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
         let some documentation := report.documentation
           | throw <| IO.userError "producer-documentation: project observations unavailable"
-        for (moduleName, present) in documentation.modules do
-          unless present do
-            let finding ← IO.ofExcept <| Regula.makeDiagnostic .moduleDocumentation
-              ⟨moduleName.toString, "module-documentation: add a module doc comment describing this module"⟩
-              (.module moduleName) mode (some surface.claim.toString) .violation
-            findings := findings.push ⟨.moduleDocumentation, finding⟩
+        -- RG5001: the proved `RegulaPolicy.ModuleHeader.failures` decides each module's header
+        -- observation (documentation present, first after the imports, no repeated import).
+        for (moduleName, observation) in documentation.modules do
+          let moduleFindings ← IO.ofExcept <| Regula.Linter.Documentation.moduleFindings
+            moduleName observation mode (some surface.claim.toString)
+          unless moduleFindings.isEmpty do
+            findings := findings ++ moduleFindings
             failures := failures.push s!"module-documentation: {moduleName}"
+        -- RG2006: the options Lake builds each claimed target of this surface with, decided by
+        -- the proved `RegulaPolicy.Community.failures` (`failures_eq_nil_iff`). The surface
+        -- imports Mathlib when its loaded environment contains a `Mathlib` module.
+        let mathlib := report.modules.any (·.getRoot == `Mathlib)
+        let some libraryInventory := inventory.libraries.find? (·.library == surface.library)
+          | throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {surface.library}"
+        let mut targets := #[(surface.library, libraryInventory.options)]
+        for exeName in surface.executables do
+          targets := targets.push (exeName, (← exeInfoFor exeName).options)
+        for (target, options) in targets do
+          let failed := RegulaPolicy.Community.failures options mathlib
+          unless failed.isEmpty do
+            let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
+              ⟨target, RegulaPolicy.Community.detail failed⟩ (.project reportRoot.toString) mode
+              (some surface.claim.toString) .violation
+            findings := findings.push ⟨.communityConfiguration, finding⟩
+            failures := failures.push s!"community-configuration: {target}"
         for (key, docstring) in documentation.declarations do
           -- The proved classification (`materialDocumentationFailure_eq_none_iff`) of the
           -- recorded docstring decides RG5002 (none attached) or RG5003 (no Intent section).

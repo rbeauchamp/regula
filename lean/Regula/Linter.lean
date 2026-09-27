@@ -129,7 +129,10 @@ initialize addModuleLinter {
       return
     try
       let env ← getEnv
-      if let some finding ← IO.ofExcept <| Documentation.moduleFinding env env.mainModule .editorSnapshot then
+      let observation ← Documentation.moduleObservation env env.mainModule
+        (← read).fileMap.source (← read).fileName
+      for finding in ← IO.ofExcept <|
+          Documentation.moduleFindings env.mainModule observation .editorSnapshot none do
         emit finding
       -- Complete local-map traversal also includes declarations lacking binders,
       -- private/generated constants and additions made by metaprograms.

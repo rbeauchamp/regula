@@ -245,8 +245,12 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name) (sourceRoot
           | throw <| IO.userError s!"material declaration has no module: {name}"
         selected := selected.push (env.header.modules[(idx : Nat)]!.module, name)
     let documentation : Regula.Checker.ProducerReport.DocumentationObservation := {
+      -- RG5001 reads each module's header from the exact bound source text.
       modules := ← requested.mapM fun name => do
-        return (name, ← IO.ofExcept <| Regula.Linter.Documentation.modulePresent env name)
+        let some binding := sourceBindings.find? (·.moduleName == name)
+          | throw <| IO.userError s!"module-header: no bound source for {name}"
+        return (name, ← Regula.Linter.Documentation.moduleObservation env name binding.content
+          binding.path)
       materialDeclarations := selected
       declarations := ← selected.mapM fun key => do
         return (key, ← Lean.findDocString? env key.2)

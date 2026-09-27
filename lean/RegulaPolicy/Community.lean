@@ -122,6 +122,26 @@ def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
       else none) ++
     if o.arguments.isEmpty then [] else [.leanArguments o.arguments]
 
+/-- An option value as written in `lakefile.lean`. -/
+def OptionValue.text : OptionValue → String
+  | .string s => s.quote
+  | .bool b => toString b
+  | .nat n => toString n
+
+/-- One failure as a finding detail. -/
+def Failure.text : Failure → String
+  | .option name value [] => s!"`{name}` is not set; set it to {value.text}"
+  | .option name value given =>
+    s!"`{name}` is {", ".intercalate (given.map OptionValue.text)}; set it to {value.text}"
+  | .disabledLinter name =>
+    s!"`{name}` is off for every module; only the standard §6.7 exclusions may be"
+  | .leanArguments arguments =>
+    s!"extra `lean` arguments {arguments}; set options in `leanOptions` instead"
+
+/-- The finding detail of a target's failures. -/
+def detail (failures : List Failure) : String :=
+  "community-configuration: " ++ "; ".intercalate (failures.map Failure.text)
+
 /-- The RG2006 obligation of one target, stated without the executed Boolean functions: every
 required option is given, and only its required value; no option turns off a linter outside
 the §6.7 exclusions; and there are no extra `lean` arguments. -/

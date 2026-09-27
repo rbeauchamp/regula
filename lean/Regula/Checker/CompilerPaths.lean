@@ -172,7 +172,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     s!"import {test.supportModule}\n/-! Execution-path qualification consumer. -/\ndef callsImported (n : Nat) := CompilerPath.entry n\n"
   IO.FS.writeFile (scratch / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (scratch / "lakefile.toml")
-    s!"name = \"compiler_path_control\"\n[[lean_lib]]\nname = \"{test.supportModule}\"\n[[lean_lib]]\nname = \"Wrapper\"\n"
+    s!"name = \"compiler_path_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"{test.supportModule}\"\n[[lean_lib]]\nname = \"Wrapper\"\n"
   -- Resolve configuration before the checker captures its immutable source
   -- binding. A later first Lake invocation would otherwise create the manifest
   -- inside the checked interval, correctly invalidating that binding.

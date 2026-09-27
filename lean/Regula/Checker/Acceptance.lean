@@ -138,7 +138,11 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
     roots := rootKeys, materialDeclarations := material }
   return {
     census, roles := scope.roles, admission := ⟨replayModules, required, admitted, #[]⟩,
-    moduleDocumentation := documentation.modules, declarationDocumentation := documentation.declarations, histories }
+    -- A module's documentation-presence evidence is the proved RG5001 decision on its header
+    -- observation (`RegulaPolicy.ModuleHeader.failures_eq_nil_iff`).
+    moduleDocumentation := documentation.modules.map fun (name, observation) =>
+      (name, (RegulaPolicy.ModuleHeader.failures observation).isEmpty)
+    declarationDocumentation := documentation.declarations, histories }
 
 /-- Requests are the coordinator's ordered module assignments. Responses cannot alter
 their count, index, module partition or snapshot; each complete packet is admitted intact. -/

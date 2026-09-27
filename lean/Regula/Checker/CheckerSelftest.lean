@@ -560,7 +560,7 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   IO.FS.createDirAll compiled
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml")
-    "name = \"diagnostic_control\"\n[[lean_lib]]\nname = \"SetupSentinel\"\n"
+    "name = \"diagnostic_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"SetupSentinel\"\n"
   let source := project / "SetupSentinel.lean"
   let artifact := output / "SetupSentinel.olean"
   IO.FS.writeFile source "def setupValue : Nat := 0\n"
@@ -1286,6 +1286,7 @@ private def adopterOmittedExeText : String :=
 
 private def adopterTomlLakefile (checkerPath : String) : String :=
   "name = \"widget_adopter\"\n\n" ++
+  "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n\n" ++
   "[[require]]\nname = \"regula\"\n" ++
   s!"path = \"{checkerPath}\"\n\n" ++
   "[[lean_lib]]\nname = \"Widget\"\nglobs = [\"Widget\", \"Widget.+\"]\n\n" ++
@@ -1293,7 +1294,8 @@ private def adopterTomlLakefile (checkerPath : String) : String :=
 
 private def adopterLeanLakefile (checkerPath : String) : String :=
   "import Lake\nopen Lake DSL\n\n" ++
-  "package «widget_adopter» where\n\n" ++
+  "package «widget_adopter» where\n" ++
+  "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\n\n" ++
   s!"require «regula» from \"{checkerPath}\"\n\n" ++
   "@[default_target]\nlean_lib «Widget» where\n  globs := #[.andSubmodules `Widget]\n\n" ++
   "lean_exe «widget_tool» where\n  root := `Main\n"
@@ -1539,7 +1541,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
   withScratch repo "combined-snapshot-control" fun project => do
     IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
     IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"snapshot_control\"\n[[lean_lib]]\nname = \"Snapshot\"\n[[lean_lib]]\nname = \"Companion\"\n"
+      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"Snapshot\"\n[[lean_lib]]\nname = \"Companion\"\n"
     IO.FS.writeFile (Manifest.defaultPath project)
       "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Control\"},{\"library\":\"Companion\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Parallel surface control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
     let docs := project / "docs" / ".cache"

@@ -36,6 +36,15 @@ private def checkSource (repo : FilePath) (what : String)
     throw <| IO.userError s!"lake-query-malformed: {what} has invalid source"
   return ← IO.FS.realPath source
 
+/-- The options Lake builds a target's modules with, exactly as Lake resolves them for the
+target (`leanOptions`: build type, package, then target), and the extra `lean` arguments it
+passes (`weakLeanArgs`, then `leanArgs`, the order of Lake's module build). -/
+def buildOptions (options : Lean.LeanOptions) (weakArgs args : Array String) :
+    RegulaPolicy.Community.BuildOptions where
+  options := options.values.toList.map fun (name, value) => (name, match value with
+    | .ofString s => .string s | .ofBool b => .bool b | .ofNat n => .nat n)
+  arguments := (weakArgs ++ args).toList
+
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
@@ -60,7 +69,9 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
       if library.isEmpty || modules.isEmpty || libraries.any (·.library == library)
           || modules.toList.eraseDups.length != modules.size then
         throw <| IO.userError s!"lake-query-malformed: invalid library {library}"
-      libraries := libraries.push { library, modules, sources }
+      libraries := libraries.push {
+        library, modules, sources
+        options := buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs }
     if libraries.isEmpty then
       throw <| IO.userError "lake-query-malformed: no root Lean libraries"
     let mut executables : Array ExecutableInventory := #[]
@@ -72,7 +83,9 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
       if executable.isEmpty || root.isAnonymous || executables.any (·.executable == executable)
           || executables.any (·.root == root) then
         throw <| IO.userError s!"lake-query-malformed: invalid executable {executable}"
-      executables := executables.push { executable, root, source }
+      executables := executables.push {
+        executable, root, source
+        options := buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs }
     let leanPath := #[leanLibDir] ++ ws.leanPath.toArray
     let leanSrcPath := ws.leanSrcPath.toArray
     let dependencies ← (ws.packages.extract 1 ws.packages.size).mapM fun package => do

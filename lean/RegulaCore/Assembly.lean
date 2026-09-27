@@ -1,4 +1,5 @@
 import RegulaCore.Policy
+import RegulaPolicy.Community
 import RegulaPolicy.Acceptance
 import RegulaPolicy.Traversal
 
@@ -66,12 +67,17 @@ structure LibraryInventory where
   library : String
   modules : Array Name
   sources : Array SourceEntry
+  /-- The Lean options and extra `lean` arguments Lake builds the library's modules with
+  (RG2006). -/
+  options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
 structure ExecutableInventory where
   executable : String
   root : Name
   source : FilePath
+  /-- The Lean options and extra `lean` arguments Lake builds the root module with (RG2006). -/
+  options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
 structure DependencyInventory where

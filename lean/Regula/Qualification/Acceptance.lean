@@ -170,7 +170,7 @@ def documentationDependencies : IO Unit := do
     IO.FS.createDirAll (project / "docs")
     toolchain root project
     IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"documentation_dependency\"\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
+      "name = \"documentation_dependency\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     manifest project "kernel-only"
     let source := "import Lean\nimport Dep\n/-! Documentation prerequisite. -/\ntheorem value : Dep.n = 1 := rfl\n"
     IO.FS.writeFile (project / "Example.lean") source

@@ -1,5 +1,6 @@
 import Regula.Report
 import RegulaPolicy.Admission
+import RegulaPolicy.ModuleHeader
 import RegulaPolicy.Guards
 import Regula.Contract
 import RegulaCore.Assembly
@@ -51,10 +52,29 @@ instance : FromJson AdmissionReceipt := ⟨fun j => do
            required := ← j.getObjValAs? _ "required"
            admitted := ← j.getObjValAs? _ "admitted" }⟩
 
+instance : ToJson ModuleHeader.ImportSpec := ⟨fun s => Json.mkObj [
+  ("module", toJson s.module), ("importAll", toJson s.importAll),
+  ("isExported", toJson s.isExported), ("isMeta", toJson s.isMeta)]⟩
+
+instance : FromJson ModuleHeader.ImportSpec := ⟨fun j => do
+  exactFields j ["module", "importAll", "isExported", "isMeta"]
+  return ⟨← j.getObjValAs? _ "module", ← j.getObjValAs? _ "importAll",
+    ← j.getObjValAs? _ "isExported", ← j.getObjValAs? _ "isMeta"⟩⟩
+
+instance : ToJson ModuleHeader.Observation := ⟨fun o => Json.mkObj [
+  ("documented", toJson o.documented), ("documentationFirst", toJson o.documentationFirst),
+  ("imports", toJson o.imports)]⟩
+
+instance : FromJson ModuleHeader.Observation := ⟨fun j => do
+  exactFields j ["documented", "documentationFirst", "imports"]
+  return ⟨← j.getObjValAs? _ "documented", ← j.getObjValAs? _ "documentationFirst",
+    ← j.getObjValAs? _ "imports"⟩⟩
+
 /-- Metadata presence is deliberately separate from prose adequacy. The material selector
-is frozen before docstring lookup and retains exact owning modules, including empty modules. -/
+is frozen before docstring lookup and retains exact owning modules, including empty modules.
+Each module carries its RG5001 header observation (`RegulaPolicy.ModuleHeader`). -/
 structure DocumentationObservation where
-  modules : Array (Name × Bool)
+  modules : Array (Name × ModuleHeader.Observation)
   materialDeclarations : Array (Name × Name)
   declarations : Array ((Name × Name) × Option String)
   deriving Repr, ToJson
@@ -691,7 +711,8 @@ theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
     toolchain := "", modules := #[`A], moduleOrigins := #[], declarations := #[], execution := #[]
     census := { modules := #[`A], declarations := #[], executionRoots := none, historyRequests := #[] }
     admission := some { modules := #[`A], required := #[], admitted := #[] }
-    documentation := some { modules := #[(`A, true)], materialDeclarations := #[], declarations := #[] }
+    documentation := some {
+      modules := #[(`A, ⟨true, true, []⟩)], materialDeclarations := #[], declarations := #[] }
     sourceBindings := #[{ moduleName := `A, path := "A.lean", content := "" }] }
   refine ⟨r, (validate_eq_ok r).mpr ⟨by decide +kernel, by decide +kernel, rfl,
     ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩, ⟨_, rfl, by decide +kernel⟩,

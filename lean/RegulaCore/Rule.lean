@@ -216,13 +216,21 @@ def remedyBudget : Nat := 300
 def rewriteBudget : Nat := 480
 def rewriteCountBudget : Nat := 4
 def exampleBudget : Nat := 512
+/-- The Lean community's line limit (Mathlib's `linter.style.longLine`), for example files, whose
+lines every rule page, finding and agent briefing shows verbatim. -/
+def exampleLineBudget : Nat := 100
+
+/-- Every line of `text` has at most `exampleLineBudget` characters. -/
+def linesWithin (text : String) : Bool :=
+  (text.splitOn "\n").all (·.length ≤ exampleLineBudget)
 
 /-- Nonempty text of at most `budget` UTF-8 bytes. -/
 def withinBudget (text : String) (budget : Nat) : Bool :=
   0 < text.utf8ByteSize && text.utf8ByteSize ≤ budget
 
 /-- Every agent-facing field has content within its budget, the one-line fields contain no
-line break, the two examples differ, and qualification inputs say what they are. The registry
+line break, every example line fits the community's 100-character limit, the two examples differ,
+and qualification inputs say what they are. The registry
 checks this for every rule when `RegulaCore.Guidance` is built (`#guard` over the complete
 `RuleId.all`): evaluation, because kernel reduction of these long string literals costs seconds
 per field. -/
@@ -234,6 +242,7 @@ def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
   d.rewrites.all (fun r => withinBudget r rewriteBudget && !r.contains '\n') &&
   withinBudget d.examples.compliant exampleBudget &&
   withinBudget d.examples.noncompliant exampleBudget &&
+  linesWithin d.examples.compliant && linesWithin d.examples.noncompliant &&
   d.examples.compliant != d.examples.noncompliant &&
   0 < d.examples.correction.utf8ByteSize &&
   (match d.examples.audience with
