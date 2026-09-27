@@ -118,7 +118,11 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
         ids := ["RG2005"], detail := some "fresh generated-role evidence remains required" }]
     let malformed := base ++ "open Lean Elab Command in\nelab \"bad_range \" name:ident : command => do\n  elabCommand (← `(axiom $name:ident : False))\n  let some ranges ← findDeclarationRangesCore? name.getId | throwError \"missing control range\"\n  let invalid := { ranges.range with pos := ⟨9999, 0⟩, endPos := ⟨9999, 1⟩ }\n  addDeclarationRanges name.getId { range := invalid, selectionRange := invalid }\nbad_range corrupted\n"
     let restored := malformed.replace "{ ranges.range with pos := ⟨9999, 0⟩, endPos := ⟨9999, 1⟩ }" "ranges.range"
-    let verso := base.replace "/-!" "set_option doc.verso true\nset_option doc.verso.module true\n/-!"
+    -- A Verso module docstring takes the community's `set_option … in` form, which RG5001 reads
+    -- as the first command after the imports; later docstrings use a module-wide option.
+    let verso := base.replace "/-! Collector qualification control. -/\n"
+      ("set_option doc.verso true in\nset_option doc.verso.module true in\n" ++
+        "/-! Collector qualification control. -/\nset_option doc.verso true\n")
     let moduleStyle := base.replace "import Regula.Linter" "module\nimport Regula.Linter" |>.replace
       "@[regula_material] theorem" "@[regula_material] public theorem"
     let inspect := base ++ "run_cmd Lean.Elab.Command.liftCoreM <| Lean.addDecl (.axiomDecl {\n  name := `hiddenAxiom, levelParams := [], type := Lean.mkSort .zero, isUnsafe := false })\nrun_cmd do\n  let env ← Lean.getEnv\n  let ds ← Regula.Collect.currentModule\n  unless ds.any (fun d => d.name == `hiddenAxiom && d.kind == .«axiom») do\n    throwError \"binder-less declaration missing\"\n  unless ds.any (fun d => d.private) do throwError \"private declaration missing\"\n  unless ds.any (fun d => d.name == `Branch.rec) do throwError \"generated declaration missing\"\n  unless ds.all (fun d => d.module == env.mainModule) do throwError \"wrong local ownership\"\n  let a ← Regula.Collect.declaration `documented .snapshot\n  let b ← Regula.Collect.declaration `documented .replayCandidate\n  unless a == b do throwError \"stage changed ordinary canonical record\"\n  unless (Regula.Collect.moduleOf env `unknownDeclaration).toOption.isNone do\n    throwError \"invented unknown ownership\"\n  if env.header.modules.any (fun m => m.module.getRoot == `Mathlib) then\n    throwError \"public import required Mathlib\"\n"

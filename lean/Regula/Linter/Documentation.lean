@@ -42,25 +42,38 @@ def declarationFailure (env : Environment) (name : Name) :
     IO (Option RegulaPolicy.MaterialDocumentationFailure) := do
   return RegulaPolicy.materialDocumentationFailure (← Lean.findDocString? env name)
 
+/-- The command a `set_option … in` prefix scopes, repeatedly: the community's header check
+(Mathlib's `withSetOptionIn`) reads `set_option doc.verso true in /-! … -/` as a module
+docstring, the form a Verso module docstring takes. Each prefix spans at least one source byte,
+so the source's byte count as `fuel` unwraps every prefix; the recursion is structural. -/
+def withoutSetOptionIn : (fuel : Nat) → Syntax → Syntax
+  | 0, stx => stx
+  | fuel + 1, stx =>
+    if stx.isOfKind ``Parser.Command.in && stx[0].isOfKind ``Parser.Command.set_option then
+      withoutSetOptionIn fuel stx[2]
+    else stx
+
 /-- The header facts RG5001 decides, read from a module's source text with Lean's own parser:
-whether the first command after the header is a module docstring, and the header's imports in
-source order (`HeaderSyntax.imports` without Lean's implicit `Init`). The first command is parsed
-once, with the parser tables of `env`, which contains every syntax the module's imports declare;
-a first command that does not parse is not a module docstring. -/
+whether the first command after the header is a module docstring (under any `set_option … in`
+prefixes), and the header's imports in source order (`HeaderSyntax.imports` without Lean's
+implicit `Init`). The first command is parsed once, with the parser tables of `env`, which
+contains every syntax the module's imports declare; a first command that does not parse is not
+a module docstring. -/
 def headerFacts (env : Environment) (source fileName : String) :
     IO (Bool × List RegulaPolicy.ModuleHeader.ImportSpec) := do
   let inputCtx := Parser.mkInputContext source fileName
   let (header, state, messages) ← Parser.parseHeader inputCtx
   if messages.hasErrors then
     throw <| IO.userError s!"module-header: the header of {fileName} does not parse"
-  let imports := (Elab.HeaderSyntax.imports header (includeInit := false)).toList.map
-    fun i => (⟨i.module, i.importAll, i.isExported, i.isMeta⟩ : RegulaPolicy.ModuleHeader.ImportSpec)
+  let imports := (Elab.HeaderSyntax.imports header (includeInit := false)).toList.map fun i =>
+    (⟨i.module, i.importAll, i.isExported, i.isMeta⟩ : RegulaPolicy.ModuleHeader.ImportSpec)
   let pmctx : Parser.ParserModuleContext := { env, options := {} }
   let first := (Parser.andthenFn Parser.whitespace Parser.topLevelCommandParserFn).run inputCtx
     pmctx (Parser.getTokenTable env)
     { cache := Parser.initCacheForInput source, pos := state.pos }
   let documentationFirst := first.errorMsg.isNone && !first.stxStack.isEmpty &&
-    first.stxStack.back.isOfKind ``Parser.Command.moduleDoc
+    (withoutSetOptionIn source.utf8ByteSize first.stxStack.back).isOfKind
+      ``Parser.Command.moduleDoc
   return (documentationFirst, imports)
 
 /-- The RG5001 observation of one module: the module documentation Lean recorded and the header
