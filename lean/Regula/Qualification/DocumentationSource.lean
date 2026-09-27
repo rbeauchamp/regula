@@ -48,7 +48,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
           positiveText := "conforming-positive-pass=1/1" }
         if bad then
           let scope := if binary == "docFenceAudit" then project / "docs" else project
-          IO.ofExcept (checkedDocumentation.run (process.stdout ++ process.stderr) scope.toString reason phase)
+          IO.ofExcept (checked_documentation.run (process.stdout ++ process.stderr) scope.toString reason phase)
         IO.println s!"documentation {binary}/{phase}: PASS"
     if sourceReadOnly then
       for stage in #["file", "build"] do

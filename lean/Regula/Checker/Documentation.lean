@@ -588,7 +588,7 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
       for group in updates do responses := responses ++ group
       -- `IndexedResultsContract`: exactly one result per task, in task order, each bound
       -- to its own task; missing, duplicate, unknown and rebound results are refused.
-      let complete ← IO.ofExcept <| (RegulaPolicy.checkedIndexedResults.run tasks.size
+      let complete ← IO.ofExcept <| (RegulaPolicy.checked_indexedResults.run tasks.size
         (fun index (result : Result) => decide (tasks[index]? = some result.task))
         responses.toList).mapError
         (fun failure => s!"documentation result admission: {repr failure}")
@@ -657,7 +657,7 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
       pure (#[], RegulaPolicy.ExampleOutcome.compilerRejection errors)
     else do
       let some group := raw.group | throw <| IO.userError "missing example group inspection"
-      IO.ofExcept (ProducerReport.checkedValidate.run group.report)
+      IO.ofExcept (ProducerReport.checked_validate.run group.report)
       IO.ofExcept <| group.report.validateSourceEvidence.mapError (·.detail)
       let scope ← IO.ofExcept <| Policy.admitScope group.report.declarations group.transcripts
       let some replay := group.report.admission

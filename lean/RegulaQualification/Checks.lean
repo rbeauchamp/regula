@@ -81,7 +81,7 @@ def EvaluationContract (run : List Check → Except String Unit) : Prop :=
   (∀ xs ys, run (xs ++ ys) = (run xs).bind (fun _ => run ys))
 
 /-- The IO adapters invoke this contract's `run`, which is definitionally `evaluate`. -/
-theorem checkedEvaluation : Regula.ExecutableContract evaluate EvaluationContract :=
+theorem checked_evaluation : Regula.ExecutableContract evaluate EvaluationContract :=
   ⟨evaluate_success, evaluate_error, evaluate_append⟩
 
 /-- Non-vacuity: a genuine true assertion succeeds. -/

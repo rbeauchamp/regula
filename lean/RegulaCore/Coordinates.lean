@@ -3,7 +3,7 @@ import Regula.Contract
 
 /-! Transcript-coordinate admission: the check `Policy.admitScope` runs before inventory
 admission. `CoordinateContract` names its obligations in traversal order and requires
-refusal with the first unmet one; `checkedCoordinates` proves it about the executed
+refusal with the first unmet one; `checked_coordinates` proves it about the executed
 `coordinateCheck` for every UTF-16 column function. The contract concerns the supplied
 transcript bytes, coordinates and declaration ranges; it does not authenticate how a worker
 acquired them. -/
@@ -270,7 +270,7 @@ theorem coordinateObligations_hold (column : Utf16Column) (declarations : Array 
     and_true, Array.mem_toList_iff, Option.mem_toList, Option.mem_def, and_assoc]
 
 /-- Registers `CoordinateContract` about the executed coordinate check. -/
-theorem checkedCoordinates : Regula.ExecutableContract coordinateCheck CoordinateContract :=
+theorem checked_coordinates : Regula.ExecutableContract coordinateCheck CoordinateContract :=
   ⟨fun column declarations transcript =>
     ⟨(coordinateCheck_decides column declarations transcript).ok_iff.trans
         (coordinateObligations_hold column declarations transcript),

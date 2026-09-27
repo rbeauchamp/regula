@@ -42,7 +42,7 @@ def check : IO Unit := do
         let (result, report) ← observeProject root project output flags
         if phase == "admission" || phase == "source-change" then
           let reason := if phase == "admission" then "kernel-admission" else "producer-source: source snapshot changed"
-          IO.ofExcept (RegulaQualification.Evidence.checkedValidation.run {
+          IO.ofExcept (RegulaQualification.Evidence.checked_validation.run {
             failure := true, mode := some mode, status := "incomplete", ids := ["RG2005"], reason,
             impact := some "incomplete", diagnosticMode := some mode }
             result.exitCode.toNat (result.stdout ++ result.stderr) (some report))
@@ -53,7 +53,7 @@ def check : IO Unit := do
               requireChecks [⟨"intended unchecked theorem", (← IO.ofExcept (RegulaQualification.Evidence.detail d)).contains "admissionFalse"⟩]
           IO.println s!"source {invocation}/{phase}: exact RG2005 incomplete PASS"
           continue
-        IO.ofExcept (RegulaQualification.History.checkedValidation.run report result.exitCode.toNat
+        IO.ofExcept (RegulaQualification.History.checked_validation.run report result.exitCode.toNat
           mode source (invocation == "file") (phase == "unsupported"))
         if invocation == "file" && phase == "positive" then
           let scope ← IO.ofExcept (report.getObjVal? "scope")

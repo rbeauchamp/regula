@@ -3,8 +3,8 @@ import RegulaCore.Policy
 
 /-! Operational adapter over the claimed `RegulaCore.Policy` projections: it binds
 scope admission to the frontend's source-coordinate check and renders policy results
-as text. This file defines `admitScope` (running `checkedScope`), `executionSummary` (running
-`RegulaPolicy.checkedSummary`) and the unproved renderers `describeBoundary`, `classify` and
+as text. This file defines `admitScope` (running `checked_scope`), `executionSummary` (running
+`RegulaPolicy.checked_summary`) and the unproved renderers `describeBoundary`, `classify` and
 `classifyMember`; `executionFailureRecords` is the claimed decision itself. The rules, member
 labels and `executionFailures` in this namespace are defined in claimed `RegulaCore.Policy`. -/
 
@@ -18,13 +18,13 @@ abbrev ExecutionClaim := RegulaPolicy.ExecutionClaim
 abbrev ExecutionClaim.parse? (s : String) : Option ExecutionClaim := RegulaPolicy.ExecutionClaim.parse? s
 abbrev ExecutionClaim.toString (x : ExecutionClaim) : String := RegulaPolicy.ExecutionClaim.spelling x
 
-/-- Admit the scope through `checkedScope` with the frontend's coordinate check, itself
-`checkedCoordinates.run`. `ScopeContract`, instantiated at `Frontend.validateCoordinates`,
+/-- Admit the scope through `checked_scope` with the frontend's coordinate check, itself
+`checked_coordinates.run`. `ScopeContract`, instantiated at `Frontend.validateCoordinates`,
 is its exact relation, and `CoordinateContract` that check's. Transcript bytes are not
 authenticated. -/
 def admitScope (ds : Array Declaration) (ts : Array Frontend.Transcript := #[]) :
     Except String PolicyScope :=
-  checkedScope.run Frontend.validateCoordinates ds ts
+  checked_scope.run Frontend.validateCoordinates ds ts
 
 abbrev declarationNeedsTranscript := RegulaPolicy.declarationNeedsTranscript
 abbrev needsFrontendTranscript := RegulaPolicy.needsFrontendTranscript
@@ -48,9 +48,9 @@ def describeBoundary (boundary : Regula.Report.ExecutionBoundary) : String :=
     s!"correspondence={boundary.correspondence}{replacement}{evidence}{owned}{callers} " ++
     s!"(module {boundary.«module»})"
 
-/-- Execution-coverage counts, through `RegulaPolicy.checkedSummary`. -/
+/-- Execution-coverage counts, through `RegulaPolicy.checked_summary`. -/
 def executionSummary (inventory : ExecutionInventory) : RegulaPolicy.ExecutionSummary :=
-  RegulaPolicy.checkedSummary.run inventory
+  RegulaPolicy.checked_summary.run inventory
 
 private def classifyWith (decl : Declaration) (foundation : String) : String :=
   let flags := Id.run do

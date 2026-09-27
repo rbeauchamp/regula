@@ -606,7 +606,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
       let expectedType := theoremType.getD (← get declaration "type")
       theoremType := some expectedType
       let phase ← string record "phase"
-      IO.ofExcept (RegulaQualification.Producer.checkedValidation.run report
+      IO.ofExcept (RegulaQualification.Producer.checked_validation.run report
         (← IO.ofExcept (← get record "exitCode").getNat?) rule "freshProject" (← string record "source")
         (phase == "Fixed") expectedType)
       IO.println s!"fresh project producer {rule}/{phase}: PASS"

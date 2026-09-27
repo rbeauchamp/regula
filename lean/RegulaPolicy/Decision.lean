@@ -118,13 +118,13 @@ def MemberFailureContract
     decide i roles d member request = policyFor i roles d request
 
 /-- The membership proof, typically supplied by iterating `i.declarations`, replaces
-`policyFor`'s linear scan; it is never inspected. Callers use `checkedMemberFailure.run`. -/
+`policyFor`'s linear scan; it is never inspected. Callers use `checked_memberFailure.run`. -/
 def memberFailure (i : Inventory) (roles : Roles i) (d : Declaration)
     (_member : d ∈ i.declarations) (request : InspectionRequest) : Option DeclarationFailure :=
   declarationFailure d request roles.native roles.helpers
 
 /-- Registers `MemberFailureContract` about `memberFailure`. -/
-theorem checkedMemberFailure : Regula.ExecutableContract memberFailure MemberFailureContract :=
+theorem checked_memberFailure : Regula.ExecutableContract memberFailure MemberFailureContract :=
   ⟨fun i roles d member request => by simp [memberFailure, policyFor, member]⟩
 
 /-- Required relation for the member-indexed classification: for every inventory member,
@@ -135,13 +135,13 @@ def MemberFoundationContract
   ∀ i roles d (member : d ∈ i.declarations),
     foundationFor i roles d = .ok (classify i roles d member)
 
-/-- Classification of a proved member; callers use `checkedMemberFoundation.run`. -/
+/-- Classification of a proved member; callers use `checked_memberFoundation.run`. -/
 def memberFoundation (i : Inventory) (roles : Roles i) (d : Declaration)
     (_member : d ∈ i.declarations) : FoundationClass :=
   labelOf d.axioms roles.native
 
 /-- Registers `MemberFoundationContract` about `memberFoundation`. -/
-theorem checkedMemberFoundation :
+theorem checked_memberFoundation :
     Regula.ExecutableContract memberFoundation MemberFoundationContract :=
   ⟨fun i roles d member => by simp [memberFoundation, foundationFor, member]⟩
 
@@ -322,9 +322,9 @@ theorem foundationFor_iff (i : Inventory) (roles : Roles i) (d : Declaration) (l
 /-- The actual declaration diagnostic is the first failed independent requirement. All
 success and refusal outputs, including their precedence, follow this same relation. -/
 theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
-    OrderedDecision (DeclarationRequirements d r native helpers) (declarationFailure d r native helpers) := by
+    OrderedDecision (declarationRequirements d r native helpers) (declarationFailure d r native helpers) := by
   by_cases hd : d.kind = .«axiom» <;> cases r <;>
-    simp only [DeclarationRequirements, hd, ↓reduceIte, reduceCtorEq, declarationFailure,
+    simp only [declarationRequirements, hd, ↓reduceIte, reduceCtorEq, declarationFailure,
       BEq.rfl, Array.contains_eq_mem, decide_eq_true_eq, beq_iff_eq, orderedDecision_cons,
       ite_eq_right_iff, Option.some.injEq, imp_false, and_self, not_false_eq_true,
       ite_eq_left_iff, Decidable.not_not, true_and, orderedDecision_nil, false_and, or_false,
@@ -342,7 +342,7 @@ theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest) (na
 theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest) (native helpers : Array Name)
     (result : Option DeclarationFailure) :
     declarationFailure d r native helpers = result ↔
-      OrderedDecision (DeclarationRequirements d r native helpers) result := by
+      OrderedDecision (declarationRequirements d r native helpers) result := by
   constructor
   · intro h; rw [← h]; exact declarationFailure_ordered d r native helpers
   · intro h; exact (declarationFailure_ordered d r native helpers).unique h
@@ -350,7 +350,7 @@ theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest) (native
 /-- Invalid inventory membership precedes all declaration-policy diagnostics. -/
 theorem policyFor_ordered (i : Inventory) (roles : Roles i) (d : Declaration) (r : InspectionRequest) :
     (d ∉ i.declarations ∧ policyFor i roles d r = some .invalidInventory) ∨
-    (d ∈ i.declarations ∧ OrderedDecision (DeclarationRequirements d r roles.native roles.helpers)
+    (d ∈ i.declarations ∧ OrderedDecision (declarationRequirements d r roles.native roles.helpers)
       (policyFor i roles d r)) := by
   by_cases hd : d ∈ i.declarations
   · exact Or.inr ⟨hd, by simpa [policyFor, hd] using declarationFailure_ordered d r roles.native roles.helpers⟩

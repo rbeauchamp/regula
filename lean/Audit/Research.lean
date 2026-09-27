@@ -20,7 +20,7 @@ a bounded-search reduction, and one witnessed unconditional existence claim.
 - `Research.not_oddPerfectExists_of_bound` - a complete reduction: an explicit
   upper bound together with a finite search below it refutes the target
 - `Research.search_below_nine` - the finite-search hypothesis discharged at `9`
-- `Research.evenPerfectExists` - an unconditional existence claim with its
+- `Research.exists_even_perfect` - an unconditional existence claim with its
   witness `6`
 
 ## Implementation Notes
@@ -118,7 +118,7 @@ theorem perfect_six : Nat.Perfect 6 := by
 /-- An unconditional existence claim carries its witness. Contrast with
 `OddPerfectExists`, for which no witness is available: the claim kinds
 differ, and only this one is proved. -/
-theorem evenPerfectExists : ∃ n : ℕ, Even n ∧ n.Perfect := ⟨6, by decide, perfect_six⟩
+theorem exists_even_perfect : ∃ n : ℕ, Even n ∧ n.Perfect := ⟨6, by decide, perfect_six⟩
 
 /-- Quantifier order is part of the statement. The unswapped `∀ x, ∃ y, x < y`
 is Mathlib's `exists_gt` at `ℕ` (`NoMaxOrder ℕ`); the swapped `∃ y, ∀ x, x < y`

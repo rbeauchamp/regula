@@ -3,7 +3,7 @@ import RegulaPolicy.Guards
 
 /-! Source-bound history observation requirements. Checks compare the supplied report
 with exact source, invocation, requests, and both overwritten replacement targets.
-`checkedDecoded` supplies sound/complete refusal semantics for the decoded requirement
+`checked_decoded` supplies sound/complete refusal semantics for the decoded requirement
 list. These are predicates on observations, not proofs of source evaluator behavior. -/
 namespace RegulaQualification.History
 open Lean RegulaPolicy.Guards
@@ -175,11 +175,11 @@ def requirements (report : Json) (code : Nat) (mode source : String)
 refuse before assertion evaluation; all predicates in `requirements` must hold. -/
 def validate (report : Json) (code : Nat) (mode source : String)
     (fileMode unsupported : Bool) : Except String Unit :=
-  checkedDecoded.run (requirements report code mode source fileMode unsupported)
+  checked_decoded.run (requirements report code mode source fileMode unsupported)
 
 /-- The application cannot replace the history oracle with an always-successful or
 always-refusing implementation while retaining this required equivalence. -/
-theorem checkedValidation : Regula.ExecutableContract validate
+theorem checked_validation : Regula.ExecutableContract validate
     (fun run => ∀ report code mode source fileMode unsupported,
       run report code mode source fileMode unsupported = .ok () ↔
         ∃ checks, requirements report code mode source fileMode unsupported = .ok checks ∧ Satisfied checks) :=

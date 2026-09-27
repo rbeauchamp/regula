@@ -63,7 +63,7 @@ private def moduleKey (snapshot : AdmittedSnapshot) (name : Name) : Except Strin
 private def declarationKey (snapshot : AdmittedSnapshot) (key : Name × Name) : Except String DeclarationKey := do
   return ⟨← moduleKey snapshot key.1, ← admitIdentity key.2⟩
 
-/-- Every report's history outcomes, in report order, through `checkedHistories`. -/
+/-- Every report's history outcomes, in report order, through `checked_histories`. -/
 def historyObservations (reports : Array RequestedInspection) : Except String (Array HistoryObservation) :=
   histories (reports.flatMap (·.report.histories))
 
@@ -80,7 +80,7 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
   unless inspected.expectedModules == positive && report.census.modules == positive &&
       report.census.executionRoots.isSome do
     throw <| IO.userError "producer census differs from independently requested environment"
-  -- `inspected.admitted.valid` proves `checkedValidate` (which includes the source-evidence
+  -- `inspected.admitted.valid` proves `checked_validate` (which includes the source-evidence
   -- guard) succeeded on this exact report; only the bindings to `sources` remain to check.
   timedPhase "freeze report validation" do
     IO.ofExcept (← IO.lazyPure fun _ => (SourceBinding.validateAgainst sources report).mapError (·.detail))

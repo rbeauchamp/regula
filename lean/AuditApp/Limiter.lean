@@ -18,7 +18,7 @@ assumptions appear as binders or proof fields. This module directly imports only
 published checker interfaces: the proof-requiring executable-contract type and the
 `@[regula_material]` registration attribute, whose import closure brings in Lean's attribute
 framework; no definition or proof here uses it. Its material
-claims `RequiredContracts`, `requiredContracts` and `checkedExecutable` are registered with
+claims `RequiredContracts`, `required_contracts` and `checked_executable` are registered with
 `@[regula_material]`, so RG5002/RG5003 require each to carry a docstring with a nonempty Intent
 section (standard §5.2); whether each Intent states the right requirement remains
 semantic review.
@@ -486,7 +486,7 @@ proofs are welcome; neither theorem names nor declaration counts are the rule.
 Every required behavior of the limiter must be proved about the exact definitions the
 application executes. -/
 @[regula_material]
-theorem requiredContracts : RequiredContracts where
+theorem required_contracts : RequiredContracts where
   admission := admit_exact
   grant_success := grant_some
   grant_refusal := grant_none
@@ -547,7 +547,7 @@ The build linter also checks executability and compiler/runtime boundaries.
 The function the executable calls must admit exactly the positive capacities, start
 each admitted limiter idle at that capacity, and then run the script strictly. -/
 @[regula_material]
-theorem checkedExecutable : Regula.ExecutableContract executeChecked
+theorem checked_executable : Regula.ExecutableContract executeChecked
     (fun execute => ∀ (contracts : RequiredContracts) capacity ops,
       execute contracts capacity ops = if 0 < capacity then
         some (runChecked ops ⟨capacity, 0, Nat.zero_le capacity⟩) else none) :=

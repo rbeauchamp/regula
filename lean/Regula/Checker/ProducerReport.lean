@@ -703,14 +703,14 @@ satisfies every named account, and some report is admitted. -/
 def TransportContract (run : Environment → Except String Unit) : Prop :=
   (∀ r, run r = .ok () → r.Admissible) ∧ ∃ r, run r = .ok ()
 
-/-- Producers, transport decoding and acceptance call `checkedValidate.run`, which is
+/-- Producers, transport decoding and acceptance call `checked_validate.run`, which is
 definitionally `Environment.validate`, so this evidence is required at each call site. The
 project report worker leaves the call to its coordinator, whose decoder runs it once and
 retains the success as an `Admitted` proof; `Acceptance.freezeEnvironment` consumes that proof. -/
-theorem checkedValidate : Regula.ExecutableContract Environment.validate TransportContract :=
+theorem checked_validate : Regula.ExecutableContract Environment.validate TransportContract :=
   ⟨validate_sound, validate_nonvacuous⟩
 
-/-- Field decoding only; admission is the separate `checkedValidate` step. -/
+/-- Field decoding only; admission is the separate `checked_validate` step. -/
 def Environment.decodeFields (j : Json) : Except String Environment := do
   exactFields j ["toolchain", "modules", "moduleOrigins", "declarations", "execution",
     "census", "admission", "documentation", "histories", "sourceBindings"]
@@ -729,7 +729,7 @@ def Environment.decodeFields (j : Json) : Except String Environment := do
 
 instance : FromJson Environment := ⟨fun j => do
   let r ← Environment.decodeFields j
-  checkedValidate.run r
+  checked_validate.run r
   return r⟩
 
 /-- Every report the transport decoder returns is admissible. -/
@@ -745,9 +745,9 @@ structure Admitted where
   report : Environment
   valid : report.validate = .ok ()
 
-/-- Run `checkedValidate` once and retain its success as a proof. -/
+/-- Run `checked_validate` once and retain its success as a proof. -/
 def admit (r : Environment) : Except String Admitted :=
-  match h : checkedValidate.run r with
+  match h : checked_validate.run r with
   | .ok () => .ok ⟨r, h⟩
   | .error detail => .error detail
 
@@ -826,7 +826,7 @@ run_cmd do
   for name in #[``Regula.Checker.ProducerReport.validate_eq_ok,
       ``Regula.Checker.ProducerReport.validate_sound,
       ``Regula.Checker.ProducerReport.validate_nonvacuous,
-      ``Regula.Checker.ProducerReport.checkedValidate,
+      ``Regula.Checker.ProducerReport.checked_validate,
       ``Regula.Checker.ProducerReport.fromJson_admissible,
       ``Regula.Checker.ProducerReport.admit_eq_ok,
       ``Regula.Checker.ProducerReport.Admitted.admitExecution_eq,

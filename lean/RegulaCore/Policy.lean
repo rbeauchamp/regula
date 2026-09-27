@@ -11,7 +11,7 @@ scope admission, declaration rules and execution rules. Each requirement is a na
 `Prop`; a closed `ExecutableContract` proves it about the executed definition, and the
 operational adapter `Regula.Checker.Policy` runs these registrations. Scope admission
 takes the transcript-coordinate check as a parameter, so `ScopeContract` holds for every
-check; the adapter supplies `RegulaCore.Coordinates`'s `checkedCoordinates`. These
+check; the adapter supplies `RegulaCore.Coordinates`'s `checked_coordinates`. These
 contracts do not authenticate transcripts, sources or environment observations. -/
 
 namespace Regula.Checker.Policy
@@ -64,7 +64,7 @@ def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers
 
 /-- A transcript-coordinate check over the declaration inventory. The operational
-adapter supplies `Frontend.validateCoordinates`, which runs `checkedCoordinates`. -/
+adapter supplies `Frontend.validateCoordinates`, which runs `checked_coordinates`. -/
 abbrev CoordinateCheck :=
   Array Declaration → RegulaPolicy.Frontend.Transcript → Except String Unit
 
@@ -104,7 +104,7 @@ private theorem admitScopeImpl_checked (check : CoordinateCheck) (ds : Array Dec
 
 /-- Registers `ScopeContract` about the executed admission; the adapter's `admitScope`
 runs it with the frontend coordinate check. -/
-theorem checkedScope : Regula.ExecutableContract admitScopeImpl ScopeContract := by
+theorem checked_scope : Regula.ExecutableContract admitScopeImpl ScopeContract := by
   refine ⟨fun check => ⟨?first, admitScopeImpl_checked check, ?success, ?fidelity⟩⟩
   case first =>
     intro ds ts before t after e hts hb ht
@@ -153,19 +153,19 @@ private def requestImpl : Option Profile → RegulaPolicy.InspectionRequest
   | some .standardLogical => .conforming .standardLogical
 
 /-- Registers `RequestContract` about the executed projection; callers use `request`. -/
-theorem checkedRequest : Regula.ExecutableContract requestImpl RequestContract :=
+theorem checked_request : Regula.ExecutableContract requestImpl RequestContract :=
   ⟨⟨rfl, fun profile => by
     cases profile <;> refine ⟨by simp [requestImpl], fun conforming => ?_⟩ <;>
       cases conforming <;> simp [requestImpl, Profile.toString,
         RegulaPolicy.ConformingProfile.spelling]⟩⟩
 
-/-- The policy request selected by a claim, through `checkedRequest`. -/
+/-- The policy request selected by a claim, through `checked_request`. -/
 def request (claim : Option Profile) : RegulaPolicy.InspectionRequest :=
-  checkedRequest.run claim
+  checked_request.run claim
 
 /-- `RequestContract` stated about `request` itself, for reuse by its consumers. -/
 theorem request_contract : RequestContract request :=
-  checkedRequest.evidence
+  checked_request.evidence
 
 /-- Required declaration projection: no rule exactly when the inventory-bound policy decision
 for the selected request succeeds, and otherwise the registry rule of that decision's failure.
@@ -184,7 +184,7 @@ private def ruleForImpl (decl : Declaration) (claim : Option Profile) (scope : P
     Regula.ruleForFailure
 
 /-- Registers `RuleContract` about the executed projection; callers use `ruleFor`. -/
-theorem checkedRule : Regula.ExecutableContract ruleForImpl RuleContract :=
+theorem checked_rule : Regula.ExecutableContract ruleForImpl RuleContract :=
   ⟨fun decl claim scope => by
     unfold ruleForImpl
     cases RegulaPolicy.policyFor scope.inventory scope.roles decl (request claim) with
@@ -195,9 +195,9 @@ theorem checkedRule : Regula.ExecutableContract ruleForImpl RuleContract :=
       exact ⟨fun h => (Regula.ruleForFailure_injective h).symm ▸ rfl,
         fun h => h ▸ rfl⟩⟩
 
-/-- The registry rule for a declaration's first policy failure, through `checkedRule`. -/
+/-- The registry rule for a declaration's first policy failure, through `checked_rule`. -/
 def ruleFor (decl : Declaration) (claim : Option Profile) (scope : PolicyScope) : Option RuleId :=
-  checkedRule.run decl claim scope
+  checked_rule.run decl claim scope
 
 /-- Required member projection: for every declaration proved to be a member of the scope's
 admitted inventory, the rule is exactly `ruleFor`'s, and so satisfies `RuleContract`. -/
@@ -209,30 +209,30 @@ def MemberRuleContract
 
 private def ruleForMemberImpl (decl : Declaration) (claim : Option Profile) (scope : PolicyScope)
     (member : decl ∈ scope.inventory.declarations) : Option RuleId :=
-  (RegulaPolicy.checkedMemberFailure.run scope.inventory scope.roles decl member
+  (RegulaPolicy.checked_memberFailure.run scope.inventory scope.roles decl member
     (request claim)).map Regula.ruleForFailure
 
 /-- Registers `MemberRuleContract`, reducing it to `MemberFailureContract`. -/
-theorem checkedMemberRule : Regula.ExecutableContract ruleForMemberImpl MemberRuleContract :=
+theorem checked_memberRule : Regula.ExecutableContract ruleForMemberImpl MemberRuleContract :=
   ⟨fun decl claim scope member => by
     simp only [ruleForMemberImpl, ruleFor, Regula.ExecutableContract.run_eq, ruleForImpl,
-      RegulaPolicy.checkedMemberFailure.evidence _ _ _ member]⟩
+      RegulaPolicy.checked_memberFailure.evidence _ _ _ member]⟩
 
 /-- `ruleFor` for a member, supplied by iterating `scope.inventory.declarations`: the
-membership proof replaces the inventory scan. Through `checkedMemberRule`. -/
+membership proof replaces the inventory scan. Through `checked_memberRule`. -/
 def ruleForMember (decl : Declaration) (claim : Option Profile) (scope : PolicyScope)
     (member : decl ∈ scope.inventory.declarations) : Option RuleId :=
-  checkedMemberRule.run decl claim scope member
+  checked_memberRule.run decl claim scope member
 
 /-- `MemberRuleContract` stated about `ruleForMember` itself. -/
 theorem ruleForMember_eq (decl : Declaration) (claim : Option Profile) (scope : PolicyScope)
     (member : decl ∈ scope.inventory.declarations) :
     ruleForMember decl claim scope member = ruleFor decl claim scope :=
-  checkedMemberRule.evidence decl claim scope member
+  checked_memberRule.evidence decl claim scope member
 
 /-- `RuleContract` stated about `ruleFor` itself. -/
 theorem ruleFor_contract : RuleContract ruleFor :=
-  checkedRule.evidence
+  checked_rule.evidence
 
 /-- The editor's request domain is the project request's without teaching: every value the
 editor option accepts selects `request claim` for a claim other than compiler-trusting. -/
@@ -266,7 +266,7 @@ theorem editor_decision_none_iff (scope : PolicyScope) (decl : Declaration)
     (ruleFor_contract decl claim scope).1]
 
 /-- A rule the editor renders is the project rule projection's rule for the same member and
-request (`checkedMemberRule`). -/
+request (`checked_memberRule`). -/
 theorem editor_decision_rule (scope : PolicyScope) (decl : Declaration)
     (member : decl ∈ scope.inventory.declarations) (claim : Option Profile) (id : RuleId)
     (h : Regula.Linter.editorDecision scope.inventory scope.roles decl member (request claim) =
@@ -307,7 +307,7 @@ theorem reasonFor_eq_some_iff (decl : Declaration) (claim : Option Profile) (sco
         some (descriptor (Regula.ruleForFailure failure)).applicability ↔
       RegulaPolicy.policyFor scope.inventory scope.roles decl (request claim) =
         some failure := by
-  have contract := checkedRule.evidence decl claim scope
+  have contract := checked_rule.evidence decl claim scope
   rw [← (contract.2 failure)]
   unfold reasonFor ruleFor
   rw [Regula.ExecutableContract.run_eq]
@@ -328,15 +328,15 @@ def labelOf (decl : Declaration) (scope : PolicyScope) : Except String Foundatio
   RegulaPolicy.foundationFor scope.inventory scope.roles decl
 
 /-- Foundation class of a member of the scope's inventory, through
-`RegulaPolicy.checkedMemberFoundation`: `labelOf` succeeds with exactly this class. -/
+`RegulaPolicy.checked_memberFoundation`: `labelOf` succeeds with exactly this class. -/
 def labelOfMember (decl : Declaration) (scope : PolicyScope)
     (member : decl ∈ scope.inventory.declarations) : FoundationClass :=
-  RegulaPolicy.checkedMemberFoundation.run scope.inventory scope.roles decl member
+  RegulaPolicy.checked_memberFoundation.run scope.inventory scope.roles decl member
 
 theorem labelOf_member (decl : Declaration) (scope : PolicyScope)
     (member : decl ∈ scope.inventory.declarations) :
     labelOf decl scope = .ok (labelOfMember decl scope member) :=
-  RegulaPolicy.checkedMemberFoundation.evidence _ _ _ member
+  RegulaPolicy.checked_memberFoundation.evidence _ _ _ member
 
 /-- Total bridge from execution failure kinds to the single rule registry. -/
 def executionRule : RegulaPolicy.ExecutionFailureKind → RuleId
@@ -369,16 +369,16 @@ private def executionFailuresImpl (inventory : RegulaPolicy.ExecutionInventory)
   (RegulaPolicy.executionFailureRecords inventory claim).map executionFailureLine
 
 /-- Registers `ExecutionFailuresContract` about the executed renderer. -/
-theorem checkedExecutionFailures :
+theorem checked_executionFailures :
     Regula.ExecutableContract executionFailuresImpl ExecutionFailuresContract := by
   refine ⟨fun inventory claim => ⟨by simp [executionFailuresImpl], fun k _ _ => by
     simp [executionFailuresImpl], ?_⟩⟩
   rw [← RegulaPolicy.executionFailureRecords_empty_iff]
   simp [executionFailuresImpl]
 
-/-- The gate's failure subreasons, through `checkedExecutionFailures`. -/
+/-- The gate's failure subreasons, through `checked_executionFailures`. -/
 def executionFailures (inventory : RegulaPolicy.ExecutionInventory)
     (claim : RegulaPolicy.ExecutionClaim) : Array String :=
-  checkedExecutionFailures.run inventory claim
+  checked_executionFailures.run inventory claim
 
 end Regula.Checker.Policy

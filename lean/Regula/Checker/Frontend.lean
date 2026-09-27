@@ -105,11 +105,11 @@ instance : FromJson RegulaPolicy.Frontend.Transcript := ⟨fun j => do
 
 
 /-- Recheck source coordinates against exact transcript bytes using Lean's FileMap and LSP
-UTF-16 columns, through `checkedCoordinates`. This is a data-boundary check; it does not
+UTF-16 columns, through `checked_coordinates`. This is a data-boundary check; it does not
 authenticate how a worker acquired the bytes. -/
 def validateCoordinates (declarations : Array Regula.Report.Declaration)
     (transcript : Transcript) : Except String Unit :=
-  checkedCoordinates.run Regula.lspUtf16Column declarations transcript
+  checked_coordinates.run Regula.lspUtf16Column declarations transcript
 
 mutual
 /-- The elements under a persistent-array node, left to right. -/

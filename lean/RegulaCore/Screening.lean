@@ -102,10 +102,10 @@ theorem Judged.escalate_of_severity (policy : Policy) (j : Judged) (h : j.severi
   cases hr : j.route policy with
   | escalate => rfl
   | screened =>
-    obtain ⟨t, ht, hw, _⟩ := (checkedRoute.evidence (policy j.judgment) j.support j.confidence).mp hr
+    obtain ⟨t, ht, hw, _⟩ := (checked_route.evidence (policy j.judgment) j.support j.confidence).mp hr
     exact absurd (by
       unfold Judged.severity
-      rw [ht]; exact ((checkedClassify.evidence t j.support).2.2.2).mpr hw) h
+      rw [ht]; exact ((checked_classify.evidence t j.support).2.2.2).mpr hw) h
 
 /-- With no thresholds configured for its judgment, an answer raises no finding and escalates. -/
 theorem Judged.unconfigured (policy : Policy) (j : Judged) (h : (policy j.judgment).thresholds = none) :

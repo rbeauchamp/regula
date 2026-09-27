@@ -443,7 +443,7 @@ theorem parseAll_inv (step : Acc → Nat → Json → Except String Acc) (P : Ac
 
 
 /-- Everything a successfully parsed manifest guarantees about its own contents. -/
-def Manifest.Valid (m : Manifest) : Prop :=
+def Valid (m : Manifest) : Prop :=
   m.surfaces ≠ #[] ∧ (libraries m).toList.Nodup ∧ (executables m).toList.Nodup ∧
   (∀ s ∈ m.surfaces, SurfaceOK s) ∧
   (∀ l ∈ m.excludedLibraries, TargetName l.library ∧ l.rationale.trimAscii.isEmpty = false) ∧

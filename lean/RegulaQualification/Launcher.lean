@@ -60,7 +60,7 @@ def equivalent (before after : Array Observation) : Bool :=
   decide (before.size = 37 ∧ before = after)
 
 /-- The paired diagnostic consumes this proof-linked predicate; timing is separate. -/
-theorem checkedEquivalence : Regula.ExecutableContract equivalent
+theorem checked_equivalence : Regula.ExecutableContract equivalent
     (fun run => ∀ before after, run before after = true ↔ before.size = 37 ∧ before = after) :=
   ⟨by intro before after; simp [equivalent]⟩
 end RegulaQualification.Launcher

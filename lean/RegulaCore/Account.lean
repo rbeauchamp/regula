@@ -81,11 +81,11 @@ theorem Coverage.text_eq_fresh_iff (x : Coverage) :
     x.text = Coverage.freshWholeProject.text ↔ x = .freshWholeProject := by
   cases x <;> decide
 
-/-- A fresh-project claim is always a project-scope claim (`ScopeModeCompatible`). -/
+/-- A fresh-project claim is always a project-scope claim (`scopeModeCompatible`). -/
 theorem fresh_scope (c : Claim) (h : c.val.mode = .freshProject) : c.val.scope = .project := by
   have compatible := c.property.1
   rw [h] at compatible
-  cases hs : c.val.scope <;> simp_all [ScopeModeCompatible]
+  cases hs : c.val.scope <;> simp_all [scopeModeCompatible]
 
 /-- Mechanisms every accepted run relies on without verifying. -/
 inductive Trusted where
@@ -191,7 +191,7 @@ private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
     surfaces := report.claim.val.surfaces, toolchain := report.claim.val.snapshot.toolchain
     jobs := report.jobs.size, coverage := coverageOf report.claim.val.mode
     contracts := contractsOf report.census
-    execution := report.census.environments.map (checkedSummary.run ·.execution)
+    execution := report.census.environments.map (checked_summary.run ·.execution)
     fences := ⟨fences.countP isPositive, fences.countP isCompilerRejection,
       fences.countP isPolicyRejection, fences.countP isTrustedTeaching⟩
     trusted := Trusted.all
@@ -214,7 +214,7 @@ theorem coverageOf_fresh_iff (m : EvidenceMode) :
   cases m <;> decide
 
 /-- Registers `AccountContract` about the executed projection. -/
-theorem checkedAccount : Regula.ExecutableContract @accountImpl AccountContract := by
+theorem checked_account : Regula.ExecutableContract @accountImpl AccountContract := by
   refine ⟨fun c run => ?_⟩
   refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_, rfl, ?_, rfl, ?_⟩
   · intro x
@@ -234,24 +234,24 @@ theorem checkedAccount : Regula.ExecutableContract @accountImpl AccountContract 
 
 /-- An executed account reads fresh whole-project coverage exactly for a fresh project claim. -/
 theorem coverage_fresh_iff {c : Claim} (run : AcceptedRun c) :
-    (checkedAccount.run run).coverage = .freshWholeProject ↔
+    (checked_account.run run).coverage = .freshWholeProject ↔
       c.val.mode = .freshProject ∧ c.val.scope = .project := by
   change (accountImpl run).coverage = .freshWholeProject ↔ _
-  rw [(checkedAccount.evidence c run).2.2.2.2.2.1, coverageOf_fresh_iff]
+  rw [(checked_account.evidence c run).2.2.2.2.2.1, coverageOf_fresh_iff]
   exact ⟨fun h => ⟨h, fresh_scope c h⟩, And.left⟩
 
 /-- An account is the projection of some accepted run, never independently assembled data. -/
-def Account : Type :=
-  { a : AccountData // ∃ c, ∃ run : AcceptedRun c, checkedAccount.run run = a }
+def _root_.Regula.Checker.Account : Type :=
+  { a : AccountData // ∃ c, ∃ run : AcceptedRun c, checked_account.run run = a }
 
-/-- The account of an accepted run, through `checkedAccount`. -/
+/-- The account of an accepted run, through `checked_account`. -/
 def account {c : Claim} (run : AcceptedRun c) : Account :=
-  ⟨checkedAccount.run run, c, run, rfl⟩
+  ⟨checked_account.run run, c, run, rfl⟩
 
 /-- Every account is the projection of a run that is complete for its plan and meets every
 stage policy: the right side of `acceptanceTheorem`, for the run this account's data came from. -/
-theorem Account.accepted (a : Account) :
-    ∃ c, ∃ run : AcceptedRun c, checkedAccount.run run = a.val ∧
+theorem accepted (a : Account) :
+    ∃ c, ∃ run : AcceptedRun c, checked_account.run run = a.val ∧
       CompleteFor run.plan run.result.table ∧ AllPolicyOK run.plan run.roles run.result.table := by
   obtain ⟨c, run, h⟩ := a.property
   exact ⟨c, run, h, run.result.accepted.complete, run.result.accepted.policy⟩
@@ -272,7 +272,7 @@ theorem Status.spelling_eq_completed_iff (s : Status) :
 
 /-- A `completed` status therefore always has an accepted run behind it. -/
 theorem Status.completed_accepted (s : Status) (h : s.spelling = "completed") :
-    ∃ a, s = .completed a ∧ ∃ c, ∃ run : AcceptedRun c, checkedAccount.run run = a.val ∧
+    ∃ a, s = .completed a ∧ ∃ c, ∃ run : AcceptedRun c, checked_account.run run = a.val ∧
       CompleteFor run.plan run.result.table ∧ AllPolicyOK run.plan run.roles run.result.table := by
   obtain ⟨a, rfl⟩ := (spelling_eq_completed_iff s).mp h
   exact ⟨a, rfl, a.accepted⟩
@@ -280,12 +280,12 @@ theorem Status.completed_accepted (s : Status) (h : s.spelling = "completed") :
 private def residualList (rs : List Residual) : String := ", ".intercalate (rs.map (·.spelling))
 
 /-- The success line: `label: PASS — coverage`. Only an account can produce it. -/
-def Account.pass (label : String) (a : Account) : String :=
+def pass (label : String) (a : Account) : String :=
   s!"{label}: PASS — {a.val.coverage.text}"
 
 /-- Human account lines: the checked relation, each contract with its open review, the
 execution counts, fence kinds, trusted mechanisms, and the unresolved review identifiers. -/
-def Account.lines (a : Account) : Array String :=
+def lines (a : Account) : Array String :=
   let d := a.val
   let checked := s!"checked: {acceptanceTheorem} — each of the {d.jobs} required jobs has exactly one " ++
     "completed observation meeting its stage policy (CompleteFor ∧ AllPolicyOK)"

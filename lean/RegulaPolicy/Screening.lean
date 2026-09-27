@@ -165,7 +165,7 @@ structure Thresholds where
   error : Decimal
   warning : Decimal
   information : Decimal
-  errorLeWarning : error ≤ warning
+  error_le_warning : error ≤ warning
   warningLeInformation : warning ≤ information
 
 /-- The executed severity decision. -/
@@ -183,11 +183,11 @@ def ClassifyContract (classify : Thresholds → Decimal → Option ScreenSeverit
     (classify t s = some .information ↔ t.warning ≤ s ∧ s < t.information) ∧
     (classify t s = none ↔ t.information ≤ s)
 
-theorem checkedClassify : Regula.ExecutableContract classifyImpl ClassifyContract := by
+theorem checked_classify : Regula.ExecutableContract classifyImpl ClassifyContract := by
   refine ⟨fun t s => ?_⟩
   unfold classifyImpl
   by_cases he : s < t.error
-  · have hw : s < t.warning := Decimal.lt_of_lt_of_le he t.errorLeWarning
+  · have hw : s < t.warning := Decimal.lt_of_lt_of_le he t.error_le_warning
     have hi : s < t.information := Decimal.lt_of_lt_of_le hw t.warningLeInformation
     simp [he, hw, hi, Decimal.lt_iff_not_le.mp he, Decimal.lt_iff_not_le.mp hw,
       Decimal.lt_iff_not_le.mp hi]
@@ -201,13 +201,13 @@ theorem checkedClassify : Regula.ExecutableContract classifyImpl ClassifyContrac
       · simp [he, hw, hi, Decidable.of_not_not hi]
 
 /-- The severity decision the screen runs. -/
-def classify : Thresholds → Decimal → Option ScreenSeverity := checkedClassify.run
+def classify : Thresholds → Decimal → Option ScreenSeverity := checked_classify.run
 
 /-- A lower support probability never yields a less severe finding. -/
 theorem classify_antitone (t : Thresholds) {s s' : Decimal} (h : s ≤ s') :
     rank (classify t s') ≤ rank (classify t s) := by
-  have c := checkedClassify.evidence t s
-  have c' := checkedClassify.evidence t s'
+  have c := checked_classify.evidence t s
+  have c' := checked_classify.evidence t s'
   change rank (classifyImpl t s') ≤ rank (classifyImpl t s)
   cases hs' : classifyImpl t s' with
   | none => exact Nat.zero_le _
@@ -266,19 +266,19 @@ def RouteContract (route : JudgmentPolicy → Decimal → Option Decimal → Rou
   ∀ p s c, route p s c = .screened ↔ ∃ t, p.thresholds = some t ∧ t.information ≤ s ∧
     ∀ m k, p.minConfidence = some m → c = some k → m ≤ k
 
-theorem checkedRoute : Regula.ExecutableContract routeImpl RouteContract := by
+theorem checked_route : Regula.ExecutableContract routeImpl RouteContract := by
   refine ⟨fun p s c => ?_⟩
   unfold routeImpl confident
   cases ht : p.thresholds with
   | none => simp
   | some t =>
-    have hc := (checkedClassify.evidence t s).2.2.2
+    have hc := (checked_classify.evidence t s).2.2.2
     simp only [classify, Regula.ExecutableContract.run] at *
     cases hm : p.minConfidence <;> cases c <;>
       simp [hc, reduceCtorEq]
 
 /-- The routing decision the screen runs. -/
-def route : JudgmentPolicy → Decimal → Option Decimal → Route := checkedRoute.run
+def route : JudgmentPolicy → Decimal → Option Decimal → Route := checked_route.run
 
 /-! ## Pinned model identifiers -/
 
@@ -396,7 +396,7 @@ blank clause. -/
 def ClausesContract (split : String → List String) : Prop :=
   ∀ doc, (split doc ≠ [] → IntentSection (docLines doc)) ∧ ∀ c ∈ split doc, c ≠ ""
 
-theorem checkedClauses : Regula.ExecutableContract intentClausesImpl ClausesContract := by
+theorem checked_clauses : Regula.ExecutableContract intentClausesImpl ClausesContract := by
   refine ⟨fun doc => ⟨fun h => ?_, fun c hc => ?_⟩⟩
   · apply (intentBody?_isSome_iff _).mp
     unfold intentClausesImpl at h
@@ -415,7 +415,7 @@ theorem checkedClauses : Regula.ExecutableContract intentClausesImpl ClausesCont
       simp [this] at hne
 
 /-- The clause split the screen runs. -/
-def intentClauses : String → List String := checkedClauses.run
+def intentClauses : String → List String := checked_clauses.run
 
 theorem clauses_examples :
     intentClauses "Claim.\n\n# Intent\n- Sorted output.\n- Same elements,\n  with multiplicity.\n\n# Notes\nx" =

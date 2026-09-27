@@ -52,7 +52,7 @@ private def check (root scratch : FilePath) (launcher : Launcher.State) (control
     fileName := path.toString, errors := control.errors, compiler := control.compiler,
     detail := control.detail, severity := control.nativeSeverity.getD
       (if control.options.contains "-DwarningAsError=true" then "error" else "warning") }
-  match RegulaQualification.Native.checkedValidation.run expected result.exitCode.toNat result.stderr decoded with
+  match RegulaQualification.Native.checked_validation.run expected result.exitCode.toNat result.stderr decoded with
   | .ok () => pure ()
   | .error detail => throw <| IO.userError s!"{control.label}: {detail}\n{result.stdout}{result.stderr}"
   return messages
@@ -203,7 +203,7 @@ def paired : IO Unit := do
         report.modify (·.setObjVal! "runs" (toJson runs))
       let some before := observations[0]? | throw <| IO.userError "missing baseline"
       let some after := observations[1]? | throw <| IO.userError "missing candidate"
-      requireChecks [⟨"37 exact paired controls", RegulaQualification.Launcher.checkedEquivalence.run before after⟩]
+      requireChecks [⟨"37 exact paired controls", RegulaQualification.Launcher.checked_equivalence.run before after⟩]
       report.modify fun value => (value.setObjVal! "equivalent" (.bool true)).setObjVal! "outcome" (.str "PASS")
       IO.println "launcher diagnostic: PASS (37 exact paired controls; timing is an observation only)"
   catch e =>

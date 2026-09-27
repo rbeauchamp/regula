@@ -38,7 +38,7 @@ private initialize auditBuild : PersistentEnvExtension Unit Empty Bool ←
     addEntryFn := fun state entry => nomatch entry
     exportEntriesFn := fun _ => #[] }
 
-/-- The only gate of Regula's local findings (`checkedLiveFeedback`): in an audit build it is
+/-- The only gate of Regula's local findings (`checked_liveFeedback`): in an audit build it is
 off for every command scope (`liveFeedback_auditBuild`). -/
 private def enabled : CommandElabM Bool := do
   return liveFeedback (auditBuild.getState (← getEnv))

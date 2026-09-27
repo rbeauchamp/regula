@@ -38,25 +38,25 @@ def distinctDecidable {α : Type} [BEq α] [Hashable α] [LawfulBEq α] [LawfulH
   decidable_of_iff ((Std.ExtHashSet.ofList xs).size = xs.length) (distinct_iff xs)
 
 /-- Structural key validity. Anonymous prefixes are legal; complete keys are not. -/
-def named (n : Lean.Name) : Prop := n ≠ .anonymous
-instance (n : Lean.Name) : Decidable (named n) := inferInstanceAs (Decidable (n ≠ .anonymous))
+def Named (n : Lean.Name) : Prop := n ≠ .anonymous
+instance (n : Lean.Name) : Decidable (Named n) := inferInstanceAs (Decidable (n ≠ .anonymous))
 
 /-- Repeated observations are refused even when their payloads agree. -/
-def uniqueNames (names : Array Lean.Name) : Prop := names.toList.Pairwise (· ≠ ·)
-instance (names : Array Lean.Name) : Decidable (uniqueNames names) :=
+def UniqueNames (names : Array Lean.Name) : Prop := names.toList.Pairwise (· ≠ ·)
+instance (names : Array Lean.Name) : Decidable (UniqueNames names) :=
   distinctDecidable names.toList
 
 /-- Every policy-relevant declaration reference is structural and nonanonymous.
 A failed executable-contract observation may lack a root; it remains a refusal. -/
 def Declaration.Valid (d : Declaration) : Prop :=
-  named d.name ∧ named d.module ∧
+  Named d.name ∧ Named d.module ∧
   d.safety = (if d.isPartial then some .partial else if d.isUnsafe then some .unsafe else none) ∧
   canonicalNames d.axioms = d.axioms ∧ canonicalNames d.valueConstants = d.valueConstants ∧
-  (∀ ns ∈ d.unsafeRecEquationAxioms, canonicalNames ns = ns ∧ ∀ n ∈ ns, named n) ∧
-  (∀ n ∈ d.axioms, named n) ∧ (∀ n ∈ d.valueConstants, named n) ∧
-  (∀ n ∈ d.all, named n) ∧ (∀ n ∈ d.nativeUseParents, named n) ∧
-  (∀ n ∈ d.implementedBy, named n) ∧ (∀ n ∈ d.unsafeRecBase, named n) ∧
-  (∀ c ∈ d.executableContract, c.failure.isSome = true ∨ named c.root)
+  (∀ ns ∈ d.unsafeRecEquationAxioms, canonicalNames ns = ns ∧ ∀ n ∈ ns, Named n) ∧
+  (∀ n ∈ d.axioms, Named n) ∧ (∀ n ∈ d.valueConstants, Named n) ∧
+  (∀ n ∈ d.all, Named n) ∧ (∀ n ∈ d.nativeUseParents, Named n) ∧
+  (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧
+  (∀ c ∈ d.executableContract, c.failure.isSome = true ∨ Named c.root)
 instance instDecidableDeclarationValid (d : Declaration) : Decidable d.Valid := by
   unfold Declaration.Valid
   infer_instance
@@ -130,10 +130,10 @@ theorem Frontend.Transcript.validCoordinates_eq (t : Frontend.Transcript) :
 /-- Admitted inventories have one declaration per name and one transcript per module.
 Ordered evaluator and mutual-group sequences are intentionally not normalized. -/
 def InventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Transcript) : Prop :=
-  uniqueNames (decls.map (·.name)) ∧
+  UniqueNames (decls.map (·.name)) ∧
   (∀ d ∈ decls, d.Valid) ∧
-  uniqueNames (transcripts.map (·.module)) ∧
-  (∀ t ∈ transcripts, named t.module ∧ t.source ≠ "" ∧
+  UniqueNames (transcripts.map (·.module)) ∧
+  (∀ t ∈ transcripts, Named t.module ∧ t.source ≠ "" ∧
     t.sourceBytes = t.sourceContent.utf8ByteSize ∧
     t.leanVersion = "4.34.0" ∧ t.leanGitHash = "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b" ∧
     t.validCoordinates = true ∧
@@ -164,7 +164,7 @@ theorem inventoryValid_append_false_of_shared_name
     ¬ InventoryValid (left ++ right) transcripts := by
   intro valid
   have distinct : (left.toList.map (·.name) ++ right.toList.map (·.name)).Pairwise (· ≠ ·) := by
-    simpa only [uniqueNames, Array.map_append, Array.toList_append, Array.toList_map] using valid.1
+    simpa only [UniqueNames, Array.map_append, Array.toList_append, Array.toList_map] using valid.1
   have leftMember : a.name ∈ left.toList.map (·.name) :=
     List.mem_map.mpr ⟨a, by simpa using ha, rfl⟩
   have rightMember : b.name ∈ right.toList.map (·.name) :=
@@ -190,8 +190,8 @@ theorem admitInventory_exact (ds : Array Declaration) (ts : Array Frontend.Trans
   simp [admitInventory, h]
 /-- Boundary origin receipts must refer to this observation's module. -/
 def ExecutionBoundary.Valid (b : ExecutionBoundary) : Prop :=
-  named b.name ∧ named b.module ∧
-  (∀ n ∈ b.replacement, named n) ∧ (∀ n ∈ b.compilerCallers, named n) ∧
+  Named b.name ∧ Named b.module ∧
+  (∀ n ∈ b.replacement, Named n) ∧ (∀ n ∈ b.compilerCallers, Named n) ∧
   (∀ o ∈ b.account.nativeOrigin?, o.moduleName = b.module)
 instance instDecidableExecutionBoundaryValid (b : ExecutionBoundary) : Decidable b.Valid := by
   unfold ExecutionBoundary.Valid
@@ -249,10 +249,10 @@ This finite relation checks the supplied account; truthful and complete extracti
 depends on the actual Lean collector. Missing code cannot accompany a resolved root. -/
 def ExecutionClosure.Valid (c : ExecutionClosure) (root : Lean.Name)
     (compilerEdges : Array (Lean.Name × Lean.Name)) (unresolved : Array String) : Prop :=
-  canonicalNames c.nodes = c.nodes ∧ root ∈ c.nodes ∧ (∀ n ∈ c.nodes, named n) ∧
+  canonicalNames c.nodes = c.nodes ∧ root ∈ c.nodes ∧ (∀ n ∈ c.nodes, Named n) ∧
   c.nodes = canonicalNames (c.visits.map (·.name)) ∧ c.visits.size = c.nodes.size ∧
   c.DiscoveryOK root compilerEdges ∧
-  (∀ visit ∈ c.visits, ∀ m ∈ visit.moduleName, named m) ∧
+  (∀ visit ∈ c.visits, ∀ m ∈ visit.moduleName, Named m) ∧
   (∀ edges ∈ #[c.logicalEdges, c.candidateEdges, c.historyEdges,
       c.currentReplacementEdges, c.activeSimplificationEdges, c.helperEdges],
     canonicalEdges edges = edges) ∧
@@ -296,11 +296,11 @@ theorem ExecutionClosure.nodes_induction (c : ExecutionClosure) (root : Lean.Nam
 /-- Occurrence numbers distinguish repeated evidence, while roots have unique keys.
 Every boundary and retained caller must belong to the complete reached census. -/
 def ExecutionRoot.Valid (r : ExecutionRoot) : Prop :=
-  named r.name ∧ named r.module ∧
+  Named r.name ∧ Named r.module ∧
   canonicalEdges r.compilerEdges = r.compilerEdges ∧
   (∀ b ∈ r.boundaries, b.Valid) ∧
   (r.boundaries.map (·.occurrence)).toList.Pairwise (· ≠ ·) ∧
-  (∀ e ∈ r.compilerEdges, named e.1 ∧ named e.2) ∧
+  (∀ e ∈ r.compilerEdges, Named e.1 ∧ Named e.2) ∧
   r.closure.Valid r.name r.compilerEdges r.unresolved ∧
   (∀ b ∈ r.boundaries, b.name ∈ r.closure.nodes ∧
     (∀ n ∈ b.replacement, n ∈ r.closure.nodes) ∧
@@ -314,7 +314,7 @@ instance instDecidableExecutionRootValid (r : ExecutionRoot) : Decidable r.Valid
   infer_instance
 
 def ExecutionValid (roots : Array ExecutionRoot) : Prop :=
-  uniqueNames (roots.map (·.name)) ∧ ∀ r ∈ roots, r.Valid
+  UniqueNames (roots.map (·.name)) ∧ ∀ r ∈ roots, r.Valid
 instance instDecidableExecutionValid (roots : Array ExecutionRoot) : Decidable (ExecutionValid roots) := by
   unfold ExecutionValid
   infer_instance

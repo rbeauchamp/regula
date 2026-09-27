@@ -10,7 +10,7 @@ import RegulaPolicy.Operational
 The library is not a conforming proof surface, so the project audit excludes it. This
 campaign applies the rules that do hold for operational code, per module of the library as
 Lake discovers it: completed kernel admission of every owned safe declaration (RG2005), the
-executed `RegulaPolicy.checkedOperationalFailure` decision (RG1001–RG1005, RG1007) on the
+executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007) on the
 observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, and
 the live linter's module-doc and material-documentation presence predicates
 (`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations and
@@ -136,7 +136,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
         partialDefinitions := partialDefinitions.push base.toString
     if !d.isProp && d.axioms.any toolchain.names.contains then
       dependents := dependents.push d.name.toString
-    if let some failure := checkedOperationalFailure.run toolchain d then
+    if let some failure := checked_operationalFailure.run toolchain d then
       let id := ruleForFailure failure
       let extra := d.axioms.filter fun n => !standardLogicalAxiom n
       let detail := (descriptor id).applicability ++

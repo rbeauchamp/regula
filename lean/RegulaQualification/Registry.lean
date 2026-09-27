@@ -32,7 +32,7 @@ def Invalidated (exitCode : Nat) (report : Json) : Prop :=
 
 /-- Run the same generic proof-backed evaluator consumed by the operational driver. -/
 def validate (exitCode : Nat) (report : Json) : Except String Unit :=
-  checkedEvaluation.run (checks exitCode report)
+  checked_evaluation.run (checks exitCode report)
 
 /-- For every exit code and JSON tree, validation succeeds exactly when the failed
 invocation invalidated its output in the stated sense. Runtime/authenticity excluded. -/
@@ -42,7 +42,7 @@ theorem validate_exact (exitCode : Nat) (report : Json) :
     checks, Invalidated]
 
 /-- Closed executable contract: deleting the equivalence proof breaks this registration. -/
-theorem checkedValidation : Regula.ExecutableContract validate
+theorem checked_validation : Regula.ExecutableContract validate
     (fun run => ∀ code report, run code report = .ok () ↔ Invalidated code report) :=
   ⟨validate_exact⟩
 

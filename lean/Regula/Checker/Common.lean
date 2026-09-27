@@ -293,7 +293,7 @@ def mapWorkQueue {α β : Type} (jobs : Nat) (items : Array α)
   let mut responses := #[]
   for outcome in outcomes do
     responses := responses ++ (← IO.ofExcept outcome)
-  IO.ofExcept <| (RegulaPolicy.checkedIndexedResults.run items.size (fun _ _ => true)
+  IO.ofExcept <| (RegulaPolicy.checked_indexedResults.run items.size (fun _ _ => true)
     responses.toList).mapError fun failure =>
       s!"internal error: work queue result admission: {repr failure}"
 
@@ -351,12 +351,12 @@ def readWorkerPacket (request packet : Json) : Except String Json := do
 def indexedWorkerPayload {α : Type} [ToJson α] (values : Array α) : Json :=
   toJson (values.mapIdx fun i value => (i, toJson value))
 
-/-- Decode indexed worker results and admit them through `checkedIndexedResults`: success
+/-- Decode indexed worker results and admit them through `checked_indexedResults`: success
 returns exactly one bound payload for each requested slot, in slot order. -/
 def admitIndexedWorkerResults {α : Type} [FromJson α] (count : Nat) (binding : Nat → α → Bool)
     (payload : Json) : Except String (Array α) := do
   let responses : Array (Nat × α) ← fromJson? payload
-  (RegulaPolicy.checkedIndexedResults.run count binding responses.toList).mapError fun
+  (RegulaPolicy.checked_indexedResults.run count binding responses.toList).mapError fun
     | .admission failure => s!"invalid worker result admission: {repr failure}"
     | .missing slot => s!"worker result missing required key {slot}"
 

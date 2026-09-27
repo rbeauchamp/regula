@@ -6,9 +6,9 @@ import RegulaPolicy.Traversal
 Lake inventory, producer history and frozen environment records. Contracts cover what
 nothing downstream decides again: each surface's profile and execution claim and its
 module order (`conformingProfile`, `surfaceAssignments`), exact history copies
-(`histories`), the frozen environment an environment job reads (`checkedEnvironmentJob`),
+(`histories`), the frozen environment an environment job reads (`checked_environmentJob`),
 and, as soundness only, which record within that environment supplies
-documentation-presence evidence (`checkedEnvironmentEvidence`). The claimed
+documentation-presence evidence (`checked_environmentEvidence`). The claimed
 `accept` binds every other stage's observation to its job (`ResultBound`, `PolicyOK`,
 `StageOK`). Manifest parsing, Lake loading and environment
 extraction stay in the operational adapters; these definitions do not authenticate those
@@ -38,13 +38,17 @@ structure ExcludedExecutable where
   rationale : String
   deriving Repr
 
+end Regula.Checker.Manifest
+
+namespace Regula.Checker
+
 structure Manifest where
-  surfaces : Array Surface
-  excludedLibraries : Array ExcludedLibrary
-  excludedExecutables : Array ExcludedExecutable
+  surfaces : Array Manifest.Surface
+  excludedLibraries : Array Manifest.ExcludedLibrary
+  excludedExecutables : Array Manifest.ExcludedExecutable
   deriving Repr
 
-end Regula.Checker.Manifest
+end Regula.Checker
 
 namespace Regula.Checker.Lake
 
@@ -122,7 +126,7 @@ private theorem conformingProfileImpl_ok (profile : Profile) (conforming : Confo
   cases h : request (some profile) <;> simp [conformingProfileImpl, h]
 
 /-- Registers `ConformingProfileContract`, reducing it to `RequestContract`. -/
-theorem checkedConformingProfile :
+theorem checked_conformingProfile :
     Regula.ExecutableContract conformingProfileImpl ConformingProfileContract := by
   have req := request_contract
   refine ⟨⟨fun profile conforming =>
@@ -140,9 +144,9 @@ theorem checkedConformingProfile :
       by simp [conformingProfileImpl, (req.2 Profile.compilerTrusting).1.mpr rfl]⟩
 
 /-- Positive maxima remain distinct from no-profile and compiler-trusting classification.
-Through `checkedConformingProfile`. -/
+Through `checked_conformingProfile`. -/
 def conformingProfile (profile : Profile) : Except String ConformingProfile :=
-  checkedConformingProfile.run profile
+  checked_conformingProfile.run profile
 
 /-- Required claim surface for one manifest surface: its library name and execution claim,
 the conforming profile its claim spells, and the modules of the first Lake library of that
@@ -161,7 +165,7 @@ def SurfaceAssigned (inventory : Lake.SurfaceInventory) (surface : Manifest.Surf
 /-- Required census assignment: success exactly with one `SurfaceAssigned` claim surface
 per manifest surface, in manifest order. -/
 def SurfaceAssignmentsContract
-    (assign : Manifest.Manifest → Lake.SurfaceInventory → Except String (Array SurfaceAssignment)) :
+    (assign : Manifest → Lake.SurfaceInventory → Except String (Array SurfaceAssignment)) :
     Prop :=
   ∀ manifest inventory out, assign manifest inventory = .ok out ↔
     out.size = manifest.surfaces.size ∧
@@ -183,7 +187,7 @@ private def assignSurface (inventory : Lake.SurfaceInventory) (surface : Manifes
   let profile ← conformingProfile surface.claim
   return ⟨surface.library, modules.toArray, profile, surface.execution⟩
 
-private def surfaceAssignmentsImpl (manifest : Manifest.Manifest)
+private def surfaceAssignmentsImpl (manifest : Manifest)
     (inventory : Lake.SurfaceInventory) : Except String (Array SurfaceAssignment) :=
   List.toArray <$> manifest.surfaces.toList.mapM (assignSurface inventory)
 
@@ -262,12 +266,12 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
         | error e =>
           simp only [hm, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
           intro _ _ hspell _ _ _ _
-          have := (checkedConformingProfile.evidence.1 surface.claim assigned.profile).mpr hspell
+          have := (checked_conformingProfile.evidence.1 surface.claim assigned.profile).mpr hspell
           change conformingProfile surface.claim = _ at this
           rw [hp] at this
           cases this
         | ok profile =>
-          have hspell := (checkedConformingProfile.evidence.1 surface.claim profile).mp hp
+          have hspell := (checked_conformingProfile.evidence.1 surface.claim profile).mp hp
           simp only [hm, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
           constructor
           · rintro rfl
@@ -297,7 +301,7 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
               rw [← hmods]
 
 /-- Registers `SurfaceAssignmentsContract` about the executed census assignment. -/
-theorem checkedSurfaceAssignments :
+theorem checked_surfaceAssignments :
     Regula.ExecutableContract surfaceAssignmentsImpl SurfaceAssignmentsContract := by
   refine ⟨fun manifest inventory out => ?_⟩
   unfold surfaceAssignmentsImpl
@@ -321,14 +325,14 @@ theorem checkedSurfaceAssignments :
 
 /-- Construct requested surface assignments solely from the frozen manifest and Lake
 inventory, before looking at returned declarations or policy results. Through
-`checkedSurfaceAssignments`. -/
-def surfaceAssignments (manifest : Manifest.Manifest) (inventory : Lake.SurfaceInventory) :
+`checked_surfaceAssignments`. -/
+def surfaceAssignments (manifest : Manifest) (inventory : Lake.SurfaceInventory) :
     Except String (Array SurfaceAssignment) :=
-  checkedSurfaceAssignments.run manifest inventory
+  checked_surfaceAssignments.run manifest inventory
 
 /-- Manifest classification of every library and executable, as a total projection. The
 claimed `TargetPartitionOK` checks it against discovery and the claim surfaces. -/
-def configuredTargets (manifest : Manifest.Manifest) : Array TargetAssignment :=
+def configuredTargets (manifest : Manifest) : Array TargetAssignment :=
   manifest.surfaces.flatMap (fun surface =>
     #[⟨.library, surface.library, some surface.library⟩] ++
       surface.executables.map (fun name => ⟨.executable, name, some surface.library⟩)) ++
@@ -385,7 +389,7 @@ private theorem historyStep_ok (entry : Name × ProducerReport.HistoryOutcome)
       rfl
 
 /-- Registers `HistoriesContract` about the executed history assembly. -/
-theorem checkedHistories : Regula.ExecutableContract historiesImpl HistoriesContract := by
+theorem checked_histories : Regula.ExecutableContract historiesImpl HistoriesContract := by
   refine ⟨fun outcomes out => ?_⟩
   unfold historiesImpl
   constructor
@@ -407,10 +411,10 @@ theorem checkedHistories : Regula.ExecutableContract historiesImpl HistoriesCont
     simp [hm, Functor.map, Except.map]
 
 /-- Preserve all completed histories, including their exact source binding. Unavailable
-history cannot be turned into an empty successful observation. Through `checkedHistories`. -/
+history cannot be turned into an empty successful observation. Through `checked_histories`. -/
 def histories (outcomes : Array (Name × ProducerReport.HistoryOutcome)) :
     Except String (Array HistoryObservation) :=
-  checkedHistories.run outcomes
+  checked_histories.run outcomes
 
 /-- Operational observations retained after the independent census has been frozen.
 These data do not carry an accepted flag or determine the required stage list. -/
@@ -545,7 +549,7 @@ def DocumentationEvidenceContract
       e = .documentationPresence doc)
 
 /-- Registers `DocumentationEvidenceContract` about the executed evidence selection. -/
-theorem checkedEnvironmentEvidence :
+theorem checked_environmentEvidence :
     Regula.ExecutableContract environmentEvidenceImpl DocumentationEvidenceContract := by
   refine ⟨⟨fun frozen k e h => ?_, fun frozen k e h => ?_⟩⟩
   · simp only [environmentEvidenceImpl, bind, Except.bind] at h
@@ -576,7 +580,7 @@ theorem checkedEnvironmentEvidence :
       exact hname
 
 /-- Required environment-job evidence: success exactly when exactly one frozen environment has
-the job's environment key, with exactly that environment's `checkedEnvironmentEvidence`
+the job's environment key, with exactly that environment's `checked_environmentEvidence`
 result for the job's stage and subject. -/
 def EnvironmentJobContract
     (select : Array FrozenEnvironment → EnvironmentKey → Stage → LocalJobSubject →
@@ -586,16 +590,16 @@ def EnvironmentJobContract
       ∃ environment,
         (environments.toList.filter fun value => decide (value.census.request.key = request)) =
           [environment] ∧
-        checkedEnvironmentEvidence.run environment stage subject = .ok evidence
+        checked_environmentEvidence.run environment stage subject = .ok evidence
 
 private def environmentJobImpl (environments : Array FrozenEnvironment) (request : EnvironmentKey)
     (stage : Stage) (subject : LocalJobSubject) : Except String JobEvidence := do
   let environment ← requireOne "environment" <| environments.filter
     (fun value => decide (value.census.request.key = request))
-  checkedEnvironmentEvidence.run environment stage subject
+  checked_environmentEvidence.run environment stage subject
 
 /-- Registers `EnvironmentJobContract` about the executed environment lookup. -/
-theorem checkedEnvironmentJob :
+theorem checked_environmentJob :
     Regula.ExecutableContract environmentJobImpl EnvironmentJobContract := by
   refine ⟨fun environments request stage subject evidence => ?_⟩
   have exact := fun environment => (requireOne_ok "environment"
@@ -629,7 +633,7 @@ def observations {claim : Claim} (frozen : Frozen claim) (build : BuildObservati
       | .discovery, .scope => pure <| .discovery frozen.census
       | .build, .scope => pure <| .build build
       | stage, .environment request subject =>
-          checkedEnvironmentJob.run frozen.environments request stage subject
+          checked_environmentJob.run frozen.environments request stage subject
       | _, _ => throw "unsupported observation stage for project/file collector"
     return (slot, ({ key, snapshot := claim.val.snapshot, completion := .completed, evidence } : JobObservation))
   return values.toList

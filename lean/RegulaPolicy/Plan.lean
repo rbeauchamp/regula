@@ -157,7 +157,7 @@ is infrastructure only in its existing force-only case. Positive ownership is di
 def InfrastructureOK (c : Claim) (i : EnvironmentCensus) : Prop :=
   (∀ m ∈ i.infrastructureModules, m ∉ i.modules ∧ m ∉ i.importedModules ∧
     m.snapshot.val = c.val.snapshot) ∧
-  uniqueNames (i.origins.map (·.name)) ∧
+  UniqueNames (i.origins.map (·.name)) ∧
   canonicalNames (i.origins.map (·.name)) = canonicalNames (moduleNames i.allModules) ∧
   (∀ receipt ∈ i.infrastructure, ∃ origin ∈ i.origins,
     origin.name = receipt.moduleKey.name.name ∧ origin.olean = receipt.actual) ∧
@@ -231,7 +231,7 @@ boundary. They do prevent a returned policy table from defining its own required
 def EnvironmentCensusOK (c : Claim) (global : Census) (i : EnvironmentCensus) : Prop :=
   i.request.modules = i.modules ∧ i.request.key.snapshot.val = c.val.snapshot ∧
   InfrastructureOK c i ∧
-  uniqueNames (moduleNames i.allModules) ∧
+  UniqueNames (moduleNames i.allModules) ∧
   (∀ m ∈ i.allModules, m.snapshot.val = c.val.snapshot) ∧
   i.moduleSources.map (·.1) = i.modules ∧
   (∀ entry ∈ i.moduleSources, entry.2 ∈ c.val.snapshot.sources) ∧
@@ -241,7 +241,7 @@ def EnvironmentCensusOK (c : Claim) (global : Census) (i : EnvironmentCensus) : 
   (∀ m ∈ i.importedModules, ∀ target ∈ global.discoveredTargets, m.name.name ∈ target.modules →
     ∃ assignment ∈ global.configuredTargets, assignment.kind = target.kind ∧
       assignment.name = target.name ∧ assignment.surface.isSome = true) ∧
-  uniqueNames (moduleNames i.admissionModules) ∧
+  UniqueNames (moduleNames i.admissionModules) ∧
   (∀ m ∈ i.admissionModules, m.snapshot.val = c.val.snapshot) ∧
   (∀ d ∈ i.admissionDeclarations, d.moduleKey ∈ i.allModules ∧ d.moduleKey ∈ i.admissionModules) ∧
   i.admissionDeclarations.toList.Pairwise (· ≠ ·) ∧
@@ -302,7 +302,7 @@ def CensusOK (c : Claim) (i : Census) : Prop :=
   (∀ n : Fin i.requests.size, i.requests[n].key.index = n.val) ∧
   (∀ e ∈ i.environments, EnvironmentCensusOK c i e) ∧
   i.modules = i.environments.flatMap (·.modules) ∧
-  uniqueNames (moduleNames i.modules) ∧
+  UniqueNames (moduleNames i.modules) ∧
   i.moduleSources = i.environments.flatMap (·.moduleSources) ∧
   GraphPlanOK c i ∧
   i.fences.toList.Pairwise (· ≠ ·) ∧
@@ -326,7 +326,7 @@ theorem census_exact_requests (c : Claim) (i : Census) (h : CensusOK c i) :
 
 /-- The complete original positive module domain is partitioned across environments. -/
 theorem census_exact_modules (c : Claim) (i : Census) (h : CensusOK c i) :
-    i.modules = i.environments.flatMap (·.modules) ∧ uniqueNames (moduleNames i.modules) :=
+    i.modules = i.environments.flatMap (·.modules) ∧ UniqueNames (moduleNames i.modules) :=
   ⟨h.2.2.2.1, h.2.2.2.2.1⟩
 
 theorem census_request_index (c : Claim) (i : Census) (h : CensusOK c i)
@@ -466,7 +466,7 @@ def PlanOK (c : Claim) (i : Census) : Prop :=
   c.val.snapshot.toolchain.leanVersion = "4.34.0" ∧
   c.val.snapshot.toolchain.compilerCommit = "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b" ∧
   CensusOK c i ∧ (requiredJobs c i).toList.Pairwise (· ≠ ·) ∧
-  (∀ job ∈ requiredJobs c i, StageSubjectCompatible job.1 job.2 = true) ∧
+  (∀ job ∈ requiredJobs c i, stageSubjectCompatible job.1 job.2 = true) ∧
   (∀ e ∈ i.environments, ∀ d ∈ e.declarations, (profileForModule c d.moduleKey.name.name).isSome = true) ∧
   (∀ e ∈ i.environments, ∀ r ∈ e.roots, rootRequests c e r.name.name ≠ #[]) ∧
   (.execution ∈ requiredStages c → ∀ e ∈ i.environments, ∀ d ∈ e.policy.declarations,

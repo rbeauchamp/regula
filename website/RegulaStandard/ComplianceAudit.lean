@@ -438,7 +438,7 @@ number := false
   * {checklistRow}[DOGFOOD-05]
   * The complete application enforces its explicit required propositions: omitting executable classification, removing or weakening required evidence while its proposition remains, or weakening admission fails the gate. Semantic review rejects a narrowed requirement set or bypassed application linkage.
   * {ref "88-qualify-checker-implementations-with-independent-mutations"}[8 §8.8], {ref "810-dogfooding"}[8 §8.10]
-  * Inspect `RequiredContracts`, its evidence, and `Main`’s call through `checkedExecutable.run` to `executeChecked` for adequacy and completeness. The diagnostic campaign includes `app-omitted-exe`, `app-unproved-update`, `app-trivial-update`, `app-weakened-update`, `app-missing-contract-field`, and `app-weakened-admission`, each with its intended diagnostic and a fresh restored control.
+  * Inspect `RequiredContracts`, its evidence, and `Main`’s call through `checked_executable.run` to `executeChecked` for adequacy and completeness. The diagnostic campaign includes `app-omitted-exe`, `app-unproved-update`, `app-trivial-update`, `app-weakened-update`, `app-missing-contract-field`, and `app-weakened-admission`, each with its intended diagnostic and a fresh restored control.
 :::
 
 # Repository Verification Sequence

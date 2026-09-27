@@ -96,11 +96,11 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
 /-- Actual executable oracle, with fail-closed mandatory decoding. -/
 def validate (report : Json) (code : Nat) (rule mode source : String)
     (fixed : Bool) (theoremType : Json) : Except String Unit :=
-  checkedDecoded.run (requirements report code rule mode source fixed theoremType)
+  checked_decoded.run (requirements report code rule mode source fixed theoremType)
 
 /-- Admission succeeds exactly when decoding succeeds and every source-producer
 requirement holds. This statement includes both success and refusal. -/
-theorem checkedValidation : Regula.ExecutableContract validate
+theorem checked_validation : Regula.ExecutableContract validate
     (fun run => ∀ report code rule mode source fixed theoremType,
       run report code rule mode source fixed theoremType = .ok () ↔
         ∃ checks, requirements report code rule mode source fixed theoremType = .ok checks ∧ Satisfied checks) :=

@@ -305,7 +305,7 @@ theorem and job count, contracts, execution counts, fence kinds, trusted mechani
 residual identifiers; mode, scope, surfaces and toolchain are rendered by `acceptedJson`.
 Contract entries keep their rule, implementation and requirement with the review they leave
 open; `unresolvedReview` names open obligations, never completed reviews. -/
-def accountJson (account : Regula.Checker.Account.Account) : Json :=
+def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
   Json.mkObj [

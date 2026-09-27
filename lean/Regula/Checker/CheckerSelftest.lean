@@ -686,7 +686,7 @@ private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Ar
       failures := failures.push s!"scanner/public/{name}: missing diagnostic {repr (publicExpectation expected)}:\n{result.output}"
   return failures
 
-private def expectManifestFailure (name : String) (action : IO Manifest.Manifest)
+private def expectManifestFailure (name : String) (action : IO Manifest)
     (expected : String) : IO (Option String) := do
   try
     let _ ← action
@@ -822,7 +822,7 @@ as do the `auditAppVariant` rewrites. The mutations'
 intended reasons are surface-content-agnostic; the
 heavy-surface end-to-end coverage stays in the conditional tier's public-surface
 control and the standalone CI gate. -/
-private def structuralBase (repo : FilePath) : IO Manifest.Manifest := do
+private def structuralBase (repo : FilePath) : IO Manifest := do
   let actual ← Manifest.load (Manifest.defaultPath repo)
   for library in structuralClaims do
     unless actual.surfaces.any (·.library == library) do
@@ -1177,7 +1177,7 @@ private def freshControlStems : Array String := #["Left", "Right"]
 
 /-- The fresh control claims only `FreshControl`; every repository library and
 executable is excluded, so the classification stays complete as they change. -/
-private def freshControlManifest (manifest : Manifest.Manifest) : Json :=
+private def freshControlManifest (manifest : Manifest) : Json :=
   let excluded (kind : String) (names : Array String) := Json.arr <| names.map fun name =>
     Json.mkObj [(kind, .str name), ("rationale", .str "outside the fresh-checker control")]
   Json.mkObj [

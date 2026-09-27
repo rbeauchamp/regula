@@ -2,7 +2,7 @@ import RegulaQualification.Checks
 import Regula.Scratch
 import Lean
 
-/-! Operational qualification support. Pure assertions go through `checkedEvaluation`.
+/-! Operational qualification support. Pure assertions go through `checked_evaluation`.
 Filesystem observations, process execution, GNU timeout, and cleanup are trusted IO;
 none is advertised as a kernel theorem about the operating system. Commands use argv,
 not shell programs. Public entrypoints own one group-wide deadline. Under acceptance,
@@ -17,7 +17,7 @@ def freshAttempt : IO String := do
 
 /-- Fail with the first unsatisfied assertion from the proved evaluator. -/
 def requireChecks (checks : List Check) : IO Unit :=
-  IO.ofExcept (checkedEvaluation.run checks)
+  IO.ofExcept (checked_evaluation.run checks)
 
 /-- Select and authenticate the existing GNU timeout dependency. -/
 def timeoutCommand : IO String := do

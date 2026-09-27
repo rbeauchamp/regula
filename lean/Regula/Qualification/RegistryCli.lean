@@ -3,7 +3,7 @@ import RegulaQualification.Registry
 
 /-! Actual malformed-invocation qualification. All seven former Python cases remain;
 each invocation starts with a seeded stale file in a unique scratch directory.
-The pure output oracle is `RegulaQualification.Registry.checkedValidation`.
+The pure output oracle is `RegulaQualification.Registry.checked_validation`.
 This is operational evidence for the CLI, not a universal proof of `axiomGate`. -/
 
 namespace Regula.Qualification.RegistryCli
@@ -29,7 +29,7 @@ def check : IO Unit := do
       let result ← run root (root / ".lake/build/bin/axiomGate").toString
         (#["--json-out", output.toString] ++ arguments)
       let report ← readJson output
-      match RegulaQualification.Registry.checkedValidation.run result.exitCode.toNat report with
+      match RegulaQualification.Registry.checked_validation.run result.exitCode.toNat report with
       | .ok () => pure ()
       | .error detail => throw <| IO.userError s!"{arguments}: {detail}\n{result.stdout}{result.stderr}\n{report}"
   IO.println "registry CLI qualification: PASS (7 configuration failures invalidate current output)"

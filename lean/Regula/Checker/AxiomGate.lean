@@ -128,7 +128,7 @@ private def recordStatus (status : ResultProtocol.Status) (findings : Array Regu
 /-- Every root-package Lean library and executable is classified exactly once by the
 manifest, and no executable root conflicts with library ownership. Shared by the audit and
 the read-only configuration explanation. -/
-def checkClassification (manifest : Manifest.Manifest) (inventory : Lake.SurfaceInventory) : IO Unit := do
+def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory) : IO Unit := do
   let rootLibraries := inventory.libraries.map (·.library)
   let manifested := Manifest.libraries manifest
   if !sameStringSet manifested rootLibraries then
@@ -166,7 +166,7 @@ def checkClassification (manifest : Manifest.Manifest) (inventory : Lake.Surface
       throw <| IO.userError <| s!"manifest-conflict: excluded executable " ++
         s!"'{excluded.executable}' root {exe.root} is a module of a claimed library"
 
-private def manifestJson (manifest : Manifest.Manifest) : Json :=
+private def manifestJson (manifest : Manifest) : Json :=
   Json.mkObj [
     ("schema-version", Json.num 2),
     ("surfaces", Json.arr <| manifest.surfaces.map fun surface => Json.mkObj [

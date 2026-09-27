@@ -49,7 +49,7 @@ def check (evidence : Option FilePath) : IO Unit := do
           let observedType ← IO.ofExcept (declaration.getObjVal? "type")
           let expectedType := theoremType.getD observedType
           theoremType := some expectedType
-          IO.ofExcept (RegulaQualification.Producer.checkedValidation.run report result.exitCode.toNat
+          IO.ofExcept (RegulaQualification.Producer.checked_validation.run report result.exitCode.toNat
             rule mode source (kind == "Fixed") expectedType)
           requireChecks [⟨"fixture bytes unchanged", (← IO.FS.readBinFile (project / "Example.lean")) == bytes⟩]
           records := records.push (Json.mkObj [
@@ -71,7 +71,7 @@ def check (evidence : Option FilePath) : IO Unit := do
       let source := mainSource ++ (if phase == "axiom" then "axiom ownedAssumption : True\n" else "")
       IO.FS.writeFile (project / "SelftestMain.lean") source
       let (result, report) ← observeProject root project (project / s!"standalone-{phase}.json") #[]
-      IO.ofExcept (RegulaQualification.checkedDecoded.run
+      IO.ofExcept (RegulaQualification.checked_decoded.run
         (RegulaQualification.Producer.standaloneRequirements report result.exitCode.toNat (phase == "axiom")))
       IO.println s!"standalone executable {phase}: PASS"
     return records

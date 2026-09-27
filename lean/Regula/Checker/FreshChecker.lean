@@ -136,7 +136,7 @@ private structure FrozenGraph where
   roles : RegulaPolicy.CensusRoles census
 
 private unsafe def freezeGraph (plan : Plan) (snapshot : RegulaPolicy.AdmittedSnapshot)
-    (manifest : Manifest.Manifest) (inventory : Lake.SurfaceInventory)
+    (manifest : Manifest) (inventory : Lake.SurfaceInventory)
     (sources : Array ProducerReport.SourceBinding) : IO FrozenGraph := do
   let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
   let claim ← IO.ofExcept <| RegulaPolicy.admitClaim {

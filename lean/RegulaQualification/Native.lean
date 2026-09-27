@@ -105,7 +105,7 @@ def Matches (expected : Expected) (exitCode : Nat) (stderr : String)
 /-- The actual adapter oracle uses the registered proof-backed evaluator. -/
 def validate (expected : Expected) (exitCode : Nat) (stderr : String)
     (messages : List Message) : Except String Unit :=
-  checkedEvaluation.run (checks expected exitCode stderr messages)
+  checked_evaluation.run (checks expected exitCode stderr messages)
 
 /-- Soundness and completeness of the whole supplied-observation contract. -/
 theorem validate_exact (expected : Expected) (exitCode : Nat) (stderr : String)
@@ -126,7 +126,7 @@ theorem validate_exact (expected : Expected) (exitCode : Nat) (stderr : String)
     | true => exact Or.inr (h message hm hn)
 
 /-- Proof requirement consumed by the native driver. -/
-theorem checkedValidation : Regula.ExecutableContract validate
+theorem checked_validation : Regula.ExecutableContract validate
     (fun run => ∀ expected code stderr messages,
       run expected code stderr messages = .ok () ↔ Matches expected code stderr messages) :=
   ⟨validate_exact⟩

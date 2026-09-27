@@ -72,7 +72,7 @@ def invalidate (path : FilePath) : IO Unit :=
 and held, unrecorded, until the run's outer freshness recheck has passed. -/
 structure Pending where
   digest : String
-  account : Account.Account
+  account : Account
 
 /-- Written only after accepted ordinary success. It cannot be called without a `Pending`, whose
 `Account` is a projection of some `AcceptedRun`; that it is this run's account, and that

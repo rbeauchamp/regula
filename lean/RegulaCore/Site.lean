@@ -645,7 +645,7 @@ theorem linkErrors_nil_iff (pages : List Page) :
     simp [(linkOKIn_pageIndex pages page link).mpr (h page hp link hl)]
 
 /-- Registered contract of the executed link check. -/
-theorem checkedLinkErrors : Regula.ExecutableContract linkErrors (fun run =>
+theorem checked_linkErrors : Regula.ExecutableContract linkErrors (fun run =>
     ∀ pages, run pages = [] ↔ ∀ page ∈ pages, ∀ link ∈ page.links, LinkOK pages page link) :=
   ⟨linkErrors_nil_iff⟩
 
@@ -734,7 +734,7 @@ theorem missingAnchors_nil_iff (pages : List Page) (anchors : List (String × St
   simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex, Decidable.or_iff_not_imp_left]
 
 /-- Registered contract of the executed anchor check. -/
-theorem checkedMissingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
+theorem checked_missingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
     ∀ pages anchors, run pages anchors = [] ↔
       ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
   ⟨missingAnchors_nil_iff⟩
@@ -780,7 +780,7 @@ theorem rowMapMismatch_eq_none_iff (linked : List (Option String × String)) (ro
   split <;> simp_all
 
 /-- Registered contract of the executed row-map check. -/
-theorem checkedRowMapMismatch : Regula.ExecutableContract rowMapMismatch (fun run =>
+theorem checked_rowMapMismatch : Regula.ExecutableContract rowMapMismatch (fun run =>
     ∀ linked rows, run linked rows = none ↔ linked = rows.map fun row => (some row, row)) :=
   ⟨rowMapMismatch_eq_none_iff⟩
 

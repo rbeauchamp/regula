@@ -123,7 +123,7 @@ theorem OrderedDecision.unique {requirements : List (DeclarationFailure × Prop)
 
 /-- Normative diagnostic priority. Owned axioms have only the authenticated teaching case;
 other declarations must meet each obligation in this explicit order. -/
-def DeclarationRequirements (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
+def declarationRequirements (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
     List (DeclarationFailure × Prop) :=
   if d.kind = .«axiom» then
     [(.projectAxiom, d.name ∈ native), (.compilerTrusting, r = .teaching)]

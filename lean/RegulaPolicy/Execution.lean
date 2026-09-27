@@ -180,7 +180,7 @@ theorem executionSummary_partition (inventory : ExecutionInventory) :
 
 /-- The gate renders these counts through this registration, whose `run` is exactly
 `executionSummary`. It does not count distinct runtime paths or authenticate extraction. -/
-theorem checkedSummary : Regula.ExecutableContract executionSummary SummaryContract :=
+theorem checked_summary : Regula.ExecutableContract executionSummary SummaryContract :=
   ⟨fun inventory => ⟨rfl, rfl, Array.countP_eq_size_filter .., Array.countP_eq_size_filter ..,
     executionSummary_unresolved inventory⟩⟩
 

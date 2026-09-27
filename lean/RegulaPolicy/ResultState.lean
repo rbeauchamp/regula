@@ -376,7 +376,7 @@ theorem admitIndexedResults_ok_iff {α : Type} (count : Nat) (binding : Nat → 
 
 /-- Worker adapters call this registration's `run`, which is exactly `admitIndexedResults`.
 It concerns the decoded responses; transport, process and payload truth remain external. -/
-theorem checkedIndexedResults :
+theorem checked_indexedResults :
     Regula.ExecutableContract @admitIndexedResults IndexedResultsContract :=
   ⟨fun _ count binding responses out => admitIndexedResults_ok_iff count binding responses out⟩
 

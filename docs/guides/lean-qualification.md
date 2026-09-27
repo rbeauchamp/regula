@@ -154,7 +154,7 @@ evidence (standard §0 "The Role of Testing").
 | ordinary | `qualify registry`, `qualify native` | CLI argv/output invalidation; compiler messages and ranges | External | kept |
 | ordinary | `RegistryChecks.lean` codec and source cases | registry, diagnostic and source codecs | Proved in part (roundtrip theorems) | follow-up: state the remaining refusal cases as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation (`finalize_iff`); instance membership sampled | follow-up |
-| standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport; admission proved by #50 (`checkedIndexedResults`) | kept |
+| standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport; admission proved by #50 (`checked_indexedResults`) | kept |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure/configuration/fence evidence, timeout | Git, Lake, filesystem, elaboration-time IO, signals | External | kept |
 
 **Structural partition status.** Each structural copy's manifests derive from the actual
@@ -252,7 +252,7 @@ nightly. None is part of acceptance.
     `Admission.validate`);
   - builds its declaration records with the live linter's shared collector
     (`Regula.Collect.declaration`) and decides each record with the proved
-    `RegulaPolicy.checkedOperationalFailure` (RG1001–RG1005, RG1007);
+    `RegulaPolicy.checked_operationalFailure` (RG1001–RG1005, RG1007);
   - checks module docs and material-claim docs with the live linter's predicates
     (`Regula.Linter.Documentation`, RG5001–RG5003).
 
@@ -316,7 +316,7 @@ by their source-level linkage. The proof is erased at execution.
 
 - `Checks.evaluate_success`: evaluation returns success **iff** every supplied assertion
   is true. `evaluate_error` identifies a satisfied prefix and its first false assertion;
-  `evaluate_append` specifies success/error composition. `checkedEvaluation` requires all
+  `evaluate_append` specifies success/error composition. `checked_evaluation` requires all
   three properties. Empty conjunction is permitted; each protocol supplies its own
   nonempty, explicit requirements.
 - `Registry.validate_exact`: for every exit code and JSON tree, success **iff** the exit
@@ -351,7 +351,7 @@ by their source-level linkage. The proof is erased at execution.
   completed-history edges. `validate_eq_ok` decomposes the executed guard sequence
   exactly, `validate_nonvacuous` exhibits an admitted report by kernel reduction, and
   `fromJson_admissible` extends soundness to the transport decoder. Producers,
-  documentation groups and acceptance call `checkedValidate.run`, so each call site
+  documentation groups and acceptance call `checked_validate.run`, so each call site
   requires this `ExecutableContract`. The project report worker skips its own call: the
   coordinator's decoder runs the same check once and keeps its success as a
   `ProducerReport.Admitted` proof (`fromJson_admitted` shows it accepts and refuses exactly as
@@ -451,13 +451,13 @@ by their source-level linkage. The proof is erased at execution.
   module's `collectAxioms` command; the module is in the excluded `Regula` library,
   so acceptance's claimed-surface audit does not re-report it. It proves nothing about
   the producer that wrote the record.
-- `Evidence.checkedValidation` and `checkedDocumentation`: exact conjunctions of decoded
+- `Evidence.checked_validation` and `checked_documentation`: exact conjunctions of decoded
   status/diagnostic/exit and transcript requirements, including distinct fence/project
   admission messages and the underlying IO reason. IO-only controls also consume the
   shared assertion contract for their observed source, closure and configuration fields.
 - `Launcher.admit` returns a proof-bearing mapping with nonempty unique names and both
   required search paths; its completeness theorem admits every valid decoded mapping.
-  `checkedEquivalence` requires exactly 37 observations and full ordered equality,
+  `checked_equivalence` requires exactly 37 observations and full ordered equality,
   including source, arguments, stdout/stderr, exit, environment and resolved executable.
   Lake's actual environment is cached only within one fixed parent/workspace invocation,
   separately for the imported-control search-path override. Neither observations nor
