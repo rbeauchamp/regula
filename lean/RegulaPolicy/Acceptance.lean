@@ -56,7 +56,9 @@ inductive AcceptanceFailure where
 
 /-- Mechanical acceptance for these exact claim, census, plan and result inputs. A negative
 or teaching example remains an accepted expectation, not a conforming positive program.
-No serialized accepted flag can construct either proof. -/
+No serialized accepted flag can construct either proof. The structure is a `Type`, not a
+`Prop`, although its fields are propositions: `accept` returns it as the success value of an
+`Except`, whose value type is a `Type`. -/
 structure Accepted {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i) (s : ResultTable p) : Type where
   complete : CompleteFor p s
   policy : AllPolicyOK p roles s

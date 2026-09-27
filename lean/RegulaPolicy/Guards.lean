@@ -21,8 +21,9 @@ variable {ε : Type u} {ε' : Type w} {α β : Type v}
     (x >>= f) = .ok b ↔ ∃ a, x = .ok a ∧ f a = .ok b := by
   cases x <;> simp [bind, Except.bind]
 
-/-- An `unless` guard succeeds exactly when its condition holds. -/
-@[simp] theorem unless_eq_ok {c : Bool} {e : ε} {u : PUnit} :
+/-- An `unless` guard succeeds exactly when its condition holds. Not a simp lemma: `simp` already
+proves it from `ite_throw_eq_ok` and `pure_eq_ok`. -/
+theorem unless_eq_ok {c : Bool} {e : ε} {u : PUnit} :
     (unless c do throw e : Except ε PUnit) = .ok u ↔ c = true := by
   cases c <;> simp [throw, throwThe, MonadExceptOf.throw, pure, Except.pure]
 
