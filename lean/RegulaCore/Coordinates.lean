@@ -1,7 +1,9 @@
 import RegulaCore.Source
 import Regula.Contract
 
-/-! Transcript-coordinate admission: the check `Policy.admitScope` runs before inventory
+/-! # Transcript-coordinate admission
+
+Transcript-coordinate admission: the check `Policy.admitScope` runs before inventory
 admission. `CoordinateContract` names its obligations in traversal order and requires
 refusal with the first unmet one; `checked_coordinates` proves it about the executed
 `coordinateCheck` for every UTF-16 column function. The contract concerns the supplied

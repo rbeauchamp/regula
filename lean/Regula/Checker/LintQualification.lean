@@ -1,6 +1,8 @@
 import Regula.Checker.BuildLintQualification
 
 /-!
+# Lake lint driver qualification
+
 Qualification of the `lake lint` driver path. Each control copies a shipped adopter
 (`examples/build-lint` in `lakefile.lean` format, `examples/lake-lint-toml` in
 `lakefile.toml` format), establishes a green `lake lint`, applies one intended

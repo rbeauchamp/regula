@@ -2,7 +2,9 @@ import RegulaCore.Policy
 import RegulaPolicy.Acceptance
 import RegulaPolicy.Traversal
 
-/-! Pure assembly of the acceptance census and job observations from the decoded manifest,
+/-! # Acceptance census assembly
+
+Pure assembly of the acceptance census and job observations from the decoded manifest,
 Lake inventory, producer history and frozen environment records. Contracts cover what
 nothing downstream decides again: each surface's profile and execution claim and its
 module order (`conformingProfile`, `surfaceAssignments`), exact history copies

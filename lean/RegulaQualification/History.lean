@@ -1,7 +1,9 @@
 import RegulaQualification.Json
 import RegulaPolicy.Guards
 
-/-! Source-bound history observation requirements. Checks compare the supplied report
+/-! # History observation requirements
+
+Source-bound history observation requirements. Checks compare the supplied report
 with exact source, invocation, requests, and both overwritten replacement targets.
 `checked_decoded` supplies sound/complete refusal semantics for the decoded requirement
 list. These are predicates on observations, not proofs of source evaluator behavior. -/

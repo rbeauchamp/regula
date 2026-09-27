@@ -7,6 +7,8 @@ import Regula.Checker.RunFeedback
 import RegulaCore.Account
 
 /-!
+# Markdown fence auditing
+
 Balanced Markdown fence discovery and exact, verbatim Lean-source auditing.
 
 Expected-failure markers use a deliberately small diagnostic pattern language:

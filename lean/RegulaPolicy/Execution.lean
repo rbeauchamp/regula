@@ -1,7 +1,9 @@
 import RegulaPolicy.Admission
 import Regula.Contract
 
-/-! Executable execution decisions and their exact finite-observation specification.
+/-! # Execution decisions
+
+Executable execution decisions and their exact finite-observation specification.
 Neither policy equivalence nor admitted origin data proves extraction or native runtime correctness. -/
 namespace RegulaPolicy
 inductive ExecutionFailureKind where

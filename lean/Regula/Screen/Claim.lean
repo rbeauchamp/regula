@@ -5,7 +5,9 @@ import RegulaCore.Screening
 import Regula.Screen.Jev
 import Regula.Screen.Questions
 
-/-! Reading a claim from a loaded environment and screening it.
+/-! # Claim reading and screening
+
+Reading a claim from a loaded environment and screening it.
 
 A claim's docstring is found by Lean's `findDocString?`; its clauses, explanation and any
 discharge references come from the proved `RegulaPolicy.Screening` definitions. A clause that

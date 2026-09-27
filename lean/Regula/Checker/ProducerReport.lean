@@ -5,7 +5,9 @@ import Regula.Contract
 import RegulaCore.Assembly
 import Lean.Elab.Command
 
-/-! Operational producer transport and key reconciliation. Kept outside the force-loaded
+/-! # Producer report transport
+
+Operational producer transport and key reconciliation. Kept outside the force-loaded
 report module so ordinary admission does not replay JSON-validator implementation. -/
 namespace Regula.Checker.ProducerReport
 open Lean RegulaPolicy

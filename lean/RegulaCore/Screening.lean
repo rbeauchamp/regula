@@ -2,7 +2,9 @@ import RegulaCore.Account
 import RegulaCore.Rule
 import RegulaPolicy.Screening
 
-/-! The report account of one opt-in intent screen (`docs/guides/intent-screening.md`).
+/-! # Intent screen report account
+
+The report account of one opt-in intent screen (`docs/guides/intent-screening.md`).
 
 A judged answer is its own evidence class, `screened`, next to the #42 classes an accepted
 run reports (checked relation, trusted mechanisms, open semantic review). Its data records

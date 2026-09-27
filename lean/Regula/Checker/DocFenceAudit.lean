@@ -3,7 +3,9 @@ import Regula.Checker.Lake
 import Regula.Checker.AcceptanceLink
 import RegulaCore.Site
 
-/-! Public Lean executable for documentation fence auditing: every Lean fence of the
+/-! # Documentation fence audit executable
+
+Public Lean executable for documentation fence auditing: every Lean fence of the
 Markdown below the documentation root and, with `--verso DIR:LIBRARY:RENDER`, every `lean`
 block of that Verso library, the standard, whose build and rendering are then also required,
 and whose rendered pages must define every anchor the rule registry and the Markdown link, with

@@ -1,3 +1,5 @@
 import Regula.StructuralName
 
-/-! Compatibility import for the public structural-name codec. -/
+/-! # Structural-name codec re-export
+
+Compatibility import for the public structural-name codec. -/

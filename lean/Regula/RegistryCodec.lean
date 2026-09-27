@@ -1,7 +1,9 @@
 import Regula.Diagnostic
 import Regula.StructuralName
 
-/-! Versioned transport and website admission derived from the registry. The exact
+/-! # Registry transport codec
+
+Versioned transport and website admission derived from the registry. The exact
 canonical comparison follows con-leche's representation idea (RuleId attribution).
 JSON syntax parsing and external producer/source identity remain trusted boundaries. -/
 namespace Regula.RegistryCodec

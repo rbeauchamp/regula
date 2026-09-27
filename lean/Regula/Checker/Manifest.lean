@@ -5,7 +5,9 @@ import RegulaPolicy.Guards
 import RegulaCore.Assembly
 import Lean.Elab.Command
 
-/-! Strict surface-manifest parsing. Unknowns and omissions fail closed. The pure `parse` is
+/-! # Strict surface-manifest parsing
+
+Strict surface-manifest parsing. Unknowns and omissions fail closed. The pure `parse` is
 the executed parser. `parse_sound` proves what every accepted manifest satisfies;
 `parse_input` proves it has the allowed keys and schema version and that each entry is, in
 order, the decoding of its JSON element, including the `execution` field;

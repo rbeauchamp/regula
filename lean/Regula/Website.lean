@@ -1,7 +1,9 @@
 import Regula.DiagnosticCodec
 import RegulaPolicy.Observation
 
-/-! Shared website metadata and checked-example interfaces. The registry metadata's
+/-! # Website metadata and example interfaces
+
+Shared website metadata and checked-example interfaces. The registry metadata's
 design credit is in RuleId; presentation credits Verso and Microsoft CA1416, neither of
 which supplies rule semantics. Collector completion remains an explicit trusted boundary. -/
 namespace Regula.Website

@@ -2,7 +2,9 @@ module
 
 public import RegulaPolicy.Domain
 
-/-! Pure tagged wire trees. The laws concern these exact encoders and decoders;
+/-! # Tagged wire codec
+
+Pure tagged wire trees. The laws concern these exact encoders and decoders;
 JSON text parsing, UTF-8 transport, and producer authenticity remain operational
 boundaries. The JSON bridge uses this structural-name decoder directly. -/
 

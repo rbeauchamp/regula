@@ -3,6 +3,8 @@ import Lake.Load
 import Regula.Checker.Common
 
 /-!
+# In-process Lake workspace loading
+
 In-process Lake workspace loading for checker discovery. A checked project
 loads through Lake's own elaborated package model, so `lakefile.lean` and
 `lakefile.toml` projects take the same path; no custom Lake facets or

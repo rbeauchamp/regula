@@ -3,7 +3,9 @@ import RegulaPolicy.Guards
 import RegulaPolicy.Traversal
 import Lean.Data.Json
 
-/-! Pure qualification assertions. `evaluate` accepts exactly a list whose assertions
+/-! # Qualification assertions
+
+Pure qualification assertions. `evaluate` accepts exactly a list whose assertions
 are all true, and otherwise identifies its first false assertion. This is a contract
 about supplied observations, not the truth of compiler, filesystem, or process effects.
 The operational adapters call the registered, proof-requiring entrypoint. -/

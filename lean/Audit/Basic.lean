@@ -1,6 +1,8 @@
 import Mathlib.Algebra.Group.Even
 
 /-!
+# Basic positive controls
+
 Small positive controls: `Audit.smoke` proves only `1 + 1 = 2`; `Audit.EvenVal`
 is the canonical subtype of even naturals; and `Audit.four` inhabits it with
 underlying value `4`. These declarations assume only their imported Core and

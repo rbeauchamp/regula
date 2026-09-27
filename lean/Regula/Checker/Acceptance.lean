@@ -4,7 +4,9 @@ import Regula.Checker.Environment
 import Regula.Checker.Lake
 import Regula.Checker.Snapshot
 
-/-! Operational bridge to the pure, request-indexed acceptance boundary. The census
+/-! # Operational acceptance bridge
+
+Operational bridge to the pure, request-indexed acceptance boundary. The census
 comes from Lake and completed producer extraction before policy jobs are collected.
 Raw packets never carry proofs. Canonical path resolution, source stability, Lean/Lake
 extraction, process completion and compiled execution remain trusted IO boundaries.

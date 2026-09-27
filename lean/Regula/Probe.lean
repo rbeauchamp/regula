@@ -23,6 +23,8 @@ import Regula.Contract
 import Regula.MaterialClaim
 
 /-!
+# Machine-audit environment probe
+
 Machine-audit support consumed directly by the repository's Lean checker
 executables.
 

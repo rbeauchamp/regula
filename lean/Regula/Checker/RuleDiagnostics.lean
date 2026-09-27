@@ -1,7 +1,9 @@
 import Regula.Findings
 import Regula.Checker.Policy
 
-/-! Checker compatibility adapters for the public diagnostic constructors. -/
+/-! # Rule diagnostic adapters
+
+Checker compatibility adapters for the public diagnostic constructors. -/
 namespace Regula.Checker.RuleDiagnostics
 open Lean
 abbrev declarationName := Regula.Findings.declarationName

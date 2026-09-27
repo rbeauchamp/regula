@@ -1,6 +1,8 @@
 import RegulaQualification.Checks
 
-/-! Pure native-diagnostic observation contract. The driver decodes actual JSON messages
+/-! # Native diagnostic observation contract
+
+Pure native-diagnostic observation contract. The driver decodes actual JSON messages
 into these records. Validation preserves multiplicity and compiler-message order; it
 checks diagnostic identity, severity, source attribution, and help-link ownership.
 It proves properties of supplied records, not collector scheduling or IO authenticity. -/

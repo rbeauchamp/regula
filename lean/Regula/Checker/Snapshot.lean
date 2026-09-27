@@ -2,7 +2,9 @@ import Regula.Checker.Lake
 import Regula.Checker.Producer
 import RegulaPolicy.Claim
 
-/-! Exact request snapshots of Lake-resolved sources and configuration, with nominal
+/-! # Request source snapshots
+
+Exact request snapshots of Lake-resolved sources and configuration, with nominal
 Git revisions and input-scoped dirty status where available. These are IO observations,
 not kernel authentication of a filesystem or compiled artifact. The request state is
 derived purely from the exact captures (`stateOfCore`) and carried with its derivation

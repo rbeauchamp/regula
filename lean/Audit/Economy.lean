@@ -2,6 +2,8 @@ import Mathlib.Tactic.Ring
 import Mathlib.Basic.Real.Basic
 
 /-!
+# Proof economy and lawful mixins
+
 Checked examples for proof economy (standard §3.2.5) and lawful mixins
 (standard §3.2.3). Every declaration is hole-free and uses no project axiom.
 

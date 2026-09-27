@@ -1,7 +1,9 @@
 import Regula.Qualification.Support
 import RegulaQualification.Json
 
-/-! Shared disposable-adopter setup for producer and history controls. Lake's pinned
+/-! # Disposable adopter project setup
+
+Shared disposable-adopter setup for producer and history controls. Lake's pinned
 manifest is reused, not resolved against moving branches. All subprocesses scrub the
 calling checkout's Lean paths. This adapter performs trusted IO, not policy inference. -/
 namespace Regula.Qualification

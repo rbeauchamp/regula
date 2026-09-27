@@ -12,6 +12,8 @@ import RegulaCore.Lint
 import Regula.Website
 
 /-!
+# Declaration and foundation gate
+
 Lake-semantic declaration, computation, and foundation gate implemented
 entirely in Lean.
 -/

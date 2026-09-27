@@ -1,6 +1,8 @@
 import Regula.Checker.RuleExampleProjection
 
-/-! Exact transport of the unchanged corpus qualifier through the qualification-only
+/-! # Corpus qualifier projection
+
+Exact transport of the unchanged corpus qualifier through the qualification-only
 result view. The private proof decomposition is definitionally the actual qualifier;
 it neither replaces execution nor changes scan order, completeness, or refusal text. -/
 open Lean Regula.Checker.RuleExampleQualification

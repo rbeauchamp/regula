@@ -1,7 +1,9 @@
 import Regula.Checker.Frontend
 import RegulaCore.Policy
 
-/-! Operational adapter over the claimed `RegulaCore.Policy` projections: it binds
+/-! # Operational policy adapter
+
+Operational adapter over the claimed `RegulaCore.Policy` projections: it binds
 scope admission to the frontend's source-coordinate check and renders policy results
 as text. This file defines `admitScope` (running `checked_scope`), `executionSummary` (running
 `RegulaPolicy.checked_summary`) and the unproved renderers `describeBoundary`, `classify` and

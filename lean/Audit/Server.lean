@@ -1,4 +1,6 @@
 /-!
+# Proof-bearing service state
+
 Proof-bearing service state for modules 1 and 3. Admission checks raw natural
 counts; initialization and every update establish `served ≤ cap`. The public
 constructor also requires that proof. The finite-prefix theorem relates the

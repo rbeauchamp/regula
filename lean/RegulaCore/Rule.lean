@@ -5,7 +5,9 @@ public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
 
-/-! Shared metadata. See RuleId for con-leche attribution and docs/guides/rule-registry.md
+/-! # Rule registry
+
+Shared metadata. See RuleId for con-leche attribution and docs/guides/rule-registry.md
 for the boundary between existing checker detection and planned product adapters.
 
 The registry is the one source of each rule's agent-facing guidance: its one-line

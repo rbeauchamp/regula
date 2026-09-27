@@ -4,7 +4,9 @@ public meta import Regula.Linter.Rules
 public meta import Regula.Linter.Documentation
 public meta import Lean.Linter.Basic
 
-/-! Opt-in production import for Lean-native local feedback. Lean owns command
+/-! # Local feedback linter
+
+Opt-in production import for Lean-native local feedback. Lean owns command
 snapshots, cancellation and publication. Local options govern editor feedback;
 they cannot discharge or disable mandatory project checks. -/
 

@@ -4,7 +4,9 @@ import Regula.Checker.Workspace
 import RegulaCore.EditorPolicy
 import Lake.CLI.Build
 
-/-! Lake-semantic module, source, dependency, and build discovery. -/
+/-! # Lake-semantic discovery
+
+Lake-semantic module, source, dependency, and build discovery. -/
 
 namespace Regula.Checker.Lake
 

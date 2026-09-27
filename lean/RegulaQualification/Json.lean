@@ -1,6 +1,8 @@
 import RegulaQualification.Checks
 
-/-! Pure decoder/evaluator composition. Mandatory JSON accesses use the pinned Lean
+/-! # Decoder and evaluator composition
+
+Pure decoder/evaluator composition. Mandatory JSON accesses use the pinned Lean
 APIs in each protocol module; missing or malformed observations refuse before the
 assertions are evaluated. No defaults stand in for unavailable evidence. -/
 namespace RegulaQualification

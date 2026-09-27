@@ -1,6 +1,8 @@
 import Regula.Qualification.SourceEvidence
 
-/-! Frozen source/configuration controls through both documentation entrypoints and
+/-! # Documentation source-binding qualification
+
+Frozen source/configuration controls through both documentation entrypoints and
 through build/file boundaries. Mutating fixtures are never part of a positive library. -/
 namespace Regula.Qualification.DocumentationSource
 open Lean System RegulaQualification RegulaQualification.Evidence SourceEvidence

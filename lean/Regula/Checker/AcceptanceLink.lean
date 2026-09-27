@@ -2,7 +2,9 @@ import Regula.Checker.Snapshot
 import Regula.Checker.SourceBinding
 import RegulaCore.Account
 
-/-! Link between the two required verification steps: ordinary project acceptance and
+/-! # Two-step acceptance identity link
+
+Link between the two required verification steps: ordinary project acceptance and
 the separately timed documentation-fence audit. Each step computes one location-independent
 content identity from its own fresh captures of the root sources, configuration,
 dependency inputs, Markdown documents and, when given, a Verso documentation library with its

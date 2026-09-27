@@ -1,6 +1,8 @@
 import RegulaPolicy.Domain
 
-/-! Claims, snapshots and coverage keys for policy consumers. Claims represent requested
+/-! # Claims, snapshots and coverage keys
+
+Claims, snapshots and coverage keys for policy consumers. Claims represent requested
 mechanical scope, never an accepted result. Sources and dependency states are exact
 observations; the IO collector remains responsible for their truthful acquisition. -/
 namespace RegulaPolicy

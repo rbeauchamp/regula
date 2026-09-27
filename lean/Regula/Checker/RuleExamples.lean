@@ -3,7 +3,9 @@ import Regula.Checker.AxiomGate
 import Regula.Checker.ResultProtocol
 import Regula.Website
 
-/-! Source-owned example adapters. These invoke the shipped compilation, admission,
+/-! # Rule-example detector adapters
+
+Source-owned example adapters. These invoke the shipped compilation, admission,
 policy and documentation detectors; they define no second linter. Diagnostic-only
 inspection deliberately retains compiler warnings and never returns positive conformance.
 Lean's compiler, process completion and filesystem observations remain trusted. -/

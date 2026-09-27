@@ -1,6 +1,8 @@
 import RegulaQualification.Json
 
-/-! Exact producer-observation requirements for RG5001/RG5002 and standalone roots.
+/-! # Producer observation requirements
+
+Exact producer-observation requirements for RG5001/RG5002 and standalone roots.
 Every mandatory JSON access may refuse. The required census, source, documentation,
 foundation fields, diagnostics, and ranges are compared, not inferred from a PASS label.
 The proofs concern these supplied observations, not Lean/OS authenticity. -/

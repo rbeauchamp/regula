@@ -2,7 +2,9 @@ import RegulaPolicy.Claim
 import RegulaPolicy.Decision
 import RegulaPolicy.Execution
 
-/-! A frozen data census and a concrete required-job relation. The required jobs are
+/-! # Census and required-job plan
+
+A frozen data census and a concrete required-job relation. The required jobs are
 computed before result admission from the claim and census, never from returned successes.
 The IO adapter is responsible for faithfully obtaining configuration, Lake and source data. -/
 namespace RegulaPolicy

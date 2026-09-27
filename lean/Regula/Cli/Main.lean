@@ -1,6 +1,8 @@
 import RegulaCore.Guidance
 
-/-! `regula`: offline rule guidance for agents and humans (`lake exe regula explain <RULE-ID>`,
+/-! # Offline rule guidance executable
+
+`regula`: offline rule guidance for agents and humans (`lake exe regula explain <RULE-ID>`,
 `rules`, `agent-guide`, `skill`). It prints `Regula.Guidance.output` of the command that the
 proved parser `Regula.Guidance.parseCommand` admits; the texts are generated from the
 installed registry, so they match this build and need no network. -/

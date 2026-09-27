@@ -1,6 +1,8 @@
 import RegulaPolicy.Collections
 
-/-! The existing documentation diagnostic language, now structurally terminating and
+/-! # Diagnostic pattern language
+
+The existing documentation diagnostic language, now structurally terminating and
 linked to explicit grammar and ordered-split relations. A match concerns one effective
 error message; message severity and producer completion are operational observations. -/
 namespace RegulaPolicy

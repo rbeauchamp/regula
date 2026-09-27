@@ -1,6 +1,8 @@
 import Regula.Qualification.SourceEvidence
 
-/-! Import/failed-build/failed-compilation source-binding qualification. A failed
+/-! # Frozen-input failure qualification
+
+Import/failed-build/failed-compilation source-binding qualification. A failed
 operation must not skip frozen-input checks or misclassify an ordinary compiler error. -/
 namespace Regula.Qualification.FrozenExit
 open Lean System RegulaQualification RegulaQualification.Evidence SourceEvidence

@@ -5,7 +5,9 @@ import Regula.Checker.Producer
 import Regula.Checker.RuleDiagnostics
 import Regula.DiagnosticCodec
 
-/-! Versioned observation output and accepted-report rendering. JSON is display/transport
+/-! # Versioned result protocol
+
+Versioned observation output and accepted-report rendering. JSON is display/transport
 of scoped evidence, never a deserializable proof or whole-standard conformance certificate.
 The accepted constructor requires the executed con-leche-inspired indexed finalization. -/
 namespace Regula.Checker.ResultProtocol

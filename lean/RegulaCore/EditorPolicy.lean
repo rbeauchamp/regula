@@ -3,7 +3,9 @@ module
 public import RegulaCore.Rule
 public import RegulaPolicy.Decision
 
-/-! Pure decisions of the native editor linter (`Regula.Linter.Rules`): the request selected
+/-! # Editor linter decisions
+
+Pure decisions of the native editor linter (`Regula.Linter.Rules`): the request selected
 by the `regula.localFoundation` option and the per-declaration outcome. Each is a named `Prop`
 with a closed `ExecutableContract` registration that the linter runs. `RegulaCore.Policy`
 relates both to the project checker's `request` and `ruleForMember` (`editor_request_sound`,

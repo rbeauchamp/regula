@@ -6,7 +6,9 @@ import Lean
 import Lake.Load.Manifest
 import Std.Sync.Mutex
 
-/-! Shared process, path, JSON, and bounded-concurrency support. -/
+/-! # Shared checker support
+
+Shared process, path, JSON, and bounded-concurrency support. -/
 
 namespace Regula.Checker
 

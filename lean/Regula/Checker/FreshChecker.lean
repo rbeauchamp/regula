@@ -2,6 +2,8 @@ import Regula.Checker.Acceptance
 import Regula.Checker.ResultProtocol
 
 /-!
+# Serialized-environment qualification
+
 Optional serialized-environment qualification. This is separate from ordinary
 kernel elaboration and declaration-policy conformance.
 -/

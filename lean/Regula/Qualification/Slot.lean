@@ -2,7 +2,9 @@ import Regula.Checker.Snapshot
 import Regula.Qualification.Support
 import RegulaQualification.Json
 
-/-! Corpus slot preparation. A `ProducerSlot` holds one physically independent copy
+/-! # Corpus producer slot
+
+Corpus slot preparation. A `ProducerSlot` holds one physically independent copy
 of the ROOT package (real byte copies, never hardlinks), prepared before the corpus
 producer window and shared by every producer, which must not write it (no permission
 enforces this; the `sharedIdentity` check refuses a changed end state rather than

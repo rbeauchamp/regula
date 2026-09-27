@@ -1,6 +1,8 @@
 import Regula.Qualification.DependencySnapshot
 
-/-! Native Lake-boundary fault injection retaining root and Markdown inventory
+/-! # Input inventory fault injection
+
+Native Lake-boundary fault injection retaining root and Markdown inventory
 controls. The copied qualification executable is a test-only argv proxy. -/
 namespace Regula.Qualification.InputInventory
 open Lean System DependencySnapshot

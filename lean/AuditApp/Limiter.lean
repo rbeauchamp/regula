@@ -2,6 +2,8 @@ import Regula.Contract
 import Regula.MaterialClaim
 
 /-!
+# Proof-bearing bounded-slot limiter
+
 Proof-bearing core of the `AuditApp` complete-application dogfooding surface:
 a bounded-slot limiter (a rate limiter without time). The module owns the
 `Limiter` state whose single invariant — `inUse ≤ capacity` — is a proof

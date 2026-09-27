@@ -4,7 +4,9 @@ import Regula.Checker.SourceAudit
 import Regula.Website
 import RegulaCore.Guidance
 
-/-! Focused transport and source-boundary qualification for CATALOG-01.
+/-! # Registry transport qualification
+
+Focused transport and source-boundary qualification for CATALOG-01.
 Universal identity/name laws are theorems, not inferred from these controls.
 Canonical metadata motivation credits con-leche (Regula.RuleId). -/
 open Lean Regula Regula.RegistryCodec

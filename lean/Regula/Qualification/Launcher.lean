@@ -1,7 +1,9 @@
 import Regula.Qualification.Support
 import RegulaQualification.Launcher
 
-/-! Reuse Lake's actual environment within one immutable parent environment/workspace.
+/-! # Shared-environment compiler launcher
+
+Reuse Lake's actual environment within one immutable parent environment/workspace.
 Only explicit child search-path overrides vary. Each control still has a new compiler
 process. Captured values are never printed or persisted; acquisition is trusted IO. -/
 namespace Regula.Qualification.Launcher

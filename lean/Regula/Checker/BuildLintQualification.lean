@@ -1,6 +1,8 @@
 import Regula.Checker.Common
 
 /-!
+# Build-policy path qualification
+
 Qualification of the opt-in ordinary-Lake-build policy path. Every case uses
 the shipped adopter's actual default target, one independent mutation, and a
 fresh restored build. These are diagnostics of the checker, not correctness

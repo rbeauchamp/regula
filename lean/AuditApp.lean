@@ -3,6 +3,8 @@ import AuditApp.Demo
 import AuditApp.Refinement
 
 /-!
+# AuditApp surface umbrella
+
 Umbrella for the complete-application `AuditApp` Lake surface. It imports
 `AuditApp.Limiter` (the proof-bearing limiter core: admission, updates, and
 fold-level composition contracts), `AuditApp.Demo` (the fixed demonstration

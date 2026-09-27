@@ -1,4 +1,6 @@
-/-! Pure scheduling decisions of the rule-example corpus producer window. The corpus
+/-! # Corpus producer window scheduling
+
+Pure scheduling decisions of the rule-example corpus producer window. The corpus
 driver (`Regula.Qualification.RuleExamples.check`) launches exactly the jobs these
 definitions name, awaits records in `consumed` order, and applies `consume` once per
 record. The theorems below are about these exact definitions. They do not describe

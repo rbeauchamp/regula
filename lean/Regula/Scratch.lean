@@ -1,4 +1,6 @@
-/-! Scratch directories in Regula's own `tmp/.regula-scratch/` under a checkout, and
+/-! # Owned scratch directories
+
+Scratch directories in Regula's own `tmp/.regula-scratch/` under a checkout, and
 reclamation of those whose run died.
 
 Each scratch directory `<name>` is created only after its ownership marker `<name>.owner` was

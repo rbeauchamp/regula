@@ -1,6 +1,8 @@
 import Regula.Checker.SourceAudit
 
-/-! Focused operational qualification of policy transport and public admission.
+/-! # Policy transport qualification
+
+Focused operational qualification of policy transport and public admission.
 Universal value/collection laws live in RegulaPolicy. These controls exercise
 JSON text, process packets, source elaboration and the actual CLI, whose linkage
 is an operational boundary. Every public mutation has a fresh restored control. -/

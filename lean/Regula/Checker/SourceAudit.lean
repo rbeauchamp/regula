@@ -3,7 +3,9 @@ import Regula.Checker.Environment
 import Regula.Checker.Frontend
 import Regula.Checker.Policy
 
-/-! Verbatim source compilation followed by separate typed environment inspection. -/
+/-! # Verbatim source audit
+
+Verbatim source compilation followed by separate typed environment inspection. -/
 
 namespace Regula.Checker.SourceAudit
 

@@ -1,6 +1,8 @@
 module
 
-/-! Exact first-refusal and pointwise-map laws for pure `Except` list traversal; the success
+/-! # Except traversal laws
+
+Exact first-refusal and pointwise-map laws for pure `Except` list traversal; the success
 law is `Guards.listForM_eq_ok`. They are shared by scope admission, census assembly,
 worker-result admission and the qualification evaluator, and concern pure `Except` only,
 not effects of any other monad. -/

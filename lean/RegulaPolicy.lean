@@ -8,5 +8,7 @@ import RegulaPolicy.Execution
 import RegulaPolicy.ResultState
 import RegulaPolicy.Acceptance
 
-/-! Public pure policy library: admitted observations, executable semantic decisions,
+/-! # Public pure policy library
+
+Public pure policy library: admitted observations, executable semantic decisions,
 and concrete accepted-result proofs. Operational acquisition and global integration remain separate. -/

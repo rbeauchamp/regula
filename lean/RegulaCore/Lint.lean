@@ -1,6 +1,8 @@
 import RegulaCore.Account
 
-/-! The `lint` driver's exit classification. The driver runs the project audit and reads
+/-! # Lint driver exit classification
+
+The `lint` driver's exit classification. The driver runs the project audit and reads
 back the terminal status that audit recorded; this module decides the exit class from that
 status and the audit's exit code. `completed` carries an accepted account
 (`Account.Status.completed_accepted`), so exit 0 requires an accepted run of the requested

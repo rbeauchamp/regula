@@ -1,7 +1,9 @@
 import Regula.Screen.Claim
 import Regula.Screen.Corpus
 
-/-! The calibration measurement of `docs/guides/intent-screening.md`: run the labelled corpus
+/-! # Intent screen calibration
+
+The calibration measurement of `docs/guides/intent-screening.md`: run the labelled corpus
 through the same questions the screen asks and report, per judgment, false-negative and
 false-positive rates at fixed thresholds and the threshold-free ranking accuracy (AUC).
 

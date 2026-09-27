@@ -1,6 +1,8 @@
 import RegulaQualification.Json
 
-/-! Pure capture admission and paired-launcher equivalence. Environment values stay
+/-! # Launcher capture admission
+
+Pure capture admission and paired-launcher equivalence. Environment values stay
 in memory, never in the exported diagnostic. No theorem authenticates OS environment
 capture or establishes that a future run will be faster. -/
 namespace RegulaQualification.Launcher

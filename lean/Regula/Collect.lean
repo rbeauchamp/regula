@@ -22,7 +22,9 @@ public import Regula.Contract
 public import Lean.Linter.Util
 public import Lean.Linter.EnvLinter.Frontend
 
-/-! Shared Lean-native observation construction for local feedback and imported
+/-! # Lean-native observation construction
+
+Shared Lean-native observation construction for local feedback and imported
 project inspection. Reuses Lean 4 declaration, axiom and linter inventory APIs.
 Snapshot observations omit expensive replay; no observation is a role authorization. -/
 

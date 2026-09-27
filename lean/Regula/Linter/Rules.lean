@@ -4,7 +4,9 @@ public import Regula.Collect
 public import Regula.Findings
 public import RegulaCore.EditorPolicy
 
-/-! Local declaration decisions run the claimed `RegulaCore.EditorPolicy` registrations
+/-! # Local declaration rule decisions
+
+Local declaration decisions run the claimed `RegulaCore.EditorPolicy` registrations
 (`checked_editorRequest`, `checked_editorDecision`); `RegulaCore.Policy` proves they select the
 project's request and `ruleForMember` rule for the same member (`editor_request_sound`,
 `editor_decision_rule`). Deferred role observations are explicit; a snapshot result is never

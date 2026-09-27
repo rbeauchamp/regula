@@ -1,7 +1,9 @@
 import Regula.Qualification.Project
 import RegulaQualification.Evidence
 
-/-! Operational source/evidence campaigns. Every mutation stays in a unique disposable
+/-! # Source and evidence campaigns
+
+Operational source/evidence campaigns. Every mutation stays in a unique disposable
 adopter. These exercise actual checker commands; the supplied-observation oracle is
 proof-backed, while process, filesystem and compiler effects remain trusted. -/
 namespace Regula.Qualification.SourceEvidence

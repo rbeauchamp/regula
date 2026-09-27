@@ -4,7 +4,9 @@ public meta import Regula.MaterialClaim
 public meta import Regula.Findings
 public meta import Lean.DocString
 
-/-! Module-doc and explicitly selected declaration-doc presence, using both of
+/-! # Documentation presence checks
+
+Module-doc and explicitly selected declaration-doc presence, using both of
 Lean's documentation formats, and presence of a nonempty Intent section in each selected
 declaration's docstring. Presence is distinct from adequacy and registration
 completeness, which remain semantic review obligations. -/

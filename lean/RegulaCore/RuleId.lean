@@ -2,6 +2,8 @@ module
 
 
 /-!
+# Closed rule identity
+
 Closed public rule identity. Canonical construction is inspired by con-leche's
 `PropWhen.lean` and `Cached/Installed.lean`, revision
 c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0 (Lean FRO, Joachim Breitner and contributors).

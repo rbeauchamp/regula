@@ -1,7 +1,9 @@
 import Regula.Qualification.Support
 import RegulaQualification.Registry
 
-/-! Actual malformed-invocation qualification. All seven former Python cases remain;
+/-! # Malformed registry CLI qualification
+
+Actual malformed-invocation qualification. All seven former Python cases remain;
 each invocation starts with a seeded stale file in a unique scratch directory.
 The pure output oracle is `RegulaQualification.Registry.checked_validation`.
 This is operational evidence for the CLI, not a universal proof of `axiomGate`. -/

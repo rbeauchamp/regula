@@ -2,7 +2,9 @@ module
 
 public import RegulaPolicy.Domain
 
-/-! Reusable facts for proving what a successful `Except` validator establishes.
+/-! # Except validator guard lemmas
+
+Reusable facts for proving what a successful `Except` validator establishes.
 They let theorems be stated about the executed guard sequences directly, instead of
 sampling refusals of mutated inputs. They concern pure `Except` values only. -/
 

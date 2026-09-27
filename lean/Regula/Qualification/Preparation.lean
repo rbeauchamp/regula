@@ -3,7 +3,9 @@ import Regula.Checker.Lake
 import Regula.Qualification.Slot
 import Regula.Qualification.Support
 
-/-! Preparation-only qualification (harness): the full normal
+/-! # Producer slot preparation qualification
+
+Preparation-only qualification (harness): the full normal
 copy/authentication/preparation path for the shared producer slot on fresh
 owned scratch, with per-phase wall timings. No detector, no corpus and no
 shared writes (callers run this with `GIT_OPTIONAL_LOCKS=0`). Scratch cleanup

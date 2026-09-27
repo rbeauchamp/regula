@@ -1,6 +1,8 @@
 import AuditApp
 
 /-!
+# Audit application entry point
+
 Standalone root module of the claimed `auditApp` executable: the honest
 effectful boundary of the `AuditApp` dogfooding surface. `main` reads an
 optional capacity argument, passes it through the admission boundary, runs

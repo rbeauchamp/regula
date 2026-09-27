@@ -1,7 +1,9 @@
 import RegulaCore.Policy
 import RegulaPolicy.Acceptance
 
-/-! The single report account of an accepted run. Every human and machine rendering of a
+/-! # Accepted-run report account
+
+The single report account of an accepted run. Every human and machine rendering of a
 mechanical success projects this account, and the account is a function of one
 `AcceptedRun`: there is no second acceptance evaluator. It separates three things that a
 success must not blur:

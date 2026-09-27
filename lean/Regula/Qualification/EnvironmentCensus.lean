@@ -1,7 +1,9 @@
 import Regula.Qualification.Support
 import Regula.Checker.Acceptance
 
-/-! Native, source-bound environment composition qualification. Complete producer packets
+/-! # Environment census qualification
+
+Native, source-bound environment composition qualification. Complete producer packets
 are retained before admission controls. Observed process/filesystem/compiler behavior is
 not a universal proof; the separate shared-name theorem establishes the pure collision class. -/
 namespace Regula.Qualification.EnvironmentCensus

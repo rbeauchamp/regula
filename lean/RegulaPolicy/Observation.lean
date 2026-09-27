@@ -2,7 +2,9 @@ import RegulaPolicy.Plan
 import RegulaPolicy.Pattern
 import RegulaPolicy.Intent
 
-/-! Typed raw completion observations and independent policy predicates for the fixed plan.
+/-! # Completion observations and plan predicates
+
+Typed raw completion observations and independent policy predicates for the fixed plan.
 Receipts are data, not serialized proofs: their truthful acquisition and the registry/location
 bridge remain operational assumptions. Pure declaration, execution and expectation decisions
 are recomputed over the supplied observations. -/

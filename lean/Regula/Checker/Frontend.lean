@@ -6,6 +6,8 @@ import Regula.Checker.Common
 import Lean
 
 /-!
+# Fresh elaboration transcripts
+
 Fresh source-elaboration transcripts for the two narrowly allowed generated
 roles. The source is compared byte-for-byte before and after elaboration;
 isolated callers release frontend imports before consuming the typed result.

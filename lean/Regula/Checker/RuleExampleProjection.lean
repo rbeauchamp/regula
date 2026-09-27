@@ -2,7 +2,9 @@ import Regula.Checker.RuleExampleQualification
 import Std.Data.TreeMap.Raw.Lemmas
 import Regula.Checker.JsonProjectionTree
 
-/-! Qualification-only view of one rule-example record and its congruence laws.
+/-! # Rule-example qualification view
+
+Qualification-only view of one rule-example record and its congruence laws.
 `resultView` blanks exactly the `acceptance` and `documentationAcceptance` payloads of a result;
 `qualify_result_congr` and its lemmas prove that `RuleExampleQualification.qualify` decides a
 record and its view identically, because the qualifier reads no other changed field. The laws

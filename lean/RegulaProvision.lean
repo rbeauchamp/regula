@@ -1,6 +1,8 @@
 import Lean.Data.Json
 
-/-! Local dependency provisioning: one shared, read-only, unpacked Mathlib per pinned
+/-! # Shared Mathlib provisioning
+
+Local dependency provisioning: one shared, read-only, unpacked Mathlib per pinned
 revision and toolchain, reused by every local copy of this repository.
 
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache

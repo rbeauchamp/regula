@@ -1,6 +1,8 @@
 import Regula.Qualification.Support
 
-/-! Execute the public diagnostic boundary with stale completed evidence and actual
+/-! # Diagnostic receipt boundary qualification
+
+Execute the public diagnostic boundary with stale completed evidence and actual
 timeout discovery/spawn failures. These are operational observations, not OS proofs. -/
 namespace Regula.Qualification.ReceiptBoundary
 open Lean System

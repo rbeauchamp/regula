@@ -2,7 +2,9 @@ import Regula.Qualification.Launcher
 import Regula.Checker.Common
 import RegulaQualification.Native
 
-/-! Operational controls for native collector/logger/metadata linkage. Intentionally
+/-! # Native linter linkage qualification
+
+Operational controls for native collector/logger/metadata linkage. Intentionally
 invalid source is only written to disposable paths. The pure diagnostic oracle lives
 in `RegulaQualification.Native`; actual compiler behavior is observed, not proved. -/
 

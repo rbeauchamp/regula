@@ -3,7 +3,9 @@ import Regula.RegistryCodec
 import Regula.Screen.Calibrate
 import Regula.Checker.Lake
 
-/-! `intentScreen`: the opt-in probabilistic intent screen (`docs/guides/intent-screening.md`).
+/-! # Intent screen executable
+
+`intentScreen`: the opt-in probabilistic intent screen (`docs/guides/intent-screening.md`).
 
     lake exe intentScreen screen --config FILE (--module M | --library L) ...
       [--intent-sections] [--declaration NAME ...] [--json FILE]

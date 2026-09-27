@@ -1,7 +1,9 @@
 import Regula.Checker.ProducerReport
 import Regula.Checker.Common
 
-/-! Exact source/configuration snapshots at operational boundaries. Equality guards
+/-! # Source and configuration binding
+
+Exact source/configuration snapshots at operational boundaries. Equality guards
 detect observed changes; filesystem reads, Lake/compiler correspondence and the absence
 of an undetected change-and-restore race remain trusted operational assumptions. -/
 namespace Regula.Checker.SourceBinding

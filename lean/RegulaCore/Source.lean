@@ -3,7 +3,9 @@ module
 public import Lean.Data.Position
 public import RegulaPolicy.Domain
 
-/-! Source-coordinate admission against exact source bytes with Lean's `FileMap`.
+/-! # Source-coordinate admission
+
+Source-coordinate admission against exact source bytes with Lean's `FileMap`.
 UTF-16 columns are a parameter: Lean computes them in `Lean.Data.Lsp.Utf16`, whose
 import closure contains `Lean.Environment`, so `Regula.Diagnostic` supplies
 `FileMap.leanPosToLspPos`. These definitions concern the supplied bytes and coordinates;

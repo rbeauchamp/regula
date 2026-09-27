@@ -2,7 +2,9 @@ module
 
 public import RegulaPolicy.Foundation
 
-/-! Declaration-policy meaning over observations. These predicates state membership,
+/-! # Declaration-policy specification
+
+Declaration-policy meaning over observations. These predicates state membership,
 safety, and recorded contract obligations independently of decision outputs. Extraction
 and the truth of the observed contract/replay fields remain operational boundaries. -/
 

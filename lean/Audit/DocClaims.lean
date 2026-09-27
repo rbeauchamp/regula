@@ -3,6 +3,8 @@ import Mathlib.Tactic.NormNum
 import Audit.DocPrelude
 
 /-!
+# Dogfooding claims for standard examples
+
 Dogfooding declarations for the standard's examples. The module owns the exponential
 `DecayingValue` formula, antitonicity theorem, and joint-satisfiability witness, and nominal
 discrete `Tick` values with transported natural order; examples of the standard import them.

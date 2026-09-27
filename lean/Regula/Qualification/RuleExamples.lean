@@ -9,7 +9,9 @@ import RegulaQualification.CorpusWindow
 import Regula.Checker.RuleExampleCorpusProjection
 import Regula.Checker.ResultProtocol
 
-/-! Source-owned corpus orchestration. Actual detector receipts are admitted by the
+/-! # Rule-example corpus orchestration
+
+Source-owned corpus orchestration. Actual detector receipts are admitted by the
 existing RuleExampleQualification executable and its proof-linked policy functions.
 This adapter does not infer policy from source text. Filesystem/process authenticity
 remains trusted. At most five producer jobs run at once, each in its own fresh

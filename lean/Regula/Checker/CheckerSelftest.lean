@@ -7,6 +7,8 @@ import Regula.Checker.BuildLintQualification
 import Regula.Checker.LintQualification
 
 /-!
+# Checker qualification suite
+
 Focused qualification suite for the repository's Lean-native checkers.
 
 The suite runs in two tiers that share one invariant prefix instead of

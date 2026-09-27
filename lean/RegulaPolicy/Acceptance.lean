@@ -1,7 +1,9 @@
 import RegulaPolicy.Observation
 import RegulaPolicy.ResultState
 
-/-! Acceptance of the concrete fixed policy plan. Every required slot is completed and
+/-! # Fixed-plan acceptance
+
+Acceptance of the concrete fixed policy plan. Every required slot is completed and
 meets its named stage relation. These are conditional guarantees about observations and
 exact report identity, not claims that IO acquisition or semantic intent is verified. -/
 namespace RegulaPolicy

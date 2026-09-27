@@ -2,7 +2,9 @@ import RegulaPolicy.Collections
 import RegulaPolicy.Traversal
 import Regula.Contract
 
-/-! Invariant-preserving finite result admission. The required key set and binding
+/-! # Invariant-preserving result admission
+
+Invariant-preserving finite result admission. The required key set and binding
 relation are parameters fixed by the caller's plan. This module proves representation
 closure, not that an external census is complete or a policy observation is true. -/
 namespace RegulaPolicy

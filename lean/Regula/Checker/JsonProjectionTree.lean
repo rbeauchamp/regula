@@ -1,7 +1,9 @@
 import Lean
 import Std.Data.TreeMap.Raw.AdditionalOperations
 
-/-! Structural value-map laws for raw JSON objects. These do not assume the raw
+/-! # JSON tree value-map laws
+
+Structural value-map laws for raw JSON objects. These do not assume the raw
 tree is ordered or balanced; keys and tree shape are preserved, including malformed
 trees. They support the corpus adapter's qualification-only payload view. -/
 namespace Regula.Checker.JsonProjectionTree

@@ -3,7 +3,9 @@ module
 public import RegulaPolicy.Decision
 public import Regula.Contract
 
-/-! Declaration policy for the operational self-audit of the excluded checker library.
+/-! # Operational self-audit policy
+
+Declaration policy for the operational self-audit of the excluded checker library.
 
 Operational code is not a conforming proof surface: it holds the IO adapters that observe
 Lake, the compiler and the filesystem. Two of its facts are therefore reported rather than

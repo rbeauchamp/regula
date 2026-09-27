@@ -1,6 +1,8 @@
 import RegulaQualification.Checks
 
-/-! Exact observation contract for malformed registry CLI invocations: nonzero exit,
+/-! # Malformed registry CLI observation contract
+
+Exact observation contract for malformed registry CLI invocations: nonzero exit,
 a JSON object explicitly marked incomplete, and removal of the seeded `old` key.
 JSON parsing and field access mean Lean's pinned `Json` APIs. No theorem asserts that
 a process ran or that the supplied object came from the requested output file. -/

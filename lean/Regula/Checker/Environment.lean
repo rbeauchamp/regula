@@ -7,6 +7,8 @@ import Regula.Checker.SourceBinding
 import Regula.Linter.Documentation
 
 /-!
+# Trusted environment loading
+
 Trusted environment loading for checker policy. The fully qualified reporter
 is called directly; audited syntax extensions cannot replace the observation.
 -/

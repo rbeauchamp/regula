@@ -6,7 +6,9 @@ import RegulaPolicy.Guards
 import RegulaPolicy.Traversal
 import Regula.Contract
 
-/-! Pure checker projections of the policy decisions: claim spelling and request,
+/-! # Checker policy projections
+
+Pure checker projections of the policy decisions: claim spelling and request,
 scope admission, declaration rules and execution rules. Each requirement is a named
 `Prop`; a closed `ExecutableContract` proves it about the executed definition, and the
 operational adapter `Regula.Checker.Policy` runs these registrations. Scope admission

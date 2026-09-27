@@ -2,6 +2,8 @@ import AuditApp.Limiter
 import Mathlib.Logic.Relation
 
 /-!
+# Limiter refinement to a free-slot model
+
 Stateful refinement of the actual limiter transitions to a nondeterministic
 free-slot model. `Relation.ReflTransGen` means finitely many steps, including
 zero. The general transfer theorem quantifies over every concrete path and

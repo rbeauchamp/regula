@@ -1,7 +1,9 @@
 import Lean
 import RegulaPolicy.Screening
 
-/-! Labelled calibration corpus for the intent screen (`docs/guides/intent-screening.md`).
+/-! # Intent screen calibration corpus
+
+Labelled calibration corpus for the intent screen (`docs/guides/intent-screening.md`).
 
 Each item is a definition of type `Prop` whose value is a formal claim and whose docstring
 holds a §5.2 explanation and an `# Intent` section. A *base* item is a correct intent/claim

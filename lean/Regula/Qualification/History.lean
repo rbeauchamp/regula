@@ -1,7 +1,9 @@
 import Regula.Qualification.SourceEvidence
 import RegulaQualification.History
 
-/-! Actual project/file history qualification. Every control runs in its own fresh
+/-! # Project history qualification
+
+Actual project/file history qualification. Every control runs in its own fresh
 workspace with its own output path, so no restored rerun repeats an earlier positive
 control (standard §8.8).
 

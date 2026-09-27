@@ -1,6 +1,8 @@
 import Regula.Site.Artifact
 
-/-! Command-line entrypoint of the rule-reference site builder (`lake exe site`). -/
+/-! # Site builder entry point
+
+Command-line entrypoint of the rule-reference site builder (`lake exe site`). -/
 
 open System
 

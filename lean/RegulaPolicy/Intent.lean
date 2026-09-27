@@ -1,6 +1,8 @@
 module
 
-/-! Presence of a labelled Intent section in a registered material declaration's
+/-! # Intent section presence
+
+Presence of a labelled Intent section in a registered material declaration's
 docstring (standard §5.2; rules RG5002 and RG5003).
 
 A docstring is read as its line-feed-separated lines (`docLines`). An *Intent section*

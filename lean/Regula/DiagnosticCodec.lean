@@ -1,6 +1,8 @@
 import Regula.RegistryCodec
 
-/-! Fail-closed diagnostic transport. Decode to the indexed domain, then compare with
+/-! # Fail-closed diagnostic transport
+
+Fail-closed diagnostic transport. Decode to the indexed domain, then compare with
 canonical re-encoding to reject unknown fields and redundant-coordinate disagreement.
 Payloads are indexed by the registry's closed `RuleId` (design credit in Regula.RuleId). -/
 namespace Regula.DiagnosticCodec

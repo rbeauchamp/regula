@@ -1,6 +1,8 @@
 module
 
 /-!
+# Executable contracts
+
 Proof requirements for a named executable definition. `ExecutableContract f R`
 requires a proof of `R f`; it does not infer whether `R` expresses the intended
 behavior. The build linter separately checks that the registered `f` is an

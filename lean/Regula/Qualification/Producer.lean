@@ -1,7 +1,9 @@
 import Regula.Qualification.Project
 import RegulaQualification.Producer
 
-/-! Actual producer qualification: twelve documented-source controls (incremental and
+/-! # Producer qualification controls
+
+Actual producer qualification: twelve documented-source controls (incremental and
 build-lint, RG5001/RG5002, Fixed then Violation then restored Fixed) and two
 standalone-executable controls. Each is kept for a genuinely external boundary: the
 real `axiomGate` process, Lake build state and Lean elaboration of one source. Transport

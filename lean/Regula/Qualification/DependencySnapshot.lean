@@ -1,7 +1,9 @@
 import Regula.Qualification.Project
 import Regula.Checker.Snapshot
 
-/-! Native retention of dependency snapshot and RG3001 history controls. These
+/-! # Dependency snapshot qualification
+
+Native retention of dependency snapshot and RG3001 history controls. These
 observations qualify trusted Lake/filesystem boundaries, not universal IO behavior. -/
 namespace Regula.Qualification.DependencySnapshot
 open Lean System

@@ -1,6 +1,8 @@
 import RegulaQualification.Json
 
-/-! Supplied-data contracts for source-bound qualification. Required fields decode
+/-! # Source-bound evidence contracts
+
+Supplied-data contracts for source-bound qualification. Required fields decode
 strictly. The oracles establish exact exit, diagnostic, status and transcript predicates;
 they do not establish that an OS process or filesystem supplied authentic observations. -/
 namespace RegulaQualification.Evidence

@@ -2,7 +2,9 @@ module
 
 public import RegulaPolicy.Admission
 
-/-! Independent finite foundation predicates. Profiles are bounds on exact transitive
+/-! # Foundation predicates
+
+Independent finite foundation predicates. Profiles are bounds on exact transitive
 axiom membership, not claims about alternative proofs or native execution. -/
 
 @[expose] public section

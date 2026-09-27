@@ -1,6 +1,8 @@
 import Regula.Checker.Common
 
 /-!
+# Compiler-path coverage qualification
+
 Public-entrypoint qualification of compiler-derived execution coverage. Each
 single-edge mutation gets independent imported source, compiled artifacts,
 positive and fresh restored controls. The emitted-C check is a diagnostic of

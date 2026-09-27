@@ -3,7 +3,9 @@ module
 public import RegulaPolicy.Intent
 public import Regula.Contract
 
-/-! Pure decisions of the opt-in probabilistic intent screen (`intentScreen`,
+/-! # Intent screen decisions
+
+Pure decisions of the opt-in probabilistic intent screen (`intentScreen`,
 `docs/guides/intent-screening.md`).
 
 A screen asks a pinned judgment model narrow questions about one material claim: whether the

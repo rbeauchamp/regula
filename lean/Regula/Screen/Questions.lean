@@ -1,7 +1,9 @@
 import Lean.Data.Json
 import RegulaPolicy.Screening
 
-/-! The exact questions and state of an intent screen. Each question is narrow and states its
+/-! # Intent screen questions and state
+
+The exact questions and state of an intent screen. Each question is narrow and states its
 yes/no or option meanings in its criteria; every question text is recorded as evidence.
 
 The state holds only what a judgment needs: the intent clauses, and, by `StateMode`, the

@@ -1,6 +1,8 @@
 import Regula.Qualification.InputInventory
 
-/-! Native retention of raw-worker acceptance and documentation-dependency controls.
+/-! # Acceptance control qualification
+
+Native retention of raw-worker acceptance and documentation-dependency controls.
 The coordinator is the actual checker; only a copied native child proxy mutates
 completed fence-compilation packets. Project and documentation acceptance run in one
 process with no serialized evidence between them, so no project packet exists to

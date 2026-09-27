@@ -3,7 +3,9 @@ module
 public import RegulaPolicy.Domain
 public import Std.Data.ExtHashSet.Lemmas
 
-/-! Admission of observations before policy. These proofs establish data validity,
+/-! # Observation admission
+
+Admission of observations before policy. These proofs establish data validity,
 not the truth of compiler extraction. Generated roles remain bound to this entire
 inventory; all policy decisions consume a member of that same admitted inventory. -/
 

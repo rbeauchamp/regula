@@ -1,6 +1,8 @@
 import Regula.Qualification.Support
 
-/-! Focused operational qualification of group termination, not a timing theorem.
+/-! # Group termination qualification
+
+Focused operational qualification of group termination, not a timing theorem.
 A timed child launches a long-lived descendant with inherited output handles. The outer
 observer must receive refusal, observe the descendant stopped, and run a clean control.
 Run separately from ordinary acceptance: this intentionally kills its owned test group. -/

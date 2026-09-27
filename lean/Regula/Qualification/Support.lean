@@ -2,7 +2,9 @@ import RegulaQualification.Checks
 import Regula.Scratch
 import Lean
 
-/-! Operational qualification support. Pure assertions go through `checked_evaluation`.
+/-! # Operational qualification support
+
+Operational qualification support. Pure assertions go through `checked_evaluation`.
 Filesystem observations, process execution, GNU timeout, and cleanup are trusted IO;
 none is advertised as a kernel theorem about the operating system. Commands use argv,
 not shell programs. Public entrypoints own one group-wide deadline. Under acceptance,
