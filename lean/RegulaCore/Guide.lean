@@ -376,7 +376,13 @@ def guide : RuleId → Guide
         "No proof obligation on the checked project. The decision is proved: \
           `RegulaPolicy.Community.failures_eq_nil_iff` shows that it reports nothing exactly when \
           the target meets `Conforming`, the declarative statement of its conditions, and \
-          `conforming_of_mathlib` that the Mathlib requirement includes the core-only one."]
+          `conforming_of_mathlib` that the Mathlib requirement includes the core-only one. \
+          `leanArgument_mem_failures_iff` shows that it reports a `-D` argument exactly when \
+          some `-D` form, stated over the characters of the arguments (`Defines`), sets a \
+          checked option to a contradicting value; `autoImplicit_argument_fails`, \
+          `maxHeartbeats_argument_passes`, `linter_argument_fails`, \
+          `excluded_linter_argument_passes` and `plugin_argument_passes` fix five argument \
+          lists, taking as a hypothesis the name `lean` reads (`String.toName` is `partial`)."]
       established := [
         "Every claimed library and executable is built through Lake with automatic implicits \
           off, turns off no linter target-wide beyond the §6.7 exclusions and, in a Mathlib \

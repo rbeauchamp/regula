@@ -18,6 +18,12 @@ sets one of them to another value or turns off another linter.
 - `failures`: the executed decision, every failure of one target in a fixed order.
 - `failures_eq_nil_iff`: no failure exactly when `Conforming` holds.
 - `conforming_of_mathlib`: the Mathlib requirement strengthens the core-only one.
+- `mem_argumentTexts_iff`: the `-D` reading holds exactly the settings of `Defines`, stated over
+  the characters of the arguments.
+- `leanArgument_mem_failures_iff`: a `-D` argument fails exactly when some `-D` form sets a
+  checked option to a contradicting value.
+- `autoImplicit_argument_fails`, `maxHeartbeats_argument_passes`, `linter_argument_fails`,
+  `excluded_linter_argument_passes`, `plugin_argument_passes`: fixed argument lists.
 
 ## Option names and values
 
@@ -91,30 +97,222 @@ def rootOf : Name → Option String
   | .str p s => some ((rootOf p).getD s)
   | .num p _ => rootOf p
 
-/-- The text after the first `D` of an argument that begins with a single `-`: a `-D` value, or
-empty when the value is the next argument. `lean` reads `-D` alone or after flags, as in `-qD`;
-an argument whose first `D` is not a `-D` still gives a candidate. -/
-def defineText? (argument : String) : Option String :=
-  if argument.startsWith "-" && !argument.startsWith "--" then
-    match argument.splitOn "D" with
-    | _ :: rest@(_ :: _) => some ("D".intercalate rest)
-    | _ => none
-  else none
+/-- The characters after the first `D`, when there is one. -/
+def afterD : List Char → Option (List Char)
+  | [] => none
+  | c :: rest => if c = 'D' then some rest else afterD rest
 
-/-- A `-D` value `name=value`, split at its first `=` as `lean` does. -/
-def setting? (text : String) : Option (Name × OptionValue) :=
-  match text.splitOn "=" with
-  | name :: value :: more => some (name.toName, .string ("=".intercalate (value :: more)))
+/-- The characters after the first `D` of an argument that begins with a single `-`: a `-D`
+value, or empty when the value is the next argument. `lean` reads `-D` alone or after flags, as
+in `-qD`; an argument whose first `D` is not a `-D` still gives a candidate. -/
+def defineText? (argument : String) : Option (List Char) :=
+  match argument.toList with
+  | c :: d :: rest => if c = '-' ∧ d ≠ '-' then afterD (d :: rest) else none
   | _ => none
 
-/-- Every option setting the extra `lean` arguments can make with `-D`, in argument order. -/
-def argumentSettings : List String → List (Name × OptionValue)
+/-- The characters before and after the first `=`, when there is one. -/
+def splitAtEq : List Char → Option (List Char × List Char)
+  | [] => none
+  | c :: rest =>
+    if c = '=' then some ([], rest) else (splitAtEq rest).map fun p => (c :: p.1, p.2)
+
+/-- A `-D` value `name=value`, split at its first `=` as `lean` does: the name and value texts. -/
+def settingText? (text : List Char) : Option (String × String) :=
+  (splitAtEq text).map fun p => (String.ofList p.1, String.ofList p.2)
+
+/-- The `-D` setting that `argument`, followed by the arguments `rest`, can make. -/
+def argumentText? (argument : String) (rest : List String) : Option (String × String) :=
+  match defineText? argument with
+  | some [] => rest.head?.bind fun next => settingText? next.toList
+  | some text => settingText? text
+  | none => none
+
+/-- The name and value texts of every `-D` setting the extra `lean` arguments can make, in
+argument order. -/
+def argumentTexts : List String → List (String × String)
   | [] => []
-  | argument :: rest =>
-    (match defineText? argument with
-      | some "" => rest.head?.bind setting?
-      | some text => setting? text
-      | none => none).toList ++ argumentSettings rest
+  | argument :: rest => (argumentText? argument rest).toList ++ argumentTexts rest
+
+/-- Every option setting the extra `lean` arguments can make with `-D`, in argument order: each
+name read as `lean` reads it (`String.toName`), each value a string. -/
+def argumentSettings (arguments : List String) : List (Name × OptionValue) :=
+  (argumentTexts arguments).map fun t => (t.1.toName, .string t.2)
+
+/-- `argument` is a `-D` form with `text` after its `D`: a single `-`, then flags without a `D`
+(as the `q` of `-qD`), then `D`. -/
+def DefineForm (argument : String) (text : List Char) : Prop :=
+  ∃ flags, argument.toList = '-' :: flags ++ 'D' :: text ∧ 'D' ∉ flags ∧ flags.head? ≠ some '-'
+
+/-- `text` is `name=value`, with no `=` in `name`. -/
+def SettingForm (text : List Char) (name value : String) : Prop :=
+  ∃ n v, text = n ++ '=' :: v ∧ '=' ∉ n ∧ name = String.ofList n ∧ value = String.ofList v
+
+/-- `argument`, followed by the arguments `rest`, sets the option text `name` to `value` with
+`-D`: `name=value` follows its `D`, or, when nothing follows the `D`, is the next argument. -/
+def DefinesHere (argument : String) (rest : List String) (name value : String) : Prop :=
+  ∃ text, DefineForm argument text ∧
+    ((text ≠ [] ∧ SettingForm text name value) ∨
+      (text = [] ∧ ∃ next more, rest = next :: more ∧ SettingForm next.toList name value))
+
+/-- Some argument of `arguments` sets the option text `name` to `value` with `-D`. -/
+def Defines (arguments : List String) (name value : String) : Prop :=
+  ∃ pre argument rest, arguments = pre ++ argument :: rest ∧ DefinesHere argument rest name value
+
+/-- `afterD` finds exactly the characters after the first `D`. -/
+theorem afterD_eq_some_iff (chars text : List Char) :
+    afterD chars = some text ↔ ∃ flags, chars = flags ++ 'D' :: text ∧ 'D' ∉ flags := by
+  induction chars with
+  | nil => simp [afterD]
+  | cons c rest ih =>
+    by_cases hc : c = 'D'
+    · subst hc
+      simp only [afterD, ↓reduceIte, Option.some.injEq]
+      constructor
+      · rintro rfl
+        exact ⟨[], rfl, by simp⟩
+      · rintro ⟨_ | ⟨f, flags⟩, h, hD⟩
+        · simpa using h
+        · simp_all
+    · simp only [afterD, hc, ↓reduceIte, ih]
+      constructor
+      · rintro ⟨flags, rfl, hD⟩
+        exact ⟨c :: flags, rfl, by simp [Ne.symm hc, hD]⟩
+      · rintro ⟨_ | ⟨f, flags⟩, h, hD⟩
+        · simp_all
+        · simp only [List.cons_append, List.cons.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          exact ⟨flags, rfl, fun h => hD (List.mem_cons_of_mem _ h)⟩
+
+/-- `defineText?` recognizes exactly the `-D` forms. -/
+theorem defineText?_eq_some_iff (argument : String) (text : List Char) :
+    defineText? argument = some text ↔ DefineForm argument text := by
+  unfold defineText? DefineForm
+  generalize argument.toList = chars
+  match chars with
+  | [] => simp
+  | [c] => simp
+  | c :: d :: rest =>
+    by_cases h : c = '-' ∧ d ≠ '-'
+    · obtain ⟨rfl, hd⟩ := h
+      simp only [hd, ne_eq, not_false_eq_true, and_self, ↓reduceIte, afterD_eq_some_iff]
+      constructor
+      · rintro ⟨flags, heq, hD⟩
+        refine ⟨flags, by simp [heq], hD, ?_⟩
+        cases flags with
+        | nil => simp
+        | cons f fs =>
+          simp only [List.cons_append, List.cons.injEq] at heq
+          simp [← heq.1, hd]
+      · rintro ⟨flags, heq, hD, -⟩
+        exact ⟨flags, by simpa using heq, hD⟩
+    · simp only [h, ↓reduceIte, reduceCtorEq, false_iff, not_exists, not_and]
+      intro flags heq hD hh
+      apply h
+      simp only [List.cons_append, List.cons.injEq] at heq
+      refine ⟨heq.1, ?_⟩
+      cases flags with
+      | nil =>
+        simp only [List.nil_append, List.cons.injEq] at heq
+        rw [heq.2.1]
+        decide
+      | cons f fs =>
+        simp only [List.cons_append, List.cons.injEq] at heq
+        rw [heq.2.1]
+        simpa using hh
+
+/-- `splitAtEq` splits exactly at the first `=`. -/
+theorem splitAtEq_eq_some_iff (chars name value : List Char) :
+    splitAtEq chars = some (name, value) ↔ chars = name ++ '=' :: value ∧ '=' ∉ name := by
+  induction chars generalizing name with
+  | nil => simp [splitAtEq]
+  | cons c rest ih =>
+    by_cases hc : c = '='
+    · subst hc
+      simp only [splitAtEq, ↓reduceIte, Option.some.injEq, Prod.mk.injEq]
+      constructor
+      · rintro ⟨rfl, rfl⟩
+        simp
+      · rintro ⟨h, hn⟩
+        cases name with
+        | nil => simpa [eq_comm] using h
+        | cons n ns => simp_all
+    · simp only [splitAtEq, hc, ↓reduceIte, Option.map_eq_some_iff, Prod.exists, Prod.mk.injEq]
+      constructor
+      · rintro ⟨n, v, hs, rfl, rfl⟩
+        obtain ⟨rfl, hn⟩ := (ih n).1 hs
+        exact ⟨rfl, by simp [Ne.symm hc, hn]⟩
+      · rintro ⟨h, hn⟩
+        cases name with
+        | nil => simp_all
+        | cons n ns =>
+          simp only [List.cons_append, List.cons.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          exact ⟨ns, value, (ih ns).2 ⟨rfl, fun h => hn (List.mem_cons_of_mem _ h)⟩, rfl, rfl⟩
+
+/-- `settingText?` reads exactly the `name=value` texts. -/
+theorem settingText?_eq_some_iff (text : List Char) (name value : String) :
+    settingText? text = some (name, value) ↔ SettingForm text name value := by
+  simp only [settingText?, Option.map_eq_some_iff, Prod.exists, Prod.mk.injEq, SettingForm,
+    splitAtEq_eq_some_iff]
+  constructor
+  · rintro ⟨n, v, ⟨h, hn⟩, rfl, rfl⟩
+    exact ⟨n, v, h, hn, rfl, rfl⟩
+  · rintro ⟨n, v, h, hn, rfl, rfl⟩
+    exact ⟨n, v, ⟨h, hn⟩, rfl, rfl⟩
+
+/-- `argumentText?` reads exactly the `-D` setting one argument makes. -/
+theorem argumentText?_eq_some_iff (argument : String) (rest : List String) (name value : String) :
+    argumentText? argument rest = some (name, value) ↔ DefinesHere argument rest name value := by
+  unfold argumentText? DefinesHere
+  cases h : defineText? argument with
+  | none =>
+    simp only [reduceCtorEq, false_iff, not_exists, not_and]
+    intro text hform
+    rw [← defineText?_eq_some_iff, h] at hform
+    exact absurd hform (by simp)
+  | some text =>
+    have hform : ∀ t, DefineForm argument t ↔ t = text := fun t => by
+      rw [← defineText?_eq_some_iff, h, Option.some.injEq, eq_comm]
+    simp only [hform, exists_eq_left]
+    cases text with
+    | nil =>
+      cases rest with
+      | nil => simp
+      | cons next more => simp [settingText?_eq_some_iff]
+    | cons c cs => simp [settingText?_eq_some_iff]
+
+/-- `argumentTexts` reads exactly the `-D` settings of the arguments. -/
+theorem mem_argumentTexts_iff (arguments : List String) (name value : String) :
+    (name, value) ∈ argumentTexts arguments ↔ Defines arguments name value := by
+  induction arguments with
+  | nil => simp [argumentTexts, Defines]
+  | cons argument rest ih =>
+    simp only [argumentTexts, List.mem_append, Option.mem_toList, argumentText?_eq_some_iff, ih]
+    constructor
+    · rintro (h | ⟨pre, b, more, rfl, h⟩)
+      · exact ⟨[], argument, rest, rfl, h⟩
+      · exact ⟨argument :: pre, b, more, rfl, h⟩
+    · rintro ⟨pre, b, more, heq, h⟩
+      cases pre with
+      | nil =>
+        simp only [List.nil_append, List.cons.injEq] at heq
+        obtain ⟨rfl, rfl⟩ := heq
+        exact .inl h
+      | cons p pre =>
+        simp only [List.cons_append, List.cons.injEq] at heq
+        obtain ⟨rfl, rfl⟩ := heq
+        exact .inr ⟨pre, b, more, rfl, h⟩
+
+/-- `argumentSettings` holds exactly the `-D` settings, each name read by `String.toName`. -/
+theorem mem_argumentSettings_iff (arguments : List String) (n : Name) (v : OptionValue) :
+    (n, v) ∈ argumentSettings arguments ↔
+      ∃ name value, Defines arguments name value ∧ n = name.toName ∧ v = .string value := by
+  simp only [argumentSettings, List.mem_map, Prod.exists, Prod.mk.injEq, mem_argumentTexts_iff]
+  constructor
+  · rintro ⟨name, value, hd, rfl, rfl⟩
+    exact ⟨name, value, hd, rfl, rfl⟩
+  · rintro ⟨name, value, hd, rfl, rfl⟩
+    exact ⟨name, value, hd, rfl, rfl⟩
 
 /-- The options every claimed target sets (standard §8.1): no automatic implicits. -/
 def baseline : List (Name × OptionValue) :=
@@ -257,5 +455,120 @@ theorem conforming_autoImplicit (o : BuildOptions) (mathlib : Bool) (h : Conform
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hname
     rcases hname with rfl | rfl <;> simp [required, baseline]
   exact ⟨(h.1 _ hr).2, fun s hs hs' => (h.2.2 s hs).1 _ hr hs'⟩
+
+/-- A `-D` string value contradicts the requirement exactly when it is not what Lean reads as a
+required option's value, or it is `"false"` for a linter outside the §6.7 exclusions. -/
+theorem contradicts_string_eq_true_iff (mathlib : Bool) (n : Name) (value : String) :
+    contradicts mathlib n (.string value) = true ↔
+      (∃ r ∈ required mathlib, optionOf n = r.1 ∧ (OptionValue.string value).readsAs r.2 = false) ∨
+      (rootOf (optionOf n) = some "linter" ∧ value = "false" ∧ optionOf n ∉ exclusions) := by
+  have hfalse : (OptionValue.string value).readsAs (.bool false) = true ↔ value = "false" := by
+    simp only [OptionValue.readsAs, beq_iff_eq]
+    rfl
+  rw [contradicts, Bool.or_eq_true, List.any_eq_true, disables_iff, hfalse]
+  simp
+
+/-- The decision reports a `-D` argument exactly when some argument sets a checked option to a
+value that contradicts the requirement: `-Dname=value`, also after flags as in `-qD`, or `-D`
+followed by `name=value` as the next argument. The name is read as `lean` reads it
+(`String.toName`), and a linter is turned off by the string `"false"`. -/
+theorem leanArgument_mem_failures_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
+    (v : OptionValue) :
+    Failure.leanArgument n v ∈ failures o mathlib ↔
+      ∃ name value, Defines o.arguments name value ∧ n = name.toName ∧ v = .string value ∧
+        ((∃ r ∈ required mathlib, optionOf n = r.1 ∧
+            (OptionValue.string value).readsAs r.2 = false) ∨
+          (rootOf (optionOf n) = some "linter" ∧ value = "false" ∧ optionOf n ∉ exclusions)) := by
+  have hmem : Failure.leanArgument n v ∈ failures o mathlib ↔
+      (n, v) ∈ argumentSettings o.arguments ∧ contradicts mathlib n v = true := by
+    simp only [failures, List.mem_append, List.mem_filterMap]
+    constructor
+    · rintro ((⟨r, -, h⟩ | ⟨e, -, h⟩) | ⟨s, hs, h⟩)
+      · split at h <;> simp at h
+      · split at h <;> simp at h
+      · split at h
+        · simp only [Option.some.injEq, Failure.leanArgument.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          exact ⟨hs, by assumption⟩
+        · simp at h
+    · rintro ⟨hs, hc⟩
+      exact .inr ⟨(n, v), hs, by simp [hc]⟩
+  rw [hmem, mem_argumentSettings_iff]
+  constructor
+  · rintro ⟨⟨name, value, hd, rfl, rfl⟩, hc⟩
+    exact ⟨name, value, hd, rfl, rfl, (contradicts_string_eq_true_iff _ _ _).1 hc⟩
+  · rintro ⟨name, value, hd, rfl, rfl, hc⟩
+    exact ⟨⟨name, value, hd, rfl, rfl⟩, (contradicts_string_eq_true_iff _ _ _).2 hc⟩
+
+/-! The cases below fix the extra `lean` arguments and hold for every `leanOptions`. Lean's
+`String.toName` is `partial`, so the kernel cannot evaluate it: a case whose argument names an
+option takes the name `lean` reads as a hypothesis. -/
+
+/-- `-DautoImplicit=true` gives a required option another value, so the target fails. -/
+theorem autoImplicit_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "autoImplicit".toName = `autoImplicit) :
+    Failure.leanArgument `autoImplicit (.string "true") ∈
+      failures ⟨options, ["-DautoImplicit=true"]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  refine ⟨"autoImplicit", "true", (mem_argumentTexts_iff ["-DautoImplicit=true"] _ _).1 (by decide),
+    h.symm, rfl,
+    .inl ⟨(`autoImplicit, .bool false), by simp [required, baseline], rfl, by decide⟩⟩
+
+/-- `-DmaxHeartbeats=400000` sets no checked option, so it adds no failure. -/
+theorem maxHeartbeats_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "maxHeartbeats".toName = `maxHeartbeats) (n : Name) (v : OptionValue) :
+    Failure.leanArgument n v ∉ failures ⟨options, ["-DmaxHeartbeats=400000"]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  rintro ⟨name, value, hd, rfl, rfl, hc⟩
+  have ht : argumentTexts ["-DmaxHeartbeats=400000"] = [("maxHeartbeats", "400000")] := by
+    decide
+  rw [← mem_argumentTexts_iff, ht, List.mem_singleton, Prod.mk.injEq] at hd
+  obtain ⟨rfl, rfl⟩ := hd
+  have ho : optionOf "maxHeartbeats".toName = `maxHeartbeats := by rw [h]; rfl
+  rw [ho] at hc
+  cases mathlib <;> simp [required, baseline, mathlibBaseline, rootOf] at hc
+
+/-- `-qD` followed by `weak.linter.unusedVariables=false` turns off a linter outside the §6.7
+exclusions, so the target fails. -/
+theorem linter_argument_fails (options : List (Name × OptionValue)) (mathlib : Bool)
+    (h : "weak.linter.unusedVariables".toName = `weak.linter.unusedVariables) :
+    Failure.leanArgument `weak.linter.unusedVariables (.string "false") ∈
+      failures ⟨options, ["-qD", "weak.linter.unusedVariables=false"]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  refine ⟨"weak.linter.unusedVariables", "false",
+    (mem_argumentTexts_iff ["-qD", "weak.linter.unusedVariables=false"] _ _).1 (by decide),
+    h.symm, rfl, .inr ⟨rfl, rfl, ?_⟩⟩
+  have ho : optionOf `weak.linter.unusedVariables = `linter.unusedVariables := rfl
+  rw [ho]
+  simp [exclusions]
+
+/-- `-Dweak.linter.hashCommand=false` turns off a §6.7 exclusion, which a Mathlib target sets to
+`false` itself, so it adds no failure. -/
+theorem excluded_linter_argument_passes (options : List (Name × OptionValue))
+    (h : "weak.linter.hashCommand".toName = `weak.linter.hashCommand) (n : Name)
+    (v : OptionValue) :
+    Failure.leanArgument n v ∉ failures ⟨options, ["-Dweak.linter.hashCommand=false"]⟩ true := by
+  rw [leanArgument_mem_failures_iff]
+  rintro ⟨name, value, hd, rfl, rfl, hc⟩
+  have ht : argumentTexts ["-Dweak.linter.hashCommand=false"] =
+      [("weak.linter.hashCommand", "false")] := by
+    decide
+  rw [← mem_argumentTexts_iff, ht, List.mem_singleton, Prod.mk.injEq] at hd
+  obtain ⟨rfl, rfl⟩ := hd
+  have ho : optionOf "weak.linter.hashCommand".toName = `linter.hashCommand := by rw [h]; rfl
+  have hr : (OptionValue.string "false").readsAs (.bool false) = true := by decide
+  rw [ho] at hc
+  simp [required, baseline, mathlibBaseline, exclusions, hr] at hc
+
+/-- Arguments that are not `-D`, such as `--plugin` and `--tstack`, add no failure. -/
+theorem plugin_argument_passes (options : List (Name × OptionValue)) (mathlib : Bool) (n : Name)
+    (v : OptionValue) :
+    Failure.leanArgument n v ∉
+      failures ⟨options, ["--plugin=libDemo.dylib", "--tstack=100000"]⟩ mathlib := by
+  rw [leanArgument_mem_failures_iff]
+  rintro ⟨name, value, hd, -⟩
+  have ht : argumentTexts ["--plugin=libDemo.dylib", "--tstack=100000"] = [] := by decide
+  rw [← mem_argumentTexts_iff, ht] at hd
+  simp at hd
 
 end RegulaPolicy.Community
