@@ -285,13 +285,15 @@ push to `main`, and nightly. None is part of acceptance.
   proved oracle does not prove the entire driver or its IO effects.
 - `lean/RegulaVerification.lean`: a separately claimed cold-start runner importing only
   the pinned toolchain. It owns argument selection, command recipes, sequential execution
-  and success reporting. `scripts/verify.sh` only selects the root/GNU timeout, runs the
+  and success reporting. `scripts/verify.sh` only selects the root/GNU timeout, has this
+  runner invalidate the selected mode's earlier verdicts (`--begin-attempt`), runs the
   provisioning setup below, and starts this runner under the external deadline, including
   all root-package builds.
 - `lean/RegulaProvision.lean`: a separately claimed toolchain-only setup program that
   `scripts/provision.sh` runs, and `scripts/verify.sh` through it before that deadline under
   its own 1800-second GNU timeout. It links the copy to one shared, read-only
-  Mathlib ([contributing guide](contributing.md#share-one-mathlib-across-local-copies));
+  Mathlib and removes shared directories that no registered copy links
+  ([contributing guide](contributing.md#share-one-mathlib-across-local-copies));
   provisioning is not verification.
 - `lean/Regula/Site/`: the rule-reference site builder (`lake exe site`) and the
   toolchain-only deployment check. Their pure decisions are proved in the claimed

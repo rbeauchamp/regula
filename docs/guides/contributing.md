@@ -61,6 +61,15 @@ Mathlib space. The receipt `regula-provisioned.json` in the shared directory rec
 revisions. A clean per-copy Mathlib checkout is replaced by the link; one with local
 changes, stashes or commits that no remote-tracking branch holds is refused.
 
+Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
+to link it; a copy is registered before it links. Every provisioning run removes the shared
+directories of other pins and toolchains that no registered copy still links, and drops the
+registrations of copies that are gone or link elsewhere. Only a directory whose receipt names
+it is removed; a removal a killed run began is finished by the next run. A copy left with a
+dangling link is relinked by its next provisioning, which recreates the directory. One lock,
+`~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
+so copies wait while another copy creates a new pin.
+
 - Do not run `lake exe cache get` locally: it unpacks a full Mathlib into the copy, and
   with the link in place it fails on the read-only directory. A Lake write into the shared
   Mathlib fails the same way, which is how an unintended rebuild shows up.
@@ -72,8 +81,7 @@ changes, stashes or commits that no remote-tracking branch holds is refused.
   directories there are removed. Scratch left directly under `tmp/` by earlier versions is
   never reclaimed; remove it by hand.
 - GitHub Actions keeps `lake exe cache get` and its dependency cache; provisioning does
-  nothing there. A shared directory is never modified; remove one with
-  `chmod -R u+w <dir> && rm -rf <dir>` once no copy links it.
+  nothing there. A shared directory is never modified, only removed whole.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.

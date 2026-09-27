@@ -19,12 +19,15 @@ read-only, and points each copy at it:
   compile native objects into their build directories.
 * Each Lake workspace under `examples/` links its `.lake/packages` to the root's.
 
-The shared directory is created from a staging directory under an exclusive lock and made
-visible by one rename after it is complete and sealed, so a half-created directory is never
-used. Its receipt records the revisions it holds; a copy uses it only when that receipt
-admits the copy's pins. The pure planning decisions below carry proofs; Git, Lake, `cp`,
-`chmod`, `ln`, rename and file locking are trusted process and filesystem effects. GitHub
-Actions keeps provisioning with `lake exe cache get`, so this program does nothing there.
+The shared directory is created from a staging directory and made visible by one rename after
+it is complete and sealed, so a half-created directory is never used. Its receipt records the
+revisions it holds; a copy uses it only when that receipt admits the copy's pins. A registry
+beside it records the copies provisioned to link it, and each run removes the shared
+directories of other pins and toolchains that no registered copy still links. One exclusive
+lock under `~/.cache/mathlib-packages` orders all of this. The pure planning decisions below
+carry proofs; Git, Lake, `cp`, `chmod`, `ln`, rename and file locking are trusted process and
+filesystem effects. GitHub Actions keeps provisioning with `lake exe cache get`, so this
+program does nothing there.
 
 Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
 `scripts/verify.sh` runs it before its deadline. -/
@@ -178,6 +181,86 @@ theorem cloneStep_replace (rev : String) (observed : Observed)
   | directory head clean =>
     cases head <;> cases clean <;> simp_all [cloneStep]
   | other => simp [cloneStep] at h
+
+/-! ### Retention
+
+Each shared directory has a registry beside it of the copies provisioned to link it. Under the
+one provisioning lock, a copy registers before it links, and a run removes a shared directory
+only when it is not the run's own and no registered copy still links it. A removal first
+renames the directory out of use, so a later run finishes one that was interrupted. Only a
+directory whose receipt identifies it is ever removed. -/
+
+/-- The name of the shared directory `key` while it is being removed, before a unique suffix. -/
+def removingPrefix (key : String) : String := s!"{key}.removing-"
+
+/-- A directory under the shared parent, as its receipt identifies it. -/
+inductive Found where
+  /-- A shared directory: its name is its receipt's key. -/
+  | shared
+  /-- A shared directory being removed: its name extends its receipt's removing prefix. -/
+  | removing
+  /-- Anything else; it is never touched. -/
+  | foreign
+  deriving DecidableEq, Repr
+
+/-- Identify a directory by its name and its receipt. -/
+def found (name : String) : Option Receipt → Found
+  | none => .foreign
+  | some receipt =>
+    if name == sharedKey receipt.mathlibRev receipt.leanGithash then .shared
+    else if name.startsWith (removingPrefix (sharedKey receipt.mathlibRev receipt.leanGithash))
+    then .removing
+    else .foreign
+
+/-- Only a receipt that names the directory identifies it as shared or being removed. -/
+theorem found_identified (name : String) (receipt : Option Receipt)
+    (h : found name receipt ≠ .foreign) :
+    ∃ r, receipt = some r ∧ (name = sharedKey r.mathlibRev r.leanGithash ∨
+      name.startsWith (removingPrefix (sharedKey r.mathlibRev r.leanGithash)) = true) := by
+  cases receipt with
+  | none => simp [found] at h
+  | some r =>
+    refine ⟨r, rfl, ?_⟩
+    by_cases hName : name = sharedKey r.mathlibRev r.leanGithash
+    · exact .inl hName
+    · by_cases hPrefix : name.startsWith (removingPrefix (sharedKey r.mathlibRev r.leanGithash))
+      · exact .inr hPrefix
+      · simp [found, hName, hPrefix] at h
+
+/-- Record `copy` in a registry once. -/
+def register (copy : String) (registry : Array String) : Array String :=
+  if registry.contains copy then registry else registry.push copy
+
+/-- Registering records the copy and drops no registration. -/
+theorem register_mem (copy : String) (registry : Array String) :
+    copy ∈ register copy registry ∧ ∀ other ∈ registry, other ∈ register copy registry := by
+  unfold register
+  split <;> simp_all
+
+/-- The registered copies, each paired with whether it still links the directory, that still
+link it. -/
+def stillLinked (copies : Array (String × Bool)) : Array String :=
+  copies.filterMap fun copy => if copy.2 then some copy.1 else none
+
+/-- A registration is kept exactly when its copy still links the directory. -/
+theorem mem_stillLinked (copies : Array (String × Bool)) (copy : String) :
+    copy ∈ stillLinked copies ↔ (copy, true) ∈ copies := by
+  simp [stillLinked, Array.mem_filterMap]
+
+/-- A shared directory is removed when it is not the current one and none of its registered
+copies, each paired with whether it still links the directory, still links it. -/
+def prunes (current name : String) (copies : Array (String × Bool)) : Bool :=
+  name != current && copies.all fun copy => !copy.2
+
+/-- Removal spares the current directory and every directory a registered copy links. -/
+theorem prunes_sound (current name : String) (copies : Array (String × Bool))
+    (h : prunes current name copies = true) :
+    name ≠ current ∧ ∀ copy ∈ copies, copy.2 = false := by
+  simp only [prunes, Bool.and_eq_true, bne_iff_ne, ne_eq, Array.all_eq_true,
+    Bool.not_eq_eq_eq_not, Bool.not_true] at h
+  refine ⟨h.1, fun copy hCopy => ?_⟩
+  obtain ⟨i, hi, rfl⟩ := Array.mem_iff_getElem.mp hCopy
+  exact h.2 i hi
 
 /-! ## Process and filesystem effects -/
 
@@ -334,9 +417,10 @@ private def readReceipt (dir : FilePath) : IO (Option Receipt) := do
 /-- The shared workspace's package directory inside the shared directory. -/
 def sharedPackages (dir : FilePath) : FilePath := dir / ".lake" / "packages"
 
-/-- Make `path` writable again so that it can be removed. -/
-private def makeWritable (path : FilePath) : IO Unit := do
+/-- Remove the directory `path`, which may be read-only, never following a link inside it. -/
+private def removeReadOnly (path : FilePath) : IO Unit := do
   let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
+  IO.FS.removeDirAll path
 
 /-- Make the staged directory read-only. Each checkout's index is refreshed after its files
 changed mode, before its `.git` becomes read-only, so Lake's `git diff` stays cheap. -/
@@ -393,46 +477,102 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     makeReadOnly staging dirs
     IO.FS.rename staging final
   catch error =>
-    if (← kind? staging) matches some .dir then
-      makeWritable staging
-      IO.FS.removeDirAll staging
+    if (← kind? staging) matches some .dir then removeReadOnly staging
     throw error
 
-/-- The admitted shared directory for these pins, created once under an exclusive lock. -/
-private def ensureShared (repo : FilePath) (manifest : Json) (pins : Pins) :
-    IO (FilePath × Receipt) := do
+/-- The admitted shared directory `parent/key` for these pins, created once. The caller holds
+the lock. -/
+private def ensureShared (repo parent : FilePath) (key : Component) (manifest : Json)
+    (pins : Pins) : IO (FilePath × Receipt) := do
   let pinned := pins.git.map (·.2)
-  let key ← admitComponent "shared directory" (sharedKey pins.mathlibRev Lean.githash)
-  let parent := (← cacheBase) / "mathlib-packages"
   let final := parent / key.val
   let admitted? := fun (receipt? : Option Receipt) => receipt?.filter fun receipt =>
     admits receipt pins.mathlibRev Lean.githash pinned
   if let some receipt := admitted? (← readReceipt final) then return (final, receipt)
-  IO.FS.createDirAll parent
-  let lock ← IO.FS.Handle.mk (parent / s!"{key.val}.lock") .append
-  unless ← lock.tryLock do
-    say s!"waiting for another copy that is creating {final}"
-    lock.lock
+  if (← kind? final) matches some _ then
+    throw <| IO.userError s!"provisioning: {final} exists but its receipt does not admit \
+      Mathlib {pins.mathlibRev} for Lean {Lean.githash}; remove it and provision again"
+  -- Under the lock, a staging directory can only belong to a process that died.
+  for entry in ← parent.readDir do
+    if entry.fileName.startsWith s!"{key.val}.staging-" then
+      if (← kind? entry.path) matches some .dir then removeReadOnly entry.path
+  say s!"creating the shared Mathlib {pins.mathlibRev} for Lean {Lean.versionString} in {final}"
+  let started ← IO.monoMsNow
+  create repo parent final key.val manifest pins
+  say s!"created {final} in {((← IO.monoMsNow) - started) / 1000} s"
+  let some receipt := admitted? (← readReceipt final)
+    | throw <| IO.userError s!"provisioning: {final} was created but its receipt is not admitted"
+  return (final, receipt)
+
+/-- The lock under the shared parent that orders every creation, registration, link and
+removal there; it is never removed. -/
+def lockName : String := "regula-provision.lock"
+
+/-- The registry of the shared directory `name`, beside it because the directory is
+read-only. -/
+private def registryPath (parent : FilePath) (name : String) : FilePath :=
+  parent / s!"{name}.copies.json"
+
+/-- A registry's copies: none registered when it is absent, `none` when it is unreadable. -/
+private def readRegistry (path : FilePath) : IO (Option (Array String)) := do
+  unless ← path.pathExists do return some #[]
   try
-    if let some receipt := admitted? (← readReceipt final) then return (final, receipt)
-    if (← kind? final) matches some _ then
-      throw <| IO.userError s!"provisioning: {final} exists but its receipt does not admit \
-        Mathlib {pins.mathlibRev} for Lean {Lean.githash}; remove it and provision again"
-    -- Under the lock, a staging directory can only belong to a process that died.
-    for entry in ← parent.readDir do
-      if entry.fileName.startsWith s!"{key.val}.staging-" then
-        if (← kind? entry.path) matches some .dir then
-          makeWritable entry.path
-          IO.FS.removeDirAll entry.path
-    say s!"creating the shared Mathlib {pins.mathlibRev} for Lean {Lean.versionString} in {final}"
-    let started ← IO.monoMsNow
-    create repo parent final key.val manifest pins
-    say s!"created {final} in {((← IO.monoMsNow) - started) / 1000} s"
-    let some receipt := admitted? (← readReceipt final)
-      | throw <| IO.userError s!"provisioning: {final} was created but its receipt is not admitted"
-    return (final, receipt)
-  finally
-    lock.unlock
+    let .ok json := Json.parse (← IO.FS.readFile path) | return none
+    return (fromJson? json : Except String (Array String)).toOption
+  catch _ => return none
+
+/-- Replace a registry with one rename, so a reader sees the old or the new one. -/
+private def writeRegistry (path : FilePath) (copies : Array String) : IO Unit := do
+  let staged := path.withFileName s!".{path.fileName.getD "registry"}.{← nonce}"
+  IO.FS.writeFile staged ((toJson copies).pretty ++ "\n")
+  IO.FS.rename staged path
+
+/-- Record `copy`, the path of a copy's Mathlib link, in the registry of the shared directory
+`name`, before the copy links it. -/
+private def registerCopy (parent : FilePath) (name copy : String) : IO Unit := do
+  let path := registryPath parent name
+  let some registry ← readRegistry path
+    | throw <| IO.userError s!"provisioning: the registry {path} is unreadable; repair or remove it"
+  writeRegistry path (register copy registry)
+
+/-- Whether `copy` is a symbolic link that resolves to `target`. -/
+private def links (copy target : String) : IO Bool := do
+  unless (← kind? copy) == some .symlink do return false
+  try return (← IO.FS.realPath copy).toString == target catch _ => return false
+
+/-- Remove every shared directory under `parent`, other than `current`, that no registered
+copy still links, and finish every removal an interrupted run began; drop from each kept
+registry the copies that no longer link its directory. Only directories that their receipt
+identifies are touched, and a failure is reported, not fatal. The caller holds the lock. -/
+private def prune (parent : FilePath) (current : String) : IO Unit := do
+  for entry in ← parent.readDir do
+    try
+      if (← kind? entry.path) == some .dir then
+        match found entry.fileName (← readReceipt entry.path) with
+        | .foreign => pure ()
+        | .removing => removeReadOnly entry.path
+        | .shared =>
+          let registry := registryPath parent entry.fileName
+          let some copies ← readRegistry registry
+            | say s!"left {entry.path} as it is: its registry {registry} is unreadable"
+          let target ← try
+              pure (some (← IO.FS.realPath (sharedPackages entry.path / "mathlib")).toString)
+            catch _ => pure none
+          let observed ← copies.mapM fun copy => do
+            return (copy, ← match target with
+              | some target => links copy target
+              | none => pure false)
+          if prunes current entry.fileName observed then
+            if ← registry.pathExists then IO.FS.removeFile registry
+            let removing := parent / s!"{removingPrefix entry.fileName}{← nonce}"
+            IO.FS.rename entry.path removing
+            removeReadOnly removing
+            say s!"removed {entry.path}: no registered copy links it"
+          else
+            let kept := stillLinked observed
+            unless kept == copies do writeRegistry registry kept
+    catch error =>
+      IO.eprintln s!"provisioning: could not prune {entry.path}: {error}"
 
 /-! ## One copy -/
 
@@ -505,8 +645,21 @@ def provision (repo : FilePath) : IO Unit := do
       but this program runs on {Lean.githash}"
   let some (manifest, pins) ← readPins repo
     | say "lake-manifest.json pins no Mathlib; nothing to share"
-  let (shared, receipt) ← ensureShared repo manifest pins
-  provisionPackages repo shared receipt pins
+  let key ← admitComponent "shared directory" (sharedKey pins.mathlibRev Lean.githash)
+  let parent := (← cacheBase) / "mathlib-packages"
+  IO.FS.createDirAll parent
+  let lock ← IO.FS.Handle.mk (parent / lockName) .append
+  unless ← lock.tryLock do
+    say s!"waiting for another copy that is provisioning from {parent}"
+    lock.lock
+  let shared ← try
+      let (shared, receipt) ← ensureShared repo parent key manifest pins
+      registerCopy parent key.val (repo / pins.packagesDir / "mathlib").toString
+      provisionPackages repo shared receipt pins
+      prune parent key.val
+      pure shared
+    finally
+      lock.unlock
   linkExamples repo pins.packagesDir
   say s!"Mathlib {pins.mathlibRev} is shared read-only from {shared}"
 

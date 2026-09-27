@@ -150,24 +150,32 @@ def execute (command : Command) : IO Unit := do
   let exit ← child.wait
   if exit != 0 then throw <| IO.userError s!"{command.program} {command.args} failed ({exit})"
 
-/-- Cold-start driver; all builds and checks stay within the inherited outer deadline. -/
-def run (args : List String) : IO Unit := do
-  let some selection := select args
-    | throw <| IO.userError "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics [fixtures|structural|cli|environments|build-policy|lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
-  -- This toolchain-only driver runs before building any checker. Invalidate an earlier
-  -- PASS or accepted link even if build/setup fails before its owner can start.
-  let invalidated := match selection.val with
-    | .ordinary => some (linkPath, "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n")
-    | .ruleExamples => some ("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
-    | .ruleExamplesFirst => some (shardEvidence 1, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
-    | .ruleExamplesSecond => some (shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
-    | _ => none
-  if let some (path, text) := invalidated then
+private def usage : String :=
+  "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics [fixtures|structural|cli|environments|build-policy|lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
+
+/-- The earlier verdict an attempt of `mode` invalidates, with the constant text recording it
+as incomplete. -/
+def invalidated : Mode → Option (String × String)
+  | .ordinary => some (linkPath, "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n")
+  | .ruleExamples => some ("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+  | .ruleExamplesFirst => some (shardEvidence 1, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+  | .ruleExamplesSecond => some (shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+  | _ => none
+
+/-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
+an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
+and before any checker is built, so a failed setup or build cannot leave either in place. -/
+def beginAttempt (args : List String) : IO Unit := do
+  let some selection := select args | throw <| IO.userError usage
+  if let some (path, text) := invalidated selection.val then
     IO.FS.createDirAll "tmp"
     IO.FS.writeFile path text
-  -- A site artifact from an earlier run must not survive a failed build.
   if selection.val == .site then
     if ← System.FilePath.pathExists siteOutput then IO.FS.removeDirAll siteOutput
+
+/-- Cold-start driver; all builds and checks stay within the inherited outer deadline. -/
+def run (args : List String) : IO Unit := do
+  let some selection := select args | throw <| IO.userError usage
   for command in [Command.mk "git" #["diff", "--check"],
       Command.mk "git" #["diff", "--cached", "--check"],
       Command.mk "shellcheck" #["scripts/verify.sh", "scripts/provision.sh"]] ++ commands selection.val do
@@ -181,5 +189,8 @@ def run (args : List String) : IO Unit := do
 
 end RegulaVerification
 
-/-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`. -/
-def main (args : List String) : IO Unit := RegulaVerification.run args
+/-- Standalone cold-start entrypoint; invoke through the timed `scripts/verify.sh`, which
+first runs it with the private `--begin-attempt` protocol flag before setup. -/
+def main : List String → IO Unit
+  | "--begin-attempt" :: args => RegulaVerification.beginAttempt args
+  | args => RegulaVerification.run args
