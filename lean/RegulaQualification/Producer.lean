@@ -12,7 +12,9 @@ open Lean
 private def field (j : Json) (key : String) := j.getObjVal? key
 private def array (j : Json) (key : String) := j.getObjValAs? (Array Json) key
 private def text (j : Json) (key : String) := j.getObjValAs? String key
-private def nameJson (name : String) : Json := toJson (name.splitOn "." |>.map fun part => #["str", part])
+/-- The structural name codec's JSON for a dotted name: outermost component first. -/
+private def nameJson (name : String) : Json :=
+  toJson (name.splitOn "." |>.reverse |>.map fun part => #["str", part])
 private def first (values : Array Json) : Except String Json :=
   match values[0]? with | some value => .ok value | none => .error "missing required first element"
 
