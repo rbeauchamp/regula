@@ -109,14 +109,6 @@ def NativeAxiomShape (a : Declaration) : Prop :=
 instance (a : Declaration) : Decidable (NativeAxiomShape a) := by
     unfold NativeAxiomShape; infer_instance
 
-/-- No declaration identifier of `c` binds a constant of the generated origin `(pfx, t)`: `c` does
-not itself declare such an axiom, as an `axiom` command does at its identifier, written directly
-or produced by a macro. -/
-def NativeUndeclared (c : Command) (pfx : Name) (t : NativeTactic) : Prop :=
-  ∀ b ∈ c.bindings, nativeAxiomOrigin? b.name ≠ some (pfx, t)
-instance (c : Command) (pfx : Name) (t : NativeTactic) : Decidable (NativeUndeclared c pfx t) := by
-  unfold NativeUndeclared; infer_instance
-
 /-- A native-proof axiom `a` is authenticated exactly when three observations hold.
 
 1. Name: `a`'s name is one the pinned `nativeEqTrue` scheme generates for a native tactic
@@ -128,25 +120,29 @@ instance (c : Command) (pfx : Name) (t : NativeTactic) : Decidable (NativeUndecl
    returned `true`, and `a` depends on no other axiom outside the standard logical set
    (`NativeAxiomShape`).
 3. Provenance: in a fresh re-elaboration of the source, the one command introducing `p` is the one
-   command adding an axiom of that origin and statement (`NativeIntroducingCommand`), and it does
-   not declare such an axiom at a declaration identifier (`NativeUndeclared`).
+   command adding an axiom of that origin and statement (`NativeIntroducingCommand`), and no
+   `axiom` declaration node occurs in that command's syntax, in a command its information tree
+   records or in a macro expansion there, quoted syntax included (`Command.declaresAxiom`).
 
 Soundness. By (2), whatever code added `a`, it asserts only a closed Boolean fact that compiled
 evaluation confirms, so trusting it is exactly trusting the compiler: an authenticated axiom is
 at worst compiler-trusting, never a hidden logical assumption. By (3), a user's own `axiom`
 declaration, written directly or produced by a macro, is never attributed to a native proof: in a
-separate command it fails the shared-command condition, and in the same command it binds its
-name. A custom tactic, elaborator or metaprogram that adds such an axiom without declaring it
-relies on (2) alone and is classified compiler-trusting, which (2) makes accurate. No command,
-evaluator or proof-term shape is required beyond (1)-(3), so wrappers (namespaced names,
-attributes, `set_option … in`, `where` clauses, parameters, `grind =>` and `sym =>` blocks,
-module-private names) do not change the classification. `native_provenance` states what an
-authenticated role extracts from these observations; it does not make them truthful. -/
+separate command it fails the shared-command condition, and in the same command it is present in
+syntax that Lean records whether or not elaborating it succeeds. The check matches no names, so a
+macro cannot separate the declared name from it; its only cost is that a command which both
+declares an axiom and uses a native tactic has no native axiom authenticated. A custom tactic,
+elaborator or metaprogram that adds such an axiom without declaring it relies on (2) alone and is
+classified compiler-trusting, which (2) makes accurate. No command, evaluator or proof-term shape
+is required beyond (1)-(3), so wrappers (namespaced names, attributes, `set_option … in`, `where`
+clauses, parameters, `grind =>` and `sym =>` blocks, module-private names) do not change the
+classification. `native_provenance` states what an authenticated role extracts from these
+observations; it does not make them truthful. -/
 def NativeTeachingOK (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) : Prop :=
   NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ o ∈ nativeAxiomOrigin? a.name,
     p.module = a.module ∧ GeneratedPrefix p.module p.name o.1 ∧
     ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
-      NativeIntroducingCommand ts a o.2 o.1 c ∧ NativeUndeclared c o.1 o.2)
+      NativeIntroducingCommand ts a o.2 o.1 c ∧ c.declaresAxiom = false)
 instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
 

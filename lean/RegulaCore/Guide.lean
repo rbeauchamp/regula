@@ -273,11 +273,12 @@ def guide : RuleId → Guide
           a declaration of its module; it asserts `e = true` with `e` in the tactic's exact \
           shape, and an independent native replay of `e` returns `true`; and a fresh \
           re-elaboration shows that the command introducing that declaration adds an axiom of \
-          the same origin and statement without declaring it at a declaration identifier. The \
-          axiom and every declaration depending on it are then classified compiler-trusting and \
-          rejected with applicability `compiler-trusting`. The built-in axioms \
-          `Lean.trustCompiler`, `Lean.ofReduceBool` and `Lean.ofReduceNat` in a transitive axiom \
-          set are compiler-trusting by their exact identity.",
+          the same origin and statement, and that no `axiom` declaration occurs in that \
+          command's syntax or macro expansions. The axiom and every declaration depending on it \
+          are then classified compiler-trusting and rejected with applicability \
+          `compiler-trusting`. The built-in axioms `Lean.trustCompiler`, `Lean.ofReduceBool` \
+          and `Lean.ofReduceNat` in a transitive axiom set are compiler-trusting by their exact \
+          identity.",
         "Final environment metadata cannot authorize a generated native-proof axiom; fresh \
           re-elaboration of the exact source establishes it. An unauthenticated axiom that only \
           looks native is not compiler-trusting."]
@@ -308,10 +309,13 @@ def guide : RuleId → Guide
           `set_option … in`, in ordinary and `module` files.",
         "An axiom with a native name and a natively true statement stays a project axiom \
           (RG1001) when the source declares it, as an `axiom` command written directly or \
-          produced by a macro, or when a different command adds it than the one introducing the \
-          declaration its name belongs to. A custom tactic, elaborator or metaprogram that adds \
-          such an axiom without declaring it is classified compiler-trusting: the axiom asserts \
-          only what native evaluation confirmed.",
+          produced by a macro, even one whose elaboration fails after adding it, or when a \
+          different command adds it than the one introducing the declaration its name belongs \
+          to. The declaration check reads syntax, quoted syntax included, and matches no names, \
+          so a command that both contains `axiom` syntax and uses a native tactic has no native \
+          axiom authenticated; its native axioms fail closed as RG1001 and RG1003. A custom \
+          tactic, elaborator or metaprogram that adds such an axiom without declaring it is \
+          classified compiler-trusting: the axiom asserts only what native evaluation confirmed.",
         "The build is matched to the fresh re-elaboration by generated origin and asserted \
           statement. When two commands add axioms of the same origin and statement, for \
           example an authored spoof beside the genuine proof, neither is authenticated and both \
@@ -326,10 +330,10 @@ def guide : RuleId → Guide
         `nativeEqTrue` scheme generates for `native_decide`, `decide +native` or `bv_decide` \
         under a prefix related to an inventory declaration by `GeneratedPrefix`, and \
         `native_provenance` that its statement was natively replayed and that a command of its \
-        module's fresh transcript adds an axiom of the same origin and statement without \
-        declaring that name. `generatedPrefix_iff` shows that, for a declaration name without \
-        macro scopes, these are exactly the names the generator gives that declaration in its own \
-        module in either privacy mode. The execution probe classifies by \
+        module's fresh transcript adds an axiom of the same origin and statement while its \
+        recorded syntax declares no axiom. `generatedPrefix_iff` shows that, for a declaration \
+        name without macro scopes, these are exactly the names the generator gives that \
+        declaration in its own module in either privacy mode. The execution probe classifies by \
         `RegulaPolicy.compilerTrustingAxiomName`, which `compilerTrustingAxiomName_iff` \
         characterizes as exactly those generated names and Lean's three compiler axioms. Both \
         characterizations assume the runtime string append `RuntimeStringAppend`."

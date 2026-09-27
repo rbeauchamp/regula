@@ -682,6 +682,15 @@ private def fenceCorpusCases (repo : FilePath) : Array (String × String × Stri
     $ax : decide (2 = 2) = true)\n  let t ← `(theorem $th : 2 = 2 := of_decide_eq_true $ax)\n  \
     return ⟨mkNullNode #[a, t]⟩\ndeclared_native\n```\n",
       "project-axiom: docs_macro._native.native_decide.ax_1"),
+  -- The same, with the axiom's attribute failing after the axiom is added and the error dropped:
+  -- the `axiom` declaration is read from syntax, so it is still refused.
+  ("trusted-guarded-declared-native", "<!-- lean-trusted-compiler -->\n```lean\nimport \
+    Lean\nopen Lean in\nmacro \"guarded_native\" : command => do\n  let ax := mkIdent \
+    `docs_guarded._native.native_decide.ax_1\n  let th := mkIdent `docs_guarded\n  let a ← \
+    `(#guard_msgs (drop error) in @[csimp] axiom $ax : decide (2 = 2) = true)\n  let t ← \
+    `(theorem $th : 2 = 2 := of_decide_eq_true $ax)\n  return ⟨mkNullNode #[a, t]⟩\n\
+    guarded_native\n```\n",
+      "project-axiom: docs_guarded._native.native_decide.ax_1"),
   ("negative-compiles", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := 1\n```\n",
       "negative example elaborated successfully"),
   ("negative-other-diagnostic",

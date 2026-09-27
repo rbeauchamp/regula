@@ -236,13 +236,14 @@ theorem native_compilerTrustingAxiomName (i : Inventory) (roles : Roles i) (n : 
 
 /-- Every authenticated native role is an inventory axiom whose asserted statement an independent
 native evaluation confirmed, and some command of its module's fresh transcripts adds an axiom of
-the same generated origin and statement while binding no declaration identifier to that name. -/
+the same generated origin and statement while no `axiom` declaration occurs in its recorded
+syntax. -/
 theorem native_provenance (i : Inventory) (roles : Roles i) (n : Name) (hn : n ∈ roles.native) :
     ∃ a ∈ i.declarations, a.name = n ∧ a.nativeReplay = some true ∧
       ∃ c ∈ moduleCommands i.transcripts a.module,
         (∃ d ∈ c.addedDeclarations, nativeAxiomOrigin? d.name = nativeAxiomOrigin? n ∧
           d.kind = .«axiom» ∧ d.nativeStatement = a.nativeStatement) ∧
-        ∀ b ∈ c.bindings, b.name ≠ n := by
+        c.declaresAxiom = false := by
   rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, ha, rfl, hshape, _, _, _, o, ho, _, _, c, _, hintro, hundecl⟩
   obtain ⟨-, -, -, -, -, -, -, -, hreplay, -⟩ := hshape
@@ -254,10 +255,8 @@ theorem native_provenance (i : Inventory) (roles : Roles i) (n : Name) (hn : n �
   obtain ⟨d, hd, hmatch⟩ := Array.any_eq_true'.mp hany
   simp only [Bool.and_eq_true, beq_iff_eq] at hmatch
   have ho' : nativeAxiomOrigin? a.name = some (o.1, o.2) := Option.mem_def.mp ho
-  refine ⟨a, ha, rfl, hreplay, c, hmem, ⟨d, hd, ?_, hmatch.1.2, hmatch.2⟩, ?_⟩
-  · rw [hmatch.1.1, ho']
-  · intro b hb heq
-    exact hundecl b hb (by rw [heq, ho'])
+  refine ⟨a, ha, rfl, hreplay, c, hmem, ⟨d, hd, ?_, hmatch.1.2, hmatch.2⟩, hundecl⟩
+  rw [hmatch.1.1, ho']
 
 /-- The compiler-trusting and logical sets are disjoint for actual inventory-bound roles. -/
 theorem compiler_not_logical (i : Inventory) (roles : Roles i) (n : Name)

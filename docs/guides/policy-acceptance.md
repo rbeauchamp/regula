@@ -462,8 +462,9 @@ the axiom's module or, for a public one, its private form there (`GeneratedPrefi
 internal safe proposition axiom with that tactic's exact asserted statement, successful
 independent replay and permitted dependency set (`NativeAxiomShape`); (3) the one transcript
 command introducing that declaration is the one command adding an axiom of that origin and
-statement (`NativeIntroducingCommand`), and it binds no declaration identifier of that origin
-(`NativeUndeclared`), so an authored `axiom`, direct or macro-produced, never qualifies. By (2)
+statement (`NativeIntroducingCommand`), and no `axiom` declaration occurs in its recorded syntax
+or macro expansions (`Command.declaresAxiom`, read from syntax Lean records even when that
+declaration fails), so an authored `axiom`, direct or macro-produced, never qualifies. By (2)
 any axiom that qualifies asserts only a natively confirmed Boolean fact, so a custom elaborator
 that adds one is classified compiler-trusting, which is accurate. Wrappers such as namespaced
 names, attributes, `set_option … in`, `where` clauses and `grind =>` blocks do not matter. Names

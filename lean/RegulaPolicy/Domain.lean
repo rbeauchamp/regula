@@ -1007,6 +1007,10 @@ structure Command where
   evaluators : Array Evaluator
   /-- The constant binders of the command's information tree. -/
   bindings : Array DeclarationBinding := #[]
+  /-- Whether the command's syntax, a command its information tree records, or the output of a
+  macro expansion there contains an `axiom` declaration node, quoted syntax included. It is read
+  from syntax, so it holds even when elaborating that declaration failed. -/
+  declaresAxiom : Bool
   deriving Repr, DecidableEq
 
 /-- The record of one fresh frontend elaboration of a module's exact source. -/
