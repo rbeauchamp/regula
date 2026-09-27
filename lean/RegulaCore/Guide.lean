@@ -16,8 +16,8 @@ diagnostic and the `regula` command also print. This module holds only the longe
 - `Guide`: the required sections of a rule explanation.
 - `guide`: the explanation of each registered rule.
 - `Guide.WellFormed`, `guide_wellFormed`: every required field of every rule is a nonempty
-  string or list, and each rule names at least one residual obligation and one source. Content
-  adequacy is review.
+  string or list, and each rule names at least one residual obligation, one source and its
+  proved linkage. Content adequacy is review.
 
 ## Boundaries
 
@@ -64,12 +64,16 @@ structure Guide where
   checklist : List String
   /-- Repository paths of the rule's detector, policy and proof modules. -/
   sources : List String
+  /-- Which steps of the rule's decision are kernel-checked theorems about the executed code and
+  which stay operational (*Proved linkage*). -/
+  linkage : String
 
-/-- Every required section has content and the page names its open obligations and sources. -/
+/-- Every required section has content and the page names its open obligations, sources and
+proved linkage. -/
 def Guide.WellFormed (g : Guide) : Prop :=
   g.problem ≠ "" ∧ g.trigger ≠ [] ∧ g.proofShape ≠ [] ∧ g.established ≠ [] ∧
   g.notEstablished ≠ [] ∧ g.configuration ≠ [] ∧ g.limitations ≠ [] ∧ g.residuals ≠ [] ∧
-  g.checklist ≠ [] ∧ g.sources ≠ []
+  g.checklist ≠ [] ∧ g.sources ≠ [] ∧ g.linkage ≠ ""
 
 instance (g : Guide) : Decidable g.WellFormed := by
   unfold Guide.WellFormed; infer_instance
@@ -101,6 +105,16 @@ private def projectCommands : String :=
   "Project enforcement runs through `lake lint` (incremental), `lake lint -- --fresh` and `lake \
     exe axiomGate` (fresh whole-project audits from empty build output), and the build-lint \
     `policy` target. See the [adoption guide](@repo/docs/guides/adoption.md)."
+
+/-- Shared statement: the proved linkage of the rules that the declaration decision decides. -/
+private def declarationLinkage : String :=
+  "The shared declaration decision `RegulaPolicy.declarationFailure` (its first failed \
+    requirement, `declarationFailure_ordered`) is mapped to a rule by the injective \
+    `Regula.ruleForFailure`. Project, file and documentation audits run it through \
+    `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`); the editor runs \
+    `Regula.Linter.checked_editorDecision`, equal to the project decision on the editor's domain \
+    (`editor_request_sound`, `editor_request_complete`). The observed declaration fields and \
+    generated-role evidence are hypotheses of these theorems."
 
 /-- Shared statement: foundation labels. -/
 private def foundationTable : String :=
@@ -151,6 +165,7 @@ def guide : RuleId → Guide
           like authored ones."]
       residuals := [.intent, .nonvacuity]
       checklist := ["FOUND-01", "TYPE-04", "THEOREM-09", "THEOREM-01", "DECL-03", "BUILD-01"]
+      linkage := declarationLinkage
       sources :=
           ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
               "lean/Regula/Findings.lean", "website/RegulaStandard/LogicProofPatterns.lean"] }
@@ -198,6 +213,7 @@ def guide : RuleId → Guide
           project commands stop earlier with RG2003, as described above."]
       residuals := [.qualify, .intent]
       checklist := ["FOUND-02", "THEOREM-06", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
+      linkage := declarationLinkage
       sources :=
           ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Decision.lean",
               "lean/Regula/Findings.lean"] }
@@ -229,6 +245,7 @@ def guide : RuleId → Guide
           patterns; a lookalike name gets no special treatment."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "TYPE-04", "THEOREM-01", "THEOREM-09", "BUILD-01"]
+      linkage := declarationLinkage
       sources :=
           ["lean/RegulaCore/Policy.lean", "lean/RegulaPolicy/Foundation.lean",
               "lean/RegulaPolicy/Decision.lean"] }
@@ -272,6 +289,8 @@ def guide : RuleId → Guide
       checklist :=
           ["FOUND-05", "FOUND-03", "THEOREM-10", "THEOREM-01", "THEOREM-06", "DECL-03", "COMP-01",
               "BUILD-01"]
+      linkage := declarationLinkage ++ " The compiler-trusting and native role sets come from \
+        `RegulaPolicy.authorize`."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Checker/Frontend.lean",
               "lean/RegulaCore/Policy.lean"] }
@@ -304,6 +323,7 @@ def guide : RuleId → Guide
           axiom still carries it until rewritten."]
       residuals := [.qualify]
       checklist := ["FOUND-03", "FOUND-04", "BUILD-02", "THEOREM-01", "THEOREM-10", "BUILD-01"]
+      linkage := declarationLinkage
       sources :=
           ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
@@ -341,6 +361,8 @@ def guide : RuleId → Guide
           check."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
+      linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
+        characterizes the authenticated recursion helpers."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Checker/Frontend.lean",
               "lean/RegulaCore/Policy.lean"] }
@@ -377,6 +399,8 @@ def guide : RuleId → Guide
       checklist :=
           ["BUILD-03", "THEOREM-07", "DOGFOOD-05", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
+      linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`) \
+        is operational."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean"] }
   | .environment => {
@@ -411,6 +435,8 @@ def guide : RuleId → Guide
           completed positive check."]
       residuals := [.qualify]
       checklist := ["DECL-01", "DECL-04"]
+      linkage := "None. Setup failures and escaped audit errors reach this rule by their error \
+        message prefix, failing closed to INCOMPLETE; that classification is not proved."
       sources :=
           ["lean/Regula/Checker/Workspace.lean", "lean/Regula/Checker/Lake.lean",
               "lean/Regula/Checker/ResultProtocol.lean"] }
@@ -445,6 +471,10 @@ def guide : RuleId → Guide
         "The editor never guesses an omitted project scope."]
       residuals := [.qualify, .intent, .invariant]
       checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01", "DOGFOOD-02"]
+      linkage := "`Regula.Checker.Manifest.parse_sound` and `parseValue_complete` for the \
+        manifest (kernel-checked in the excluded `Regula` library) and \
+        `Regula.Linter.checked_editorRequest` for the editor's request. Routing a failure to this \
+        rule by its `manifest-` prefix is not proved."
       sources :=
           ["lean/Regula/Checker/Manifest.lean", "lean/Regula/Checker/Lake.lean",
               "lean/Regula/Findings.lean"] }
@@ -498,6 +528,8 @@ def guide : RuleId → Guide
           INCOMPLETE under this rule."]
       residuals := [.qualify]
       checklist := ["DECL-01", "BUILD-01", "DOC-01"]
+      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.BuildOK`. Reading \
+        Lake's build result is operational."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/Diagnostics.lean",
               "lean/Regula/Checker/ResultProtocol.lean"] }
@@ -538,6 +570,9 @@ def guide : RuleId → Guide
       checklist :=
           ["DECL-02", "DECL-03", "DOGFOOD-02", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
               "BUILD-03", "BUILD-04", "DOGFOOD-05"]
+      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.ScopeOK`, over \
+        the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`. The \
+        inventory checks are operational."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Probe.lean",
               "lean/Regula/Checker/AxiomGate.lean"] }
@@ -578,6 +613,9 @@ def guide : RuleId → Guide
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04",
                   "DOGFOOD-05"]
+      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
+        The editor's deferral to the project audit is \
+        `Regula.Checker.Policy.editor_decision_pending`."
       sources :=
           ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean",
               "lean/Regula/Checker/SourceBinding.lean"] }
@@ -657,6 +695,9 @@ def guide : RuleId → Guide
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "SCOPE-04", "DOGFOOD-01"]
+      linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
+        `conforming_missingDocs`, `leanArgument_mem_failures_iff` and \
+        `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {
@@ -693,6 +734,9 @@ def guide : RuleId → Guide
           target do."]
       residuals := [.qualify, .invariant, .intent]
       checklist := ["COMP-03", "SCOPE-05", "SCOPE-03", "THEOREM-05", "BUILD-01", "BUILD-03"]
+      linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+        `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
+        Extracting the execution closure from compiler IR is operational."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
               "lean/Regula/Checker/RuleDiagnostics.lean"] }
@@ -731,6 +775,10 @@ def guide : RuleId → Guide
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
+      linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+        `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`; an \
+        accepted run satisfies `RegulaPolicy.BoundaryOK`. Extracting the execution closure from \
+        compiler IR is operational."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
               "website/RegulaStandard/ToolingAndMachineAudit.lean"] }
@@ -764,6 +812,8 @@ def guide : RuleId → Guide
         "Only Markdown structure is checked here; elaboration results belong to RG4002–RG4004."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-03"]
+      linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.DocumentOK`. The \
+        fence scanner is not proved."
       sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/Diagnostics.lean",
           "lean/RegulaPolicy/Pattern.lean"] }
   | .positiveExample => {
@@ -796,6 +846,9 @@ def guide : RuleId → Guide
         "Examples are checked under the declared toolchain only."]
       residuals := [.intent, .qualify]
       checklist := ["DOC-04"]
+      linkage := declarationLinkage ++ " An accepted run satisfies \
+        `RegulaPolicy.ExampleExpectationOK`, and `incomplete_example_refused` refuses an \
+        incomplete example."
       sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/SourceAudit.lean",
           "lean/Regula/Checker/Admission.lean"] }
   | .negativeExample => {
@@ -825,6 +878,7 @@ def guide : RuleId → Guide
           this rule concerns compiler rejection patterns of `lean-fail` fences."]
       residuals := [.qualify, .doc]
       checklist := ["DOC-05"]
+      linkage := "`RegulaPolicy.matchesPattern_iff` characterizes the executed matcher."
       sources :=
           ["lean/Regula/Checker/Diagnostics.lean", "lean/RegulaPolicy/Pattern.lean",
               "lean/Regula/Website.lean"] }
@@ -858,6 +912,8 @@ def guide : RuleId → Guide
           keep them small."]
       residuals := [.qualify]
       checklist := ["DOC-05"]
+      linkage := "`RegulaPolicy.checked_memberFoundation` and \
+        `Regula.Checker.Policy.labelOf_member`."
       sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/Frontend.lean",
           "lean/RegulaPolicy/Decision.lean"] }
   | .moduleDocumentation => {
@@ -895,6 +951,9 @@ def guide : RuleId → Guide
           errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.doc]
       checklist := ["DOC-01", "DECL-01"]
+      linkage := "`RegulaPolicy.ModuleHeader.failures_eq_nil_iff` and `mem_repeated_iff`, and \
+        `Regula.Checker.Acceptance.modulePresence_iff` and `documentationPresence_modes`. \
+        Parsing the module header is operational."
       sources := ["lean/RegulaPolicy/ModuleHeader.lean", "lean/Regula/Linter/Documentation.lean",
         "lean/Regula/Checker/AxiomGate.lean",
             "website/RegulaStandard/DocumentationStandards.lean"] }
@@ -931,6 +990,9 @@ def guide : RuleId → Guide
           errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.doc]
       checklist := ["DOC-01"]
+      linkage := "`RegulaPolicy.materialDocumentationFailure_eq_none_iff`, \
+        `materialDocumentationFailure_eq_missingDocstring_iff` and \
+        `Regula.ruleForMaterialDocumentation_injective`."
       sources :=
           ["lean/Regula/MaterialClaim.lean", "lean/RegulaPolicy/Intent.lean",
               "lean/Regula/Linter/Documentation.lean"] }
@@ -970,6 +1032,8 @@ def guide : RuleId → Guide
           errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.intent, .doc]
       checklist := ["DOC-02"]
+      linkage := "`RegulaPolicy.materialDocumentationFailure_eq_missingIntent_iff` and \
+        `RegulaPolicy.Intent.hasIntentSection_iff`."
       sources :=
           ["lean/RegulaPolicy/Intent.lean", "lean/Regula/MaterialClaim.lean",
               "lean/Regula/Linter/Documentation.lean"] }

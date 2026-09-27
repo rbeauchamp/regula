@@ -11,7 +11,4 @@ the actual registered detector must produce its advertised result.
 [`corpus.json`](corpus.json) fixes expected rule IDs, reasons, modes, subjects and locations.
 The [rule-example guide](../../docs/guides/rule-examples.md) gives each source pair's exact
 remediation, accepted-example and diagnostic-demonstration distinctions, qualification
-commands, and export and trust contracts for the future website.
-
-The existing RG5001/RG5002 [producer campaign](../../docs/guides/engine-producers.md#source-owned-examples-and-qualification)
-remains available through `lake exe qualify producers`.
+commands, and the export and trust contracts of the rule-reference website.

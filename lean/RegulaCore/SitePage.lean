@@ -264,9 +264,10 @@ def leadFactsHtml (id : RuleId) : String :=
 
 /-- The remaining registry facts, under *Sources and credit*: the strict-impact statement shared
 by every rule, the exact evidence modes, lifecycle, resolved clause links, the checklist rows of
-the explanation, the help URL and the detector sources at the build revision. -/
+the explanation, the help URL, the detector sources at the build revision and which steps of the
+rule's decision are proved. -/
 def sourceFactsHtml (ident : Identity) (id : RuleId) (clauses : List Clause)
-    (checklist sources : List String) : String :=
+    (checklist sources : List String) (linkage : String) : String :=
   let d := descriptor id
   "<dl class=\"regula-facts\">" ++
   fact "Strict impact"
@@ -288,7 +289,8 @@ def sourceFactsHtml (ident : Identity) (id : RuleId) (clauses : List Clause)
   fact "Checklist rows" (joinComma (checklist.map fun r => link (checklistRoute r) (code r))) ++
   fact "Help URL" (code (devUrl id)) ++
   fact "Detector, policy and proof sources"
-      (joinComma (sources.map fun p => link (blobUrl ident p) (code p))) ++ "</dl>"
+      (joinComma (sources.map fun p => link (blobUrl ident p) (code p))) ++
+  fact "Proved linkage" (inlineHtml linkage) ++ "</dl>"
 
 private def lines (text : String) : List String :=
   let ls := text.splitOn "\n"
@@ -536,7 +538,7 @@ def rulePage (ident : Identity) (id : RuleId) (clauses : List Clause) (ex : Exam
   let exampleBlock ← htmlBlock (← exampleHtml ident ex)
   let runBlock ← htmlBlock (exampleRunHtml ex)
   let shared ← htmlBlock sharedObligationsHtml
-  let facts ← htmlBlock (sourceFactsHtml ident id clauses g.checklist g.sources)
+  let facts ← htmlBlock (sourceFactsHtml ident id clauses g.checklist g.sources g.linkage)
   let exampleBody := exampleBlock ++ "\n" ++ resolveProse ident d.examples.caption ++ "\n\n" ++
       runBlock ++ "\n"
   let sections := ruleSections ident id g exampleBody shared facts

@@ -212,9 +212,8 @@ def creditsPage (ident : Identity) : Except String String := do
       and limitations follows [Microsoft's CA1416 code-analysis rule \
       page](https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/quality-rules/ca141\
       6) as one illustrative reference; no .NET content is used, and no affiliation with or \
-      endorsement by Microsoft is implied. Other linters' references (Clippy, ESLint, Ruff, HLint) \
-      informed the design as documented in the " ++
-    "[ecosystem study](" ++ blobUrl ident "docs/guides/ecosystem-design.md" ++ ").\n\n" ++
+      endorsement by Microsoft is implied. Other linters (Clippy, Roslyn, ESLint, Ruff, Pyrefly, \
+      HLint) informed the design.\n\n" ++
     "**Mathlib.** The `regula` package that projects require imports only Lean's core libraries and \
       requires no other package. The checker repository's Mathlib-dependent package (the \
       standard's Mathlib examples) and this site depend on \

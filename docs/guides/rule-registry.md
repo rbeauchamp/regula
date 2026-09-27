@@ -317,8 +317,8 @@ generated briefing, and exercises
 malformed transport, missing/duplicate routes, unsupported modes, Unicode/CRLF
 coordinate boundaries, native/text agreement and incomplete negative outcomes.
 Those controls qualify operational boundaries; they are not sampled evidence for
-the universal theorems. `scripts/verify.sh` includes these checks within its same
-hard 420-second ordinary acceptance budget. The native-linter and lint-driver campaigns separately exercise actual native diagnostics and
+the universal theorems. Ordinary [acceptance](contributing.md#develop-and-verify)
+includes these checks. The native-linter and lint-driver campaigns separately exercise actual native diagnostics and
 Lake dispatch; the site build checks the generated pages.
 
 ## Attribution and pinned interfaces
@@ -336,8 +336,8 @@ The source and native-message adapters use Lean 4.34.0, commit
 and [command linter hooks](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Elab/Command.lean).
 Credit Lean's authors for these APIs. The rule-reference site credits Verso
 and the [Microsoft CA1416](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416)
-illustrative presentation reference. The [ecosystem study](ecosystem-design.md) broadens
-the comparison; none of these examples prescribes an exact UX or supplies Lean policy
+illustrative presentation reference. [Other linters](design-influences.md#other-linters)
+broaden the comparison; none of these examples prescribes an exact UX or supplies Lean policy
 semantics or suppression permission. The repository's Mathlib revision (for its `audit/` package only) is locked in the
 [`audit/` manifest](../../audit/lake-manifest.json).
 

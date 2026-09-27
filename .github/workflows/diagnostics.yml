@@ -1,10 +1,10 @@
 name: Diagnostics
 
-# Capability-triggered qualification campaigns (standard §8.8): they run when
-# the checker, rules, rule examples, Lake configuration or manifests change, always on
-# main, and nightly. They are diagnostics, not a partition of ordinary acceptance.
-# The two rule-example shards run in CI on every change, where they feed the site build;
-# they run here only nightly.
+# Capability-triggered qualification campaigns (standard §8.8): the producer and history
+# campaigns, and the `lake lint` dispatch over the maintained adopter fixtures, which crosses
+# Lake, process and filesystem boundaries that the driver's proofs do not cover. They run when
+# the checker, rules, rule examples, adopter fixtures, Lake configuration or manifests change,
+# always on main, and nightly. They are diagnostics, not a partition of ordinary acceptance.
 on:
   pull_request:
     paths:
@@ -18,6 +18,8 @@ on:
       - audit/lake-manifest.json
       - audit/foundation_manifest.json
       - examples/rules/**
+      - examples/lake-lint-toml/**
+      - examples/build-lint/**
       - lakefile.lean
       - lake-manifest.json
       - lean-toolchain
@@ -50,6 +52,7 @@ jobs:
         campaign:
           - diagnostics producers
           - diagnostics history
+          - diagnostics lint-driver
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,7 +63,9 @@ jobs:
       - name: Qualify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh ${{ matrix.campaign }}
 
-  # CI runs the two rule-example shards on every change; this keeps their nightly run on main.
+  # CI runs the two rule-example shards on every change. Like the campaigns above, they also
+  # run nightly on an unchanged main, where a failure shows drift in the runner image or the
+  # restored dependency caches rather than in the pinned sources.
   rule-examples-nightly:
     name: nightly diagnostics rule-examples ${{ matrix.shard }}
     if: github.event_name == 'schedule'

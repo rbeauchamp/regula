@@ -113,9 +113,9 @@ After provisioning the shared Mathlib and the pinned Verso package once:
 ```sh
 ./scripts/provision.sh                                # root setup (shared, read-only Mathlib)
 (cd website && lake build verso/VersoManual)         # Verso setup
-./scripts/verify.sh diagnostics rule-examples 1/2    # corpus shard 1 (420 s)
-./scripts/verify.sh diagnostics rule-examples 2/2    # corpus shard 2 (420 s)
-./scripts/verify.sh site                             # build and check _site/ (420 s)
+./scripts/verify.sh diagnostics rule-examples 1/2    # corpus shard 1
+./scripts/verify.sh diagnostics rule-examples 2/2    # corpus shard 2
+./scripts/verify.sh site                             # build and check _site/
 ```
 
 The website package requires the root `regula` package and the Mathlib-dependent `audit/`
@@ -140,7 +140,7 @@ served at `/regula/`; any static file server works if `_site/` is mounted at tha
 
 CI runs on every pull request and on `main`:
 
-1. `verify`: ordinary acceptance and the documentation step, each within 420 seconds.
+1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps.
 2. `rule-examples` (two shards): the corpus campaign; each uploads its export. The diagnostics
    workflow also runs both shards nightly on `main`.
 3. `site`: builds the site tooling, then `./scripts/verify.sh site` over this run's exports and
@@ -248,14 +248,13 @@ pages would need the same kind of retention as revision snapshots.
 
 ## Budgets
 
-`./scripts/verify.sh site` runs under the same hard 420-second deadline as every
-`verify.sh` mode; it is separate from, and never a partition of, the two acceptance commands.
+`./scripts/verify.sh site` runs under the deadline of every `verify.sh` mode
+([contributor guide](contributing.md#develop-and-verify)); it is not part of acceptance.
 In CI the site tooling is built in the preceding step (20-minute step limit) and Verso is
 provisioned from cache by the shared provisioning action (within the job's 45-minute limit on
 a miss). The site build's work grows with the
-number of archived snapshots ([retention](#retention)). Observed timings are recorded with the
-change that measured them, such as the [site delivery record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-15-site.md#observed-locally);
-they are observations, not guarantees.
+number of archived snapshots ([retention](#retention)). Observed timings are observations, not
+guarantees.
 
 ## Changing a rule
 
@@ -283,9 +282,7 @@ category, reported-in (evidence mode) and availability filters are native select
 generated CSS; **Reset** is a form reset. The no-match notice is emitted for exactly the filter
 combinations that list no rule (`mem_emptySelections`); that the generated CSS rules and row
 classes implement `Selection.admits` holds by construction of the generator and was observed
-for several combinations
-([record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-15-site.md#browser-observations-bounded-not-proofs)),
-not proved. The index shows one "Project" label for the incremental and fresh project modes;
+for several combinations, not proved. The index shows one "Project" label for the incremental and fresh project modes;
 `projectModes_coincide` proves that no registered rule has only one of them, and the filter keeps
 the exact modes. On narrow screens index rows become cards; other wide tables scroll inside a
 keyboard-focusable region.

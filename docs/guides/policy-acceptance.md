@@ -523,7 +523,7 @@ guides the new library via Lake discovery, not hardcoded declaration/file lists.
 | #13 ENGINE | Shared semantic collectors for current-document and imported modules; complete census/roots/role extraction and typed outcomes for all twenty initial rules (RG5003 was added later by #71); two scoped doc-presence checks retained. |
 | #14 ADOPTION | All actual Lake lint/build/editor adapters consume the same outcome; cached policy re-evaluation and source-located links retained; freshFile and snapshot modes honestly labeled. Delivered: `lint` driver and exit classes, upstream-widget editor links, adopter fixtures in both lakefile formats. |
 | #10 DELIVERY / #15 WEBSITE | Reconcile residual semantic accounts and same-revision rule/example/status exports. No accepted data report is full conformance; site consumes status, not exit code alone. |
-| #8/#9 optional | Separate requested graph/export jobs and result type; absence cannot block core policy/site delivery. #8 ended in a [no-go](con-leche-research.md) and #9 is not planned, so no export format or adapter is selected. |
+| #8/#9 optional | Separate requested graph/export jobs and result type; absence cannot block core policy/site delivery. #8 ended in a no-go and [#9](https://github.com/rbeauchamp/regula/issues/9) is not planned, so no export format or adapter is selected. |
 
 Native dependency refinements: #13 requires #5’s shared domain as well as #12;
 #15 requires #7’s complete example-result boundary as well as #12/#13. Both edges
@@ -561,12 +561,9 @@ not freely variable candidate data. Con-leche's [parameterized pin/check pattern
 is a reference for separating these roles, not a reason to make our trust pins optional.
 No speculative scheduling or fast/reference implementation is proposed.
 
-The [issue 7 verification record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-7-verification.md) holds the
-implementation's compiler results, axiom coverage and qualification at its 2026-09-23
-closeout, including the gates still open then.
-Earlier PRODUCT-01 runtime results remain historical, scoped evidence; they do
-not validate later implementation changes. Use the [contributor guide](contributing.md)
-for the complete acceptance command and setup requirements.
+Earlier runtime results are historical, scoped evidence; they do not validate later
+implementation changes. Use the [contributor guide](contributing.md#develop-and-verify)
+for the acceptance commands and setup requirements.
 
 The original POLICY-01 design review covered SCOPE-01–05, TYPE-01–03/06,
 THEOREM-01/03/06/07, FOUND-01–05, DECL-01–04, COMP-01–04, BUILD-01–04,
@@ -592,8 +589,8 @@ Implemented proof coverage is recorded in the [domain](policy-domain.md) and
 [proof](policy-proofs.md) guides; ordinary acceptance checks each claimed declaration's exact
 axiom set against its profile. The success map in §1 owns implemented collector/worker linkage
 and acceptance routes. Editor/adopter and website integration
-were delivered by #14 and #15; the [product qualification](product-qualification.md) records
-their integrated evidence. Unsupported compiler versions, incomplete census/admission,
+were delivered by #14 and #15; the [adoption guide](adoption.md#limits) states their limits.
+Unsupported compiler versions, incomplete census/admission,
 ambiguous role origin and unresolved execution are refusals. Any failed proof or pin
 capability blocks its specific guarantee and must be reported.
 

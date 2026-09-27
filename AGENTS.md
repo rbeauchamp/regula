@@ -21,8 +21,7 @@
   domain-specific material in examples or named Lean-domain profiles.
 
 - Follow `docs/guides/linter-architecture.md` and `docs/guides/rule-coverage.md` for the
-  Project 8 product contract; `docs/guides/product-qualification.md` records its integrated
-  per-rule evidence, routes and remaining limits. Keep typed rule metadata, diagnostics and checked website
+  product contract. Keep typed rule metadata, diagnostics and checked website
   examples synchronized. Follow `docs/guides/design-influences.md` for contribution-specific
   attribution; no single research reference brands every issue or deliverable. Distinguish planned work
   from currently supported enforcement and published pages.
@@ -181,23 +180,12 @@ Use `./scripts/verify.sh serialized-graph` for an explicit separate graph-checki
 Do not partition either acceptance step further to evade its limit. A requested broader
 claim still needs its actual evidence.
 
-CI runs `./scripts/verify.sh` then `./scripts/verify.sh docs` in one job after provisioning
-pinned toolchain and dependency caches. On every PR and `main`, CI also runs the two
-rule-example shards and then `./scripts/verify.sh site`, which builds and checks the
-rule-reference site from those exports (its own 420-second limit; never part of acceptance).
-On `main` only, after both and a gate refusing a dirty artifact, a revision that is no
-longer the head of `main` or an artifact whose snapshots differ from the append-only
-`site-archive-regula` branch plus its own, a provisioning-free job pushes the new snapshot to that
-branch without force; then it deploys that exact artifact to GitHub Pages and compares the
-live site with it ([website guide](docs/guides/website.md#retention)). The diagnostics workflow runs
-the producers and history campaigns when the checker, rules, rule examples, Lake
-configuration or manifests change, on `main`, and nightly, and the two rule-example shards
-nightly. The lint-driver workflow runs
-`diagnostics lint-driver` likewise when the `lake lint` driver or anything it imports, or
-the adopter fixtures, change. The dogfood workflow runs `diagnostics self-lint` (this
-repository's own `lake lint` in both packages), `diagnostics self-audit` (the excluded `Regula` library under the
-proved operational decision) and the intent screen when Lean sources, Lake configuration,
-manifests or the screen configuration change, on `main`, and nightly. Merge requires passing
+On every PR and `main`, CI runs both acceptance steps in one job, the two rule-example
+shards, and then `./scripts/verify.sh site`, which builds and checks the rule-reference site (its own
+420-second limit; never part of acceptance). The
+[contributor guide](docs/guides/contributing.md#choose-focused-diagnostics) lists which
+workflow runs each diagnostic and when; the
+[website guide](docs/guides/website.md#retention) owns publication. Merge requires passing
 CI on the reviewed PR head, applicable focused review and diagnostics.
 Preserve PR, signature, history, and conversation protections. Finish authorized publication,
 exact-head merge, and owned branch cleanup. Skill/handoff-only edits need proportionate

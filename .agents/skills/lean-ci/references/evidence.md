@@ -7,8 +7,7 @@ than copying a historical budget from this file.
 
 ## Regula: distinguish decisions, scheduling and orchestration
 
-The [CI responsiveness record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-13-corpus-ci-responsiveness.md)
-records the revisions, commands and hosted runs behind the following items.
+The following items were observed on hosted and local runs; they are not proofs.
 
 1. **Equivalent canonical-set decisions.** `RegulaPolicy/Collections.lean` proves
    adjacent strict ordering equivalent to the existing normalization equality under its
@@ -47,8 +46,7 @@ use already-live snapshots and provisioned imports, not fresh project admission.
 
 ## Regula: invocation-local Lake environment capture
 
-The [launcher repair record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/main-ci-launcher-repair.md)
-separates a post-merge 420s failure from an observed local overhead reduction. Repeated
+A post-merge 420s failure is distinct from an observed local overhead reduction. Repeated
 `lake env lean` calls loaded an unchanged workspace for each of 36 controls. Capturing
 the actual environment for each parent-environment state retained individual compiler
 children and exact control outcomes. The bounded paired diagnostic compares sources,
@@ -61,15 +59,14 @@ identical trees and green synthetic-merge checks did not establish main CI succe
 
 ## Regula: sequential diagnostic budgets and shared writes
 
-The [diagnostic budget record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-7-diagnostic-budget.md)
-records the changed resource contract. At `0d2d6142192967f4873305cbf1ec5d8227607a36`,
+At `0d2d6142192967f4873305cbf1ec5d8227607a36`,
 ordinary hosted verification passed, while the combined producer/history420 run finished
 all 21 producer invocations but only 2 of 17 history invocations. The aggregate failed;
 a producer PASS did not establish completed history qualification or green CI.
 The authorized repair uses two sequential hard420 diagnostic gates with full coverage.
 It does not change ordinary cold420 or prove a runtime upper bound.
-Superseded 2026-09-22 by the verification-slimming decision: these campaigns now run as
-parallel capability-triggered diagnostics jobs (see AGENTS.md), each under its own 420s.
+Superseded 2026-09-22: these campaigns now run as parallel capability-triggered diagnostics
+jobs, each under its own 420s ([contributor guide](../../../../docs/guides/contributing.md#choose-focused-diagnostics)).
 
 Separate fixture roots shared `.lake/packages`; a prior prebuild did not enforce
 read-only module outputs, trace/hash sidecars or artifact/Git metadata. At pinned
