@@ -8,6 +8,8 @@ closure, not that an external census is complete or a policy observation is true
 namespace RegulaPolicy
 open Std
 
+universe u v
+
 inductive AdmissionFailure where
   | unknownKey | duplicateResult | invalidBinding
   deriving Repr, DecidableEq

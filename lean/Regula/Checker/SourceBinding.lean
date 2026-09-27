@@ -78,7 +78,7 @@ def checkConfiguration (snapshot : Array (FilePath × Option String)) : IO (Exce
 def configurationUnchanged (snapshot : Array (FilePath × Option String)) : IO Unit := do
   IO.ofExcept <| (← checkConfiguration snapshot).mapError (·.detail)
 
-def withUnchanged (sources : Array ProducerReport.SourceBinding)
+def withUnchanged {α : Type} (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (action : IO α) :
     IO (Except AdmissionFailure α) := do
   let check := do

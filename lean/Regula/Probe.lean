@@ -137,7 +137,7 @@ private opaque setMaxMemory (bytes : USize) : BaseIO Unit
 the peak resident size (libuv reports it in KiB), never above the limit the shell set from
 `max_memory`, and restore that limit afterward. The runtime limit is process-wide, and a
 process runs its correspondence checks sequentially. -/
-private def withCorrespondenceMemory (opts : Options) (action : IO α) : IO α := do
+private def withCorrespondenceMemory {α : Type} (opts : Options) (action : IO α) : IO α := do
   let outer := (opts.get? `max_memory).getD (0 : Nat) * 1024 * 1024
   let bound ← match ← correspondenceLimit.get with
     | some bound => pure bound

@@ -12,7 +12,7 @@ open Lean System
 
 /-- Reuse the engine's owner for all completed and exceptional exits. A refused adapter
 returns no qualifying result; no exception text is classified as a diagnostic. -/
-private def stable (sources : Array ProducerReport.SourceBinding)
+private def stable {α : Type} (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (action : IO α) : IO α := do
   IO.ofExcept <| (← SourceBinding.withUnchanged sources configuration action).mapError (·.detail)
 

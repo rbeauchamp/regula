@@ -777,7 +777,7 @@ copy operation as the public gate, rather than a second fixed source list. -/
 private def prepareScratchRepo (repo scratch : FilePath) : IO Unit :=
   copyProject repo scratch scratch
 
-private def withNewFile (path : FilePath) (text : String) (action : IO α) : IO α := do
+private def withNewFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   if ← path.pathExists then
     throw <| IO.userError s!"refusing to overwrite structural fixture {path}"
   if let some parent := path.parent then IO.FS.createDirAll parent
@@ -785,13 +785,13 @@ private def withNewFile (path : FilePath) (text : String) (action : IO α) : IO 
   try action
   finally if ← path.pathExists then IO.FS.removeFile path
 
-private def withReplacedFile (path : FilePath) (text : String) (action : IO α) : IO α := do
+private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
   let original ← IO.FS.readFile path
   IO.FS.writeFile path text
   try action
   finally IO.FS.writeFile path original
 
-private def withRemovedFile (path : FilePath) (action : IO α) : IO α := do
+private def withRemovedFile {α : Type} (path : FilePath) (action : IO α) : IO α := do
   let original ← IO.FS.readFile path
   IO.FS.removeFile path
   try action
@@ -1185,7 +1185,7 @@ private unsafe def structuralQualification (layout : SourceLayout) (repo scratch
 
 /-- Flush phase boundaries so CI timestamps and elapsed times identify the
 actual work, even when stdout is redirected. Timings are observations only. -/
-private def timedPhase (label : String) (action : IO α) : IO α := do
+private def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
   IO.println s!"phase {label}: start"
   (← IO.getStdout).flush
   let started ← IO.monoNanosNow

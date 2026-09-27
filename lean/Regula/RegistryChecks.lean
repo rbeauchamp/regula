@@ -9,6 +9,8 @@ Universal identity/name laws are theorems, not inferred from these controls.
 Canonical metadata motivation credits con-leche (Regula.RuleId). -/
 open Lean Regula Regula.RegistryCodec
 
+universe u v
+
 -- This named set is the public theorem claim, not a module-discovery substitute.
 run_cmd do
   for name in #[``RuleId.parse_spelling, ``RuleId.spelling_injective, ``RuleId.mem_all,
@@ -28,7 +30,7 @@ run_cmd do
 private def require (ok : Bool) (claim : String) : IO Unit :=
   unless ok do throw <| IO.userError s!"registry qualification failed: {claim}"
 
-private def succeeded : Except ε α → Bool
+private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
   | .ok _ => true | .error _ => false
 
 def main : IO Unit := do

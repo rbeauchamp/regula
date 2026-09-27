@@ -9,6 +9,8 @@ boundaries. The JSON bridge uses this structural-name decoder directly. -/
 @[expose] public section
 
 namespace RegulaPolicy.Codec
+
+universe u
 open Lean
 
 /-- Raw tree spines retain order and duplicate fields before any map construction. -/
@@ -86,16 +88,16 @@ def parseIdentity (w : Wire) : Except String Identity := do
   exact admitIdentity_exact i.name i.nonanonymous
 
 /-- Category tags share their proved spelling codec; no open strings enter the result. -/
-def categoryWire (spelling : α → String) (x : α) : Wire := .text (spelling x)
+def categoryWire {α : Type u} (spelling : α → String) (x : α) : Wire := .text (spelling x)
 
-def parseCategory (parse : String → Option α) : Wire → Except String α
+def parseCategory {α : Type u} (parse : String → Option α) : Wire → Except String α
   | .text s => match parse s with
       | some x => .ok x
       | none => .error "unknown policy category"
   | _ => .error "expected policy category string"
 
 /-- The accepted spelling has exactly one wire representation. -/
-theorem category_canonical (spelling : α → String) (parse : String → Option α)
+theorem category_canonical {α : Type u} (spelling : α → String) (parse : String → Option α)
     (law : ∀ s x, parse s = some x → spelling x = s) (w : Wire) (x : α)
     (h : parseCategory parse w = .ok x) : categoryWire spelling x = w := by
   cases w <;> simp only [parseCategory] at h
@@ -106,7 +108,7 @@ theorem category_canonical (spelling : α → String) (parse : String → Option
   all_goals contradiction
 
 /-- Reuse the category's finite proof, instead of duplicating its value table. -/
-theorem category_roundtrip (spelling : α → String) (parse : String → Option α)
+theorem category_roundtrip {α : Type u} (spelling : α → String) (parse : String → Option α)
     (law : ∀ x, parse (spelling x) = some x) (x : α) :
     parseCategory parse (categoryWire spelling x) = .ok x := by
   simp [parseCategory, categoryWire, law]

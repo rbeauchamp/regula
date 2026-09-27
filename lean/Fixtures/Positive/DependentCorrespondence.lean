@@ -13,7 +13,7 @@ def fixtures_dependent_impl {α : Type u} {β : α → Type v}
 def fixtures_dependent_reference {α : Type u} {β : α → Type v}
     (a : α) (b : β a) (n : Nat) (_h : 0 < n) : β a × Nat := (b, n + n)
 
-theorem fixtures_dependent_correspondence {β : α → Type v} (a : α) :
+theorem fixtures_dependent_correspondence {α : Type u} {β : α → Type v} (a : α) :
     @fixtures_dependent_impl α β a = @fixtures_dependent_reference α β a := by
   funext b n h
   simp only [fixtures_dependent_impl, fixtures_dependent_reference, Nat.two_mul]

@@ -10,6 +10,12 @@ sampling refusals of mutated inputs. They concern pure `Except` values only. -/
 
 namespace RegulaPolicy.Guards
 
+universe u v w
+
+section Except
+
+variable {ε : Type u} {ε' : Type w} {α β : Type v}
+
 /-- A sequenced computation succeeds exactly when each step succeeds in turn. -/
 @[simp] theorem bind_eq_ok {x : Except ε α} {f : α → Except ε β} {b : β} :
     (x >>= f) = .ok b ↔ ∃ a, x = .ok a ∧ f a = .ok b := by
@@ -129,6 +135,8 @@ theorem foldlM_append_eq_ok {xs : Array α} {f : α → Except ε (Array β)}
       ∀ y, y ∈ expected ↔ y ∈ init ∨ ∃ x ∈ xs, ∃ ys, f x = .ok ys ∧ y ∈ ys := by
   rw [← Array.foldlM_toList] at h
   simpa using list_foldlM_append_eq_ok h
+
+end Except
 
 variable {α : Type} [BEq α] [LawfulBEq α]
 

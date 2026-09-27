@@ -4,18 +4,20 @@ import Regula.Checker.SourceAudit
 Universal value/collection laws live in RegulaPolicy. These controls exercise
 JSON text, process packets, source elaboration and the actual CLI, whose linkage
 is an operational boundary. Every public mutation has a fresh restored control. -/
+universe u
+
 namespace Regula.Checker.PolicyQualification
 open Lean System
 open Regula.Checker
 open scoped Regula.Report
 
-private def expectError (label expected : String) (result : Except String α) : Array String :=
+private def expectError {α : Type u} (label expected : String) (result : Except String α) : Array String :=
   match result with
   | .ok _ => #[s!"{label}: invalid input was accepted"]
   | .error error => if error.contains expected then #[]
     else #[s!"{label}: wrong refusal: {error}"]
 
-private def expectOk (label : String) (result : Except String α) : Array String :=
+private def expectOk {α : Type u} (label : String) (result : Except String α) : Array String :=
   match result with
   | .ok _ => #[]
   | .error error => #[s!"{label}: valid input refused: {error}"]

@@ -59,13 +59,13 @@ structure Cleaned where
 of dead runs are reclaimed (`Regula.Scratch`). On normal return it also yields the cleanup
 witness, constructed only after the finalizer's removal returned. Random naming and OS
 directory operations are not logical freshness proofs. -/
-def withScratchCleaned (root : FilePath) (stem : String) (action : FilePath → IO α) :
+def withScratchCleaned {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × Cleaned) := do
   let (value, path) ← Regula.Scratch.withScratch root stem action
   return (value, ⟨path⟩)
 
 /-- Fresh scratch under the worktree, with cleanup on normal or exceptional return. -/
-def withScratch (root : FilePath) (stem : String) (action : FilePath → IO α) : IO α :=
+def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) : IO α :=
   return (← withScratchCleaned root stem action).1
 
 /-- Parse using the pinned Lean JSON implementation; malformed output is an error. -/

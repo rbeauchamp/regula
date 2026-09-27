@@ -259,7 +259,7 @@ private def retainSourceAccount (resultOut : Option FilePath)
         let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
         writeJson output (value.setObjVal! "sourceAccount" captured)
 
-private def withRetainedSources (resultOut : Option FilePath)
+private def withRetainedSources {α : Type} (resultOut : Option FilePath)
     (composed : IO.Ref (Option Json))
     (captured : IO.Ref (Array ProducerReport.SourceBinding)) (action : IO α) : IO α := do
   try action
@@ -280,7 +280,7 @@ private def reportContextFailure (id : Regula.RuleId) (scope : String)
       completed #[]).setObjVal!
       "sourceAccount" captured
 
-private def withSourceEvidenceOr (refused : α) (sources : Array ProducerReport.SourceBinding)
+private def withSourceEvidenceOr {α : Type} (refused : α) (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (scope : String)
     (mode : Regula.EvidenceMode) (composed : IO.Ref (Option Json)) (resultOut : Option FilePath) (action : IO α) : IO α := do
   match ← SourceBinding.withUnchanged sources configuration action with

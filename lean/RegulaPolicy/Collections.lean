@@ -13,6 +13,8 @@ are consequences of Std's laws, not a second hand-written set implementation. -/
 namespace RegulaPolicy
 open Std
 
+universe u
+
 abbrev CanonicalSet (α : Type u) [Ord α] := ExtTreeSet α
 
 namespace CanonicalSet
@@ -116,6 +118,8 @@ def normalizedDecision (xs : List α) : Decidable ((normalize xs).toList = xs) :
   exact decidable_of_iff _ (normalized_iff_ordered xs).symm
 
 end CanonicalSet
+
+variable {α : Type u}
 
 /-- Exactly one occurrence exists, and that occurrence satisfies the required relation.
 Equality to a singleton refuses duplicate occurrences even when their values agree. -/

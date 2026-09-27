@@ -14,6 +14,8 @@ documentation-presence evidence (`checkedEnvironmentEvidence`). The claimed
 extraction stay in the operational adapters; these definitions do not authenticate those
 observations. -/
 
+universe u
+
 namespace Regula.Checker.Manifest
 
 open Regula.Checker.Policy (Profile)
@@ -444,7 +446,7 @@ structure Frozen (claim : Claim) where
   roles : CensusRoles census
   environments : Array FrozenEnvironment
 
-private def requireOne (what : String) (values : Array α) : Except String α :=
+private def requireOne {α : Type u} (what : String) (values : Array α) : Except String α :=
   match values.toList with
   | [value] => .ok value
   | [] => .error s!"missing required {what} observation"
@@ -505,12 +507,12 @@ private def environmentEvidenceImpl (frozen : FrozenEnvironment) (stage : Stage)
           pure <| .documentationPresence observation.2
       | _, _ => throw "unsupported environment observation stage"
 
-private theorem requireOne_ok (what : String) (values : Array α) (value : α) :
+private theorem requireOne_ok {α : Type u} (what : String) (values : Array α) (value : α) :
     requireOne what values = .ok value ↔ values.toList = [value] := by
   unfold requireOne
   split <;> simp_all
 
-private theorem filter_single {p : α → Bool} {values : Array α} {value : α}
+private theorem filter_single {α : Type u} {p : α → Bool} {values : Array α} {value : α}
     (h : (values.filter p).toList = [value]) :
     value ∈ values ∧ p value = true ∧ ∀ other ∈ values, p other = true → other = value := by
   rw [Array.toList_filter] at h

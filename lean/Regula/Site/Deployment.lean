@@ -47,7 +47,7 @@ repository rule on `site-archive-regula` would enforce it for every writer.
 namespace Regula.Site.Deployment
 open Lean System
 
-private def fail (message : String) : IO α := throw <| IO.userError s!"deployment verification: {message}"
+private def fail {α : Type} (message : String) : IO α := throw <| IO.userError s!"deployment verification: {message}"
 
 /-- Fetch `url` into `path`; returns the HTTP status (0 when no response). -/
 def fetch (url : String) (path : FilePath) : IO Nat := do

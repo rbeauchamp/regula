@@ -11,6 +11,8 @@ Theorems below connect the actual public policy functions to the independent rel
 @[expose] public section
 
 namespace RegulaPolicy
+
+universe u
 open Lean (Name)
 open Frontend
 
@@ -155,7 +157,7 @@ theorem checkedMemberFoundation :
     compilerAxiom native n = false ↔ ¬ CompilerAxiom native n := by
   simp only [Bool.eq_false_iff, ne_eq, compilerAxiom_iff]
 
-private theorem conditional_none (p : Prop) [Decidable p] (a b : Option α) :
+private theorem conditional_none {α : Type u} (p : Prop) [Decidable p] (a b : Option α) :
     (if p then a else b) = none ↔ (p ∧ a = none) ∨ (¬p ∧ b = none) := by
   by_cases h : p <;> simp [h]
 

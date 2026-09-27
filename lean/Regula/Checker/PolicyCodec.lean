@@ -27,13 +27,13 @@ private def remaining (it : Input) : Nat :=
 /-- Continue with `k` only when input has been consumed since `start`. The check makes the
 termination argument executable and cannot fail: each use follows a successful `skip` or
 `any` after `start`, and core `Parsec` steps only advance within the same text. -/
-@[inline] private def descend (start : Input)
+@[inline] private def descend {α : Type} (start : Input)
     (k : (it : Input) → remaining it < remaining start → Result α) : Parser α := fun it =>
   if h : remaining it < remaining start then k it h
   else .error it (.other "JSON parser made no progress")
 
 /-- As `descend`, where no input need have been consumed since `start` (it has not grown). -/
-@[inline] private def stay (start : Input)
+@[inline] private def stay {α : Type} (start : Input)
     (k : (it : Input) → remaining it ≤ remaining start → Result α) : Parser α := fun it =>
   if h : remaining it ≤ remaining start then k it h
   else .error it (.other "JSON parser made no progress")
