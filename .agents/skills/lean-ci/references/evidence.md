@@ -7,7 +7,7 @@ than copying a historical budget from this file.
 
 ## Regula: distinguish decisions, scheduling and orchestration
 
-The following items were observed on hosted and local runs; they are not proofs.
+The timings and hosted outcomes below were observed; they are not proofs.
 
 1. **Equivalent canonical-set decisions.** `RegulaPolicy/Collections.lean` proves
    adjacent strict ordering equivalent to the existing normalization equality under its

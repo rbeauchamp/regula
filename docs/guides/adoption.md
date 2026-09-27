@@ -95,11 +95,7 @@ Lake keeps one copy of each package per workspace; with Regula in it, a project 
 whatever Mathlib revision it pins, and a project without Mathlib gets none. To move to a newer
 Regula, change the revision above and run `lake update regula`, which updates only `regula`.
 Only the checker repository's own Mathlib-dependent package (`audit/`, the standard's Mathlib
-examples) requires Mathlib, and it is not part of the `regula` package. The checker's acceptance
-refuses a root lock manifest that records any package (`RegulaVerification.dependencyFree`).
-On Lean 4.34.0, a new Core-only project that required `regula` resolved a manifest holding only
-`regula`, and a project that also required Mathlib at a revision the checker never pinned kept
-that revision and Mathlib's own pins for its closure; these are observations, not proofs.
+examples) requires Mathlib, and it is not part of the `regula` package.
 
 Use the Lean release of the checker's [`lean-toolchain`](../../lean-toolchain) at that revision
 for your own `lean-toolchain`. Lake builds every package of a workspace with one

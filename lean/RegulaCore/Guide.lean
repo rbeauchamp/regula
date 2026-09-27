@@ -112,9 +112,14 @@ private def declarationLinkage : String :=
     requirement, `declarationFailure_ordered`) is mapped to a rule by the injective \
     `Regula.ruleForFailure`. Project, file and documentation audits run it through \
     `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`); the editor runs \
-    `Regula.Linter.checked_editorDecision`, equal to the project decision on the editor's domain \
-    (`editor_request_sound`, `editor_request_complete`). The observed declaration fields and \
-    generated-role evidence are hypotheses of these theorems."
+    `Regula.Linter.checked_editorDecision`. For the same member and request, the editor passes \
+    exactly when the project decision selects no rule \
+    (`Regula.Checker.Policy.editor_decision_none_iff`), a rule it renders is the project \
+    decision's rule (`editor_decision_rule`), and a pending result withholds a project rule whose \
+    failure needs generated-role evidence (`editor_decision_pending`). The editor's request \
+    domain is the project's without teaching (`editor_request_sound`, \
+    `editor_request_complete`). The observed declaration fields and generated-role evidence are \
+    hypotheses of these theorems."
 
 /-- Shared statement: foundation labels. -/
 private def foundationTable : String :=
