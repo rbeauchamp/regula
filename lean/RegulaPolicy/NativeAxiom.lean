@@ -12,13 +12,33 @@ On the pinned Lean 4.34.0, every proof by native evaluation goes through
 it adds an axiom `e = true` named `mkAuxDeclName (`_native ++ tacticName ++ `ax)`, and
 `DeclNameGenerator.mkUniqueName` (`Lean/CoreM.lean`) turns that infix into
 `namePrefix ++ infix` with each generator index appended by `Name.appendIndexAfter`, made private
-to the module (`mkPrivateName`) while a `module` file elaborates without exporting. The pinned
-sources call `nativeEqTrue` at exactly two sites, which pass exactly three tactic names
-(`NativeTactic`): `elabNativeDecideCore` (`Lean/Elab/Tactic/Decide.lean:59`), reached from
-`evalDecideCore` (`:82`) with `native_decide` or, for `decide +native`, `decide`; and
-`LratCert.toReflectionProof` (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:39`) with
-`bv_decide`, reached from `lratBitblaster` (`:100`) and `lratChecker` (`:115`). `NativeEvaluator`
-enumerates the tactic elaborators that reach them.
+to the module (`mkPrivateName`) while a `module` file elaborates without exporting.
+
+The pinned sources (`src/lean`: `Init`, `Std`, `Lean` and `Lake`) call `nativeEqTrue` at exactly
+two sites, which pass exactly three tactic names (`NativeTactic`), and every caller chain ends in
+one of the eight tactic elaborators `NativeEvaluator` lists:
+* `elabNativeDecideCore` (`Lean/Elab/Tactic/Decide.lean:59`), called only by `evalDecideCore`
+  (`:82`), which is called only by `evalDecide` (`:186`, passing `decide`, reaching the call
+  only with `+native`) and `evalNativeDecide` (`:190`, passing `native_decide`).
+* `LratCert.toReflectionProof` (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:39`, passing
+  `bv_decide`), called only by `lratBitblaster` (`:100`) and `lratChecker` (`:115`).
+  `lratBitblaster` is called only by `bvUnsat` (`Lean/Meta/Tactic/BVDecide/Main.lean:26`),
+  through `bvDecide'` and `bvDecide` (`:42`, `:55`); `bvDecide` is called by
+  `BVDecide.evalBvDecide` (`Lean/Elab/Tactic/BVDecide.lean:199`), `BVTrace.evalBvTrace` (`:161`)
+  and `Grind.evalBvDecide` (`Lean/Elab/Tactic/Grind/BVDecide.lean:36`). `lratChecker` is called
+  only by `BVCheck.bvCheck` (`Lean/Elab/Tactic/BVDecide.lean:122`), through `BVCheck.evalBvCheck`
+  (`:124`). `BVTrace.evalBvTrace` is called by `BVDecide.evalBvTraceTactic` (`:213`) and
+  `Grind.evalBvTrace` (`Lean/Elab/Tactic/Grind/BVDecide.lean:47`); `BVCheck.evalBvCheck` by
+  `BVDecide.evalBvCheckTactic` (`Lean/Elab/Tactic/BVDecide.lean:233`) and `Grind.evalBvCheck`
+  (`Lean/Elab/Tactic/Grind/BVDecide.lean:65`).
+
+No term, command, conversion or `do`-element elaborator reaches either site. Five of the eight
+elaborators are registered in Lean's tactic table (`builtin_tactic`) and three in `grind`'s
+interactive-mode table (`builtin_grind_tactic`, `grindTacElabAttribute`,
+`Lean/Elab/Tactic/Grind/Basic.lean:116`), which a `by` block enters only through `grind =>`
+(`evalGrind`, `Lean/Elab/Tactic/Grind/Main.lean:342`) or `sym =>` (`evalSym`, `:351`). The only
+toolchain macro that expands to one of these tactics is `trivial`, to `decide` without `+native`
+(`Init/Tactics.lean:1494`), which adds no axiom.
 
 `nativeAxiomOrigin?` recognizes exactly the names that scheme generates for those tactics, and
 `compilerTrustingAxiomName` is the single name-level compiler-trust classification.
@@ -78,12 +98,9 @@ def auxiliaryInfixes : NativeTactic → List String
 
 end NativeTactic
 
-/-- A tactic elaborator of the pinned toolchain, registered by `builtin_tactic` for its syntax
-kind, that reaches a `nativeEqTrue` call site. The `grind =>` and `sym =>` forms of the
-`bv_decide` family (`Lean.Elab.Tactic.Grind.evalBvDecide`, `evalBvTrace` and `evalBvCheck`,
-`Lean/Elab/Tactic/Grind/BVDecide.lean:28,40,58`) also reach `LratCert.toReflectionProof`; they
-are registered by `builtin_grind_tactic` instead, which the checker's pinned-evaluator
-observation does not cover, so they are deliberately not listed. -/
+/-- A tactic elaborator of the pinned toolchain that reaches a `nativeEqTrue` call site: all eight
+such elaborators, registered for their syntax kind by `builtin_tactic` or, in `grind =>` and
+`sym =>` mode, by `builtin_grind_tactic`. -/
 inductive NativeEvaluator where
   /-- `native_decide`: `evalNativeDecide` (`Lean/Elab/Tactic/Decide.lean:190`). -/
   | nativeDecide
@@ -98,12 +115,23 @@ inductive NativeEvaluator where
   /-- `bv_check "file.lrat"`: `BVDecide.evalBvCheckTactic` (`Lean/Elab/Tactic/BVDecide.lean:225`),
   through `BVCheck.evalBvCheck` and `lratChecker`, with the certificate read from the file. -/
   | bvCheck
+  /-- `bv_decide` in `grind =>` or `sym =>` mode: `Grind.evalBvDecide`
+  (`Lean/Elab/Tactic/Grind/BVDecide.lean:28`), through `bvDecide` and `lratBitblaster`. -/
+  | grindBvDecide
+  /-- `bv_decide?` in that mode: `Grind.evalBvTrace` (`Lean/Elab/Tactic/Grind/BVDecide.lean:40`),
+  through `BVTrace.evalBvTrace`, `bvDecide` and `lratBitblaster`. -/
+  | grindBvTrace
+  /-- `bv_check "file.lrat"` in that mode: `Grind.evalBvCheck`
+  (`Lean/Elab/Tactic/Grind/BVDecide.lean:58`), through `BVCheck.evalBvCheck` and `lratChecker`. -/
+  | grindBvCheck
   deriving Repr, DecidableEq
 
 namespace NativeEvaluator
 
 /-- Every native evaluator, in declaration order. -/
-def all : List NativeEvaluator := [.nativeDecide, .decideNative, .bvDecide, .bvTrace, .bvCheck]
+def all : List NativeEvaluator :=
+  [.nativeDecide, .decideNative, .bvDecide, .bvTrace, .bvCheck, .grindBvDecide, .grindBvTrace,
+    .grindBvCheck]
 
 /-- The finite list is complete. -/
 theorem mem_all (e : NativeEvaluator) : e ∈ all := by
@@ -117,15 +145,27 @@ instance decidableExists (P : NativeEvaluator → Prop) [DecidablePred P] : Deci
 def family : NativeEvaluator → NativeTactic
   | .nativeDecide => .nativeDecide
   | .decideNative => .decideNative
-  | .bvDecide | .bvTrace | .bvCheck => .bvDecide
+  | .bvDecide | .bvTrace | .bvCheck | .grindBvDecide | .grindBvTrace | .grindBvCheck => .bvDecide
 
-/-- The elaborator's declaration name. -/
+/-- Whether the elaborator is registered in `grind`'s interactive-mode table rather than Lean's
+tactic table. -/
+def grindMode : NativeEvaluator → Bool
+  | .grindBvDecide | .grindBvTrace | .grindBvCheck => true
+  | .nativeDecide | .decideNative | .bvDecide | .bvTrace | .bvCheck => false
+
+/-- The elaborator's declaration name; the grind-mode elaborators are private to their module. -/
 def elaborator : NativeEvaluator → Name
   | .nativeDecide => `Lean.Elab.Tactic.evalNativeDecide
   | .decideNative => `Lean.Elab.Tactic.evalDecide
   | .bvDecide => `Lean.Elab.Tactic.BVDecide.evalBvDecide
   | .bvTrace => `Lean.Elab.Tactic.BVDecide.evalBvTraceTactic
   | .bvCheck => `Lean.Elab.Tactic.BVDecide.evalBvCheckTactic
+  | .grindBvDecide =>
+      Lean.mkPrivateNameCore `Lean.Elab.Tactic.Grind.BVDecide `Lean.Elab.Tactic.Grind.evalBvDecide
+  | .grindBvTrace =>
+      Lean.mkPrivateNameCore `Lean.Elab.Tactic.Grind.BVDecide `Lean.Elab.Tactic.Grind.evalBvTrace
+  | .grindBvCheck =>
+      Lean.mkPrivateNameCore `Lean.Elab.Tactic.Grind.BVDecide `Lean.Elab.Tactic.Grind.evalBvCheck
 
 /-- The syntax kind that elaborator is registered for. -/
 def syntaxKind : NativeEvaluator → Name
@@ -134,6 +174,9 @@ def syntaxKind : NativeEvaluator → Name
   | .bvDecide => `Lean.Parser.Tactic.bvDecide
   | .bvTrace => `Lean.Parser.Tactic.bvTrace
   | .bvCheck => `Lean.Parser.Tactic.bvCheck
+  | .grindBvDecide => `Lean.Parser.Tactic.Grind.bvDecide
+  | .grindBvTrace => `Lean.Parser.Tactic.Grind.bvTrace
+  | .grindBvCheck => `Lean.Parser.Tactic.Grind.bvCheck
 
 end NativeEvaluator
 

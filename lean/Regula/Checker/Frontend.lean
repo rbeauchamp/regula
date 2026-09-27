@@ -232,7 +232,9 @@ scaffolding, a syntax macro registered in the command's own environment
 evaluator records and are audited in turn), or an elaborator registered for
 that exact syntax kind in the module's post-import environment, i.e. by the
 pinned toolchain or an explicitly imported library rather than by the audited
-module itself. -/
+module itself. A tactic evaluator may be registered in Lean's tactic table or in
+`grind`'s interactive-mode table (`grindTacElabAttribute`), whose elaborators
+run inside `grind =>` and `sym =>`. -/
 private def pinnedElaborator (baselineEnv commandEnv : Environment)
     (role : EvaluatorRole) (elaborator : Name) (kind : Name) (specializeSame := false) : Bool :=
   if elaborator.isAnonymous then true
@@ -244,7 +246,9 @@ private def pinnedElaborator (baselineEnv commandEnv : Environment)
       !(commandEnv.contains elaborator && (commandEnv.getModuleIdxFor? elaborator).isNone)
   else if (macroAttribute.getEntries commandEnv kind).any (·.declName == elaborator) then true
   else if role == .tactic then
-    (Tactic.tacticElabAttribute.getEntries baselineEnv kind).any (·.declName == elaborator)
+    (Tactic.tacticElabAttribute.getEntries baselineEnv kind).any (·.declName == elaborator) ||
+      (Tactic.Grind.grindTacElabAttribute.getEntries baselineEnv kind).any
+        (·.declName == elaborator)
   else if role == .term then
     (Term.termElabAttribute.getEntries baselineEnv kind).any (·.declName == elaborator) ||
       -- `do` elements produce TermInfo too, but use their own keyed registry.

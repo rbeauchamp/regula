@@ -54,17 +54,45 @@ def key (value : Evaluator) : EvaluatorKey :=
 def NativeEvaluator.evaluatorKey (e : NativeEvaluator) : EvaluatorKey :=
   ⟨.tactic, e.elaborator, e.syntaxKind⟩
 
-/-- The only non-term evaluator sequence `NativeCommand e` accepts: the declaration command,
-then its `by` block and tactic sequence, then the tactic of `e`, in that order. -/
-def nativeTacticChain (e : NativeEvaluator) : Array EvaluatorKey := #[
+/-- The declaration command, then its `by` block and single-step tactic sequence. -/
+def byBlockKeys : Array EvaluatorKey := #[
   ⟨.command, declarationElaborator, declarationKind⟩,
   ⟨.tactic, .anonymous, `Lean.Parser.Term.byTactic⟩,
   ⟨.tactic, .anonymous, `by⟩,
   ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq, `Lean.Parser.Tactic.tacticSeq⟩,
   ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq1Indented,
-    `Lean.Parser.Tactic.tacticSeq1Indented⟩,
-  e.evaluatorKey
-]
+    `Lean.Parser.Tactic.tacticSeq1Indented⟩]
+
+/-- The two ways a `by` block's single tactic enters `grind`'s interactive mode, each followed by
+its single-step `grind` sequence (`evalGrindSeq`, `evalGrindSeq1Indented`, private to
+`Lean.Elab.Tactic.Grind.BuiltinTactic`). -/
+def grindModeKeys : List (Array EvaluatorKey) :=
+  [⟨.tactic, `Lean.Elab.Tactic.evalGrind, `Lean.Parser.Tactic.grind⟩,
+    ⟨.tactic, `Lean.Elab.Tactic.evalSym, `Lean.Parser.Tactic.sym⟩].map fun entry => #[entry,
+      ⟨.tactic, Lean.mkPrivateNameCore `Lean.Elab.Tactic.Grind.BuiltinTactic
+        `Lean.Elab.Tactic.Grind.evalGrindSeq, `Lean.Parser.Tactic.Grind.grindSeq⟩,
+      ⟨.tactic, Lean.mkPrivateNameCore `Lean.Elab.Tactic.Grind.BuiltinTactic
+        `Lean.Elab.Tactic.Grind.evalGrindSeq1Indented, `Lean.Parser.Tactic.Grind.grindSeq1Indented⟩]
+
+/-- The built-in expansion of a declaration named `A.b` into `namespace A`, the declaration `b`
+and `end A` (`expandNamespacedDeclaration`, `Lean/Elab/Declaration.lean:150`), around the keys
+of that inner declaration. -/
+def namespacedKeys (inner : Array EvaluatorKey) : Array EvaluatorKey :=
+  #[⟨.command, namespacedDeclarationElaborator, declarationKind⟩,
+    ⟨.command, `Lean.Elab.Command.elabNamespace, `Lean.Parser.Command.namespace⟩,
+    ⟨.command, `Lean.Elab.Command.elabEndLocalScope,
+      `Lean.Parser.Command.InternalSyntax.end_local_scope⟩] ++ inner ++
+  #[⟨.command, `Lean.Elab.Command.elabEnd, `Lean.Parser.Command.end⟩]
+
+/-- The only non-term evaluator sequences `NativeCommand e` accepts: the declaration command, its
+`by` block and tactic sequence, then the tactic of `e` alone, or for a grind-mode `e`, `grind =>`
+or `sym =>` alone with the tactic of `e` as its whole sequence, in that order; each also inside
+the built-in expansion of a namespaced declaration name. -/
+def nativeTacticChains (e : NativeEvaluator) : List (Array EvaluatorKey) :=
+  let direct := if e.grindMode then grindModeKeys.map fun keys => byBlockKeys ++ keys.push
+      e.evaluatorKey
+    else [byBlockKeys.push e.evaluatorKey]
+  direct ++ direct.map namespacedKeys
 
 /-- Source containment uses the lexicographic codepoint position order. -/
 def PositionLE (a b : Position) : Prop :=
@@ -129,22 +157,22 @@ instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
     (RecursiveCommand c b r) := by
   unfold RecursiveCommand; infer_instance
 
-/-- Native teaching permits exactly the pinned complete non-term evaluator sequence of `e`. -/
+/-- Native teaching permits exactly a pinned complete non-term evaluator sequence of `e`. -/
 def NativeCommand (e : NativeEvaluator) (c : Command) (r : SyntaxRange) : Prop :=
   LiteralDeclaration c r ∧ (∀ v ∈ c.evaluators, PinnedEvaluator v) ∧
-  (c.evaluators.filter (·.role != .term)).map key = nativeTacticChain e
+  (c.evaluators.filter (·.role != .term)).map key ∈ nativeTacticChains e
 instance (e : NativeEvaluator) (c : Command) (r : SyntaxRange) :
     Decidable (NativeCommand e c r) := by
   unfold NativeCommand; infer_instance
 
-/-- An evaluator of name family `t` is the command's complete pinned evaluator sequence over the
-parent's range `pr`, and exactly one observation of it has the axiom's range `ar`. -/
-def NativeEvaluatorCommand (t : NativeTactic) (c : Command) (pr ar : SyntaxRange) : Prop :=
-  ∃ e : NativeEvaluator, e.family = t ∧ NativeCommand e c pr ∧
+/-- The evaluator `e` is the command's complete pinned evaluator sequence over the parent's range
+`pr`, and exactly one observation of it has the axiom's range `ar`. -/
+def NativeEvaluatorCommand (e : NativeEvaluator) (c : Command) (pr ar : SyntaxRange) : Prop :=
+  NativeCommand e c pr ∧
     ExactlyOne (c.evaluators.filter (fun v => v.role == .tactic &&
       v.elaborator == e.elaborator && v.kind == e.syntaxKind)) (fun v => v.range = some ar)
-instance (t : NativeTactic) (c : Command) (pr ar : SyntaxRange) :
-    Decidable (NativeEvaluatorCommand t c pr ar) := by
+instance (e : NativeEvaluator) (c : Command) (pr ar : SyntaxRange) :
+    Decidable (NativeEvaluatorCommand e c pr ar) := by
   unfold NativeEvaluatorCommand; infer_instance
 
 /-- Native axiom shape, the asserted statement of its tactic and successful independent replay
@@ -157,27 +185,61 @@ def NativeAxiomShape (a : Declaration) : Prop :=
 instance (a : Declaration) : Decidable (NativeAxiomShape a) := by
     unfold NativeAxiomShape; infer_instance
 
-/-- Exact supported parent and recorded use shape, with no safety/runtime escape. -/
+/-- Exact supported parent, with no safety/runtime escape. -/
 def NativeParentShape (a p : Declaration) : Prop :=
   p.isProp = true ∧ p.kind ∈ #[DeclarationKind.theorem, .opaque, .definition] ∧
-  p.module = a.module ∧ a.name ∈ p.axioms ∧ a.nativeUseParents = #[p.name] ∧
+  p.module = a.module ∧ a.name ∈ p.axioms ∧
   p.isUnsafe = false ∧ p.isPartial = false ∧ p.implementedBy = none ∧ p.extern = false
 instance (a p : Declaration) : Decidable (NativeParentShape a p) := by
     unfold NativeParentShape; infer_instance
+
+/-- The auxiliary theorem into which `grind`'s `abstractProof` moves the proof of the parent `p`
+(`Grind.main`'s `finalize`, `Lean/Meta/Tactic/Grind/Main.lean:491-495`, through `mkAuxLemma`,
+which names it with the generator's `_proof` infix under the same prefix `pfx`): a safe internal
+proposition theorem of `p`'s module, used by `p` alone. -/
+def NativeAuxProof (ds : Array Declaration) (pfx : Name) (p u : Declaration) : Prop :=
+  generatedAuxParent? "_proof" u.name = some pfx ∧ u.kind = .theorem ∧ u.internal = true ∧
+  u.isProp = true ∧ u.module = p.module ∧ u.isUnsafe = false ∧ u.isPartial = false ∧
+  u.implementedBy = none ∧ u.extern = false ∧
+  (ds.filter (fun d => d.valueConstants.contains u.name)) = #[p]
+instance (ds : Array Declaration) (pfx : Name) (p u : Declaration) :
+    Decidable (NativeAuxProof ds pfx p u) := by
+  unfold NativeAuxProof; infer_instance
+
+/-- The declaration `u` whose proof uses the axiom `a`: its unique direct user and unique
+exact-bridge user, which is the parent `p` itself or, for a grind-mode evaluator `e`, `p`'s
+auxiliary proof. -/
+def NativeUser (ds : Array Declaration) (e : NativeEvaluator) (pfx : Name) (a p u : Declaration) :
+    Prop :=
+  a.nativeUseParents = #[u.name] ∧ (ds.filter (fun d => d.valueConstants.contains a.name)) = #[u] ∧
+  (u = p ∨ (e.grindMode = true ∧ NativeAuxProof ds pfx p u))
+instance (ds : Array Declaration) (e : NativeEvaluator) (pfx : Name) (a p u : Declaration) :
+    Decidable (NativeUser ds e pfx a p u) := by
+  unfold NativeUser; infer_instance
+
+/-- The native role of `a` for the parent `p`, the generated prefix `pfx` and tactic `t` of `a`'s
+name, and the evaluator `e`: `e` passes `t`, `pfx` is a generated prefix of `p` in its own module,
+the parent and user shapes hold, the ranges nest, and exactly one command introduces `p`, adding
+the one matching axiom under the complete pinned evaluator sequence of `e`. -/
+def NativeRoleOK (ds : Array Declaration) (ts : Array Transcript) (a p : Declaration) (pfx : Name)
+    (t : NativeTactic) (e : NativeEvaluator) : Prop :=
+  e.family = t ∧ GeneratedPrefix p.module p.name pfx ∧ NativeParentShape a p ∧
+    (∃ u ∈ ds, NativeUser ds e pfx a p u) ∧
+    ∃ pr ∈ declarationRange? p, ∃ ar ∈ declarationRange? a,
+      PositionLE pr.start ar.start ∧ PositionLE ar.end pr.end ∧
+      ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
+        NativeIntroducingCommand ts a t pfx c ∧ p.name ∈ c.added ∧ NativeEvaluatorCommand e c pr ar)
+instance (ds : Array Declaration) (ts : Array Transcript) (a p : Declaration) (pfx : Name)
+    (t : NativeTactic) (e : NativeEvaluator) : Decidable (NativeRoleOK ds ts a p pfx t e) := by
+  unfold NativeRoleOK; infer_instance
 
 /-- All native teaching requirements jointly hold, including unique use and introduction.
 The name locates a generated prefix of the parent in its own module and a native tactic
 (`nativeAxiomOrigin?`, `GeneratedPrefix`); the remaining relations supply the required
 data-level evidence, including an evaluator of that tactic's name family. -/
 def NativeTeachingOK (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) : Prop :=
-  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ o ∈ nativeAxiomOrigin? a.name,
-    GeneratedPrefix p.module p.name o.1 ∧ NativeParentShape a p ∧
-    (ds.filter (fun d => d.valueConstants.contains a.name)) = #[p] ∧
-    ∃ pr ∈ declarationRange? p, ∃ ar ∈ declarationRange? a,
-      PositionLE pr.start ar.start ∧ PositionLE ar.end pr.end ∧
-      ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
-        NativeIntroducingCommand ts a o.2 o.1 c ∧ p.name ∈ c.added ∧
-          NativeEvaluatorCommand o.2 c pr ar)
+  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ o ∈ nativeAxiomOrigin? a.name, ∃ e : NativeEvaluator,
+    NativeRoleOK ds ts a p o.1 o.2 e
 instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
 

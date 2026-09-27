@@ -222,7 +222,7 @@ theorem native_generated (i : Inventory) (roles : Roles i) (n : Name) (hn : n �
       NativeGenerated pfx idxs ∧ n = nativeAxiomName pfx t idxs := by
   rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, _, rfl, hrole⟩
-  rcases hrole.2.2 with ⟨p, hp, ⟨pfx, t⟩, hparent, hprefix, _⟩
+  rcases hrole.2.2 with ⟨p, hp, ⟨pfx, t⟩, hparent, _, _, hprefix, _⟩
   obtain ⟨idxs, hg, h⟩ := nativeAxiomOrigin?_sound hparent
   exact ⟨p, hp, pfx, t, idxs, hprefix, hg, h⟩
 

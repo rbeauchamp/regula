@@ -208,10 +208,12 @@ private def isExactNativeUse (tactic : NativeTactic) (axiomName : Name) (asserte
           (·.isConstOf axiomName)).isNone
 
 /-- Whether `candidate` is in the module of the constant `axiomName` (both in the current
-document or both imported from the same module): the only parents `NativeParentShape` accepts
-(`p.module = a.module`). A user elsewhere is not searched; an owned one still fails
-`NativeTeachingOK`, whose parent must be the unique declaration mentioning the axiom. This bounds
-the whole-proof `bv_decide` search by the size of the axiom's own module. -/
+document or both imported from the same module): the only users `NativeTeachingOK` accepts, since
+the parent and any auxiliary proof it uses share the axiom's module (`NativeParentShape`,
+`NativeUser`). Only the `bv_decide` search, which inspects whole proofs, is bounded this way: a
+user elsewhere is not found, and an owned one still fails `NativeTeachingOK`, whose user must be
+the unique declaration mentioning the axiom. This bounds that search by the size of the axiom's
+own module. -/
 private def sameModule (env : Environment) (axiomName candidate : Name) : Bool :=
   env.getModuleIdxFor? candidate == env.getModuleIdxFor? axiomName
 
@@ -323,7 +325,8 @@ def declaration (name : Name) (stage : Stage) :
     | none => #[]
     | some (_, tactic, asserted) =>
         env.constants.fold (init := #[]) fun parents parentName parentInfo =>
-          if sameModule env name parentName && isExactNativeUse tactic name asserted parentInfo then
+          if (tactic != .bvDecide || sameModule env name parentName) &&
+              isExactNativeUse tactic name asserted parentInfo then
             parents.push parentName
           else parents
   let levelParams : List Name := info.levelParams

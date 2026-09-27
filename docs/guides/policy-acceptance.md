@@ -459,13 +459,17 @@ Do not collapse exactness and definitional comparison, or set-normalize ordered 
 `decide +native` or `bv_decide` (`nativeAxiomOrigin?`), which fixes the tactic and a prefix that
 is the parent's name or, for a public parent, its private form in the parent's own module
 (`GeneratedPrefix`); internal safe proposition axiom, that tactic's exact asserted statement and
-successful replay, permitted dependency set; same-module safe proposition parent of supported kind, the tactic's
-exact parent-use bridge, unique direct user; nested exact ranges; unique introducing command
-shared with parent, adding one axiom of that origin with the same asserted statement; literal
-declaration, pinned complete evaluator chain ending in an evaluator of that tactic name
-(`NativeEvaluator`: `native_decide`, `decide +native`, `bv_decide`, `bv_decide?` or `bv_check`)
-and one evaluator range equal to the axiom's. Names only locate candidates. This evidence only permits teaching classification;
-it never relaxes a conforming profile.
+successful replay, permitted dependency set; same-module safe proposition parent of supported
+kind; the tactic's exact parent-use bridge in a unique direct user, which is the parent or, for
+a grind-mode evaluator, the safe internal `_proof` theorem under the same prefix that `grind`
+makes for the parent and only the parent uses (`NativeUser`, `NativeAuxProof`); nested exact ranges; unique
+introducing command shared with parent, adding one axiom of that origin with the same asserted
+statement; literal declaration, every evaluator pinned and a complete non-term chain ending in an
+evaluator of that tactic name (`NativeEvaluator`: `native_decide`, `decide +native`,
+`bv_decide`, `bv_decide?` or `bv_check` as the whole `by` block, or the last three as the whole
+sequence of `grind =>` or `sym =>`, optionally inside a namespaced name's built-in expansion),
+and one evaluator range equal to the axiom's. Names only locate candidates. This evidence only
+permits teaching classification; it never relaxes a conforming profile.
 
 Freeze these relations as independently written component predicates, then prove the
 **executed** typed validators return evidence iff the relation holds on supported records.

@@ -271,11 +271,12 @@ def guide : RuleId → Guide
           `module` file elaborates the proof without exporting. When the checker authenticates \
           that axiom and its parent (a name the scheme generates for the parent in its own \
           module, the tactic's exact asserted statement, a parent using the axiom only through \
-          the tactic's bridge, native replay and fresh-frontend origin from an evaluator of that \
-          tactic name), both are classified compiler-trusting and rejected with applicability \
-          `compiler-trusting`. The built-in axioms `Lean.trustCompiler`, `Lean.ofReduceBool` and \
-          `Lean.ofReduceNat` in a transitive axiom set are compiler-trusting by their exact \
-          identity.",
+          the tactic's bridge, directly or through the auxiliary proof `grind` makes for it, \
+          native replay and fresh-frontend origin from an evaluator of that tactic name), both \
+          and any such auxiliary proof are classified compiler-trusting and rejected with \
+          applicability `compiler-trusting`. The built-in axioms `Lean.trustCompiler`, \
+          `Lean.ofReduceBool` and `Lean.ofReduceNat` in a transitive axiom set are \
+          compiler-trusting by their exact identity.",
         "Final environment metadata cannot authorize a generated native-proof axiom; fresh \
           re-elaboration of the exact source establishes it. An unauthenticated axiom that only \
           looks native is not compiler-trusting."]
@@ -299,12 +300,22 @@ def guide : RuleId → Guide
           completes it.",
         "An unauthenticated axiom that merely looks native is not compiler-trusting; it is \
           rejected as an unknown axiom (RG1003) or project axiom (RG1001).",
-        "Authentication covers `native_decide`, `decide +native`, `bv_decide`, `bv_decide?` and \
-          `bv_check` as a declaration's whole `by` block, in ordinary and `module` files. Other \
-          evaluator paths fail closed as RG1001 and RG1003: a native tactic inside a longer \
-          tactic sequence or combinator, and `bv_decide`, `bv_decide?` or `bv_check` in \
-          `grind =>` or `sym =>` mode, whose elaborators are registered by \
-          `builtin_grind_tactic`, which the checker does not accept as a pinned evaluator."]
+        "Authentication covers every tactic evaluator that reaches `nativeEqTrue` on the pinned \
+          toolchain: `native_decide`, `decide +native`, `bv_decide`, `bv_decide?` or `bv_check` \
+          as a declaration's whole `by` block, and `bv_decide`, `bv_decide?` or `bv_check` as \
+          the whole sequence of a `grind =>` or `sym =>` block that is the whole `by` block, for \
+          plain or namespaced, public or private names in ordinary and `module` files.",
+        "A native tactic whose introducing command runs any other non-term evaluator fails \
+          closed as RG1001 and RG1003: inside a longer tactic or `grind` sequence, a combinator \
+          or a nested `by` block, on a declaration with attributes (for example `@[simp]`), or \
+          under a command wrapper such as `set_option … in`. The checker admits a generated \
+          axiom only when every evaluator of that command is pinned and its non-term evaluators \
+          form one pinned chain, because any other evaluator (a macro, tactic, attribute \
+          handler or elaborator) could add an axiom with the generated name and a true \
+          statement.",
+        "When synchronous elaboration lets `grind` reuse an identical earlier auxiliary proof \
+          (the `mkAuxLemma` cache), that proof has more than one user, so the axioms involved \
+          have no unique parent and fail closed as RG1001 and RG1003."]
       residuals := [.qualify, .cost]
       checklist :=
           ["FOUND-05", "FOUND-03", "THEOREM-10", "THEOREM-01", "THEOREM-06", "DECL-03", "COMP-01",

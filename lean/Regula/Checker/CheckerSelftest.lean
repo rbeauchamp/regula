@@ -643,6 +643,33 @@ private def fenceCorpusCases (repo : FilePath) : Array (String × String × Stri
   ("trusted-bv-check", s!"<!-- lean-trusted-compiler -->\n```lean\nimport Std.Tactic.BVDecide\n\
     theorem docs_bv_check (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by\n  bv_check \
     -binaryProofs \"{bvCheckCertificate repo}\"\n```\n", "trusted-bv-check.md:2 PASS_TRUSTED"),
+  -- In `grind =>` and `sym =>` mode the same tactics run from `grind`'s own elaborator table, and
+  -- `grind` moves the proof into an auxiliary `_proof` theorem of the parent; a namespaced name
+  -- adds Lean's built-in `namespace` expansion. Each is authenticated.
+  ("trusted-grind-native", s!"<!-- lean-trusted-compiler -->\n```lean\nimport \
+    Std.Tactic.BVDecide\ntheorem docs_grind_bv_decide (x y : BitVec 2) : (x &&& y) + (x ||| y) = \
+    x + y := by grind => bv_decide\ntheorem docs_sym_bv_trace (x y : BitVec 2) : (x &&& y) + \
+    (x ||| y) = x + y := by sym => bv_decide?\ntheorem docs_grind_bv_check (x y : BitVec 2) : \
+    (x &&& y) + (x ||| y) = x + y := by\n  grind => bv_check -binaryProofs \
+    \"{bvCheckCertificate repo}\"\n```\n", "trusted-grind-native.md:2 PASS_TRUSTED"),
+  ("trusted-namespaced-native", "<!-- lean-trusted-compiler -->\n```lean\nimport \
+    Std.Tactic.BVDecide\ntheorem Docs.namespaced_native_decide : (2 : Nat) = 2 := by \
+    native_decide\ntheorem Docs.Grind.namespaced_bv_decide (x y : BitVec 2) : (x &&& y) + \
+    (x ||| y) = x + y := by sym => bv_decide\n```\n",
+      "trusted-namespaced-native.md:2 PASS_TRUSTED"),
+  ("positive-grind-bv-decide", "```lean\nimport Std.Tactic.BVDecide\ntheorem \
+    docs_positive_grind_bv_decide (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by \
+    grind => bv_decide\n```\n", "compiler-trusting: docs_positive_grind_bv_decide"),
+  -- An axiom with a generated name, used only through a theorem named like `grind`'s auxiliary
+  -- proof, is still a project axiom.
+  ("trusted-grind-spoof", "<!-- lean-trusted-compiler -->\n```lean\naxiom \
+    Attack._native.bv_decide.ax_1 : False\ntheorem Attack._proof_1 : False := \
+    Attack._native.bv_decide.ax_1\ntheorem Attack : False := Attack._proof_1\n```\n",
+      "trusted-grind-spoof.md:2 FAIL"),
+  -- An attribute handler is another evaluator in the introducing command: not authenticated.
+  ("trusted-attribute-native", "<!-- lean-trusted-compiler -->\n```lean\nimport Init\n@[simp] \
+    theorem docs_attribute_native : (2 : Nat) = 2 := by native_decide\n```\n",
+      "trusted-attribute-native.md:2 FAIL"),
   ("negative-compiles", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := 1\n```\n",
       "negative example elaborated successfully"),
   ("negative-other-diagnostic",
