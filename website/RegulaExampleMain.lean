@@ -7,8 +7,9 @@ import SubVerso.Highlighting
 selects the imported environment, which contains nothing else, and its commands are elaborated
 there in this fresh process under `exampleOptions`. It prints one JSON object with every message
 (severity, one-based line and zero-based column within `FILE`, text) and the SubVerso
-highlighting of the whole module. The standard's `lean` code blocks (`RegulaExample`) run it where each block is written,
-so a document never imports an example's modules and the site executable never links them.
+highlighting of the whole module. The standard's `lean` code blocks (`RegulaExample`) run it
+where each block is written, so a document never imports an example's modules and the site
+executable never links them.
 Process, filesystem and search-path effects are trusted; the caller decides what the reported
 outcome must be. -/
 

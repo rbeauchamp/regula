@@ -112,8 +112,11 @@ All initial rules are strict errors when applicable. Source-local options can co
 editor work but cannot authorize an exception in strict project mode. Keep only the technical
 exceptions already in §§8.4–8.6 (authenticated generated helpers, separately classified teaching
 native proofs, and origin-checked native-runtime boundaries). Excluded targets classify coverage;
-imports from a positive surface do not disappear because their target was excluded. There is no
-waiver or suppression policy added to the normative standard.
+imports from a positive surface do not disappear because their target was excluded. The
+normative standard adds no waiver or suppression policy for a rule; the declaration-scoped
+community-linter disable of
+[standard §6.2](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#62-module-purpose-and-linter-discipline)
+removes only that linter's warning and discharges no requirement.
 
 Proof obligations for #4/#5/#6/#7/#12: total rule metadata; injective external ID spelling;
 route uniqueness; faithful decoding; exact profile set membership and least-label classification;
