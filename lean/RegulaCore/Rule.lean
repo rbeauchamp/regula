@@ -77,7 +77,8 @@ inductive EvidenceKind where
 def scopeFor : RuleId → RuleScope
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract => .declaration
-  | .environment | .configuration | .sourceBuild | .coverage | .admission => .project
+  | .environment | .configuration | .sourceBuild | .coverage | .admission
+  | .communityConfiguration => .project
   | .executionUnresolved | .executionBoundary => .executionRoot
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample => .documentationFence
   | .moduleDocumentation => .module
@@ -88,7 +89,7 @@ def evidenceFor : RuleId → EvidenceKind
   | .compilerTrusting | .escapeHatch => .generatedRole
   | .executableContract => .contractEvidence
   | .environment => .environment
-  | .configuration => .configuration
+  | .configuration | .communityConfiguration => .configuration
   | .sourceBuild => .compilation
   | .coverage => .inventory
   | .admission => .admission
@@ -507,6 +508,27 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         compliant := include_str "../../examples/rules/RG2005/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2005/Violation.lean"
         correction := "The correction replaces ill-typed unchecked evidence with a checked proof of the same reflexivity statement." } }
+  | .communityConfiguration => {
+      title := "Claimed targets must build with the community configuration"
+      category := .configuration
+      normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
+      applicability := "community-configuration"
+      availability := .existingChecker
+      evidenceModes := [.incrementalProject, .freshProject]
+      requirement := "Each claimed Lake target turns `autoImplicit` and `relaxedAutoImplicit` off in `leanOptions`, turns off no linter beyond the §6.7 exclusions, and with Mathlib enables its standard set."
+      rationale := "An automatic implicit adds a binder the source does not show, so the elaborated statement can quantify over more than the text a reviewer compares with the intent. A linter turned off for a whole target hides its warnings from the warning-free build (RG2003). Options passed as extra `lean` arguments bypass `leanOptions`, where the audit reads them."
+      remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false and, with Mathlib, the standard set and its three §6.7 exclusions; remove other linter disables and extra `lean` arguments."
+      rewrites := [
+        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩`` to `leanOptions` (`autoImplicit = false` and `relaxedAutoImplicit = false` under `[leanOptions]` in `lakefile.toml`), then declare each universe and implicit the build reports as unknown.",
+        "With Mathlib, also set `weak.linter.mathlibStandardSet` to true and `weak.linter.style.header`, `weak.linter.hashCommand` false and `weak.linter.style.longFile` 0.",
+        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the one declaration the community's guidance allows, with a comment (§6.2).",
+        "Move options from `moreLeanArgs` and `weakLeanArgs` (`-D name=value`) into `leanOptions`."]
+      examples := {
+        language := .lean
+        audience := .adopter
+        compliant := include_str "../../examples/rules/RG2006/Fixed.lean"
+        noncompliant := include_str "../../examples/rules/RG2006/Violation.lean"
+        correction := "The examples are the package's `lakefile.lean` (the corpus run adds its `require regula` line). The correction turns automatic implicits off without changing the library, its source or its other options." } }
   | .executionUnresolved => {
       title := "Execution closure must have no unresolved paths", category := .execution
       normativeClauses := [.computationMechanisms]
@@ -621,17 +643,20 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         noncompliant := include_str "../../examples/rules/RG4004/Violation.md"
         correction := "The correction labels the same kernel proof as a positive example rather than as native teaching." } }
   | .moduleDocumentation => {
-      title := "Claimed modules require module documentation", category := .documentation
-      normativeClauses := [.moduleDocumentation]
+      title := "Claimed modules need a leading module docstring and no repeated import"
+      category := .documentation
+      normativeClauses := [.moduleDocumentation, .importDiscipline]
       applicability := "module-documentation"
       availability := .existingChecker
       evidenceModes := projectModes
-      requirement := "Every claimed module has a module docstring (`/-! … -/`)."
-      rationale := "Module documentation tells a reader which declarations carry the module's claims and under which assumptions, so the claims can be reviewed without reading every proof."
-      remedy := "Add a module docstring that identifies the module's material declarations and assumptions."
+      requirement := "Every claimed module has a module docstring (`/-! … -/`) as its first command after the imports, and its header repeats no import with the same modifiers."
+      rationale := "Module documentation tells a reader which declarations carry the module's claims and under which assumptions, so the claims can be reviewed without reading every proof. The Lean community puts it first, where readers and tools look. A repeated import adds nothing and obscures which dependencies a module declares."
+      remedy := "Add a module docstring that identifies the module's material declarations and assumptions, directly after the imports and before any `public section`, and delete repeated imports."
       rewrites := [
-        "Add `/-! … -/` at the top of the module, after the imports.",
-        "Follow the template in standard §5.3: purpose, main declarations with their results and hypotheses, assumptions and dependencies, design notes. Keep only sections that help."]
+        "Add `/-! # Title … -/` as the first command after the imports.",
+        "In a `module` file, move the module docstring above `@[expose] public section` or `public section`.",
+        "Delete the second copy of a repeated import; `public import A` and `import all A` are different imports.",
+        "Follow the template in standard §5.3: a `#` title and summary, main declarations with their results and hypotheses, assumptions and dependencies, design notes. Keep only sections that help."]
       examples := {
         language := .lean
         audience := .adopter

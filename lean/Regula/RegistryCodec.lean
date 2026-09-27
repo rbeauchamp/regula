@@ -151,7 +151,8 @@ private def argumentsJson : (id : RuleId) → Payload id → Json
   | .executionUnresolved, a | .executionBoundary, a =>
       Json.mkObj [("root", nameJson a.root), ("detail", toJson a.detail)]
   | .environment, a | .configuration, a | .sourceBuild, a | .coverage, a
-  | .admission, a | .fenceStructure, a | .positiveExample, a | .negativeExample, a
+  | .admission, a | .communityConfiguration, a | .fenceStructure, a | .positiveExample, a
+  | .negativeExample, a
   | .trustedExample, a | .moduleDocumentation, a =>
       Json.mkObj [("subject", toJson a.subject), ("detail", toJson a.detail)]
 

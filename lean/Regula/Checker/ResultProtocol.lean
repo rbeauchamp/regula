@@ -94,7 +94,7 @@ evidence it concerns; that stage and every later one cannot have completed. RG30
 its verdict comes from the execution stage, which completed. -/
 def blockedStage (mode : EvidenceMode) : RuleId → Option Stage
   | .environment => some .discovery
-  | .configuration => some .configuration
+  | .configuration | .communityConfiguration => some .configuration
   | .sourceBuild => some .build
   | .coverage => some .admission
   | .admission => some (match mode with | .documentationExample => .example | _ => .admission)

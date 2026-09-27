@@ -38,7 +38,7 @@ lake exe regula rules            # the index of every rule
 
 Each command prints Markdown generated from the installed package's rule registry, so it
 needs no network and matches the pinned revision. It exits 0, or 2 for an invalid invocation
-or an unknown rule ID. The briefing has a 14 KiB budget (`Regula.Guidance.agentGuideBudget`),
+or an unknown rule ID. The briefing has a 15 KiB budget (`Regula.Guidance.agentGuideBudget`),
 checked when the package builds.
 
 Then either install the skill, for example

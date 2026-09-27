@@ -39,7 +39,7 @@ private def parseArguments (id : RuleId) (j : Json) : Except String (Payload id)
       return ⟨← parseName (← field j "declaration"), detail⟩
   | .executionUnresolved | .executionBoundary =>
       return ⟨← parseName (← field j "root"), detail⟩
-  | .environment | .configuration | .sourceBuild | .coverage | .admission
+  | .environment | .configuration | .sourceBuild | .coverage | .admission | .communityConfiguration
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
   | .moduleDocumentation => return ⟨← string j "subject", detail⟩
 
