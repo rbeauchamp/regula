@@ -70,11 +70,14 @@ An `LE` instance supplies a relation used by `≤`. It provides no proofs of ref
 ```lean (fails := "(?s)failed to synthesize.*LinearOrder")
 import Mathlib.Basic.Real.Basic
 
+/-- A non-negative real number. -/
 structure T where
+  /-- The underlying real number. -/
   val : Real
+  /-- The number is non-negative. -/
   nonneg : 0 ≤ val
 
-instance : LE T := ⟨fun x y => x.val ≤ y.val⟩
+instance : LE T := ⟨fun x y ↦ x.val ≤ y.val⟩
 
 -- A bare relation does not synthesize the lawful bundled structure:
 #synth LinearOrder T
@@ -131,7 +134,16 @@ import Mathlib.Order.Lattice.Nat
 /-- Named levels obtain an order by an injective rank into `ℕ`.
 `LinearOrder.lift'` transports the existing order and its laws. -/
 inductive ConsensusLevel
-  | none | weak | moderate | strong | unanimous
+  /-- No consensus. -/
+  | none
+  /-- Weak consensus. -/
+  | weak
+  /-- Moderate consensus. -/
+  | moderate
+  /-- Strong consensus. -/
+  | strong
+  /-- Every participant agrees. -/
+  | unanimous
   deriving DecidableEq
 
 /-- Index each level into the canonical natural order. -/
@@ -157,8 +169,12 @@ The rank function chooses the intended ordering. The injection proof shows that 
 import Mathlib.Order.Basic
 import Mathlib.Order.Lattice.Nat
 
+/-- Two named levels. -/
 inductive Level
-  | low | high
+  /-- The lower level. -/
+  | low
+  /-- The higher level. -/
+  | high
   deriving LinearOrder
 ```
 
@@ -193,7 +209,7 @@ structure Event where
 (`Preorder.lift` needs a `Preorder` on the target; Time's `LinearOrder`
 supplies that weaker instance.) -/
 noncomputable instance : Preorder Event :=
-  Preorder.lift (fun e : Event => e.timestamp)
+  Preorder.lift (fun e : Event ↦ e.timestamp)
 
 noncomputable example : Preorder Event := inferInstance
 
@@ -203,6 +219,7 @@ structure TimeWindow where
   start : Time
   /-- The last time in the window. -/
   finish : Time
+  /-- The window does not end before it starts. -/
   valid : start ≤ finish
 
 /-- A time lies within the window, both ends included. -/
@@ -214,13 +231,13 @@ def TimeWindow.Contains (w : TimeWindow) (t : Time) : Prop :=
 `List.filter`. Execution requires a computable producer of that decision
 data (§3.2.4); the predicate alone does not supply one. -/
 def eventsInWindow (events : List Event) (w : TimeWindow)
-    [DecidablePred (fun (e : Event) => w.Contains e.timestamp)] : List Event :=
-  events.filter (fun e => decide (w.Contains e.timestamp))
+    [DecidablePred (fun (e : Event) ↦ w.Contains e.timestamp)] : List Event :=
+  events.filter (fun e ↦ decide (w.Contains e.timestamp))
 
 /-- Exact membership theorem for the filter: no event is added, and every
 retained event satisfies precisely the window predicate. -/
 theorem mem_eventsInWindow (events : List Event) (w : TimeWindow)
-    [DecidablePred (fun (e : Event) => w.Contains e.timestamp)] (e : Event) :
+    [DecidablePred (fun (e : Event) ↦ w.Contains e.timestamp)] (e : Event) :
     e ∈ eventsInWindow events w ↔ e ∈ events ∧ w.Contains e.timestamp := by
   simp [eventsInWindow]
 
@@ -232,6 +249,7 @@ structure CausalOrder where
   events : Set Event
   /-- The causal relation between declared events. -/
   precedes : {e : Event // e ∈ events} → {e : Event // e ∈ events} → Prop
+  /-- `precedes` is irreflexive and transitive. -/
   laws : IsStrictOrder {e : Event // e ∈ events} precedes
 
 -- A concrete causal relation supplies `precedes` and discharges the two law
@@ -268,6 +286,7 @@ A phase number cannot be used directly as a tick:
 ```lean (fails := "Application type mismatch")
 import Audit.DocClaims
 
+/-- The natural number underlying a tick. -/
 def atTick (t : Glossary.Tick) : Nat := t.val
 example (phase : Nat) : Nat := atTick phase
 ```
@@ -277,6 +296,7 @@ If a model intentionally needs only another name for natural numbers, `abbrev Ti
 ```lean (fails := "(?s)failed to synthesize.*LinearOrder")
 import Mathlib.Order.Basic
 
+/-- Another name for natural numbers, as an ordinary `def`. -/
 def Tick := Nat
 #synth LinearOrder Tick
 ```

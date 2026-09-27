@@ -9,12 +9,13 @@ printed exactly as it is elaborated. Where the block is written, while the docum
 elaborated, the `regula-example` helper (`RegulaExampleMain`) elaborates it in a fresh process
 whose environment is exactly the block's own `import` header: nothing of the document, of
 another example or of this extension is visible to it, and the document never imports the
-example's modules (so the site executable never links them).
+example's modules (so the site executable never links them). The helper elaborates every
+block with automatic implicits off and `linter.missingDocs` on (`exampleOptions`).
 
 - `lean`: a positive example; elaboration must report no error and no warning.
-- `lean (fails := "PATTERN")`: an expected rejection; elaboration must report an error, and one
-  error message must match `PATTERN` in the restricted diagnostic language of standard §8.7,
-  decided by the proved `RegulaPolicy.matchesPattern` (`matchesPattern_iff`).
+- `lean (fails := "PATTERN")`: an expected rejection; elaboration must report an error and no
+  warning, and one error message must match `PATTERN` in the restricted diagnostic language of
+  standard §8.7, decided by the proved `RegulaPolicy.matchesPattern` (`matchesPattern_iff`).
 - `lean +trustedCompiler`: a teaching example of a compiler-trusting mechanism; elaboration
   must report no error and no warning.
 - `leanSketch`: Lean-like text displayed with a notice that it is not elaborated, for
@@ -148,6 +149,8 @@ def elabExample (expectation : Expectation) (str : StrLit) : DocElabM Term := do
     | .rejected pattern => do
       if errors.isEmpty then
         throwErrorAt str "expected a rejection matching {repr pattern}, but the example elaborated"
+      unless warnings.isEmpty do
+        throwErrorAt str "an expected rejection must emit no warning:\n{describe warnings}"
       let some matched := errors.find? (RegulaPolicy.matchesPattern pattern ·.text)
         | throwErrorAt str "no error message matches {repr pattern}:\n{describe errors}"
       pure (some matched)

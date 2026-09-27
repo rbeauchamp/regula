@@ -46,9 +46,13 @@ open Glossary
 
 /-- Closed vocabulary for the permission policy below. -/
 inductive EntityRole
+  /-- Submits proposals. -/
   | proposer
+  /-- Reviews proposals. -/
   | reviewer
+  /-- Observes without acting. -/
   | observer
+  /-- Administers the system. -/
   | administrator
   deriving Repr, DecidableEq
 
@@ -76,7 +80,7 @@ structure Entity where
 
 /-- Compute whether any assigned role permits proposing. -/
 def Entity.canPropose (e : Entity) : Bool :=
-  e.roles.any (fun r => r.canPropose)
+  e.roles.any (fun r ↦ r.canPropose)
 ```
 
 All four constructors have type `EntityRole`. The type restricts role values to that vocabulary; the functions compute permission decisions. An operation requiring permission must either enforce that decision or require corresponding proof evidence. The enumeration alone does not prevent an unauthorized operation.
@@ -139,7 +143,7 @@ def Probability.complement (p : Probability) : Probability :=
   unitInterval.symm p
 
 /-- Valid identifier: non-empty, alphanumeric with underscores. -/
-def ValidIdentifier := {s : String // 0 < s.length ∧ s.all (fun c => c.isAlphanum || c = '_')}
+def ValidIdentifier := {s : String // 0 < s.length ∧ s.all (fun c ↦ c.isAlphanum || c = '_')}
 
 /-- Time intervals with proven ordering (`Time`: `import Audit.DocPrelude`). -/
 structure TimeInterval where
@@ -172,8 +176,10 @@ The shared glossary deliberately makes `Time` nominal while `ResourceAmount` reu
 ```lean (fails := "Type mismatch|is expected to have type")
 import Audit.DocPrelude
 
+/-- Consume a resource amount. -/
 def consume (_amount : Glossary.ResourceAmount) : Unit := ()
 
+/-- Attempt to consume a time as a resource amount. -/
 def wrongDomain (t : Glossary.Time) : Unit := consume t
 ```
 
@@ -271,18 +277,24 @@ noncomputable def velocity (d : Distance) (t : Duration) : Velocity :=
 ```lean (fails := "Application type mismatch|is expected to have type")
 import Mathlib.Basic.Real.Basic
 
+/-- The unit tag for meters. -/
 inductive Meters
+/-- The unit tag for seconds. -/
 inductive Seconds
+/-- A real quantity tagged with its unit. -/
 structure Qty (unit : Type) where
+  /-- The quantity's magnitude. -/
   value : ℝ
 
+/-- A distance in meters. -/
 abbrev Distance := Qty Meters
+/-- A duration in seconds. -/
 abbrev Duration := Qty Seconds
 
 /-- Argument order is enforced by the distinct tags. -/
 noncomputable def ratio (d : Distance) (t : Duration) : ℝ := d.value / t.value
 
--- Swapped arguments are a type error at elaboration:
+/-- Swapped arguments are a type error at elaboration. -/
 def bad : ℝ := ratio (⟨1.0⟩ : Duration) (⟨1.0⟩ : Distance)
 ```
 

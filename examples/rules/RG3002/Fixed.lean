@@ -1,4 +1,6 @@
-/-! The identity specification and replacement agree on every input. -/
+/-! # Identity
+
+The identity specification and replacement agree on every input. -/
 /-- The replacement code for `identity`: it computes `0 + n`. -/
 def alternative (n : Nat) : Nat := 0 + n
 /-- The identity on natural numbers; compiled code runs `alternative` instead. -/

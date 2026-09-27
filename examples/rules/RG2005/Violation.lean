@@ -1,5 +1,7 @@
 import Lean
-/-! Reflexivity declared with unchecked, ill-typed evidence. -/
+/-! # Reflexivity
+
+Reflexivity declared with unchecked, ill-typed evidence. -/
 open Lean Elab Command
 set_option debug.skipKernelTC true in
 run_cmd liftCoreM <| Lean.addDecl (.thmDecl {

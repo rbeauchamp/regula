@@ -118,8 +118,11 @@ import Mathlib.Data.Nat.Notation
 
 /-- A small review workflow used only to expose its recursive structure. -/
 inductive ReviewPlan where
+  /-- No step remains. -/
   | done
+  /-- A review step, followed by the rest of the plan. -/
   | review (rest : ReviewPlan)
+  /-- A revision step, followed by the rest of the plan. -/
   | revise (rest : ReviewPlan)
 
 /-- Structural recursion: Lean accepts the call on the direct subplan. -/
@@ -176,10 +179,11 @@ The subtype documents the intended domain at the type level. The underlying divi
 ```lean (fails := "Tactic `decide` proved|proved that the proposition")
 import Mathlib.Data.Nat.Basic
 
+/-- Division by a divisor that carries its proof of positivity. -/
 def safeDiv (a : ℕ) (d : {d : ℕ // 0 < d}) : ℕ := a / d.val
 
--- The domain restriction is enforced at elaboration: the zero divisor cannot be
--- supplied a proof, so this call does not elaborate.
+/-- The domain restriction is enforced at elaboration: the zero divisor cannot be
+supplied a proof, so this call does not elaborate. -/
 def oops := safeDiv 1 ⟨0, by decide⟩
 ```
 
@@ -250,7 +254,7 @@ class BadFlourishing (α : Type) where
 -- This violating instance elaborates — that is exactly the defect:
 instance : BadFlourishing ℝ where
   enhance := (· - ·)  -- Not associative!
-  measure := (fun x => -x)  -- Not monotone!
+  measure := (fun x ↦ -x)  -- Not monotone!
   -- No error because the laws are not fields
 
 /-- Subtraction is not associative. -/
@@ -288,8 +292,11 @@ class Flourishable (α : Type) [Preorder α] where
   measure : α → ℝ
 
   -- Laws that MUST be proven for every instance
+  /-- `enhance` does not decrease its first argument. -/
   enhance_increases : ∀ a b, a ≤ enhance a b
+  /-- `diminish` does not increase its first argument. -/
   diminish_decreases : ∀ a b, diminish a b ≤ a
+  /-- `measure` preserves the order. -/
   measure_monotone : ∀ a b, a ≤ b → measure a ≤ measure b
 
 /-- Concrete instance with ALL laws proven. Mathlib's order lemmas prove the
@@ -299,9 +306,9 @@ instance : Flourishable ℝ where
   diminish := min
   measure := id
 
-  enhance_increases := fun _ _ => le_max_left _ _
-  diminish_decreases := fun _ _ => min_le_left _ _
-  measure_monotone := fun _ _ h => h
+  enhance_increases := fun _ _ ↦ le_max_left _ _
+  diminish_decreases := fun _ _ ↦ min_le_left _ _
+  measure_monotone := fun _ _ h ↦ h
 ```
 
 These laws state that `enhance` does not decrease its first argument, `diminish` does not increase it, and `measure` preserves the supplied order. Whether these properties suffice depends on the interface’s intended claim.
@@ -333,15 +340,17 @@ For the order on `Bad` induced by its real field, subtraction violates `enhance_
 ```lean (fails := "Fields missing|fields missing")
 import Audit.Economy
 
+/-- A wrapper around a real number. -/
 structure Bad where
+  /-- The wrapped real number. -/
   x : ℝ
 
 instance : Preorder Bad := Preorder.lift Bad.x
 
 instance : Economy.Flourishable Bad where
-  enhance := fun a b => ⟨a.x - b.x⟩
-  diminish := fun a b => ⟨a.x + b.x⟩
-  measure := fun a => -a.x
+  enhance := fun a b ↦ ⟨a.x - b.x⟩
+  diminish := fun a b ↦ ⟨a.x + b.x⟩
+  measure := fun a ↦ -a.x
 
 -- The mixin instance is the lawfulness claim; it is refused without its proofs.
 instance : Economy.LawfulFlourishable Bad where
@@ -547,8 +556,11 @@ def safeGet {α : Type} {n : ℕ} (v : Vector α n) (i : Fin n) : α :=
 
 /-- Witness-bearing comparison. -/
 inductive CompareResult (a b : ℕ) : Type
+  /-- `a` is less than `b`. -/
   | lt (h : a < b) : CompareResult a b
+  /-- `a` equals `b`. -/
   | eq (h : a = b) : CompareResult a b
+  /-- `a` is greater than `b`. -/
   | gt (h : b < a) : CompareResult a b
 
 /-- The comparison of `a` and `b`, with the proof of the relation that holds. -/
@@ -559,12 +571,20 @@ def compare (a b : ℕ) : CompareResult a b :=
 
 /-- Type-level state machine whose invalid transitions are type errors. -/
 inductive State : Type
-  | ready | running | done
+  /-- Waiting to start. -/
+  | ready
+  /-- Started and not yet finished. -/
+  | running
+  /-- Finished. -/
+  | done
 
 /-- The allowed transitions between states; a missing edge has no constructor. -/
 inductive ValidTransition : State → State → Type
+  /-- Start a ready machine. -/
   | start : ValidTransition .ready .running
+  /-- Finish a running machine. -/
   | finish : ValidTransition .running .done
+  /-- Reset a finished machine. -/
   | reset : ValidTransition .done .ready
 
 /-- The target state of an allowed transition. -/
@@ -712,12 +732,14 @@ Direct invalid construction and an invalid update both fail at their proof oblig
 ```lean (fails := "Tactic `decide` proved that the proposition")
 import Audit.Server
 
+/-- Attempt to build a server that has served more than its capacity. -/
 def invalid : Glossary.Server := ⟨1, 0, by decide⟩
 ```
 
 ```lean (fails := "Tactic `decide` proved that the proposition")
 import Audit.Server
 
+/-- Attempt to update a server past its capacity. -/
 def invalidUpdate : Glossary.Server :=
   { Glossary.Server.init 0 with served := 1, bounded := by decide }
 ```
@@ -727,6 +749,7 @@ Raw counts also cannot be passed directly to the admitted-state API:
 ```lean (fails := "Application type mismatch|is expected to have type")
 import Audit.Server
 
+/-- Attempt to step a raw pair as if it were a server. -/
 def rawCrossUse (raw : Nat × Nat) : Glossary.Server := Glossary.Server.step raw
 ```
 
@@ -864,6 +887,7 @@ Omitting evidence while keeping the requirement fails at the proof-bearing field
 ```lean (fails := "Fields missing.*evidence")
 import Regula.Contract
 
+/-- The successor of a natural number. -/
 def successor (n : Nat) := n + 1
 theorem missing : Regula.ExecutableContract successor
     (fun f => ∀ n, f n = n + 1) where
@@ -873,12 +897,14 @@ Existence evidence cannot fill a promised data result:
 
 ```lean (fails := "Type mismatch")
 theorem exists_eq_add_one (n : Nat) : ∃ m : Nat, m = n + 1 := ⟨n + 1, rfl⟩
+/-- Attempt to compute a successor from the existence proof alone. -/
 def promised (n : Nat) : {m : Nat // m = n + 1} := exists_eq_add_one n
 ```
 
 Using choice to extract the data makes it a noncomputable specification instead:
 
 ```lean (fails := "noncomputable")
+/-- Attempt to compute a successor by choosing a witness of its existence. -/
 def promised (n : Nat) : Nat :=
   Classical.choose (show ∃ m : Nat, m = n + 1 from ⟨n + 1, rfl⟩)
 ```

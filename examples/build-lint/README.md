@@ -34,7 +34,8 @@ mandatory once enabled. For example, adding the following declaration to `Widget
 is permitted under Standard-Logical and fails with `label-exceeds-claim` under Choice-Free:
 
 ```lean
-theorem classicalTruth : True :=
+/-- `True`, proved through `Classical.choice`, so its axioms include `Classical.choice`. -/
+theorem classical_true : True :=
   Classical.choice (show Nonempty True from ⟨True.intro⟩)
 ```
 

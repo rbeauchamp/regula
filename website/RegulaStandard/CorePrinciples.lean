@@ -68,9 +68,12 @@ A direct construction cannot bypass the obligation. The anonymous-constructor fo
 ```lean (fails := "Insufficient number of fields|failed to synthesize")
 import Mathlib.Basic.NNReal.Defs
 
+/-- A resource with a non-negative capacity. -/
 structure Resource where
+  /-- The resource's capacity. -/
   capacity : NNReal
 
+/-- Attempt to build a resource from a negative real capacity. -/
 def bad : Resource := ⟨⟨(-1 : ℝ)⟩⟩
 ```
 
@@ -131,7 +134,7 @@ structure GrowthFunction where
 /-- State the theorem that the intended implementation has the property.
 This can be a private lemma used to construct the final object. -/
 private theorem exp_mul_monotone_and_nonneg (rate : ℝ) (h : 0 < rate) :
-    Monotone (fun t => Real.exp (rate * t)) ∧ ∀ t, 0 ≤ Real.exp (rate * t) := by
+    Monotone (fun t ↦ Real.exp (rate * t)) ∧ ∀ t, 0 ≤ Real.exp (rate * t) := by
   constructor
   · intro t₁ t₂ ht
     exact Real.exp_le_exp.mpr (mul_le_mul_of_nonneg_left ht (le_of_lt h))
@@ -141,7 +144,7 @@ private theorem exp_mul_monotone_and_nonneg (rate : ℝ) (h : 0 < rate) :
 /-- A function that RETURNS the function AND its proof, bundled.
 The return type `GrowthFunction` guarantees the properties. -/
 noncomputable def exponentialGrowth (rate : ℝ) (h : 0 < rate) : GrowthFunction :=
-  ⟨fun t => Real.exp (rate * t), exp_mul_monotone_and_nonneg rate h⟩
+  ⟨fun t ↦ Real.exp (rate * t), exp_mul_monotone_and_nonneg rate h⟩
 ```
 
 If this definition claims to return a monotone, non-negative function, omitting the proof-bearing field or an equivalent theorem leaves the claim unverified. The bundled form encodes monotonicity and non-negativity in the return type.

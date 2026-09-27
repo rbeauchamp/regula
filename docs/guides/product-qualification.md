@@ -170,8 +170,11 @@ These are bounded observations of real runs, not theorems about the tools.
 
 ## Community linters beside Regula
 
-Standard §6.7 and the [adoption guide](adoption.md#community-conventions-and-linters) tell adopters
-to run the Lean community's linters beside `lake lint`. These controls ran on 2026-09-26 on a
+Standard §6.7 requires every claimed library to enable Lean's `linter.missingDocs` and, with
+Mathlib, Mathlib's standard linter set; it and the
+[adoption guide](adoption.md#community-conventions-and-linters) recommend running Batteries'
+linters beside `lake lint`. `linter.missingDocs` was not enabled in the runs below, so they
+observe the Mathlib and Batteries routes only. These controls ran on 2026-09-26 on a
 disposable adopter (Lean 4.34.0, Mathlib `5ed2965`, this repository's checker by path) whose
 `lakefile.toml` set `weak.linter.mathlibStandardSet`, `autoImplicit` and `relaxedAutoImplicit`
 under `[leanOptions]`, and whose one claimed library (Standard-Logical) imported

@@ -55,8 +55,9 @@ your training data. Before writing or changing Lean, run `lake exe regula agent-
 follow it. `lake lint` enforces the rules and exits 0 accepted, 1 violation, 2 invalid
 configuration, 3 incomplete. Each finding states what is wrong, where, and the fix; for any
 rule ID, `lake exe regula explain <ID>` prints the full rule offline. For machine-readable
-findings run `lake lint -- --json-out tmp/regula.json`. Never disable a warning or linter,
-weaken a statement or remove a registration to make a check pass.
+findings run `lake lint -- --json-out tmp/regula.json`. Never disable a Lean warning, weaken a
+statement or remove a registration to make a check pass; disable a community linter only for
+one declaration, where its guidance allows, with the reason.
 ```
 
 This repository dogfoods the skill in
@@ -202,7 +203,9 @@ RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:2:6]: reflexi
   - If the statement is provable, prove it: replace `axiom name : P` by `theorem name : P := proof`.
   …
   compliant example (examples/rules/RG1001/Fixed.lean):
-    /-! Reflexivity for every natural number. -/
+    /-! # Reflexivity
+
+    Reflexivity for every natural number. -/
     theorem reflexive (n : Nat) : n = n := rfl
 RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:3:6]: symmetric: …
   fix: Turn the assumption into a hypothesis (…) (full guidance: first RG1001 finding above)
@@ -378,10 +381,10 @@ constructed.
 
 ### Community conventions and linters
 
-Regula's rules are Lean correctness rules. For style, naming and documentation form, follow the
-Lean community's conventions and run the community's own linters beside `lake lint`
-([standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)):
-Mathlib's [style](https://leanprover-community.github.io/contribute/style.html),
+Regula's rules are Lean correctness rules.
+[Standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
+also requires the Lean community's baseline for style, naming and documentation form, as the
+community's own linters enforce it. The conventions are Mathlib's [style](https://leanprover-community.github.io/contribute/style.html),
 [naming](https://leanprover-community.github.io/contribute/naming.html) and
 [documentation](https://leanprover-community.github.io/contribute/doc.html) guides for code that
 depends on Mathlib, and Lean's
@@ -389,30 +392,34 @@ depends on Mathlib, and Lean's
 and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md) for
 core-only code.
 
-- **Mathlib's syntax linters.** In a project that depends on Mathlib, enable the set Mathlib
-  builds with, and turn off automatic implicits
+- **Required linters.** Every claimed library enables Lean's `linter.missingDocs`, which
+  reports every public definition without a docstring, and, in a project that depends on
+  Mathlib, the syntax linters Mathlib builds with. Also turn off automatic implicits
   ([standard §8.1](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#81-declare-the-elaboration-environment)):
 
   ```toml
   [leanOptions]
+  linter.missingDocs = true
   weak.linter.mathlibStandardSet = true
   autoImplicit = false
   relaxedAutoImplicit = false
   ```
 
-  In `lakefile.lean` the same options are
-  ``leanOptions := #[⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]``.
+  Omit `weak.linter.mathlibStandardSet` in a project without Mathlib. In `lakefile.lean` the
+  same options are
+  ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]``.
   The linters report through build warnings, so `lake lint` reports each finding as RG2003
-  (`INCOMPLETE`, exit 3) with the linter's message. Where Mathlib's guidance accepts an
-  exception, such as a long URL, disable that linter for the one declaration
-  (`set_option linter.style.longLine false in`) with a comment giving the reason. Never
-  disable Lean's default warnings, such as `linter.unusedVariables` or `warn.sorry`. Regula
-  sees only emitted warnings, so it cannot tell these cases apart; review checks every
-  disable.
-- **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others)
-  report through their own command, not build warnings. Run `lake build` first: `runLinter`
-  reads the built modules and does not rebuild them. Lake has one `lintDriver` per package, so
-  keep one driver and run the other as its own command:
+  (`INCOMPLETE`, exit 3) with the linter's message. Regula does not check that the options are
+  set; review does. Where the community's guidance accepts an exception, such as a long URL,
+  disable that linter for the one declaration (`set_option linter.style.longLine false in`)
+  with a comment giving the reason. The same holds for every community linter, including those
+  Mathlib turns on for every importer, such as `linter.unusedTactic`. Never disable Lean's
+  default warnings, such as `linter.unusedVariables` or `warn.sorry`. Regula sees only emitted
+  warnings, so it cannot tell these cases apart; review checks every disable.
+- **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
+  recommended. They report through their own command, not build warnings. Run `lake build`
+  first: `runLinter` reads the built modules and does not rebuild them. Lake has one
+  `lintDriver` per package, so keep one driver and run the other as its own command:
 
   ```sh
   # lintDriver = "regula/lint"
@@ -423,9 +430,11 @@ core-only code.
 
   Each command's exit status covers only its own checks, so CI requires both.
 
-A community linter's pass is a style observation. It discharges no Regula rule, and a Regula
-pass says nothing about style. Both routes were exercised on a small Mathlib-importing adopter
-([product qualification](product-qualification.md#community-linters-beside-regula)).
+A community linter's pass establishes only what that linter checks. It discharges no other
+Regula requirement, and a Regula pass says nothing about style that no enabled linter checks.
+The Mathlib and Batteries routes were exercised on a small Mathlib-importing adopter
+([product qualification](product-qualification.md#community-linters-beside-regula));
+`linter.missingDocs` was not enabled in that run.
 
 ## 7. Receive diagnostics while editing
 

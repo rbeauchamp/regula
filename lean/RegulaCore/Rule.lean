@@ -459,7 +459,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       rewrites := [
         "Read the preserved compiler message, fix the cause and rebuild.",
         "Remove dead bindings or rename intentionally unused ones only when the name was genuinely unused; do not rename a variable that should have been used.",
-        "Do not add `set_option linter.… false` for a Lean default warning such as `linter.unusedVariables`. A declaration-scoped `set_option linter.NAME false in` or `@[nolint NAME]` is only for a community linter the project enabled, where its guidance allows, and establishes nothing the linter checks."]
+        "Do not add `set_option linter.… false` for a Lean default warning such as `linter.unusedVariables`. A declaration-scoped `set_option linter.NAME false in` or `@[nolint NAME]` is only for a community linter, enabled by a dependency or the project, where its guidance allows, and establishes nothing the linter checks."]
       examples := {
         language := .lean
         audience := .adopter

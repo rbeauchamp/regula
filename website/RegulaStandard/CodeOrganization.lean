@@ -18,7 +18,7 @@ tag := "6-overview"
 number := false
 %%%
 
-Lean code organization determines import dependencies, name resolution, and client-accessible information. This module separates these language features from guidance on layering, naming, and file structure. The rules enforce documented Lean boundaries. Design guidelines clarify those boundaries for readers. For style, naming, and documentation form, the standard defers to the Lean community's conventions and linters (§6.7).
+Lean code organization determines import dependencies, name resolution, and client-accessible information. This module separates these language features from guidance on layering, naming, and file structure. The rules enforce documented Lean boundaries. Design guidelines clarify those boundaries for readers. For style, naming, and documentation form, the standard adopts the Lean community's conventions and requires the community's own linters to enforce them (§6.7).
 
 # 6.1 Dependency Structure
 %%%
@@ -72,7 +72,7 @@ number := false
 
 *Linter discipline*: Every warning emitted while elaborating a conforming surface is an error under {ref "83-clean-elaboration-and-diagnostics"}[module 8 §8.3]. Setting `warningAsError := false` does not bypass audit checks. Turning off a linter can prevent its diagnostic but does not establish the underlying property. Applicable semantic matrix rows still require their own evidence.
 
-Lean's default warnings, those Lean emits under its default options (including the core linters enabled by default, such as `linter.unusedVariables`), MUST NOT be disabled in a claimed module. A community linter that the project enabled itself (§6.7) MAY be disabled for a single declaration where the community's own guidance accepts that, with `set_option linter.NAME false in` before the declaration or `@[nolint NAME]` on it and a comment giving the reason. Such a disable removes that linter's finding for that declaration only. It establishes nothing about the property the linter checks and never discharges a requirement of this standard. The audit sees only emitted warnings, so review checks which linters a module disables.
+Lean's default warnings, those Lean emits under its default options (including the core linters enabled by default, such as `linter.unusedVariables`), MUST NOT be disabled in a claimed module. Every other linter is a community linter here, however it came to run: a Lean core linter that is off by default and that the project enables (such as `linter.missingDocs`, §6.7), a linter that a dependency turns on for every importer (such as Mathlib's `linter.unusedTactic`), or one that the project enables from a dependency (such as Mathlib's standard set, §6.7). A community linter MAY be disabled for a single declaration where the community's own guidance allows that, with `set_option linter.NAME false in` before the declaration or `@[nolint NAME]` on it and a comment stating why. Such a disable removes that linter's finding for that declaration only. It establishes nothing about the property the linter checks and never discharges a requirement of this standard. The audit sees only emitted warnings, so review checks which linters a module disables.
 
 # 6.3 Naming Conventions
 %%%
@@ -168,8 +168,10 @@ In files with a `module` header, declarations are private by default. Use `publi
 An isolated opaque carrier hides its defining type even from subsequent declarations in the same file. Its declaration alone supplies no conversion from the defining type:
 
 ```lean (fails := "(?s)Type mismatch.*String.*HiddenString")
+/-- A carrier whose defining type is hidden. -/
 opaque HiddenString : Type := String
 
+/-- Attempt to convert a string to the hidden carrier. -/
 def hide (s : String) : HiddenString := s
 ```
 
@@ -229,14 +231,14 @@ Direct construction and direct payload recovery also fail because the abstract c
 ```lean (fails := "Type mismatch")
 import Audit.DocPrelude
 
--- Attack 1: direct construction contrary to the documented package operation.
+/-- Attack 1: direct construction contrary to the documented package operation. -/
 def forged : Glossary.OpaqueData := "attacker"
 ```
 
 ```lean (fails := "Type mismatch")
 import Audit.DocPrelude
 
--- Attack 2: direct payload recovery contrary to the documented API.
+/-- Attack 2: direct payload recovery contrary to the documented API. -/
 def steal (x : Glossary.OpaqueData) : String := x
 ```
 
@@ -280,20 +282,23 @@ tag := "67-community-conventions-and-linters"
 number := false
 %%%
 
-*Recommendation*: Follow the Lean community's conventions for style, formatting, naming, and documentation form, and run the community's own linters. This standard does not restate those conventions. Its universal rules stay technical Lean rules (`SCOPE-04` in {ref "9-compliance-and-quality-audit"}[module 9]); the community conventions are the baseline it builds on, not additional conformance requirements.
+*Requirement*: A claimed surface MUST follow the Lean community's conventions for style, formatting, naming, and documentation form as the community's own linters enforce them. Every claimed library MUST enable these linters in its Lake `leanOptions`:
 
-* For code that depends on Mathlib, follow Mathlib's [library style guidelines](https://leanprover-community.github.io/contribute/style.html), [naming conventions](https://leanprover-community.github.io/contribute/naming.html), and [documentation requirements](https://leanprover-community.github.io/contribute/doc.html). The [contribution guide](https://leanprover-community.github.io/contribute/index.html) links them all.
-* For code that depends only on Lean core, follow Lean's [standard library style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md) and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md).
+* *Lean's `linter.missingDocs`*, with value `true`. It reports every public definition, structure, class, inductive type, constructor, field, and syntax extension that has no docstring, the community's rule that every definition is documented.
+* *Mathlib's standard linter set*, for a library that imports Mathlib: `weak.linter.mathlibStandardSet` with value `true`, the syntax linters Mathlib itself builds with (line length, module header, tactic style, and others).
 
-Where the two differ, for example `fun x ↦` against `fun x =>` or the capitalization of acronyms, follow the convention of the library the code builds on and apply it consistently.
+Their findings are ordinary build warnings, so the warning-free elaboration of {ref "83-clean-elaboration-and-diagnostics"}[§8.3] (RG2003) rejects every one of them. The standard enforces this community baseline by composing the community's linters with that rule; it restates none of their checks. Its own universal rules stay technical Lean rules (`SCOPE-04` in {ref "9-compliance-and-quality-audit"}[module 9]), and they are stricter where they apply: a registered material declaration needs a docstring that states its claim exactly ({ref "51-inline-documentation-requirements"}[module 5 §5.1–§5.2]; RG5002, RG5003). The checker does not detect whether these options are set, so review confirms them (`DECL-01`).
 
-Run the community's checks beside Regula's rather than replacing them:
+The conventions are written in these guides:
 
-* *Mathlib's syntax linters* (line length, header, tactic style, and others). A project that depends on Mathlib enables the set Mathlib itself builds with by adding `weak.linter.mathlibStandardSet` with value `true` to its Lake `leanOptions`. Their findings are ordinary build warnings, so the warning-free elaboration of {ref "83-clean-elaboration-and-diagnostics"}[§8.3] (RG2003) then rejects every one of them.
-* *Batteries' environment linters* (`docBlame`, `simpNF`, `synTaut`, and others). Run them with `#lint` or `lake exe runLinter`. They report through their own command, not through build warnings, so RG2003 does not see them; run them as a separate check beside `lake lint` ({ref "811-adopting-the-checker-in-another-project"}[§8.11]).
-* *Lean's own `linter.missingDocs`* reports missing docstrings without importing Mathlib or Batteries.
+* For code that depends on Mathlib, Mathlib's [library style guidelines](https://leanprover-community.github.io/contribute/style.html), [naming conventions](https://leanprover-community.github.io/contribute/naming.html), and [documentation requirements](https://leanprover-community.github.io/contribute/doc.html). The [contribution guide](https://leanprover-community.github.io/contribute/index.html) links them all.
+* For code that depends only on Lean core, Lean's [standard library style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md) and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md).
 
-The community applies these linters with judgment. Where its guidance accepts an exception, disable the linter for that one declaration as §6.2 describes; Lean's default warnings are never disabled. A passing community linter is a style observation: it establishes no property a rule of this standard requires, and a Regula rule never replaces the community's review of style.
+Where the two differ, for example `fun x ↦` against `fun x =>` or the capitalization of acronyms, follow the convention of the library the code builds on and apply it consistently. Following the guides where no enabled linter checks them, such as naming (§6.3), is RECOMMENDED.
+
+Running *Batteries' environment linters* (`docBlame`, `simpNF`, `synTaut`, and others) is RECOMMENDED. They report through their own command (`#lint` or `lake exe runLinter`), not through build warnings, so RG2003 does not see them; run them as a separate check beside `lake lint` ({ref "811-adopting-the-checker-in-another-project"}[§8.11]).
+
+The community applies its linters with judgment. Where its guidance allows an exception, disable the linter for that one declaration as §6.2 describes; Lean's default warnings are never disabled. A community linter's pass establishes only what that linter checks: no property that another requirement of this standard needs, and a Regula rule never replaces the community's review of style.
 
 # Summary of Code Organization
 %%%
@@ -305,4 +310,4 @@ number := false
 * Claimed Lake targets determine audit coverage, including declared executable roots.
 * Module documentation explains material declarations and assumptions; naming and layout conventions aid navigation.
 * Namespaces, private names, body exposure, and opaque representations provide different boundaries. State and check the boundary actually claimed.
-* Style, naming, and documentation form follow the Lean community's conventions, checked with the community's own linters; a declaration-scoped disable of a community linter never discharges a requirement.
+* Style, naming, and documentation form follow the Lean community's conventions. Every claimed library enables Lean's `linter.missingDocs` and, when it imports Mathlib, Mathlib's standard linter set, whose warnings RG2003 rejects; a declaration-scoped disable of a community linter never discharges a requirement.
