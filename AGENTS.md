@@ -129,11 +129,6 @@
   `MUT-*` applies when checker behavior is implemented or changed; `DOGFOOD-*` applies
   to this repository; `MUT-05` applies to the optional serialized-graph claim. A `FAIL`,
   `INCOMPLETE`, unknown, omission, skip, timeout, or unsupported check blocks the affected claim.
-- `intentScreen` (`docs/guides/intent-screening.md`) calls a paid external model and sends source
-  text; never run it in acceptance. In CI only the dogfood workflow's intent-screen job runs it,
-  the one job given `TYPESAFE_API_KEY`; committed cache hits send nothing. Changing its
-  questions or corpus invalidates the committed calibration in `examples/intent-screening/`
-  until a new, disclosed test run.
 
 In a fresh copy, run `./scripts/provision.sh` before the first `lake build`; otherwise Lake
 clones and builds a per-copy Mathlib. Then use `lake build` for the Lean development loop.

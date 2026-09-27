@@ -1,11 +1,10 @@
 name: Dogfood
 
 # Regula run on its own code base (docs/guides/lean-qualification.md#dogfooding-regula-on-itself):
-# the repository's own `lake lint` through `regula/lint` in both packages, the operational
-# self-audit of the excluded `Regula` library, and the opt-in Jev intent screen of the
-# repository's own `@[regula_material]` claims. None is part of acceptance; each verify.sh
-# partition keeps its own 420-second limit. It runs when Lean sources, Lake configuration,
-# manifests or the screen configuration change, always on main, and nightly.
+# the repository's own `lake lint` through `regula/lint` in both packages, and the operational
+# self-audit of the excluded `Regula` library. Neither is part of acceptance; each verify.sh
+# partition keeps its own 420-second limit. It runs when Lean sources, Lake configuration or
+# manifests change, always on main, and nightly.
 on:
   pull_request:
     paths:
@@ -16,7 +15,6 @@ on:
       - lean-toolchain
       - foundation_manifest.json
       - scripts/verify.sh
-      - examples/intent-screening/**
       - .github/workflows/dogfood.yml
       - .github/actions/provision/**
   push:
@@ -53,33 +51,3 @@ jobs:
 
       - name: Check (same command and seven-minute limit as local)
         run: ./scripts/verify.sh ${{ matrix.campaign }}
-
-  intent-screen:
-    name: intent screen (Jev)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/provision
-
-      - name: Build the claimed libraries and the screen
-        run: lake build RegulaPolicy RegulaVerification RegulaQualification RegulaCore AuditApp intentScreen
-
-      - name: Build the Mathlib package's claimed library
-        working-directory: audit
-        run: lake build Audit
-
-      # Answers already in the committed cache need no key and send nothing; only a changed
-      # claim sends a request. Exit 1 on an error-severity finding, 2 when incomplete. The screen
-      # runs in the Mathlib package's workspace (`-d audit`, `--project audit`), which holds
-      # every claimed library, so claims render in one environment, as they were judged.
-      - name: Screen every registered material claim
-        env:
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
-        run: >-
-          lake -d audit exe intentScreen screen --config examples/intent-screening/screen.json
-          --project audit --library RegulaPolicy --library RegulaVerification
-          --library RegulaQualification --library RegulaCore --library Audit --library AuditApp
