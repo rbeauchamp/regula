@@ -155,8 +155,11 @@ structure Args where
   config : Option String := none
   /-- Modules given with `--module`, in order. -/
   modules : Array Name := #[]
-  /-- Root Lean libraries given with `--library`, in order. -/
+  /-- Lean libraries given with `--library`, in order: the root package's, else a dependency's. -/
   libraries : Array String := #[]
+  /-- The `--project` directory: the Lake workspace whose libraries `--library` names, by default
+  the working directory's. -/
+  project : Option String := none
   /-- `--intent-sections`: also screen unregistered declarations whose docstrings RG5002 and
   RG5003 would accept. -/
   intentSections : Bool := false
@@ -179,6 +182,7 @@ def parseArgs (args : List String) (acc : Args := {}) : Except String Args :=
   | "--config" :: v :: rest => parseArgs rest { acc with config := some v }
   | "--module" :: v :: rest => parseArgs rest { acc with modules := acc.modules.push v.toName }
   | "--library" :: v :: rest => parseArgs rest { acc with libraries := acc.libraries.push v }
+  | "--project" :: v :: rest => parseArgs rest { acc with project := some v }
   | "--intent-sections" :: rest => parseArgs rest { acc with intentSections := true }
   | "--declaration" :: v :: rest =>
       parseArgs rest { acc with declarations := acc.declarations.push v.toName }
@@ -192,8 +196,8 @@ def parseArgs (args : List String) (acc : Args := {}) : Except String Args :=
 
 /-- The two command forms, printed when the command line is not accepted. -/
 def usage : String :=
-  "usage: intentScreen screen --config FILE (--module M | --library L) ... [--intent-sections] \
-    [--declaration NAME ...] [--json FILE]\n" ++
+  "usage: intentScreen screen --config FILE (--module M | --library L) ... [--project DIR] \
+    [--intent-sections] [--declaration NAME ...] [--json FILE]\n" ++
   "       intentScreen calibrate --config FILE --split dev|test --report FILE --records FILE"
 
 /-- The run's service usage line: requests sent, cache answers and billed input tokens, with the
@@ -242,6 +246,19 @@ def reportJson (complete : Bool) (exitStatus : UInt32) (reason : Option String)
 def writeUnfinished (path : System.FilePath) (reason : String) : IO Unit :=
   IO.FS.writeFile path (reportJson false 2 (some reason) #[] #[] #[] #[]).pretty
 
+/-- The modules of `library`, a Lean library of a dependency package of the workspace at `root`
+(for this repository's Mathlib package, a library of the root `regula` package it requires),
+discovered through Lake. It fails unless exactly one package has such a library. -/
+def dependencyLibrary (root : System.FilePath) (library : String) : IO (Array Name) :=
+  Regula.Checker.Workspace.withRootWorkspace root fun ws => do
+    let found := ws.packages.filterMap fun pkg =>
+      if pkg.keyName == ws.root.keyName then none
+      else pkg.leanLibs.find? (·.name == library.toName)
+    let #[lib] := found
+      | throw <| IO.userError s!"--library {library} is not a Lean library of exactly one package \
+          of this workspace"
+    return (← lib.getModuleArray).map (·.name)
+
 /-- The `screen` command. It loads the listed modules (and every module of each listed library),
 selects the `--declaration` names or else every public `@[regula_material]` declaration of
 those modules (plus, with `--intent-sections`, each one RG5002/RG5003 would accept), screens
@@ -251,11 +268,15 @@ and 0 otherwise. -/
 unsafe def screen (args : Args) (cfg : Config) : IO UInt32 := do
   let mut modules := args.modules
   unless args.libraries.isEmpty do
-    let inventory ← Regula.Checker.Lake.surfaceInventory (← Regula.Checker.repoRoot)
+    let root ← match args.project with
+      | some dir => Regula.Checker.findRepoRoot dir
+      | none => Regula.Checker.repoRoot
+    let inventory ← Regula.Checker.Lake.surfaceInventory root
     for library in args.libraries do
-      let some info := inventory.libraries.find? (·.library == library)
-        | throw <| IO.userError s!"--library {library} is not a root Lean library of this workspace"
-      modules := modules ++ info.modules.filter (!modules.contains ·)
+      let found ← match inventory.libraries.find? (·.library == library) with
+        | some info => pure info.modules
+        | none => dependencyLibrary root library
+      modules := modules ++ found.filter (!modules.contains ·)
   if modules.isEmpty then throw <| IO.userError "screen requires at least one --module or --library"
   let env ← loadEnvironment modules
   let selected ← if !args.declarations.isEmpty then pure args.declarations else do

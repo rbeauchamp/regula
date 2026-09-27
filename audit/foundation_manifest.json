@@ -1,0 +1,12 @@
+{
+  "schema-version": 2,
+  "surfaces": [
+    {
+      "library": "Audit",
+      "claim": "standard-logical",
+      "rationale": "The standard's Mathlib-dependent examples, which its lean blocks import, including Real-based claims, and the Mathlib-based refinement of the AuditApp limiter (Audit.Refinement). Every declaration is still labeled from its own exact axiom set under standard §4.5."
+    }
+  ],
+  "excluded-libraries": [],
+  "excluded-executables": []
+}

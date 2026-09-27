@@ -221,26 +221,31 @@ exhausts the kernel supplies no evidence, like any other candidate the deliberat
 incomplete search cannot use. With the manifest and heartbeat fixes, and before this
 classification change,
 `diagnostics structural` passed locally in 806 s, down from 1015 s (observed before the
-memory bound was added). That is still over the
+memory bound was added). After the checker package stopped requiring Mathlib, its controls passed
+locally in 572 s when run without the deadline (2026-09-27). That is still over the
 420-second budget, which remains follow-up work. `RegulaPolicy` stays claimed in each
 copy because the checker probe's own imports resolve to it in a self-hosted copy; this
 partition is not a CI job.
 
 ## Dogfooding Regula on itself
 
-Acceptance audits every claimed library in `foundation_manifest.json` freshly. Every library
-enables `linter.missingDocs` (standard §6.7), so acceptance rejects an undocumented public
-definition, and Mathlib's standard set is enabled on `Audit` and `AuditApp`, so acceptance
-rejects its warnings. Three
+Acceptance audits every claimed library freshly: those of the root package's
+`foundation_manifest.json` in its first step, and the `Audit` library of the Mathlib-dependent
+package (`audit/foundation_manifest.json`) in its second. Every library enables
+`linter.missingDocs` (standard §6.7), so acceptance rejects an undocumented public definition,
+and Mathlib's standard set is enabled on `Audit`, the one library that imports Mathlib, so
+acceptance rejects its warnings. Three
 diagnostics apply Regula to the rest of its own code base. The
 [dogfood workflow](../../.github/workflows/dogfood.yml) runs them when Lean sources, Lake
 configuration, manifests or the screen configuration change, on every push to `main`, and
 nightly. None is part of acceptance.
 
-- `./scripts/verify.sh diagnostics self-lint` runs `lake lint` in this repository. The root
-  package sets `lintDriver := "regula/lint"`, so this is the adopter command, run through the
-  `regula/lint` driver over `foundation_manifest.json` in incremental mode. It checks the same
-  claimed surfaces as acceptance, through the driver's dispatch and exit classes.
+- `./scripts/verify.sh diagnostics self-lint` runs `lake lint` in this repository's root and
+  then in `audit/`. Both packages set `lintDriver := "regula/lint"`, so this is the adopter
+  command, run through the `regula/lint` driver over each package's `foundation_manifest.json`
+  in incremental mode; in `audit/` it runs exactly as in a Mathlib project that requires
+  `regula` by path. It checks the same claimed surfaces as acceptance, through the driver's
+  dispatch and exit classes.
 - `./scripts/verify.sh diagnostics self-audit` checks the operational `Regula` library, which
   `foundation_manifest.json` excludes because it is not a conforming proof surface. The step
   `lake build Regula` builds every module warning-free (RG2003, because the package sets
@@ -292,11 +297,13 @@ nightly. None is part of acceptance.
   and success reporting. `scripts/verify.sh` only selects the root/GNU timeout, has this
   runner invalidate the selected mode's earlier verdicts (`--begin-attempt`), runs the
   provisioning setup below, and starts this runner under the external deadline, including
-  all root-package builds.
+  all root-package builds. Before the ordinary recipe it refuses a root lock manifest that
+  records any dependency (`dependencyFree`, proved sound), so the package adopters require
+  stays dependency-free.
 - `lean/RegulaProvision.lean`: a separately claimed toolchain-only setup program that
   `scripts/provision.sh` runs, and `scripts/verify.sh` through it before that deadline under
   its own 1800-second GNU timeout. It links the copy to one shared, read-only
-  Mathlib and removes shared directories that no registered copy links
+  Mathlib at the revision `audit/lake-manifest.json` pins, and removes shared directories that no registered copy links
   ([contributing guide](contributing.md#share-one-mathlib-across-local-copies));
   provisioning is not verification.
 - `lean/Regula/Site/`: the rule-reference site builder (`lake exe site`) and the

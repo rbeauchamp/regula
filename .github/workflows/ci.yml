@@ -38,9 +38,10 @@ jobs:
       - name: Verify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh
 
-      # Second required step with its own 420 seconds: every docs/ Lean fence and every `lean`
-      # block of the Verso standard (built fresh and rendered), admitted only when its inputs
-      # equal the accepted ordinary inputs at this same commit.
+      # Second required step with its own 420 seconds: the fresh acceptance of the Mathlib package
+      # in audit/, then every docs/ Lean fence and every `lean` block of the Verso standard (built
+      # fresh and rendered), admitted only when its inputs equal the accepted ordinary inputs at
+      # this same commit.
       - name: Verify documentation fences (same command and seven-minute limit as local)
         run: ./scripts/verify.sh docs
 
@@ -99,11 +100,16 @@ jobs:
           path: tmp
           merge-multiple: true
 
-      # Also the root libraries the standard's examples import, so the timed site build elaborates
-      # the standard without building them.
+      # Also the libraries the standard's examples import, so the timed site build elaborates the
+      # standard without building them.
       - name: Build site tooling
         timeout-minutes: 20
-        run: lake build axiomGate ruleExampleQualification site Audit AuditApp
+        run: lake build axiomGate ruleExampleQualification site AuditApp
+
+      - name: Build the Mathlib package's library the standard's examples import
+        timeout-minutes: 20
+        working-directory: audit
+        run: lake build Audit
 
       - name: Build and check the site (seven-minute limit)
         run: ./scripts/verify.sh site

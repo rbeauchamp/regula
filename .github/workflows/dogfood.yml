@@ -1,15 +1,16 @@
 name: Dogfood
 
 # Regula run on its own code base (docs/guides/lean-qualification.md#dogfooding-regula-on-itself):
-# the repository's own `lake lint` through `regula/lint`, the operational self-audit of the
-# excluded `Regula` library, and the opt-in Jev intent screen of the repository's own
-# `@[regula_material]` claims. None is part of acceptance; each verify.sh partition keeps its own
-# 420-second limit. It runs when Lean sources, Lake configuration, manifests or the screen
-# configuration change, always on main, and nightly.
+# the repository's own `lake lint` through `regula/lint` in both packages, the operational
+# self-audit of the excluded `Regula` library, and the opt-in Jev intent screen of the
+# repository's own `@[regula_material]` claims. None is part of acceptance; each verify.sh
+# partition keeps its own 420-second limit. It runs when Lean sources, Lake configuration,
+# manifests or the screen configuration change, always on main, and nightly.
 on:
   pull_request:
     paths:
       - lean/**
+      - audit/**
       - lakefile.lean
       - lake-manifest.json
       - lean-toolchain
@@ -65,14 +66,20 @@ jobs:
       - uses: ./.github/actions/provision
 
       - name: Build the claimed libraries and the screen
-        run: lake build RegulaPolicy RegulaVerification RegulaQualification RegulaCore Audit AuditApp intentScreen
+        run: lake build RegulaPolicy RegulaVerification RegulaQualification RegulaCore AuditApp intentScreen
+
+      - name: Build the Mathlib package's claimed library
+        working-directory: audit
+        run: lake build Audit
 
       # Answers already in the committed cache need no key and send nothing; only a changed
-      # claim sends a request. Exit 1 on an error-severity finding, 2 when incomplete.
+      # claim sends a request. Exit 1 on an error-severity finding, 2 when incomplete. The screen
+      # runs in the Mathlib package's workspace (`-d audit`, `--project audit`), which holds
+      # every claimed library, so claims render in one environment, as they were judged.
       - name: Screen every registered material claim
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: >-
-          lake exe intentScreen screen --config examples/intent-screening/screen.json
-          --library RegulaPolicy --library RegulaVerification --library RegulaQualification
-          --library RegulaCore --library Audit --library AuditApp
+          lake -d audit exe intentScreen screen --config examples/intent-screening/screen.json
+          --project audit --library RegulaPolicy --library RegulaVerification
+          --library RegulaQualification --library RegulaCore --library Audit --library AuditApp

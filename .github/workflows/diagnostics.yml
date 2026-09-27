@@ -14,6 +14,9 @@ on:
       - lean/RegulaCore/**
       - lean/RegulaQualification/**
       - lean/RegulaVerification.lean
+      - audit/lakefile.lean
+      - audit/lake-manifest.json
+      - audit/foundation_manifest.json
       - examples/rules/**
       - lakefile.lean
       - lake-manifest.json

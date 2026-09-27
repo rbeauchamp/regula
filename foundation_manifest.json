@@ -32,18 +32,13 @@
       "rationale": "The rule registry and the pure checker projections the operational checker executes: claim request, scope admission for every supplied coordinate check, transcript-coordinate and source-range admission for every UTF-16 column function, declaration rules and reasons, foundation labels, execution rules and failure text, census assembly from decoded manifest and Lake records, and the report account every rendered success and completed status projects from one accepted run. Their contracts concern the supplied declarations, transcripts and records; Lean's UTF-16 column function, manifest parsing, Lake loading, environment extraction, compiler and filesystem observations stay in the excluded adapters."
     },
     {
-      "library": "Audit",
-      "claim": "standard-logical",
-      "rationale": "The Audit library contains Real-based examples. Every declaration is still labeled from its own exact axiom set under standard \u00a74.5."
-    },
-    {
       "library": "AuditApp",
       "executables": [
         "auditApp"
       ],
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "The complete-application dogfooding surface: admission, update, and strict state/error composition contracts are proved about the definitions auditApp runs, alongside the retained total fold. The limiter state/error operations and their proofs are choice-free; the input parser and dependent required-contract interface transitively use Classical.choice through core String internals, as does the IO root. The surface claim is standard-logical and each declaration retains its exact axiom report. The IO shell is trusted execution substrate, so the execution mode stays report."
+      "rationale": "The complete-application dogfooding surface, imported only from Lean's core libraries and the published checker interfaces: admission, update, and strict state/error composition contracts are proved about the definitions auditApp runs, alongside the retained total fold; its Mathlib-based refinement to an abstract capacity model is claimed in the Audit library of the audit/ package. The limiter state/error operations and their proofs are choice-free; the input parser and dependent required-contract interface transitively use Classical.choice through core String internals, as does the IO root. The surface claim is standard-logical and each declaration retains its exact axiom report. The IO shell is trusted execution substrate, so the execution mode stays report."
     }
   ],
   "excluded-libraries": [

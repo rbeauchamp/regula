@@ -8,18 +8,18 @@ revision and toolchain, reused by every local copy of this repository.
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache
 (`~/.cache/mathlib`) but unpacks them into every copy's `.lake/packages`. This program
 unpacks them once into `~/.cache/mathlib-packages/<rev>-lean-<githash>/`, keyed by the
-exact Mathlib revision pinned in `lake-manifest.json` and the running toolchain's commit,
-builds the modules the upstream cache lacks and every module's exported native object (so
-neither an import nor an executable link has to write there), makes that directory
-read-only, and points each copy at it:
+exact Mathlib revision pinned in the lock manifest of the Mathlib-dependent package
+(`audit/lake-manifest.json`; the root `regula` package requires nothing) and the running
+toolchain's commit, builds the modules the upstream cache lacks and every module's exported
+native object (so neither an import nor an executable link has to write there), makes that
+directory read-only, and points each copy at it:
 
 * `.lake/packages/mathlib` becomes a symbolic link to the shared, read-only checkout. The
-  isolated copies, adopters and the Verso website package reach it through the root
-  `.lake/packages`, which they link or name as their packages directory.
+  Mathlib-dependent package in `audit/` and the Verso website package name the root
+  `.lake/packages` as their packages directory, and isolated copies link it.
 * The other packages of Mathlib's closure (Batteries, Aesop, ...) become writable
   copy-on-write clones of the shared checkouts, because executables that import them
   compile native objects into their build directories.
-* Each Lake workspace under `examples/` links its `.lake/packages` to the root's.
 
 The shared directory is created from a staging directory and made visible by one rename after
 it is complete and sealed, so a half-created directory is never used. Its receipt records the
@@ -28,8 +28,8 @@ beside it records the copies provisioned to link it, and each run removes the sh
 directories of other pins and toolchains that no registered copy still links. One exclusive
 lock under `~/.cache/mathlib-packages` orders all of this. The pure planning decisions below
 carry proofs; Git, Lake, `cp`, `chmod`, `ln`, rename and file locking are trusted process and
-filesystem effects. GitHub Actions keeps provisioning with `lake exe cache get`, so this
-program does nothing there.
+filesystem effects. GitHub Actions keeps provisioning with `lake -d audit exe cache get`, so
+this program does nothing there.
 
 Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
 `scripts/verify.sh` runs it before its deadline. -/
@@ -372,10 +372,16 @@ private def installClone (path source : FilePath) : IO Unit := do
 
 /-! ## The shared directory -/
 
-/-- What the repository pins: the Git entries of its Lake manifest, each with the entry
+/-- The directory, relative to the repository root, of the package whose Lake manifest pins
+Mathlib: the Mathlib-dependent package, which requires the root `regula` package by relative
+path and names the root `.lake/packages` as its packages directory. -/
+def mathlibPackage : FilePath := "audit"
+
+/-- What the Mathlib package pins: the Git entries of its Lake manifest, each with the entry
 object exactly as the manifest records it. -/
 structure Pins where
-  /-- The manifest's `packagesDir`, `.lake/packages` when it gives none. -/
+  /-- The manifest's `packagesDir`, relative to the Mathlib package; `.lake/packages` when it
+  gives none. -/
   packagesDir : FilePath
   /-- The Git URL of the pinned Mathlib. -/
   mathlibUrl : String
@@ -395,10 +401,12 @@ private def gitPin (entry : Json) : Except String (Option (Json × Pin × String
     throw s!"{name}: a Git package in a subdirectory is not supported"
   return some (entry, ⟨name, rev⟩, url)
 
-/-- Read the pins with Lake's lock-file format (version `1.x`, as the pinned Lake writes);
-another major version fails closed rather than being guessed. -/
+/-- Read the Mathlib package's pins with Lake's lock-file format (version `1.x`, as the pinned
+Lake writes); another major version fails closed rather than being guessed. Its `path` entries,
+such as the root `regula` package, are not shared. -/
 private def readPins (repo : FilePath) : IO (Option (Json × Pins)) := do
-  let manifest ← IO.ofExcept (Json.parse (← IO.FS.readFile (repo / "lake-manifest.json")))
+  let manifest ← IO.ofExcept
+      (Json.parse (← IO.FS.readFile (repo / mathlibPackage / "lake-manifest.json")))
   let version ← IO.ofExcept (manifest.getObjValAs? String "version")
   unless version.startsWith "1." do
     throw <| IO.userError s!"provisioning: lake-manifest.json version {version} is not supported"
@@ -614,14 +622,23 @@ private def prune (parent : FilePath) (current : String) : IO Unit := do
 
 /-! ## One copy -/
 
-/-- Link or clone every pinned package of the shared closure into the copy. -/
-private def provisionPackages (repo shared : FilePath) (receipt : Receipt) (pins : Pins) :
-    IO Unit := do
-  let packages := repo / pins.packagesDir
-  -- A linked packages directory belongs to another checkout; never provision through it.
+/-- The packages directory the Mathlib package's manifest names, created when absent and
+resolved to its canonical path, which must lie inside the repository. A linked packages
+directory belongs to another checkout; it is refused, never provisioned through. -/
+private def packagesPath (repo : FilePath) (pins : Pins) : IO FilePath := do
+  let packages := repo / mathlibPackage / pins.packagesDir
   if (← kind? packages) matches some .symlink then
     throw <| IO.userError s!"provisioning: {packages} is a link; provision the checkout it names"
   IO.FS.createDirAll packages
+  let resolved ← IO.FS.realPath packages
+  unless (repo.toString ++ "/").isPrefixOf resolved.toString do
+    throw <| IO.userError s!"provisioning: the packages directory {resolved} of {mathlibPackage} \
+      is outside the repository {repo}"
+  return resolved
+
+/-- Link or clone every pinned package of the shared closure into the packages directory. -/
+private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (pins : Pins) :
+    IO Unit := do
   let source := sharedPackages shared
   let target := (← IO.FS.realPath (source / "mathlib")).toString
   let mathlibPath := packages / "mathlib"
@@ -653,39 +670,21 @@ private def provisionPackages (repo shared : FilePath) (receipt : Receipt) (pins
   unless cloned.isEmpty do
     say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
 
-/-- Point each Lake workspace under `examples/` at the root's packages, so running one in
-place resolves Mathlib through the shared link instead of cloning its own. -/
-private def linkExamples (repo : FilePath) (packagesDir : FilePath) : IO Unit := do
-  let examples := repo / "examples"
-  unless ← examples.isDir do return
-  let rootPackages := (← IO.FS.realPath (repo / packagesDir)).toString
-  for entry in ← examples.readDir do
-    unless ← (entry.path / "lakefile.lean").pathExists <||>
-        (entry.path / "lakefile.toml").pathExists do
-      continue
-    let path := entry.path / ".lake" / "packages"
-    let observed ← observe path
-    match observed with
-    | .absent =>
-      installLink path ("../../.." / packagesDir).toString
-      say s!"linked {path} to the root packages"
-    | .link resolved =>
-      unless resolved == rootPackages do
-        IO.FS.removeFile path
-        installLink path ("../../.." / packagesDir).toString
-        say s!"relinked {path} to the root packages"
-    | _ =>
-        say s!"left {path} as it is: it is not a link to the root packages; remove it to share them"
-
 /-- Provision this copy. -/
 def provision (repo : FilePath) : IO Unit := do
   let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
   unless githash == Lean.githash do
     throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
       but this program runs on {Lean.githash}"
+  -- The shared directory is built with the root toolchain, so the Mathlib package must pin it.
+  unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
+      (← IO.FS.readFile (repo / mathlibPackage / "lean-toolchain")) do
+    throw <| IO.userError s!"provisioning: {mathlibPackage}/lean-toolchain differs from the \
+      repository's lean-toolchain"
   let some (manifest, pins) ← readPins repo
-    | say "lake-manifest.json pins no Mathlib; nothing to share"
+    | say s!"{mathlibPackage}/lake-manifest.json pins no Mathlib; nothing to share"
   let key ← admitComponent "shared directory" (sharedKey pins.mathlibRev Lean.githash)
+  let packages ← packagesPath repo pins
   let parent := (← cacheBase) / "mathlib-packages"
   IO.FS.createDirAll parent
   let lock ← IO.FS.Handle.mk (parent / lockName) .append
@@ -694,13 +693,12 @@ def provision (repo : FilePath) : IO Unit := do
     lock.lock
   let shared ← try
       let (shared, receipt) ← ensureShared repo parent key manifest pins
-      registerCopy parent key.val (repo / pins.packagesDir / "mathlib").toString
-      provisionPackages repo shared receipt pins
+      registerCopy parent key.val (packages / "mathlib").toString
+      provisionPackages packages shared receipt pins
       prune parent key.val
       pure shared
     finally
       lock.unlock
-  linkExamples repo pins.packagesDir
   say s!"Mathlib {pins.mathlibRev} is shared read-only from {shared}"
 
 end RegulaProvision
@@ -709,10 +707,11 @@ end RegulaProvision
 def main : IO Unit := do
   if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
     IO.println "provisioning: skipped on GitHub Actions (CI provisions .lake/packages with `lake \
-      exe cache get`)"
+      -d audit exe cache get`)"
     return
   if System.Platform.isWindows then
-    IO.println "provisioning: not supported on Windows; provision with `lake exe cache get`"
+    IO.println "provisioning: not supported on Windows; provision with `lake -d audit exe cache \
+      get`"
     return
   let repo ← IO.FS.realPath (← IO.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do

@@ -8,7 +8,8 @@ inputs:
   verso:
     description: >-
       Also restore or provision the website package's pinned Verso dependencies, which share
-      the root package's `.lake/packages` (the standard's check and the site need them).
+      the root `.lake/packages` with the Mathlib package in `audit/` (the standard's check and
+      the site need them).
     required: false
     default: 'false'
 
@@ -51,14 +52,19 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         # Cache dependency checkouts and unpacked artifacts, never root builds
-        # or duplicate Mathlib download archives. No cross-pin restore fallback.
+        # or duplicate Mathlib download archives. No cross-pin restore fallback. The root
+        # `regula` package requires nothing; the Mathlib package in `audit/` pins every
+        # dependency here and names the root `.lake/packages` as its packages directory.
         path: .lake/packages
-        key: lean-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+        key: lean-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'audit/lake-manifest.json', 'audit/lakefile.lean') }}
 
+    # Run from the repository root: `cache get` unpacks Mathlib's dependencies' archives
+    # relative to its working directory (`.lake/packages/<name>`), not the `audit/`
+    # workspace's packages directory, so this lands them in the shared root one.
     - name: Provision Mathlib artifacts on cache miss
       if: steps.dependencies.outputs.cache-hit != 'true'
       shell: bash
-      run: lake exe cache get
+      run: lake -d audit exe cache get
 
     # Save provisioned dependencies before verification, even if it later fails.
     - name: Save pinned dependencies
@@ -69,7 +75,8 @@ runs:
         key: ${{ steps.dependencies.outputs.cache-primary-key }}
 
     # The website package's own dependencies (Verso, SubVerso, MD4Lean, illuminate), pinned by
-    # its lock manifest in the shared `.lake/packages`; its other entries are the root's.
+    # its lock manifest in the shared `.lake/packages`; its other entries are the Mathlib
+    # package's.
     - name: Restore pinned Verso dependencies
       if: inputs.verso == 'true'
       id: verso

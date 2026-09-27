@@ -826,14 +826,14 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
     failures := failures.push failure
   let wrongVersion := scratch / "wrong-version.json"
   IO.FS.writeFile wrongVersion <| "{\"schema-version\":1,\"surfaces\":[{" ++
-    "\"library\":\"Audit\",\"claim\":\"standard-logical\",\"rationale\":\"control\"}]," ++
+    "\"library\":\"AuditApp\",\"claim\":\"standard-logical\",\"rationale\":\"control\"}]," ++
     "\"excluded-libraries\":[],\"excluded-executables\":[]}"
   if let some failure ← expectManifestPublicFailure repo "wrong-version" wrongVersion
       "manifest-schema: schema-version must be exactly 2" then
     failures := failures.push failure
   let unknown := scratch / "unknown.json"
   IO.FS.writeFile unknown <| "{\"schema-version\":2,\"surfaces\":[{" ++
-    "\"library\":\"Audit\",\"claim\":\"standard-logical\",\"rationale\":\"control\",\"extra\":true}\
+    "\"library\":\"AuditApp\",\"claim\":\"standard-logical\",\"rationale\":\"control\",\"extra\":true}\
       ]," ++
     "\"excluded-libraries\":[{\"library\":\"Fixtures\",\"rationale\":\"mutations\"}]," ++
     "\"excluded-executables\":[]}"
@@ -842,7 +842,7 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
     failures := failures.push failure
   let badExecution := scratch / "bad-execution.json"
   IO.FS.writeFile badExecution <| "{\"schema-version\":2,\"surfaces\":[{" ++
-    "\"library\":\"Audit\",\"claim\":\"standard-logical\",\"execution\":\"bogus\",\"rationale\":\"c\
+    "\"library\":\"AuditApp\",\"claim\":\"standard-logical\",\"execution\":\"bogus\",\"rationale\":\"c\
       ontrol\"}]," ++
     "\"excluded-libraries\":[],\"excluded-executables\":[]}"
   if let some failure ← expectManifestPublicFailure repo "bad-execution" badExecution
@@ -1005,7 +1005,7 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
         #["unexpected-project-module", "Regula.Report"] then
       failures.modify (·.push failure)
   let prefixFixture := sources / "Fixtures" / "Mutations" / "PrefixLookalike.lean"
-  withNewFile prefixFixture "axiom Audit.lookalike_project_axiom : False\n" do
+  withNewFile prefixFixture "axiom AuditApp.lookalike_project_axiom : False\n" do
     let prefixed := originalRoot.replace "import AuditApp.Demo\n"
       "import AuditApp.Demo\nimport Fixtures.Mutations.PrefixLookalike\n"
     withReplacedFile appRoot prefixed do
@@ -1060,7 +1060,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
           #["manifest-incomplete", "ExtraSurface"] then
         failures.modify (·.push failure)
   let exeDecl :=
-    "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n  leanOptions := mathlibLinters\n"
+    "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n"
   let claimedManifest := copy / "claimed-exe.json"
   -- The claimed-exe controls claim only the added executable: the application
   -- executable's root `Main` already defines `main`, so a surface claiming
@@ -1329,7 +1329,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     let corpus := dir / "fence-corpus"
     IO.FS.createDirAll corpus
     IO.FS.writeFile (corpus / "owned-import.md")
-      "```lean\nimport Audit.DocPrelude\n\ntheorem fence_uses_owned : 1 = 1 := rfl\n```\n"
+      "```lean\nimport AuditApp.Limiter\n\ntheorem fence_uses_owned : 1 = 1 := rfl\n```\n"
     let result ← runScrubbed dir "docFenceAudit"
       #["--jobs", "4", "--docs-root", corpus.toString]
     if !result.succeeded || !result.output.contains "conforming-positive-pass=1/1" then
@@ -1835,7 +1835,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   let failures ← IO.mkRef (#[] : Array String)
   -- One baseline build pays the invariant prefix once: the checker
   -- executables, the fixture import anchor, and the claimed positive surface
-  -- (fixture sources import the owned library, e.g. `import Audit`), so every
+  -- (fixture sources import the owned library, e.g. `import AuditApp`), so every
   -- later phase sees an already-warm build.
   let surfaceManifest ← Manifest.load (Manifest.defaultPath repo)
   let build ← timedPhase "baseline build" <| runProcess repo "lake"

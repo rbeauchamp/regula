@@ -142,9 +142,12 @@ lake build MyProject.Claims
 TYPESAFE_API_KEY=… lake exe intentScreen screen --config screen.json --module MyProject.Claims [--json out.json]
 ```
 
-`--library L` adds every module of the root Lean library `L`, as Lake discovers it, to the
-listed modules. With no `--declaration`, the screen covers every public `@[regula_material]`
-declaration of those modules. `--intent-sections` also covers every other public declaration
+`--library L` adds every module of the Lean library `L`, as Lake discovers it, to the
+listed modules: a library of the workspace's root package, else of exactly one of its
+dependencies. `--project DIR` names that workspace (by default the working directory's); the
+process must run in its environment, for example with `lake -d DIR exe intentScreen`. With no
+`--declaration`, the screen covers every public `@[regula_material]` declaration of those
+modules. `--intent-sections` also covers every other public declaration
 there whose docstring has a nonempty Intent section: exactly the docstrings RG5003 accepts,
 registered or not. With `--declaration`, it covers exactly the named declarations. It exits with
 0 when no error-severity finding is raised, 1 when one is, and 2 when the screen is
@@ -269,8 +272,13 @@ The [dogfood workflow](../../.github/workflows/dogfood.yml) screens this reposit
 `examples/intent-screening/cache/`:
 
 ```text
-lake exe intentScreen screen --config examples/intent-screening/screen.json --library RegulaPolicy --library RegulaVerification --library RegulaQualification --library RegulaCore --library Audit --library AuditApp
+lake -d audit exe intentScreen screen --config examples/intent-screening/screen.json --project audit --library RegulaPolicy --library RegulaVerification --library RegulaQualification --library RegulaCore --library Audit --library AuditApp
 ```
+
+It runs in the workspace of the Mathlib-dependent `audit/` package (`-d audit`), whose
+`--project audit` libraries include the root package's as dependency libraries, so every claimed
+library loads into one environment with Mathlib, as when the committed answers were judged; the
+configuration and cache paths stay relative to the repository root.
 
 The job is the only CI job that receives the `TYPESAFE_API_KEY` secret, and it has read-only
 repository permissions. Answers already in the cache need no key and send nothing, so a run

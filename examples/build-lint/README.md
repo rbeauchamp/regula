@@ -7,7 +7,7 @@ lives in [`lean/Regula/Checker/`](../../lean/Regula/Checker/).
 It requires the checker by local path. From this directory:
 
 ```sh
-MATHLIB_NO_CACHE_ON_UPDATE=1 lake update
+lake update
 lake build   # enforcing default target
 lake lint    # the same audit through the configured lint driver
 ```
@@ -24,8 +24,7 @@ The package sets `lintDriver := "regula/lint"`. `lake lint` exits 0 (accepted),
 To use it elsewhere, copy this directory and change `require regula from
 "../.."` in `lakefile.lean` to the checker's path or an exact git revision. Lake resolves
 the dependency manifest; no files named `Audit` or `Fixtures` are required. The checker
-has transitive Mathlib dependencies, but this Core-only example does not compile Mathlib.
-The environment setting skips Mathlib’s optional cache download during dependency resolution.
+requires no other package, so the lock manifest records only `regula`.
 
 `policy` is the sole default target. It builds the checker via Lake's executable target,
 then invokes the Lean build linter. The linter builds every manifested surface by its

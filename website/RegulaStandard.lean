@@ -117,7 +117,7 @@ Examples follow the Lean community's conventions ({ref "67-community-conventions
 
 A positive example's result establishes the specified elaboration and declaration checks. It does not prove that the example satisfies its intended specification or every other rule. A valid Lean program may illustrate a semantic defect; the explanation must identify that defect. Use a negative example when claiming that Lean rejects the printed code for the stated diagnostic.
 
-Any other code-block spelling (an unnamed block, or an unknown name or argument), an invalid diagnostic pattern, a Lean block that does not open in the first column, and an unclosed block fail the audit; {ref "87-check-lean-documentation-verbatim"}[module 8 §8.7] specifies the Markdown fence protocol with the same three kinds and its scanner requirements. `lean/Audit/` contains checked definitions and proofs supporting representative claims; `lean/Fixtures/` contains isolated controls and mutations. Their evidence scope is specified in {ref "8-tooling-and-machine-audit"}[module 8].
+Any other code-block spelling (an unnamed block, or an unknown name or argument), an invalid diagnostic pattern, a Lean block that does not open in the first column, and an unclosed block fail the audit; {ref "87-check-lean-documentation-verbatim"}[module 8 §8.7] specifies the Markdown fence protocol with the same three kinds and its scanner requirements. `audit/Audit/` (the repository's Mathlib-dependent package) contains checked definitions and proofs supporting representative claims; `lean/Fixtures/` contains isolated controls and mutations. Their evidence scope is specified in {ref "8-tooling-and-machine-audit"}[module 8].
 
 
 ## Quick Start

@@ -52,7 +52,8 @@ Conformance means satisfying every applicable row of the [compliance checklist](
 | Area | Purpose |
 | --- | --- |
 | [docs/](docs/README.md) | Practical guides and the map to the standard. |
-| [lean/](lean/README.md) | Contracts, checked examples, checkers, and isolated qualification fixtures. |
+| [lean/](lean/README.md) | The `regula` package adopters require, with no dependency beyond the Lean toolchain: contracts, checked Core examples, checkers, the rule registry and isolated qualification fixtures. |
+| [audit/](audit/lakefile.lean) | The Mathlib-dependent package: the standard's Mathlib examples (`Audit`), which requires `regula` by relative path as a Mathlib adopter does. |
 | [examples/](examples/README.md) | Self-contained adopting projects, each with its own README and Lake configuration. |
 | [website/](docs/guides/website.md) | Pinned Verso package: the normative standard's only source (`RegulaStandard`) and the renderer of the rule reference that publishes it. |
 
@@ -63,15 +64,15 @@ Root configuration files keep this a directly usable Lake package. Tool-owned hi
 | Component | Authoritative pin |
 | --- | --- |
 | Lean | [lean-toolchain](lean-toolchain) |
-| Mathlib | The `mathlib` entry in [lake-manifest.json](lake-manifest.json) |
+| Mathlib (the `audit/` package and the website only) | The `mathlib` entry in [audit/lake-manifest.json](audit/lake-manifest.json) |
 
-Only the pinned Lean release is supported. The checker imports no Mathlib modules; Mathlib is used by the standard's mathematical examples. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
+Only the pinned Lean release is supported. The `regula` package requires no other package and imports no Mathlib modules, so requiring it adds no Mathlib to your project; Mathlib is used only by the standard's mathematical examples in the separate `audit/` package. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
 
 ## Verification
 
 Complete local acceptance is exactly two commands, run in order, each under its own hard
 420-second deadline: `./scripts/verify.sh` (including cold root-package builds) and then
-`./scripts/verify.sh docs`. CI runs the same two commands after provisioning pinned toolchain
+`./scripts/verify.sh docs` (which also accepts the `audit/` package). CI runs the same two commands after provisioning pinned toolchain
 and dependency caches, and separately builds and checks the rule-reference site. See the
 [contributor guide](docs/guides/contributing.md#develop-and-verify) for setup and focused
 diagnostics, and the [product qualification](docs/guides/product-qualification.md) for what

@@ -854,26 +854,29 @@ def captureVerso (verso : VersoPackage) : IO (Array RegulaPolicy.SourceSnapshot)
   let paths := paths.qsort (fun left right => left.toString < right.toString)
   paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
 
-/-- The root-package modules that `key`, an entry of a library's `needs`, names: an executable's
-root or a library's modules. A target of another package names none: its sources are the
-Regula package's accepted sources or a pinned dependency. -/
-private partial def neededModules (ws : _root_.Lake.Workspace) (key : _root_.Lake.BuildKey) :
+/-- The modules that `key`, an entry of a library's `needs`, names in a package that `captured`
+selects: an executable's root or a library's modules. A target of any other package names none:
+its sources are the accepted project's or a pinned dependency's. -/
+private partial def neededModules (ws : _root_.Lake.Workspace)
+    (captured : _root_.Lake.Package → Bool) (key : _root_.Lake.BuildKey) :
     IO (Array _root_.Lake.Module) :=
   match key with
-  | .facet target _ => neededModules ws target
-  | .packageTarget package target =>
-    if !(package.isAnonymous || package == ws.root.baseName) then pure #[]
-    else if let some exe := ws.root.leanExes.find? (·.name == target) then pure #[exe.root]
-    else if let some lib := ws.root.leanLibs.find? (·.name == target) then lib.getModuleArray
-    else throw <| IO.userError s!"Verso package need {target} is not a target of its package"
+  | .facet target _ => neededModules ws captured target
+  | .packageTarget package target => do
+    let some pkg := if package.isAnonymous then some ws.root else ws.findPackageByName? package
+      | throw <| IO.userError s!"Verso package need @{package}/{target} names no package"
+    if !captured pkg then return #[]
+    if let some exe := pkg.leanExes.find? (·.name == target) then return #[exe.root]
+    if let some lib := pkg.leanLibs.find? (·.name == target) then return ← lib.getModuleArray
+    throw <| IO.userError s!"Verso package need {target} is not a target of {pkg.baseName}"
   | .module name | .packageModule _ name => pure (ws.findModule? name).toArray
   | .package package => throw <| IO.userError s!"unsupported Verso package need @{package}"
 
-/-- The modules of the root package of `ws` reachable from `roots` by import, the roots
-included, each once. Imports are read with Lean's header parser and resolved through Lake; a
-module of another package or of the toolchain ends its path. -/
-private def localClosure (ws : _root_.Lake.Workspace) (roots : Array _root_.Lake.Module) :
-    IO (Array _root_.Lake.Module) := do
+/-- The modules of the packages that `captured` selects reachable from `roots` by import, the
+roots included, each once. Imports are read with Lean's header parser and resolved through Lake;
+a module of another package or of the toolchain ends its path. -/
+private def localClosure (ws : _root_.Lake.Workspace) (captured : _root_.Lake.Package → Bool)
+    (roots : Array _root_.Lake.Module) : IO (Array _root_.Lake.Module) := do
   let mut seen : NameSet := {}
   let mut pending := roots.toList
   let mut closure := #[]
@@ -886,39 +889,87 @@ private def localClosure (ws : _root_.Lake.Workspace) (roots : Array _root_.Lake
     let header ← Lean.parseImports' (← IO.FS.readFile m.leanFile) m.leanFile.toString
     for i in header.imports do
       if let some imported := ws.findModule? i.module then
-        if imported.pkg.keyName == ws.root.keyName then pending := imported :: pending
+        if captured imported.pkg then pending := imported :: pending
   return closure
 
+/-- The packages the Verso package at `dir` requires by local path, other than the accepted
+project at `project`, whose sources the link accepts: each by its name and its directory as the
+Verso package's lock manifest records it, relative to `dir`. -/
+private def localPackages (project dir : FilePath) : IO (Array (Name × FilePath)) := do
+  let some manifest ← _root_.Lake.Manifest.load? (dir / "lake-manifest.json") | return #[]
+  let accepted ← IO.FS.realPath project
+  manifest.packages.filterMapM fun entry => do
+    let .path relative := entry.src | return none
+    if (← IO.FS.realPath (dir / relative)) == accepted then return none
+    return some (entry.name, relative)
+
+/-- Every library module of each package the Verso package requires by local path other than the
+accepted project (`localPackages`), with its source file: for this repository, the modules of the
+Mathlib-dependent package, whose `Audit` library the standard's examples import. The
+documentation audit owns them alongside the project's claimed modules when examples elaborate in
+the Verso package's workspace, so an example's owned logical dependencies stay closed under
+import and pass kernel admission with it. -/
+def versoLocalModules (project : FilePath) (verso : VersoPackage) :
+    IO (Array (Name × FilePath)) := do
+  let locals ← localPackages project verso.dir
+  Workspace.withRootWorkspace verso.dir fun ws => do
+    let mut modules := #[]
+    for (name, _) in locals do
+      let some pkg := ws.findPackageByName? name
+        | throw <| IO.userError s!"Verso package {verso.dir} requires {name}, which Lake did not load"
+      for lib in pkg.leanLibs do
+        for m in ← lib.getModuleArray do
+          modules := modules.push (m.name, m.leanFile)
+    return modules
+
 /-- The inputs of the Verso package that decide how its documentation library is checked and
-rendered, in path order: its Lake configuration and lock files and, discovered through Lake,
-the package's own modules reachable by import from the library's modules, from the root of
-each executable the library `needs` and from the root of the render executable. The package's
-other targets (the site's generated pages) are not read. The linked acceptance identity
-brackets these inputs together with the documentation itself. -/
-def captureVersoPackage (verso : VersoPackage) : IO (Array RegulaPolicy.SourceSnapshot) := do
+rendered, in path order: its Lake configuration and lock files and, discovered through Lake, the
+modules reachable by import from the library's modules, from the root of each executable the
+library `needs` and from the root of the render executable. Modules are followed in the Verso
+package itself and in each package it requires by local path other than the accepted project
+`project` (`localPackages`); for this repository that is the Mathlib-dependent package whose
+`Audit` library the standard's examples import, whose configuration and lock files, and surface
+manifest, are captured too. A target of a Git dependency is pinned and is not read, nor are the
+packages' other targets (the site's generated pages). Each path is anchored at the Verso
+directory as given (a local package's through its recorded relative directory), so the identity
+stays location-independent. The linked acceptance identity brackets these inputs together with
+the documentation itself. -/
+def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
+    IO (Array RegulaPolicy.SourceSnapshot) := do
   let dir := verso.dir
+  let locals ← localPackages project dir
   let modules ← Workspace.withRootWorkspace dir fun ws => do
     let some lib := ws.root.leanLibs.find? (·.name == verso.library)
       | throw <| IO.userError s!"Verso package {dir} has no library {verso.library}"
     let some render := ws.root.leanExes.find?
         (·.name == _root_.Lake.stringToLegalOrSimpleName verso.render)
       | throw <| IO.userError s!"Verso package {dir} has no executable {verso.render}"
+    -- Each captured package, by its key, with the directory its sources are anchored at.
+    let mut anchors : Array (Name × FilePath) := #[(ws.root.keyName, dir)]
+    for (name, relative) in locals do
+      let some pkg := ws.findPackageByName? name
+        | throw <| IO.userError s!"Verso package {dir} requires {name}, which Lake did not load"
+      anchors := anchors.push (pkg.keyName, dir / relative)
+    let captured := fun (pkg : _root_.Lake.Package) => anchors.any (·.1 == pkg.keyName)
     let mut roots ← lib.getModuleArray
-    for key in lib.config.needs do roots := roots ++ (← neededModules ws key)
-    let closure ← localClosure ws (roots.push render.root)
-    let real := (← IO.FS.realPath dir).normalize.components
+    for key in lib.config.needs do roots := roots ++ (← neededModules ws captured key)
+    let closure ← localClosure ws captured (roots.push render.root)
     closure.mapM fun m => do
+      let some (_, anchor) := anchors.find? (·.1 == m.pkg.keyName)
+        | throw <| IO.userError s!"Verso package source {m.leanFile} is outside its packages"
+      let real := (← IO.FS.realPath anchor).normalize.components
       let components := (← IO.FS.realPath m.leanFile).normalize.components
       unless real.isPrefixOf components do
-        throw <| IO.userError s!"Verso package source {m.leanFile} is outside its package {dir}"
+        throw <| IO.userError s!"Verso package source {m.leanFile} is outside its package {anchor}"
       return (components.drop real.length).foldl
-          (fun (acc : FilePath) (part : String) => acc / part) dir
-  let config ← (["lakefile.toml", "lakefile.lean", "lake-manifest.json", "lean-toolchain"] :
-      List String).filterMapM
-    fun (name : String) => do
-      let path : FilePath := dir / name
+          (fun (acc : FilePath) (part : String) => acc / part) anchor
+  let packageDirs := #[dir] ++ locals.map fun (_, relative) => dir / relative
+  let config ← packageDirs.flatMapM fun (packageDir : FilePath) =>
+    (#["lakefile.toml", "lakefile.lean", "lake-manifest.json", "lean-toolchain",
+        "foundation_manifest.json"] : Array String).filterMapM fun (name : String) => do
+      let path : FilePath := packageDir / name
       return if ← path.pathExists then some path else none
-  let paths := (modules ++ config.toArray).qsort (fun left right => left.toString < right.toString)
+  let paths := (modules ++ config).qsort (fun left right => left.toString < right.toString)
   let paths := paths.toList.eraseDups.toArray
   paths.mapM fun path => do pure ⟨path.toString, ← IO.FS.readFile path⟩
 
@@ -947,23 +998,29 @@ def Sources.check (sources : Sources) (documents : Array RegulaPolicy.SourceSnap
     throw <| IO.userError "documentation inventory changed"
   unless current == documents do throw <| IO.userError "documentation source changed"
 
-/-- The documentation together with its Verso package's inputs (`captureVersoPackage`): what the
-linked acceptance identity brackets. -/
-def Sources.captureLinked (sources : Sources) : IO (Array RegulaPolicy.SourceSnapshot) := do
+/-- The documentation together with its Verso package's inputs (`captureVersoPackage`, for the
+accepted project at `project`): what the linked acceptance identity brackets. -/
+def Sources.captureLinked (sources : Sources) (project : FilePath) :
+    IO (Array RegulaPolicy.SourceSnapshot) := do
   let package ← match sources.verso with
-    | some verso => captureVersoPackage verso
+    | some verso => captureVersoPackage project verso
     | none => pure #[]
   return (← sources.capture) ++ package
 
 /-- Recaptures the linked sources (`captureLinked`) and throws when they differ from `linked`. -/
-def Sources.checkLinked (sources : Sources) (linked : Array RegulaPolicy.SourceSnapshot) :
-    IO Unit := do
-  unless (← sources.captureLinked) == linked do
+def Sources.checkLinked (sources : Sources) (project : FilePath)
+    (linked : Array RegulaPolicy.SourceSnapshot) : IO Unit := do
+  unless (← sources.captureLinked project) == linked do
     throw <| IO.userError "documentation or its Verso package changed"
 
 /-- Audit all documentation against the caller's freshly built isolated workspace.
 The standalone command creates that workspace itself; combined verification owns
-it from declaration admission through the last fence inspection. -/
+it from declaration admission through the last fence inspection. Every example elaborates in the
+project's Lake environment, or, when `environment` gives a workspace directory, its search
+path and its own modules, in that workspace: the documentation audit passes the freshly built
+Verso package, which requires the project and resolves every module the standard's examples
+import, with the modules of the packages it requires by local path (`versoLocalModules`). The
+owned modules are the project's claimed ones and those environment modules. -/
 unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.SurfaceInventory)
     (sourceBindings : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
@@ -975,8 +1032,14 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
     (observeAccepted : (claim : RegulaPolicy.Claim) → RegulaPolicy.AcceptedRun claim → IO Unit :=
         fun _ _ => pure ())
     (sharedSnapshot : Option RegulaPolicy.AdmittedSnapshot := none)
-    (verso : Option VersoPackage := none) : IO UInt32 := do
+    (verso : Option VersoPackage := none)
+    (environment : Option (FilePath × Array FilePath × Array (Name × FilePath)) := none) :
+    IO UInt32 := do
   let sources : Sources := ⟨docsRoot, verso⟩
+  let (fenceWorkspace, fenceSearchPath, environmentModules) :=
+    environment.getD (repo, inventory.leanPath, #[])
+  -- The environment's own modules are owned too, and their sources stay bound while fences run.
+  let ownedBindings := sourceBindings ++ (← SourceBinding.capture environmentModules)
   let outcome : Except ProducerReport.AdmissionFailure UInt32 ←
     SourceBinding.withUnchanged sourceBindings configuration do
       if documents.isEmpty then
@@ -1022,10 +1085,10 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
           some <$> timedPhase "documentation request freeze" do
             IO.ofExcept (← IO.lazyPure fun _ => freezeDocuments claim tasks)
         else pure none
-      let fenceScratch := repo / "tmp" / "fence-build"
+      let fenceScratch := fenceWorkspace / "tmp" / "fence-build"
       IO.FS.createDirAll fenceScratch
-      let results ← auditTasks repo fenceScratch jobs tasks sourceBindings configuration
-          inventory.leanPath (some inventory.leanLibDir)
+      let results ← auditTasks fenceWorkspace fenceScratch jobs tasks ownedBindings configuration
+          fenceSearchPath (some inventory.leanLibDir)
       sources.check documents
       Snapshot.inputsUnchanged inventory dependencies
       let accepted ← match frozen with

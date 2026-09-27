@@ -170,8 +170,8 @@ corpus-producer entry: it installs the runner's once-captured shared-dependency
 Git facts (`Snapshot.GitFacts`), then runs either the exact `axiomGate` body
 (`AxiomGate.entry`) or this binary's own modes. Facts only replace the Git part
 of a capture whose exact request they answer; every source and configuration
-byte is still read fresh, and the result is marked `"gitFacts": "injected"`. The
-user-facing `axiomGate` never accepts them. -/
+byte is still read fresh, and the result is marked `"gitFacts": "injected"`. An empty table
+answers nothing. The user-facing `axiomGate` never accepts them. -/
 unsafe def main (args : List String) : IO UInt32 := do
   match args with
   | "--injected-git-facts" :: facts :: rest =>
@@ -183,9 +183,8 @@ unsafe def main (args : List String) : IO UInt32 := do
       IO.eprintln s!"rule example production incomplete: injected git facts: {error}"
       return 2
     | .ok table =>
-      if table.isEmpty then
-        IO.eprintln "rule example production incomplete: empty injected git facts"
-        return 2
+      -- An empty table, from a project with no dependency, answers no capture request: every
+      -- capture then observes Git itself.
       Regula.Checker.Snapshot.injectedGitFacts.set table
       let (code, output) ← match rest with
         | "axiomGate" :: gateArgs =>

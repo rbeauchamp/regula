@@ -11,7 +11,8 @@ value `opaqueDataPackage`, whose exported `wrap` operation constructs
 `OpaqueData` (also through `OpaqueData.seal`); and phantom-typed
 `Id` values with the documented domain tags. The only representation exposure
 is through the operations named by each declaration; external construction,
-observation, and private-name access are negative fixtures.
+payload recovery, and private-name access are rejected by the `lean (fails := ...)`
+examples of the standard's module 6 (`website/RegulaStandard/CodeOrganization.lean`).
 
 Fences import this module explicitly, so their assumptions are their printed
 imports plus these exact APIs. This module is part of the positive surface, and
@@ -70,8 +71,9 @@ opaque opaqueDataPackage : OpaqueDataPackage := opaqueDataImplementation
 
 External code may introduce values through the package's documented `wrap`
 operation (or `OpaqueData.seal` below), but it has no constructor, projection,
-inductive eliminator, or payload observer for this carrier. The negative
-fixtures regress direct construction and payload recovery. -/
+inductive eliminator, or payload observer for this carrier. The standard's
+`lean (fails := ...)` examples check that direct construction and payload
+recovery are rejected. -/
 abbrev OpaqueData : Type := opaqueDataPackage.Carrier
 
 /-- Documented convenience constructor for the abstract carrier. -/

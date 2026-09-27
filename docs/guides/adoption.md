@@ -88,9 +88,19 @@ git = "https://github.com/rbeauchamp/regula"
 rev = "<exact commit>"
 ```
 
-Your `lean-toolchain` must match the checker's pin above. The checker's transitive
-`require`s (Mathlib) resolve into your `lake-manifest.json` as usual but are compiled only
-if your own code imports them.
+Requiring `regula` adds exactly one package to your `lake-manifest.json`: `regula` itself.
+The package requires nothing beyond the Lean toolchain (no Mathlib, no Batteries), and its
+modules import only Lean's core libraries, so it never pins a package your project also uses.
+Lake keeps one copy of each package per workspace; with Regula in it, a project keeps
+whatever Mathlib revision it pins, and a project without Mathlib gets none. To move to a newer
+Regula, change the revision above and run `lake update regula`, which updates only `regula`.
+Only the checker repository's own Mathlib-dependent package (`audit/`, the standard's Mathlib
+examples) requires Mathlib, and it is not part of the `regula` package.
+
+Use the Lean release of the checker's [`lean-toolchain`](../../lean-toolchain) at that revision
+for your own `lean-toolchain`. Lake builds every package of a workspace with one
+toolchain, as with any Lean dependency, and the checker is qualified only on its pinned
+release (see the [supported toolchain](../../README.md#supported-toolchain)).
 
 ## 2. Declare the claimed surface
 
