@@ -140,7 +140,7 @@ Search keywords.
 -/
 ```
 
-For examples from this repository, see {repo "lean/Audit/DocClaims.lean"}[`Audit.DocClaims`] and {repo "lean/Audit/DocPrelude.lean"}[`Audit.DocPrelude`]. The former lists its mathematical objects and results and distinguishes its existence and joint-satisfiability witnesses from external-system claims. The latter describes the shared types imported by documentation examples and the operations their APIs expose.
+For examples from this repository, see {repo "audit/Audit/DocClaims.lean"}[`Audit.DocClaims`] and {repo "audit/Audit/DocPrelude.lean"}[`Audit.DocPrelude`]. The former lists its mathematical objects and results and distinguishes its existence and joint-satisfiability witnesses from external-system claims. The latter describes the shared types imported by documentation examples and the operations their APIs expose.
 
 Module documentation can summarize shared assumptions and link to declaration details. Omit repeated signatures or lists of transitive imports when they add no explanatory value. Any reported foundation strength must match the exact dependencies described in {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[module 4 §4.5].
 

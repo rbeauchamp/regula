@@ -40,7 +40,7 @@ number := false
 
 *Example - Continuous Quantities with a Lawful Order*:
 
-The shared `Time` type wraps non-negative real numbers. In {repo "lean/Audit/DocClaims.lean"}[`Audit.DocClaims`], `DecayingValue.valueAt` is `initial * exp (decayRate * (t - startTime))`, using the underlying real values of the times. The theorem below establishes a nonincreasing curve for a negative rate. It does not establish strict decrease because `initial` may be zero. Its quantifiers include all ordered pairs of times, including times before `startTime`. That field shifts the formula rather than restricting its domain.
+The shared `Time` type wraps non-negative real numbers. In {repo "audit/Audit/DocClaims.lean"}[`Audit.DocClaims`], `DecayingValue.valueAt` is `initial * exp (decayRate * (t - startTime))`, using the underlying real values of the times. The theorem below establishes a nonincreasing curve for a negative rate. It does not establish strict decrease because `initial` may be zero. Its quantifiers include all ordered pairs of times, including times before `startTime`. That field shifts the formula rather than restricting its domain.
 
 ```lean
 import Audit.DocClaims
@@ -83,7 +83,7 @@ instance : LE T := ⟨fun x y ↦ x.val ≤ y.val⟩
 #synth LinearOrder T
 ```
 
-If the prose claims that time has a linear order, supply the corresponding `LinearOrder` instance as the shared `Glossary.Time` does in {repo "lean/Audit/DocPrelude.lean"}[`Audit.DocPrelude`].
+If the prose claims that time has a linear order, supply the corresponding `LinearOrder` instance as the shared `Glossary.Time` does in {repo "audit/Audit/DocPrelude.lean"}[`Audit.DocPrelude`].
 
 *Example - Machine Arithmetic as the Specification Object*:
 
@@ -262,7 +262,7 @@ The timestamp order on `Event` is a preorder. Two different events can share a t
 
 `CausalOrder` requires an irreflexive, transitive relation on the declared event set. Its fields do not connect that relation to timestamps or establish any external causal interpretation. State and prove such a connection separately when claimed.
 
-For protocol models, a discrete clock can count steps. Here ticks and phase numbers must not be interchanged. {repo "lean/Audit/DocClaims.lean"}[`Glossary.Tick`] is a nominal structure with a public `val : Nat` field. Its `LinearOrder` reuses the natural order and its laws through that injective projection using Mathlib's `LinearOrder.lift'`. Construction and projection are explicit conversions, not an abstraction boundary.
+For protocol models, a discrete clock can count steps. Here ticks and phase numbers must not be interchanged. {repo "audit/Audit/DocClaims.lean"}[`Glossary.Tick`] is a nominal structure with a public `val : Nat` field. Its `LinearOrder` reuses the natural order and its laws through that injective projection using Mathlib's `LinearOrder.lift'`. Construction and projection are explicit conversions, not an abstraction boundary.
 
 ```lean
 import Audit.DocClaims
@@ -408,7 +408,7 @@ A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conformin
   * Standard-Logical; the conditional real-valued antitonicity theorem in §4.1
 :::
 
-These assertions import the actual declarations from {repo "lean/Audit/Basic.lean"}[Basic] and {repo "lean/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_eq` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
+These assertions import the actual declarations from {repo "audit/Audit/Basic.lean"}[Basic] and {repo "audit/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_eq` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
 
 ```lean
 import Audit.Basic

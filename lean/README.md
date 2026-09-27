@@ -1,9 +1,12 @@
 # Lean sources
 
-These modules implement the contracts and checkers and supply checked examples for
-the [standard](https://rbeauchamp.github.io/regula/dev/standard/). The package's source directory is `lean/`;
-imports retain their Lean module names, such as `Audit.Research` and
-`Regula.Contract`.
+These modules implement the contracts and checkers and supply checked Core examples for
+the [standard](https://rbeauchamp.github.io/regula/dev/standard/). They form the `regula` package that
+projects require, whose source directory is `lean/`; it requires no package beyond the Lean
+toolchain. Imports retain their Lean module names, such as `AuditApp.Limiter` and
+`Regula.Contract`. The standard's Mathlib examples, such as `Audit.Research`, are the separate
+`regula_audit` package in [`../audit/`](../audit/lakefile.lean), which requires this package by
+relative path and Mathlib.
 
 ## Choose a starting point
 
@@ -11,7 +14,7 @@ imports retain their Lean module names, such as `Audit.Research` and
 | --- | --- | --- |
 | Use the proof-bearing contract interface | [Regula.Contract](Regula/Contract.lean) | Public interface tying evidence to the named executable definition. |
 | Register a material claim | [Regula.MaterialClaim](Regula/MaterialClaim.lean) | Public `@[regula_material]` attribute selecting the RG5002/RG5003 docstring and Intent-section obligations. |
-| Inspect mathematical/specification examples | [Audit](Audit.lean) | Claimed abstract-specification surface; representative checks of the standard's claims. |
+| Inspect mathematical/specification examples | [Audit](../audit/Audit.lean) | Claimed abstract-specification surface of the Mathlib-dependent package; representative checks of the standard's claims. |
 | Inspect the verified application | [Main](Main.lean), [AuditApp](AuditApp.lean) | Claimed limiter application; proofs concern its actual definitions and its IO boundary remains reported. |
 | Use typed policy data and admission | [RegulaPolicy](RegulaPolicy.lean), [domain guide](../docs/guides/policy-domain.md) | Separate claimed pure library; representation proofs do not authenticate compiler observations or establish complete acceptance. |
 | Inspect the proved checker core | [RegulaCore.Policy](RegulaCore/Policy.lean), [rule registry](RegulaCore/Rule.lean) | Claimed pure projections the checker runs (claim request, scope admission, [transcript coordinates](RegulaCore/Coordinates.lean), rules, labels), census assembly ([Assembly](RegulaCore/Assembly.lean)), the editor linter's request and declaration decisions ([EditorPolicy](RegulaCore/EditorPolicy.lean)) and the `lint` driver's exit classification ([Lint](RegulaCore/Lint.lean)); frontend, environment and process adapters stay operational. |
@@ -31,7 +34,9 @@ imports retain their Lean module names, such as `Audit.Research` and
 
 Module docstrings describe purpose and assumptions. The
 [Lake configuration](../lakefile.lean) defines module/target discovery, and the
-[surface manifest](../foundation_manifest.json) defines claims and exclusions.
+[surface manifest](../foundation_manifest.json) defines claims and exclusions; the
+`audit/` package has its own [configuration](../audit/lakefile.lean) and
+[surface manifest](../audit/foundation_manifest.json).
 Those files, not this navigation table or folder names, own the inventory.
 
 The checkers and the `ExecutableContract` interface share the `Regula`

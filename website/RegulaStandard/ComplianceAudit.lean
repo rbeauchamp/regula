@@ -416,7 +416,7 @@ number := false
   * Required Lean-specific verification
 *
   * {checklistRow}[DOGFOOD-01]
-  * The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples and the `AuditApp` complete application with its standalone `Main` executable root — satisfy every applicable row above.
+  * The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples (in the Mathlib-dependent package in `audit/`) and the `AuditApp` complete application with its standalone `Main` executable root — satisfy every applicable row above.
   * {ref "810-dogfooding"}[8 §8.10]
   * Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded.
 *
@@ -454,7 +454,7 @@ For this repository's ordinary settled-snapshot conformance check, use {repo "sc
 ./scripts/verify.sh docs
 ```
 
-The first builds the checker tools, runs the fresh declaration gate over every claimed surface and records the content identity of the inputs it accepted. The second audits the complete documentation tree, including every `lean` block of this standard's Verso source, which it also builds fresh and renders, and refuses unless its own freshly captured inputs have that identity; `DOC-*` rows need both. Their repository-specific deadlines and provisioning requirements live in {repo "docs/guides/contributing.md"}[the contributor guide]. The declaration gate performs Lake-semantic discovery and a clean, warning-free build before inspection; a redundant preliminary clean build is unnecessary. `lake build` remains the development command.
+The first builds the checker tools, runs the fresh declaration gate over every claimed surface of the checker package and records the content identity of the inputs it accepted. The second runs the same fresh gate over the Mathlib-dependent package in `audit/`, whose modules the standard's examples import, then audits the complete documentation tree, including every `lean` block of this standard's Verso source, which it also builds fresh and renders, and refuses unless its own freshly captured inputs have that identity; `DOC-*` rows need both. Their repository-specific deadlines and provisioning requirements live in {repo "docs/guides/contributing.md"}[the contributor guide]. The declaration gate performs Lake-semantic discovery and a clean, warning-free build before inspection; a redundant preliminary clean build is unnecessary. `lake build` remains the development command.
 
 Checker changes require focused verification of affected capabilities and public invocation paths under §8.8. The complete `checkerSelftest --build-bound` campaign remains available when broad diagnostic qualification is requested or justified by affected mechanisms; it is not the ordinary per-change conformance gate. A selected diagnostic that fails remains a defect; an unrun broader campaign is not reported as passed. Repository diagnostics use the same bounded entrypoint, for example:
 

@@ -338,8 +338,8 @@ Credit Lean's authors for these APIs. The rule-reference site credits Verso
 and the [Microsoft CA1416](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416)
 illustrative presentation reference. The [ecosystem study](ecosystem-design.md) broadens
 the comparison; none of these examples prescribes an exact UX or supplies Lean policy
-semantics or suppression permission. The root Mathlib revision is locked in the
-[root manifest](../../lake-manifest.json).
+semantics or suppression permission. The repository's Mathlib revision (for its `audit/` package only) is locked in the
+[`audit/` manifest](../../audit/lake-manifest.json).
 
 The shared registry attribution describes a metadata design influence, not authorship of every
 rule or a runtime dependency. See [attribution scope](design-influences.md).

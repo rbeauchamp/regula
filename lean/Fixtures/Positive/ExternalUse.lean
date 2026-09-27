@@ -1,17 +1,20 @@
 /-
 External-consumer control (AC-08): a small fixture that only imports the
-published `Audit` library and reasons about its declarations. The public
+published `AuditApp` library and reasons about its declarations. The public
 checker classifies the declarations introduced here and reports the exact
 foundation labels — without adopting any general software process.
 
-`#print axioms` confirms what the checker reports:
-`Glossary.decay_monotone` depends on `propext`, `Classical.choice`, and
-`Quot.sound` (Standard-Logical), because it is stated over `ℝ`.
+`#print axioms` confirms what the checker reports: `ext_admitted_fresh` depends on
+no axiom (Kernel-only), and `ext_requested_default` depends on `propext`,
+`Classical.choice` and `Quot.sound` (Standard-Logical), because Lean's `String`
+parser behind `AuditApp.requestedCapacity` uses them.
 -/
-import Audit
+import AuditApp
 
-theorem ext_decay_later_le (v : Glossary.DecayingValue) (h : v.decayRate < 0)
-    (t₁ t₂ : Glossary.Time) (ht : t₁ ≤ t₂) : v.valueAt t₂ ≤ v.valueAt t₁ :=
-  Glossary.decay_monotone v h t₁ t₂ ht
+theorem ext_admitted_fresh (capacity : Nat) (l : AuditApp.Limiter)
+    (h : AuditApp.admit capacity = some l) : 0 < l.capacity ∧ l.inUse = 0 :=
+  AuditApp.admit_sound h
 
-theorem ext_real_le_refl (x : ℝ) : x ≤ x := le_refl x
+theorem ext_requested_default (arg : String) (rest : List String) :
+    AuditApp.requestedCapacity (arg :: rest) = arg.toNat?.getD 2 :=
+  AuditApp.requestedCapacity_exact (arg :: rest)

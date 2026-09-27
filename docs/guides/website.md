@@ -118,9 +118,11 @@ After provisioning the root dependencies and the pinned Verso package once:
 ./scripts/verify.sh site                             # build and check _site/ (420 s)
 ```
 
-The website package shares the root's `.lake/packages` (its `packagesDir`), so one Mathlib
-checkout and its artifacts serve both workspaces; the shared entries of the two lock manifests
-must stay equal. Verso setup is also required before `./scripts/verify.sh docs`, which builds
+The website package requires the root `regula` package and the Mathlib-dependent `audit/`
+package by relative path, because the standard's examples import modules of both and Mathlib.
+Like `audit/`, it names the root `.lake/packages` as its packages directory (`packagesDir`), so
+one Mathlib checkout and its artifacts serve every workspace; its Git pins must equal those of
+the packages it requires by path (the documentation check refuses a difference). Verso setup is also required before `./scripts/verify.sh docs`, which builds
 the standard.
 
 Any change to a module source, the corpus or the Lake configuration makes earlier shard

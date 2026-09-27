@@ -621,7 +621,7 @@ First write clear generic code and reuse the library. Add an annotation when exp
 
 *Proof-oriented alternatives.* When a convenient logical reference and an efficient implementation differ, a proved `@[csimp]` equality can connect them for compilation without changing kernel reduction. The pinned attribute requires its supported constant-equality form. It is not an automatic proof that an arbitrary runtime replacement is correct, nor a guarantee of faster kernel replay.\[^csimp\] Prefer existing proof-backed library replacements before authoring another implementation. Ordinary application code should not reach for unsafe primitives or unproved replacements as its first performance technique.
 
-The repository's `Economy.closedSumWithProof` in {repo "lean/Audit/Economy.lean"}[Audit.Economy] returns the computed closed form with the exact contract `2 * s = n * (n + 1)`. It reuses the universal sum proof; runtime data uses `closedSum`, and the proof is erased. This is checked functional evidence, not a measured speedup or a machine-arithmetic cost bound.
+The repository's `Economy.closedSumWithProof` in {repo "audit/Audit/Economy.lean"}[Audit.Economy] returns the computed closed form with the exact contract `2 * s = n * (n + 1)`. It reuses the universal sum proof; runtime data uses `closedSum`, and the proof is erased. This is checked functional evidence, not a measured speedup or a machine-arithmetic cost bound.
 
 # 7.14 Batch bulk output and stream inputs when whole-input retention is unnecessary
 %%%

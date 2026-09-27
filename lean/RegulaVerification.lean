@@ -12,9 +12,10 @@ namespace RegulaVerification
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
   /-- No argument: the first acceptance step, which builds the acceptance executables, runs the
-  registry checks and combined qualification, and audits the claimed surfaces. -/
+  registry checks and combined qualification, and audits the root package's claimed surfaces. -/
   | ordinary
-  /-- `docs`: the second acceptance step, the documentation audit and the Verso standard's
+  /-- `docs`: the second acceptance step: the fresh acceptance of the Mathlib package whose
+  modules the standard's examples import, then the documentation audit and the Verso standard's
   build and render, refused unless its inputs have the content identity the first step
   recorded. -/
   | docs
@@ -110,16 +111,25 @@ structure Command where
   program : String
   /-- Its arguments, passed as they are. -/
   args : Array String
+  /-- Its working directory, relative to the repository root; the root itself by default. -/
+  dir : String := "."
 
-private def lake (args : Array String) : Command := ⟨"lake", args⟩
+private def lake (args : Array String) : Command := ⟨"lake", args, "."⟩
+
+/-- The Mathlib-dependent package: the standard's Mathlib examples (`Audit`), which adopts the
+root `regula` package by relative path, as a Mathlib project would. Lake commands for it run in
+its own directory, where its workspace is the one Lake loads. -/
+def auditPackage : String := "audit"
+
+private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", args, dir⟩
 
 /-- Ordinary acceptance records its accepted input identity here; the separately timed
 documentation step refuses unless its own identity is equal. -/
 def linkPath : String := "tmp/acceptance-link.json"
 
 /-- The standard's Verso source: package directory, library and its render-only executable.
-Both acceptance steps capture its sources and the package inputs its check reads in the linked
-identity; the documentation step also builds (elaborating every `lean` block where it is
+Both acceptance steps capture its sources and the package inputs its check reads, including the
+sources of the Mathlib package that its library needs, in the linked identity; the documentation step also builds (elaborating every `lean` block where it is
 written) and renders it, requires every anchor the rule registry and the documentation link, and
 requires the coverage map to link exactly the checklist's rows, each labelled with its row. -/
 def versoStandard : String := "website:RegulaStandard:regula-standard"
@@ -155,6 +165,10 @@ def commands : Mode → List Command
       lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .docs => [
       lake #["build", "docFenceAudit"],
+      -- The Mathlib package's own fresh acceptance, as a Mathlib adopter of `regula` runs it:
+      -- the standard's `lean` blocks import its modules, and the linked identity below brackets
+      -- the sources they need.
+      lakeIn auditPackage #["exe", "axiomGate"],
       lake #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .graph => [lake #["exe", "freshChecker", "--verbose"]]
   | .diagnostics => [lake #["exe", "checkerSelftest", "--build-bound", "--jobs", "4"]]
@@ -164,9 +178,10 @@ def commands : Mode → List Command
   | .history => [
       lake #["build", "axiomGate", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "history"]]
-  -- Regula on its own code base: the repository's own `lake lint` through `regula/lint`, and the
-  -- operational self-audit of the excluded `Regula` library after its warning-free build.
-  | .selfLint => [lake #["lint"]]
+  -- Regula on its own code base: the repository's own `lake lint` through `regula/lint` in both
+  -- packages, and the operational self-audit of the excluded `Regula` library after its
+  -- warning-free build.
+  | .selfLint => [lake #["lint"], lakeIn auditPackage #["lint"]]
   | .selfAudit => [
       lake #["build", "Regula", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]
@@ -193,10 +208,11 @@ theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
 No theorem here purports to prove the OS's process execution or signal delivery. -/
 def execute (command : Command) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd := command.program, args := command.args,
+    cmd := command.program, args := command.args, cwd := some command.dir,
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
-  if exit != 0 then throw <| IO.userError s!"{command.program} {command.args} failed ({exit})"
+  if exit != 0 then
+    throw <| IO.userError s!"{command.program} {command.args} in {command.dir} failed ({exit})"
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics \
@@ -215,6 +231,25 @@ def invalidated : Mode → Option (String × String)
       some (shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
   | _ => none
 
+/-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
+refuses to load a workspace whose configuration requires a package that the lock manifest does not
+record, so an accepted build of the root package with such a manifest requires nothing, and
+requiring `regula` adds only `regula` to an adopter's `lake-manifest.json`. The Mathlib-dependent
+package in `audit/` records its own pins. -/
+def dependencyFree (manifest : Lean.Json) : Bool :=
+  match manifest.getObjValAs? (Array Lean.Json) "packages" with
+  | .ok packages => packages.isEmpty
+  | .error _ => false
+
+/-- Soundness: an admitted lock manifest has a `packages` array, and it is empty. -/
+theorem dependencyFree_packages (manifest : Lean.Json) (h : dependencyFree manifest = true) :
+    manifest.getObjValAs? (Array Lean.Json) "packages" = .ok #[] := by
+  unfold dependencyFree at h
+  split at h
+  · rename_i packages hp
+    rw [hp, Array.isEmpty_iff.mp h]
+  · simp at h
+
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
 an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step before provisioning
 and before any checker is built, so a failed setup or build cannot leave either in place. -/
@@ -229,17 +264,22 @@ def beginAttempt (args : List String) : IO Unit := do
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
-  for command in [Command.mk "git" #["diff", "--check"],
-      Command.mk "git" #["diff", "--cached", "--check"],
-      Command.mk "shellcheck" #["scripts/verify.sh", "scripts/provision.sh"]] ++
+  if selection.val == .ordinary then
+    let manifest ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "lake-manifest.json"))
+    unless dependencyFree manifest do
+      throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
+        require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in audit/)"
+  for command in [({ program := "git", args := #["diff", "--check"] } : Command),
+      { program := "git", args := #["diff", "--cached", "--check"] },
+      { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }] ++
           commands selection.val do
     execute command
   IO.println (match selection.val with
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
-    | .docs => "documentation verification: PASS (every docs/ Lean fence and every lean block of \
-      the Verso standard, which built fresh and rendered; inputs equal the accepted ordinary \
-      inputs)"
+    | .docs => "documentation verification: PASS (the Mathlib example package accepted fresh; \
+      every docs/ Lean fence and every lean block of the Verso standard, which built fresh and \
+      rendered; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
       acceptance; publication is verified after deployment)"

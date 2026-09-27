@@ -38,9 +38,10 @@ Lake's `lintDriver` package field and `lake lint` dispatch (`Lake.CLI.Main`, `Pa
 builtin widget behind named errors, renders the editor's **View explanation** link with Regula's
 registry URL. The VS Code Lean 4 extension and infoview (leanprover/vscode-lean4) host
 these messages. These are dependencies, not design influences on Regula's policy.
-The repository's audit surface depends on Mathlib, and its qualification and site tooling also
-use Batteries (both Apache 2.0, pinned dependencies); the linter itself imports only Lean's core
-libraries.
+The `regula` package that projects require imports only Lean's core libraries and requires no
+other package. The repository's Mathlib-dependent `audit/` package (the standard's Mathlib
+examples) and the website depend on Mathlib and, through it, Batteries (both Apache 2.0, pinned
+dependencies).
 
 ## Adapted code and licenses
 

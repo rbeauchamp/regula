@@ -201,25 +201,86 @@ def relocatePathDependencies (repo target : FilePath) : IO Unit := do
   IO.FS.createDirAll (target / ".lake")
   _root_.Lake.Manifest.saveEntries (target / ".lake" / "package-overrides.json") overrides
 
+/-- One component of `joinWithin`'s lexical join below `base`: `.` and empty components are
+dropped, `..` removes the last component unless that would leave `base`, and any other
+component is appended. -/
+def joinStep (base acc : List String) (component : String) : Option (List String) :=
+  if component == "." || component.isEmpty then some acc
+  else if component == ".." then
+    if acc.length > base.length then some acc.dropLast else none
+  else some (acc ++ [component])
+
+/-- The path components of `base / relative`, with each `.` dropped and each `..` removing the
+component before it, or `none` when a `..` would leave `base`. A purely lexical join: no
+component is resolved through a symbolic link. -/
+def joinWithin (base relative : List String) : Option (List String) :=
+  relative.foldlM (joinStep base) base
+
+/-- One step keeps `base` as a prefix. -/
+theorem joinStep_extends {base acc next : List String} {component : String}
+    (hacc : base <+: acc) (h : joinStep base acc component = some next) : base <+: next := by
+  unfold joinStep at h
+  split at h
+  · cases h; exact hacc
+  · split at h
+    · split at h
+      · rename_i hlong
+        cases h
+        obtain ⟨suffix, rfl⟩ := hacc
+        have hne : suffix ≠ [] := by
+          rintro rfl
+          simp at hlong
+        exact ⟨suffix.dropLast, by rw [List.dropLast_append_of_ne_nil hne]⟩
+      · cases h
+    · cases h
+      obtain ⟨suffix, rfl⟩ := hacc
+      exact ⟨suffix ++ [component], by simp⟩
+
+/-- Folding the steps from any extension of `base` keeps `base` as a prefix. -/
+theorem foldlM_joinStep_extends (base : List String) :
+    ∀ (relative acc result : List String), base <+: acc →
+      relative.foldlM (joinStep base) acc = some result → base <+: result
+  | [], acc, result, hacc, h => by
+    cases h
+    exact hacc
+  | component :: rest, acc, result, hacc, h => by
+    rw [List.foldlM_cons] at h
+    cases hs : joinStep base acc component with
+    | none => simp [hs] at h
+    | some next =>
+      rw [hs] at h
+      exact foldlM_joinStep_extends base rest next result (joinStep_extends hacc hs) h
+
+/-- `joinWithin` never leaves `base`: every result extends it. -/
+theorem joinWithin_extends (base relative result : List String)
+    (h : joinWithin base relative = some result) : base <+: result :=
+  foldlM_joinStep_extends base relative base result (List.prefix_refl base) h
+
 /-- Copy a checked project into `target`, skipping VCS data, Lake build
-state, machine artifact caches, the checker's scratch area, and the `exclude`
-path that receives the copy. Dependency checkouts are shared through a
-`.lake/packages` link, so a fresh build in the copy does not refetch or
+state, machine artifact caches, the checker's scratch areas, and the `exclude`
+path that receives the copy. Dependency checkouts are shared through a link at
+the copy's packages directory, so a fresh build in the copy does not refetch or
 rebuild dependencies while the copy's own build output starts empty, and
 relative `path` dependencies are re-anchored to the original project
-(`relocatePathDependencies`). -/
+(`relocatePathDependencies`). The packages directory is the one the project's
+manifest records, `.lake/packages` by default; a relative one outside the
+project, such as a nested package's `../.lake/packages`, is linked at the same
+relative place from the copy, which must lie inside `exclude`. -/
 def copyProject (repo target exclude : FilePath) : IO Unit := do
   IO.FS.createDirAll target
   let sourceComponents := repo.normalize.components
   let excludeComponents := exclude.normalize.components
   -- Exclusion is closed under descendants. Prune before traversal: filtering
   -- afterwards still visits dependency checkouts and every prior scratch copy.
-  -- VCS data, Lake build state, and artifact caches are pruned at every depth
-  -- (a nested Lake workspace such as a committed example adopter carries its
-  -- own `.lake` with full dependency checkouts); the checker's `tmp/` scratch
-  -- area is pruned only at the project root, where it lives.
+  -- VCS data, Lake build state, artifact caches and the checker's scratch
+  -- directories are pruned at every depth (a nested Lake workspace such as a
+  -- committed example adopter carries its own `.lake` with full dependency
+  -- checkouts, and a nested package audited on its own keeps its scratch under
+  -- its own `tmp/`); the rest of the root `tmp/` is pruned only at the project
+  -- root, where it lives.
   let prunedAnywhere := fun (component : String) =>
-    component == ".git" || component == ".lake" || component == ".cache"
+    component == ".git" || component == ".lake" || component == ".cache" ||
+      component == Regula.Scratch.dirName
   let includePath := fun (path : FilePath) =>
     let components := path.normalize.components
     !excludeComponents.isPrefixOf components &&
@@ -237,13 +298,26 @@ def copyProject (repo target exclude : FilePath) : IO Unit := do
     else
       if let some parent := destination.parent then IO.FS.createDirAll parent
       IO.FS.writeBinFile destination (← IO.FS.readBinFile path)
-  let packages := repo / ".lake" / "packages"
+  let packagesDir := ((← _root_.Lake.Manifest.load? (repo / "lake-manifest.json")).bind
+    (·.packagesDir?)).getD _root_.Lake.defaultPackagesDir
+  let packages := repo / packagesDir
   if ← packages.isDir then
-    IO.FS.createDirAll (target / ".lake")
-    let link ← runProcess target "ln" #["-s", packages.toString,
-      (target / ".lake" / "packages").toString]
-    if !link.succeeded then
-      throw <| IO.userError s!"could not link pinned Lake packages: {link.output}"
+    let targetComponents := target.normalize.components
+    unless excludeComponents.isPrefixOf targetComponents do
+      throw <| IO.userError s!"could not link pinned Lake packages: the copy {target} is not \
+        inside {exclude}"
+    -- `joinWithin_extends`: the link lies inside `exclude`, which the caller removes.
+    let some linkComponents := if packagesDir.isAbsolute then none else
+        joinWithin excludeComponents (targetComponents.drop excludeComponents.length ++
+          packagesDir.normalize.components)
+      | throw <| IO.userError s!"could not link pinned Lake packages: the packages directory \
+          {packagesDir} is not a relative path that stays inside {exclude} from the copy"
+    let link : FilePath := System.mkFilePath linkComponents
+    if let some parent := link.parent then IO.FS.createDirAll parent
+    let linked ← runProcess target "ln" #["-s", (← IO.FS.realPath packages).toString,
+      link.toString]
+    if !linked.succeeded then
+      throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
   relocatePathDependencies repo target
 
 /-- Read the file at `path` and parse it with the strict `PolicyCodec.parse`. -/

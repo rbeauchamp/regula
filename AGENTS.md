@@ -9,7 +9,7 @@
 - The standard defines normative meaning: its only source is the Verso library in
   `website/RegulaStandard/`, published under `standard/` of the rule-reference site.
   `docs/guides/` contains practical guidance.
-  `lean/Audit/` and the Lean-oriented checkers must dogfood the applicable rules.
+  `audit/Audit/` and the Lean-oriented checkers must dogfood the applicable rules.
 - `lean/Regula/` implements mechanically checkable requirements; `examples/build-lint/`
   is the reference build integration. Keep enforced rules, required proof evidence, and
   remaining semantic-review obligations distinct.
@@ -157,13 +157,14 @@ verification; network/toolchain installation is setup, not a verification pass. 
 signal delivery are trusted mechanisms, not a hard real-time theorem.
 
 The first builds the acceptance executables and type-checks the diagnostic modules,
-checks every claimed declaration with fresh source elaboration and kernel admission, and
-records the content identity of its inputs: the inputs it accepted plus the `docs/`
-Markdown and the standard's Verso package sources it only brackets, not accepts. The second audits
-every documentation example, builds the Verso standard fresh (elaborating each `lean` block
-where it is written) and renders it, and refuses unless its own inputs have that identity. This exact
-two-step split is the only permitted division of acceptance. Diagnostic native binaries
-are built when those diagnostics are requested.
+checks every claimed declaration of the root `regula` package with fresh source elaboration and
+kernel admission, and records the content identity of its inputs: the inputs it accepted plus the
+`docs/` Markdown and the standard's Verso package sources (with the `audit/` sources they import)
+it only brackets, not accepts. The second runs the same fresh check over the Mathlib-dependent
+`audit/` package, then audits every documentation example, builds the Verso standard fresh
+(elaborating each `lean` block where it is written) and renders it, and refuses unless its own
+inputs have that identity. This exact two-step split is the only permitted division of
+acceptance. Diagnostic native binaries are built when those diagnostics are requested.
 Complete applicable theorem/type/prose review too; command success alone is not full
 semantic conformance.
 
@@ -194,7 +195,7 @@ configuration or manifests change, on `main`, and nightly, and the two rule-exam
 nightly. The lint-driver workflow runs
 `diagnostics lint-driver` likewise when the `lake lint` driver or anything it imports, or
 the adopter fixtures, change. The dogfood workflow runs `diagnostics self-lint` (this
-repository's own `lake lint`), `diagnostics self-audit` (the excluded `Regula` library under the
+repository's own `lake lint` in both packages), `diagnostics self-audit` (the excluded `Regula` library under the
 proved operational decision) and the intent screen when Lean sources, Lake configuration,
 manifests or the screen configuration change, on `main`, and nightly. Merge requires passing
 CI on the reviewed PR head, applicable focused review and diagnostics.

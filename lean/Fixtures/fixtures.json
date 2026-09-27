@@ -182,26 +182,6 @@
   "expect": "fail",
   "reason": "hole"
  },
- "Fixtures.Mutations.OpaqueConstruct": {
-  "expect": "fail",
-  "reason": "compile-error",
-  "pattern": "Type mismatch"
- },
- "Fixtures.Mutations.OpaqueObserve": {
-  "expect": "fail",
-  "reason": "compile-error",
-  "pattern": "Type mismatch"
- },
- "Fixtures.Mutations.OpaquePrivateAccess": {
-  "expect": "fail",
-  "reason": "compile-error",
-  "pattern": "Unknown constant|Unknown identifier|unknown constant|unknown identifier"
- },
- "Fixtures.Mutations.TimeCrossUse": {
-  "expect": "fail",
-  "reason": "compile-error",
-  "pattern": "Type mismatch|is expected to have type"
- },
  "Fixtures.Mutations.UnlawfulInstance": {
   "expect": "fail",
   "reason": "compile-error",

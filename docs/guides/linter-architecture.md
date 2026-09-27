@@ -36,7 +36,8 @@ Its success-owner map records the implemented POLICY-02–04 boundary and remain
 
 ## Canonical data and package boundaries
 
-Implement these modules under the existing root package (no mandatory Mathlib imports):
+Implement these modules under the existing root package, which requires no other package and
+imports no Mathlib module:
 
 | Path | Owner and contract |
 | --- | --- |
@@ -133,8 +134,9 @@ boundaries while strengthening the pure core.
 The checker/examples use the [supported toolchain](../../README.md#supported-toolchain).
 Check version/commit before pin-sensitive inspection; the compiler-dependent account
 is specified in [module 8 §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#execution-roots-and-conservative-coverage).
-Use Core/Std/Lean APIs without importing Mathlib into the linter. Adopters may use Mathlib;
-transitive package resolution does not require compiling its mathematical modules.
+Use Core/Std/Lean APIs without importing Mathlib into the linter. Adopters may use Mathlib at
+any revision: requiring `regula` adds only `regula` to their lock manifest, so it pins no package
+they also use.
 
 - Command hooks: `Lean.Elab.Command.Linter` and `addLinter`; module hooks:
   `ModuleLinter` and `addModuleLinter`, from [Command.lean][command]. Their callbacks run in
@@ -221,9 +223,10 @@ The site builder (`lake exe site`, in the root package) generates Verso source f
 every finding also prints), the typed explanations (`RegulaCore.Guide`, one exhaustive definition over
 `RuleId`, the explicit prose input the design allowed in place of `website/Rules/<ID>.lean`) and
 the admitted rule-example exports of the same commit. Generation runs in the root package. The
-website package requires the root package (sharing its `.lake/packages`) only so that the
-standard's examples can import root-package modules and Mathlib, each in its own helper process;
-its executables link neither the registry nor Mathlib. Checked sources render as escaped text; no re-elaboration by the documentation
+website package requires the root package and the Mathlib-dependent `audit/` package (sharing the
+root `.lake/packages`) only so that the standard's examples can import their modules and Mathlib,
+each in its own helper process; its executables link neither the registry nor Mathlib. Checked
+sources render as escaped text; no re-elaboration by the documentation
 compiler is claimed. Optional SubVerso highlighting may replace presentation only with exact
 source/output correspondence. Generated Verso files are never edited or committed. The
 standard's only source is its Verso library (`website/RegulaStandard`), which the site publishes

@@ -77,7 +77,7 @@ structure Resource where
 def bad : Resource := ⟨⟨(-1 : ℝ)⟩⟩
 ```
 
-*Boundary decoding* can establish a statically usable invariant. The computable {repo "lean/Audit/Server.lean"}[`Glossary.Server.validate`] checks raw natural counts and returns `Option Server`; every returned state carries `served ≤ cap`. This is dynamic admission, not a claim that the input-dependent decision happened at compile time.
+*Boundary decoding* can establish a statically usable invariant. The computable {repo "audit/Audit/Server.lean"}[`Glossary.Server.validate`] checks raw natural counts and returns `Option Server`; every returned state carries `served ≤ cap`. This is dynamic admission, not a claim that the input-dependent decision happened at compile time.
 
 ```lean
 import Audit.Server

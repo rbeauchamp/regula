@@ -1,7 +1,8 @@
 name = "regula_website"
 defaultTargets = ["regula-site"]
-# Share the root package's dependency checkouts (Mathlib and its artifacts) instead of a
-# second copy; the shared entries of both lock manifests must be equal.
+# Share the root `.lake/packages`, where the Mathlib package in `../audit` keeps its dependency
+# checkouts (Mathlib and its artifacts), instead of a second copy; the shared entries of both
+# lock manifests must be equal.
 packagesDir = "../.lake/packages"
 
 # Pinned Verso; the exact transitive revisions are locked in lake-manifest.json.
@@ -10,10 +11,15 @@ name = "verso"
 git = "https://github.com/leanprover/verso"
 rev = "cad4b633e75ea769b851f12f9ca3b4f0dfcc625f"
 
-# The root package: the standard's examples import its modules and Mathlib.
+# The root package: the standard's examples import its modules (such as `AuditApp`).
 [[require]]
 name = "regula"
 path = ".."
+
+# The Mathlib-dependent package: the standard's examples import its `Audit` modules and Mathlib.
+[[require]]
+name = "regula_audit"
+path = "../audit"
 
 # Site-owned Verso extensions and styles.
 [[lean_lib]]
@@ -36,8 +42,8 @@ name = "RegulaExample"
 [[lean_lib]]
 name = "RegulaStandard"
 globs = ["RegulaStandard", "RegulaStandard.+"]
-# Examples run the helper and import the root package's modules at elaboration time.
-needs = ["regula-example", "@regula/Audit", "@regula/AuditApp"]
+# Examples run the helper and import these libraries' modules at elaboration time.
+needs = ["regula-example", "@regula_audit/Audit", "@regula/AuditApp"]
 
 # Elaborates one example module in a fresh process for the standard's `lean` blocks.
 [[lean_exe]]

@@ -1,5 +1,4 @@
 import RegulaQualification.Checks
-import Batteries.Data.List.Basic
 import Init.Data.List.Monadic
 
 /-! # JSON template instantiation
@@ -10,6 +9,17 @@ ordinary data; its proof is separate, avoiding unsupported dependent-result help
 attribution on the pinned compiler. Depth exhaustion explicitly refuses. -/
 namespace RegulaQualification.Template
 open Lean
+
+/-- `Forall₂ R xs ys`: the lists have equal length and `R` relates their elements pairwise, in
+order. This is the relation of Batteries' `List.Forall₂`, which Mathlib reuses; it is stated here
+because the `regula` package imports only Lean's core libraries, so that requiring it adds no
+dependency. -/
+inductive Forall₂ {α β : Type} (R : α → β → Prop) : List α → List β → Prop where
+  /-- Two empty lists are related. -/
+  | nil : Forall₂ R [] []
+  /-- Related heads extend related tails. -/
+  | cons {a : α} {b : β} {xs : List α} {ys : List β} :
+      R a b → Forall₂ R xs ys → Forall₂ R (a :: xs) (b :: ys)
 
 /-- Ordered structure is preserved; only entire string leaves are transformed. -/
 inductive Maps (f : String → String) : Json → Json → Prop where
@@ -22,18 +32,18 @@ inductive Maps (f : String → String) : Json → Json → Prop where
   /-- A string leaf maps to `f` applied to the whole string. -/
   | str (s : String) : Maps f (.str s) (.str (f s))
   /-- An array maps to the array of related elements, in order and of the same length. -/
-  | arr {xs : Array Json} {ys : List Json} (h : List.Forall₂ (Maps f) xs.toList ys) :
+  | arr {xs : Array Json} {ys : List Json} (h : Forall₂ (Maps f) xs.toList ys) :
       Maps f (.arr xs) (.arr ys.toArray)
   /-- An object maps to the object with the same keys in order, each value related. -/
   | obj {xs : Std.TreeMap.Raw String Json} {ys : List (String × Json)}
       (keys : xs.toList.map Prod.fst = ys.map Prod.fst)
-      (values : List.Forall₂ (Maps f) (xs.toList.map Prod.snd) (ys.map Prod.snd)) :
+      (values : Forall₂ (Maps f) (xs.toList.map Prod.snd) (ys.map Prod.snd)) :
       Maps f (.obj xs) (Json.mkObj ys)
 
 /-- Exact list relation for successful traversal through the standard monadic map. -/
 theorem mapM_related {α β : Type} (R : α → β → Prop) (step : α → Except String β)
     (hs : ∀ a b, step a = .ok b → R a b) (xs : List α) (ys : List β)
-    (h : xs.mapM step = .ok ys) : List.Forall₂ R xs ys := by
+    (h : xs.mapM step = .ok ys) : Forall₂ R xs ys := by
   induction xs generalizing ys with
   | nil =>
       change Except.ok [] = Except.ok ys at h
@@ -55,8 +65,8 @@ theorem mapM_related {α β : Type} (R : α → β → Prop) (step : α → Exce
 
 /-- Separate ordered key preservation from the corresponding value relation. -/
 theorem fields {R : Json → Json → Prop} {xs ys : List (String × Json)}
-    (h : List.Forall₂ (fun a b => a.1 = b.1 ∧ R a.2 b.2) xs ys) :
-    xs.map Prod.fst = ys.map Prod.fst ∧ List.Forall₂ R (xs.map Prod.snd) (ys.map Prod.snd) := by
+    (h : Forall₂ (fun a b => a.1 = b.1 ∧ R a.2 b.2) xs ys) :
+    xs.map Prod.fst = ys.map Prod.fst ∧ Forall₂ R (xs.map Prod.snd) (ys.map Prod.snd) := by
   induction h with
   | nil => exact ⟨rfl, .nil⟩
   | cons h _ ih =>
@@ -103,7 +113,7 @@ theorem transform_sound (f : String → String) (fuel : Nat) (input output : Jso
               rw [hm] at h
               have : output = Json.mkObj ys := (Except.ok.inj h).symm
               subst output
-              have related : List.Forall₂ (fun (a b : String × Json) => a.1 = b.1 ∧ Maps f a.2 b.2)
+              have related : Forall₂ (fun (a b : String × Json) => a.1 = b.1 ∧ Maps f a.2 b.2)
                   xs.toList ys := by
                 apply mapM_related _ _ _ _ _ hm
                 intro a b hb

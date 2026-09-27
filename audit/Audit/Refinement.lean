@@ -14,7 +14,9 @@ not operation labels, error outputs, timing, or native execution. Natural
 counts have exact unbounded Lean semantics; compiler/runtime execution remains
 trusted. No fairness, progress, or liveness result is claimed. `reachable_safe` and `prefix_safe`
 are material claims registered with `@[regula_material]`, so RG5002/RG5003 require their Intent
-sections.
+sections. The declarations keep the `AuditApp.Refinement` namespace of the application
+they refine; this module belongs to the `Audit` library of the Mathlib-dependent package,
+because the Core-only `AuditApp` surface in the `regula` package does not import Mathlib.
 -/
 
 namespace AuditApp.Refinement

@@ -12,7 +12,7 @@ points of Regula:
 From this directory:
 
 ```sh
-MATHLIB_NO_CACHE_ON_UPDATE=1 lake update
+lake update
 lake lint
 ```
 

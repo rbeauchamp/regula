@@ -215,9 +215,10 @@ def creditsPage (ident : Identity) : Except String String := do
       endorsement by Microsoft is implied. Other linters' references (Clippy, ESLint, Ruff, HLint) \
       informed the design as documented in the " ++
     "[ecosystem study](" ++ blobUrl ident "docs/guides/ecosystem-design.md" ++ ").\n\n" ++
-    "**Mathlib.** The checker repository's audit surface depends on \
-      [Mathlib](https://github.com/leanprover-community/mathlib4) (Apache 2.0); the linter itself \
-      imports only Lean's core libraries. The repository's qualification and site tooling also use \
+    "**Mathlib.** The `regula` package that projects require imports only Lean's core libraries and \
+      requires no other package. The checker repository's Mathlib-dependent package (the \
+      standard's Mathlib examples) and this site depend on \
+      [Mathlib](https://github.com/leanprover-community/mathlib4) (Apache 2.0) and so on \
       [Batteries](https://github.com/leanprover-community/batteries) (Apache 2.0), which Mathlib \
       requires.\n\n" ++
     "Crediting a project does not imply its endorsement of Regula. The complete attribution \

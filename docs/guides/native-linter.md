@@ -5,8 +5,9 @@ The native component (#25, a blocker of ENGINE-01 #13) uses the root package's
 Its native public import supports legacy files and Lean `module` files.
 Its imports require Lean/Std and Regula's neutral policy modules;
 they do not import Mathlib, `Regula.Report` or `Regula.Probe`.
-The root development dependency on Mathlib is locked in the
-[root manifest](../../lake-manifest.json).
+The `regula` package requires no other package; the repository's development dependency on
+Mathlib belongs to the `audit/` package and is locked in its
+[manifest](../../audit/lake-manifest.json).
 
 ## Use while editing
 

@@ -169,6 +169,25 @@ campaigns at the #10 revisions ([record][q10-runs]).
 
 These are bounded observations of real runs, not theorems about the tools.
 
+### Dependency resolution
+
+The `regula` package requires no other package; the standard's Mathlib examples are the
+separate `audit/` package. On 2026-09-27 (Lean 4.34.0), with the checker required by path:
+
+- A new Core-only project (`lake new core_demo lib.toml`, with `lintDriver = "regula/lint"`, the
+  §6.7 options and one Kernel-only library) resolved a `lake-manifest.json` whose only package is
+  `regula`; Lake created no `.lake/packages`. `lake lint` and `lake lint -- --fresh` accepted
+  (exit 0), and `lake exe regula explain RG1001` printed the rule.
+- A project that required `regula` and Mathlib at `b1383a3` (not a revision the checker ever
+  pinned; its toolchain file names v4.34.0-rc2) resolved with `lake update` to that Mathlib and
+  to Mathlib's own pins for its closure, for example Batteries `3b4ce08` rather than the
+  `f2effa3` the checker's manifest used to pin. Lake reported only that it did not change the
+  project's toolchain.
+
+Before this change the checker's manifest pinned Mathlib and its closure, and every adopter's
+manifest inherited those entries. Ordinary acceptance keeps the package dependency-free: it
+refuses a root lock manifest that records any package (`RegulaVerification.dependencyFree`).
+
 ## Community linters beside Regula
 
 Standard §6.7 requires every claimed library to enable Lean's `linter.missingDocs` and, with

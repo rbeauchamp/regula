@@ -185,7 +185,7 @@ number := false
 
 An opaque package can enforce a representation boundary without a logical axiom. It exposes a carrier and selected operations through the package's fields, while an implemented `opaque` definition prevents reduction to the concrete package. Unlike a public inductive wrapper, this carrier has no generated recursor revealing a payload. Use the pattern when the claim requires that abstraction; it is not a universal replacement for concrete types.
 
-The following pattern is mirrored in {repo "lean/Audit/DocPrelude.lean"}[`Audit.DocPrelude`]:
+The following pattern is mirrored in {repo "audit/Audit/DocPrelude.lean"}[`Audit.DocPrelude`]:
 
 ```lean
 /- This fence restates `Audit.DocPrelude` under a local namespace so it
@@ -241,8 +241,6 @@ import Audit.DocPrelude
 /-- Attack 2: direct payload recovery contrary to the documented API. -/
 def steal (x : Glossary.OpaqueData) : String := x
 ```
-
-The corresponding repository fixtures are {repo "lean/Fixtures/Mutations/OpaquePrivateAccess.lean"}[`OpaquePrivateAccess`], {repo "lean/Fixtures/Mutations/OpaqueConstruct.lean"}[`OpaqueConstruct`], and {repo "lean/Fixtures/Mutations/OpaqueObserve.lean"}[`OpaqueObserve`].
 
 Construction through the exported operation succeeds:
 
