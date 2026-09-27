@@ -119,7 +119,8 @@
 - Keep documentation, diagnostics, checker names, and checker output no stronger than the exact
   Lean property established.
 - Respect the assurance boundary stated in standard module 8: custom or ambiguous evaluator paths fail
-  generated-role exceptions, but a modified Lean executable, compromised process, and arbitrary
+  the recursive-helper exception, a native-proof axiom rests on its natively replayed statement and
+  command provenance instead, and a modified Lean executable, compromised process, and arbitrary
   trusted plugins are outside this Lean-source standard. Do not recursively expand reviews into
   stronger threat models after the documented boundary has direct positive and negative evidence.
 - For a PR, establish the standard's module 9 rows affected by its changes and dependencies.

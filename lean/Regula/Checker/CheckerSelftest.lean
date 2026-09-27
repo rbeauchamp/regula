@@ -643,9 +643,8 @@ private def fenceCorpusCases (repo : FilePath) : Array (String × String × Stri
   ("trusted-bv-check", s!"<!-- lean-trusted-compiler -->\n```lean\nimport Std.Tactic.BVDecide\n\
     theorem docs_bv_check (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by\n  bv_check \
     -binaryProofs \"{bvCheckCertificate repo}\"\n```\n", "trusted-bv-check.md:2 PASS_TRUSTED"),
-  -- In `grind =>` and `sym =>` mode the same tactics run from `grind`'s own elaborator table, and
-  -- `grind` moves the proof into an auxiliary `_proof` theorem of the parent; a namespaced name
-  -- adds Lean's built-in `namespace` expansion. Each is authenticated.
+  -- Authentication does not depend on the surrounding syntax: `grind =>` and `sym =>` blocks,
+  -- namespaced names, attributes, `set_option … in` and reverted parameters are all covered.
   ("trusted-grind-native", s!"<!-- lean-trusted-compiler -->\n```lean\nimport \
     Std.Tactic.BVDecide\ntheorem docs_grind_bv_decide (x y : BitVec 2) : (x &&& y) + (x ||| y) = \
     x + y := by grind => bv_decide\ntheorem docs_sym_bv_trace (x y : BitVec 2) : (x &&& y) + \
@@ -666,10 +665,23 @@ private def fenceCorpusCases (repo : FilePath) : Array (String × String × Stri
     Attack._native.bv_decide.ax_1 : False\ntheorem Attack._proof_1 : False := \
     Attack._native.bv_decide.ax_1\ntheorem Attack : False := Attack._proof_1\n```\n",
       "trusted-grind-spoof.md:2 FAIL"),
-  -- An attribute handler is another evaluator in the introducing command: not authenticated.
-  ("trusted-attribute-native", "<!-- lean-trusted-compiler -->\n```lean\nimport Init\n@[simp] \
-    theorem docs_attribute_native : (2 : Nat) = 2 := by native_decide\n```\n",
-      "trusted-attribute-native.md:2 FAIL"),
+  ("trusted-wrapped-native", "<!-- lean-trusted-compiler -->\n```lean\nimport Init\n@[simp] \
+    theorem docs_attribute_native : (2 : Nat) = 2 := by native_decide\nset_option maxRecDepth 1000 \
+    in\ntheorem docs_option_native : (3 : Nat) = 3 := by native_decide\ntheorem docs_revert_native \
+    (x : Fin 4) : x.val < 4 := by decide +native +revert\n```\n",
+      "trusted-wrapped-native.md:2 PASS_TRUSTED"),
+  -- An authored `axiom` with a native name and a natively true statement stays a project axiom,
+  -- whether declared in its own command or with its user through one macro-produced command.
+  ("trusted-declared-native", "<!-- lean-trusted-compiler -->\n```lean\naxiom \
+    docs_declared._native.native_decide.ax_1 : decide (2 = 2) = true\ntheorem docs_declared : \
+    2 = 2 := of_decide_eq_true docs_declared._native.native_decide.ax_1\n```\n",
+      "project-axiom: docs_declared._native.native_decide.ax_1"),
+  ("trusted-macro-declared-native", "<!-- lean-trusted-compiler -->\n```lean\nimport Lean\nopen \
+    Lean in\nmacro \"declared_native\" : command => do\n  let ax := mkIdent \
+    `docs_macro._native.native_decide.ax_1\n  let th := mkIdent `docs_macro\n  let a ← `(axiom \
+    $ax : decide (2 = 2) = true)\n  let t ← `(theorem $th : 2 = 2 := of_decide_eq_true $ax)\n  \
+    return ⟨mkNullNode #[a, t]⟩\ndeclared_native\n```\n",
+      "project-axiom: docs_macro._native.native_decide.ax_1"),
   ("negative-compiles", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := 1\n```\n",
       "negative example elaborated successfully"),
   ("negative-other-diagnostic",

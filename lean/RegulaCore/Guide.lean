@@ -268,15 +268,16 @@ def guide : RuleId → Guide
           code; each adds an axiom asserting the result through `Lean.Meta.nativeEqTrue`, named \
           after the tactic name it passes (`._native.native_decide.ax_…`, \
           `._native.decide.ax_…`, `._native.bv_decide.ax_…`), and private to the module when a \
-          `module` file elaborates the proof without exporting. When the checker authenticates \
-          that axiom and its parent (a name the scheme generates for the parent in its own \
-          module, the tactic's exact asserted statement, a parent using the axiom only through \
-          the tactic's bridge, directly or through the auxiliary proof `grind` makes for it, \
-          native replay and fresh-frontend origin from an evaluator of that tactic name), both \
-          and any such auxiliary proof are classified compiler-trusting and rejected with \
-          applicability `compiler-trusting`. The built-in axioms `Lean.trustCompiler`, \
-          `Lean.ofReduceBool` and `Lean.ofReduceNat` in a transitive axiom set are \
-          compiler-trusting by their exact identity.",
+          `module` file elaborates the proof without exporting. The checker authenticates such an \
+          axiom from three observations: its name is one the scheme generates under the name of \
+          a declaration of its module; it asserts `e = true` with `e` in the tactic's exact \
+          shape, and an independent native replay of `e` returns `true`; and a fresh \
+          re-elaboration shows that the command introducing that declaration adds an axiom of \
+          the same origin and statement without declaring it at a declaration identifier. The \
+          axiom and every declaration depending on it are then classified compiler-trusting and \
+          rejected with applicability `compiler-trusting`. The built-in axioms \
+          `Lean.trustCompiler`, `Lean.ofReduceBool` and `Lean.ofReduceNat` in a transitive axiom \
+          set are compiler-trusting by their exact identity.",
         "Final environment metadata cannot authorize a generated native-proof axiom; fresh \
           re-elaboration of the exact source establishes it. An unauthenticated axiom that only \
           looks native is not compiler-trusting."]
@@ -300,22 +301,21 @@ def guide : RuleId → Guide
           completes it.",
         "An unauthenticated axiom that merely looks native is not compiler-trusting; it is \
           rejected as an unknown axiom (RG1003) or project axiom (RG1001).",
-        "Authentication covers every tactic evaluator that reaches `nativeEqTrue` on the pinned \
-          toolchain: `native_decide`, `decide +native`, `bv_decide`, `bv_decide?` or `bv_check` \
-          as a declaration's whole `by` block, and `bv_decide`, `bv_decide?` or `bv_check` as \
-          the whole sequence of a `grind =>` or `sym =>` block that is the whole `by` block, for \
-          plain or namespaced, public or private names in ordinary and `module` files.",
-        "A native tactic whose introducing command runs any other non-term evaluator fails \
-          closed as RG1001 and RG1003: inside a longer tactic or `grind` sequence, a combinator \
-          or a nested `by` block, on a declaration with attributes (for example `@[simp]`), or \
-          under a command wrapper such as `set_option … in`. The checker admits a generated \
-          axiom only when every evaluator of that command is pinned and its non-term evaluators \
-          form one pinned chain, because any other evaluator (a macro, tactic, attribute \
-          handler or elaborator) could add an axiom with the generated name and a true \
-          statement.",
-        "When synchronous elaboration lets `grind` reuse an identical earlier auxiliary proof \
-          (the `mkAuxLemma` cache), that proof has more than one user, so the axioms involved \
-          have no unique parent and fail closed as RG1001 and RG1003."]
+        "Authentication does not depend on the surrounding syntax: a native tactic anywhere in a \
+          declaration's elaboration is covered, in a tactic sequence or combinator, a nested \
+          `by` block, a `grind =>` or `sym =>` block, a `where` clause, a declaration with \
+          parameters (`+revert`), attributes or a namespaced, public or private name, under \
+          `set_option … in`, in ordinary and `module` files.",
+        "An axiom with a native name and a natively true statement stays a project axiom \
+          (RG1001) when the source declares it, as an `axiom` command written directly or \
+          produced by a macro, or when a different command adds it than the one introducing the \
+          declaration its name belongs to. A custom tactic, elaborator or metaprogram that adds \
+          such an axiom without declaring it is classified compiler-trusting: the axiom asserts \
+          only what native evaluation confirmed.",
+        "The build is matched to the fresh re-elaboration by generated origin and asserted \
+          statement. When two commands add axioms of the same origin and statement, for \
+          example an authored spoof beside the genuine proof, neither is authenticated and both \
+          fail closed as RG1001 and RG1003."]
       residuals := [.qualify, .cost]
       checklist :=
           ["FOUND-05", "FOUND-03", "THEOREM-10", "THEOREM-01", "THEOREM-06", "DECL-03", "COMP-01",
@@ -324,13 +324,15 @@ def guide : RuleId → Guide
         `RegulaPolicy.authorize`. `RegulaPolicy.authorizedNativeAxioms_iff` characterizes the \
         authenticated native roles, and `native_generated` shows that each is a name Lean's \
         `nativeEqTrue` scheme generates for `native_decide`, `decide +native` or `bv_decide` \
-        under a prefix related to an inventory declaration by `GeneratedPrefix`. \
-        `generatedPrefix_iff` shows that, for a declaration name without macro scopes, these \
-        are exactly the names the generator gives that declaration in its own module in either \
-        privacy mode. The execution probe classifies by `RegulaPolicy.compilerTrustingAxiomName`, \
-        which `compilerTrustingAxiomName_iff` characterizes as exactly those generated names and \
-        Lean's three compiler axioms. Both characterizations assume the runtime string append \
-        `RuntimeStringAppend`."
+        under a prefix related to an inventory declaration by `GeneratedPrefix`, and \
+        `native_provenance` that its statement was natively replayed and that a command of its \
+        module's fresh transcript adds an axiom of the same origin and statement without \
+        declaring that name. `generatedPrefix_iff` shows that, for a declaration name without \
+        macro scopes, these are exactly the names the generator gives that declaration in its own \
+        module in either privacy mode. The execution probe classifies by \
+        `RegulaPolicy.compilerTrustingAxiomName`, which `compilerTrustingAxiomName_iff` \
+        characterizes as exactly those generated names and Lean's three compiler axioms. Both \
+        characterizations assume the runtime string append `RuntimeStringAppend`."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/NativeAxiom.lean",
               "lean/Regula/Checker/Frontend.lean", "lean/RegulaCore/Policy.lean"] }

@@ -634,11 +634,6 @@ structure Declaration where
   /-- For a replay candidate with a statement: whether an independent native evaluation of
   `e` returned `true` (`false` also when the replay failed). -/
   nativeReplay : Option Bool
-  /-- For a replay candidate with a statement: the declarations whose proof uses this axiom only
-  through its tactic's bridge for the same `e`: any declaration whose whole proof is
-  `of_decide_eq_true p inst ax`, or a declaration of the axiom's own module that uses it only as
-  `unsat_of_verifyBVExpr_eq_true expr cert ax`. -/
-  nativeUseParents : Array Lean.Name
   /-- Lean's declaration ranges, when it recorded them. -/
   ranges : Option Ranges
   /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without

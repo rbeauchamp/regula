@@ -455,21 +455,20 @@ exact literal/nested binder attribution, pinned evaluators and complete introduc
 Do not collapse exactness and definitional comparison, or set-normalize ordered groups.
 
 `NativeTeachingOK(decls,transcripts,a)` retains **all** guards in
-`authorizedNativeAxioms`: a name that `nativeEqTrue`'s scheme generates for `native_decide`,
-`decide +native` or `bv_decide` (`nativeAxiomOrigin?`), which fixes the tactic and a prefix that
-is the parent's name or, for a public parent, its private form in the parent's own module
-(`GeneratedPrefix`); internal safe proposition axiom, that tactic's exact asserted statement and
-successful replay, permitted dependency set; same-module safe proposition parent of supported
-kind; the tactic's exact parent-use bridge in a unique direct user, which is the parent or, for
-a grind-mode evaluator, the safe internal `_proof` theorem under the same prefix that `grind`
-makes for the parent and only the parent uses (`NativeUser`, `NativeAuxProof`); nested exact ranges; unique
-introducing command shared with parent, adding one axiom of that origin with the same asserted
-statement; literal declaration, every evaluator pinned and a complete non-term chain ending in an
-evaluator of that tactic name (`NativeEvaluator`: `native_decide`, `decide +native`,
-`bv_decide`, `bv_decide?` or `bv_check` as the whole `by` block, or the last three as the whole
-sequence of `grind =>` or `sym =>`, optionally inside a namespaced name's built-in expansion),
-and one evaluator range equal to the axiom's. Names only locate candidates. This evidence only
-permits teaching classification; it never relaxes a conforming profile.
+`authorizedNativeAxioms`, which rest on three observations and no syntax shape: (1) a name that
+`nativeEqTrue`'s scheme generates for `native_decide`, `decide +native` or `bv_decide`
+(`nativeAxiomOrigin?`), which fixes the tactic and a prefix that is the name of a declaration of
+the axiom's module or, for a public one, its private form there (`GeneratedPrefix`); (2) an
+internal safe proposition axiom with that tactic's exact asserted statement, successful
+independent replay and permitted dependency set (`NativeAxiomShape`); (3) the one transcript
+command introducing that declaration is the one command adding an axiom of that origin and
+statement (`NativeIntroducingCommand`), and it binds no declaration identifier of that origin
+(`NativeUndeclared`), so an authored `axiom`, direct or macro-produced, never qualifies. By (2)
+any axiom that qualifies asserts only a natively confirmed Boolean fact, so a custom elaborator
+that adds one is classified compiler-trusting, which is accurate. Wrappers such as namespaced
+names, attributes, `set_option … in`, `where` clauses and `grind =>` blocks do not matter. Names
+only locate candidates. This evidence only permits teaching classification; it never relaxes a
+conforming profile.
 
 Freeze these relations as independently written component predicates, then prove the
 **executed** typed validators return evidence iff the relation holds on supported records.

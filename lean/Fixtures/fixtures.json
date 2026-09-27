@@ -115,10 +115,7 @@
  },
  "Fixtures.Mutations.NativeSemanticForge": {
   "expect": "fail",
-  "reasons": [
-   "project-axiom",
-   "unknown-axiom"
-  ]
+  "reason": "compiler-trusting"
  },
  "Fixtures.Mutations.DecideNativeProof": {
   "expect": "fail",
