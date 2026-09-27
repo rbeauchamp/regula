@@ -3,12 +3,13 @@ module
 public import Std
 public import Init.Data.Ord.String
 
-@[expose] public section
-
 /-! Structural Lean identities. The tagged component sequence preserves string and
 numeric constructors (including empty strings). No display-name round trip is used.
 Names remain Lean's own datatype; `Identity` adds only non-anonymity for coverage keys.
 Exact source bytes, not a digest, determine `SourceSnapshot` equality. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open Lean Std
 attribute [local instance] lexOrd

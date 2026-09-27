@@ -4,11 +4,12 @@ public import RegulaPolicy.Specification
 public import RegulaPolicy.RoleSpecification
 public import Regula.Contract
 
-@[expose] public section
-
 /-! Actual generated-role validators and declaration decisions over admitted observations.
 Role receipts carry equality to these executed validators for the exact inventory.
 Theorems below connect the actual public policy functions to the independent relations. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open Lean (Name)
 open Frontend

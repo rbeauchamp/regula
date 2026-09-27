@@ -3,11 +3,12 @@ module
 public import RegulaPolicy.Domain
 public import Std.Data.ExtHashSet.Lemmas
 
-@[expose] public section
-
 /-! Admission of observations before policy. These proofs establish data validity,
 not the truth of compiler extraction. Generated roles remain bound to this entire
 inventory; all policy decisions consume a member of that same admitted inventory. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 
 /-- Hash-set cardinality detects precisely pairwise distinct inputs. Hash collisions

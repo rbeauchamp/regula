@@ -12,6 +12,11 @@ lake build   # enforcing default target
 lake lint    # the same audit through the configured lint driver
 ```
 
+Its `leanOptions` enable Lean's `linter.missingDocs` and turn off automatic implicits
+(standard §6.7 and §8.1), so the enforcing build rejects an undocumented public definition.
+A library that imports Mathlib also enables Mathlib's standard linter set as the
+[adoption guide](../../docs/guides/adoption.md#community-conventions-and-linters) shows.
+
 The package sets `lintDriver := "regula/lint"`. `lake lint` exits 0 (accepted),
 1 (violation), 2 (invalid configuration) or 3 (incomplete); see the
 [adoption guide](../../docs/guides/adoption.md#6-enforce-with-lake-lint-lake-build-and-ci).

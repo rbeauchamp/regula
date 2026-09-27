@@ -1,11 +1,12 @@
 module
 
-public section
-
 /-! Exact first-refusal and pointwise-map laws for pure `Except` list traversal; the success
 law is `Guards.listForM_eq_ok`. They are shared by scope admission, census assembly,
 worker-result admission and the qualification evaluator, and concern pure `Except` only,
 not effects of any other monad. -/
+
+public section
+
 namespace RegulaPolicy
 
 /-- Pure `Except` traversal refuses with `e` exactly when some element refuses with `e`

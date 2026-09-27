@@ -381,6 +381,8 @@ The Regula repository applies the applicable universal rules to itself and quali
 * checker changes receive focused qualification for affected capabilities under §8.8; unchanged capability evidence is reused; and
 * when this repository claims separate serialized-graph checking, it runs a fresh `leanchecker` pass over every declared root needed for complete module coverage.
 
+*Known gap (recorded 2026-09-27)*: the repository does not yet meet {ref "67-community-conventions-and-linters"}[module 6 §6.7] on its own claimed surfaces. Its claimed libraries (`Audit`, `AuditApp`, `RegulaCore`, `RegulaPolicy`, `RegulaQualification`, `RegulaVerification`, and `RegulaProvision`) do not enable `linter.missingDocs`; the 2026-09-26 community-alignment audit counted about 720 of their definitions without a docstring. `Audit` and `AuditApp` import Mathlib but do not enable Mathlib's standard linter set. Until follow-up work closes [issue #97](https://github.com/rbeauchamp/regula/issues/97), `DOGFOOD-01` does not hold for those obligations, and the list above describes everything else.
+
 # 8.11 Adopting the Checker in Another Project
 %%%
 tag := "811-adopting-the-checker-in-another-project"
@@ -413,7 +415,7 @@ An adopter MAY enable the shipped whole-surface Lean build linter. Once enabled,
 
 The {repo "examples/build-lint/"}[complete minimal adopter] contains the public recipe:
 
-1. Require the pinned checker package in `lakefile.lean` and import `Regula.Contract` where executable contracts are declared.
+1. Require the pinned checker package in `lakefile.lean`, set the linter options of {ref "67-community-conventions-and-linters"}[module 6 §6.7] and the options of §8.1 in its `leanOptions`, and import `Regula.Contract` where executable contracts are declared.
 2. Classify every root-package library and executable in `foundation_manifest.json` (§8.2). Select `kernel-only`, `choice-free`, or `standard-logical` and `report` or `checked`.
 3. Copy the sample's `policy` target and make it the *sole default target*. It obtains `axiomGate` from the `regula` package through Lake, then invokes its `--build-lint` mode for the consuming package.
 4. Run ordinary `lake build`. The target builds the linter, then the linter builds the exact manifest-derived library/executable targets incrementally and inspects the completed environments. It never recursively invokes the default target.

@@ -1,7 +1,5 @@
 module
 
-@[expose] public section
-
 /-! Presence of a labelled Intent section in a registered material declaration's
 docstring (standard §5.2; rules RG5002 and RG5003).
 
@@ -25,6 +23,9 @@ This is presence and linkage only. The docstring is linked to its declaration by
 Lean's `findDocString?`; nothing here judges whether the intent is adequate, whether
 it matches the explanation or the elaborated declaration, or whether registration is
 complete. Those comparisons remain the R-INTENT and R-DOC semantic-review obligations. -/
+
+@[expose] public section
+
 namespace RegulaPolicy.Intent
 
 /-- Whitespace that surrounds heading text and makes a line blank. -/

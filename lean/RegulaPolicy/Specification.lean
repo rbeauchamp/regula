@@ -2,11 +2,12 @@ module
 
 public import RegulaPolicy.Foundation
 
-@[expose] public section
-
 /-! Declaration-policy meaning over observations. These predicates state membership,
 safety, and recorded contract obligations independently of decision outputs. Extraction
 and the truth of the observed contract/replay fields remain operational boundaries. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open Lean (Name)
 

@@ -206,7 +206,7 @@ presence check or a checker PASS.
 | [`MUT-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-03) | Unique disposable roots and restoration | R-QUALIFY |
 | [`MUT-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-04) | Warning-free isolated baseline | R-QUALIFY |
 | [`MUT-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-05) | Existing freshChecker, optional new adapter only on go | R-GRAPH |
-| [`DOGFOOD-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-01) | All applicable selected rules over Audit/AuditApp/Main | R-INTENT, R-INVARIANT, R-LAWS, R-BOUNDARY, R-DOC |
+| [`DOGFOOD-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-01) | All applicable selected rules over Audit/AuditApp/Main | R-INTENT, R-INVARIANT, R-LAWS, R-BOUNDARY, R-DOC; known gap (recorded 2026-09-27): the claimed libraries do not yet enable the §6.7 linters ([#97](https://github.com/rbeauchamp/regula/issues/97)) |
 | [`DOGFOOD-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-02) | RG2002/2004 | R-QUALIFY |
 | [`DOGFOOD-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-03) | Generated registry/example agreement plus checks | R-INTENT, R-DOC |
 | [`DOGFOOD-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-04) | Lean canonical definitions/proofs | R-LAWS, R-COST |

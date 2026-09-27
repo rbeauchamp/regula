@@ -321,6 +321,12 @@ Review of the delivered product found and fixed:
   revision reads the latest deployed explanation there; the unchanged text of any published
   revision stays at `/rev/<commit>/rules/<ID>/`, and versioned `/v/` links await a release.
 - All nine residual obligations stay open; every accepted account lists them.
+- Known gap (recorded 2026-09-27): this repository's claimed libraries do not yet enable the
+  standard §6.7 linters. None enables `linter.missingDocs` (the 2026-09-26
+  community-alignment audit counted about 720 definitions without a docstring), and `Audit`
+  and `AuditApp` import Mathlib without Mathlib's standard linter set, so `DOGFOOD-01` does not
+  hold for those obligations until
+  [#97](https://github.com/rbeauchamp/regula/issues/97) is closed.
 
 ## Optional external checking
 

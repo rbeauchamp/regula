@@ -228,7 +228,11 @@ partition is not a CI job.
 
 ## Dogfooding Regula on itself
 
-Acceptance audits every claimed library in `foundation_manifest.json` freshly. Three
+Acceptance audits every claimed library in `foundation_manifest.json` freshly. Known gap
+(recorded 2026-09-27): those libraries do not yet enable the standard §6.7 linters
+(`linter.missingDocs`, and Mathlib's standard set for `Audit` and `AuditApp`), so acceptance
+does not yet check the community baseline on them;
+[#97](https://github.com/rbeauchamp/regula/issues/97) tracks closing it. Three
 diagnostics apply Regula to the rest of its own code base. The
 [dogfood workflow](../../.github/workflows/dogfood.yml) runs them when Lean sources, Lake
 configuration, manifests or the screen configuration change, on every push to `main`, and

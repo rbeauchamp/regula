@@ -418,7 +418,7 @@ number := false
   * {checklistRow}[DOGFOOD-01]
   * The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples and the `AuditApp` complete application with its standalone `Main` executable root — satisfy every applicable row above.
   * {ref "810-dogfooding"}[8 §8.10]
-  * Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded.
+  * Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. *Known gap (recorded 2026-09-27)*: the claimed libraries do not yet enable the linters of §6.7 ({ref "810-dogfooding"}[8 §8.10], [issue #97](https://github.com/rbeauchamp/regula/issues/97)).
 *
   * {checklistRow}[DOGFOOD-02]
   * Intentionally invalid fixtures are isolated from the positive elaborated environment.

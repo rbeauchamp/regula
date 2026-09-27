@@ -5,8 +5,6 @@ public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
 
-@[expose] public section
-
 /-! Shared metadata. See RuleId for con-leche attribution and docs/guides/rule-registry.md
 for the boundary between existing checker detection and planned product adapters.
 
@@ -16,6 +14,9 @@ The registry is the one source of each rule's agent-facing guidance: its one-lin
 Findings (`RegulaCore.Feedback`), the `regula` command and agent briefing
 (`RegulaCore.Guidance`), the registry and result exports and the website are generated from
 them. -/
+
+@[expose] public section
+
 namespace Regula
 
 abbrev EvidenceMode := RegulaPolicy.EvidenceMode

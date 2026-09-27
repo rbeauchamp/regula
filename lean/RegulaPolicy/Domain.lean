@@ -3,12 +3,13 @@ module
 public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
 
-@[expose] public section
-
 /-! Closed policy vocabulary and observation data. No operational Lean imports.
 Canonical representation is informed by con-leche PropWhen; these are original domain
 definitions, not imported con-leche proofs. Source observation authenticity remains
 with the operational collector. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open scoped RegulaPolicy
 

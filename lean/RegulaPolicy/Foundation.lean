@@ -2,10 +2,11 @@ module
 
 public import RegulaPolicy.Admission
 
-@[expose] public section
-
 /-! Independent finite foundation predicates. Profiles are bounds on exact transitive
 axiom membership, not claims about alternative proofs or native execution. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open Lean (Name)
 
