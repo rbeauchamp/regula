@@ -130,7 +130,8 @@ def standaloneRequirements (report : Json) (code : Nat) (mutated : Bool) : Excep
     ⟨"standalone diagnostics", ids == (if mutated then ["RG1001"] else [])⟩,
     ⟨"standalone status", (← text report "status") == (if mutated then "rejected" else "completed")⟩,
     ⟨"standalone documentation", (← array (← field account "documentation") "modules").contains
-      (toJson #[nameJson "SelftestMain", .bool true])⟩,
+      (toJson #[nameJson "SelftestMain", Json.mkObj [("documented", .bool true),
+        ("documentationFirst", .bool true), ("imports", toJson (#[] : Array Json))]])⟩,
     ⟨"standalone main root", (← array (← field account "census") "executionRoots").contains
       (toJson #[nameJson "SelftestMain", nameJson "main"])⟩]
 
