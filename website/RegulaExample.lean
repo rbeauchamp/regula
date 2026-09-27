@@ -1,5 +1,6 @@
 import VersoManual
 import RegulaPolicy.Pattern
+import RegulaCore.Standard
 
 /-! # Checked Lean examples of the standard
 
@@ -188,8 +189,9 @@ def repo : RoleExpanderOf RepoArgs
     let content ← content.mapM elabInline
     ``(Verso.Doc.Inline.other (Inline.repo $(quote path) $(quote fragment) $(quote directory)) #[$content,*])
 
-/- A checklist row identifier; its text is also the row's anchor. Duplicate identifiers are
-refused when the document is traversed. -/
+/- A checklist row identifier; its text is also the row's anchor, on an element of class
+`Regula.checklistRowClass`, which marks exactly the rows of the rendered page. Duplicate
+identifiers are refused when the document is traversed. -/
 inline_extension Inline.row (row : String) where
   data := Json.str row
   traverse id data _ := do
@@ -206,7 +208,8 @@ inline_extension Inline.row (row : String) where
         | Verso.reportError s!"Expected a row identifier, got {data}"; pure .empty
       match (← Verso.Doc.Html.HtmlT.state).externalTags[id]? with
       -- A row identifier is never broken across lines.
-      | some link => return {{<code id={{link.htmlId.toString}} style="white-space:nowrap">{{row}}</code>}}
+      | some link =>
+        return {{<code id={{link.htmlId.toString}} class={{Regula.checklistRowClass}} style="white-space:nowrap">{{row}}</code>}}
       | none => Verso.reportError s!"Untagged checklist row {row}"; return {{<code>{{row}}</code>}}
 
 /-- `{checklistRow}[ID]`: a checklist row identifier, displayed as code and used as its anchor. -/

@@ -30,14 +30,23 @@ decision it takes about that data is a function here.
   (`mem_pageIndex`, `linkOKIn_pageIndex`).
 - `standardAnchors`, `missingAnchors`, `missingAnchors_nil_iff`: the section and checklist-row
   anchors the registry links, checked against the rendered standard's pages.
+- `standardUrl`, `routesAfter`, `routeAnchor`, `documentAnchors`: the pages and anchors that
+  documentation links in the development standard, checked by the same `missingAnchors`.
+- `renderedRows`, `codeLinkLabel`, `linkedRows`, `rowMapMismatch`, `rowMapMismatch_eq_none_iff`:
+  the checklist rows of a rendered page and the labels and rows a row map links, each of which
+  must be that list.
 
 ## Assumptions and boundaries
 
 `scanTags` is a small HTML tokenizer for the builder's own output. `linkErrors_nil_iff`
 states that every link it extracted resolves; it does not prove that the tokenizer finds
 every link a browser would follow, that GitHub Pages serves the files, or that external
-links are live. Deployment, Verso rendering and browser behavior are operational
-observations recorded by the builder and in the website guide.
+links are live. `routesAfter` finds each literal occurrence of `standardUrl`; a link into the
+standard written any other way (relative, another edition, percent-encoded) is not found.
+`renderedRows` relies on the standard's `checklistRow` role being the only producer of
+`checklistRowClass` (by inspection of `website/RegulaExample.lean`). Deployment, Verso rendering
+and browser behavior are operational observations recorded by the builder and in the website
+guide.
 -/
 
 namespace Regula.Site
@@ -667,22 +676,112 @@ def standardAnchors : List (String × String) :=
     ((RuleId.all.flatMap fun id => (guide id).checklist).eraseDups.map
       fun row => (checklistChapter ++ "/index.html", row))
 
-/-- The anchors that no page with their path defines. -/
+/-- The standard of the development edition. Documentation links into the standard are this URL
+followed by a route below the standard's root. -/
+def standardUrl : String := siteBase ++ "dev/standard/"
+
+/-- A character that continues a route written after `standardUrl`: an ASCII letter or digit,
+`-`, `_`, `/` or `#`. Anything else, including Markdown delimiters, whitespace and a sentence's
+closing `.`, ends the route. -/
+def isRouteChar (c : Char) : Bool := c.isAlphanum || c == '-' || c == '_' || c == '/' || c == '#'
+
+/-- The route after each occurrence of `url` in `text`, in order: the longest run of
+`isRouteChar` characters following it. Every occurrence counts, whatever Markdown surrounds it
+(link, autolink, code span or plain text). -/
+def routesAfter (url text : String) : List String :=
+  ((text.splitOn url).drop 1).map fun rest => String.ofList (rest.toList.takeWhile isRouteChar)
+
+/-- The page below the standard's root and the fragment a route names: the text before the
+first `#`, with `index.html` appended when it is empty or ends in `/`, and the text after it,
+empty when the route names only a page. -/
+def routeAnchor (route : String) : String × String :=
+  let path := String.ofList (route.toList.takeWhile (· != '#'))
+  (if path.isEmpty || path.endsWith "/" then path ++ "index.html" else path,
+    String.ofList ((route.toList.dropWhile (· != '#')).drop 1))
+
+/-- Every anchor that the documents `texts` link in the standard: the page and fragment of each
+route written after `standardUrl`. -/
+def documentAnchors (texts : List String) : List (String × String) :=
+  texts.flatMap fun text => (routesAfter standardUrl text).map routeAnchor
+
+/-- The anchors that no page with their path defines. An empty fragment needs only the page. -/
 def missingAnchors (pages : List Page) (anchors : List (String × String)) : List (String × String) :=
   let index := pageIndex pages
-  anchors.filter fun anchor => !((index.getD anchor.1 []).any fun page => page.ids.contains anchor.2)
+  anchors.filter fun anchor =>
+    !((index.getD anchor.1 []).any fun page => anchor.2 == "" || page.ids.contains anchor.2)
 
-/-- The executed check returns nothing exactly when each anchor is an `id` of a page at its
-path. -/
+/-- The executed check returns nothing exactly when each anchor's path is a page that has its
+fragment as an `id` or the fragment is empty. -/
 theorem missingAnchors_nil_iff (pages : List Page) (anchors : List (String × String)) :
     missingAnchors pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ anchor.2 ∈ page.ids := by
-  simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex]
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ (anchor.2 = "" ∨ anchor.2 ∈ page.ids) := by
+  simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex, Decidable.or_iff_not_imp_left]
 
 /-- Registered contract of the executed anchor check. -/
 theorem checkedMissingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
     ∀ pages anchors, run pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ anchor.2 ∈ page.ids) :=
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
   ⟨missingAnchors_nil_iff⟩
+
+/-! ## Checklist row map -/
+
+/-- The checklist rows a rendered page defines, in document order: the `id` of each element of
+class `checklistRowClass`. -/
+def renderedRows (html : String) : List String :=
+  (scanTags html).filterMap fun t =>
+    if t.get? "class" == some checklistRowClass then t.get? "id" else none
+
+/-- The label of a link whose destination follows `before`, when that label is one code span:
+`some label` exactly when `before` ends with ``[`label`](`` and `label` has no backtick. -/
+def codeLinkLabel (before : String) : Option String :=
+  match before.toList.reverse with
+  | '(' :: ']' :: '`' :: rest =>
+    let label := rest.takeWhile (· != '`')
+    match rest.drop label.length with
+    | '`' :: '[' :: _ => some (String.ofList label.reverse)
+    | _ => none
+  | _ => none
+
+/-- The checklist rows a document links, in order: for each occurrence of the checklist page's
+URL followed by `#`, the link's code-span label (`codeLinkLabel`) and the fragment after it. -/
+def linkedRows (text : String) : List (Option String × String) :=
+  let url := standardUrl ++ checklistChapter ++ "/#"
+  ((text.splitOn url).dropLast.map codeLinkLabel).zip (routesAfter url text)
+
+/-- How the rows a row map links differ from the checklist's rows, or `none` when each link is
+labelled with its fragment and the fragments are the same list. -/
+def rowMapMismatch (linked : List (Option String × String)) (rows : List String) : Option String :=
+  if linked == rows.map fun row => (some row, row) then none else
+    let fragments := linked.map (·.2)
+    some s!"rows it does not link: {rows.filter (· ∉ fragments)}; linked fragments that are not rows: {fragments.filter (· ∉ rows)}; links not labelled with their fragment as one code span: {(linked.filter fun link => link.1 != some link.2).map (·.2)}; otherwise a row is linked more than once or out of the checklist's order"
+
+/-- The executed row-map check passes exactly when the map links the checklist's rows, each
+once, in the checklist's order, each labelled with exactly its row as one code span, and links
+no other fragment of the checklist page. -/
+theorem rowMapMismatch_eq_none_iff (linked : List (Option String × String)) (rows : List String) :
+    rowMapMismatch linked rows = none ↔ linked = rows.map fun row => (some row, row) := by
+  unfold rowMapMismatch
+  split <;> simp_all
+
+/-- Registered contract of the executed row-map check. -/
+theorem checkedRowMapMismatch : Regula.ExecutableContract rowMapMismatch (fun run =>
+    ∀ linked rows, run linked rows = none ↔ linked = rows.map fun row => (some row, row)) :=
+  ⟨rowMapMismatch_eq_none_iff⟩
+
+/-! Evaluated controls (observations of the compiled scanners, not proofs): a route ends at a
+Markdown delimiter or a sentence's closing `.`, an autolink and a code span count, a page route
+names its `index.html`, a row link's label is read only from a code span that is the whole link
+text, and only elements of the row class are rows. -/
+#guard documentAnchors ["[a](" ++ standardUrl ++ "9-compliance-audit/#DOC-04). <" ++ standardUrl ++
+  ">; `" ++ standardUrl ++ "introduction/`."] ==
+  [("9-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
+#guard linkedRows ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
+  "9-compliance-audit/)") == [(some "A-1", "A-1")]
+#guard linkedRows ("[`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-2) [A-3](" ++ standardUrl ++
+  "9-compliance-audit/#A-3) [x `A-4`](" ++ standardUrl ++ "9-compliance-audit/#A-4)") ==
+  [(some "A-1", "A-2"), (none, "A-3"), (none, "A-4")]
+#guard rowMapMismatch [(some "A-1", "A-2")] ["A-2"] != none
+#guard renderedRows "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==
+  ["A-1"]
 
 end Regula.Site
