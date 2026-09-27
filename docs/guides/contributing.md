@@ -48,7 +48,8 @@ provisioning pinned dependency caches.
 Locally, every copy uses one unpacked Mathlib per pinned revision and toolchain instead of
 its own. [`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean) unpacks Mathlib's
 archive cache (`~/.cache/mathlib`) once into
-`~/.cache/mathlib-packages/<mathlib-rev>-lean-<toolchain-commit>/`, compiles every
+`~/.cache/mathlib-packages/<mathlib-rev>-lean-<toolchain-commit>/` (under
+`$XDG_CACHE_HOME` instead of `~/.cache` when that is set), compiles every
 module's native object there (executables that import Mathlib link them), makes it
 read-only, and links the copy's `.lake/packages/mathlib` to it. The rest of Mathlib's closure
 (Batteries, Aesop, ...) becomes writable copy-on-write clones, since executables compile

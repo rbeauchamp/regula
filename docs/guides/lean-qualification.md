@@ -228,10 +228,11 @@ partition is not a CI job.
 
 ## Dogfooding Regula on itself
 
-Acceptance audits the six claimed libraries freshly. Three diagnostics apply Regula to the rest
-of its own code base. The [dogfood workflow](../../.github/workflows/dogfood.yml) runs them
-when Lean sources, Lake configuration, manifests or the screen configuration change, on every
-push to `main`, and nightly. None is part of acceptance.
+Acceptance audits every claimed library in `foundation_manifest.json` freshly. Three
+diagnostics apply Regula to the rest of its own code base. The
+[dogfood workflow](../../.github/workflows/dogfood.yml) runs them when Lean sources, Lake
+configuration, manifests or the screen configuration change, on every push to `main`, and
+nightly. None is part of acceptance.
 
 - `./scripts/verify.sh diagnostics self-lint` runs `lake lint` in this repository. The root
   package sets `lintDriver := "regula/lint"`, so this is the adopter command, run through the
