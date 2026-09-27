@@ -24,9 +24,10 @@ Additional imported modules must still be reconciled; the `modules` facet is not
 silently substituted for the configured array.
 
 The [manifest](../../foundation_manifest.json) claims `RegulaPolicy`,
-`RegulaVerification`, `RegulaQualification`, `Audit`, and `AuditApp`,
-plus the standalone `auditApp` root `Main`. The operational `Regula` library
-and its checker executables remain excluded from the conforming proof surface;
+`RegulaVerification`, `RegulaQualification`, and `AuditApp`,
+plus the standalone `auditApp` root `Main`; the Mathlib-dependent package's
+[manifest](../../audit/foundation_manifest.json) claims `Audit`. The operational
+`Regula` library and its checker executables remain excluded from the conforming proof surface;
 `Fixtures` remains isolated. A library's Standard-Logical upper bound is not
 every declaration's exact axiom set.
 #41 adds the claimed `RegulaCore` library; see the #41 delivery below.
