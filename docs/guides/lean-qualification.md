@@ -233,11 +233,11 @@ Acceptance audits every claimed library freshly: those of the root package's
 package (`audit/foundation_manifest.json`) in its second. Every library enables
 `linter.missingDocs` (standard §6.7), so acceptance rejects an undocumented public definition,
 and Mathlib's standard set is enabled on `Audit`, the one library that imports Mathlib, so
-acceptance rejects its warnings. Three
+acceptance rejects its warnings. Two
 diagnostics apply Regula to the rest of its own code base. The
 [dogfood workflow](../../.github/workflows/dogfood.yml) runs them when Lean sources, Lake
-configuration, manifests or the screen configuration change, on every push to `main`, and
-nightly. None is part of acceptance.
+configuration or manifests change, on every push to `main`, and nightly. Neither is part of
+acceptance.
 
 - `./scripts/verify.sh diagnostics self-lint` runs `lake lint` in this repository's root and
   then in `audit/`. Both packages set `lintDriver := "regula/lint"`, so this is the adopter
@@ -276,10 +276,6 @@ nightly. None is part of acceptance.
   operational form. The audit applies the same collector and decisions to completed modules
   instead. Trusted, not verified: Lean's import and kernel replay, the collector's
   observations, the toolchain artifact paths, the worker processes and their JSON transport.
-- The dogfood workflow's intent-screen job runs the opt-in
-  [Jev intent screen](intent-screening.md#dogfood-screen) over every public `@[regula_material]`
-  declaration in the claimed libraries. It is the only CI job that receives
-  `TYPESAFE_API_KEY`.
 
 ## Organization
 

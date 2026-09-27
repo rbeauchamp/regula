@@ -1,6 +1,0 @@
-{
-  "schema-version": 1,
-  "model": "jev-1.13.0",
-  "cache": "examples/intent-screening/cache",
-  "state": "full"
-}

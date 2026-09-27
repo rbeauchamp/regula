@@ -104,14 +104,6 @@ The executed classification is `RegulaPolicy.materialDocumentationFailure`, and
 `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff` and
 `_eq_missingIntent_iff` prove which docstrings each rule reports; the two rules never both
 fire. There is no minimum length, intent detector, similarity check or adequacy inference.
-The separate opt-in [intent screen](intent-screening.md) asks a pinned model to judge the intent
-comparison and reports its measured calibration. Its results are never checked evidence. It is
-a separate executable, not an in-elaboration rule: it calls a paid network service and sends
-source text off the machine, so running it here would put network, cost and nondeterminism
-into every build and editor session, against its off-by-default, cached, never-in-acceptance
-constraints. Its findings reuse this linter's severity vocabulary (`Regula.Severity`) and
-diagnostic shape, with a per-judgment `intentScreen/<judgment>` identifier in place of a
-registry rule ID, the claim's declaration range as location, and the `screened` evidence class.
 
 RG5001 uses both Markdown and Verso module-doc metadata. The imported-module
 observer requires normal server/private documentation metadata to be loaded;

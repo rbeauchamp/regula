@@ -91,10 +91,6 @@
     {
       "executable": "regula",
       "rationale": "Offline rule guidance printer (explain, rules, agent-guide, skill); its root module belongs to the excluded Regula library. Every text it prints, its command parser and their proofs are the claimed RegulaCore.Guidance and RegulaCore.Feedback definitions; the root only prints them and sets the exit code."
-    },
-    {
-      "executable": "intentScreen",
-      "rationale": "Opt-in probabilistic intent screen (docs/guides/intent-screening.md). Its root module belongs to the excluded Regula library; it calls an external judgment service only when explicitly run, is never part of offline acceptance, and its screened results are not conforming evidence. Its pure decisions are proved in the claimed RegulaPolicy.Screening and RegulaCore.Screening modules."
     }
   ]
 }

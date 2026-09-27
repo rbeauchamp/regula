@@ -144,10 +144,8 @@ runs both shards on every pull request and push to `main`, where they feed
 `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §8.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
-as parallel jobs under the same limit, and the opt-in
-[intent screen](intent-screening.md#dogfood-screen) as a third job, when Lean sources, Lake
-configuration, manifests or the screen configuration change, on every push to `main`, and
-nightly. They are not part of acceptance.
+as parallel jobs under the same limit when Lean sources, Lake configuration or manifests
+change, on every push to `main`, and nightly. They are not part of acceptance.
 
 
 ## Implementation and qualification layout

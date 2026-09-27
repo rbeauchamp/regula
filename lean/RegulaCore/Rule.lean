@@ -60,20 +60,17 @@ inductive RuleCategory where
   | documentation
   deriving Repr, BEq, DecidableEq
 
-/-- The severity of a finding: of a rule's findings under a strict claim, and of an intent-screen
-finding (`ScreenSeverity.toSeverity` maps the screen's levels onto these). -/
+/-- The severity of a rule's findings under a strict claim. -/
 inductive Severity where
   /-- The highest level; `RuleDescriptor.defaultStrictSeverity` defaults to it. -/
   | error
-  /-- Below `error`: the level of an intent-screen finding whose support falls below the
-  `warning` threshold but not the `error` one. No registered rule defaults to it. -/
+  /-- Below `error`. No registered rule defaults to it. -/
   | warning
-  /-- The lowest level: an intent-screen finding whose support falls below only the
-  `information` threshold. No registered rule defaults to it. -/
+  /-- The lowest level. No registered rule defaults to it. -/
   | information
   deriving Repr, BEq, DecidableEq
 
-/-- The severity names used by the registry, diagnostics and the intent screen's configuration. -/
+/-- The severity names used by the registry and diagnostics. -/
 def Severity.spelling : Severity → String
   | .error => "error" | .warning => "warning" | .information => "information"
 

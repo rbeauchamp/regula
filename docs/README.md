@@ -30,8 +30,6 @@ follows the
   editor diagnostics, limits, and the semantic obligations commands cannot establish.
 - [Rule-reference website](guides/website.md): sources, guarantees, build and publication of the
   generated rule reference, and the rule-change workflow.
-- [Opt-in intent screening](guides/intent-screening.md): probabilistic R-INTENT screening with
-  user-set severities, formal discharge first, its evidence boundary and calibration.
 
 ## Work on Regula
 

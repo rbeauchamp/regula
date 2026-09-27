@@ -28,7 +28,6 @@ relative path and Mathlib.
 | Inspect proved qualification oracles | [RegulaQualification](RegulaQualification/Checks.lean), [guide](../docs/guides/lean-qualification.md) | Claimed pure observation predicates; separate Lean IO drivers do not authenticate the compiler or OS by proof. |
 | Inspect checker qualification | [CheckerSelftest](Regula/Checker/CheckerSelftest.lean), [fixture manifest](Fixtures/fixtures.json) | Isolated positive controls and intended-failure mutations; never import mutations into a claimed surface. |
 | Inspect optional serialized-graph checking | [FreshChecker](Regula/Checker/FreshChecker.lean) | Separate fresh replay and exact Lake coverage; no claim of native execution correctness. |
-| Inspect the opt-in intent screen | [RegulaPolicy.Screening](RegulaPolicy/Screening.lean), [RegulaCore.Screening](RegulaCore/Screening.lean), [Regula.Screen](Regula/Screen/Main.lean), [guide](../docs/guides/intent-screening.md) | Claimed pure thresholds, routing, clause split and screened-evidence account; the network client and calibration corpus are operational: acceptance type-checks them but never runs them. |
 
 ## Follow the sources
 

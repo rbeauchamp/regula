@@ -44,7 +44,7 @@ paths are under `lean/Regula/Checker/`; `Probe` and `Report` are in `lean/Regula
 | RG4004 | A trusted-compiler teaching example fails warning-free elaboration or required authenticated compiler classification. | Documentation/SourceAudit/Frontend → RG4004 + typed underlying refusal. | DocumentationExample. | Never count teaching example as conforming positive. No blanket native-name whitelist. |
 | RG5001 | A claimed module lacks module-doc metadata, its first command after the imports is not a module docstring, or its header repeats an import with the same modifiers. | Linter.Documentation.moduleObservation (Lean's `parseHeader`, one `topLevelCommandParserFn` parse of the first command, `HeaderSyntax.imports` without implicit `Init`) and proved `RegulaPolicy.ModuleHeader.failures` (`failures_eq_nil_iff`); AxiomGate project composition; #7 global jobs; self-audit worker. | Module/environment plus the bound module source; project and editor (when the module completed without errors). | Position and imports only: no headings, sections or content are imposed, and import minimality is not checked. A first command that does not parse is not a module docstring. |
 | RG5002 | A public declaration explicitly registered as evidence for a material normative claim lacks a docstring. | regula_material/findDocString?; AxiomGate project composition; #7 global jobs. Core missingDocs broader. | Elaboration/environment; project/editor. | Checks registered declarations only; the §6.7 requirement that every public definition has a docstring is `linter.missingDocs` composed with RG2003, not this rule. Registration completeness and meaning remain semantic review; no name heuristic. |
-| RG5003 | A public declaration explicitly registered as evidence for a material normative claim has a docstring without a nonempty labelled Intent section: a Markdown ATX heading whose text is exactly `Intent` followed, before the next heading of equal or higher level, by a non-heading line with non-whitespace text. Subsection text counts. | regula_material/findDocString?; proved `RegulaPolicy.materialDocumentationFailure` (`materialDocumentationFailure_eq_missingIntent_iff`, `hasIntentSection_iff`); AxiomGate project composition; #7 global jobs. | Elaboration/environment; project/editor. | A missing docstring is RG5002 only; the two rules partition failures. Presence and linkage only: no intent detector, length threshold or similarity check (the opt-in [intent screen](intent-screening.md) is separate and never a rule). Adequacy of the intent and agreement with the explanation and declaration remain R-INTENT review. Fenced code is not tracked. |
+| RG5003 | A public declaration explicitly registered as evidence for a material normative claim has a docstring without a nonempty labelled Intent section: a Markdown ATX heading whose text is exactly `Intent` followed, before the next heading of equal or higher level, by a non-heading line with non-whitespace text. Subsection text counts. | regula_material/findDocString?; proved `RegulaPolicy.materialDocumentationFailure` (`materialDocumentationFailure_eq_missingIntent_iff`, `hasIntentSection_iff`); AxiomGate project composition; #7 global jobs. | Elaboration/environment; project/editor. | A missing docstring is RG5002 only; the two rules partition failures. Presence and linkage only: no intent detector, length threshold or similarity check. Adequacy of the intent and agreement with the explanation and declaration remain R-INTENT review. Fenced code is not tracked. |
 
 The engine must preserve every existing advertised failure condition, including warning and
 worker completion handling, while grouping its presentation. A new or unclassified internal
@@ -101,24 +101,9 @@ mechanical selectors/adapters in #13 and accepted-evidence construction in #7.
   conditional/open status and external limits. The requirement owner still confirms that the
   intent states what is needed; no proof or presence check discharges that validation. No closed
   syntactic detector for arbitrary prose is selected. A future claim DSL needs adequacy research,
-  not a regex heuristic.
-  No default-on heuristic intent detector becomes a diagnostic, let alone a hard error. The one
-  amendment (#58) is the separate, opt-in
-  [`intentScreen`](intent-screening.md). It is not a registry rule and never runs in
-  acceptance. It is a separate executable rather than an in-elaboration rule because it calls a
-  paid network service with source text; inside the linter it would bring network, cost and
-  nondeterminism into every build and editor session. It reports probabilities; its guide owns
-  the measured calibration and which judgments met the pre-registered criteria. The user
-  chooses its thresholds and their severity mapping, in the rule-severity vocabulary (`error`,
-  `warning`, `information`; rule severities themselves are fixed registry defaults, not user
-  configuration). Its findings have the linter's diagnostic shape with a per-judgment
-  `intentScreen/<judgment>` identifier, not a rule ID. Its results form their own `screened`
-  evidence class. A low probability can raise a finding at the configured severity. A high
-  probability never makes the claim checked and never completes this review. An intent clause
-  can be discharged by a theorem, within the Standard-Logical foundation, proving that the
-  claim implies the clause's formal statement. Lean's kernel re-checks that implication's own
-  proof term; its guide states the trusted dependency boundary. Only that
-  formal statement's match with the English clause is judged.
+  not a regex heuristic, and no heuristic intent detector becomes a diagnostic. Reviewing
+  whether a statement matches its intent is the reviewer's job, done by a person or the
+  reviewer's own agent.
 - **R-INVARIANT:** identify intended admitted-value, transition, frame, reachability and composition
   relations, inspect all admission/write/caller paths, then require exact proof-bearing interfaces
   or theorems. Existing Lean checks evidence once the obligation is explicit; they cannot infer

@@ -98,12 +98,6 @@ lean_exe «ruleExamples» where
 lean_exe «ruleExampleQualification» where
   root := `Regula.Checker.RuleExampleQualificationMain
 
-lean_exe «intentScreen» where
-  -- Opt-in probabilistic intent screen (docs/guides/intent-screening.md). Never part of
-  -- offline acceptance; it calls a network service only when explicitly run.
-  root := `Regula.Screen.Main
-  supportInterpreter := true
-
 lean_exe «regula» where
   -- Offline rule guidance: `explain <RULE-ID>`, `rules`, `agent-guide`, `skill`.
   root := `Regula.Cli.Main
