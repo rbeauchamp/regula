@@ -422,6 +422,17 @@ private def removeReadOnly (path : FilePath) : IO Unit := do
   let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
   IO.FS.removeDirAll path
 
+/-- Remove a shared directory being removed, its receipt last, so that a run killed partway
+leaves it still identified and the next run finishes the removal. -/
+private def removeShared (path : FilePath) : IO Unit := do
+  let _ ← require (path.parent.getD ".") "chmod" #["-R", "u+w", path.toString]
+  for entry in ← path.readDir do
+    unless entry.fileName == receiptName do
+      if (← kind? entry.path) == some .dir then IO.FS.removeDirAll entry.path
+      else IO.FS.removeFile entry.path
+  if (← kind? (path / receiptName)).isSome then IO.FS.removeFile (path / receiptName)
+  IO.FS.removeDir path
+
 /-- Make the staged directory read-only. Each checkout's index is refreshed after its files
 changed mode, before its `.git` becomes read-only, so Lake's `git diff` stays cheap. -/
 private def makeReadOnly (staging : FilePath) (packages : Array FilePath) : IO Unit := do
@@ -550,7 +561,7 @@ private def prune (parent : FilePath) (current : String) : IO Unit := do
       if (← kind? entry.path) == some .dir then
         match found entry.fileName (← readReceipt entry.path) with
         | .foreign => pure ()
-        | .removing => removeReadOnly entry.path
+        | .removing => removeShared entry.path
         | .shared =>
           let registry := registryPath parent entry.fileName
           let some copies ← readRegistry registry
@@ -566,7 +577,7 @@ private def prune (parent : FilePath) (current : String) : IO Unit := do
             if ← registry.pathExists then IO.FS.removeFile registry
             let removing := parent / s!"{removingPrefix entry.fileName}{← nonce}"
             IO.FS.rename entry.path removing
-            removeReadOnly removing
+            removeShared removing
             say s!"removed {entry.path}: no registered copy links it"
           else
             let kept := stillLinked observed
