@@ -1,6 +1,8 @@
 import RegulaQualification.Json
 
-/-! Pure capture admission and paired-launcher equivalence. Environment values stay
+/-! # Launcher capture admission
+
+Pure capture admission and paired-launcher equivalence. Environment values stay
 in memory, never in the exported diagnostic. No theorem authenticates OS environment
 capture or establishes that a future run will be faster. -/
 namespace RegulaQualification.Launcher
@@ -54,13 +56,13 @@ structure Observation where
   executable : String
   deriving BEq, DecidableEq
 
-/-- Exact full-sequence comparison also preserves order, multiplicity and all 37
+/-- Exact full-sequence comparison also preserves order, multiplicity and all 39
 controls. Equality includes the environment and resolved compiler path. -/
 def equivalent (before after : Array Observation) : Bool :=
-  decide (before.size = 37 ∧ before = after)
+  decide (before.size = 39 ∧ before = after)
 
 /-- The paired diagnostic consumes this proof-linked predicate; timing is separate. -/
-theorem checkedEquivalence : Regula.ExecutableContract equivalent
-    (fun run => ∀ before after, run before after = true ↔ before.size = 37 ∧ before = after) :=
+theorem checked_equivalence : Regula.ExecutableContract equivalent
+    (fun run => ∀ before after, run before after = true ↔ before.size = 39 ∧ before = after) :=
   ⟨by intro before after; simp [equivalent]⟩
 end RegulaQualification.Launcher

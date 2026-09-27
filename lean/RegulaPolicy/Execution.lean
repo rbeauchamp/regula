@@ -1,7 +1,9 @@
 import RegulaPolicy.Admission
 import Regula.Contract
 
-/-! Executable execution decisions and their exact finite-observation specification.
+/-! # Execution decisions
+
+Executable execution decisions and their exact finite-observation specification.
 Neither policy equivalence nor admitted origin data proves extraction or native runtime correctness. -/
 namespace RegulaPolicy
 inductive ExecutionFailureKind where
@@ -129,7 +131,7 @@ private theorem boundaryFailures_unresolved (root : ExecutionRoot) (claim : Exec
     (boundaryFailures root claim b).countP (·.id = .executionUnresolved) =
       if b.correspondence = .unresolved then 1 else 0 := by
   unfold boundaryFailures
-  cases claim <;> cases b.correspondence <;> simp <;> split <;> simp
+  cases claim <;> cases b.correspondence <;> simp
 
 private theorem sum_indicator (xs : Array ExecutionBoundary) (f : ExecutionBoundary → Nat)
     (h : ∀ b, f b = if b.correspondence = .unresolved then 1 else 0) :
@@ -180,7 +182,7 @@ theorem executionSummary_partition (inventory : ExecutionInventory) :
 
 /-- The gate renders these counts through this registration, whose `run` is exactly
 `executionSummary`. It does not count distinct runtime paths or authenticate extraction. -/
-theorem checkedSummary : Regula.ExecutableContract executionSummary SummaryContract :=
+theorem checked_summary : Regula.ExecutableContract executionSummary SummaryContract :=
   ⟨fun inventory => ⟨rfl, rfl, Array.countP_eq_size_filter .., Array.countP_eq_size_filter ..,
     executionSummary_unresolved inventory⟩⟩
 

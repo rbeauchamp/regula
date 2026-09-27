@@ -2,6 +2,8 @@ module
 
 
 /-!
+# Closed rule identity
+
 Closed public rule identity. Canonical construction is inspired by con-leche's
 `PropWhen.lean` and `Cached/Installed.lean`, revision
 c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0 (Lean FRO, Joachim Breitner and contributors).
@@ -26,6 +28,7 @@ inductive RuleId where
   | sourceBuild
   | coverage
   | admission
+  | communityConfiguration
   | executionUnresolved
   | executionBoundary
   | fenceStructure
@@ -52,6 +55,7 @@ def spelling : RuleId → String
   | .sourceBuild => "RG2003"
   | .coverage => "RG2004"
   | .admission => "RG2005"
+  | .communityConfiguration => "RG2006"
   | .executionUnresolved => "RG3001"
   | .executionBoundary => "RG3002"
   | .fenceStructure => "RG4001"
@@ -75,6 +79,7 @@ def parse? : String → Option RuleId
   | "RG2003" => some .sourceBuild
   | "RG2004" => some .coverage
   | "RG2005" => some .admission
+  | "RG2006" => some .communityConfiguration
   | "RG3001" => some .executionUnresolved
   | "RG3002" => some .executionBoundary
   | "RG4001" => some .fenceStructure
@@ -86,7 +91,11 @@ def parse? : String → Option RuleId
   | "RG5003" => some .materialIntent
   | _ => none
 
-def all : List RuleId := [.projectAxiom, .proofHole, .unknownAxiom, .compilerTrusting, .profileExceeded, .escapeHatch, .executableContract, .environment, .configuration, .sourceBuild, .coverage, .admission, .executionUnresolved, .executionBoundary, .fenceStructure, .positiveExample, .negativeExample, .trustedExample, .moduleDocumentation, .materialDocumentation, .materialIntent]
+def all : List RuleId := [.projectAxiom, .proofHole, .unknownAxiom, .compilerTrusting,
+  .profileExceeded, .escapeHatch, .executableContract, .environment, .configuration, .sourceBuild,
+  .coverage, .admission, .communityConfiguration, .executionUnresolved, .executionBoundary,
+  .fenceStructure, .positiveExample, .negativeExample, .trustedExample, .moduleDocumentation,
+  .materialDocumentation, .materialIntent]
 
 theorem parse_spelling (id : RuleId) : parse? id.spelling = some id := by
   cases id <;> rfl

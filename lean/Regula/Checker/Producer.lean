@@ -1,7 +1,9 @@
 import Lean
 import Regula.RegistryCodec
 
-/-! Build identity shared by operational result and raw worker transports. -/
+/-! # Producer build identity
+
+Build identity shared by operational result and raw worker transports. -/
 namespace Regula.Checker.Producer
 open Lean Regula
 /-- Captured when this module is elaborated, not from an adopter's working directory. -/

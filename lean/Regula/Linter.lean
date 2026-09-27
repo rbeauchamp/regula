@@ -4,11 +4,14 @@ public meta import Regula.Linter.Rules
 public meta import Regula.Linter.Documentation
 public meta import Lean.Linter.Basic
 
-public meta section
+/-! # Local feedback linter
 
-/-! Opt-in production import for Lean-native local feedback. Lean owns command
+Opt-in production import for Lean-native local feedback. Lean owns command
 snapshots, cancellation and publication. Local options govern editor feedback;
 they cannot discharge or disable mandatory project checks. -/
+
+public meta section
+
 namespace Regula.Linter
 open Lean Elab Command
 
@@ -37,7 +40,7 @@ private initialize auditBuild : PersistentEnvExtension Unit Empty Bool ←
     addEntryFn := fun state entry => nomatch entry
     exportEntriesFn := fun _ => #[] }
 
-/-- The only gate of Regula's local findings (`checkedLiveFeedback`): in an audit build it is
+/-- The only gate of Regula's local findings (`checked_liveFeedback`): in an audit build it is
 off for every command scope (`liveFeedback_auditBuild`). -/
 private def enabled : CommandElabM Bool := do
   return liveFeedback (auditBuild.getState (← getEnv))
@@ -126,7 +129,10 @@ initialize addModuleLinter {
       return
     try
       let env ← getEnv
-      if let some finding ← IO.ofExcept <| Documentation.moduleFinding env env.mainModule .editorSnapshot then
+      let observation ← Documentation.moduleObservation env env.mainModule
+        (← read).fileMap.source (← read).fileName
+      for finding in ← IO.ofExcept <|
+          Documentation.moduleFindings env.mainModule observation .editorSnapshot none do
         emit finding
       -- Complete local-map traversal also includes declarations lacking binders,
       -- private/generated constants and additions made by metaprograms.

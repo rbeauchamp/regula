@@ -1,7 +1,9 @@
 import Lean.Data.Json
 import RegulaPolicy.Codec
 
-/-! Public structural-name transport. The policy decoder is the pure wire decoder;
+/-! # Structural-name transport
+
+Public structural-name transport. The policy decoder is the pure wire decoder;
 JSON scalar admission is the operational bridge. Names retain every constructor. -/
 namespace Regula.RegistryCodec
 open Lean

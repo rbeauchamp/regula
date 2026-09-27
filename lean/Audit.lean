@@ -6,6 +6,8 @@ import Audit.Research
 import Audit.Server
 
 /-!
+# Audit surface umbrella
+
 Umbrella for the complete positive `Audit` Lake surface. It imports
 `Audit.DocPrelude` (shared types and abstraction API), `Audit.Basic` (arithmetic
 and subtype controls), `Audit.DocClaims` (the decay and discrete-time models

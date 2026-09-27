@@ -1,6 +1,8 @@
 import Regula.RegistryCodec
 
-/-! Fail-closed diagnostic transport. Decode to the indexed domain, then compare with
+/-! # Fail-closed diagnostic transport
+
+Fail-closed diagnostic transport. Decode to the indexed domain, then compare with
 canonical re-encoding to reject unknown fields and redundant-coordinate disagreement.
 Payloads are indexed by the registry's closed `RuleId` (design credit in Regula.RuleId). -/
 namespace Regula.DiagnosticCodec
@@ -37,7 +39,7 @@ private def parseArguments (id : RuleId) (j : Json) : Except String (Payload id)
       return ⟨← parseName (← field j "declaration"), detail⟩
   | .executionUnresolved | .executionBoundary =>
       return ⟨← parseName (← field j "root"), detail⟩
-  | .environment | .configuration | .sourceBuild | .coverage | .admission
+  | .environment | .configuration | .sourceBuild | .coverage | .admission | .communityConfiguration
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
   | .moduleDocumentation => return ⟨← string j "subject", detail⟩
 

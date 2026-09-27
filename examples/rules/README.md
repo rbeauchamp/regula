@@ -1,6 +1,6 @@
 # Rule source fixtures
 
-These files are the source of truth for all twenty-one rule-reference examples. The rule
+These files are the source of truth for all twenty-two rule-reference examples. The rule
 registry embeds each rule's `Fixed` and `Violation` file verbatim as its compliant and
 noncompliant example, so diagnostics, `lake exe regula` and the agent briefing show these exact
 bytes, except that RG1003's stand-in dependency and RG2001's runner requests are qualification

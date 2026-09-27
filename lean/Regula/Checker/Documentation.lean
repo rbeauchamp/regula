@@ -7,6 +7,8 @@ import Regula.Checker.RunFeedback
 import RegulaCore.Account
 
 /-!
+# Markdown fence auditing
+
 Balanced Markdown fence discovery and exact, verbatim Lean-source auditing.
 
 Expected-failure markers use a deliberately small diagnostic pattern language:
@@ -119,7 +121,6 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
   let mut offset := 0
   let mut body : Array String := #[]
   let mut pending : Option PendingMarker := none
-
   for index in [:lines.size] do
     let lineNo := index + 1
     let line := lines[index]!
@@ -153,17 +154,14 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
       else
         body := body.push line
       continue
-
     let opener := fenceRun? line
     let failMarker := failMarker? line
     let trustedMarker := exactTrustedMarker line
-
     if let some marker := pending then
       if lineNo != marker.line + 1 then
         problems := problems.push
           s!"{origin}:{marker.line}: marker is not immediately adjacent to a ```lean fence"
         pending := none
-
     if failMarker.isSome || trustedMarker then
       if pending.isSome then
         problems := problems.push s!"{origin}:{lineNo}: multiple markers target one fence"
@@ -178,7 +176,6 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
       else
         pending := some { kind := .trusted, line := lineNo }
       continue
-
     if markerLike line then
       if let some marker := pending then
         problems := problems.push
@@ -186,7 +183,6 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
         pending := none
       problems := problems.push s!"{origin}:{lineNo}: malformed Lean fence marker"
       continue
-
     if let some (character, count, info) := opener then
       if let some marker := pending then
         if firstWord info != "lean" then
@@ -201,12 +197,10 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
       bodyStart := offset
       body := #[]
       continue
-
     if let some marker := pending then
       problems := problems.push
         s!"{origin}:{marker.line}: marker is not immediately adjacent to a ```lean fence"
       pending := none
-
   if openCharacter.isSome then
     problems := problems.push s!"{origin}:{openLine}: fence opened but never closed"
   if let some marker := pending then
@@ -554,7 +548,6 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
             importNames := moduleData.imports.map (·.module)
           }
           groups := addToGroups groups item
-
       let selfLib ← checkerPackageLibDir
       let oldSearchPath ← Lean.searchPathRef.get
       Lean.searchPathRef.set (scratch :: extraSearchRoots.toList ++ selfLib.toList ++ oldSearchPath)
@@ -597,7 +590,7 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
       for group in updates do responses := responses ++ group
       -- `IndexedResultsContract`: exactly one result per task, in task order, each bound
       -- to its own task; missing, duplicate, unknown and rebound results are refused.
-      let complete ← IO.ofExcept <| (RegulaPolicy.checkedIndexedResults.run tasks.size
+      let complete ← IO.ofExcept <| (RegulaPolicy.checked_indexedResults.run tasks.size
         (fun index (result : Result) => decide (tasks[index]? = some result.task))
         responses.toList).mapError
         (fun failure => s!"documentation result admission: {repr failure}")
@@ -666,7 +659,7 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
       pure (#[], RegulaPolicy.ExampleOutcome.compilerRejection errors)
     else do
       let some group := raw.group | throw <| IO.userError "missing example group inspection"
-      IO.ofExcept (ProducerReport.checkedValidate.run group.report)
+      IO.ofExcept (ProducerReport.checked_validate.run group.report)
       IO.ofExcept <| group.report.validateSourceEvidence.mapError (·.detail)
       let scope ← IO.ofExcept <| Policy.admitScope group.report.declarations group.transcripts
       let some replay := group.report.admission
@@ -916,7 +909,6 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       IO.println <| s!"```lean fences: {tasks.size} " ++
         s!"(conforming-positive {positiveCount}, negative {negativeCount}, trusted {trustedCount})"
       (← IO.getStdout).flush
-
       -- A structural problem already refuses acceptance, and a malformed marker's
       -- fence has no request key. Freeze only a structurally clean corpus, so its
       -- located problems are still reported; a key error without one still throws.

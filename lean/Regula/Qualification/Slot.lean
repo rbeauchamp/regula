@@ -2,7 +2,9 @@ import Regula.Checker.Snapshot
 import Regula.Qualification.Support
 import RegulaQualification.Json
 
-/-! Corpus slot preparation. A `ProducerSlot` holds one physically independent copy
+/-! # Corpus producer slot
+
+Corpus slot preparation. A `ProducerSlot` holds one physically independent copy
 of the ROOT package (real byte copies, never hardlinks), prepared before the corpus
 producer window and shared by every producer, which must not write it (no permission
 enforces this; the `sharedIdentity` check refuses a changed end state rather than
@@ -441,7 +443,7 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   IO.FS.writeBinFile (project / "lean-toolchain")
     (← IO.FS.readBinFile (slot.root / "root" / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.lean")
-    s!"import Lake\nopen Lake DSL\npackage {packageName}\nrequire regula from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
+    s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\nrequire regula from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
   writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),

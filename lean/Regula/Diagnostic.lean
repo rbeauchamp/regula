@@ -5,10 +5,13 @@ public import RegulaCore.Feedback
 public import RegulaCore.Source
 public import Lean.Data.Lsp.Utf16
 
+/-! # Canonical diagnostic values
+
+Canonical diagnostic values and source conversion. Payloads are indexed by the closed
+`RuleId` (design credit in RuleId); source conversion uses pinned Lean FileMap/LSP APIs. -/
+
 @[expose] public section
 
-/-! Canonical diagnostic values and source conversion. Payloads are indexed by the closed
-`RuleId` (design credit in RuleId); source conversion uses pinned Lean FileMap/LSP APIs. -/
 namespace Regula
 open Lean
 
@@ -56,7 +59,7 @@ def Payload : RuleId → Type
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract | .materialDocumentation | .materialIntent => DeclarationArguments
   | .executionUnresolved | .executionBoundary => ExecutionArguments
-  | .environment | .configuration | .sourceBuild | .coverage | .admission
+  | .environment | .configuration | .sourceBuild | .coverage | .admission | .communityConfiguration
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
   | .moduleDocumentation => ContextArguments
 
@@ -93,8 +96,9 @@ def argumentParts : (id : RuleId) → Payload id → String × String
   | .materialDocumentation, a | .materialIntent, a => (toString a.declaration, a.detail)
   | .executionUnresolved, a | .executionBoundary, a => (toString a.root, a.detail)
   | .environment, a | .configuration, a | .sourceBuild, a | .coverage, a
-  | .admission, a | .fenceStructure, a | .positiveExample, a | .negativeExample, a
-  | .trustedExample, a | .moduleDocumentation, a => (toString a.subject, a.detail)
+  | .admission, a | .communityConfiguration, a | .fenceStructure, a | .positiveExample, a
+  | .negativeExample, a | .trustedExample, a | .moduleDocumentation, a =>
+    (toString a.subject, a.detail)
 
 /-- Lean's position (one-based line, codepoint column) of the start of a source selection. -/
 def SourceLocation.startPosition (s : SourceLocation) : Position :=

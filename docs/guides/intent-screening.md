@@ -236,7 +236,7 @@ Machine-checked, about the definitions the executable runs (each through a
 - Probability admission accepts exactly the values in `[0, 1]` and changes none
   (`probability?_eq_some_iff`).
 - The severity mapping is exact: error below `error`, warning and information in their bands,
-  nothing at or above `information` (`checkedClassify`). It is also antitone: a lower
+  nothing at or above `information` (`checked_classify`). It is also antitone: a lower
   probability never gives a less severe finding (`classify_antitone`). Screen severities are
   exactly the rule severities (`ScreenSeverity.toSeverity_bijective`).
 - A clause's judged answer has one of the clause's evidence classes and is never `checked`
@@ -245,13 +245,13 @@ Machine-checked, about the definitions the executable runs (each through a
   (`ClauseEvidence.refused_not_checked`). The printed and JSON class labels are these
   classes' spellings.
 - An answer stays `screened` exactly when thresholds are configured, the answer raises no
-  finding, and any reported confidence meets the minimum (`checkedRoute`). An answer with a
+  finding, and any reported confidence meets the minimum (`checked_route`). An answer with a
   finding always escalates (`Judged.escalate_of_severity`). A claim with any finding is
   escalated (`ClaimScreen.escalated_of_finding`), and so is a claim with a refused discharge
   (`ClaimScreen.escalated_of_refused`) or an incomplete screen
   (`ClaimScreen.escalated_of_incomplete`).
 - Clause extraction finds clauses only in docstrings that RG5003 accepts and never returns a
-  blank clause (`checkedClauses`, `intentBody?_isSome_iff`). Every clause `discharge?` reads
+  blank clause (`checked_clauses`, `intentBody?_isSome_iff`). Every clause `discharge?` reads
   contains the text `(discharged by` that `dischargeMarked?` detects
   (`dischargeMarked?_of_discharge?`).
   Discharge-marker parsing, the pinned-model grammar, and clause splitting are checked on
@@ -282,19 +282,19 @@ results are their own evidence class and never complete R-INTENT; the six claims
 to review.
 
 The first run, on 2026-09-25, selected six declarations, all in `AuditApp`: `RequiredContracts`,
-`requiredContracts`, `checkedExecutable`, `demo_checked_error`,
+`required_contracts`, `checked_executable`, `demo_checked_error`,
 `Refinement.prefix_safe` and `Refinement.reachable_safe`. It found one warning:
 `exclusions` p = 0.37 on `RequiredContracts`. The cause was a defect in the screen, not in
 the claim. A structure's type is `Prop`, so the screen had sent the bare statement `Prop` and
 the model judged an empty claim. The fix sends the structure's field propositions, as
 described under [Judgments](#judgments); the same answer is now p = 0.71. With the fields
-visible, `requiredContracts` exposed a mismatch. Its Intent said the application "may run only
+visible, `required_contracts` exposed a mismatch. Its Intent said the application "may run only
 when" the evidence exists, but that is a property of `executeChecked`'s signature, stated by
-`checkedExecutable`, not of this theorem. The Intent now states what the theorem establishes,
+`checked_executable`, not of this theorem. The Intent now states what the theorem establishes,
 and its strength answer rose from 0.32 to 0.81. A later fix indented the continuation lines of a
 wrapped field type, so the rendered structure reads as its Lean declaration. That changed both
 requests: `RequiredContracts` now has exclusions 0.71, coverage 0.44 and strength 0.43, and
-`requiredContracts` has strength 0.78 and coverage 0.42.
+`required_contracts` has strength 0.78 and coverage 0.42.
 
 Those runs selected the claims with `--intent-sections`, because the claimed libraries could not
 import `Regula.MaterialClaim`. Issue #83 admitted it as a published interface (standard §8.10)
@@ -319,17 +319,17 @@ answer is 0.72.
 Apart from that correspondence warning, the remaining answers below 0.5 are for judgments
 without calibrated thresholds, so they raise no finding and escalate to review:
 
-- `checkedExecutable`: coverage 0.31, strength 0.27. Read against the statement, the claim
+- `checked_executable`: coverage 0.31, strength 0.27. Read against the statement, the claim
   matches its Intent: the registered relation admits exactly positive capacities, starts each
   admitted limiter idle at that capacity and runs the strict interpreter.
 - `demo_checked_error`: coverage 0.41. The statement is exact for the fixed demonstration
   script at capacity 2. The model sees `demoScript` and `demoInitial` only by name.
 - `RequiredContracts`: coverage 0.12 on its exclusion clause, reviewed above.
-- `requiredContracts`: coverage 0.42. Its statement is the fully rendered `RequiredContracts`
+- `required_contracts`: coverage 0.42. Its statement is the fully rendered `RequiredContracts`
   bundle.
 
 Spend: seven runs sent 14 requests and were billed 25,760 input tokens, about $0.0011 at the
-list price. The last run sent 1 request, for `checkedExecutable`, and was billed
+list price. The last run sent 1 request, for `checked_executable`, and was billed
 1,508 input tokens; the other 6 answers came from the cache.
 
 ## Calibration protocol

@@ -9,7 +9,9 @@ import RegulaQualification.CorpusWindow
 import Regula.Checker.RuleExampleCorpusProjection
 import Regula.Checker.ResultProtocol
 
-/-! Source-owned corpus orchestration. Actual detector receipts are admitted by the
+/-! # Rule-example corpus orchestration
+
+Source-owned corpus orchestration. Actual detector receipts are admitted by the
 existing RuleExampleQualification executable and its proof-linked policy functions.
 This adapter does not infer policy from source text. Filesystem/process authenticity
 remains trusted. At most five producer jobs run at once, each in its own fresh
@@ -235,6 +237,14 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       command := command ++ #["--file", (project / (← string request "source")).toString, "--claim", "kernel-only", "--execution", "checked"]
     else if rule == "RG2002" then
       IO.FS.writeBinFile (project / "foundation_manifest.json") (← IO.FS.readBinFile (folder / s!"{case}.json"))
+    else if rule == "RG2006" then
+      -- The case file is the package's `lakefile.lean`; the run adds its `require` of the
+      -- slot's ROOT copy, as `Slot.prepareSlotProject` writes it.
+      let config := project / "lakefile.lean"
+      let require := ((← IO.FS.readFile config).splitOn "\n").filter
+        (·.startsWith "require regula ")
+      IO.FS.writeFile config ((← IO.FS.readFile (folder / s!"{case}.lean")) ++ "\n" ++
+        "\n".intercalate require ++ "\n")
     else if rule == "RG1003" then
       let vendor := project / "vendor"
       IO.FS.createDir vendor
@@ -606,7 +616,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
       let expectedType := theoremType.getD (← get declaration "type")
       theoremType := some expectedType
       let phase ← string record "phase"
-      IO.ofExcept (RegulaQualification.Producer.checkedValidation.run report
+      IO.ofExcept (RegulaQualification.Producer.checked_validation.run report
         (← IO.ofExcept (← get record "exitCode").getNat?) rule "freshProject" (← string record "source")
         (phase == "Fixed") expectedType)
       IO.println s!"fresh project producer {rule}/{phase}: PASS"

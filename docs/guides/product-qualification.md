@@ -24,7 +24,7 @@ Evidence classes used below:
 
 ## Scope
 
-The registry has exactly twenty-one rules (`RegulaCore.RuleId`, `RuleId.all`); every one is
+The registry has exactly twenty-two rules (`RegulaCore.RuleId`, `RuleId.all`); every one is
 `existingChecker` and has an executed emission site. The supported toolchain is the pinned
 [`lean-toolchain`](../../lean-toolchain) (Lean 4.34.0); the checker imports only Lean, Std and
 Lake. The only supported editor client is VS Code with the `leanprover.lean4` extension.
@@ -34,16 +34,16 @@ Success comes from one place: an `AcceptedRun` built by `RegulaPolicy.accept`, w
 (`CompleteFor`) and every stage observation meets its policy (`AllPolicyOK`). `lake lint`
 exits 0 only through `Regula.Checker.Lint.accepted_sound` (audit exit 0 and a recorded
 `completed` status of the requested mode imply such a run); its exit classes are the claimed
-`RegulaCore.Lint.checkedClassify`. Those theorems prove the success direction. They do not prove
+`RegulaCore.Lint.checked_classify`. Those theorems prove the success direction. They do not prove
 which rule a failure receives; the per-rule linkage below says which rule mappings are proved.
 
 ## Per-rule capability and evidence
 
 `D` is the shared declaration decision: `RegulaPolicy.declarationFailure` (the first failed
-requirement of `DeclarationRequirements`, `declarationFailure_ordered`), mapped to a rule by the
+requirement of `declarationRequirements`, `declarationFailure_ordered`), mapped to a rule by the
 injective `ruleForFailure`. Project, file and documentation paths run it through
-`Policy.ruleForMember` (`checkedMemberRule.run`, equal to `ruleFor` by `ruleForMember_eq`);
-the editor runs `checkedEditorDecision.run`, proved equal to the project decision on the
+`Policy.ruleForMember` (`checked_memberRule.run`, equal to `ruleFor` by `ruleForMember_eq`);
+the editor runs `checked_editorDecision.run`, proved equal to the project decision on the
 editor domain (`editor_request_sound`/`_complete`, `editor_decision_none_iff`/`_rule`/`_pending`
 in `RegulaCore.Policy`). Its proofs take the observed declaration fields (`collectAxioms`
 axioms, unsafe/partial flags, contract observations) and the recomputed generated-role
@@ -64,17 +64,18 @@ names are the required-stage slots of `RegulaPolicy.Stage` whose observation the
 | RG1006 | §8.4; COMP-02 | D (unsafe or partial, not an authenticated helper) | editor, incremental, fresh, file, docs | declarationPolicy, transcript | D; `authorizedUnsafeRecHelpers_iff` | corpus; native, fixture controls | Editor defers helper authentication (RG2005) | Lean frontend transcripts |
 | RG1007 | §8.12, §8.5; BUILD-03, THEOREM-07 | D (contract observation has a failure) | editor, incremental, fresh, file, docs | declarationPolicy | D over the observation; `Collect.executableContract?` is operational | corpus; native, build-policy controls | Adequacy of `R` and caller linkage are R-INTENT, R-INVARIANT | Lean type checker |
 | RG2001 | §8.1; DECL-01/04 | Setup failures and every escaped audit error not prefixed `manifest-` (`AxiomGate` catch-all) | incremental, fresh, file | setup, before any stage | None: classification by error prefix, fail-closed | corpus demonstration (INCOMPLETE by design) | Always INCOMPLETE; `docFenceAudit` setup failures print FAIL without a finding | Lake workspace loader |
-| RG2002 | §8.2; DECL-04 | `Manifest.parse`/`load`, `checkClassification`; editor `Rules.request` | editor, incremental, fresh, file | configuration | `Manifest.parse_sound`, `parseValue_complete` (excluded library, kernel-checked); `checkedEditorRequest` | corpus; structural, build-policy, lint-driver (exit 2), native controls | Routing by `manifest-` prefix is unproved; editor never guesses scope | Lake elaborated package model |
+| RG2002 | §8.2; DECL-04 | `Manifest.parse`/`load`, `checkClassification`; editor `Rules.request` | editor, incremental, fresh, file | configuration | `Manifest.parse_sound`, `parseValue_complete` (excluded library, kernel-checked); `checked_editorRequest` | corpus; structural, build-policy, lint-driver (exit 2), native controls | Routing by `manifest-` prefix is unproved; editor never guesses scope | Lake elaborated package model |
 | RG2003 | §8.3; DECL-01, BUILD-01 | `Lake.buildChecked` result lines; file compile via `SourceAudit` | incremental, fresh, file | build | Acceptance side only (`BuildOK`) | corpus; build-policy, lint-driver (exit 3), `sourceDiagnosticFailure` controls | Project runs: always INCOMPLETE. File runs reject warnings only with `--claim` | Lake build |
-| RG2004 | §8.2; DECL-02/03 | Inline inventory checks in `AxiomGate` | incremental, fresh | discovery | Acceptance side only (`ScopeOK`, `checkedSurfaceAssignments`) | corpus; structural, environments controls | Violation for `unexpected-project-module`; INCOMPLETE for omission, not-fresh, attribution mismatch | Lake module arrays, `.olean` origin |
+| RG2004 | §8.2; DECL-02/03 | Inline inventory checks in `AxiomGate` | incremental, fresh | discovery | Acceptance side only (`ScopeOK`, `checked_surfaceAssignments`) | corpus; structural, environments controls | Violation for `unexpected-project-module`; INCOMPLETE for omission, not-fresh, attribution mismatch | Lake module arrays, `.olean` origin |
 | RG2005 | §8.3; DECL-01/02 | `Admission.validate`, source freshness, authentication; editor pending | editor, incremental, fresh, file, docs | admission, transcript | Acceptance side (`AdmissionOK`); `editor_decision_pending` | corpus demonstration; fixture, history controls | Always INCOMPLETE; imported base trusted | Lean `Environment.replay` |
-| RG3001 | §8.6; COMP-03 | `executionFailureRecords` → `RuleDiagnostics.executionFinding` | incremental, fresh, file | execution, history | `executionFailureRecords_empty_iff`, `checkedExecutionFailures`, `executionRule_injective` | corpus demonstration; policy-domain controls | Always INCOMPLETE; closure overapproximates runtime edges; not an editor rule | Lean compiler IR |
+| RG2006 | §8.1, §6.7, §6.2; DECL-01 | `RegulaPolicy.Community.failures` on each claimed target's Lake `leanOptions`, `weakLeanArgs` and `leanArgs` (`Lake.buildOptions`); Mathlib from the surface's loaded environment | incremental, fresh | configuration (reported after inspection; a violation does not stop the run) | `failures_eq_nil_iff`, `conforming_of_mathlib`, `leanArgument_mem_failures_iff` (the `-D` reading over argument characters) and five fixed-argument cases; reading Lake's configuration is operational | corpus; self-lint (Regula's own targets, Mathlib and core-only) | `linter.missingDocs` not yet decided; source `set_option`, `lake` command-line options and extra `lean` arguments other than `-D` not read | Lake `LeanLib`/`LeanExe` configuration |
+| RG3001 | §8.6; COMP-03 | `executionFailureRecords` → `RuleDiagnostics.executionFinding` | incremental, fresh, file | execution, history | `executionFailureRecords_empty_iff`, `checked_executionFailures`, `executionRule_injective` | corpus demonstration; policy-domain controls | Always INCOMPLETE; closure overapproximates runtime edges; not an editor rule | Lean compiler IR |
 | RG3002 | §8.6; COMP-03/04 | Same, checked-mode branch | incremental, fresh, file | execution, origin (Init native-runtime exemption) | Same; `BoundaryOK` | corpus; fixture, build-policy controls | Native runtime stays trusted; external code unproved | Lean compiler IR |
 | RG4001 | §8.7; DOC-03 | `Documentation.scan` | docs | documentScan | Acceptance side (`DocumentOK`); scanner unproved | corpus; fence corpus controls | Structure only | — |
 | RG4002 | §8.7; DOC-04 | `assessPositive` (D plus warning check) | docs | example | D; `ExampleExpectationOK`; `incomplete_example_refused` | corpus; fence corpus controls | Standard-Logical only | Lean elaborator |
 | RG4003 | §8.7; DOC-05 | `auditNegative` with `matchesPattern` | docs | example | `matchesPattern_iff` on the executed matcher | corpus; fence corpus controls | Worker non-completion is INCOMPLETE | — |
-| RG4004 | §8.7; DOC-05 | `assessPositive` teaching branch | docs | example | `checkedMemberFoundation`, `labelOf_member` | corpus plus teaching refusal controls | Never a conforming positive | Lean frontend transcripts |
-| RG5001 | §5.3; DOC-01 | `Linter.Documentation.modulePresent` | editor, incremental, fresh | documentationPresence | Acceptance side (`DocumentationPresenceOK`, `modulePresence_iff`); presence predicate unproved | corpus; native, producers controls | Presence only (R-DOC) | Lean module-doc APIs |
+| RG4004 | §8.7; DOC-05 | `assessPositive` teaching branch | docs | example | `checked_memberFoundation`, `labelOf_member` | corpus plus teaching refusal controls | Never a conforming positive | Lean frontend transcripts |
+| RG5001 | §5.3, §6.4; DOC-01 | `Linter.Documentation.moduleObservation` (module-doc metadata; Lean's header and first-command parser on the bound source) decided by `RegulaPolicy.ModuleHeader.failures` | editor, incremental, fresh | documentationPresence | `failures_eq_nil_iff`, `mem_repeated_iff`; acceptance side (`DocumentationPresenceOK`, `modulePresence_iff`); the parse is operational | corpus; native (`MisplacedDoc`, `RepeatedImport`), producers controls; self-audit | Presence, position and repeated imports only (R-DOC) | Lean module-doc and parser APIs |
 | RG5002 | §5.1; DOC-01 | `materialDocumentationFailure` on `findDocString?` of `@[regula_material]` public declarations | editor, incremental, fresh | documentationPresence | `materialDocumentationFailure_eq_none_iff`/`_missingDocstring_iff`, `ruleForMaterialDocumentation_injective` | corpus; native, producers controls | Registration completeness is R-DOC | Lean `findDocString?` |
 | RG5003 | §5.2; DOC-02 | Same, missing Intent section | editor, incremental, fresh | documentationPresence | `materialDocumentationFailure_eq_missingIntent_iff`, `hasIntentSection_iff` | corpus; native controls | Presence only; intent adequacy is R-INTENT | Lean `findDocString?` |
 
@@ -113,7 +114,7 @@ compliant example (or the correction, where the checked files are qualification 
 | Route | What runs | Result | Evidence |
 | --- | --- | --- | --- |
 | Editor, `import Regula.Linter` | Command and module hooks over the current snapshot | `editorSnapshot` feedback: RG1001–RG1007, RG2002, RG2005, RG5001–RG5003 at their ranges; never project acceptance | Proved editor/project equality above; observed in VS Code ([editor journeys][j14], [#10 journey][q10-editor]) |
-| `lake lint` | `regula/lint` driver: builds the manifest's targets with the audit-build marker (local findings off whatever the source sets `linter.regula` to), then the `axiomGate` project audit | `incrementalProject`; exit 0/1/2/3 | `accepted_sound`, `checkedClassify`; `liveFeedback_auditBuild`; lint-driver campaign (17 controls); [#10 fresh-adopter journey][q10-cli] |
+| `lake lint` | `regula/lint` driver: builds the manifest's targets with the audit-build marker (local findings off whatever the source sets `linter.regula` to), then the `axiomGate` project audit | `incrementalProject`; exit 0/1/2/3 | `accepted_sound`, `checked_classify`; `liveFeedback_auditBuild`; lint-driver campaign (17 controls); [#10 fresh-adopter journey][q10-cli] |
 | `lake lint -- --fresh` | Same audit in an isolated copy from empty build output | `freshProject`, the only fresh whole-project claim | Observed PASS in the [fresh adopter][q10-cli] |
 | `lake lint -- --json-out PATH` | Same audit, result schema 3 | `status`, the stage evidence `stages` and `stagesCompleted` with `complete` and `stagesNotRun`, diagnostics in run order with source ranges, `remedy` and `helpUrl`, and each fired rule's guidance (`rules`) | `ResultProtocol.admitGuidance` on every rule-example result |
 | `lake exe regula explain\|rules\|agent-guide\|skill` | Prints registry-generated Markdown; no audit | Exit 0, or 2 for an invalid invocation | `parseCommand_sound`, `parseCommand_arguments`; committed skill checked equal in acceptance |
@@ -122,7 +123,7 @@ compliant example (or the correction, where the checked files are qualification 
 | Build-lint `policy` target | Sole default target runs `axiomGate --build-lint` | Incremental audit; failure fails `lake build` | build-policy campaign |
 | `lake exe axiomGate` | Fresh project audit (default), `--incremental`, `--file F [--claim P]`, `--with-docs` | Accepted account and exit status | Ordinary acceptance dogfoods it on every claimed library |
 | `docFenceAudit`, `./scripts/verify.sh docs` | Every Lean fence under `docs/` and, with `--verso`, every `lean` block of the Verso standard, which it builds and renders | `documentationExample` | Acceptance step 2 |
-| Workers | `axiomGate` inspection and fence diagnostic workers, with indexed result admission (`checkedIndexedResults`) | A crashed, abnormally terminated or incomplete worker is INCOMPLETE, never a pass | Proved admission; fixtures and fence-corpus controls (abnormal termination) |
+| Workers | `axiomGate` inspection and fence diagnostic workers, with indexed result admission (`checked_indexedResults`) | A crashed, abnormally terminated or incomplete worker is INCOMPLETE, never a pass | Proved admission; fixtures and fence-corpus controls (abnormal termination) |
 | `freshChecker` | Optional serialized-graph recheck (§8.9) | Emits no rule findings | Optional MUT-05 claim; not part of product acceptance |
 | Direct `lean`, `lake build <other target>`, `lake lint --builtin-only`, TOML `lake build` | Nothing of Regula's project audit | Not enforcement | Documented as such everywhere |
 
@@ -208,6 +209,45 @@ required a module docstring in the import-only root.
 The header and `hashCommand` exclusions each removed their linter's warnings, and the `longFile`
 setting was inert. Of the set's other linters only `linter.style.longLine` was exercised, and it
 still fired, as did `linter.missingDocs`.
+
+### RG2006 and the RG5001 header checks
+
+These controls ran on 2026-09-27 (Lean 4.34.0, Mathlib `5ed2965`) with `lake lint` on the
+repository and on the `examples/build-lint` adopter, each mutation undone before the next
+control. They are observations of the operational adapters; the decisions they feed are proved
+(`RegulaPolicy.Community.failures_eq_nil_iff`, `RegulaPolicy.ModuleHeader.failures_eq_nil_iff`).
+
+- The unchanged adopter, and this repository (whose `Audit`, `AuditApp` and `auditApp` targets
+  enable the Mathlib set and whose other claimed targets are core-only): `PASS`, exit 0.
+- `set_option pp.all false` before an adopter module's docstring: RG5001 "make the module
+  docstring the first command after the imports", exit 1.
+- `import Regula.Contract` twice: RG5001 "remove the repeated import of `Regula.Contract`",
+  exit 1.
+- The adopter's `autoImplicit` option removed, `relaxedAutoImplicit` set to `true`,
+  `weak.linter.unusedVariables` set to `false` and `moreLeanArgs := #["-DmaxHeartbeats=400000"]`:
+  one RG2006 finding for `Widget` naming the other three failures, exit 1; the
+  `-DmaxHeartbeats=400000` argument, which sets no checked option, is not reported. (Before
+  RG2006 was narrowed to `-D` settings that contradict a checked option, the same control named
+  the argument as a fourth failure.)
+- The adopter unchanged except `moreLeanArgs := #["-DmaxHeartbeats=400000", "-qD",
+  "autoImplicit=true", "--tstack=100000"]`: one RG2006 finding for `Widget` naming only
+  `autoImplicit` set to `"true"`, exit 1.
+- The repository's `Audit` library without its Mathlib options: one RG2006 finding for `Audit`
+  naming the four Mathlib options, exit 1; the core-only targets were not reported.
+
+The two `moreLeanArgs` runs observe the adapter; the `-D` decision itself is kernel-checked in
+`RegulaPolicy.Community`. `leanArgument_mem_failures_iff` shows that it reports a `-D` argument
+exactly when some `-D` form (`-Dname=value`, flags before the `D` as in `-qD`, or `-D` followed
+by `name=value` as the next argument; `Defines`, over the arguments' characters) sets a checked
+option to a contradicting value, a linter being turned off by the string `"false"`. For every
+`leanOptions`, `autoImplicit_argument_fails`, `maxHeartbeats_argument_passes`,
+`linter_argument_fails`, `excluded_linter_argument_passes` and `plugin_argument_passes` fix five
+argument lists; each case whose argument names an option takes the name `lean` reads as a
+hypothesis, because `String.toName` is `partial` and the kernel cannot evaluate it. That this
+reading matches the `lean` command line remains assumed.
+
+The native-linter campaign's `MisplacedDoc` and `RepeatedImport` controls exercise the same
+RG5001 decision in the editor path, and the rule-example corpus the RG2006 pair.
 
 ### Earlier runs: the Mathlib and Batteries routes
 
@@ -305,7 +345,7 @@ Review of the delivered product found and fixed:
 - The human transcript names the file and declaration of a finding; exact ranges are in
   `--json-out` and the editor.
 - RG2001/RG2002 routing of escaped errors is by error-message prefix, and RG1007 contract
-  extraction, RG2004 inventory checks, the fence scanner and RG5001 presence are operational
+  extraction, RG2004 inventory checks, the fence scanner and the RG5001 observation are operational
   code in the excluded `Regula` library; the acceptance theorems cover their observations, not
   their extraction.
 - Editor: only VS Code with the Lean 4 extension; no latency claim; the browser-side page view
@@ -321,12 +361,12 @@ Review of the delivered product found and fixed:
   revision reads the latest deployed explanation there; the unchanged text of any published
   revision stays at `/rev/<commit>/rules/<ID>/`, and versioned `/v/` links await a release.
 - All nine residual obligations stay open; every accepted account lists them.
-- Known gap (recorded 2026-09-27): this repository's claimed libraries do not yet enable the
-  standard §6.7 linters. None enables `linter.missingDocs` (the 2026-09-26
-  community-alignment audit counted about 720 definitions without a docstring), and `Audit`
-  and `AuditApp` import Mathlib without Mathlib's standard linter set, so `DOGFOOD-01` does not
-  hold for those obligations until
-  [#97](https://github.com/rbeauchamp/regula/issues/97) is closed.
+- Known gap (recorded 2026-09-27): no claimed target of this repository enables
+  `linter.missingDocs` (standard §6.7; the 2026-09-26 community-alignment audit counted about
+  720 definitions without a docstring), so `DOGFOOD-01` does not hold for that obligation until
+  [#97](https://github.com/rbeauchamp/regula/issues/97) is closed. The other §6.7 options,
+  Mathlib's standard set on `Audit`, `AuditApp` and `auditApp`, are enabled and RG2006 checks
+  them.
 
 ## Optional external checking
 

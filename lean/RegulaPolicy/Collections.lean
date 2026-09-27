@@ -4,7 +4,9 @@ public import Std.Data.ExtTreeSet
 public import Std.Data.ExtTreeMap
 public import Init.Data.List.Perm
 
-/-! Canonical finite sets reuse Std's extensional ordered trees. Tree balancing is
+/-! # Canonical finite sets
+
+Canonical finite sets reuse Std's extensional ordered trees. Tree balancing is
 not observable equality. Sorted serialization, membership, normalization and equality
 are consequences of Std's laws, not a second hand-written set implementation. -/
 
@@ -12,6 +14,8 @@ are consequences of Std's laws, not a second hand-written set implementation. -/
 
 namespace RegulaPolicy
 open Std
+
+universe u
 
 abbrev CanonicalSet (α : Type u) [Ord α] := ExtTreeSet α
 
@@ -116,6 +120,8 @@ def normalizedDecision (xs : List α) : Decidable ((normalize xs).toList = xs) :
   exact decidable_of_iff _ (normalized_iff_ordered xs).symm
 
 end CanonicalSet
+
+variable {α : Type u}
 
 /-- Exactly one occurrence exists, and that occurrence satisfies the required relation.
 Equality to a singleton refuses duplicate occurrences even when their values agree. -/

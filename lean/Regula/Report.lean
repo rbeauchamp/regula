@@ -3,7 +3,9 @@ import Lean.Data.Json
 import Regula.Checker.PolicyCodec
 import Regula.StructuralName
 
-/-! Operational JSON instances for policy observations. Finite tags are validated
+/-! # Policy observation JSON instances
+
+Operational JSON instances for policy observations. Finite tags are validated
 by the pure codecs. This module remains checker infrastructure. -/
 namespace Regula.Report
 open Lean RegulaPolicy

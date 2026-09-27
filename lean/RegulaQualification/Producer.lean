@@ -1,6 +1,8 @@
 import RegulaQualification.Json
 
-/-! Exact producer-observation requirements for RG5001/RG5002 and standalone roots.
+/-! # Producer observation requirements
+
+Exact producer-observation requirements for RG5001/RG5002 and standalone roots.
 Every mandatory JSON access may refuse. The required census, source, documentation,
 foundation fields, diagnostics, and ranges are compared, not inferred from a PASS label.
 The proofs concern these supplied observations, not Lean/OS authenticity. -/
@@ -10,7 +12,9 @@ open Lean
 private def field (j : Json) (key : String) := j.getObjVal? key
 private def array (j : Json) (key : String) := j.getObjValAs? (Array Json) key
 private def text (j : Json) (key : String) := j.getObjValAs? String key
-private def nameJson (name : String) : Json := toJson (name.splitOn "." |>.map fun part => #["str", part])
+/-- The structural name codec's JSON for a dotted name: outermost component first. -/
+private def nameJson (name : String) : Json :=
+  toJson (name.splitOn "." |>.reverse |>.map fun part => #["str", part])
 private def first (values : Array Json) : Except String Json :=
   match values[0]? with | some value => .ok value | none => .error "missing required first element"
 
@@ -39,6 +43,15 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
   let declarations ← array account "declarations"
   let declaration ← first declarations
   let material := if rule == "RG5002" then #[key] else #[]
+  -- The RG5001 header observation: RG5002's fixtures import `Regula.MaterialClaim`; a
+  -- documented fixture's docstring is its first command.
+  let documented := rule == "RG5002" || fixed
+  let imports := if rule == "RG5002" then toJson #[Json.mkObj [
+      ("module", nameJson "Regula.MaterialClaim"), ("importAll", .bool false),
+      ("isExported", .bool true), ("isMeta", .bool false)]]
+    else toJson (#[] : Array Json)
+  let header := Json.mkObj [("documented", .bool documented),
+    ("documentationFirst", .bool documented), ("imports", imports)]
   let doc := if fixed then Json.str ("Every natural number equals itself, without additional hypotheses.\n\n" ++
     "# Intent\nEquality on natural numbers must be reflexive for every value, with no side condition. ") else .null
   let mut checks : List Check := [
@@ -56,7 +69,8 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"snapshot module", (← field snapshot "module") == nameJson "Example"⟩,
     ⟨"exact source bytes", (← text snapshot "source") == source⟩,
     ⟨"snapshot filename", (System.FilePath.mk (← text snapshot "path")).fileName == some "Example.lean"⟩,
-    ⟨"module documentation", (← field docs "modules") == toJson #[toJson #[nameJson "Example", .bool (rule == "RG5002" || fixed)]]⟩,
+    ⟨"module documentation",
+      (← field docs "modules") == toJson #[toJson #[nameJson "Example", header]]⟩,
     ⟨"material selection", (← field docs "materialDeclarations") == toJson material⟩,
     ⟨"declaration documentation", (← field docs "declarations") == toJson (if material.isEmpty then #[] else #[toJson #[key, doc]])⟩,
     ⟨"one declaration", declarations.size == 1⟩,
@@ -96,11 +110,11 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
 /-- Actual executable oracle, with fail-closed mandatory decoding. -/
 def validate (report : Json) (code : Nat) (rule mode source : String)
     (fixed : Bool) (theoremType : Json) : Except String Unit :=
-  checkedDecoded.run (requirements report code rule mode source fixed theoremType)
+  checked_decoded.run (requirements report code rule mode source fixed theoremType)
 
 /-- Admission succeeds exactly when decoding succeeds and every source-producer
 requirement holds. This statement includes both success and refusal. -/
-theorem checkedValidation : Regula.ExecutableContract validate
+theorem checked_validation : Regula.ExecutableContract validate
     (fun run => ∀ report code rule mode source fixed theoremType,
       run report code rule mode source fixed theoremType = .ok () ↔
         ∃ checks, requirements report code rule mode source fixed theoremType = .ok checks ∧ Satisfied checks) :=
@@ -116,7 +130,8 @@ def standaloneRequirements (report : Json) (code : Nat) (mutated : Bool) : Excep
     ⟨"standalone diagnostics", ids == (if mutated then ["RG1001"] else [])⟩,
     ⟨"standalone status", (← text report "status") == (if mutated then "rejected" else "completed")⟩,
     ⟨"standalone documentation", (← array (← field account "documentation") "modules").contains
-      (toJson #[nameJson "SelftestMain", .bool true])⟩,
+      (toJson #[nameJson "SelftestMain", Json.mkObj [("documented", .bool true),
+        ("documentationFirst", .bool true), ("imports", toJson (#[] : Array Json))]])⟩,
     ⟨"standalone main root", (← array (← field account "census") "executionRoots").contains
       (toJson #[nameJson "SelftestMain", nameJson "main"])⟩]
 

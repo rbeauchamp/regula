@@ -1,7 +1,9 @@
 import Regula.Qualification.Project
 import Regula.Checker.Snapshot
 
-/-! Native retention of dependency snapshot and RG3001 history controls. These
+/-! # Dependency snapshot qualification
+
+Native retention of dependency snapshot and RG3001 history controls. These
 observations qualify trusted Lake/filesystem boundaries, not universal IO behavior. -/
 namespace Regula.Qualification.DependencySnapshot
 open Lean System
@@ -181,7 +183,7 @@ def check (group : String) : IO Unit := do
     IO.FS.createDirAll project
     toolchain root project
     IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"snapshot_control\"\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
+      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     IO.FS.writeFile (project / "Example.lean") "import Dep\n/-! Snapshot control. -/\n"
     success (← run project "lake" #["update"] cleanEnv)
     if group != "history" then
@@ -205,7 +207,7 @@ def check (group : String) : IO Unit := do
             !encoded.contains (toJson (marker.toUTF8.toList.map UInt8.toNat)).compress⟩]
         IO.println s!"dependency snapshot {kind}: PASS"
     if group == "dependencies" then return
-    IO.FS.writeFile (project / "lakefile.toml") "name = \"history_control\"\n[[lean_lib]]\nname = \"Example\"\n"
+    IO.FS.writeFile (project / "lakefile.toml") "name = \"history_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"Example\"\n"
     removeFile (project / "lake-manifest.json")
     success (← run project "lake" #["update"] cleanEnv)
     manifest project "standard-logical"

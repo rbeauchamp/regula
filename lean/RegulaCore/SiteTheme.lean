@@ -252,7 +252,7 @@ def hasColourLiteral (css : String) : Bool :=
   go css.toList || colourFunctions.any fun f => (css.toLower.splitOn f).length > 1
 
 /-- The theme layer over Verso's stylesheets. Colours come only from the tokens; status is
-always carried by a word or a `+`/`-`/✗/✓ marker as well as colour. -/
+always carried by a word or a `+`/`-`/cross/check-mark marker as well as colour. -/
 def layerCss : String := r##"
 :root {
   --rg-font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -496,9 +496,13 @@ def plainPageCss : String :=
 
 /-! Evaluated at build time: the theme layer outside the token block writes no colour literal,
 and the detector finds the literal forms it names (controls, not proofs). -/
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard !hasColourLiteral layerCss
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard !hasColourLiteral (plainPageCss.drop tokenCss.length).toString
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard hasColourLiteral "a{color:#abc}" && hasColourLiteral "a{color:rgb(1,2,3)}" && !hasColourLiteral "#cb1-input{}"
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard hasColourLiteral tokenCss
 
 end Regula.Site

@@ -1,6 +1,8 @@
 import Regula.Checker.RuleExampleQualification
 
-/-! `ruleExampleQualification`: command-line admission of exported rule-example evidence.
+/-! # Rule-example qualification executable
+
+`ruleExampleQualification`: command-line admission of exported rule-example evidence.
 With a corpus path it runs `RuleExampleQualification.qualifyCorpus`; with `--record` it
 qualifies each in-progress record against unchanged checker sources, with no corpus claim. -/
 

@@ -3,7 +3,9 @@ import Regula.Checker.AxiomGate
 import Regula.Checker.ResultProtocol
 import Regula.Website
 
-/-! Source-owned example adapters. These invoke the shipped compilation, admission,
+/-! # Rule-example detector adapters
+
+Source-owned example adapters. These invoke the shipped compilation, admission,
 policy and documentation detectors; they define no second linter. Diagnostic-only
 inspection deliberately retains compiler warnings and never returns positive conformance.
 Lean's compiler, process completion and filesystem observations remain trusted. -/
@@ -12,7 +14,7 @@ open Lean System
 
 /-- Reuse the engine's owner for all completed and exceptional exits. A refused adapter
 returns no qualifying result; no exception text is classified as a diagnostic. -/
-private def stable (sources : Array ProducerReport.SourceBinding)
+private def stable {α : Type} (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (action : IO α) : IO α := do
   IO.ofExcept <| (← SourceBinding.withUnchanged sources configuration action).mapError (·.detail)
 

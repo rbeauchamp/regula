@@ -4,7 +4,9 @@ import Regula.Checker.Environment
 import Regula.Checker.Lake
 import Regula.Checker.Snapshot
 
-/-! Operational bridge to the pure, request-indexed acceptance boundary. The census
+/-! # Operational acceptance bridge
+
+Operational bridge to the pure, request-indexed acceptance boundary. The census
 comes from Lake and completed producer extraction before policy jobs are collected.
 Raw packets never carry proofs. Canonical path resolution, source stability, Lean/Lake
 extraction, process completion and compiled execution remain trusted IO boundaries.
@@ -63,7 +65,7 @@ private def moduleKey (snapshot : AdmittedSnapshot) (name : Name) : Except Strin
 private def declarationKey (snapshot : AdmittedSnapshot) (key : Name × Name) : Except String DeclarationKey := do
   return ⟨← moduleKey snapshot key.1, ← admitIdentity key.2⟩
 
-/-- Every report's history outcomes, in report order, through `checkedHistories`. -/
+/-- Every report's history outcomes, in report order, through `checked_histories`. -/
 def historyObservations (reports : Array RequestedInspection) : Except String (Array HistoryObservation) :=
   histories (reports.flatMap (·.report.histories))
 
@@ -80,7 +82,7 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
   unless inspected.expectedModules == positive && report.census.modules == positive &&
       report.census.executionRoots.isSome do
     throw <| IO.userError "producer census differs from independently requested environment"
-  -- `inspected.admitted.valid` proves `checkedValidate` (which includes the source-evidence
+  -- `inspected.admitted.valid` proves `checked_validate` (which includes the source-evidence
   -- guard) succeeded on this exact report; only the bindings to `sources` remain to check.
   timedPhase "freeze report validation" do
     IO.ofExcept (← IO.lazyPure fun _ => (SourceBinding.validateAgainst sources report).mapError (·.detail))
@@ -136,7 +138,11 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
     roots := rootKeys, materialDeclarations := material }
   return {
     census, roles := scope.roles, admission := ⟨replayModules, required, admitted, #[]⟩,
-    moduleDocumentation := documentation.modules, declarationDocumentation := documentation.declarations, histories }
+    -- A module's documentation-presence evidence is the proved RG5001 decision on its header
+    -- observation (`RegulaPolicy.ModuleHeader.failures_eq_nil_iff`).
+    moduleDocumentation := documentation.modules.map fun (name, observation) =>
+      (name, (RegulaPolicy.ModuleHeader.failures observation).isEmpty)
+    declarationDocumentation := documentation.declarations, histories }
 
 /-- Requests are the coordinator's ordered module assignments. Responses cannot alter
 their count, index, module partition or snapshot; each complete packet is admitted intact. -/

@@ -1,6 +1,6 @@
 # Source-owned rule examples and diagnostic demonstrations
 
-The corpus in [`examples/rules/`](../../examples/rules/) supplies page inputs for all twenty-one
+The corpus in [`examples/rules/`](../../examples/rules/) supplies page inputs for all twenty-two
 registry IDs. `corpus.json` fixes invocation, evidence mode, expected IDs, legacy subreasons,
 message patterns, subjects and full primary locations before execution. Sources are copied
 verbatim into disjoint Core-only adopters. `Regula.Qualification.RuleExamples`
@@ -71,7 +71,9 @@ run is not full-standard conformance.
 
 Each rule's fixtures are the files in `examples/rules/<ID>/`: a `Violation` and a `Fixed`
 source, or an unchanged `Example.lean` with a changed dependency (RG1003) or configuration
-(RG2001, RG2002) pair. The registry embeds each rule's `Fixed` and `Violation` bytes as its
+(RG2001, RG2002, RG2006) pair; RG2006's pair is the package's `lakefile.lean`, to which the run
+appends the `require` line of its producer slot. The registry embeds each rule's `Fixed` and
+`Violation` bytes as its
 checked compliant and noncompliant examples (`examples` of `descriptor` in
 [`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean), by `include_str`; the `RegulaCore` library
 `needs` this directory, and `RegistryChecks` refuses any mismatch), so the first finding of a

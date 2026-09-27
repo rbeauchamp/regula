@@ -6,10 +6,14 @@ import Regula.Checker.Common
 import Lean
 
 /-!
+# Fresh elaboration transcripts
+
 Fresh source-elaboration transcripts for the two narrowly allowed generated
 roles. The source is compared byte-for-byte before and after elaboration;
 isolated callers release frontend imports before consuming the typed result.
 -/
+
+universe u
 
 namespace Regula.Checker.Frontend
 open scoped Regula.Report
@@ -103,19 +107,19 @@ instance : FromJson RegulaPolicy.Frontend.Transcript := ⟨fun j => do
 
 
 /-- Recheck source coordinates against exact transcript bytes using Lean's FileMap and LSP
-UTF-16 columns, through `checkedCoordinates`. This is a data-boundary check; it does not
+UTF-16 columns, through `checked_coordinates`. This is a data-boundary check; it does not
 authenticate how a worker acquired the bytes. -/
 def validateCoordinates (declarations : Array Regula.Report.Declaration)
     (transcript : Transcript) : Except String Unit :=
-  checkedCoordinates.run Regula.lspUtf16Column declarations transcript
+  checked_coordinates.run Regula.lspUtf16Column declarations transcript
 
 mutual
 /-- The elements under a persistent-array node, left to right. -/
-private def nodeElems : PersistentArrayNode α → List α
+private def nodeElems {α : Type u} : PersistentArrayNode α → List α
   | .node ⟨children⟩ => nodesElems children
   | .leaf values => values.toList
 
-private def nodesElems : List (PersistentArrayNode α) → List α
+private def nodesElems {α : Type u} : List (PersistentArrayNode α) → List α
   | [] => []
   | child :: children => nodeElems child ++ nodesElems children
 end
@@ -124,10 +128,10 @@ end
 then the tail. Core computes `toArray` with the `partial` `foldlMAux`, which the kernel cannot
 unfold, so the `InfoTree` traversals below recurse through this structural enumeration,
 which follows `foldlMAux` case for case, and `sizeOf_lt_elems` bounds its members. -/
-private def elems (t : PersistentArray α) : List α := nodeElems t.root ++ t.tail.toList
+private def elems {α : Type u} (t : PersistentArray α) : List α := nodeElems t.root ++ t.tail.toList
 
 mutual
-private theorem sizeOf_lt_nodeElems [SizeOf α] {x : α} :
+private theorem sizeOf_lt_nodeElems {α : Type u} [SizeOf α] {x : α} :
     (n : PersistentArrayNode α) → x ∈ nodeElems n → sizeOf x < sizeOf n
   | .node ⟨children⟩, h => by
     have := sizeOf_lt_nodesElems children (by simpa [nodeElems] using h)
@@ -136,7 +140,7 @@ private theorem sizeOf_lt_nodeElems [SizeOf α] {x : α} :
     have := Array.sizeOf_lt_of_mem (Array.mem_def.mpr (by simpa [nodeElems] using h))
     simp; omega
 
-private theorem sizeOf_lt_nodesElems [SizeOf α] {x : α} :
+private theorem sizeOf_lt_nodesElems {α : Type u} [SizeOf α] {x : α} :
     (ns : List (PersistentArrayNode α)) → x ∈ nodesElems ns → sizeOf x < sizeOf ns
   | [], h => by simp [nodesElems] at h
   | n :: ns, h => by
@@ -146,8 +150,8 @@ private theorem sizeOf_lt_nodesElems [SizeOf α] {x : α} :
     · have := sizeOf_lt_nodesElems ns h; simp; omega
 end
 
-private theorem sizeOf_lt_elems [SizeOf α] {x : α} {t : PersistentArray α} (h : x ∈ elems t) :
-    sizeOf x < sizeOf t := by
+private theorem sizeOf_lt_elems {α : Type u} [SizeOf α] {x : α} {t : PersistentArray α}
+    (h : x ∈ elems t) : sizeOf x < sizeOf t := by
   rcases t with ⟨root, tail, _, _, _⟩
   simp only [elems, List.mem_append] at h
   rcases h with h | h

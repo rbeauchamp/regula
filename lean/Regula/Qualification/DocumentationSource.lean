@@ -1,6 +1,8 @@
 import Regula.Qualification.SourceEvidence
 
-/-! Frozen source/configuration controls through both documentation entrypoints and
+/-! # Documentation source-binding qualification
+
+Frozen source/configuration controls through both documentation entrypoints and
 through build/file boundaries. Mutating fixtures are never part of a positive library. -/
 namespace Regula.Qualification.DocumentationSource
 open Lean System RegulaQualification RegulaQualification.Evidence SourceEvidence
@@ -48,7 +50,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
           positiveText := "conforming-positive-pass=1/1" }
         if bad then
           let scope := if binary == "docFenceAudit" then project / "docs" else project
-          IO.ofExcept (checkedDocumentation.run (process.stdout ++ process.stderr) scope.toString reason phase)
+          IO.ofExcept (checked_documentation.run (process.stdout ++ process.stderr) scope.toString reason phase)
         IO.println s!"documentation {binary}/{phase}: PASS"
     if sourceReadOnly then
       for stage in #["file", "build"] do

@@ -2,7 +2,9 @@ import Regula.Qualification.Launcher
 import Regula.Checker.Common
 import RegulaQualification.Native
 
-/-! Operational controls for native collector/logger/metadata linkage. Intentionally
+/-! # Native linter linkage qualification
+
+Operational controls for native collector/logger/metadata linkage. Intentionally
 invalid source is only written to disposable paths. The pure diagnostic oracle lives
 in `RegulaQualification.Native`; actual compiler behavior is observed, not proved. -/
 
@@ -52,7 +54,7 @@ private def check (root scratch : FilePath) (launcher : Launcher.State) (control
     fileName := path.toString, errors := control.errors, compiler := control.compiler,
     detail := control.detail, severity := control.nativeSeverity.getD
       (if control.options.contains "-DwarningAsError=true" then "error" else "warning") }
-  match RegulaQualification.Native.checkedValidation.run expected result.exitCode.toNat result.stderr decoded with
+  match RegulaQualification.Native.checked_validation.run expected result.exitCode.toNat result.stderr decoded with
   | .ok () => pure ()
   | .error detail => throw <| IO.userError s!"{control.label}: {detail}\n{result.stdout}{result.stderr}"
   return messages
@@ -116,7 +118,11 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
         ids := ["RG2005"], detail := some "fresh generated-role evidence remains required" }]
     let malformed := base ++ "open Lean Elab Command in\nelab \"bad_range \" name:ident : command => do\n  elabCommand (← `(axiom $name:ident : False))\n  let some ranges ← findDeclarationRangesCore? name.getId | throwError \"missing control range\"\n  let invalid := { ranges.range with pos := ⟨9999, 0⟩, endPos := ⟨9999, 1⟩ }\n  addDeclarationRanges name.getId { range := invalid, selectionRange := invalid }\nbad_range corrupted\n"
     let restored := malformed.replace "{ ranges.range with pos := ⟨9999, 0⟩, endPos := ⟨9999, 1⟩ }" "ranges.range"
-    let verso := base.replace "/-!" "set_option doc.verso true\nset_option doc.verso.module true\n/-!"
+    -- A Verso module docstring takes the community's `set_option … in` form, which RG5001 reads
+    -- as the first command after the imports; later docstrings use a module-wide option.
+    let verso := base.replace "/-! Collector qualification control. -/\n"
+      ("set_option doc.verso true in\nset_option doc.verso.module true in\n" ++
+        "/-! Collector qualification control. -/\nset_option doc.verso true\n")
     let moduleStyle := base.replace "import Regula.Linter" "module\nimport Regula.Linter" |>.replace
       "@[regula_material] theorem" "@[regula_material] public theorem"
     let inspect := base ++ "run_cmd Lean.Elab.Command.liftCoreM <| Lean.addDecl (.axiomDecl {\n  name := `hiddenAxiom, levelParams := [], type := Lean.mkSort .zero, isUnsafe := false })\nrun_cmd do\n  let env ← Lean.getEnv\n  let ds ← Regula.Collect.currentModule\n  unless ds.any (fun d => d.name == `hiddenAxiom && d.kind == .«axiom») do\n    throwError \"binder-less declaration missing\"\n  unless ds.any (fun d => d.private) do throwError \"private declaration missing\"\n  unless ds.any (fun d => d.name == `Branch.rec) do throwError \"generated declaration missing\"\n  unless ds.all (fun d => d.module == env.mainModule) do throwError \"wrong local ownership\"\n  let a ← Regula.Collect.declaration `documented .snapshot\n  let b ← Regula.Collect.declaration `documented .replayCandidate\n  unless a == b do throwError \"stage changed ordinary canonical record\"\n  unless (Regula.Collect.moduleOf env `unknownDeclaration).toOption.isNone do\n    throwError \"invented unknown ownership\"\n  if env.header.modules.any (fun m => m.module.getRoot == `Mathlib) then\n    throwError \"public import required Mathlib\"\n"
@@ -137,7 +143,11 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       { label := "ModuleAxiom", source := moduleStyle ++ "public axiom forbidden : False\n", ids := ["RG1001"] },
       { label := "ModuleMissing", source := (moduleStyle.replace "/-! Collector qualification control. -/\n" "").replace
           claimDoc "", ids := ["RG5001", "RG5002"] },
-      { label := "Collect", source := inspect }]
+      { label := "Collect", source := inspect },
+      -- RG5001 beyond presence: a command before the module docstring, and a repeated import.
+      { label := "MisplacedDoc", source := base.replace "/-! Collector" "set_option pp.all false\n/-! Collector",
+        ids := ["RG5001"] },
+      { label := "RepeatedImport", source := "import Regula.Linter\n" ++ base, ids := ["RG5001"] }]
     let messages ← Regula.Checker.mapWorkQueue jobs independent check
     let some axiomMessages := messages[0]? | throw <| IO.userError "missing Axiom control"
     let some missingMessages := messages[2]? | throw <| IO.userError "missing Missing control"
@@ -203,9 +213,9 @@ def paired : IO Unit := do
         report.modify (·.setObjVal! "runs" (toJson runs))
       let some before := observations[0]? | throw <| IO.userError "missing baseline"
       let some after := observations[1]? | throw <| IO.userError "missing candidate"
-      requireChecks [⟨"37 exact paired controls", RegulaQualification.Launcher.checkedEquivalence.run before after⟩]
+      requireChecks [⟨"39 exact paired controls", RegulaQualification.Launcher.checked_equivalence.run before after⟩]
       report.modify fun value => (value.setObjVal! "equivalent" (.bool true)).setObjVal! "outcome" (.str "PASS")
-      IO.println "launcher diagnostic: PASS (37 exact paired controls; timing is an observation only)"
+      IO.println "launcher diagnostic: PASS (39 exact paired controls; timing is an observation only)"
   catch e =>
     report.modify (·.setObjVal! "outcome" (.str "FAIL"))
     throw e

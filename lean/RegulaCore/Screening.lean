@@ -2,7 +2,9 @@ import RegulaCore.Account
 import RegulaCore.Rule
 import RegulaPolicy.Screening
 
-/-! The report account of one opt-in intent screen (`docs/guides/intent-screening.md`).
+/-! # Intent screen report account
+
+The report account of one opt-in intent screen (`docs/guides/intent-screening.md`).
 
 A judged answer is its own evidence class, `screened`, next to the #42 classes an accepted
 run reports (checked relation, trusted mechanisms, open semantic review). Its data records
@@ -102,16 +104,16 @@ theorem Judged.escalate_of_severity (policy : Policy) (j : Judged) (h : j.severi
   cases hr : j.route policy with
   | escalate => rfl
   | screened =>
-    obtain ⟨t, ht, hw, _⟩ := (checkedRoute.evidence (policy j.judgment) j.support j.confidence).mp hr
+    obtain ⟨t, ht, hw, _⟩ := (checked_route.evidence (policy j.judgment) j.support j.confidence).mp hr
     exact absurd (by
       unfold Judged.severity
-      rw [ht]; exact ((checkedClassify.evidence t j.support).2.2.2).mpr hw) h
+      rw [ht]; exact ((checked_classify.evidence t j.support).2.2.2).mpr hw) h
 
 /-- With no thresholds configured for its judgment, an answer raises no finding and escalates. -/
 theorem Judged.unconfigured (policy : Policy) (j : Judged) (h : (policy j.judgment).thresholds = none) :
     j.severity policy = none ∧ j.route policy = .escalate := by
   refine ⟨by simp [Judged.severity, h], ?_⟩
-  show routeImpl (policy j.judgment) j.support j.confidence = .escalate
+  change routeImpl (policy j.judgment) j.support j.confidence = .escalate
   simp [routeImpl, h]
 
 /-- How one intent clause was compared with the claim. -/

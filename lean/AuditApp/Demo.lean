@@ -1,6 +1,8 @@
 import AuditApp.Limiter
 
 /-!
+# Limiter demonstration script
+
 The fixed update script used by the `auditApp` executable, together with
 contracts for both interpretations. `demo_final` describes the retained total
 `run` API, which continues after a refused grant. `demo_checked_error` describes

@@ -3,7 +3,9 @@ module
 public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
 
-/-! Closed policy vocabulary and observation data. No operational Lean imports.
+/-! # Policy vocabulary and observation data
+
+Closed policy vocabulary and observation data. No operational Lean imports.
 Canonical representation is informed by con-leche PropWhen; these are original domain
 definitions, not imported con-leche proofs. Source observation authenticity remains
 with the operational collector. -/
@@ -418,7 +420,7 @@ instance (edges : Array (Lean.Name × Lean.Name)) : Decidable (canonicalEdges ed
 
 @[simp] theorem mem_canonicalEdges (edges : Array (Lean.Name × Lean.Name)) (e : Lean.Name × Lean.Name) :
     e ∈ canonicalEdges edges ↔ e ∈ edges := by
-  letI : Ord (Lean.Name × Lean.Name) := lexOrd
+  let : Ord (Lean.Name × Lean.Name) := lexOrd
   simp [canonicalEdges, Std.ExtTreeSet.mem_toList]
 
 structure Position where

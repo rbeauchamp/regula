@@ -1,7 +1,9 @@
 import Regula.Checker.ProducerReport
 import Regula.Checker.Common
 
-/-! Exact source/configuration snapshots at operational boundaries. Equality guards
+/-! # Source and configuration binding
+
+Exact source/configuration snapshots at operational boundaries. Equality guards
 detect observed changes; filesystem reads, Lake/compiler correspondence and the absence
 of an undetected change-and-restore race remain trusted operational assumptions. -/
 namespace Regula.Checker.SourceBinding
@@ -78,7 +80,7 @@ def checkConfiguration (snapshot : Array (FilePath × Option String)) : IO (Exce
 def configurationUnchanged (snapshot : Array (FilePath × Option String)) : IO Unit := do
   IO.ofExcept <| (← checkConfiguration snapshot).mapError (·.detail)
 
-def withUnchanged (sources : Array ProducerReport.SourceBinding)
+def withUnchanged {α : Type} (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (action : IO α) :
     IO (Except AdmissionFailure α) := do
   let check := do

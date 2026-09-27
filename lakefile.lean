@@ -6,7 +6,16 @@ package «regula» where
   srcDir := "lean"
   -- The verification toolset for Regula (see docs/).
   -- Code here exists to machine-check claims, patterns, and examples from the standard.
-  leanOptions := #[⟨`warningAsError, true⟩]  -- Build warnings are failures
+  -- Build warnings are failures. No automatic implicits: every binder of an elaborated
+  -- statement is written in its source (standard §8.1, RG2006).
+  leanOptions := #[⟨`warningAsError, true⟩, ⟨`autoImplicit, false⟩,
+    ⟨`relaxedAutoImplicit, false⟩]
+
+/-- Mathlib's standard linter set without its three Mathlib-repository linters (standard §6.7),
+for the claimed targets whose surfaces import Mathlib; RG2006 checks it. -/
+def mathlibLinters : Array LeanOption := #[⟨`weak.linter.mathlibStandardSet, true⟩,
+  ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩,
+  ⟨`weak.linter.style.longFile, .ofNat 0⟩]
 
 @[default_target]
 lean_lib «Audit» where
@@ -14,6 +23,7 @@ lean_lib «Audit» where
   -- transitive imports of the umbrella module. Lake's elaborated module
   -- inventory is the semantic inventory consumed by the declaration gate.
   globs := #[.andSubmodules `Audit]
+  leanOptions := mathlibLinters
 
 @[default_target]
 lean_lib «AuditApp» where
@@ -21,6 +31,7 @@ lean_lib «AuditApp» where
   -- admission, update, and composition contracts are proved about the same
   -- computable definitions the `auditApp` executable runs.
   globs := #[.andSubmodules `AuditApp]
+  leanOptions := mathlibLinters
 
 lean_lib «Fixtures» where
   -- Queryable exact inventory for isolated controls and mutations. This is
@@ -112,6 +123,7 @@ lean_exe «site» where
 
 lean_exe «auditApp» where
   root := `Main
+  leanOptions := mathlibLinters
   supportInterpreter := true
 
 require mathlib from git

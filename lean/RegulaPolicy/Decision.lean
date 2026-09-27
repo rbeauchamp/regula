@@ -4,13 +4,17 @@ public import RegulaPolicy.Specification
 public import RegulaPolicy.RoleSpecification
 public import Regula.Contract
 
-/-! Actual generated-role validators and declaration decisions over admitted observations.
+/-! # Role validators and declaration decisions
+
+Actual generated-role validators and declaration decisions over admitted observations.
 Role receipts carry equality to these executed validators for the exact inventory.
 Theorems below connect the actual public policy functions to the independent relations. -/
 
 @[expose] public section
 
 namespace RegulaPolicy
+
+universe u
 open Lean (Name)
 open Frontend
 
@@ -116,13 +120,13 @@ def MemberFailureContract
     decide i roles d member request = policyFor i roles d request
 
 /-- The membership proof, typically supplied by iterating `i.declarations`, replaces
-`policyFor`'s linear scan; it is never inspected. Callers use `checkedMemberFailure.run`. -/
+`policyFor`'s linear scan; it is never inspected. Callers use `checked_memberFailure.run`. -/
 def memberFailure (i : Inventory) (roles : Roles i) (d : Declaration)
     (_member : d ∈ i.declarations) (request : InspectionRequest) : Option DeclarationFailure :=
   declarationFailure d request roles.native roles.helpers
 
 /-- Registers `MemberFailureContract` about `memberFailure`. -/
-theorem checkedMemberFailure : Regula.ExecutableContract memberFailure MemberFailureContract :=
+theorem checked_memberFailure : Regula.ExecutableContract memberFailure MemberFailureContract :=
   ⟨fun i roles d member request => by simp [memberFailure, policyFor, member]⟩
 
 /-- Required relation for the member-indexed classification: for every inventory member,
@@ -133,13 +137,13 @@ def MemberFoundationContract
   ∀ i roles d (member : d ∈ i.declarations),
     foundationFor i roles d = .ok (classify i roles d member)
 
-/-- Classification of a proved member; callers use `checkedMemberFoundation.run`. -/
+/-- Classification of a proved member; callers use `checked_memberFoundation.run`. -/
 def memberFoundation (i : Inventory) (roles : Roles i) (d : Declaration)
     (_member : d ∈ i.declarations) : FoundationClass :=
   labelOf d.axioms roles.native
 
 /-- Registers `MemberFoundationContract` about `memberFoundation`. -/
-theorem checkedMemberFoundation :
+theorem checked_memberFoundation :
     Regula.ExecutableContract memberFoundation MemberFoundationContract :=
   ⟨fun i roles d member => by simp [memberFoundation, foundationFor, member]⟩
 
@@ -155,7 +159,7 @@ theorem checkedMemberFoundation :
     compilerAxiom native n = false ↔ ¬ CompilerAxiom native n := by
   simp only [Bool.eq_false_iff, ne_eq, compilerAxiom_iff]
 
-private theorem conditional_none (p : Prop) [Decidable p] (a b : Option α) :
+private theorem conditional_none {α : Type u} (p : Prop) [Decidable p] (a b : Option α) :
     (if p then a else b) = none ↔ (p ∧ a = none) ∨ (¬p ∧ b = none) := by
   by_cases h : p <;> simp [h]
 
@@ -224,8 +228,7 @@ theorem labelOf_logical (i : Inventory) (roles : Roles i) (a : Array Name)
     simp [standardLogicalAxiom, hp]
   have comp : (a.any (compilerAxiom roles.native)) = false := by
     rw [Array.any_eq_false']
-    intro n hn
-    intro hc
+    intro n hn hc
     exact compiler_not_logical i roles n ((compilerAxiom_iff _ _).mp hc) (ha n hn)
   have empty : ContainsFoundation .kernelOnly a ↔ a = #[] := by
     simp [ContainsFoundation, Permitted, Array.eq_empty_iff_forall_not_mem]
@@ -256,7 +259,10 @@ theorem permitted_standard (p : ConformingProfile) (n : Name) (h : Permitted p n
     Permitted .standardLogical n := by
   cases p with
   | kernelOnly => exact False.elim h
-  | choiceFree => rcases h with h | h; exact Or.inl h; exact Or.inr (Or.inl h)
+  | choiceFree =>
+    rcases h with h | h
+    · exact Or.inl h
+    · exact Or.inr (Or.inl h)
   | standardLogical => exact h
 
 /-- Positive inspection is exactly the permitted foundation, safety exception and recorded
@@ -302,9 +308,12 @@ hole-before-unknown-before-compiler precedence. This holds even for raw role-nam
 theorem labelOf_iff (axioms native : Array Name) (label : FoundationClass) :
     labelOf axioms native = label ↔ ClassificationOK axioms native label := by
   cases label <;>
-    simp [labelOf, ClassificationOK, ContainsFoundation, standardLogicalAxiom, permits_iff,
-      compilerAxiom_iff, -Array.any_eq_true, -Array.any_eq_false, -Array.all_eq_true,
-      -Array.all_eq_false, Array.any_eq_true', Array.all_eq_true', Array.isEmpty_iff] <;> (repeat' split) <;> (try simp_all) <;> grind
+    simp only [labelOf, Array.contains_eq_mem, decide_eq_true_eq, standardLogicalAxiom,
+      Array.any_eq_true', Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+      permits_false_iff, compilerAxiom_false_iff, compilerAxiom_iff, Array.isEmpty_iff,
+      Array.all_eq_true', permits_iff, ClassificationOK, not_exists, not_and, ne_eq,
+      ContainsFoundation, Classical.not_forall, ite_eq_left_iff, not_or] <;>
+    (repeat' split) <;> (try simp_all) <;> grind
 
 /-- Public foundation output retains exact classification and inventory membership for all
 six outcomes, not only the three permitted logical profiles. -/
@@ -315,20 +324,27 @@ theorem foundationFor_iff (i : Inventory) (roles : Roles i) (d : Declaration) (l
 /-- The actual declaration diagnostic is the first failed independent requirement. All
 success and refusal outputs, including their precedence, follow this same relation. -/
 theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
-    OrderedDecision (DeclarationRequirements d r native helpers) (declarationFailure d r native helpers) := by
+    OrderedDecision (declarationRequirements d r native helpers) (declarationFailure d r native helpers) := by
   by_cases hd : d.kind = .«axiom» <;> cases r <;>
-    simp [DeclarationRequirements, hd, declarationFailure,
-      KnownDependencies, SafetyOK, CompilerPolicyOK, ContractOK, ProfileOK,
-      standardLogicalAxiom, permits_iff, compilerAxiom_iff,
-      -Array.any_eq_true, -Array.any_eq_false, -Array.all_eq_true, -Array.all_eq_false,
-      Array.any_eq_true', Array.all_eq_true', Option.any_eq_true, Option.isSome_iff_ne_none] <;>
+    simp only [declarationRequirements, hd, ↓reduceIte, reduceCtorEq, declarationFailure,
+      BEq.rfl, Array.contains_eq_mem, decide_eq_true_eq, beq_iff_eq, orderedDecision_cons,
+      ite_eq_right_iff, Option.some.injEq, imp_false, and_self, not_false_eq_true,
+      ite_eq_left_iff, Decidable.not_not, true_and, orderedDecision_nil, false_and, or_false,
+      not_true_eq_false, Option.ite_none_left_eq_some, and_false, false_or, KnownDependencies,
+      SafetyOK, CompilerPolicyOK, ContractOK, Option.mem_def, ProfileOK, standardLogicalAxiom,
+      Array.any_eq_true', Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+      permits_false_iff, compilerAxiom_false_iff, Bool.or_eq_true, decide_eq_false_iff_not,
+      compilerAxiom_iff, bne_iff_ne, ne_eq, and_true, Option.any_eq_true,
+      Option.isSome_iff_ne_none, Classical.not_forall, not_or, not_and,
+      Bool.not_eq_false, true_or, bne_self_eq_false, Bool.and_false, Bool.false_eq_true,
+      Array.all_eq_true', permits_iff] <;>
     (repeat' split) <;> (try simp_all) <;> grind
 
 /-- Exact outcome equivalence follows from existence and uniqueness of the first failure. -/
 theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest) (native helpers : Array Name)
     (result : Option DeclarationFailure) :
     declarationFailure d r native helpers = result ↔
-      OrderedDecision (DeclarationRequirements d r native helpers) result := by
+      OrderedDecision (declarationRequirements d r native helpers) result := by
   constructor
   · intro h; rw [← h]; exact declarationFailure_ordered d r native helpers
   · intro h; exact (declarationFailure_ordered d r native helpers).unique h
@@ -336,7 +352,7 @@ theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest) (native
 /-- Invalid inventory membership precedes all declaration-policy diagnostics. -/
 theorem policyFor_ordered (i : Inventory) (roles : Roles i) (d : Declaration) (r : InspectionRequest) :
     (d ∉ i.declarations ∧ policyFor i roles d r = some .invalidInventory) ∨
-    (d ∈ i.declarations ∧ OrderedDecision (DeclarationRequirements d r roles.native roles.helpers)
+    (d ∈ i.declarations ∧ OrderedDecision (declarationRequirements d r roles.native roles.helpers)
       (policyFor i roles d r)) := by
   by_cases hd : d ∈ i.declarations
   · exact Or.inr ⟨hd, by simpa [policyFor, hd] using declarationFailure_ordered d r roles.native roles.helpers⟩

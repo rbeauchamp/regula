@@ -2,7 +2,9 @@ module
 
 public import RegulaPolicy.Domain
 
-/-! Reusable facts for proving what a successful `Except` validator establishes.
+/-! # Except validator guard lemmas
+
+Reusable facts for proving what a successful `Except` validator establishes.
 They let theorems be stated about the executed guard sequences directly, instead of
 sampling refusals of mutated inputs. They concern pure `Except` values only. -/
 
@@ -10,13 +12,20 @@ sampling refusals of mutated inputs. They concern pure `Except` values only. -/
 
 namespace RegulaPolicy.Guards
 
+universe u v w
+
+section Except
+
+variable {ε : Type u} {ε' : Type w} {α β : Type v}
+
 /-- A sequenced computation succeeds exactly when each step succeeds in turn. -/
 @[simp] theorem bind_eq_ok {x : Except ε α} {f : α → Except ε β} {b : β} :
     (x >>= f) = .ok b ↔ ∃ a, x = .ok a ∧ f a = .ok b := by
   cases x <;> simp [bind, Except.bind]
 
-/-- An `unless` guard succeeds exactly when its condition holds. -/
-@[simp] theorem unless_eq_ok {c : Bool} {e : ε} {u : PUnit} :
+/-- An `unless` guard succeeds exactly when its condition holds. Not a simp lemma: `simp` already
+proves it from `ite_throw_eq_ok` and `pure_eq_ok`. -/
+theorem unless_eq_ok {c : Bool} {e : ε} {u : PUnit} :
     (unless c do throw e : Except ε PUnit) = .ok u ↔ c = true := by
   cases c <;> simp [throw, throwThe, MonadExceptOf.throw, pure, Except.pure]
 
@@ -65,7 +74,7 @@ theorem listForM_eq_ok {xs : List α} {g : α → Except ε PUnit} {u : PUnit} :
   induction xs with
   | nil => simp [List.forM, pure, Except.pure]
   | cons x xs ih =>
-    show (g x >>= fun _ => xs.forM g) = _ ↔ _
+    change (g x >>= fun _ => xs.forM g) = _ ↔ _
     rw [bind_eq_ok]
     simp only [ih, List.mem_cons, forall_eq_or_imp]
     constructor
@@ -130,6 +139,8 @@ theorem foldlM_append_eq_ok {xs : Array α} {f : α → Except ε (Array β)}
   rw [← Array.foldlM_toList] at h
   simpa using list_foldlM_append_eq_ok h
 
+end Except
+
 variable {α : Type} [BEq α] [LawfulBEq α]
 
 /-- A duplicate-free list whose members all occur in `l₂` is no longer than `l₂`. -/
@@ -180,7 +191,7 @@ private theorem nodup_of_same_members : ∀ {l₁ l₂ : List α}, l₁.Nodup �
 observed edge sequence has no duplicate. -/
 theorem nodup_of_canonicalEdges_size (xs : Array (Lean.Name × Lean.Name))
     (h : (canonicalEdges xs).size = xs.size) : xs.toList.Nodup := by
-  letI : Ord (Lean.Name × Lean.Name) := lexOrd
+  let : Ord (Lean.Name × Lean.Name) := lexOrd
   apply nodup_of_same_members (l₁ := (canonicalEdges xs).toList)
   · have := CanonicalSet.unique (CanonicalSet.normalize (α := Lean.Name × Lean.Name) xs.toList)
     simp only [canonicalEdges, List.toList_toArray]

@@ -1,7 +1,9 @@
 import Regula.Qualification.Project
 import RegulaQualification.Evidence
 
-/-! Operational source/evidence campaigns. Every mutation stays in a unique disposable
+/-! # Source and evidence campaigns
+
+Operational source/evidence campaigns. Every mutation stays in a unique disposable
 adopter. These exercise actual checker commands; the supplied-observation oracle is
 proof-backed, while process, filesystem and compiler effects remain trusted. -/
 namespace Regula.Qualification.SourceEvidence
@@ -32,7 +34,7 @@ def observe (root project : FilePath) (label binary : String) (flags : Array Str
     (#["--project", project.toString] ++ flags ++
       if jsonCommand then #["--json-out", output.toString] else #[]) cleanEnv
   let report ← if jsonCommand then pure (some (← readJson output)) else pure none
-  IO.ofExcept (checkedValidation.run expected result.exitCode.toNat (result.stdout ++ result.stderr) report)
+  IO.ofExcept (checked_validation.run expected result.exitCode.toNat (result.stdout ++ result.stderr) report)
   return (result, report)
 
 /-- Public closure/range controls: reflexive candidate is retained, active replacement

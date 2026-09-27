@@ -67,7 +67,7 @@ accepted project evidence or forges an inventory-bound Roles receipt.
 | --- | --- | --- |
 | Command hook / `Collect.commandDeclarations` | Records for constant binders in this command's Lean information trees; actual policy decisions RG1001–RG1007 when required evidence is available. | Elaborators can add constants without binder information. This is not a complete declaration census. |
 | `Collect.currentModule` | All constants in Lean's current-module map, including private/generated/unused and binder-less declarations. | The caller establishes completion; a partially elaborated environment is still partial. |
-| Module hook | RG5001 metadata presence, and RG5002 docstring and RG5003 Intent-section presence for explicitly registered public declarations in the completed local map. | It does not repeat all command policy diagnostics or certify complete local declaration-policy coverage. |
+| Module hook | RG5001 module-doc presence, docstring position and repeated imports (from the module's own source header), and RG5002 docstring and RG5003 Intent-section presence for explicitly registered public declarations in the completed local map. | It does not repeat all command policy diagnostics or certify complete local declaration-policy coverage. |
 | `Collect.declaration name .snapshot` | Canonical semantic facts for that exact current/imported declaration, with Lean ownership, ranges, transitive axioms and contract shape. | Native replay and generated-role authentication are omitted. |
 | `Collect.declaration name .replayCandidate` | The same constructor with existing replay/equation/parent observations used by `Probe`. | Observations still require fresh transcripts and the existing authorization/admission checks. |
 
@@ -83,7 +83,7 @@ No local result has an `Accepted` or project-PASS constructor. Fresh source
 admission, ownership reconciliation, execution closure, mandatory documentation
 jobs and complete result assembly belong to the
 [project acceptance paths](policy-acceptance.md#1-observed-call-flow-and-every-success-boundary).
-#13 retains the complete twenty-one-rule example corpus and #15 the published
+#13 retains the complete twenty-two-rule example corpus and #15 the published
 [rule reference](website.md). The `lake lint` driver and its configuration explanation are in the
 [adoption guide](adoption.md#6-enforce-with-lake-lint-lake-build-and-ci); the observed
 VS Code journeys are in the [editor journeys record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-14-editor-journeys.md).
@@ -135,7 +135,7 @@ Add modes only for actual producer interfaces and document their partial scope.
 
 `lake exe qualify native` qualifies the actual native bridge,
 including warning promotion, codes, current/imported ownership, private/generated
-coverage and both documentation formats. Each of its 37 controls is its own compiler
+coverage and both documentation formats. Each of its 39 controls is its own compiler
 process with its own source path; they run four at a time in dependency order, with the
 imported-artifact controls after the artifacts they import and the restored controls after
 every malformed one. The existing public adopter controls

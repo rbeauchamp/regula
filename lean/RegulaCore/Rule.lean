@@ -5,7 +5,9 @@ public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
 
-/-! Shared metadata. See RuleId for con-leche attribution and docs/guides/rule-registry.md
+/-! # Rule registry
+
+Shared metadata. See RuleId for con-leche attribution and docs/guides/rule-registry.md
 for the boundary between existing checker detection and planned product adapters.
 
 The registry is the one source of each rule's agent-facing guidance: its one-line
@@ -75,7 +77,8 @@ inductive EvidenceKind where
 def scopeFor : RuleId → RuleScope
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract => .declaration
-  | .environment | .configuration | .sourceBuild | .coverage | .admission => .project
+  | .environment | .configuration | .sourceBuild | .coverage | .admission
+  | .communityConfiguration => .project
   | .executionUnresolved | .executionBoundary => .executionRoot
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample => .documentationFence
   | .moduleDocumentation => .module
@@ -86,7 +89,7 @@ def evidenceFor : RuleId → EvidenceKind
   | .compilerTrusting | .escapeHatch => .generatedRole
   | .executableContract => .contractEvidence
   | .environment => .environment
-  | .configuration => .configuration
+  | .configuration | .communityConfiguration => .configuration
   | .sourceBuild => .compilation
   | .coverage => .inventory
   | .admission => .admission
@@ -213,13 +216,21 @@ def remedyBudget : Nat := 300
 def rewriteBudget : Nat := 480
 def rewriteCountBudget : Nat := 4
 def exampleBudget : Nat := 512
+/-- The Lean community's line limit (Mathlib's `linter.style.longLine`), for example files, whose
+lines every rule page, finding and agent briefing shows verbatim. -/
+def exampleLineBudget : Nat := 100
+
+/-- Every line of `text` has at most `exampleLineBudget` characters. -/
+def linesWithin (text : String) : Bool :=
+  (text.splitOn "\n").all (·.length ≤ exampleLineBudget)
 
 /-- Nonempty text of at most `budget` UTF-8 bytes. -/
 def withinBudget (text : String) (budget : Nat) : Bool :=
   0 < text.utf8ByteSize && text.utf8ByteSize ≤ budget
 
 /-- Every agent-facing field has content within its budget, the one-line fields contain no
-line break, the two examples differ, and qualification inputs say what they are. The registry
+line break, every example line fits the community's 100-character limit, the two examples differ,
+and qualification inputs say what they are. The registry
 checks this for every rule when `RegulaCore.Guidance` is built (`#guard` over the complete
 `RuleId.all`): evaluation, because kernel reduction of these long string literals costs seconds
 per field. -/
@@ -231,6 +242,7 @@ def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
   d.rewrites.all (fun r => withinBudget r rewriteBudget && !r.contains '\n') &&
   withinBudget d.examples.compliant exampleBudget &&
   withinBudget d.examples.noncompliant exampleBudget &&
+  linesWithin d.examples.compliant && linesWithin d.examples.noncompliant &&
   d.examples.compliant != d.examples.noncompliant &&
   0 < d.examples.correction.utf8ByteSize &&
   (match d.examples.audience with
@@ -505,6 +517,43 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         compliant := include_str "../../examples/rules/RG2005/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2005/Violation.lean"
         correction := "The correction replaces ill-typed unchecked evidence with a checked proof of the same reflexivity statement." } }
+  | .communityConfiguration => {
+      title := "Claimed targets must build with the community configuration"
+      category := .configuration
+      normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
+      applicability := "community-configuration"
+      availability := .existingChecker
+      evidenceModes := [.incrementalProject, .freshProject]
+      requirement := "Each claimed target turns `autoImplicit` and `relaxedAutoImplicit` off in \
+        `leanOptions`, disables no linter beyond the §6.7 exclusions and with Mathlib enables its \
+        standard set; no `-D` undoes this."
+      rationale := "An automatic implicit adds a binder the source does not show, so the elaborated \
+        statement can quantify over more than the text a reviewer compares with the intent. A \
+        linter turned off for a whole target hides its warnings from the warning-free build \
+        (RG2003). A `-D` extra `lean` argument can override `leanOptions`, where the audit reads \
+        these options."
+      remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
+        false and, with Mathlib, the standard set and its three §6.7 exclusions; remove other \
+        linter disables and each `-D` extra `lean` argument that overrides these options."
+      rewrites := [
+        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩`` to `leanOptions` \
+          (`autoImplicit = false` and `relaxedAutoImplicit = false` under `[leanOptions]` in \
+          `lakefile.toml`), then declare each universe and implicit the build reports as unknown.",
+        "With Mathlib, also set `weak.linter.mathlibStandardSet` to true and \
+          `weak.linter.style.header`, `weak.linter.hashCommand` false and \
+          `weak.linter.style.longFile` 0.",
+        "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
+          one declaration the community's guidance allows, with a comment (§6.2).",
+        "Delete each `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these \
+          options another value or turns off another linter; other extra arguments may stay."]
+      examples := {
+        language := .lean
+        audience := .adopter
+        compliant := include_str "../../examples/rules/RG2006/Fixed.lean"
+        noncompliant := include_str "../../examples/rules/RG2006/Violation.lean"
+        correction := "The examples are the package's `lakefile.lean` (the corpus run adds its \
+          `require regula` line). The correction turns automatic implicits off without changing \
+          the library, its source or its other options." } }
   | .executionUnresolved => {
       title := "Execution closure must have no unresolved paths", category := .execution
       normativeClauses := [.computationMechanisms]
@@ -619,17 +668,30 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         noncompliant := include_str "../../examples/rules/RG4004/Violation.md"
         correction := "The correction labels the same kernel proof as a positive example rather than as native teaching." } }
   | .moduleDocumentation => {
-      title := "Claimed modules require module documentation", category := .documentation
-      normativeClauses := [.moduleDocumentation]
+      title := "Claimed modules need a leading module docstring and no repeated import"
+      category := .documentation
+      normativeClauses := [.moduleDocumentation, .importDiscipline]
       applicability := "module-documentation"
       availability := .existingChecker
       evidenceModes := projectModes
-      requirement := "Every claimed module has a module docstring (`/-! … -/`)."
-      rationale := "Module documentation tells a reader which declarations carry the module's claims and under which assumptions, so the claims can be reviewed without reading every proof."
-      remedy := "Add a module docstring that identifies the module's material declarations and assumptions."
+      requirement := "Every claimed module has a module docstring (`/-! … -/`) as its first command \
+        after the imports, and its header repeats no import with the same modifiers."
+      rationale := "Module documentation tells a reader which declarations carry the module's \
+        claims and under which assumptions, so the claims can be reviewed without reading every \
+        proof. The Lean community puts it first, where readers and tools look. A repeated import \
+        adds nothing and obscures which dependencies a module declares."
+      remedy := "Add a module docstring that identifies the module's material declarations and \
+        assumptions, directly after the imports and before any `public section`, and delete \
+        repeated imports."
       rewrites := [
-        "Add `/-! … -/` at the top of the module, after the imports.",
-        "Follow the template in standard §5.3: purpose, main declarations with their results and hypotheses, assumptions and dependencies, design notes. Keep only sections that help."]
+        "Add `/-! # Title … -/` as the first command after the imports.",
+        "In a `module` file, move the module docstring above `@[expose] public section` or \
+          `public section`.",
+        "Delete the second copy of a repeated import; `public import A` and `import all A` are \
+          different imports.",
+        "Follow the template in standard §5.3: a `#` title and summary, main declarations with \
+          their results and hypotheses, assumptions and dependencies, design notes. Keep only \
+          sections that help."]
       examples := {
         language := .lean
         audience := .adopter

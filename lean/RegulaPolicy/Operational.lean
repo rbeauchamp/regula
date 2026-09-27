@@ -3,7 +3,9 @@ module
 public import RegulaPolicy.Decision
 public import Regula.Contract
 
-/-! Declaration policy for the operational self-audit of the excluded checker library.
+/-! # Operational self-audit policy
+
+Declaration policy for the operational self-audit of the excluded checker library.
 
 Operational code is not a conforming proof surface: it holds the IO adapters that observe
 Lake, the compiler and the filesystem. Two of its facts are therefore reported rather than
@@ -162,8 +164,8 @@ def OperationalFailureContract
       decide t d = declarationFailure d (.conforming .standardLogical) #[] #[])
 
 /-- Registers `OperationalFailureContract` about `operationalFailure`; the self-audit runs
-`checkedOperationalFailure.run`. -/
-theorem checkedOperationalFailure :
+`checked_operationalFailure.run`. -/
+theorem checked_operationalFailure :
     Regula.ExecutableContract operationalFailure OperationalFailureContract :=
   ⟨fun t d => ⟨operationalFailure_none_iff t d, operationalFailure_ne_escapeHatch t d,
     operationalFailure_eq_conforming t d⟩⟩

@@ -2,11 +2,15 @@ import RegulaPolicy.Collections
 import RegulaPolicy.Traversal
 import Regula.Contract
 
-/-! Invariant-preserving finite result admission. The required key set and binding
+/-! # Invariant-preserving result admission
+
+Invariant-preserving finite result admission. The required key set and binding
 relation are parameters fixed by the caller's plan. This module proves representation
 closure, not that an external census is complete or a policy observation is true. -/
 namespace RegulaPolicy
 open Std
+
+universe u v
 
 inductive AdmissionFailure where
   | unknownKey | duplicateResult | invalidBinding
@@ -374,7 +378,7 @@ theorem admitIndexedResults_ok_iff {α : Type} (count : Nat) (binding : Nat → 
 
 /-- Worker adapters call this registration's `run`, which is exactly `admitIndexedResults`.
 It concerns the decoded responses; transport, process and payload truth remain external. -/
-theorem checkedIndexedResults :
+theorem checked_indexedResults :
     Regula.ExecutableContract @admitIndexedResults IndexedResultsContract :=
   ⟨fun _ count binding responses out => admitIndexedResults_ok_iff count binding responses out⟩
 

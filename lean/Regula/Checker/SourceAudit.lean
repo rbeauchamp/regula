@@ -3,7 +3,9 @@ import Regula.Checker.Environment
 import Regula.Checker.Frontend
 import Regula.Checker.Policy
 
-/-! Verbatim source compilation followed by separate typed environment inspection. -/
+/-! # Verbatim source audit
+
+Verbatim source compilation followed by separate typed environment inspection. -/
 
 namespace Regula.Checker.SourceAudit
 
@@ -251,7 +253,7 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
             actual.sourcePath == scratch / s!"{expected.module}.lean" &&
             actual.oleanPath == scratch / s!"{expected.module}.olean" &&
             actual.ileanPath == scratch / s!"{expected.module}.ilean"
-      -- `checkedIndexedResults` proves one bound result per request, in request order.
+      -- `checked_indexedResults` proves one bound result per request, in request order.
       let compilations ← IO.ofExcept <| admitIndexedWorkerResults specs.size binding payload
       for (expected, actual) in specs.zip compilations do
         unless (← IO.FS.readFile actual.sourcePath) == expected.source do

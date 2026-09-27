@@ -1,7 +1,9 @@
 import Regula.Diagnostic
 import Regula.StructuralName
 
-/-! Versioned transport and website admission derived from the registry. The exact
+/-! # Registry transport codec
+
+Versioned transport and website admission derived from the registry. The exact
 canonical comparison follows con-leche's representation idea (RuleId attribution).
 JSON syntax parsing and external producer/source identity remain trusted boundaries. -/
 namespace Regula.RegistryCodec
@@ -149,7 +151,8 @@ private def argumentsJson : (id : RuleId) → Payload id → Json
   | .executionUnresolved, a | .executionBoundary, a =>
       Json.mkObj [("root", nameJson a.root), ("detail", toJson a.detail)]
   | .environment, a | .configuration, a | .sourceBuild, a | .coverage, a
-  | .admission, a | .fenceStructure, a | .positiveExample, a | .negativeExample, a
+  | .admission, a | .communityConfiguration, a | .fenceStructure, a | .positiveExample, a
+  | .negativeExample, a
   | .trustedExample, a | .moduleDocumentation, a =>
       Json.mkObj [("subject", toJson a.subject), ("detail", toJson a.detail)]
 

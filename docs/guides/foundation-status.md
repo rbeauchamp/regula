@@ -54,13 +54,13 @@ that every helper needs a separately named theorem.
 | ID | Definition and actual consumer | Existing guarantee and remaining obligation | Status / owner |
 | --- | --- | --- | --- |
 | F01 | [`ExecutableContract`, `run`, `run_eq`](../../lean/Regula/Contract.lean); [`Collect.executableContract?`](../../lean/Regula/Collect.lean) feeds collected declarations and policy `ContractOK`. | The field proves exactly `R f`; `run` is definitionally `f`. Recognition checks the elaborated closed registration and executable root, not intended adequacy or every caller. Preserve supported universes, full domain and root coverage; review the required relation independently. #43: any definition, theorem or opaque whose type reduces to `ExecutableContract _ impl R` is recognized as a registration; `ContractOK` then requires it closed, with `impl` a named, computable, safe, non-partial definition or opaque of non-`Prop` type that does not return a type. The structure itself is in the excluded `Regula.Contract`, imported by claimed modules. | **E/T**; #39, reporting #42 (report account `ContractAccount`). |
-| F02 | [`Inventory`, `admitInventory`, `admitExecution`](../../lean/RegulaPolicy/Admission.lean); [`Policy.admitScope`](../../lean/Regula/Checker/Policy.lean) is called by project, file, fence, rule-example, acceptance freeze, environment-census and self-test inspection. | Admitted values carry validity; exact admission retains input observations, and execution admission has a preservation theorem. The adapter first checks frontend coordinates, then admits inventory and computes roles. #39: `admitScope` runs `checkedScope` (`ScopeContract`): first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff every coordinate check and `InventoryValid` hold, retaining both arrays. Supplied transcripts are not authenticated. #41: `checkedScope` is on claimed `RegulaCore` and quantifies over every coordinate check; the adapter passes `Frontend.validateCoordinates`, which runs the claimed `checkedCoordinates` (`CoordinateContract`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) at Lean's LSP UTF-16 column function (see #41 delivery). | Core and coordinate check **E** (claimed); Lean's UTF-16 column function and acquisition **T**; #41 (delivered). |
-| F03 | [`policyFor`, `foundationFor`, `declarationFailure`](../../lean/RegulaPolicy/Decision.lean); `Policy.ruleForMember`, `labelOfMember`, `classifyMember` (#40) in the project/file gates and the fence, rule-example and self-test audits, with `ruleFor`, `reasonFor`, `labelOf` kept for arbitrary input; [`Linter.Rules.declarations`](../../lean/Regula/Linter/Rules.lean) for local feedback. | Existing equivalences cover membership, policy, all six classification outcomes and ordered first failure. #39: `request` runs `checkedRequest` (`RequestContract`, by spelling); `ruleFor` runs `checkedRule` (`RuleContract`) over `policyFor`, with `ruleForFailure_injective` and `reasonFor_eq_some_iff`. #40: per-declaration callers iterate the admitted inventory and run the member forms `checkedMemberFailure`/`checkedMemberFoundation`/`checkedMemberRule`, equal to `policyFor`/`foundationFor`/`ruleFor` on every member, without the membership scan. Environment collection remains separate. #41: these projections, `labelOf`/`labelOfMember` and the registry they map to are on claimed `RegulaCore`; `classify`/`classifyMember` stay adapter renderers. | Core and projections **E** (claimed), collection **T**; #41 (delivered). |
-| F04 | [`executionFailureRecords`, `executionSummary`](../../lean/RegulaPolicy/Execution.lean); `Policy.executionFailureRecords`, `executionFailures` and gate rendering. | Empty pure failures iff `ExecutionOK` for every admitted finite inventory and mode. #39: `Policy.executionFailureRecords` is the decision's own records (identity); `executionRule` is injective; `executionSummary` runs `checkedSummary` (`SummaryContract`). Counts describe observations of a conservative account, not a minimal native call graph. #41: `executionRule` is on claimed `RegulaCore`. #42: `executionFailures` is claimed `RegulaCore.Policy` and runs `checkedExecutionFailures` (`ExecutionFailuresContract`: line `k` renders record `k`, none added or dropped, so the lines are empty iff `ExecutionOK`); accepted execution counts reach the report account. #43: the account runs `checkedSummary.run`, and an execution finding's rule is `executionRule failure.id` by its type (see #43 closure). | Decision, projection, failure text and counts **E**, extraction **T**; #42 (see #42 delivery). |
+| F02 | [`Inventory`, `admitInventory`, `admitExecution`](../../lean/RegulaPolicy/Admission.lean); [`Policy.admitScope`](../../lean/Regula/Checker/Policy.lean) is called by project, file, fence, rule-example, acceptance freeze, environment-census and self-test inspection. | Admitted values carry validity; exact admission retains input observations, and execution admission has a preservation theorem. The adapter first checks frontend coordinates, then admits inventory and computes roles. #39: `admitScope` runs `checked_scope` (`ScopeContract`): first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff every coordinate check and `InventoryValid` hold, retaining both arrays. Supplied transcripts are not authenticated. #41: `checked_scope` is on claimed `RegulaCore` and quantifies over every coordinate check; the adapter passes `Frontend.validateCoordinates`, which runs the claimed `checked_coordinates` (`CoordinateContract`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) at Lean's LSP UTF-16 column function (see #41 delivery). | Core and coordinate check **E** (claimed); Lean's UTF-16 column function and acquisition **T**; #41 (delivered). |
+| F03 | [`policyFor`, `foundationFor`, `declarationFailure`](../../lean/RegulaPolicy/Decision.lean); `Policy.ruleForMember`, `labelOfMember`, `classifyMember` (#40) in the project/file gates and the fence, rule-example and self-test audits, with `ruleFor`, `reasonFor`, `labelOf` kept for arbitrary input; [`Linter.Rules.declarations`](../../lean/Regula/Linter/Rules.lean) for local feedback. | Existing equivalences cover membership, policy, all six classification outcomes and ordered first failure. #39: `request` runs `checked_request` (`RequestContract`, by spelling); `ruleFor` runs `checked_rule` (`RuleContract`) over `policyFor`, with `ruleForFailure_injective` and `reasonFor_eq_some_iff`. #40: per-declaration callers iterate the admitted inventory and run the member forms `checked_memberFailure`/`checked_memberFoundation`/`checked_memberRule`, equal to `policyFor`/`foundationFor`/`ruleFor` on every member, without the membership scan. Environment collection remains separate. #41: these projections, `labelOf`/`labelOfMember` and the registry they map to are on claimed `RegulaCore`; `classify`/`classifyMember` stay adapter renderers. | Core and projections **E** (claimed), collection **T**; #41 (delivered). |
+| F04 | [`executionFailureRecords`, `executionSummary`](../../lean/RegulaPolicy/Execution.lean); `Policy.executionFailureRecords`, `executionFailures` and gate rendering. | Empty pure failures iff `ExecutionOK` for every admitted finite inventory and mode. #39: `Policy.executionFailureRecords` is the decision's own records (identity); `executionRule` is injective; `executionSummary` runs `checked_summary` (`SummaryContract`). Counts describe observations of a conservative account, not a minimal native call graph. #41: `executionRule` is on claimed `RegulaCore`. #42: `executionFailures` is claimed `RegulaCore.Policy` and runs `checked_executionFailures` (`ExecutionFailuresContract`: line `k` renders record `k`, none added or dropped, so the lines are empty iff `ExecutionOK`); accepted execution counts reach the report account. #43: the account runs `checked_summary.run`, and an execution finding's rule is `executionRule failure.id` by its type (see #43 closure). | Decision, projection, failure text and counts **E**, extraction **T**; #42 (see #42 delivery). |
 | F05 | [`CensusOK`, `requiredJobs`, `Plan`, `admitPlan`](../../lean/RegulaPolicy/Plan.lean); [`accept`, `Accepted.report`](../../lean/RegulaPolicy/Acceptance.lean). | Coordinator-fixed requests retain the full claim and separate environment inventories. Plan fields require exact derived jobs and claim; accepted evidence requires completeness and policy for those inputs. The actual freeze/finish callers, `Documentation.finishDocuments` and `FreshChecker.finishGraph` (both through `finalize`) consume this evidence. #7 delivered this integration (PR #33 with #45–#49). #41: the pure census assembly is on claimed `RegulaCore`. `surfaceAssignments`, `conformingProfile`, `histories`, the environment-job lookup and documentation-evidence selection have contracts. `accept` decides the other stages of `observations` again. | Core and linkage **E/T**; delivered by #7, census assembly claimed by #41. |
-| F06 | [`ResultState.insertResult`, `collect`](../../lean/RegulaPolicy/ResultState.lean); [`finalize`](../../lean/RegulaPolicy/Acceptance.lean); [`Common.admitIndexedWorkerResults`](../../lean/Regula/Checker/Common.lean). | Insertion and full-sequence collection retain unknown, duplicate and binding refusals. `finalize_iff` relates actual raw occurrences to exact required-slot policy coverage; split IO collection/acceptance carries equality to this finalizer. #39: `admitIndexedWorkerResults` and `mapWorkQueue` run `checkedIndexedResults` (`IndexedResultsContract`). Packet decoding and worker execution remain distinct. #41: the decision was already claimed; `admitIndexedWorkerResults` decodes worker JSON and `mapWorkQueue` schedules in-process IO tasks, and both only render refusal text around it. #43: `Documentation.auditTasks` now runs `checkedIndexedResults` too, replacing a hand-written collection and unproved slot projection. Scheduling and concurrency are trusted. | Collection, finalization and worker projection **E**, transport **T**; #41 (delivered). |
-| F07 | [`evaluate`, `checkedEvaluation`](../../lean/RegulaQualification/Checks.lean); [`Qualification.requireChecks`](../../lean/Regula/Qualification/Support.lean) calls `checkedEvaluation.run`. | Exact success iff all supplied assertions hold, first false assertion, and append/bind composition are already proved and consumed. The empty list succeeds. The evaluator cannot establish that an adapter supplied all needed assertions or truthful IO observations. Retain the implementation and inspect changed callers; do not rebuild a generic assertion framework. Success uses `Guards.listForM_eq_ok` and first refusal `RegulaPolicy.forM_eq_error` (`Traversal`), via `evaluate_eq_forM`; `checkedScope` uses the same two laws (#40, #41). Statements unchanged. Other callers (`RegulaQualification` `Json`, `Registry`, `Evidence`, `Native`) also run `checkedEvaluation.run`; none calls `evaluate` directly. | **E/T**; boundary account #41 (delivered). |
-| F08 | [`AuditApp.RequiredContracts`, `checkedExecutable`](../../lean/AuditApp/Limiter.lean); [`Main`](../../lean/Main.lean) invokes the contract with `requiredContracts`. | Admission, updates, frames, exact success/refusal and strict composition concern the actual runner. The intrinsic bound alone would not prove those relations. [`Refinement`](../../lean/AuditApp/Refinement.lean) relates that runner to finite abstract paths. Retain as the reference pattern; it is not a theorem about checker orchestration or OS effects. | **E/T**; reuse #39; no selected application rewrite. |
+| F06 | [`ResultState.insertResult`, `collect`](../../lean/RegulaPolicy/ResultState.lean); [`finalize`](../../lean/RegulaPolicy/Acceptance.lean); [`Common.admitIndexedWorkerResults`](../../lean/Regula/Checker/Common.lean). | Insertion and full-sequence collection retain unknown, duplicate and binding refusals. `finalize_iff` relates actual raw occurrences to exact required-slot policy coverage; split IO collection/acceptance carries equality to this finalizer. #39: `admitIndexedWorkerResults` and `mapWorkQueue` run `checked_indexedResults` (`IndexedResultsContract`). Packet decoding and worker execution remain distinct. #41: the decision was already claimed; `admitIndexedWorkerResults` decodes worker JSON and `mapWorkQueue` schedules in-process IO tasks, and both only render refusal text around it. #43: `Documentation.auditTasks` now runs `checked_indexedResults` too, replacing a hand-written collection and unproved slot projection. Scheduling and concurrency are trusted. | Collection, finalization and worker projection **E**, transport **T**; #41 (delivered). |
+| F07 | [`evaluate`, `checked_evaluation`](../../lean/RegulaQualification/Checks.lean); [`Qualification.requireChecks`](../../lean/Regula/Qualification/Support.lean) calls `checked_evaluation.run`. | Exact success iff all supplied assertions hold, first false assertion, and append/bind composition are already proved and consumed. The empty list succeeds. The evaluator cannot establish that an adapter supplied all needed assertions or truthful IO observations. Retain the implementation and inspect changed callers; do not rebuild a generic assertion framework. Success uses `Guards.listForM_eq_ok` and first refusal `RegulaPolicy.forM_eq_error` (`Traversal`), via `evaluate_eq_forM`; `checked_scope` uses the same two laws (#40, #41). Statements unchanged. Other callers (`RegulaQualification` `Json`, `Registry`, `Evidence`, `Native`) also run `checked_evaluation.run`; none calls `evaluate` directly. | **E/T**; boundary account #41 (delivered). |
+| F08 | [`AuditApp.RequiredContracts`, `checked_executable`](../../lean/AuditApp/Limiter.lean); [`Main`](../../lean/Main.lean) invokes the contract with `required_contracts`. | Admission, updates, frames, exact success/refusal and strict composition concern the actual runner. The intrinsic bound alone would not prove those relations. [`Refinement`](../../lean/AuditApp/Refinement.lean) relates that runner to finite abstract paths. Retain as the reference pattern; it is not a theorem about checker orchestration or OS effects. | **E/T**; reuse #39; no selected application rewrite. |
 | F09 | [`CanonicalSet` decisions and `ExactlyOne`](../../lean/RegulaPolicy/Collections.lean), used by admission/role/plan predicates; [`Economy.sumTo_csimp`](../../lean/Audit/Economy.lean) illustrates proved replacement. | Std supplies extensional collections and laws; adjacent-order and singleton-head equivalences already avoid redundant work. The arithmetic example proves one universal identity and an equality of executable definitions. Preserve duplicate-rejection versus set-normalization semantics and separate kernel reduction from compiler replacement. #40 retained these unchanged (see #40 delivery). | **E/T**; #40 review complete. |
 | F10 | [`AxiomGate.auditSurfaceAt`, `auditSurface`, `auditFile`, `run`](../../lean/Regula/Checker/AxiomGate.lean); [`Documentation.auditBuiltProject`](../../lean/Regula/Checker/Documentation.lean), [`DocFenceAudit.run`](../../lean/Regula/Checker/DocFenceAudit.lean); sample [`policy` target](../../examples/build-lint/lakefile.lean). | Actual project/file/fence/build-lint success consumes accepted evidence; project-with-docs consumes same-snapshot `CombinedAccepted`. The [success-call-site map](policy-acceptance.md) distinguishes workers/help/local feedback and incremental modes from fresh conformance. The private fence finalizer consumes unchanged admitted task output. #42: every project, file, build-lint, combined and graph verdict line is `Account.pass`, and all account text is `Account.lines`, of `Account.account` on the accepted run; only a fresh project claim reads as whole-project acceptance. The documentation audit prints no PASS verdict, and its per-fence labels come from task results after an `AcceptedRun` exists (see #43 closure). #43: the acceptance-link record requires an `Account` and is written only after `run`'s outer recheck passed (see #43 closure). | Linkage **E/T**, delivered by #7; report projection **E** (claimed account), printing **T**; #42 (see #42 delivery). |
 | F11 | [`Workspace.withRootWorkspace`](../../lean/Regula/Checker/Workspace.lean), `Lake.surfaceInventory`, [`SourceBinding`](../../lean/Regula/Checker/SourceBinding.lean), [`Admission.validate`](../../lean/Regula/Checker/Admission.lean), [`Frontend`](../../lean/Regula/Checker/Frontend.lean), [`ProducerReport`](../../lean/Regula/Checker/ProducerReport.lean). | Existing source/configuration, complete inventory, compiler and replay observations are bound to the accepted request and terminally reconciled. Policy validity does not authenticate their observations, filesystem, external processes or native code. Qualification and the trusted IO boundaries of [policy acceptance §1](policy-acceptance.md#1-observed-call-flow-and-every-success-boundary) and `Account.Trusted` remain required; no wholesale proof of these mechanisms is selected. #41 lists these as the remaining adapters of the narrowed exclusion. | Bound integration implemented; acquisition **T**; #7, explicit adapter boundary #41 (delivered). |
@@ -116,7 +116,7 @@ existential; implicit inputs and typeclass assumptions still matter.
 - **Stateful example:** `runChecked_success ops l final` is iff `Fits ops l`
   and `final = run ops l`. `runChecked_error` identifies a fitting prefix whose
   next grant is full, with final state exactly that prefix's result. Earlier
-  updates survive refusal; the suffix does not run. `checkedExecutable` quantifies
+  updates survive refusal; the suffix does not run. `checked_executable` quantifies
   over `RequiredContracts`, natural capacity and operation lists, and specifies
   exact positive-capacity admission plus that same runner. These are unbounded
   Lean naturals; truncated subtraction is justified by the relevant guards.
@@ -181,18 +181,18 @@ weakened definition is visible to review.
 
 | Registration | Implementation | Required relation | Callers |
 | --- | --- | --- | --- |
-| [`checkedScope`](../../lean/RegulaCore/Policy.lean) | private `admitScopeImpl` via `Policy.admitScope` | `ScopeContract`: (1) with `ts.toList = before ++ t :: after`, every `before` check `.ok ()` and `validateCoordinates ds t = .error e`, the result is `.error e`; (2) when every coordinate check succeeds, the result is exactly `(admitInventory ds ts).map (⟨·, authorize ·⟩)`; (3) success iff every coordinate check succeeds and `InventoryValid ds ts`; (4) success retains `ds` and `ts`. `Roles.eq_authorize` already fixes the roles. | project, file, fence, rule-example, acceptance freeze, environment census and self-test inspection |
-| `checkedRequest` | private `requestImpl` via `Policy.request` | `RequestContract`: no claim gives `.classification`; `.teaching` iff compiler-trusting; `.conforming q` iff `profile.toString = q.spelling`. `Profile.parse?_eq_some_iff` states the spelling input meaning. | `ruleFor`, `ruleForMember` (#40); `Acceptance.conformingProfile` |
-| `checkedRule` | private `ruleForImpl` via `Policy.ruleFor` | `RuleContract`: `none` iff `policyFor … (request claim) = none`, and `some (ruleForFailure f)` iff that decision is `some f`. With `ruleForFailure_injective` and `policyFor_ordered`, the rule is the first failed requirement's. `reasonFor_eq_some_iff` gives the same relation for applicability text. | `reasonFor`; through `MemberRuleContract` (#40), the project/file gates, fence and rule-example audits now run `checkedMemberRule` |
-| [`checkedSummary`](../../lean/RegulaPolicy/Execution.lean) | `executionSummary`, now a named `ExecutionSummary` | `SummaryContract`: roots and boundaries are observation counts, checked/trusted are filter counts, and `unresolved` equals the number of `executionUnresolved` records of `executionFailureRecords` for every claim. `executionSummary_partition` proves checked + trusted + unresolved boundaries = boundaries. | `Policy.executionSummary`, both gate renderers; since #43 also `Account.accountImpl` |
-| [`checkedIndexedResults`](../../lean/RegulaPolicy/ResultState.lean) | `@admitIndexedResults`, universe-fixed `α : Type` | `IndexedResultsContract`: `.ok out` iff `out.size = count`, every `binding i out[i]`, and `responses.Perm ((List.range count).zip out.toList)`. Duplicates, unknown or missing slots, rebound payloads and shorter plans are refused. Every satisfying array is returned. | `Common.admitIndexedWorkerResults` (compile batch), `Common.mapWorkQueue`; since #43 also `Documentation.auditTasks` |
+| [`checked_scope`](../../lean/RegulaCore/Policy.lean) | private `admitScopeImpl` via `Policy.admitScope` | `ScopeContract`: (1) with `ts.toList = before ++ t :: after`, every `before` check `.ok ()` and `validateCoordinates ds t = .error e`, the result is `.error e`; (2) when every coordinate check succeeds, the result is exactly `(admitInventory ds ts).map (⟨·, authorize ·⟩)`; (3) success iff every coordinate check succeeds and `InventoryValid ds ts`; (4) success retains `ds` and `ts`. `Roles.eq_authorize` already fixes the roles. | project, file, fence, rule-example, acceptance freeze, environment census and self-test inspection |
+| `checked_request` | private `requestImpl` via `Policy.request` | `RequestContract`: no claim gives `.classification`; `.teaching` iff compiler-trusting; `.conforming q` iff `profile.toString = q.spelling`. `Profile.parse?_eq_some_iff` states the spelling input meaning. | `ruleFor`, `ruleForMember` (#40); `Acceptance.conformingProfile` |
+| `checked_rule` | private `ruleForImpl` via `Policy.ruleFor` | `RuleContract`: `none` iff `policyFor … (request claim) = none`, and `some (ruleForFailure f)` iff that decision is `some f`. With `ruleForFailure_injective` and `policyFor_ordered`, the rule is the first failed requirement's. `reasonFor_eq_some_iff` gives the same relation for applicability text. | `reasonFor`; through `MemberRuleContract` (#40), the project/file gates, fence and rule-example audits now run `checked_memberRule` |
+| [`checked_summary`](../../lean/RegulaPolicy/Execution.lean) | `executionSummary`, now a named `ExecutionSummary` | `SummaryContract`: roots and boundaries are observation counts, checked/trusted are filter counts, and `unresolved` equals the number of `executionUnresolved` records of `executionFailureRecords` for every claim. `executionSummary_partition` proves checked + trusted + unresolved boundaries = boundaries. | `Policy.executionSummary`, both gate renderers; since #43 also `Account.accountImpl` |
+| [`checked_indexedResults`](../../lean/RegulaPolicy/ResultState.lean) | `@admitIndexedResults`, universe-fixed `α : Type` | `IndexedResultsContract`: `.ok out` iff `out.size = count`, every `binding i out[i]`, and `responses.Perm ((List.range count).zip out.toList)`. Duplicates, unknown or missing slots, rebound payloads and shorter plans are refused. Every satisfying array is returned. | `Common.admitIndexedWorkerResults` (compile batch), `Common.mapWorkQueue`; since #43 also `Documentation.auditTasks` |
 
 The `Policy.ExecutionFailure` record was replaced by an alias of the decision's
 own record type. The gate consumes those records, so kind, root, detail and order
 are preserved by identity. The total bridge `executionRule` is injective, and
 `RuleDiagnostics.executionFinding` no longer has an unreachable wrong-rule branch.
 `SourceAudit.compileBatch` no longer repeats the size and binding checks that
-`checkedIndexedResults` proves. It keeps the IO check that each source snapshot
+`checked_indexedResults` proves. It keeps the IO check that each source snapshot
 is unchanged.
 
 Limits: `ScopeContract` is conditional on the existing `validateCoordinates`
@@ -201,8 +201,8 @@ check and on `InventoryValid`. Neither authenticates the supplied transcripts.
 completion and payload truth remain trusted. The `Policy` registrations are in
 the excluded operational `Regula` library. They are kernel-checked by
 `lake build` (warnings are errors), but the axiom gate does not audit them until
-#41 moves them to a claimed surface (done; see #41 delivery). The ordinary gate recognizes `checkedSummary`
-and `checkedIndexedResults` on `RegulaPolicy`; the latter exercises a
+#41 moves them to a claimed surface (done; see #41 delivery). The ordinary gate recognizes `checked_summary`
+and `checked_indexedResults` on `RegulaPolicy`; the latter exercises a
 type-polymorphic implementation. Recognition is unchanged.
 
 Exact axiom sets on Lean 4.34.0: `{}` for `ruleForFailure_injective`,
@@ -263,9 +263,9 @@ New registrations. Each requirement is a named `Prop`, separate from its proof:
 
 | Registration | Implementation | Required relation | Callers |
 | --- | --- | --- | --- |
-| [`checkedMemberFailure`](../../lean/RegulaPolicy/Decision.lean) | `memberFailure i roles d member request := declarationFailure d request roles.native roles.helpers` | `MemberFailureContract`: for all `i`, `roles : Roles i`, `d`, `member : d ∈ i.declarations` and `request`, the result equals `policyFor i roles d request`. | `Policy.ruleForMember`; `checkedEditorDecision` (`Linter.Rules.declarations`, since #14) |
-| `checkedMemberFoundation` | `memberFoundation i roles d member := labelOf d.axioms roles.native` | `MemberFoundationContract`: `foundationFor i roles d = .ok (memberFoundation i roles d member)` for every member; the member form has no error case. | `Policy.labelOfMember`, and through it `classifyMember` |
-| [`checkedMemberRule`](../../lean/RegulaCore/Policy.lean) | private `ruleForMemberImpl` via `Policy.ruleForMember decl claim scope member` | `MemberRuleContract`: equals `ruleFor decl claim scope` for every `member : decl ∈ scope.inventory.declarations`. Therefore `RuleContract` and first-failure precedence carry over unchanged. | project gate `auditSurfaceAt`, file gate `auditFile`, `Documentation.assessPositive`, rule-example policy audit, self-test `renderFileAudit` |
+| [`checked_memberFailure`](../../lean/RegulaPolicy/Decision.lean) | `memberFailure i roles d member request := declarationFailure d request roles.native roles.helpers` | `MemberFailureContract`: for all `i`, `roles : Roles i`, `d`, `member : d ∈ i.declarations` and `request`, the result equals `policyFor i roles d request`. | `Policy.ruleForMember`; `checked_editorDecision` (`Linter.Rules.declarations`, since #14) |
+| `checked_memberFoundation` | `memberFoundation i roles d member := labelOf d.axioms roles.native` | `MemberFoundationContract`: `foundationFor i roles d = .ok (memberFoundation i roles d member)` for every member; the member form has no error case. | `Policy.labelOfMember`, and through it `classifyMember` |
+| [`checked_memberRule`](../../lean/RegulaCore/Policy.lean) | private `ruleForMemberImpl` via `Policy.ruleForMember decl claim scope member` | `MemberRuleContract`: equals `ruleFor decl claim scope` for every `member : decl ∈ scope.inventory.declarations`. Therefore `RuleContract` and first-failure precedence carry over unchanged. | project gate `auditSurfaceAt`, file gate `auditFile`, `Documentation.assessPositive`, rule-example policy audit, self-test `renderFileAudit` |
 
 Supporting theorems are `labelOf_member` (`labelOf decl scope = .ok (labelOfMember …)`) and
 `classifyMember_eq` (`classifyMember decl scope member = classify decl scope`).
@@ -302,10 +302,10 @@ and none is claimed. No compiler replacement (`csimp`, `implemented_by`) was add
 
 Exact axiom sets on Lean 4.34.0 are as follows. `{}` for `evaluate_eq_forM`.
 `{propext}` for `evaluate_append`, unchanged. `{propext, Quot.sound}` for `forM_eq_ok`,
-`forM_eq_error`, `evaluate_success`, `evaluate_error` and `checkedEvaluation`; the last
+`forM_eq_error`, `evaluate_success`, `evaluate_error` and `checked_evaluation`; the last
 three are unchanged. `{propext, Classical.choice, Quot.sound}` for
-`checkedMemberFailure`, `checkedMemberFoundation`, `checkedMemberRule`, `labelOf_member`,
-`classifyMember_eq` and `checkedScope`, the last unchanged. All are within each
+`checked_memberFailure`, `checked_memberFoundation`, `checked_memberRule`, `labelOf_member`,
+`classifyMember_eq` and `checked_scope`, the last unchanged. All are within each
 library's Standard-Logical claim.
 
 Evidence (local, warm, observations only). Each row names the head or base it was
@@ -314,9 +314,9 @@ exact-head CI run.
 
 | Check | Observed on | Result |
 | --- | --- | --- |
-| `./scripts/verify.sh` | this change over base `4aa6c89` | PASS, 121 s. 40 owned modules, 5377 declarations. The gate recognizes `checkedMemberFailure` and `checkedMemberFoundation` on `RegulaPolicy`. |
+| `./scripts/verify.sh` | this change over base `4aa6c89` | PASS, 121 s. 40 owned modules, 5377 declarations. The gate recognizes `checked_memberFailure` and `checked_memberFoundation` on `RegulaPolicy`. |
 | `./scripts/verify.sh docs` | this change over base `4aa6c89` | PASS, 126 s (70/70, 23/23, 1/1) |
-| `./scripts/verify.sh` | head `2f090ab` (this change over `8de0e85`) | PASS, 121 s. 41 owned modules, 5431 declarations. The gate recognizes `checkedMemberFailure` and `checkedMemberFoundation`. |
+| `./scripts/verify.sh` | head `2f090ab` (this change over `8de0e85`) | PASS, 121 s. 41 owned modules, 5431 declarations. The gate recognizes `checked_memberFailure` and `checked_memberFoundation`. |
 | `./scripts/verify.sh docs` | head `2f090ab` (this change over `8de0e85`) | PASS, 82 s |
 | `diagnostics fixtures` | this change over base `4aa6c89` | PASS, 173 s |
 | `diagnostics cli` | this change over base `4aa6c89` | PASS, 358 s (60 `axiomGate --file` invocations: file gate and self-test mirror) |
@@ -332,10 +332,10 @@ Axiom sets came from `#print axioms` on the built modules.
 
 Limits. The member forms decide nothing about non-members; `policyFor` remains the API
 for arbitrary input. The new core registrations are on the claimed `RegulaPolicy`
-surface. `checkedMemberRule` shares the #39 `Policy` limit: it is kernel-checked by
+surface. `checked_memberRule` shares the #39 `Policy` limit: it is kernel-checked by
 `lake build` but not audited by the gate until #41. The shared traversal laws live in
 `RegulaQualification.Checks`, which `Checker/Policy.lean` imports; a #41 move of
-`checkedScope` into a claimed policy module must move or restate them. (#41 moved `forM_eq_error` and reused `Guards.listForM_eq_ok`; see above.) No scenario control was added.
+`checked_scope` into a claimed policy module must move or restate them. (#41 moved `forM_eq_error` and reused `Guards.listForM_eq_ok`; see above.) No scenario control was added.
 The contracts are the correctness evidence; qualification detects, it does not prove.
 
 ### #41: bring the selected pure adapters into the conforming surface
@@ -363,51 +363,51 @@ their names and namespaces. These call sites changed:
 - `AxiomGate` renders `surface.execution.spelling`, since `Manifest.Surface.execution`
   is now `RegulaPolicy.ExecutionClaim` itself.
 - `Acceptance.historyObservations` only concatenates the reports' outcomes and runs
-  `checkedHistories`.
-- `Frontend.validateCoordinates` is now `checkedCoordinates.run lspUtf16Column`, and
+  `checked_histories`.
+- `Frontend.validateCoordinates` is now `checked_coordinates.run lspUtf16Column`, and
   `Diagnostic.sourceFromReport` is `sourceFromReportWith lspUtf16Column`.
-- `observations` runs `checkedEnvironmentJob` for environment jobs.
-- `checkedScope` and `evaluate_success` use `Guards.listForM_eq_ok` for the success law.
+- `observations` runs `checked_environmentJob` for environment jobs.
+- `checked_scope` and `evaluate_success` use `Guards.listForM_eq_ok` for the success law.
 
 | Component | Now in | Change and reason |
 | --- | --- | --- |
-| `PolicyScope`, `checkedScope` (`ScopeContract`); the adapter `Policy.admitScope` stays in `Checker/Policy.lean` | `RegulaCore.Policy` | `ScopeContract` now quantifies over every coordinate check `check : CoordinateCheck`, with the same four clauses. The adapter `Policy.admitScope ds ts` is `checkedScope.run Frontend.validateCoordinates ds ts`. Instantiating the contract at that check gives the #39 relation exactly. |
-| `validateCoordinates`, now `coordinateCheck` (`checkedCoordinates`, `CoordinateContract`) | [`RegulaCore.Coordinates`](../../lean/RegulaCore/Coordinates.lean) | New contract, for every UTF-16 column function. Success holds exactly when `CoordinatesAgree`: each command's `added` equals its `addedDeclarations` names; each command, evaluator and binding range has positive lines, round-trips through the transcript's `FileMap` at both ends, and starts no later than it stops; and each declaration of the transcript's module has ranges that convert against the snapshot (`RangesConvert`). Refusal is exactly the message of the first unmet entry of `coordinateObligations`, listed in traversal order (`Decides`, `FirstUnmet`). The loops became `List.forM` traversals, and the inventory guard became `commandInventory`. Order and messages are unchanged. |
+| `PolicyScope`, `checked_scope` (`ScopeContract`); the adapter `Policy.admitScope` stays in `Checker/Policy.lean` | `RegulaCore.Policy` | `ScopeContract` now quantifies over every coordinate check `check : CoordinateCheck`, with the same four clauses. The adapter `Policy.admitScope ds ts` is `checked_scope.run Frontend.validateCoordinates ds ts`. Instantiating the contract at that check gives the #39 relation exactly. |
+| `validateCoordinates`, now `coordinateCheck` (`checked_coordinates`, `CoordinateContract`) | [`RegulaCore.Coordinates`](../../lean/RegulaCore/Coordinates.lean) | New contract, for every UTF-16 column function. Success holds exactly when `CoordinatesAgree`: each command's `added` equals its `addedDeclarations` names; each command, evaluator and binding range has positive lines, round-trips through the transcript's `FileMap` at both ends, and starts no later than it stops; and each declaration of the transcript's module has ranges that convert against the snapshot (`RangesConvert`). Refusal is exactly the message of the first unmet entry of `coordinateObligations`, listed in traversal order (`Decides`, `FirstUnmet`). The loops became `List.forM` traversals, and the inventory guard became `commandInventory`. Order and messages are unchanged. |
 | `SourceCandidate`, `admitSource`, `SourceLocation`; `sourceFromReport`'s conversion, now `sourceFromReportWith` with `reportedRange` (`reportedRange_eq`) | [`RegulaCore.Source`](../../lean/RegulaCore/Source.lean) | Moved from `Regula.Diagnostic`, with the UTF-16 column as a parameter `Utf16Column`. `Diagnostic` keeps `lspUtf16Column` (Lean's `FileMap.leanPosToLspPos`), `sourceFromReport` at that column, and the LSP range renderers. The module imports only `Lean.Data.Position` and the policy domain. |
-| `Profile`, `request` (`checkedRequest`), `Profile.parse?_eq_some_iff` | `RegulaCore.Policy` | Moved unchanged. |
-| `ruleFor` (`checkedRule`), `ruleForMember` (`checkedMemberRule`), `reasonFor`, `reasonFor_eq_some_iff`, `applicability_ruleForFailure_injective` | `RegulaCore.Policy` | Moved unchanged. |
+| `Profile`, `request` (`checked_request`), `Profile.parse?_eq_some_iff` | `RegulaCore.Policy` | Moved unchanged. |
+| `ruleFor` (`checked_rule`), `ruleForMember` (`checked_memberRule`), `reasonFor`, `reasonFor_eq_some_iff`, `applicability_ruleForFailure_injective` | `RegulaCore.Policy` | Moved unchanged. |
 | `labelOf`, `labelOfMember`, `labelOf_member` | `RegulaCore.Policy` | Moved unchanged. |
 | `executionRule`, `executionRule_injective` | `RegulaCore.Policy` | Moved unchanged. |
 | Registry `RuleId`, `Rule` (`ruleForFailure`, `descriptor`) | `RegulaCore.RuleId`, `RegulaCore.Rule` | Moved from `Regula.RuleId`/`Regula.Rule`. `Regula.Diagnostic` imports the new module. |
-| `forM_eq_error` | [`RegulaPolicy.Traversal`](../../lean/RegulaPolicy/Traversal.lean) | Moved from `RegulaQualification.Checks`, which now imports it. The statement is unchanged. The module imports only `Init`. The success law `forM_eq_ok` was not moved: `checkedScope` and `evaluate_success` use the existing `RegulaPolicy.Guards.listForM_eq_ok` instead. |
-| `conformingProfile` (`checkedConformingProfile`, `ConformingProfileContract`) | [`RegulaCore.Assembly`](../../lean/RegulaCore/Assembly.lean) | New contract: success exactly with the conforming profile of the same spelling, and refusal exactly for compiler-trusting. It is proved by reduction to the new `request_contract` (`RequestContract` stated about `request`). Nothing downstream rechecks a surface's profile. |
-| `surfaceAssignments` (`checkedSurfaceAssignments`, `SurfaceAssignmentsContract`) | `RegulaCore.Assembly` | New contract: success exactly with one `SurfaceAssigned` claim surface per manifest surface, in order. That relation fixes the library name, the execution claim, the profile of the manifest's spelling, and the modules: the first same-named Lake library's modules followed by each claimed executable's first same-named root. The implementation was restated as a per-surface `mapM` with the same refusals and messages. Nothing downstream rechecks profile or execution. |
+| `forM_eq_error` | [`RegulaPolicy.Traversal`](../../lean/RegulaPolicy/Traversal.lean) | Moved from `RegulaQualification.Checks`, which now imports it. The statement is unchanged. The module imports only `Init`. The success law `forM_eq_ok` was not moved: `checked_scope` and `evaluate_success` use the existing `RegulaPolicy.Guards.listForM_eq_ok` instead. |
+| `conformingProfile` (`checked_conformingProfile`, `ConformingProfileContract`) | [`RegulaCore.Assembly`](../../lean/RegulaCore/Assembly.lean) | New contract: success exactly with the conforming profile of the same spelling, and refusal exactly for compiler-trusting. It is proved by reduction to the new `request_contract` (`RequestContract` stated about `request`). Nothing downstream rechecks a surface's profile. |
+| `surfaceAssignments` (`checked_surfaceAssignments`, `SurfaceAssignmentsContract`) | `RegulaCore.Assembly` | New contract: success exactly with one `SurfaceAssigned` claim surface per manifest surface, in order. That relation fixes the library name, the execution claim, the profile of the manifest's spelling, and the modules: the first same-named Lake library's modules followed by each claimed executable's first same-named root. The implementation was restated as a per-surface `mapM` with the same refusals and messages. Nothing downstream rechecks profile or execution. |
 | `configuredTargets`, `discoveredTargets` | `RegulaCore.Assembly` | Moved unchanged, without a contract. They are total field projections of the manifest and Lake records, so a contract would restate them. The claimed `TargetPartitionOK` checks them against each other and against the contracted claim surfaces. |
 | `FrozenEnvironment`, `Frozen`, `frozenEnvironmentRoles` (`_eq`), `modulePresence` (`_iff`), `observations` | `RegulaCore.Assembly` | Moved unchanged except as below and in the next two rows, without a new contract of their own. The claimed `accept` decides again every stage but documentation presence. `ResultBound` and `PolicyOK` fix key, snapshot and completion, and `StageOK`/`LocalStageOK` bind each record to its job's subject and census; for example, a declaration must be in the inventory with the key's module and name. For those stages a wrong choice is refused, and the remaining risk is a spurious refusal. |
-| Evidence selection, now `checkedEnvironmentEvidence` (`DocumentationEvidenceContract`) | `RegulaCore.Assembly` | New soundness contract, because `LocalStageOK` checks only that a docstring is present, not whose it is. A success reports the presence of the only record with the job's module name, or with its module and declaration names; a refusal fails closed. `observations` runs this registration on the environment `checkedEnvironmentJob` selects. |
-| Environment lookup, now `checkedEnvironmentJob` (`EnvironmentJobContract`) | `RegulaCore.Assembly` | New contract for every environment job, documentation slots included. Success means exactly one frozen environment has the job's `census.request.key`, and the evidence is that environment's `checkedEnvironmentEvidence` result for the job's stage and subject. A missing or duplicate key is refused. `observations` runs this registration. |
-| History assembly, now `histories` (`checkedHistories`, `HistoriesContract`); `ProducerReport.HistoryOutcome` | `RegulaCore.Assembly` | New contract: success exactly when every outcome completed, with one exact copy (module, path, before and after sources, replacement edges) per outcome in order. An unavailable history is refused, never dropped. `HistoryOK` cannot tell whether the replacement edges were copied faithfully, so this is not decided again downstream. `historyObservations` now only concatenates the reports' outcomes and runs this. The unsupported-evaluator list stays empty here: the operational `--replacement-history-worker` refuses a module with unsupported evaluators, so such a history arrives unavailable and is refused. |
+| Evidence selection, now `checked_environmentEvidence` (`DocumentationEvidenceContract`) | `RegulaCore.Assembly` | New soundness contract, because `LocalStageOK` checks only that a docstring is present, not whose it is. A success reports the presence of the only record with the job's module name, or with its module and declaration names; a refusal fails closed. `observations` runs this registration on the environment `checked_environmentJob` selects. |
+| Environment lookup, now `checked_environmentJob` (`EnvironmentJobContract`) | `RegulaCore.Assembly` | New contract for every environment job, documentation slots included. Success means exactly one frozen environment has the job's `census.request.key`, and the evidence is that environment's `checked_environmentEvidence` result for the job's stage and subject. A missing or duplicate key is refused. `observations` runs this registration. |
+| History assembly, now `histories` (`checked_histories`, `HistoriesContract`); `ProducerReport.HistoryOutcome` | `RegulaCore.Assembly` | New contract: success exactly when every outcome completed, with one exact copy (module, path, before and after sources, replacement edges) per outcome in order. An unavailable history is refused, never dropped. `HistoryOK` cannot tell whether the replacement edges were copied faithfully, so this is not decided again downstream. `historyObservations` now only concatenates the reports' outcomes and runs this. The unsupported-evaluator list stays empty here: the operational `--replacement-history-worker` refuses a module with unsupported evaluators, so such a history arrives unavailable and is refused. |
 | Manifest records (`Manifest.Surface`, `Manifest`, exclusions) and Lake inventory records (`Lake.SurfaceInventory` and parts) | `RegulaCore.Assembly` | Data types moved so the contracts can state them. Parsing and Lake loading stay in `Checker/Manifest.lean` and `Checker/Lake.lean`. |
-| `mapM_eq_ok` | `RegulaPolicy.Traversal` | Was private `mapM_ok` in `ResultState`. It is now shared by `checkedIndexedResults`, `checkedSurfaceAssignments` and `checkedHistories`; the statement is unchanged. |
-| `checkedSummary`, `checkedIndexedResults`, `checkedMemberFailure`, `checkedMemberFoundation`; #7's `Plan`, `ResultState`, `accept`, `finalize`, `combineAccepted` | `RegulaPolicy` | Already claimed, so not moved again. |
+| `mapM_eq_ok` | `RegulaPolicy.Traversal` | Was private `mapM_ok` in `ResultState`. It is now shared by `checked_indexedResults`, `checked_surfaceAssignments` and `checked_histories`; the statement is unchanged. |
+| `checked_summary`, `checked_indexedResults`, `checked_memberFailure`, `checked_memberFoundation`; #7's `Plan`, `ResultState`, `accept`, `finalize`, `combineAccepted` | `RegulaPolicy` | Already claimed, so not moved again. |
 
 The narrowed exclusion keeps the following. Each item is a total projection, observes
 something external, or only renders text around a claimed decision.
 
 - `Diagnostic.lspUtf16Column` is Lean's `FileMap.leanPosToLspPos` column.
   `Frontend.validateCoordinates` and `sourceFromReport` pass it to the claimed
-  `checkedCoordinates` and `sourceFromReportWith`. It stays outside the claimed closure
+  `checked_coordinates` and `sourceFromReportWith`. It stays outside the claimed closure
   because `Lean.Data.Lsp.Utf16` imports `Lean.Environment`. The contracts hold for every
   column function, so they do not verify Lean's UTF-16 arithmetic. That arithmetic is a
   pinned toolchain function, trusted in the same way as `FileMap.toPosition`, which is
   `partial` and which the contracts treat as opaque.
 - `Checker/Acceptance.historyObservations` only concatenates each report's outcomes
-  (`flatMap`) before running `checkedHistories`.
+  (`flatMap`) before running `checked_histories`.
 - `Checker/Policy.lean` keeps the text renderers `executionFailures`,
   `describeBoundary`, `classify` and `classifyMember`, with `classifyMember_eq`. (#42 later
   moved `executionFailures` to claimed `RegulaCore.Policy`.)
 - `Common.admitIndexedWorkerResults` decodes worker JSON and `mapWorkQueue` schedules
-  in-process IO tasks; both render refusal text around the claimed `checkedIndexedResults`.
+  in-process IO tasks; both render refusal text around the claimed `checked_indexedResults`.
 - `Checker/Acceptance`'s `freeze`, `finish`, `buildObservation` and `sourceSnapshots`
   read IO-derived records and hand them to the claimed plan and finalizer.
   `ResultProtocol`'s JSON projections are #42's reporting work.
@@ -418,7 +418,7 @@ something external, or only renders text around a claimed decision.
   their in-module `collectAxioms` ceiling.
 
 Caller linkage. Every #39/#40 caller still executes the same registration's `run`.
-`Policy.admitScope` now passes the frontend check, itself `checkedCoordinates.run`, to
+`Policy.admitScope` now passes the frontend check, itself `checked_coordinates.run`, to
 the core registration. `sourceFromReport` callers (`Findings`, and `DiagnosticCodec`
 and `RegistryChecks` through `admitSource`) run the moved claimed definitions. The
 unchanged callers now run the new registrations. `surfaceAssignments` is called by the
@@ -439,10 +439,10 @@ delivery's final Lean sources rebased onto main `ecd78bc`:
   `Coordinates` 61, `Policy` 188, `Rule` 293, `RuleId` 96 and `Source` 45.
 - Exact axiom sets across those 1064: 768 `{}`, 108 `{propext}`, 13
   `{propext, Quot.sound}` and 175 `{propext, Classical.choice, Quot.sound}`.
-- The gate recognizes ten registrations on `RegulaCore`: `checkedScope`,
-  `checkedRequest`, `checkedRule`, `checkedMemberRule`, `checkedCoordinates`,
-  `checkedConformingProfile`, `checkedSurfaceAssignments`, `checkedHistories`,
-  `checkedEnvironmentEvidence` and `checkedEnvironmentJob`.
+- The gate recognizes ten registrations on `RegulaCore`: `checked_scope`,
+  `checked_request`, `checked_rule`, `checked_memberRule`, `checked_coordinates`,
+  `checked_conformingProfile`, `checked_surfaceAssignments`, `checked_histories`,
+  `checked_environmentEvidence` and `checked_environmentJob`.
 - Execution coverage for `RegulaCore`: 408 roots and 3242 boundaries (489 checked,
   2753 trusted), 0 unresolved. The trusted boundaries are reported Lean core and runtime
   mechanisms, not verified ones.
@@ -453,10 +453,10 @@ Named axiom sets, from `#print axioms`:
 | --- | --- |
 | `{}` | `Profile.parse?_eq_some_iff`, `executionRule_injective`, `ruleForFailure_injective`, `RuleId.parse_spelling`, `RuleId.all_nodup` |
 | `{propext}` | `RuleId.spelling_injective`, `RuleId.mem_all`, `modulePresence_iff`, `decides_pure`, `decides_guard` |
-| `{propext, Quot.sound}` | `forM_eq_error`, `RuleId.route_injective`; `Guards.listForM_eq_ok`, `evaluate_success`, `evaluate_error`, `checkedEvaluation` (unchanged) |
-| `{propext, Classical.choice, Quot.sound}` | `checkedCoordinates`, `coordinateCheck_decides`, `coordinateObligations_hold`, `commandCoordinates_decides`, `rangeCoordinates_decides`, `sourceFromReportWith_decides`, `reportedRange_eq`, `Decides.ok_iff`, `Decides.bind`, `decides_forM`, `decides_forM_map`, `firstUnmet_append`, `all_iff_not_firstUnmet`, `checkedEnvironmentJob`, `checkedScope`, `checkedRequest`, `request_contract`, `checkedRule`, `checkedMemberRule`, `reasonFor_eq_some_iff`, `applicability_ruleForFailure_injective`, `labelOf_member`, `checkedConformingProfile`, `checkedSurfaceAssignments`, `checkedHistories`, `checkedEnvironmentEvidence`, `frozenEnvironmentRoles_eq`, `mapM_eq_ok` |
+| `{propext, Quot.sound}` | `forM_eq_error`, `RuleId.route_injective`; `Guards.listForM_eq_ok`, `evaluate_success`, `evaluate_error`, `checked_evaluation` (unchanged) |
+| `{propext, Classical.choice, Quot.sound}` | `checked_coordinates`, `coordinateCheck_decides`, `coordinateObligations_hold`, `commandCoordinates_decides`, `rangeCoordinates_decides`, `sourceFromReportWith_decides`, `reportedRange_eq`, `Decides.ok_iff`, `Decides.bind`, `decides_forM`, `decides_forM_map`, `firstUnmet_append`, `all_iff_not_firstUnmet`, `checked_environmentJob`, `checked_scope`, `checked_request`, `request_contract`, `checked_rule`, `checked_memberRule`, `reasonFor_eq_some_iff`, `applicability_ruleForFailure_injective`, `labelOf_member`, `checked_conformingProfile`, `checked_surfaceAssignments`, `checked_histories`, `checked_environmentEvidence`, `frozenEnvironmentRoles_eq`, `mapM_eq_ok` |
 
-Moved declarations keep the sets they had before the move. `checkedScope` and
+Moved declarations keep the sets they had before the move. `checked_scope` and
 `evaluate_success` keep theirs after switching to `Guards.listForM_eq_ok`.
 
 Limits. The core contracts concern supplied declarations, transcripts, and manifest,
@@ -524,7 +524,7 @@ its actual consumers. Full editor workflows and website delivery stay in Project
 One report account, [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean)
 (namespace `Regula.Checker.Account`, claimed `standard-logical`, execution `report`),
 is the only source of rendered success. `account run` runs the registration
-`checkedAccount : ExecutableContract accountImpl AccountContract` on one `AcceptedRun`; no
+`checked_account : ExecutableContract accountImpl AccountContract` on one `AcceptedRun`; no
 report path evaluates acceptance again.
 
 - `AccountContract`, stated apart from its proof, fixes the account's meaning for every
@@ -537,7 +537,7 @@ report path evaluates acceptance again.
   environment in order. The fence counts partition the accepted fences by expectation.
   `trusted` is `Trusted.all`. Every `Residual` of `rule-coverage.md` is unresolved, and
   R-GRAPH is listed only for a serialized-graph claim.
-- `Account` is the subtype of data equal to `checkedAccount.run run` for some run.
+- `Account` is the subtype of data equal to `checked_account.run run` for some run.
   `Account.accepted` gives that run with `CompleteFor ∧ AllPolicyOK`, the relation of
   `RegulaPolicy.accept_iff` (named by `acceptanceTheorem`).
 - `Status` (`completed (a : Account)`, `rejected`, `incomplete`, `classified`) replaces
@@ -562,7 +562,7 @@ report path evaluates acceptance again.
   only its presence. The top-level `unresolved` array keeps its
   meaning, missing mechanical evidence; review obligations are `unresolvedReview`.
 - `executionFailures` moved to claimed `RegulaCore.Policy` and runs
-  `checkedExecutionFailures` (`ExecutionFailuresContract`).
+  `checked_executionFailures` (`ExecutionFailuresContract`).
 
 Callers: `AxiomGate.auditSurfaceAt` (fresh, incremental and build-lint), `auditSurface`
 (combined `--with-docs`), `auditFile`, `Documentation.auditBuiltProject` (through
@@ -580,11 +580,11 @@ remain review, not hard errors.
 
 Evidence on Lean 4.34.0 (`293d5d0c`), Mathlib `5ed29652`. Ordinary acceptance covers 6
 claimed libraries, 50 owned modules and 6913 owned declarations, and recognizes
-`checkedAccount` and `checkedExecutionFailures` among the RG1007 registrations;
+`checked_account` and `checked_executionFailures` among the RG1007 registrations;
 `RegulaCore` execution coverage is 540 roots and 4656 boundaries (711 checked, 3945
-trusted), 0 unresolved. `#print axioms`: `checkedAccount`, `Account.accepted`,
+trusted), 0 unresolved. `#print axioms`: `checked_account`, `Account.accepted`,
 `coverage_fresh_iff`, `Status.spelling_eq_completed_iff`, `Status.completed_accepted` and
-`checkedExecutionFailures` are `{propext, Classical.choice, Quot.sound}`; `fresh_scope`
+`checked_executionFailures` are `{propext, Classical.choice, Quot.sound}`; `fresh_scope`
 and `Residual.mem_all` are `{propext}`; `coverageOf_fresh_iff`, `Coverage.text_eq_fresh_iff`
 and `Residual.spelling_injective` use no axioms.
 
@@ -624,17 +624,17 @@ proofs; no new specification and no scenario control were added.
 
 | Row | Former linkage | Now |
 | --- | --- | --- |
-| F06 | `Documentation.auditTasks` repeated `admitIndexedResults` by hand: `ResultState.collect`, then an unproved per-slot projection that threw "documentation task was not assessed". | It runs `checkedIndexedResults.run tasks.size` with binding `tasks[i]? = some r.task`. `IndexedResultsContract` gives one result per task, in task order, each bound to its own task; the throw is replaced by the contract's `IndexedFailure.missing` refusal. |
+| F06 | `Documentation.auditTasks` repeated `admitIndexedResults` by hand: `ResultState.collect`, then an unproved per-slot projection that threw "documentation task was not assessed". | It runs `checked_indexedResults.run tasks.size` with binding `tasks[i]? = some r.task`. `IndexedResultsContract` gives one result per task, in task order, each bound to its own task; the throw is replaced by the contract's `IndexedFailure.missing` refusal. |
 | F04 | `RuleDiagnostics.executionFinding` chose the finding's rule with its own `match`, so `executionRule` did not reach the findings path. | `executionDiagnostic kind` returns `Diagnostic (Policy.executionRule kind)`, and the finding is `⟨executionRule failure.id, _⟩`, so its rule is the registry bridge's by construction. The impact (`incomplete` or `violation`) is still chosen per branch. |
-| F04/F12 | `Account` computed execution counts with `executionSummary` directly, bypassing `checkedSummary`. | `accountImpl` runs `checkedSummary.run`, so the account now depends on `SummaryContract`'s proof. `AccountContract` is unchanged and still stated with `executionSummary`; this adds no new guarantee. |
-| F10 | `AcceptanceLink.record` wrote `"status": "accepted"` from a raw digest and job count, inside the audit and before `AxiomGate.run`'s outer configuration recheck, so a refusal by that recheck left an accepted record. | `record` cannot be called without an `AcceptanceLink.Pending`, whose `Account.Account` is a projection of some `AcceptedRun`, and writes that account's job count. The audit only computes the pending identity, before its success line; `auditSurface` returns it out of the bracketed action, and `run` records it only after `withUnchanged` returned `.ok` with exit code 0 and the result file was written. A refused run keeps the `incomplete` record written before the audit started. That it is this run's account, and that the digest matches it, is caller binding; the file is trusted as written, as `require` states. |
+| F04/F12 | `Account` computed execution counts with `executionSummary` directly, bypassing `checked_summary`. | `accountImpl` runs `checked_summary.run`, so the account now depends on `SummaryContract`'s proof. `AccountContract` is unchanged and still stated with `executionSummary`; this adds no new guarantee. |
+| F10 | `AcceptanceLink.record` wrote `"status": "accepted"` from a raw digest and job count, inside the audit and before `AxiomGate.run`'s outer configuration recheck, so a refusal by that recheck left an accepted record. | `record` cannot be called without an `AcceptanceLink.Pending`, whose `Account` is a projection of some `AcceptedRun`, and writes that account's job count. The audit only computes the pending identity, before its success line; `auditSurface` returns it out of the bracketed action, and `run` records it only after `withUnchanged` returned `.ok` with exit code 0 and the result file was written. A refused run keeps the `incomplete` record written before the audit started. That it is this run's account, and that the digest matches it, is caller binding; the file is trusted as written, as `require` states. |
 
 Behavior is unchanged except the refusal text of a documentation-result admission failure
 and the F10 ordering: the acceptance-link record and its `recorded` line now follow the PASS line
 and the outer recheck, and a refusal by that recheck no longer leaves an accepted record. The
 first, second and fourth changes are in the excluded `Regula` library, kernel-checked by the
-warning-as-error `lake build`. `checkedAccount` stays in claimed `RegulaCore` with the same
-statement, since `checkedSummary.run` reduces to `executionSummary` (`run_eq` is `rfl`).
+warning-as-error `lake build`. `checked_account` stays in claimed `RegulaCore` with the same
+statement, since `checked_summary.run` reduces to `executionSummary` (`run_eq` is `rfl`).
 
 Remaining linkage checked by inspection, not by theorem, in addition to #41's adapter list above.
 None is a selected obligation left open: each is IO dataflow, adapter rendering, or Project 8 scope.
@@ -664,11 +664,11 @@ with the obligations preserved for Project 8 below.
   selection can only cause a refusal. That `exampleObservation` projects the raw compiler errors
   and inspection faithfully is adapter dataflow.
 - **Editor linter.** At the #43 closure, `Linter.Rules.request` parsed the editor option without
-  a contract and `Rules.declarations` rendered the rule after `checkedMemberFailure.run`. #14
+  a contract and `Rules.declarations` rendered the rule after `checked_memberFailure.run`. #14
   closes both: they run the claimed `RegulaCore.EditorPolicy` registrations
-  `checkedEditorRequest` (`EditorRequestContract`) and `checkedEditorDecision`
+  `checked_editorRequest` (`EditorRequestContract`) and `checked_editorDecision`
   (`EditorDecisionContract`). The editor linter is a `module` and cannot import the
-  non-module `RegulaCore.Policy`, so it cannot run `checkedRequest`/`checkedMemberRule`
+  non-module `RegulaCore.Policy`, so it cannot run `checked_request`/`checked_memberRule`
   directly; `RegulaCore.Policy` instead proves the correspondence. `editor_request_sound` and
   `editor_request_complete`: the editor request domain is exactly `request claim` for claims
   other than compiler-trusting. `editor_decision_none_iff`, `editor_decision_rule` and
@@ -723,7 +723,7 @@ baseline, stable diagnostics keep their rule, payload, location, mode, claim and
   same `Probe.lean` correspondence path; this closure did not change it.
 - **After the closure (#14).** The `lint` executable (`lintDriver = "regula/lint"`) runs the
   project audit and classifies its exit through the claimed `RegulaCore.Lint` registration
-  `checkedClassify` (`ClassifyContract`); `accepted_sound` proves exit 0 implies an
+  `checked_classify` (`ClassifyContract`); `accepted_sound` proves exit 0 implies an
   `AcceptedRun` of the requested mode. The editor linter runs `RegulaCore.EditorPolicy`
   (see **Editor linter** above). Both add owned `RegulaCore` modules and RG1007 registrations.
 
@@ -737,7 +737,7 @@ after the outer `withUnchanged` recheck passes with exit code 0.
 | Check | Result |
 | --- | --- |
 | `lake build` (warnings are errors) | PASS |
-| `#print axioms` | `checkedAccount`, `Account.accepted`, `coverage_fresh_iff`, `Status.completed_accepted`: `{propext, Classical.choice, Quot.sound}`, as #42 recorded |
+| `#print axioms` | `checked_account`, `Account.accepted`, `coverage_fresh_iff`, `Status.completed_accepted`: `{propext, Classical.choice, Quot.sound}`, as #42 recorded |
 | `./scripts/verify.sh` | PASS, 157 s cold-root; 6 libraries, 50 modules, 6913 declarations; all RG1007 registrations recognized |
 | `./scripts/verify.sh docs` | PASS, 90 s (70/70 positive, 23/23 compiler-rejection, 1/1 trusted teaching) |
 | `diagnostics rule-examples 1/2`, `2/2` | PASS, 105 s and 84 s (11 and 9 rules; RG3001/RG3002 exercise the retyped execution findings) |
@@ -791,8 +791,8 @@ axiom sets are:
 | --- | --- |
 | Empty | `ExecutableContract.run_eq`; `AuditApp.admit_exact`. |
 | `{propext}` | `RegulaPolicy.exactlyOne_iff_head`; `RegulaQualification.evaluate_append`. |
-| `{propext, Quot.sound}` | `CanonicalSet.adjacentOrdered_iff`; qualification `evaluate_success`, `evaluate_error`, `checkedEvaluation`; `AuditApp.runChecked_success`, `runChecked_error`; `Economy.sumTo_eq_closedSum`, `sumTo_csimp`. |
-| `{propext, Quot.sound, Classical.choice}` | Policy `admitInventory_exact`, `admitExecution_preserves`, `policyFor_none_iff`, `foundationFor_iff`, `executionFailureRecords_empty_iff`, `admitPlan_exact`, `ResultState.insertResult_success_iff`, `insertResult_frame`, `accept_iff`, `accepted_report_identity`, `accepted_covers_slot`, `CanonicalSet.normalized_iff_ordered`; `AuditApp.checkedExecutable`. |
+| `{propext, Quot.sound}` | `CanonicalSet.adjacentOrdered_iff`; qualification `evaluate_success`, `evaluate_error`, `checked_evaluation`; `AuditApp.runChecked_success`, `runChecked_error`; `Economy.sumTo_eq_closedSum`, `sumTo_csimp`. |
+| `{propext, Quot.sound, Classical.choice}` | Policy `admitInventory_exact`, `admitExecution_preserves`, `policyFor_none_iff`, `foundationFor_iff`, `executionFailureRecords_empty_iff`, `admitPlan_exact`, `ResultState.insertResult_success_iff`, `insertResult_frame`, `accept_iff`, `accepted_report_identity`, `accepted_covers_slot`, `CanonicalSet.normalized_iff_ordered`; `AuditApp.checked_executable`. |
 
 Unqualified policy names in this table are in `RegulaPolicy`; qualification
 names are in `RegulaQualification`. Universe parameters remain those of the

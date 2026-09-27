@@ -111,8 +111,9 @@ def writingSections : List (String × String × List RuleId) := [
     [.moduleDocumentation, .materialDocumentation, .materialIntent]),
   ("Executable code", "Applies to `ExecutableContract` registrations and code reached from executable roots.",
     [.executableContract, .executionBoundary, .executionUnresolved]),
-  ("Project configuration", "Applies to `foundation_manifest.json`, Lake libraries and the build environment.",
-    [.configuration, .coverage, .environment]),
+  ("Project configuration",
+    "Applies to `foundation_manifest.json`, the Lake options of claimed targets and the build environment.",
+    [.configuration, .communityConfiguration, .coverage, .environment]),
   ("Lean examples in Markdown", "Applies to `lean` fences in the checked documentation tree.",
     [.positiveExample, .negativeExample, .trustedExample, .fenceStructure])]
 
@@ -146,8 +147,8 @@ def agentGuide : String :=
   "- No option, attribute or flag waives a rule on a claimed surface. Do not disable a Lean " ++
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
-  "Every claimed library enables `linter.missingDocs` (document every definition) and, with " ++
-  "Mathlib, `weak.linter.mathlibStandardSet` with its Mathlib-repository linters off; `lake lint` " ++
+  "Every claimed target enables `linter.missingDocs` (document every definition) in its " ++
+  "`leanOptions`, with the options RG2006 checks; `lake lint` " ++
   "rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
   "Disable a community linter only for a single declaration, " ++
   "where its guidance allows, with the reason; that never discharges a rule.\n" ++
@@ -157,7 +158,7 @@ def agentGuide : String :=
     "## " ++ heading ++ "\n\n" ++ scope ++ "\n\n" ++ String.join (rules.map fun id => briefRule id ++ "\n"))
 
 /-- Byte budget of the agent briefing, so pasting it into an agent's context stays cheap. -/
-def agentGuideBudget : Nat := 14336
+def agentGuideBudget : Nat := 15360
 
 /-- The briefing as an Agent Skills `SKILL.md`. -/
 def skill : String :=
@@ -173,7 +174,9 @@ def plainFields (id : RuleId) : Bool :=
   ([d.requirement, d.rationale, d.remedy, d.examples.caption] ++ d.rewrites).all fun s =>
     (s.splitOn "@repo/").length == 1
 
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard RuleId.all.all fun id => (descriptor id).wellFormed && plainFields id
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard agentGuide.utf8ByteSize ≤ agentGuideBudget
 
 /-- The `regula` command line. -/

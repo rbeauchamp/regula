@@ -12,6 +12,8 @@ import RegulaCore.Lint
 import Regula.Website
 
 /-!
+# Declaration and foundation gate
+
 Lake-semantic declaration, computation, and foundation gate implemented
 entirely in Lean.
 -/
@@ -128,7 +130,7 @@ private def recordStatus (status : ResultProtocol.Status) (findings : Array Regu
 /-- Every root-package Lean library and executable is classified exactly once by the
 manifest, and no executable root conflicts with library ownership. Shared by the audit and
 the read-only configuration explanation. -/
-def checkClassification (manifest : Manifest.Manifest) (inventory : Lake.SurfaceInventory) : IO Unit := do
+def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory) : IO Unit := do
   let rootLibraries := inventory.libraries.map (·.library)
   let manifested := Manifest.libraries manifest
   if !sameStringSet manifested rootLibraries then
@@ -166,7 +168,7 @@ def checkClassification (manifest : Manifest.Manifest) (inventory : Lake.Surface
       throw <| IO.userError <| s!"manifest-conflict: excluded executable " ++
         s!"'{excluded.executable}' root {exe.root} is a module of a claimed library"
 
-private def manifestJson (manifest : Manifest.Manifest) : Json :=
+private def manifestJson (manifest : Manifest) : Json :=
   Json.mkObj [
     ("schema-version", Json.num 2),
     ("surfaces", Json.arr <| manifest.surfaces.map fun surface => Json.mkObj [
@@ -259,7 +261,7 @@ private def retainSourceAccount (resultOut : Option FilePath)
         let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
         writeJson output (value.setObjVal! "sourceAccount" captured)
 
-private def withRetainedSources (resultOut : Option FilePath)
+private def withRetainedSources {α : Type} (resultOut : Option FilePath)
     (composed : IO.Ref (Option Json))
     (captured : IO.Ref (Array ProducerReport.SourceBinding)) (action : IO α) : IO α := do
   try action
@@ -280,7 +282,7 @@ private def reportContextFailure (id : Regula.RuleId) (scope : String)
       completed #[]).setObjVal!
       "sourceAccount" captured
 
-private def withSourceEvidenceOr (refused : α) (sources : Array ProducerReport.SourceBinding)
+private def withSourceEvidenceOr {α : Type} (refused : α) (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (scope : String)
     (mode : Regula.EvidenceMode) (composed : IO.Ref (Option Json)) (resultOut : Option FilePath) (action : IO α) : IO α := do
   match ← SourceBinding.withUnchanged sources configuration action with
@@ -330,7 +332,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
     }
     checkClassification manifest inventory
     let manifested := Manifest.libraries manifest
-
     let mut libraries : Array LibraryInfo := #[]
     for library in manifested do
       let some info := inventory.libraries.find? (·.library == library)
@@ -338,12 +339,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       libraries := libraries.push {
         name := library, modules := info.modules, sources := info.sources
       }
-
     let exeInfoFor (name : String) : IO Lake.ExecutableInventory :=
       match inventory.executables.find? (·.executable == name) with
       | some info => return info
       | none => throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {name}"
-
     let mut surfaces : Array LibraryInfo := #[]
     for surface in manifest.surfaces do
       let base ← infoFor libraries surface.library
@@ -354,7 +353,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         modules := modules.push exe.root
         sources := sources.push { «module» := exe.root, source := exe.source }
       surfaces := surfaces.push { name := surface.library, modules, sources }
-
     withSourceEvidence sourceBindings configuration reportRoot.toString
         (if fresh then .freshProject else .incrementalProject) composed resultOut do
       let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
@@ -369,10 +367,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           (if fresh then .freshProject else .incrementalProject) .incomplete [.configuration, .discovery]
           ("\n".intercalate lines.toList) composed resultOut sourceBindings
         return 1
-
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
-
       let excludedModules := Id.run do
         let mut result : Array Name := #[]
         for excluded in manifest.excludedLibraries do
@@ -443,7 +439,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           return (surface, ← (inspectSurface historyMemo surface).toBaseIO)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
-
       -- Freeze the complete discovery domain before the per-declaration policy loop.
       -- Expected modules are the coordinator's Lake assignments, never response fields.
       for (_, outcome) in inspections do
@@ -473,7 +468,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           sourceBindings inventory.leanLibDir rawInspections
         pure (snapshot, ⟨request, frozen⟩)
       let frozenResult ← (timedPhase "project request freeze" freezeRequest).toBaseIO
-
       let mut failures : Array String := #[]
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
@@ -540,7 +534,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           failures := failures.push s!"declaration-attribution-mismatch: {surface.library}"
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
             reportRoot.toString (s!"declaration-attribution-mismatch: {surface.library}") (if fresh then .freshProject else .incrementalProject) .incomplete)
-
         failures := failures ++ frontendFailures
         for failure in frontendFailures do
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
@@ -552,13 +545,32 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
         let some documentation := report.documentation
           | throw <| IO.userError "producer-documentation: project observations unavailable"
-        for (moduleName, present) in documentation.modules do
-          unless present do
-            let finding ← IO.ofExcept <| Regula.makeDiagnostic .moduleDocumentation
-              ⟨moduleName.toString, "module-documentation: add a module doc comment describing this module"⟩
-              (.module moduleName) mode (some surface.claim.toString) .violation
-            findings := findings.push ⟨.moduleDocumentation, finding⟩
-            failures := failures.push s!"module-documentation: {moduleName}"
+        -- RG5001: the proved `RegulaPolicy.ModuleHeader.failures` decides each module's header
+        -- observation (documentation present, first after the imports, no repeated import).
+        for (moduleName, observation) in documentation.modules do
+          let moduleFindings ← IO.ofExcept <| Regula.Linter.Documentation.moduleFindings
+            moduleName observation mode (some surface.claim.toString)
+          for finding in moduleFindings do
+            findings := findings.push finding
+            let detail := (Regula.argumentParts finding.1 finding.2.arguments).2
+            failures := failures.push s!"{detail} ({moduleName})"
+        -- RG2006: the options Lake builds each claimed target of this surface with, decided by
+        -- the proved `RegulaPolicy.Community.failures` (`failures_eq_nil_iff`). The surface
+        -- imports Mathlib when its loaded environment contains a `Mathlib` module.
+        let mathlib := report.modules.any (·.getRoot == `Mathlib)
+        let some libraryInventory := inventory.libraries.find? (·.library == surface.library)
+          | throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {surface.library}"
+        let mut targets := #[(surface.library, libraryInventory.options)]
+        for exeName in surface.executables do
+          targets := targets.push (exeName, (← exeInfoFor exeName).options)
+        for (target, options) in targets do
+          let failed := RegulaPolicy.Community.failures options mathlib
+          unless failed.isEmpty do
+            let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
+              ⟨target, RegulaPolicy.Community.detail failed⟩ (.project reportRoot.toString) mode
+              (some surface.claim.toString) .violation
+            findings := findings.push ⟨.communityConfiguration, finding⟩
+            failures := failures.push s!"community-configuration: {target}"
         for (key, docstring) in documentation.declarations do
           -- The proved classification (`materialDocumentationFailure_eq_none_iff`) of the
           -- recorded docstring decides RG5002 (none attached) or RG5003 (no Intent section).
@@ -629,7 +641,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         if jsonOut.isSome then surfaceReports := surfaceReports.push (surfaceJson (toJson report))
         -- Legacy output keeps the full report; the result omits the import closure.
         if resultOut.isSome then resultSurfaces := resultSurfaces.push (surfaceJson report.resultJson)
-
       let ownedModules := manifest.surfaces.foldl (fun count surface =>
         match surfaces.find? (·.name == surface.library) with
         | some info => count + info.modules.size
@@ -647,7 +658,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         IO.println s!"excluded library {excluded.library}: {count} module(s)"
       for excluded in manifest.excludedExecutables do
         IO.println s!"excluded executable {excluded.executable}"
-
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
       unless documentationPending do Snapshot.inputsUnchanged inventory dependencies

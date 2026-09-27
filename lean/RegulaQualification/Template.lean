@@ -2,7 +2,9 @@ import RegulaQualification.Checks
 import Batteries.Data.List.Basic
 import Init.Data.List.Monadic
 
-/-! Whole-field template instantiation. Structural correctness is proved for the raw
+/-! # JSON template instantiation
+
+Whole-field template instantiation. Structural correctness is proved for the raw
 transformation, then required by its dependent-result adapter. The recursion returns
 ordinary data; its proof is separate, avoiding unsupported dependent-result helper
 attribution on the pinned compiler. Depth exhaustion explicitly refuses. -/

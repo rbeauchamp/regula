@@ -1,6 +1,8 @@
 import Regula.Checker.AxiomGate
 
 /-!
+# Lake lint driver
+
 `lint`: the Lake lint driver (`lintDriver = "regula/lint"`).
 
 It runs the same project audit body as `axiomGate` (incremental by default, fresh with

@@ -4,7 +4,7 @@ The POLICY-01 design is implemented by the pure `RegulaPolicy` contracts and
 operational adapters described below. The [domain guide](policy-domain.md) identifies
 admitted data; the [proof guide](policy-proofs.md) gives theorem hypotheses and caller
 linkage. The [architecture](linter-architecture.md) owns the product and the
-[coverage map](rule-coverage.md) owns the twenty-one rules and nine residual accounts.
+[coverage map](rule-coverage.md) owns the twenty-two rules and nine residual accounts.
 Normative meaning remains [chapter 8](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/)
 and the [chapter 9 checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/).
 
@@ -25,7 +25,7 @@ operational bridge, re-exporting the pure API without duplicating policy decisio
 | --- | --- |
 | `AxiomGate.auditSurfaceAt`: fresh project | `Acceptance.freeze` reconciles coordinator-selected Lake modules, source/configuration/dependency state, completed report/replay inventories and origins. `Acceptance.finish` times collection and acceptance separately, carrying checked equality of every outcome to `finalize` through `finalize_collection_error` and `finalize_of_collected`; success text and `ResultProtocol.writeAccepted` consume its `AcceptedRun.report` through the report account `Account.account`. Fresh isolated source build and all existing warning, ownership, exclusion, source and replay guards remain. |
 | Same function: `--incremental`, `--build-lint` | The same full policy plan uses `incrementalProject`; cached Lake build artifacts do not cache policy decisions. Build-lint has no second exit-code-only PASS branch. |
-| `Lint.run` (`lint`, the `lake lint` driver) | Calls the same `AxiomGate.entry` project audit (`--incremental`, or fresh with `--fresh`). Exit 0 only through the claimed `Lint.classify` (`checkedClassify`): `accepted_sound` requires a zero audit exit and a recorded `Status.completed` account of the requested mode, hence an `AcceptedRun` with `CompleteFor ∧ AllPolicyOK`. The success line is that account's `Account.pass`. Exit codes 1, 2 and 3 classify recorded rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. That the recorded observation is this invocation's audit is checked by inspection. No second PASS branch. |
+| `Lint.run` (`lint`, the `lake lint` driver) | Calls the same `AxiomGate.entry` project audit (`--incremental`, or fresh with `--fresh`). Exit 0 only through the claimed `Lint.classify` (`checked_classify`): `accepted_sound` requires a zero audit exit and a recorded `Status.completed` account of the requested mode, hence an `AcceptedRun` with `CompleteFor ∧ AllPolicyOK`. The success line is that account's `Account.pass`. Exit codes 1, 2 and 3 classify recorded rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. That the recorded observation is this invocation's audit is checked by inspection. No second PASS branch. |
 | `Lint.run`: `--explain-config`, `--help` | Read-only manifest/Lake-scope validation with the audit's own functions (`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`), and help; no audit certificate. Both return the non-success configuration class (exit 2), refuse `--json-out`/`--verbose`, and invalidate any recognisable `--json-out` destination first (`AxiomGate.invalidateResults`). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface`: `--with-docs` | One process: `auditSurfaceAt` accepts the project plan over a snapshot that includes the copied Markdown, then `auditBuiltProject` accepts the documentation plan over that same snapshot and build, and `combineAccepted` joins them. No evidence crosses a process boundary between the two stages. `CombinedAccepted` is required before combined success. |
 | `AxiomGate.auditSurface`: `--acceptance-link PATH` | Fresh project success only (no `--with-docs`). After `AcceptedRun`, computes the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso DIR:LIBRARY:RENDER`, the Verso library's sources and the package inputs its check reads (`Documentation.Sources.captureLinked`: the Lake configuration and lock files and the package's own modules imported from the library, its needed executables and the render executable); records it in PATH only after `run`'s outer configuration recheck passed with exit code 0. The path is invalidated before the audit starts, so any refusal leaves it `incomplete`. |
@@ -140,7 +140,7 @@ scoped operational controls, not a proof of IO extraction or a full acceptance r
 
 `Common.mapWorkQueue`, `admitIndexedWorkerResults` and documentation's task collector
 execute `ResultState.collect`; no result slot is overwritten. All three call
-`checkedIndexedResults`: success returns exactly the array whose indexed pairs are a
+`checked_indexedResults`: success returns exactly the array whose indexed pairs are a
 permutation of the responses over every requested slot, each payload bound to its slot. Group reconciliation
 preserves each requested environment separately and never deduplicates job
 responses, replay occurrences or positive owned declarations. The full admission module/required/admitted
@@ -210,7 +210,7 @@ takes an `Account`; the refusal statuses carry none. `Status.completed_accepted`
 therefore proves that a `completed` status has an accepted run, complete for its plan
 and meeting every stage policy, behind it. That this run is the current request's is each
 caller's binding, checked by inspection, and a completed envelope takes its `mode` from the
-account. `AccountContract` (`checkedAccount`) states
+account. `AccountContract` (`checked_account`) states
 the account's meaning: mode, scope, surfaces, toolchain and job count are the run's
 own; coverage is `coverageOf` the claim's mode, so fresh whole-project exactly for a fresh
 project claim (`coverage_fresh_iff`); the listed
@@ -495,7 +495,7 @@ only binds scope admission to the frontend coordinate check and renders text;
 into the pure domain (including source/range/evaluator keys); `Frontend` imports them,
 never vice versa. `Report` can serialize typed domain observations; pretty strings are
 non-authoritative. Registry ID/payload/rendering stays owned by #12; it maps typed policy
-failures to the existing twenty-one IDs and preserves subreasons. The pure core does not
+failures to the existing twenty-two IDs and preserves subreasons. The pure core does not
 import the registry, so no cycle forms when diagnostics import policy types. The claimed
 `RegulaCore` library holds that registry (`RuleId`, `Rule`) and imports the policy
 library, never the reverse; it shares this section's import restrictions except the

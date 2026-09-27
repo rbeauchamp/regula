@@ -1,6 +1,8 @@
 import Regula.Qualification.DependencySnapshot
 
-/-! Native Lake-boundary fault injection retaining root and Markdown inventory
+/-! # Input inventory fault injection
+
+Native Lake-boundary fault injection retaining root and Markdown inventory
 controls. The copied qualification executable is a test-only argv proxy. -/
 namespace Regula.Qualification.InputInventory
 open Lean System DependencySnapshot
@@ -45,7 +47,7 @@ def check : IO Unit := do
     toolchain root project
     IO.FS.writeFile (project / "Example.lean") "/-! Empty declared surface. -/\n"
     IO.FS.writeFile (project / "lakefile.lean")
-      "import Lake\nopen Lake DSL\npackage inventory_control\nlean_lib Example where\n  globs := #[.andSubmodules `Example]\n"
+      "import Lake\nopen Lake DSL\npackage inventory_control where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\nlean_lib Example where\n  globs := #[.andSubmodules `Example]\n"
     manifest project "kernel-only"
     success (← run project "lake" #["update"] cleanEnv)
     let tools := scratch / "tools"

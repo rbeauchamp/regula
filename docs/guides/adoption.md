@@ -38,7 +38,7 @@ lake exe regula rules            # the index of every rule
 
 Each command prints Markdown generated from the installed package's rule registry, so it
 needs no network and matches the pinned revision. It exits 0, or 2 for an invalid invocation
-or an unknown rule ID. The briefing has a 14 KiB budget (`Regula.Guidance.agentGuideBudget`),
+or an unknown rule ID. The briefing has a 15 KiB budget (`Regula.Guidance.agentGuideBudget`),
 checked when the package builds.
 
 Then either install the skill, for example
@@ -392,10 +392,10 @@ depends on Mathlib, and Lean's
 and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md) for
 core-only code.
 
-- **Required linters.** Every claimed library enables Lean's `linter.missingDocs`, which
+- **Required options.** Every claimed library and executable enables Lean's `linter.missingDocs`, which
   reports every public definition without a docstring, and, in a project that depends on
   Mathlib, the syntax linters Mathlib builds with, except the three that enforce policies of
-  the Mathlib repository itself. Also turn off automatic implicits
+  the Mathlib repository itself. It also turns off automatic implicits
   ([standard §8.1](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#81-declare-the-elaboration-environment)):
 
   ```toml
@@ -415,18 +415,24 @@ core-only code.
   `#` commands such as a passing `#guard`, and its file-length limit; standard §6.7 gives the
   reasons. Turning off the header linter also turns off its checks that the module docstring is
   the first command after the imports and that no import is repeated. Both remain requirements
-  (standard §5.3 and §6.4), which no linter or Regula rule then checks, so review does.
+  (standard §5.3 and §6.4), and RG5001 checks both on every claimed module.
   `lake new NAME math` already writes `weak.linter.mathlibStandardSet` and
   `relaxedAutoImplicit`; add the rest. In `lakefile.lean` the same options are
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each finding as RG2003
-  (`INCOMPLETE`, exit 3) with the linter's message. Regula does not check that the options are
-  set; review does. Where the community's guidance accepts an exception, such as a long URL,
-  disable that linter for the one declaration (`set_option linter.style.longLine false in`)
-  with a comment giving the reason. The same holds for every community linter, including those
-  Mathlib turns on for every importer, such as `linter.unusedTactic`. Never disable Lean's
-  default warnings, such as `linter.unusedVariables` or `warn.sorry`. Regula sees only emitted
-  warnings, so it cannot tell these cases apart; review checks every disable.
+  (`INCOMPLETE`, exit 3) with the linter's message. RG2006 checks, in Lake's resolved configuration
+  of every claimed library and executable, every option above except `linter.missingDocs`
+  (which review confirms), and rejects a target-wide `false` for any other linter and any
+  `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these options another
+  value or turns such a linter off (set options in `leanOptions`, where it reads them); a
+  violation is `VIOLATION`, exit 1. Other extra `lean` arguments are allowed. It does not read
+  `set_option` in source, which review checks. Where the community's guidance accepts an
+  exception, such as a long URL, disable that linter for the one declaration
+  (`set_option linter.style.longLine false in`) with a comment giving the reason. The same
+  holds for every community linter, including those Mathlib turns on for every importer, such
+  as `linter.unusedTactic`. Never disable Lean's default warnings, such as
+  `linter.unusedVariables` or `warn.sorry`. Regula sees only emitted warnings of a source-level
+  disable, so it cannot tell these cases apart; review checks every such disable.
 - **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
   recommended. They report through their own command, not build warnings. Run `lake build`
   first: `runLinter` reads the built modules and does not rebuild them. Lake has one

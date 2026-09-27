@@ -2,6 +2,8 @@ import Regula.Contract
 import Regula.MaterialClaim
 
 /-!
+# Proof-bearing bounded-slot limiter
+
 Proof-bearing core of the `AuditApp` complete-application dogfooding surface:
 a bounded-slot limiter (a rate limiter without time). The module owns the
 `Limiter` state whose single invariant — `inUse ≤ capacity` — is a proof
@@ -18,7 +20,7 @@ assumptions appear as binders or proof fields. This module directly imports only
 published checker interfaces: the proof-requiring executable-contract type and the
 `@[regula_material]` registration attribute, whose import closure brings in Lean's attribute
 framework; no definition or proof here uses it. Its material
-claims `RequiredContracts`, `requiredContracts` and `checkedExecutable` are registered with
+claims `RequiredContracts`, `required_contracts` and `checked_executable` are registered with
 `@[regula_material]`, so RG5002/RG5003 require each to carry a docstring with a nonempty Intent
 section (standard §5.2); whether each Intent states the right requirement remains
 semantic review.
@@ -174,7 +176,7 @@ def run (ops : List Op) (l : Limiter) : Limiter := ops.foldl step l
 /-- No single update ever changes the capacity. -/
 theorem step_capacity (l : Limiter) (op : Op) : (step l op).capacity = l.capacity := by
   cases op
-  · show ((grant l).getD l).capacity = l.capacity
+  · change ((grant l).getD l).capacity = l.capacity
     by_cases hlt : l.inUse < l.capacity
     · unfold grant
       rw [dite_eq_left hlt]
@@ -182,7 +184,7 @@ theorem step_capacity (l : Limiter) (op : Op) : (step l op).capacity = l.capacit
     · unfold grant
       rw [dite_eq_right hlt]
       rfl
-  · show (release l).capacity = l.capacity
+  · change (release l).capacity = l.capacity
     unfold release
     split <;> rfl
   · rfl
@@ -193,7 +195,7 @@ theorem run_capacity (l : Limiter) (ops : List Op) :
   induction ops generalizing l with
   | nil => rfl
   | cons op rest ih =>
-    show (run rest (step l op)).capacity = l.capacity
+    change (run rest (step l op)).capacity = l.capacity
     exact (ih (step l op)).trans (step_capacity l op)
 
 /-- Checked composition: running any finite sequence of updates preserves the
@@ -205,7 +207,7 @@ theorem run_bounded (l : Limiter) (ops : List Op) :
   induction ops generalizing l with
   | nil => exact l.bounded
   | cons op rest ih =>
-    show (run rest (step l op)).inUse ≤ l.capacity
+    change (run rest (step l op)).inUse ≤ l.capacity
     rw [← step_capacity l op]
     exact ih (step l op)
 
@@ -219,7 +221,7 @@ theorem run_replicate_grant (l : Limiter) (n : Nat) (h : l.inUse + n ≤ l.capac
   | succ k ih =>
     have hlt : l.inUse < l.capacity := by omega
     have hin : (step l Op.grant).inUse = l.inUse + 1 := by
-      show ((grant l).getD l).inUse = l.inUse + 1
+      change ((grant l).getD l).inUse = l.inUse + 1
       unfold grant
       rw [dite_eq_left hlt]
       rfl
@@ -227,7 +229,7 @@ theorem run_replicate_grant (l : Limiter) (n : Nat) (h : l.inUse + n ≤ l.capac
     have h' : (step l Op.grant).inUse + k ≤ (step l Op.grant).capacity := by
       rw [hin, hcap]
       omega
-    show (run (List.replicate k Op.grant) (step l Op.grant)).inUse = l.inUse + (k + 1)
+    change (run (List.replicate k Op.grant) (step l Op.grant)).inUse = l.inUse + (k + 1)
     rw [ih _ h', hin]
     omega
 
@@ -486,7 +488,7 @@ proofs are welcome; neither theorem names nor declaration counts are the rule.
 Every required behavior of the limiter must be proved about the exact definitions the
 application executes. -/
 @[regula_material]
-theorem requiredContracts : RequiredContracts where
+theorem required_contracts : RequiredContracts where
   admission := admit_exact
   grant_success := grant_some
   grant_refusal := grant_none
@@ -547,7 +549,7 @@ The build linter also checks executability and compiler/runtime boundaries.
 The function the executable calls must admit exactly the positive capacities, start
 each admitted limiter idle at that capacity, and then run the script strictly. -/
 @[regula_material]
-theorem checkedExecutable : Regula.ExecutableContract executeChecked
+theorem checked_executable : Regula.ExecutableContract executeChecked
     (fun execute => ∀ (contracts : RequiredContracts) capacity ops,
       execute contracts capacity ops = if 0 < capacity then
         some (runChecked ops ⟨capacity, 0, Nat.zero_le capacity⟩) else none) :=

@@ -6,7 +6,9 @@ import Lean
 import Lake.Load.Manifest
 import Std.Sync.Mutex
 
-/-! Shared process, path, JSON, and bounded-concurrency support. -/
+/-! # Shared checker support
+
+Shared process, path, JSON, and bounded-concurrency support. -/
 
 namespace Regula.Checker
 
@@ -55,7 +57,7 @@ def runProcess (repo : FilePath) (cmd : String) (args : Array String)
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
 /-- Report elapsed wall time around an action, including exceptional completion. -/
-def timedPhase (label : String) (action : IO α) : IO α := do
+def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
   IO.println s!"verification phase {label}: start"
   (← IO.getStdout).flush
   let start ← IO.monoNanosNow
@@ -90,7 +92,8 @@ pinned toolchain prints `Build completed successfully` and `Some required
 targets logged failures:`), and replayed `info:`/`trace:` log lines, each of
 which ends a Lean diagnostic body in a `lake build` transcript. -/
 private def isLakeStatusLine (line : String) : Bool :=
-  #["✔", "⚠", "✖", "ℹ", "Build completed", "Some required targets", "info:", "trace:"].any
+  #["\u2714", "\u26A0", "\u2716", "\u2139", "Build completed", "Some required targets",
+    "info:", "trace:"].any
     fun marker => line.startsWith marker
 
 /-- Every diagnostic whose head line satisfies `isHead`, together with its
@@ -155,7 +158,7 @@ def checkerPackageLibDir : IO (Option FilePath) := do
 
 /-- A fresh scratch directory under `repo/tmp/.regula-scratch`, removed on return; orphans of
 dead runs are reclaimed (`Regula.Scratch`). -/
-def withScratch (repo : FilePath) (stem : String)
+def withScratch {α : Type} (repo : FilePath) (stem : String)
     (action : FilePath → IO α) : IO α :=
   return (← Regula.Scratch.withScratch repo stem action).1
 
@@ -268,7 +271,7 @@ def takeLast (count : Nat) (lines : Array String) : Array String :=
 /-- Keep bounded workers busy without batch barriers. The mutex admits each
 index once; each worker owns its results. Join every worker before propagating
 errors so callers can safely restore the shared search path. -/
-def mapWorkQueue (jobs : Nat) (items : Array α)
+def mapWorkQueue {α β : Type} (jobs : Nat) (items : Array α)
     (action : α → IO β) : IO (Array β) := do
   if jobs == 0 then throw <| IO.userError "job count must be positive"
   let next ← Std.Mutex.new 0
@@ -292,12 +295,13 @@ def mapWorkQueue (jobs : Nat) (items : Array α)
   let mut responses := #[]
   for outcome in outcomes do
     responses := responses ++ (← IO.ofExcept outcome)
-  IO.ofExcept <| (RegulaPolicy.checkedIndexedResults.run items.size (fun _ _ => true)
+  IO.ofExcept <| (RegulaPolicy.checked_indexedResults.run items.size (fun _ _ => true)
     responses.toList).mapError fun failure =>
       s!"internal error: work queue result admission: {repr failure}"
 
 /-- Bounded concurrent map implemented in deterministic batches. -/
-def mapConcurrent (jobs : Nat) (items : Array α) (action : α → IO β) : IO (Array β) := do
+def mapConcurrent {α β : Type} (jobs : Nat) (items : Array α) (action : α → IO β) :
+    IO (Array β) := do
   if jobs == 0 then throw <| IO.userError "job count must be positive"
   let mut results : Array β := #[]
   let mut offset := 0
@@ -347,15 +351,15 @@ def readWorkerPacket (request packet : Json) : Except String Json := do
   packet.getObjVal? "payload"
 
 /-- Indexed raw results retain multiplicity before admission into the fixed key set. -/
-def indexedWorkerPayload [ToJson α] (values : Array α) : Json :=
+def indexedWorkerPayload {α : Type} [ToJson α] (values : Array α) : Json :=
   toJson (values.mapIdx fun i value => (i, toJson value))
 
-/-- Decode indexed worker results and admit them through `checkedIndexedResults`: success
+/-- Decode indexed worker results and admit them through `checked_indexedResults`: success
 returns exactly one bound payload for each requested slot, in slot order. -/
 def admitIndexedWorkerResults {α : Type} [FromJson α] (count : Nat) (binding : Nat → α → Bool)
     (payload : Json) : Except String (Array α) := do
   let responses : Array (Nat × α) ← fromJson? payload
-  (RegulaPolicy.checkedIndexedResults.run count binding responses.toList).mapError fun
+  (RegulaPolicy.checked_indexedResults.run count binding responses.toList).mapError fun
     | .admission failure => s!"invalid worker result admission: {repr failure}"
     | .missing slot => s!"worker result missing required key {slot}"
 
@@ -368,7 +372,7 @@ def workerBinary : IO FilePath := do
 
 /-- Await an isolated checker worker and decode its typed result. The child
 stays in the caller’s process group and its scratch files outlive its exit. -/
-def runTypedWorker [ToJson α] [FromJson β]
+def runTypedWorker {α β : Type} [ToJson α] [FromJson β]
     (flag : String) (request : α) : IO β := do
   let binary ← workerBinary
   withScratch (← IO.currentDir) "typed-worker" fun scratch => do

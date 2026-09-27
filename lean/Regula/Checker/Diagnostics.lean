@@ -1,6 +1,8 @@
 import Lean
 
-/-! Completed frontend rejection with typed message boundaries. -/
+/-! # Frontend rejection diagnostics
+
+Completed frontend rejection with typed message boundaries. -/
 
 namespace Regula.Checker.Diagnostics
 

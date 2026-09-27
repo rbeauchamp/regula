@@ -11,7 +11,9 @@ import Regula.Qualification.ReceiptBoundary
 import Regula.Qualification.Preparation
 import Regula.Qualification.SelfAudit
 
-/-! One Lake executable for operational qualification, with independently selectable
+/-! # Qualification executable dispatcher
+
+One Lake executable for operational qualification, with independently selectable
 campaigns. Each oracle is proved on the positive `RegulaQualification` surface;
 this process dispatcher and its IO adapters remain operational tooling. -/
 
@@ -42,7 +44,7 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
       Regula.Qualification.History.check
   | ["history"] => Regula.Qualification.History.check
   | ["self-audit"] => Regula.Qualification.SelfAudit.check
-  | ["self-audit-module", m] => Regula.Qualification.SelfAudit.worker m
+  | ["self-audit-module", m, source] => Regula.Qualification.SelfAudit.worker m source
   | ["environments", "--evidence", path] => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
   | ["acceptance", group, "--evidence", path] => Regula.Qualification.Acceptance.check group ⟨path⟩ attempt
   | ["acceptance-snapshots", group] => Regula.Qualification.DependencySnapshot.check group

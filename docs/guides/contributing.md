@@ -150,6 +150,35 @@ See [Lean qualification](lean-qualification.md) for the proof/IO split and why t
 integration controls are still necessary. Configuration and external toolchains are
 not claimed as formally verified Lean implementations.
 
+## Follow the Lean community's conventions
+
+Regula's own code follows the community conventions that
+[standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
+requires of claimed code:
+
+- **Style and naming.** Regula's libraries build on Lean core (only `Audit` and `AuditApp`
+  import Mathlib), so they follow Lean core's
+  [style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md), for example
+  `fun x =>` rather than Mathlib's preferred `fun x ↦`, and the shared case rules of the
+  [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md):
+  proofs, including `ExecutableContract` registrations, in `snake_case`; propositions and
+  types in `UpperCamelCase`; other terms in `lowerCamelCase`.
+- **Options and linters.** Every claimed target builds with `autoImplicit` and
+  `relaxedAutoImplicit` off; `Audit`, `AuditApp` and `auditApp` also enable Mathlib's standard
+  linter set with the §6.7 exclusions (`mathlibLinters` in the root `lakefile.lean`). RG2006
+  checks both. Declare universes and implicit binders explicitly.
+- **Module docstrings.** Each module starts, directly after its imports and before any
+  `public section`, with a `/-! # Title … -/` docstring (RG5001 checks the position).
+- **Evaluation is observation.** Prefer a kernel-checked `example … := by decide` to a
+  `#guard`; where kernel reduction is infeasible, keep the `#guard` with a comment saying it is
+  a compiled-evaluation observation.
+- **Commit messages.** Use the community's
+  [commit convention](https://leanprover-community.github.io/contribute/commit.html):
+  `<type>(<scope>): <subject>`, with type `feat`, `fix`, `doc`, `style`, `refactor`, `test`,
+  `chore`, `perf` or `ci` (`doc`, not `docs`), the scope a library, module or directory
+  (for example `RegulaCore`, `website`, `lean/Regula/Checker`), and a lowercase imperative
+  subject without a final period.
+
 ## Change prose and code together
 
 Keep a teaching example beside the prose when it helps readers. Every Lean fence

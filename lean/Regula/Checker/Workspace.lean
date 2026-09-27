@@ -3,6 +3,8 @@ import Lake.Load
 import Regula.Checker.Common
 
 /-!
+# In-process Lake workspace loading
+
 In-process Lake workspace loading for checker discovery. A checked project
 loads through Lake's own elaborated package model, so `lakefile.lean` and
 `lakefile.toml` projects take the same path; no custom Lake facets or
@@ -26,7 +28,7 @@ private def detectEnvironment : IO _root_.Lake.Env := do
 `action`. The action runs in the same process, so it must not retain mutable
 workspace state beyond its return value. With `scrubSearchPath`, the inherited
 `LEAN_PATH` and `LEAN_SRC_PATH` are ignored, as for `scrubbedLeanPathEnv`. -/
-def withRootWorkspace (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
+def withRootWorkspace {α : Type} (repo : FilePath) (action : _root_.Lake.Workspace → IO α)
     (scrubSearchPath := false) : IO α := do
   let lakeEnv ← detectEnvironment
   let lakeEnv := if scrubSearchPath then { lakeEnv with initLeanPath := [], initLeanSrcPath := [] }

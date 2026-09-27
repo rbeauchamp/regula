@@ -1,21 +1,26 @@
 import Regula.Checker.SourceAudit
 
-/-! Focused operational qualification of policy transport and public admission.
+/-! # Policy transport qualification
+
+Focused operational qualification of policy transport and public admission.
 Universal value/collection laws live in RegulaPolicy. These controls exercise
 JSON text, process packets, source elaboration and the actual CLI, whose linkage
 is an operational boundary. Every public mutation has a fresh restored control. -/
+universe u
+
 namespace Regula.Checker.PolicyQualification
 open Lean System
 open Regula.Checker
 open scoped Regula.Report
 
-private def expectError (label expected : String) (result : Except String α) : Array String :=
+private def expectError {α : Type u} (label expected : String) (result : Except String α) :
+    Array String :=
   match result with
   | .ok _ => #[s!"{label}: invalid input was accepted"]
   | .error error => if error.contains expected then #[]
     else #[s!"{label}: wrong refusal: {error}"]
 
-private def expectOk (label : String) (result : Except String α) : Array String :=
+private def expectOk {α : Type u} (label : String) (result : Except String α) : Array String :=
   match result with
   | .ok _ => #[]
   | .error error => #[s!"{label}: valid input refused: {error}"]
@@ -37,7 +42,8 @@ def transport : Array String := Id.run do
   let decode (j : Json) := (fromJson? j : Except String Regula.Report.ExecutionBoundary)
   failures := failures ++ expectOk "boundary-positive" (decode encoded)
   for (label, field, value, expected) in #[("unknown-category", "boundary", .str "unknown", "unknown BoundaryKind"),
-      ("typo-category", "correspondence", .str "trustеd", "unknown Correspondence"),
+      -- A deliberate homoglyph: `trusted` with the Cyrillic letter U+0435 in place of `e`.
+      ("typo-category", "correspondence", .str "trust\u0435d", "unknown Correspondence"),
       ("malformed-name", "name", .str "sample", "array expected"),
       ("extra-field", "extra", .bool true, "unknown or missing JSON object fields")] do
     failures := failures ++ expectError label expected (decode (encoded.setObjVal! field value))
@@ -119,7 +125,9 @@ private def setup (repo adopter : FilePath) : IO Unit := do
   IO.FS.createDirAll adopter
   IO.FS.writeFile (adopter / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (adopter / "lakefile.lean") <|
-    "import Lake\nopen Lake DSL\npackage policy_adopter\nrequire regula from " ++
+    "import Lake\nopen Lake DSL\npackage policy_adopter where\n" ++
+      "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\n" ++
+      "require regula from " ++
       (toJson repo.toString).compress ++ "\n@[default_target] lean_lib PublicApi\n"
   IO.FS.writeFile (adopter / "foundation_manifest.json") <| Json.compress <| Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [

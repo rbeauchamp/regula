@@ -5,7 +5,9 @@ import RegulaCore.Screening
 import Regula.Screen.Jev
 import Regula.Screen.Questions
 
-/-! Reading a claim from a loaded environment and screening it.
+/-! # Claim reading and screening
+
+Reading a claim from a loaded environment and screening it.
 
 A claim's docstring is found by Lean's `findDocString?`; its clauses, explanation and any
 discharge references come from the proved `RegulaPolicy.Screening` definitions. A clause that
@@ -168,7 +170,7 @@ def claimLocation (name : Name) : MetaM Regula.Location := do
   | _, _ => return .module moduleName
 
 /-- Run a `MetaM` reader over a loaded environment. -/
-def runMeta (env : Environment) (x : MetaM α) : IO α := do
+def runMeta {α : Type} (env : Environment) (x : MetaM α) : IO α := do
   let ctx : Core.Context := { fileName := "<intent-screen>", fileMap := default, options := {} }
   let (a, _) ← (x.run' {} {}).toIO ctx { env }
   return a

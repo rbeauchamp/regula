@@ -35,6 +35,9 @@ inductive Clause where
   | inlineDocumentation
   | faithfulExplanation
   | moduleDocumentation
+  | linterDiscipline
+  | importDiscipline
+  | communityConventions
   | elaborationEnvironment
   | lakeSurfaces
   | cleanElaboration
@@ -49,6 +52,7 @@ namespace Clause
 
 /-- Every cited section, once. -/
 def all : List Clause := [.inlineDocumentation, .faithfulExplanation, .moduleDocumentation,
+  .linterDiscipline, .importDiscipline, .communityConventions,
   .elaborationEnvironment, .lakeSurfaces, .cleanElaboration, .declarationInventory,
   .proofCompleteness, .computationMechanisms, .documentationChecks, .enforcingBuildLinter]
 
@@ -58,6 +62,7 @@ theorem mem_all (c : Clause) : c ∈ all := by cases c <;> simp [all]
 /-- The section number, as printed in its heading. -/
 def number : Clause → String
   | .inlineDocumentation => "5.1" | .faithfulExplanation => "5.2" | .moduleDocumentation => "5.3"
+  | .linterDiscipline => "6.2" | .importDiscipline => "6.4" | .communityConventions => "6.7"
   | .elaborationEnvironment => "8.1" | .lakeSurfaces => "8.2" | .cleanElaboration => "8.3"
   | .declarationInventory => "8.4" | .proofCompleteness => "8.5"
   | .computationMechanisms => "8.6" | .documentationChecks => "8.7"
@@ -68,6 +73,9 @@ def title : Clause → String
   | .inlineDocumentation => "Inline Documentation Requirements"
   | .faithfulExplanation => "Faithful Explanation of Formal Claims"
   | .moduleDocumentation => "Module Documentation"
+  | .linterDiscipline => "Module Purpose and Linter Discipline"
+  | .importDiscipline => "Import Discipline"
+  | .communityConventions => "Community Conventions and Linters"
   | .elaborationEnvironment => "Declare the Elaboration Environment"
   | .lakeSurfaces => "Define Surfaces Through Lake Semantics"
   | .cleanElaboration => "Clean Elaboration and Diagnostics"
@@ -77,16 +85,24 @@ def title : Clause → String
   | .documentationChecks => "Check Lean Documentation Verbatim"
   | .enforcingBuildLinter => "Opt-in Enforcing Build Linter"
 
-/-- The chapter's route below `standard/`, which is also its Verso part's `file`. -/
+/-- The chapter's route below `standard/`, which is also its Verso part's `file`. Exhaustive, so
+a new clause cannot fall into another chapter by default. -/
 def chapter : Clause → String
   | .inlineDocumentation | .faithfulExplanation | .moduleDocumentation => "5-documentation-standards"
-  | _ => "8-tooling-and-machine-audit"
+  | .linterDiscipline | .importDiscipline | .communityConventions => "6-code-organization"
+  | .elaborationEnvironment | .lakeSurfaces | .cleanElaboration | .declarationInventory
+  | .proofCompleteness | .computationMechanisms | .documentationChecks
+  | .enforcingBuildLinter => "8-tooling-and-machine-audit"
 
 /-- The chapter's Verso source, relative to the Regula package root. -/
 def source : Clause → String
   | .inlineDocumentation | .faithfulExplanation | .moduleDocumentation =>
     "website/RegulaStandard/DocumentationStandards.lean"
-  | _ => "website/RegulaStandard/ToolingAndMachineAudit.lean"
+  | .linterDiscipline | .importDiscipline | .communityConventions =>
+    "website/RegulaStandard/CodeOrganization.lean"
+  | .elaborationEnvironment | .lakeSurfaces | .cleanElaboration | .declarationInventory
+  | .proofCompleteness | .computationMechanisms | .documentationChecks
+  | .enforcingBuildLinter => "website/RegulaStandard/ToolingAndMachineAudit.lean"
 
 /-- The full heading. -/
 def heading (c : Clause) : String := c.number ++ " " ++ c.title

@@ -1,7 +1,9 @@
 import Lean.Data.Json
 import RegulaPolicy.Screening
 
-/-! Operational client for TypeSafe's System One endpoint (`POST /v1/systemone`), used only by
+/-! # System One endpoint client
+
+Operational client for TypeSafe's System One endpoint (`POST /v1/systemone`), used only by
 the opt-in `intentScreen` executable.
 
 Trusted and unverified here: the `curl` and `shasum` processes, the network, the service and

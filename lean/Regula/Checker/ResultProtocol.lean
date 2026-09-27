@@ -5,7 +5,9 @@ import Regula.Checker.Producer
 import Regula.Checker.RuleDiagnostics
 import Regula.DiagnosticCodec
 
-/-! Versioned observation output and accepted-report rendering. JSON is display/transport
+/-! # Versioned result protocol
+
+Versioned observation output and accepted-report rendering. JSON is display/transport
 of scoped evidence, never a deserializable proof or whole-standard conformance certificate.
 The accepted constructor requires the executed con-leche-inspired indexed finalization. -/
 namespace Regula.Checker.ResultProtocol
@@ -92,7 +94,7 @@ evidence it concerns; that stage and every later one cannot have completed. RG30
 its verdict comes from the execution stage, which completed. -/
 def blockedStage (mode : EvidenceMode) : RuleId → Option Stage
   | .environment => some .discovery
-  | .configuration => some .configuration
+  | .configuration | .communityConfiguration => some .configuration
   | .sourceBuild => some .build
   | .coverage => some .admission
   | .admission => some (match mode with | .documentationExample => .example | _ => .admission)
@@ -139,7 +141,11 @@ theorem notRun_completedStages_eq_nil_iff (required completed : List Stage)
     (findings : List Finding) :
     notRun required (completedStages false required completed findings) = [] ↔
       ∀ s ∈ required, s ∈ completed ∧ blocked findings s = false := by
-  simp [notRun, completedStages, List.filter_eq_nil_iff, List.mem_filter]
+  simp only [notRun, completedStages, Bool.false_eq_true, ↓reduceIte, List.mem_filter,
+    Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_eq_eq_not, Bool.not_true, not_and,
+    Bool.not_eq_false, decide_implies, Bool.decide_eq_true, dite_eq_ite, Bool.ite_true_right,
+    List.filter_eq_nil_iff, Bool.or_eq_true, decide_eq_false_iff_not, not_or, Decidable.not_not,
+    Bool.not_eq_true]
   exact ⟨fun h s hs => (h s hs).2, fun h s hs => ⟨hs, h s hs⟩⟩
 
 /-- Re-deriving from the recorded completed stages reproduces them. -/
@@ -301,7 +307,7 @@ theorem and job count, contracts, execution counts, fence kinds, trusted mechani
 residual identifiers; mode, scope, surfaces and toolchain are rendered by `acceptedJson`.
 Contract entries keep their rule, implementation and requirement with the review they leave
 open; `unresolvedReview` names open obligations, never completed reviews. -/
-def accountJson (account : Regula.Checker.Account.Account) : Json :=
+def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
   Json.mkObj [
@@ -487,7 +493,7 @@ private def weightImpl : Impl String (fun _ => Json) → Nat
 end
 
 private theorem one_le_weight (j : Json) : 1 ≤ weight j := by
-  cases j <;> simp [weight] <;> omega
+  cases j <;> simp [weight]
 
 private theorem weight_le_list {values : List Json} {v : Json} (h : v ∈ values) :
     weight v ≤ weightList values := by

@@ -1,6 +1,8 @@
 import RegulaCore.Account
 
-/-! The `lint` driver's exit classification. The driver runs the project audit and reads
+/-! # Lint driver exit classification
+
+The `lint` driver's exit classification. The driver runs the project audit and reads
 back the terminal status that audit recorded; this module decides the exit class from that
 status and the audit's exit code. `completed` carries an accepted account
 (`Account.Status.completed_accepted`), so exit 0 requires an accepted run of the requested
@@ -10,7 +12,7 @@ invocation's audit rather than another's, is the driver's binding, checked by in
 namespace Regula.Checker.Lint
 
 open RegulaPolicy
-open Regula.Checker.Account (Account Status)
+open Regula.Checker.Account (Status)
 
 /-- Exit classes. Only `accepted` is success; the others distinguish an established
 violation, invalid configuration or invocation, and incomplete evidence. -/
@@ -58,16 +60,16 @@ private def classifyImpl (mode : EvidenceMode) (code : UInt32) : Option Observat
   | _ => .incomplete
 
 /-- Registers `ClassifyContract` about the executed classification; callers use `classify`. -/
-theorem checkedClassify : Regula.ExecutableContract classifyImpl ClassifyContract :=
+theorem checked_classify : Regula.ExecutableContract classifyImpl ClassifyContract :=
   ⟨fun mode code observed => by
     rcases observed with _ | ⟨status, configurationOnly⟩
     · simp [classifyImpl]
     · cases status <;> cases configurationOnly <;> by_cases hc : code = 0 <;>
         simp_all [classifyImpl] <;> split <;> simp_all⟩
 
-/-- The exit class, through `checkedClassify`. -/
+/-- The exit class, through `checked_classify`. -/
 def classify (mode : EvidenceMode) (code : UInt32) (observed : Option Observation) : Outcome :=
-  checkedClassify.run mode code observed
+  checked_classify.run mode code observed
 
 /-- Exit code zero requires a zero audit exit and an accepted run of the requested mode: a
 run complete for its plan that meets every stage policy (`RegulaPolicy.accept_iff`). -/
@@ -77,11 +79,11 @@ theorem accepted_sound (mode : EvidenceMode) (code : UInt32) (observed : Option 
       CompleteFor run.plan run.result.table ∧ AllPolicyOK run.plan run.roles run.result.table := by
   have accepted : classify mode code observed = .accepted :=
     Outcome.exitCode_injective (b := .accepted) h
-  obtain ⟨hcode, a, _, _, hmode⟩ := ((checkedClassify.evidence mode code observed).1).mp accepted
+  obtain ⟨hcode, a, _, _, hmode⟩ := ((checked_classify.evidence mode code observed).1).mp accepted
   obtain ⟨c, run, hrun, complete, policy⟩ := a.accepted
   refine ⟨hcode, c, run, ?_, complete, policy⟩
   rw [← hmode, ← hrun]
-  exact ((Account.checkedAccount.evidence c run).1).symm
+  exact ((Account.checked_account.evidence c run).1).symm
 
 /-- Whole-project stages shown by `--explain-config`. -/
 def projectStages : List Stage :=

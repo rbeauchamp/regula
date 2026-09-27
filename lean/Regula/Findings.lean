@@ -2,10 +2,13 @@ module
 
 public import Regula.Diagnostic
 
+/-! # Diagnostic finding adapters
+
+Import-safe adapters to the canonical diagnostic schema. Policy decisions
+remain in the policy core; these functions preserve identity, mode and location. -/
+
 public section
 
-/-! Import-safe adapters to the canonical diagnostic schema. Policy decisions
-remain in the policy core; these functions preserve identity, mode and location. -/
 namespace Regula.Findings
 open Lean
 

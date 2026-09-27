@@ -1,6 +1,8 @@
 import RegulaPolicy.Domain
 
-/-! Claims, snapshots and coverage keys for policy consumers. Claims represent requested
+/-! # Claims, snapshots and coverage keys
+
+Claims, snapshots and coverage keys for policy consumers. Claims represent requested
 mechanical scope, never an accepted result. Sources and dependency states are exact
 observations; the IO collector remains responsible for their truthful acquisition. -/
 namespace RegulaPolicy
@@ -149,7 +151,7 @@ instance claimCandidateDecidableEq : DecidableEq ClaimCandidate := fun left righ
   withPtrEqDecEq left right (fun _ => instDecidableEqClaimCandidate left right)
 
 /-- Supported scope/mode combinations. Fresh files never acquire whole-project scope. -/
-def ScopeModeCompatible : Scope → EvidenceMode → Bool
+def scopeModeCompatible : Scope → EvidenceMode → Bool
   | .project, .freshProject | .project, .incrementalProject | .project, .serializedGraph => true
   | .file .., .freshFile => true
   | .documentation _, .documentationExample => true
@@ -159,7 +161,7 @@ def ScopeModeCompatible : Scope → EvidenceMode → Bool
 /-- Functional source maps and disjoint positive module ownership; empty project libraries
 remain unsupported. This does not assert completeness of an external Lake inventory. -/
 def ClaimCandidate.Valid (c : ClaimCandidate) : Prop :=
-  ScopeModeCompatible c.scope c.mode = true ∧
+  scopeModeCompatible c.scope c.mode = true ∧
   c.snapshot.Valid ∧
   (∀ s ∈ c.surfaces, s.target ≠ "" ∧ s.modules.size > 0) ∧
   (c.surfaces.toList.flatMap (fun s => s.modules.toList)).Pairwise (fun a b => a.name ≠ b.name) ∧
@@ -219,7 +221,7 @@ inductive JobSubject where
   deriving Repr, DecidableEq
 
 /-- Stage tags restrict the kind of evidence subject they can request. -/
-def StageSubjectCompatible : Stage → JobSubject → Bool
+def stageSubjectCompatible : Stage → JobSubject → Bool
   | .configuration, .scope | .discovery, .scope | .build, .scope
   | .documentScan, .scope
   | .graph, .scope => true
@@ -254,13 +256,13 @@ structure JobKey where
   stage : Stage
   subject : JobSubject
   requiredStage : stage ∈ requiredStages claim
-  compatibleSubject : StageSubjectCompatible stage subject = true
+  compatibleSubject : stageSubjectCompatible stage subject = true
   subjectSnapshot : SubjectSnapshotOK claim subject
   deriving Repr, DecidableEq
 /-- Admit a requested stage/subject without inventing a compatible replacement. -/
 def admitJobKey (claim : Claim) (stage : Stage) (subject : JobSubject) : Except String JobKey :=
   if hr : stage ∈ requiredStages claim then
-    if hc : StageSubjectCompatible stage subject = true then
+    if hc : stageSubjectCompatible stage subject = true then
       if hs : SubjectSnapshotOK claim subject then
         .ok ⟨claim, stage, subject, hr, hc, hs⟩
       else .error "job subject snapshot differs from requested claim"

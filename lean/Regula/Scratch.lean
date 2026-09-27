@@ -1,4 +1,6 @@
-/-! Scratch directories in Regula's own `tmp/.regula-scratch/` under a checkout, and
+/-! # Owned scratch directories
+
+Scratch directories in Regula's own `tmp/.regula-scratch/` under a checkout, and
 reclamation of those whose run died.
 
 Each scratch directory `<name>` is created only after its ownership marker `<name>.owner` was
@@ -58,7 +60,7 @@ remove it, then its marker, on normal or exceptional return, holding the scratch
 throughout. When no scratch owner is alive, orphans are reclaimed first. Returns the value and
 the removed directory's path; the path is returned only after its removal returned. Random
 naming is not a logical freshness proof. -/
-def withScratch (root : FilePath) (stem : String) (action : FilePath → IO α) :
+def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × FilePath) := do
   let dir := root / "tmp" / dirName
   IO.FS.createDirAll dir

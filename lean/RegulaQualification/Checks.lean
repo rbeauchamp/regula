@@ -3,7 +3,9 @@ import RegulaPolicy.Guards
 import RegulaPolicy.Traversal
 import Lean.Data.Json
 
-/-! Pure qualification assertions. `evaluate` accepts exactly a list whose assertions
+/-! # Qualification assertions
+
+Pure qualification assertions. `evaluate` accepts exactly a list whose assertions
 are all true, and otherwise identifies its first false assertion. This is a contract
 about supplied observations, not the truth of compiler, filesystem, or process effects.
 The operational adapters call the registered, proof-requiring entrypoint. -/
@@ -36,7 +38,7 @@ theorem evaluate_eq_forM (checks : List Check) : evaluate checks = checks.forM C
   induction checks with
   | nil => rfl
   | cons check rest ih =>
-    show _ = (check.step >>= fun _ => rest.forM Check.step)
+    change _ = (check.step >>= fun _ => rest.forM Check.step)
     cases h : check.holds <;> rw [evaluate, Check.step, h]
     · rfl
     · exact ih
@@ -81,7 +83,7 @@ def EvaluationContract (run : List Check → Except String Unit) : Prop :=
   (∀ xs ys, run (xs ++ ys) = (run xs).bind (fun _ => run ys))
 
 /-- The IO adapters invoke this contract's `run`, which is definitionally `evaluate`. -/
-theorem checkedEvaluation : Regula.ExecutableContract evaluate EvaluationContract :=
+theorem checked_evaluation : Regula.ExecutableContract evaluate EvaluationContract :=
   ⟨evaluate_success, evaluate_error, evaluate_append⟩
 
 /-- Non-vacuity: a genuine true assertion succeeds. -/

@@ -4,15 +4,18 @@ import Regula.Collect
 import Regula.Linter.Documentation
 import RegulaPolicy.Operational
 
-/-! Operational self-audit of the checker's own excluded `Regula` library
+/-! # Checker library self-audit
+
+Operational self-audit of the checker's own excluded `Regula` library
 (`./scripts/verify.sh diagnostics self-audit`; docs/guides/lean-qualification.md).
 
 The library is not a conforming proof surface, so the project audit excludes it. This
 campaign applies the rules that do hold for operational code, per module of the library as
 Lake discovers it: completed kernel admission of every owned safe declaration (RG2005), the
-executed `RegulaPolicy.checkedOperationalFailure` decision (RG1001–RG1005, RG1007) on the
+executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007) on the
 observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, and
-the live linter's module-doc and material-documentation presence predicates
+the live linter's module-header (RG5001: docstring present and first, no repeated import) and
+material-documentation presence predicates
 (`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations and
 the pinned toolchain's Lake axioms that in-process Lake APIs reach are reported, never failed.
 
@@ -39,7 +42,8 @@ structure ModuleObservation where
   admitted : Nat
   /-- Axioms reached from this module that a toolchain `Lake` module declares. -/
   toolchain : Array Name
-  moduleDocumented : Bool
+  /-- The module's RG5001 header observation, read from its Lake source file. -/
+  header : RegulaPolicy.ModuleHeader.Observation
   material : Array (Name × Option MaterialDocumentationFailure)
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module. -/
@@ -50,7 +54,7 @@ private def toolchainLakeModule (toolchainLib : FilePath) (owner : Name) : IO Bo
   return (← IO.FS.realPath (← findOLean owner)) == (← IO.FS.realPath expected)
 
 /-- Import one module, kernel-admit its owned declarations and collect its observations. -/
-private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) :
+private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source : FilePath) :
     IO (Except String ModuleObservation) := do
   Lean.enableInitializersExecution
   let env ← importModules #[{ module := moduleName, importAll := true }] {} 0
@@ -78,14 +82,13 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) :
       let some owner := env.header.modules[idx.toNat]? | continue
       if ← toolchainLakeModule toolchainLib owner.module then
         toolchain := toolchain.push name
-  let moduleDocumented ← match Linter.Documentation.modulePresent env moduleName with
-    | .ok present => pure present
-    | .error message => return .error message
+  let header ← Linter.Documentation.moduleObservation env moduleName
+    (← IO.FS.readFile source) source.toString
   let mut material := #[]
   for (name, _) in own do
     if Linter.Documentation.selected env name then
       material := material.push (name, ← Linter.Documentation.declarationFailure env name)
-  return .ok { «module» := moduleName, declarations, admitted, toolchain, moduleDocumented, material }
+  return .ok { «module» := moduleName, declarations, admitted, toolchain, header, material }
 
 /-- Text of one violation finding at the declaration's module. -/
 private def declarationText (id : RuleId) (name : Name) (detail : String) (moduleName : Name) :
@@ -112,10 +115,8 @@ toolchain; every retained value is a freshly rendered string. -/
 private def decide (o : ModuleObservation) : Except String ModuleResult := do
   let toolchain ← admitToolchainAxioms o.toolchain
   let mut violations : Array String := #[]
-  unless o.moduleDocumented do
-    let finding ← makeDiagnostic .moduleDocumentation
-      ⟨o.module.toString, "module-documentation: add a module doc comment describing this module"⟩
-      (.module o.module) .incrementalProject (some claim) .violation
+  for ⟨_, finding⟩ in ← Linter.Documentation.moduleFindings o.module o.header
+      .incrementalProject (some claim) do
     violations := violations.push finding.text
   for (name, failure?) in o.material do
     if let some failure := failure? then
@@ -136,7 +137,7 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
         partialDefinitions := partialDefinitions.push base.toString
     if !d.isProp && d.axioms.any toolchain.names.contains then
       dependents := dependents.push d.name.toString
-    if let some failure := checkedOperationalFailure.run toolchain d then
+    if let some failure := checked_operationalFailure.run toolchain d then
       let id := ruleForFailure failure
       let extra := d.axioms.filter fun n => !standardLogicalAxiom n
       let detail := (descriptor id).applicability ++
@@ -147,9 +148,9 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
     toolchain.names.map toString, dependents⟩
 
 /-- Worker: observe and decide exactly one module, printing only its JSON result. -/
-unsafe def worker (moduleName : String) : IO Unit := do
+unsafe def worker (moduleName source : String) : IO Unit := do
   Checker.initializeLeanSearchPath
-  let observation ← IO.ofExcept (← observe (← getLibDir (← findSysroot)) moduleName.toName)
+  let observation ← IO.ofExcept (← observe (← getLibDir (← findSysroot)) moduleName.toName source)
   IO.println (toJson (← IO.ofExcept (decide observation))).compress
 
 /-- Run the campaign: one fresh worker process per Lake-discovered module of the library.
@@ -165,7 +166,8 @@ def check (jobs : Nat := 4) : IO Unit := do
   let outcomes ← Checker.mapWorkQueue jobs info.modules fun moduleName =>
     show IO (Except String ModuleResult) from do
     let result ← Checker.runProcess repo self
-      #["--under-deadline", "self-audit-module", moduleName.toString]
+      #["--under-deadline", "self-audit-module", moduleName.toString,
+        ((info.sources.find? (·.«module» == moduleName)).map (·.source.toString)).getD ""]
     if result.exitCode != 0 then
       return .error s!"{moduleName}: worker exit {result.exitCode}: {result.stderr.trimAscii}"
     match Json.parse result.stdout >>= fromJson? (α := ModuleResult) with

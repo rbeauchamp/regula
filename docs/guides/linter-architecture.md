@@ -99,8 +99,8 @@ functions. JSON is transport; proof-bearing validated values are the in-process 
 
 ## Exact initial enforcement and evidence
 
-The coverage map fixes **21 rule IDs**, including existing declaration, execution, workspace,
-warning and fence capabilities and three narrowly scoped documentation-presence additions
+The coverage map fixes **22 rule IDs**, including existing declaration, execution, workspace,
+warning and fence capabilities and three narrowly scoped documentation additions
 (RG5001–RG5003; RG5003 was added for #57).
 #12 introduces identity and rendering without silently changing detection. #13 connects all
 existing conditions to typed IDs and implements the first two documentation gaps. Each rule page
@@ -159,8 +159,10 @@ transitive package resolution does not require compiling its mathematical module
   and scope match; do not re-implement upstream style rules as Regula rules.
   [Standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
   instead requires claimed libraries to enable `linter.missingDocs` and, with Mathlib, Mathlib's
-  standard linter set, whose build warnings RG2003 rejects; no Regula detector checks those
-  options.
+  standard linter set, whose build warnings RG2003 rejects. RG2006 checks the Lake options (except
+  `linter.missingDocs`, still review) with a proved decision over Lake's resolved configuration,
+  not by re-implementing any linter; RG5001 takes over the header linter's docstring-placement
+  and repeated-import checks, which the §6.7 configuration turns off with that linter.
 - Lake [PackageConfig.lintDriver][lake-config] accepts `"regula/lint"` in either
   lakefile format. The `lint` executable is qualified end to end by the `lint-driver`
   campaign in both formats. The driver builds only explicit manifest-derived targets, never

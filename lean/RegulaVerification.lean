@@ -1,6 +1,8 @@
 import Lean
 
-/-! Cold-start verification plan and operational interpreter. This module imports only
+/-! # Cold-start verification driver
+
+Cold-start verification plan and operational interpreter. This module imports only
 the pinned toolchain, so it can run before any root-package artifacts exist. Argument
 selection has soundness and round-trip proofs; the interpreter consumes its proof-bearing
 selection. Recipes name Lake targets, not a source-file census. Process effects remain

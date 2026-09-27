@@ -1,14 +1,19 @@
 module
 
-@[expose] public section
-
 /-!
+# Executable contracts
+
 Proof requirements for a named executable definition. `ExecutableContract f R`
 requires a proof of `R f`; it does not infer whether `R` expresses the intended
 behavior. The build linter separately checks that the registered `f` is an
 executable constant and accounts for its compiler/runtime boundaries.
 -/
+
+@[expose] public section
+
 namespace Regula
+
+universe u
 
 /-- Required evidence about the exact implementation, not a similarly named model.
 The linter recognizes closed declarations of this type as executable promises.

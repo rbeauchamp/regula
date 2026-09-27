@@ -322,3 +322,5 @@ def generate (root : FilePath) (g : Generated) : IO Unit := do
     let clauses := (descriptor id).normativeClauses.map fun c =>
       ({ label := c.label, url := c.route } : Regula.Site.Clause)
     writeModule dir (ruleModule id) (← IO.ofExcept (rulePage g.ident id clauses ex))
+
+end Regula.Site.Build

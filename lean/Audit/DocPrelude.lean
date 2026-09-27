@@ -2,6 +2,8 @@ import Mathlib.Basic.NNReal.Defs
 import Mathlib.Order.Basic
 
 /-!
+# Documentation fence prelude
+
 Machine-audit prelude for the shared primitives used by documentation fences.
 It provides nominal `Glossary.Time` with a lifted lawful linear order;
 `ResourceAmount` as the canonical `NNReal`; `OpaqueDataPackage` and its opaque

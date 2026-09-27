@@ -2,7 +2,9 @@ import RegulaQualification.Checks
 import Regula.Scratch
 import Lean
 
-/-! Operational qualification support. Pure assertions go through `checkedEvaluation`.
+/-! # Operational qualification support
+
+Operational qualification support. Pure assertions go through `checked_evaluation`.
 Filesystem observations, process execution, GNU timeout, and cleanup are trusted IO;
 none is advertised as a kernel theorem about the operating system. Commands use argv,
 not shell programs. Public entrypoints own one group-wide deadline. Under acceptance,
@@ -17,7 +19,7 @@ def freshAttempt : IO String := do
 
 /-- Fail with the first unsatisfied assertion from the proved evaluator. -/
 def requireChecks (checks : List Check) : IO Unit :=
-  IO.ofExcept (checkedEvaluation.run checks)
+  IO.ofExcept (checked_evaluation.run checks)
 
 /-- Select and authenticate the existing GNU timeout dependency. -/
 def timeoutCommand : IO String := do
@@ -59,13 +61,13 @@ structure Cleaned where
 of dead runs are reclaimed (`Regula.Scratch`). On normal return it also yields the cleanup
 witness, constructed only after the finalizer's removal returned. Random naming and OS
 directory operations are not logical freshness proofs. -/
-def withScratchCleaned (root : FilePath) (stem : String) (action : FilePath → IO α) :
+def withScratchCleaned {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × Cleaned) := do
   let (value, path) ← Regula.Scratch.withScratch root stem action
   return (value, ⟨path⟩)
 
 /-- Fresh scratch under the worktree, with cleanup on normal or exceptional return. -/
-def withScratch (root : FilePath) (stem : String) (action : FilePath → IO α) : IO α :=
+def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) : IO α :=
   return (← withScratchCleaned root stem action).1
 
 /-- Parse using the pinned Lean JSON implementation; malformed output is an error. -/

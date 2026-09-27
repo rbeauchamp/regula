@@ -4,7 +4,9 @@ import Regula.Checker.PolicyCodec
 import Regula.Website
 import RegulaPolicy.Guards
 
-/-! Qualification and export admission for actual source-owned example receipts.
+/-! # Rule-example receipt qualification
+
+Qualification and export admission for actual source-owned example receipts.
 Expected selectors are fixed before running the detector. This module checks canonical
 registry diagnostics and binds them to observed exact source/configuration/mode. -/
 -- Exact dependency ceiling for the new claimed data-level guarantees. Acquisition,

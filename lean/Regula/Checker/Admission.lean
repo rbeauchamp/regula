@@ -3,6 +3,8 @@ import Lean.Replay
 import Regula.Probe
 
 /-!
+# Checked logical admission
+
 Checked logical admission before report construction. The replay base contains
 only imported modules outside the owned inventory. Unsafe and partial entries
 remain subject to generated-role policy; they cannot supply logical evidence.
