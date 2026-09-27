@@ -234,6 +234,12 @@ control. They are observations of the operational adapters; the decisions they f
   `autoImplicit` set to `"true"`, exit 1.
 - The repository's `Audit` library without its Mathlib options: one RG2006 finding for `Audit`
   naming the four Mathlib options, exit 1; the core-only targets were not reported.
+- After `linter.missingDocs` joined the decision, the repository with that option removed from
+  the package `leanOptions` and `moreLeanArgs := #["-Dlinter.missingDocs=false"]` on
+  `RegulaPolicy` (`diagnostics self-lint`): one RG2006 finding for each of the eight claimed
+  targets naming `linter.missingDocs` as unset, and for `RegulaPolicy` also the `-D` argument,
+  exit 1. With the option set, one docstring removed from `RegulaCore.RuleId` failed the build
+  (`missing doc string for public def all`), which RG2003 reports.
 
 The two `moreLeanArgs` runs observe the adapter; the `-D` decision itself is kernel-checked in
 `RegulaPolicy.Community`. `leanArgument_mem_failures_iff` shows that it reports a `-D` argument
