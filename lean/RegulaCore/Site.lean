@@ -161,7 +161,7 @@ theorem artifactRevisions_nodup {archived : List Commit} (h : archived.Nodup)
     · simpa [artifactRevisions, hd] using h
     · simp only [artifactRevisions, hd, ite_false]
       exact List.nodup_append.mpr ⟨h, (by simp), fun a ha b hb => by
-        simp at hb; subst hb; exact fun e => hd (e ▸ ha)⟩
+        simp only [List.mem_singleton] at hb; subst hb; exact fun e => hd (e ▸ ha)⟩
 
 /-- Upper bound on an artifact's total file bytes. It is below GitHub Pages' 1 GB limit on a
 published site, which archived snapshots approach linearly in the number of deployments. -/
@@ -189,18 +189,24 @@ def escape (s : String) : String := String.ofList (s.toList.flatMap escapeChar)
 theorem escapeChar_safe (c d : Char) (h : d ∈ escapeChar c) : markupChar d = false := by
   unfold escapeChar at h
   by_cases h1 : c = '&' <;> simp only [h1, ite_true, ite_false] at h
-  · simp at h; rcases h with rfl | rfl | rfl | rfl | rfl <;> decide
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+    rcases h with rfl | rfl | rfl | rfl | rfl <;> decide
   by_cases h2 : c = '<' <;> simp only [h2, ite_true, ite_false] at h
-  · simp at h; rcases h with rfl | rfl | rfl | rfl <;> decide
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+    rcases h with rfl | rfl | rfl | rfl <;> decide
   by_cases h3 : c = '>' <;> simp only [h3, ite_true, ite_false] at h
-  · simp at h; rcases h with rfl | rfl | rfl | rfl <;> decide
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+    rcases h with rfl | rfl | rfl | rfl <;> decide
   by_cases h4 : c = '"' <;> simp only [h4, ite_true, ite_false] at h
-  · simp at h; rcases h with rfl | rfl | rfl | rfl | rfl | rfl <;> decide
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+    rcases h with rfl | rfl | rfl | rfl | rfl | rfl <;> decide
   by_cases h5 : c = '\'' <;> simp only [h5, ite_true, ite_false] at h
-  · simp at h; rcases h with rfl | rfl | rfl | rfl | rfl <;> decide
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+    rcases h with rfl | rfl | rfl | rfl | rfl <;> decide
   by_cases h6 : c = '`' <;> simp only [h6, ite_true, ite_false] at h
-  · simp at h; rcases h with rfl | rfl | rfl | rfl | rfl <;> decide
-  simp at h
+  · simp only [List.mem_cons, List.not_mem_nil, or_false] at h
+    rcases h with rfl | rfl | rfl | rfl | rfl <;> decide
+  simp only [List.mem_singleton] at h
   subst h
   simp [markupChar, h2, h3, h4, h5, h6]
 
@@ -647,17 +653,27 @@ theorem checkedLinkErrors : Regula.ExecutableContract linkErrors (fun run =>
 target is reported, a resolving relative link with a fragment under a `<base href>` is
 accepted, a root-relative link outside the base path is reported, and script text is not
 scanned as markup. The string operations do not reduce in the kernel. -/
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"rules/\">x</a>"] != []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/rules/index.html"
   "<base href=\"./../\"><a href=\"rules/#top\">x</a><h1 id=\"top\">t</h1>"] == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"/other/x\">x</a>"] != []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<script>if (a<b) {}</script><a href=\"https://x.org/\">x</a>"] == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"missing/?u=http://x\">x</a>"] != []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"javascript://x\">x</a>"] != []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"x\"><a href=\"missing.html\">x</a>"] != []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a title=\"a>b\" href=\"missing/\">x</a>"] != []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>",
   Page.ofOther "dev/rules/x"] != []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>", Page.ofOther "dev/x"] == []
 
 /-! ## Normative clause anchors -/
@@ -772,15 +788,19 @@ theorem checkedRowMapMismatch : Regula.ExecutableContract rowMapMismatch (fun ru
 Markdown delimiter or a sentence's closing `.`, an autolink and a code span count, a page route
 names its `index.html`, a row link's label is read only from a code span that is the whole link
 text, and only elements of the row class are rows. -/
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard documentAnchors ["[a](" ++ standardUrl ++ "9-compliance-audit/#DOC-04). <" ++ standardUrl ++
   ">; `" ++ standardUrl ++ "introduction/`."] ==
   [("9-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkedRows ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
   "9-compliance-audit/)") == [(some "A-1", "A-1")]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkedRows ("[`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-2) [A-3](" ++ standardUrl ++
   "9-compliance-audit/#A-3) [x `A-4`](" ++ standardUrl ++ "9-compliance-audit/#A-4)") ==
   [(some "A-1", "A-2"), (none, "A-3"), (none, "A-4")]
-#guard rowMapMismatch [(some "A-1", "A-2")] ["A-2"] != none
+example : (rowMapMismatch [(some "A-1", "A-2")] ["A-2"] != none) = true := by decide
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard renderedRows "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==
   ["A-1"]
 

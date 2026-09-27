@@ -173,7 +173,9 @@ def plainFields (id : RuleId) : Bool :=
   ([d.requirement, d.rationale, d.remedy, d.examples.caption] ++ d.rewrites).all fun s =>
     (s.splitOn "@repo/").length == 1
 
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard RuleId.all.all fun id => (descriptor id).wellFormed && plainFields id
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard agentGuide.utf8ByteSize ≤ agentGuideBudget
 
 /-- The `regula` command line. -/

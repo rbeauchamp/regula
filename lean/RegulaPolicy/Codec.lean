@@ -40,7 +40,10 @@ def Wire.arrayItems : Wire → Except String (List Wire)
     (Wire.array items).arrayItems = .ok items := by
   induction items with
   | nil => rfl
-  | cons head tail ih => simp [Wire.array, Wire.arrayItems] at *; rw [ih]; rfl
+  | cons head tail ih =>
+    simp only [Wire.array, List.foldr_cons, Wire.arrayItems, bind_pure_comp] at *
+    rw [ih]
+    rfl
 
 /-- Outer components first, preserving Lean's anonymous/str/num distinction. -/
 def nameParts : Name → List Wire

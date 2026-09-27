@@ -126,11 +126,11 @@ theorem push_nodup {xs : Array String} {x : String} (h : xs.toList.Nodup) (hx : 
   rw [List.nodup_append]
   refine ⟨h, List.nodup_cons.mpr ⟨by simp, List.nodup_nil⟩, ?_⟩
   intro a ha b hb
-  simp at hb
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hb
   subst hb
   intro heq
   subst heq
-  simp at hx
+  simp only [Array.contains_eq_mem, decide_eq_false_iff_not] at hx
   exact hx (by simpa using ha)
 
 theorem addExecutables_sound {location : String} :
@@ -256,8 +256,9 @@ theorem surfaceClaim_sound {item : Json} {location : String} {claim : Profile}
   obtain ⟨_, _, h⟩ := h
   split at h
   · rename_i c _
-    cases c <;> simp [throw, throwThe, MonadExceptOf.throw, pure,
-      Except.pure] at h <;> subst h <;> decide
+    cases c <;> simp only [↓reduceIte, throw, throwThe, MonadExceptOf.throw, pure, Except.pure,
+      bind_eq_ok, reduceCtorEq, Except.ok.injEq, false_and, exists_const] at h <;> subst h <;>
+      decide
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
 def surfaceExecution (item : Json) (location : String) : Except String ExecutionClaim :=

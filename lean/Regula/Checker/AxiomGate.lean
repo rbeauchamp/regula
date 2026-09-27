@@ -330,7 +330,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
     }
     checkClassification manifest inventory
     let manifested := Manifest.libraries manifest
-
     let mut libraries : Array LibraryInfo := #[]
     for library in manifested do
       let some info := inventory.libraries.find? (·.library == library)
@@ -338,12 +337,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       libraries := libraries.push {
         name := library, modules := info.modules, sources := info.sources
       }
-
     let exeInfoFor (name : String) : IO Lake.ExecutableInventory :=
       match inventory.executables.find? (·.executable == name) with
       | some info => return info
       | none => throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {name}"
-
     let mut surfaces : Array LibraryInfo := #[]
     for surface in manifest.surfaces do
       let base ← infoFor libraries surface.library
@@ -354,7 +351,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         modules := modules.push exe.root
         sources := sources.push { «module» := exe.root, source := exe.source }
       surfaces := surfaces.push { name := surface.library, modules, sources }
-
     withSourceEvidence sourceBindings configuration reportRoot.toString
         (if fresh then .freshProject else .incrementalProject) composed resultOut do
       let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
@@ -369,10 +365,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           (if fresh then .freshProject else .incrementalProject) .incomplete [.configuration, .discovery]
           ("\n".intercalate lines.toList) composed resultOut sourceBindings
         return 1
-
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
-
       let excludedModules := Id.run do
         let mut result : Array Name := #[]
         for excluded in manifest.excludedLibraries do
@@ -443,7 +437,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           return (surface, ← (inspectSurface historyMemo surface).toBaseIO)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
-
       -- Freeze the complete discovery domain before the per-declaration policy loop.
       -- Expected modules are the coordinator's Lake assignments, never response fields.
       for (_, outcome) in inspections do
@@ -473,7 +466,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           sourceBindings inventory.leanLibDir rawInspections
         pure (snapshot, ⟨request, frozen⟩)
       let frozenResult ← (timedPhase "project request freeze" freezeRequest).toBaseIO
-
       let mut failures : Array String := #[]
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
@@ -540,7 +532,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           failures := failures.push s!"declaration-attribution-mismatch: {surface.library}"
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
             reportRoot.toString (s!"declaration-attribution-mismatch: {surface.library}") (if fresh then .freshProject else .incrementalProject) .incomplete)
-
         failures := failures ++ frontendFailures
         for failure in frontendFailures do
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
@@ -629,7 +620,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         if jsonOut.isSome then surfaceReports := surfaceReports.push (surfaceJson (toJson report))
         -- Legacy output keeps the full report; the result omits the import closure.
         if resultOut.isSome then resultSurfaces := resultSurfaces.push (surfaceJson report.resultJson)
-
       let ownedModules := manifest.surfaces.foldl (fun count surface =>
         match surfaces.find? (·.name == surface.library) with
         | some info => count + info.modules.size
@@ -647,7 +637,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         IO.println s!"excluded library {excluded.library}: {count} module(s)"
       for excluded in manifest.excludedExecutables do
         IO.println s!"excluded executable {excluded.executable}"
-
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
       unless documentationPending do Snapshot.inputsUnchanged inventory dependencies

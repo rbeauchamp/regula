@@ -438,7 +438,10 @@ attribute [-simp] Array.all_eq_true Array.any_eq_true
 
 theorem censusSound_of (r : Environment) (h₁ : r.censusModulesOK = true)
     (h₂ : r.censusDeclarationsOK = true) : r.CensusSound := by
-  simp [Environment.censusModulesOK, Environment.censusDeclarationsOK] at h₁ h₂
+  simp only [Environment.censusModulesOK, Array.contains_eq_mem, Bool.and_eq_true,
+    Bool.not_eq_eq_eq_not, Bool.not_true, Array.isEmpty_eq_false_iff, ne_eq, beq_iff_eq,
+    Array.all_eq_true', decide_eq_true_eq, and_assoc, Environment.censusDeclarationsOK,
+    Prod.forall] at h₁ h₂
   obtain ⟨m₁, m₂, m₃⟩ := h₁
   obtain ⟨d₁, d₂, d₃⟩ := h₂
   exact ⟨m₁, nodup_of_canonicalNames_size _ m₂, m₃, d₂,
@@ -451,14 +454,17 @@ theorem executionCensusSound_of (r : Environment) (h : r.validateExecutionCensus
   unfold Environment.ExecutionCensusSound
   cases hroots : r.census.executionRoots <;> simp only [hroots] at h ⊢
   · simpa using h
-  · simp at h
+  · simp only [Array.contains_eq_mem, Bool.and_eq_true, beq_iff_eq, Array.all_eq_true',
+      decide_eq_true_eq, Prod.forall, and_assoc, ite_throw_eq_ok, pure_eq_ok, and_true] at h
     obtain ⟨h₁, h₂, h₃⟩ := h
     exact ⟨nodup_of_canonicalEdges_size _ h₁, h₂, fun k hk => h₃ k.1 k.2 hk⟩
 
 theorem sourceEvidenceSound_of (r : Environment) (h : r.validateSourceEvidence = .ok ()) :
     r.SourceEvidenceSound := by
   unfold Environment.validateSourceEvidence at h
-  simp [Environment.sourceEvidenceOK] at h
+  simp only [Environment.sourceEvidenceOK, Array.contains_eq_mem, Bool.and_eq_true, beq_iff_eq,
+    Array.all_eq_true', Bool.not_eq_eq_eq_not, Bool.not_true, String.isEmpty_eq_false_iff, ne_eq,
+    decide_eq_true_eq, Array.any_eq_true', and_assoc, ite_throw_eq_ok, pure_eq_ok, and_true] at h
   obtain ⟨h₁, h₂, h₃, h₄⟩ := h
   refine ⟨nodup_of_canonicalNames_size _ (by simpa using h₁), h₂, h₃, fun d hd => ?_⟩
   obtain ⟨s, hs, hm, hr⟩ := h₄ d hd
@@ -491,7 +497,8 @@ theorem admissionSound_of (r : Environment) (receipt : AdmissionReceipt)
     (hr : r.admission = some receipt) (h : r.receiptOK receipt = true) : r.AdmissionSound := by
   simp only [Environment.receiptOK, Bool.and_eq_true] at h
   obtain ⟨⟨⟨⟨⟨h₁, h₂⟩, h₃⟩, h₄⟩, h₅⟩, h₆⟩ := h
-  simp at h₁ h₂ h₃ h₄ h₅
+  simp only [beq_iff_eq, Array.contains_eq_mem, Array.all_eq_true', decide_eq_true_eq,
+    Prod.forall] at h₁ h₂ h₃ h₄ h₅
   rw [Array.all_eq_true'] at h₆
   refine ⟨receipt, hr, h₃, nodup_of_canonicalNames_size _ h₁,
     nodup_of_canonicalEdges_size _ h₂, fun k hk => h₄ k.1 k.2 hk, h₅, fun d hd => ?_⟩
@@ -505,13 +512,15 @@ theorem admissionSound_of (r : Environment) (receipt : AdmissionReceipt)
 theorem documentationSound_of (r : Environment) (docs : DocumentationObservation)
     (hd : r.documentation = some docs) (h : r.documentationOK docs = true) :
     r.DocumentationSound := by
-  simp [Environment.documentationOK] at h
+  simp only [Environment.documentationOK, Array.contains_eq_mem, Bool.and_eq_true, beq_iff_eq,
+    Array.all_eq_true', decide_eq_true_eq, Prod.forall, and_assoc] at h
   obtain ⟨h₁, h₂, h₃, h₄⟩ := h
   exact ⟨docs, hd, h₁, nodup_of_canonicalEdges_size _ h₂, fun k hk => h₃ k.1 k.2 hk, h₄⟩
 
 theorem historyRequestsSound_of (r : Environment) (h : r.historyRequestsOK = true) :
     r.HistoryRequestsSound := by
-  simp [Environment.historyRequestsOK] at h
+  simp only [Environment.historyRequestsOK, Array.contains_eq_mem, Bool.and_eq_true, beq_iff_eq,
+    Array.all_eq_true', Array.any_eq_true', decide_eq_true_eq, Prod.forall, and_assoc] at h
   obtain ⟨h₁, h₂, h₃⟩ := h
   refine ⟨nodup_of_canonicalEdges_size _ h₁, fun request hreq => ?_, h₃⟩
   obtain ⟨⟨e, he, hn⟩, hm⟩ := h₂ request.1 request.2 hreq
@@ -527,7 +536,10 @@ theorem historiesSound_of (r : Environment) (h : ∀ entry ∈ r.histories, r.va
     have named : ∀ n : Name, n.isAnonymous = false → n ≠ .anonymous := by
       rintro n hn rfl
       cases hn
-    cases hf : r.sourceBindings.find? (·.moduleName == mod) <;> simp [hf] at h
+    cases hf : r.sourceBindings.find? (·.moduleName == mod) <;>
+      simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+        String.isEmpty_eq_false_iff, ne_eq, beq_iff_eq, Array.all_eq_true', Prod.forall, and_assoc,
+        hf, bind_pure_comp, id_map', throw_bind, ite_throw_eq_ok, pure_eq_ok, and_true] at h
     · exact ⟨h.1, h.2.1, fun edge he => (h.2.2 edge.1 edge.2 he).imp (named _) (named _), by simp⟩
     · refine ⟨h.1, h.2.1, fun edge he => (h.2.2.1 edge.1 edge.2 he).imp (named _) (named _),
         fun source hs => ?_⟩
@@ -536,7 +548,9 @@ theorem historiesSound_of (r : Environment) (h : ∀ entry ∈ r.histories, r.va
   · intro mod detail hmem
     have h := h _ hmem
     unfold Environment.validateHistory at h
-    simp at h
+    simp only [Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true, String.isEmpty_eq_false_iff,
+      ne_eq, Array.all_eq_true', Bool.or_eq_true, bne_iff_ne, Array.any_eq_true', beq_iff_eq,
+      Array.isEmpty_eq_false_iff, Prod.forall, ite_throw_eq_ok, pure_eq_ok, and_true] at h
     refine ⟨h.1, fun root hreq => ?_⟩
     obtain ⟨e, he, hn, hu⟩ := (h.2 root mod hreq).resolve_left (by simp)
     exact ⟨e, he, hn, hu⟩
@@ -550,7 +564,7 @@ theorem validateRoot_eq_ok (r : Environment) (root : ExecutionRoot) (h : r.valid
   unfold Environment.validateRoot at h
   simp only [bind_eq_ok] at h
   obtain ⟨⟨⟩, hb, rest⟩ := h
-  simp [-bind_pure_comp] at rest
+  simp only [beq_iff_eq, throw_bind, ite_throw_eq_ok, bind_eq_ok, pure_eq_ok, and_true] at rest
   exact ⟨forM_eq_ok.mp hb, rest.1, rest.2.1, rest.2.2⟩
 
 /-- A recorded-history lookup succeeds only for a reached, attributed, requested and
@@ -574,9 +588,11 @@ theorem recordedHistoryEdges_eq_ok (r : Environment) (root : ExecutionRoot) (edg
   | none => simp [hv, hmod, hfind] at h
   | some entry =>
   obtain ⟨entryMod, outcome⟩ := entry
-  simp [hv, hmod, hfind] at h
+  simp only [hv, hmod, Array.contains_eq_mem, decide_eq_true_eq, hfind, throw_bind,
+    ite_throw_eq_ok] at h
   refine ⟨v, mod, entryMod, outcome, rfl, hmod, h.1, hfind, fun e => ?_⟩
-  cases outcome <;> simp at h <;> obtain ⟨-, rfl⟩ := h <;> simp [and_comm]
+  cases outcome <;> simp only [pure_eq_ok, Array.empty_eq] at h <;> obtain ⟨-, rfl⟩ := h <;>
+    simp [and_comm]
 
 theorem historyEdgesSound_of (r : Environment)
     (h : ∀ root ∈ r.execution, ∃ expected, root.closure.currentReplacementEdges.foldlM
@@ -632,7 +648,8 @@ theorem replacementBoundary_sound (r : Environment) (root : ExecutionRoot) (b : 
           Array.contains_iff_mem.mp (by simpa using h)⟩
       · simp at h
     · simp at h
-  · simp at h
+  · simp only [Array.contains_eq_mem, decide_eq_true_eq, Array.isEmpty_iff, throw_bind,
+      ite_throw_eq_ok] at h
     exact absurd (Array.contains_iff_mem.mpr h.1) hreq
 
 
@@ -641,8 +658,10 @@ theorem closureAccountSound_of (r : Environment)
     r.ClosureAccountSound := by
   intro root hroot
   obtain ⟨ha, hc⟩ := h root hroot
-  simp [Environment.attributionOK, Option.any_eq_true, Option.all_eq_true] at ha
-  simp [boundaryChannelsOK] at hc
+  simp only [Environment.attributionOK, Bool.and_eq_true, Option.any_eq_true, beq_iff_eq,
+    Array.all_eq_true', Option.all_eq_true, Array.contains_eq_mem, decide_eq_true_eq,
+    and_assoc] at ha
+  simp only [boundaryChannelsOK, Bool.and_eq_true, beq_iff_eq] at hc
   obtain ⟨⟨v, hv, hm⟩, hvisits, hbounds⟩ := ha
   refine ⟨⟨v, hv, hm⟩, fun v hv m hm => hvisits v hv m hm, fun b hb => ?_, hc.1, hc.2⟩
   obtain ⟨w, hw, hwm⟩ := hbounds b hb
@@ -675,7 +694,7 @@ theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
   refine ⟨r, (validate_eq_ok r).mpr ⟨by decide +kernel, by decide +kernel, rfl,
     ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩, ⟨_, rfl, by decide +kernel⟩,
     by decide +kernel, by simp [r], by simp [r]⟩⟩
-  show (unless r.sourceEvidenceOK do throw _ : Except AdmissionFailure Unit) = .ok ()
+  change (unless r.sourceEvidenceOK do throw _ : Except AdmissionFailure Unit) = .ok ()
   rw [unless_eq_ok]
   decide +kernel
 

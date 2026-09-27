@@ -139,7 +139,11 @@ theorem notRun_completedStages_eq_nil_iff (required completed : List Stage)
     (findings : List Finding) :
     notRun required (completedStages false required completed findings) = [] ↔
       ∀ s ∈ required, s ∈ completed ∧ blocked findings s = false := by
-  simp [notRun, completedStages, List.filter_eq_nil_iff, List.mem_filter]
+  simp only [notRun, completedStages, Bool.false_eq_true, ↓reduceIte, List.mem_filter,
+    Bool.and_eq_true, decide_eq_true_eq, Bool.not_eq_eq_eq_not, Bool.not_true, not_and,
+    Bool.not_eq_false, decide_implies, Bool.decide_eq_true, dite_eq_ite, Bool.ite_true_right,
+    List.filter_eq_nil_iff, Bool.or_eq_true, decide_eq_false_iff_not, not_or, Decidable.not_not,
+    Bool.not_eq_true]
   exact ⟨fun h s hs => (h s hs).2, fun h s hs => ⟨hs, h s hs⟩⟩
 
 /-- Re-deriving from the recorded completed stages reproduces them. -/
@@ -487,7 +491,7 @@ private def weightImpl : Impl String (fun _ => Json) → Nat
 end
 
 private theorem one_le_weight (j : Json) : 1 ≤ weight j := by
-  cases j <;> simp [weight] <;> omega
+  cases j <;> simp [weight]
 
 private theorem weight_le_list {values : List Json} {v : Json} (h : v ∈ values) :
     weight v ≤ weightList values := by

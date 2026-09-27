@@ -4,11 +4,12 @@ public meta import Regula.Linter.Rules
 public meta import Regula.Linter.Documentation
 public meta import Lean.Linter.Basic
 
-public meta section
-
 /-! Opt-in production import for Lean-native local feedback. Lean owns command
 snapshots, cancellation and publication. Local options govern editor feedback;
 they cannot discharge or disable mandatory project checks. -/
+
+public meta section
+
 namespace Regula.Linter
 open Lean Elab Command
 

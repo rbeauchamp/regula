@@ -90,7 +90,8 @@ pinned toolchain prints `Build completed successfully` and `Some required
 targets logged failures:`), and replayed `info:`/`trace:` log lines, each of
 which ends a Lean diagnostic body in a `lake build` transcript. -/
 private def isLakeStatusLine (line : String) : Bool :=
-  #["✔", "⚠", "✖", "ℹ", "Build completed", "Some required targets", "info:", "trace:"].any
+  #["\u2714", "\u26A0", "\u2716", "\u2139", "Build completed", "Some required targets",
+    "info:", "trace:"].any
     fun marker => line.startsWith marker
 
 /-- Every diagnostic whose head line satisfies `isHead`, together with its

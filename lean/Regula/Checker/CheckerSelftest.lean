@@ -854,7 +854,6 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
-
   let unchecked := "import Lean\nopen Lean Elab Command\n" ++
     "run_cmd do\n  let d := Declaration.thmDecl { name := `admissionFalse, " ++
     "levelParams := [], type := mkConst ``False, value := mkConst ``True.intro }\n" ++
@@ -876,13 +875,11 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
           (← runBinaryFrom repo copy "docFenceAudit" #["--docs-root", "admission-docs"])
           #["kernel-admission", "admissionFalse"] then
         failures.modify (·.push failure)
-
   withNewFile (sources / "AuditApp" / "DiscoveryAxiom.lean")
       "/-! Discovery control for an otherwise unused owned axiom. -/\naxiom selftest_discovered_axiom : False\n" do
     if let some failure := expectedFailure "add-only-discovery" (← gate)
         #["project-axiom", "selftest_discovered_axiom"] then
       failures.modify (·.push failure)
-
   withNewFile (sources / "AuditApp" / "SuppressedWarning.lean")
       "set_option warningAsError false in\ndef selftest_suppressed_warning (unused : Nat) : Nat := 1\n" do
     -- `linter.unusedVariables` occurs only on the warning's continuation
@@ -890,7 +887,6 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
     if let some failure := expectedFailure "warning-suppression" (← gate)
         #["build-failed", "warning", "linter.unusedVariables"] then
       failures.modify (·.push failure)
-
   let appRoot := sources / "AuditApp.lean"
   let originalRoot ← IO.FS.readFile appRoot
   let contaminated := originalRoot.replace "import AuditApp.Demo\n"
@@ -899,7 +895,6 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
     if let some failure := expectedFailure "fixture-contamination" (← gate)
         #["unexpected-project-module", "Fixtures.Mutations.DirectAxiom"] then
       failures.modify (·.push failure)
-
   -- The probe modules are exempt from the environment-level exclusion check
   -- (the force import always brings them in); a claimed module importing the
   -- probe's report records must still be rejected as excluded-module
@@ -910,7 +905,6 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
     if let some failure := expectedFailure "probe-contamination" (← gate)
         #["unexpected-project-module", "Regula.Report"] then
       failures.modify (·.push failure)
-
   let prefixFixture := sources / "Fixtures" / "Mutations" / "PrefixLookalike.lean"
   withNewFile prefixFixture "axiom Audit.lookalike_project_axiom : False\n" do
     let prefixed := originalRoot.replace "import AuditApp.Demo\n"
@@ -919,7 +913,6 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
       if let some failure := expectedFailure "exact-prefix-lookalike" (← gate)
           #["unexpected-project-module", "Fixtures.Mutations.PrefixLookalike"] then
         failures.modify (·.push failure)
-
   let restored ← gate #[]
   if !restored.succeeded then
     failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
@@ -935,7 +928,6 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
     runBinaryFrom repo copy "axiomGate" args
   let appRoot := sources / "AuditApp.lean"
   let originalRoot ← IO.FS.readFile appRoot
-
   -- Library-only variant of the structural manifest: the unlisted root-owned
   -- module mutation must only build the claimed library (linking the
   -- application executable would require the unlisted module's initializer,
@@ -943,7 +935,6 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
   -- and classifies the application executable as excluded.
   let libOnlyManifest := copy / "lib-only.json"
   IO.FS.writeFile libOnlyManifest (← auditAppVariant repo #[] true)
-
   withNewFile (sources / "AuditLookalike.lean") "axiom Attack.lookalikeAxiom : False\n" do
     let outputDir := copy / ".lake" / "build" / "lib" / "lean"
     IO.FS.createDirAll outputDir
@@ -960,7 +951,6 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
             (← gate #["--manifest", libOnlyManifest.toString, "--incremental"])
             #["unexpected-project-module", "AuditLookalike"] then
           failures.modify (·.push failure)
-
   let lakefile := copy / "lakefile.lean"
   let originalLakefile ← IO.FS.readFile lakefile
   withNewFile (sources / "ExtraSurface.lean") "def extraSurfaceValue : Nat := 1\n" do
@@ -969,7 +959,6 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
       if let some failure := expectedFailure "unclassified-library" (← gate)
           #["manifest-incomplete", "ExtraSurface"] then
         failures.modify (·.push failure)
-
   let exeDecl := "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n"
   let claimedManifest := copy / "claimed-exe.json"
   -- The claimed-exe controls claim only the added executable: the application
@@ -978,7 +967,6 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
   -- mutation under test.
   let claimedManifestText ← auditAppVariant repo #["selftestTool"] true
   let claimedGate := gate #["--manifest", claimedManifest.toString, "--incremental"]
-
   withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\ndef main : IO Unit := pure ()\n" do
     withReplacedFile lakefile (originalLakefile ++ exeDecl) do
       if let some failure := expectedFailure "unclassified-exe" (← gate)
@@ -999,7 +987,6 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
         if let some failure := expectedFailure "claimed-exe-source-removed" (← claimedGate)
             #["lake-query-malformed", "invalid source"] then
           failures.modify (·.push failure)
-
   withNewFile (sources / "SelftestMain.lean")
       "import Fixtures.Mutations.DirectAxiom\n/-! Standalone import-contamination control. -/\ndef main : IO Unit := pure ()\n" do
     withReplacedFile lakefile (originalLakefile ++ exeDecl) do
@@ -1007,7 +994,6 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
       if let some failure := expectedFailure "exe-contamination" (← claimedGate)
           #["unexpected-project-module", "Fixtures.Mutations.DirectAxiom"] then
         failures.modify (·.push failure)
-
   let restored ← gate #[]
   if !restored.succeeded then
     failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
@@ -1020,14 +1006,12 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
-
   let appOmittedManifest := copy / "app-omitted-exe.json"
   IO.FS.writeFile appOmittedManifest (← auditAppVariant repo #[] false)
   if let some failure := expectedFailure "app-omitted-exe"
       (← gate #["--manifest", appOmittedManifest.toString, "--incremental"])
       #["manifest-incomplete", "auditApp"] then
     failures.modify (·.push failure)
-
   let appCore := sources / "AuditApp" / "Limiter.lean"
   let originalCore ← IO.FS.readFile appCore
   -- Change exactly one source fragment; a stale fixture is a setup failure.
@@ -1042,7 +1026,6 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
     let restored ← gate #[]
     if !restored.succeeded then
       failures.modify (·.push s!"structural/{name}/restored: fresh gate failed:\n{restored.output}")
-
   let resetProof := "/-- A reset limiter has no slots in use. -/\n" ++
     "theorem reset_inUse (l : Limiter) : (reset l).inUse = 0 := rfl\n"
   mutate "app-unproved-update" resetProof ""
@@ -1059,11 +1042,9 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
   mutate "app-weakened-admission"
     "if _h : 0 < capacity then" "if _h : 0 ≤ capacity then"
     #["build-failed", "hpos", "0 <", "0 ≤"]
-
   -- Empty-exclusion acceptance is covered by adopterQualification's fresh
   -- standalone library/executable controls in both Lake formats. Reusing those
   -- avoids a second, dependency-fragile copy of the application as an adopter.
-
   let restored ← gate #[]
   if !restored.succeeded then
     failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
@@ -1076,13 +1057,11 @@ private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
-
   withNewFile (sources / "AuditApp" / "UnimportedSafe.lean")
       "namespace AuditApp.UnimportedSafe\ndef value : Nat := 1\nend AuditApp.UnimportedSafe\n" do
     let plan ← runBinaryFrom repo copy "freshChecker" #["--plan-only"]
     if !plan.succeeded || !plan.output.contains "AuditApp.UnimportedSafe" then
       failures.modify (·.push s!"structural/fresh-coverage: added module was omitted:\n{plan.output}")
-
   -- Restored control in fresh mode (empty-output elaboration of the copy), so the
   -- harness's green-restore evidence covers stale-artifact freedom, not only
   -- incremental rebuilds.
@@ -1226,7 +1205,6 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     if ← (dir / ".lake" / "build").pathExists then
       failures.modify (·.push s!"fence-env/{name}: setup unexpectedly has a build directory")
     action dir
-
   timedPhase "clean-checkout/doc-fences" <| unbuilt "doc-fences" fun dir => do
     let corpus := dir / "fence-corpus"
     IO.FS.createDirAll corpus
@@ -1237,7 +1215,6 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     if !result.succeeded || !result.output.contains "conforming-positive-pass=1/1" then
       failures.modify (·.push
         s!"fence-env/doc-fences: fence importing an owned module failed from unbuilt state:\n{result.output}")
-
   timedPhase "clean-checkout/file-mode" <| unbuilt "file-mode" fun dir => do
     let result ← runScrubbed dir "axiomGate"
       #["--file", ((dir / layout.relativeDir) / "Fixtures" / "Positive" / "ExternalUse.lean").toString,
@@ -1245,7 +1222,6 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     if !result.succeeded then
       failures.modify (·.push
         s!"fence-env/file-mode: --file importing the owned library failed from unbuilt state:\n{result.output}")
-
   -- The driver's build and root selection depend only on the manifest and Lake's
   -- import graph, never on which declarations a module holds. So this control
   -- claims two import-free `prelude` modules instead of the repository surface:
@@ -1381,7 +1357,6 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
       throw <| IO.userError s!"could not link pinned Lake packages: {link.output}"
     let gate (args : Array String := #[]) :=
       runBinaryFrom repo adopter "axiomGate" args
-
     let positive ← gate #["--verbose"]
     if !positive.succeeded then
       failures.modify (·.push
@@ -1392,25 +1367,21 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
         if !positive.output.contains needle then
           failures.modify (·.push
             s!"adopter/{label}/positive: missing classification {repr needle}:\n{positive.output}")
-
     let viaProject ← runBinary repo "axiomGate" #["--project", adopter.toString]
     if !viaProject.succeeded then
       failures.modify (·.push
         s!"adopter/{label}/project-flag: gate from foreign cwd failed:\n{viaProject.output}")
-
     let omittedManifest := adopter / "omitted-exe.json"
     IO.FS.writeFile omittedManifest (adopterOmittedExeText ++ "\n")
     if let some failure := expectedFailure s!"adopter/{label}/omitted-exe"
         (← gate #["--manifest", omittedManifest.toString, "--incremental"])
         #["manifest-incomplete", "widget_tool"] then
       failures.modify (·.push failure)
-
     withNewFile (adopter / "Widget" / "Rogue.lean")
         "/-! Discovery control for a glob-owned axiom. -/\naxiom widget_rogue_axiom : False\n" do
       if let some failure := expectedFailure s!"adopter/{label}/rogue-module" (← gate)
           #["project-axiom", "widget_rogue_axiom"] then
         failures.modify (·.push failure)
-
     if label == "toml" then
       let originalExtra ← IO.FS.readFile (adopter / "Widget" / "Extra.lean")
       let unlistedSource := adopter / "WidgetRogue.lean"
@@ -1446,7 +1417,6 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
     IO.println (s!"self-test fixtures: " ++
       (if fixtureResults.all (·.isNone) then "PASS" else "FAIL") ++
       s!" ({fixtures.size} in one process, one environment load per import closure)")
-
   for failure in scannerQualification do failures.modify (·.push failure)
   withScratch repo "checker-fence-corpus" fun scratch => do
     let corpus ← timedPhase "in-process fence corpus" <|
@@ -1468,7 +1438,6 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
       manifestQualification repo scratch
   for failure in ← IO.ofExcept (← IO.wait manifestTask) do failures.modify (·.push failure)
   IO.println "self-test manifest: completed (valid + missing in-process; missing, malformed, incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
-
   let structural ← IO.ofExcept (← IO.wait structuralTask)
   for failure in structural do failures.modify (·.push failure)
   IO.println <| "self-test structural: " ++
@@ -1491,7 +1460,6 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   let cliLabel := if fullCli then "full CLI sweep" else "CLI smoke"
   let cliResults ← timedPhase cliLabel <|
     mapConcurrent jobs cliFixtures (checkFixtureCli repo)
-
   for result in cliResults do appendFailure failures result
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
@@ -1508,12 +1476,10 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
     timedPhase "clean-checkout environments" <|
       withScratch repo "checker-fence-env" fun scratch =>
         fenceEnvironmentQualification layout repo scratch
-
   withScratch repo "checker-scanner" fun scratch => do
     for failure in ← timedPhase "public fence corpus" (publicScannerQualification repo scratch) do
       failures.modify (·.push failure)
   IO.println s!"self-test public fence corpus: completed ({(fenceCorpusCases ++ publicOnlyFenceCases).size} end-to-end cases)"
-
   withScratch repo "checker-adopter" fun scratch => do
     let adopter ← timedPhase "external adopters" (adopterQualification repo scratch)
     for failure in adopter do failures.modify (·.push failure)
@@ -1521,13 +1487,11 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
       (if adopter.isEmpty then "PASS" else "FAIL") ++
       " (lakefile.toml + lakefile.lean + relative-path require: empty exclusions, fresh positive gate, --project, omitted exe, " ++
       "rogue module, unlisted-module contamination, fresh plan)"
-
   let fenceEnv ← IO.ofExcept (← IO.wait fenceEnvTask)
   for failure in fenceEnv do failures.modify (·.push failure)
   IO.println <| "self-test fence environment: " ++
     (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
     " (clean-checkout doc fences, --file, freshChecker with no prior build on a two-root control surface)"
-
   let surface ← timedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
   if !surface.succeeded then
     failures.modify (·.push s!"surface/baseline: public incremental gate failed:\n{surface.output}")
@@ -1706,7 +1670,6 @@ unsafe def run (args : List String) : IO UInt32 := do
   let repo ← repoRoot
   let started ← IO.monoNanosNow
   let failures ← IO.mkRef (#[] : Array String)
-
   -- One baseline build pays the invariant prefix once: the checker
   -- executables, the fixture import anchor, and the claimed positive surface
   -- (fixture sources import the owned library, e.g. `import Audit`), so every
@@ -1718,9 +1681,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   if !build.succeeded then
     IO.println s!"FAIL: baseline checker and claimed-surface build failed:\n{build.output}"
     return 1
-
   let layout ← loadSourceLayout repo
-
   if options.structuralOnly then
     return ← withScratch repo "checker-structural" fun scratch => do
       let structural ← structuralQualification layout repo scratch options.jobs
@@ -1730,7 +1691,6 @@ unsafe def run (args : List String) : IO UInt32 := do
       IO.println s!"FAIL: {structural.size} structural qualification failure(s)"
       for failure in structural do IO.println s!"\n{failure}"
       return 1
-
   let fixtures ← loadFixtureManifest layout repo
   match options.partition with
   | some partition => runPartition layout partition repo options.jobs fixtures failures
@@ -1742,7 +1702,6 @@ unsafe def run (args : List String) : IO UInt32 := do
       runFixtures repo options.jobs fixtures failures
       runStructural layout repo options.jobs failures
       runCli repo options.jobs false fixtures failures
-
   let failures ← failures.get
   if !failures.isEmpty then
     IO.println s!"FAIL: {failures.size} checker qualification failure(s)"

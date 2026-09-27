@@ -66,7 +66,7 @@ theorem refill_next (s : State) (h : s.Inv) (j : Nat) (hr : refill s = some j) :
 theorem refill_none (s : State) (h : s.Inv) (hr : refill s = none) : s.launched = s.total := by
   unfold refill at hr
   unfold State.Inv at h
-  split at hr <;> simp_all <;> omega
+  split at hr <;> simp_all
 
 /-- After every record is taken, every job was launched, so the consumer has awaited
 every launched Task. -/
@@ -143,8 +143,14 @@ theorem records_nodup (selected : List String) (h : selected.Nodup) :
     refine ⟨?_, ?_, ih h.2⟩
     · rintro (hx | ⟨r, hr, hx⟩)
       · simp at hx
-      · simp at hx; rcases hx with rfl | hx <;> simp_all
-    · rintro ⟨r, hr, hx⟩; simp at hx; subst hx; exact h.1 hr
+      · simp only [Prod.mk.injEq, and_true, String.reduceEq, and_false, List.not_mem_nil,
+          or_self, or_false] at hx
+        rcases hx with rfl | hx <;> simp_all
+    · rintro ⟨r, hr, hx⟩
+      simp only [Prod.mk.injEq, String.reduceEq, and_false, and_true, List.not_mem_nil, or_false,
+        false_or] at hx
+      subst hx
+      exact h.1 hr
 
 theorem mem_records_phase (selected : List String) (p : String × String)
     (hp : p ∈ records selected) : p.2 = "Fixed" ∨ p.2 = "Violation" := by

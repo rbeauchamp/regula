@@ -20,7 +20,9 @@ theorem distinct_iff {α : Type} [BEq α] [Hashable α] [LawfulBEq α] [LawfulHa
   | cons x xs ih =>
     have cons : Std.ExtHashSet.ofList (x :: xs) = (Std.ExtHashSet.ofList xs).insert x := by
       ext a
-      simp [Std.ExtHashSet.mem_ofList]
+      simp only [Std.ExtHashSet.mem_ofList, List.contains_eq_mem, List.mem_cons,
+        List.decide_mem_cons, Bool.or_eq_true, beq_iff_eq, decide_eq_true_eq,
+        Std.ExtHashSet.mem_insert]
       exact or_congr eq_comm Iff.rfl
     rw [cons, Std.ExtHashSet.size_insert]
     by_cases h : x ∈ xs

@@ -111,8 +111,11 @@ def validate (expected : Expected) (exitCode : Nat) (stderr : String)
 theorem validate_exact (expected : Expected) (exitCode : Nat) (stderr : String)
     (messages : List Message) :
     validate expected exitCode stderr messages = .ok () ↔ Matches expected exitCode stderr messages := by
-  simp [validate, Regula.ExecutableContract.run, evaluate_success, Satisfied,
-    checks, Matches, compilerMatches_exact, nativeMatches_exact]
+  simp only [validate, Regula.ExecutableContract.run, checks, List.all_filter, List.any_filter,
+    evaluate_success, Satisfied, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
+    compilerMatches_exact, beq_iff_eq, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_eq_eq_not,
+    Bool.not_true, nativeMatches_exact, forall_eq, Matches, List.mem_filter, and_imp,
+    and_congr_right_iff, and_congr_left_iff]
   intro _ _ _ _ _
   constructor
   · intro h message hm hn

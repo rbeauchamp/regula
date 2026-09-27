@@ -12,13 +12,21 @@ private theorem map_balanceL (f : String → Json → Json) (k : String) (v : Js
     (l r : Impl String (fun _ => Json)) :
     (balanceL! k v l r).map f = balanceL! k (f k v) (l.map f) (r.map f) := by
   unfold balanceL!
-  repeat' first | rfl | simp_all [Impl.map] | split
+  repeat' first
+    | rfl
+    | simp_all only [gt_iff_lt, Std.DHashMap.Internal.AssocList.panicWithPosWithDecl_eq,
+        Impl.map, size_map]
+    | split
 
 private theorem map_balanceR (f : String → Json → Json) (k : String) (v : Json)
     (l r : Impl String (fun _ => Json)) :
     (balanceR! k v l r).map f = balanceR! k (f k v) (l.map f) (r.map f) := by
   unfold balanceR!
-  repeat' first | rfl | simp_all [Impl.map] | split
+  repeat' first
+    | rfl
+    | simp_all only [gt_iff_lt, Std.DHashMap.Internal.AssocList.panicWithPosWithDecl_eq,
+        Impl.map, size_map]
+    | split
 
 private theorem map_insertImpl (f : String → Json → Json) (k : String) (v : Json)
     (t : Impl String (fun _ => Json)) :

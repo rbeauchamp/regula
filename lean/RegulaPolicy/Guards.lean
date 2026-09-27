@@ -71,7 +71,7 @@ theorem listForM_eq_ok {xs : List α} {g : α → Except ε PUnit} {u : PUnit} :
   induction xs with
   | nil => simp [List.forM, pure, Except.pure]
   | cons x xs ih =>
-    show (g x >>= fun _ => xs.forM g) = _ ↔ _
+    change (g x >>= fun _ => xs.forM g) = _ ↔ _
     rw [bind_eq_ok]
     simp only [ih, List.mem_cons, forall_eq_or_imp]
     constructor
@@ -188,7 +188,7 @@ private theorem nodup_of_same_members : ∀ {l₁ l₂ : List α}, l₁.Nodup �
 observed edge sequence has no duplicate. -/
 theorem nodup_of_canonicalEdges_size (xs : Array (Lean.Name × Lean.Name))
     (h : (canonicalEdges xs).size = xs.size) : xs.toList.Nodup := by
-  letI : Ord (Lean.Name × Lean.Name) := lexOrd
+  let : Ord (Lean.Name × Lean.Name) := lexOrd
   apply nodup_of_same_members (l₁ := (canonicalEdges xs).toList)
   · have := CanonicalSet.unique (CanonicalSet.normalize (α := Lean.Name × Lean.Name) xs.toList)
     simp only [canonicalEdges, List.toList_toArray]

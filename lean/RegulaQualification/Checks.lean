@@ -36,7 +36,7 @@ theorem evaluate_eq_forM (checks : List Check) : evaluate checks = checks.forM C
   induction checks with
   | nil => rfl
   | cons check rest ih =>
-    show _ = (check.step >>= fun _ => rest.forM Check.step)
+    change _ = (check.step >>= fun _ => rest.forM Check.step)
     cases h : check.holds <;> rw [evaluate, Check.step, h]
     · rfl
     · exact ih

@@ -236,7 +236,7 @@ theorem checkedAccount : Regula.ExecutableContract @accountImpl AccountContract 
 theorem coverage_fresh_iff {c : Claim} (run : AcceptedRun c) :
     (checkedAccount.run run).coverage = .freshWholeProject ↔
       c.val.mode = .freshProject ∧ c.val.scope = .project := by
-  show (accountImpl run).coverage = .freshWholeProject ↔ _
+  change (accountImpl run).coverage = .freshWholeProject ↔ _
   rw [(checkedAccount.evidence c run).2.2.2.2.2.1, coverageOf_fresh_iff]
   exact ⟨fun h => ⟨h, fresh_scope c h⟩, And.left⟩
 

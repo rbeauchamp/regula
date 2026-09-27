@@ -174,7 +174,7 @@ def run (ops : List Op) (l : Limiter) : Limiter := ops.foldl step l
 /-- No single update ever changes the capacity. -/
 theorem step_capacity (l : Limiter) (op : Op) : (step l op).capacity = l.capacity := by
   cases op
-  · show ((grant l).getD l).capacity = l.capacity
+  · change ((grant l).getD l).capacity = l.capacity
     by_cases hlt : l.inUse < l.capacity
     · unfold grant
       rw [dite_eq_left hlt]
@@ -182,7 +182,7 @@ theorem step_capacity (l : Limiter) (op : Op) : (step l op).capacity = l.capacit
     · unfold grant
       rw [dite_eq_right hlt]
       rfl
-  · show (release l).capacity = l.capacity
+  · change (release l).capacity = l.capacity
     unfold release
     split <;> rfl
   · rfl
@@ -193,7 +193,7 @@ theorem run_capacity (l : Limiter) (ops : List Op) :
   induction ops generalizing l with
   | nil => rfl
   | cons op rest ih =>
-    show (run rest (step l op)).capacity = l.capacity
+    change (run rest (step l op)).capacity = l.capacity
     exact (ih (step l op)).trans (step_capacity l op)
 
 /-- Checked composition: running any finite sequence of updates preserves the
@@ -205,7 +205,7 @@ theorem run_bounded (l : Limiter) (ops : List Op) :
   induction ops generalizing l with
   | nil => exact l.bounded
   | cons op rest ih =>
-    show (run rest (step l op)).inUse ≤ l.capacity
+    change (run rest (step l op)).inUse ≤ l.capacity
     rw [← step_capacity l op]
     exact ih (step l op)
 
@@ -219,7 +219,7 @@ theorem run_replicate_grant (l : Limiter) (n : Nat) (h : l.inUse + n ≤ l.capac
   | succ k ih =>
     have hlt : l.inUse < l.capacity := by omega
     have hin : (step l Op.grant).inUse = l.inUse + 1 := by
-      show ((grant l).getD l).inUse = l.inUse + 1
+      change ((grant l).getD l).inUse = l.inUse + 1
       unfold grant
       rw [dite_eq_left hlt]
       rfl
@@ -227,7 +227,7 @@ theorem run_replicate_grant (l : Limiter) (n : Nat) (h : l.inUse + n ≤ l.capac
     have h' : (step l Op.grant).inUse + k ≤ (step l Op.grant).capacity := by
       rw [hin, hcap]
       omega
-    show (run (List.replicate k Op.grant) (step l Op.grant)).inUse = l.inUse + (k + 1)
+    change (run (List.replicate k Op.grant) (step l Op.grant)).inUse = l.inUse + (k + 1)
     rw [ih _ h', hin]
     omega
 

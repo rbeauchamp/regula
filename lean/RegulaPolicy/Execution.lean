@@ -129,7 +129,7 @@ private theorem boundaryFailures_unresolved (root : ExecutionRoot) (claim : Exec
     (boundaryFailures root claim b).countP (·.id = .executionUnresolved) =
       if b.correspondence = .unresolved then 1 else 0 := by
   unfold boundaryFailures
-  cases claim <;> cases b.correspondence <;> simp <;> split <;> simp
+  cases claim <;> cases b.correspondence <;> simp
 
 private theorem sum_indicator (xs : Array ExecutionBoundary) (f : ExecutionBoundary → Nat)
     (h : ∀ b, f b = if b.correspondence = .unresolved then 1 else 0) :

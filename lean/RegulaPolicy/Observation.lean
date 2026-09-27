@@ -441,7 +441,7 @@ theorem LocalEvidenceTransfer.refl {c : Claim} {inventory : EnvironmentCensus}
     (accepted : LocalStageOK c inventory roles stage subject evidence) :
     LocalEvidenceTransfer c inventory inventory roles roles stage subject evidence evidence := by
   dsimp only [LocalStageOK] at accepted
-  split at accepted <;> subst_vars
+  split at accepted
   · exact .admission _ _ accepted.1 accepted.2.1 (fun _ h => h) (.refl _)
       (fun d => ⟨fun h => ⟨h, accepted.2.2.2.2.1 d h⟩, And.left⟩) rfl
   · exact .declaration _ _ accepted.1 (fun _ _ => Iff.rfl) (fun h => h)
@@ -554,7 +554,7 @@ set_option synthInstance.maxSize 2048 in
 instance (c : Claim) (i : Census) (roles : CensusRoles i) (k : JobKey) (e : JobEvidence) :
     Decidable (StageOK c i roles k e) := by
   dsimp only [StageOK]
-  split <;> (try dsimp only [DocumentationPresenceOK]) <;> infer_instance
+  split <;> infer_instance
 
 /-- Global evidence transfers by exact data correspondence. Discovery replaces the
 former census observation with the complete newly admitted census; no success bit is

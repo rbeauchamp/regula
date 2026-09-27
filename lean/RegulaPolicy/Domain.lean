@@ -418,7 +418,7 @@ instance (edges : Array (Lean.Name × Lean.Name)) : Decidable (canonicalEdges ed
 
 @[simp] theorem mem_canonicalEdges (edges : Array (Lean.Name × Lean.Name)) (e : Lean.Name × Lean.Name) :
     e ∈ canonicalEdges edges ↔ e ∈ edges := by
-  letI : Ord (Lean.Name × Lean.Name) := lexOrd
+  let : Ord (Lean.Name × Lean.Name) := lexOrd
   simp [canonicalEdges, Std.ExtTreeSet.mem_toList]
 
 structure Position where

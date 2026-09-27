@@ -4,12 +4,13 @@ public meta import Regula.MaterialClaim
 public meta import Regula.Findings
 public meta import Lean.DocString
 
-public meta section
-
 /-! Module-doc and explicitly selected declaration-doc presence, using both of
 Lean's documentation formats, and presence of a nonempty Intent section in each selected
 declaration's docstring. Presence is distinct from adequacy and registration
 completeness, which remain semantic review obligations. -/
+
+public meta section
+
 namespace Regula.Linter.Documentation
 open Lean
 

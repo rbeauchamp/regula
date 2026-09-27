@@ -77,7 +77,7 @@ theorem Decides.bind {x y : Except String Unit} {o₁ o₂ : List Obligation}
   | ok u =>
     have hall := hx.ok_iff.mp rfl
     have hn : ¬FirstUnmet o₁ e := fun h => by cases (hx e).mpr h
-    show y = .error e ↔ _
+    change y = .error e ↔ _
     rw [hy e]
     exact ⟨fun h => Or.inr ⟨hall, h⟩, fun h => h.elim (fun h => (hn h).elim) And.right⟩
 

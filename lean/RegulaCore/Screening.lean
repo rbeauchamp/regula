@@ -111,7 +111,7 @@ theorem Judged.escalate_of_severity (policy : Policy) (j : Judged) (h : j.severi
 theorem Judged.unconfigured (policy : Policy) (j : Judged) (h : (policy j.judgment).thresholds = none) :
     j.severity policy = none ∧ j.route policy = .escalate := by
   refine ⟨by simp [Judged.severity, h], ?_⟩
-  show routeImpl (policy j.judgment) j.support j.confidence = .escalate
+  change routeImpl (policy j.judgment) j.support j.confidence = .escalate
   simp [routeImpl, h]
 
 /-- How one intent clause was compared with the claim. -/

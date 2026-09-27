@@ -223,10 +223,16 @@ theorem dirtyOf_iff {entries : List StatusEntry} {inputs : List String} :
 retired pathspec decision whenever Git's restricted output is that model. -/
 theorem dirtyOf_eq_restricted {entries : List StatusEntry} {inputs : List String} :
     dirtyOf entries inputs = !(restrictedStatus entries inputs).isEmpty := by
-  cases h : dirtyOf entries inputs <;>
-    simp_all [dirtyOf, inputDirty, restrictedStatus, List.isEmpty_iff, List.filter_eq_nil_iff]
-  · exact fun entry he input hi reported hr => h input hi entry he reported hr
-  · obtain ⟨input, hi, entry, he, reported, hr, hc⟩ := h
+  cases h : dirtyOf entries inputs
+  · simp_all only [dirtyOf, List.any_eq_false, inputDirty, List.any_eq_true, not_exists, not_and,
+      Bool.not_eq_true, restrictedStatus, Bool.false_eq, Bool.not_eq_eq_eq_not, Bool.not_false,
+      List.isEmpty_iff, List.filter_eq_nil_iff]
+    exact fun entry he input hi reported hr => h input hi entry he reported hr
+  · simp_all only [dirtyOf, List.any_eq_true, inputDirty, restrictedStatus, Bool.true_eq,
+      Bool.not_eq_eq_eq_not, Bool.not_true, List.isEmpty_eq_false_iff, ne_eq,
+      List.filter_eq_nil_iff, not_exists, not_and, Bool.not_eq_true, Classical.not_forall,
+      Bool.not_eq_false]
+    obtain ⟨input, hi, entry, he, reported, hr, hc⟩ := h
     exact ⟨entry, he, input, hi, reported, hr, hc⟩
 
 /-- A clean status leaves every declared input clean. -/
@@ -270,8 +276,9 @@ theorem dirtyOf_of_directory {entries : List StatusEntry} {inputs : List String}
 def statusCarriesOriginal (code : UInt8) : Bool :=
   code == 'R'.toNat.toUInt8 || code == 'C'.toNat.toUInt8
 
-/-- Parse NUL-terminated porcelain v1 fields: `XY␠path`, followed by the original
-path when either status letter is a rename or copy. Malformed output is `none`. -/
+/-- Parse NUL-terminated porcelain v1 fields: `XY path` (two status letters, a space and the
+path), followed by the original path when either status letter is a rename or copy. Malformed
+output is `none`. -/
 def parseStatusFields : List ByteArray → Option (List StatusEntry)
   | [] => some []
   | field :: rest =>

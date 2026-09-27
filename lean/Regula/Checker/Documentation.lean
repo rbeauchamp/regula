@@ -119,7 +119,6 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
   let mut offset := 0
   let mut body : Array String := #[]
   let mut pending : Option PendingMarker := none
-
   for index in [:lines.size] do
     let lineNo := index + 1
     let line := lines[index]!
@@ -153,17 +152,14 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
       else
         body := body.push line
       continue
-
     let opener := fenceRun? line
     let failMarker := failMarker? line
     let trustedMarker := exactTrustedMarker line
-
     if let some marker := pending then
       if lineNo != marker.line + 1 then
         problems := problems.push
           s!"{origin}:{marker.line}: marker is not immediately adjacent to a ```lean fence"
         pending := none
-
     if failMarker.isSome || trustedMarker then
       if pending.isSome then
         problems := problems.push s!"{origin}:{lineNo}: multiple markers target one fence"
@@ -178,7 +174,6 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
       else
         pending := some { kind := .trusted, line := lineNo }
       continue
-
     if markerLike line then
       if let some marker := pending then
         problems := problems.push
@@ -186,7 +181,6 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
         pending := none
       problems := problems.push s!"{origin}:{lineNo}: malformed Lean fence marker"
       continue
-
     if let some (character, count, info) := opener then
       if let some marker := pending then
         if firstWord info != "lean" then
@@ -201,12 +195,10 @@ def scan (text origin : String) (sourceURI : Option String := none) : ScanResult
       bodyStart := offset
       body := #[]
       continue
-
     if let some marker := pending then
       problems := problems.push
         s!"{origin}:{marker.line}: marker is not immediately adjacent to a ```lean fence"
       pending := none
-
   if openCharacter.isSome then
     problems := problems.push s!"{origin}:{openLine}: fence opened but never closed"
   if let some marker := pending then
@@ -554,7 +546,6 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
             importNames := moduleData.imports.map (·.module)
           }
           groups := addToGroups groups item
-
       let selfLib ← checkerPackageLibDir
       let oldSearchPath ← Lean.searchPathRef.get
       Lean.searchPathRef.set (scratch :: extraSearchRoots.toList ++ selfLib.toList ++ oldSearchPath)
@@ -916,7 +907,6 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       IO.println <| s!"```lean fences: {tasks.size} " ++
         s!"(conforming-positive {positiveCount}, negative {negativeCount}, trusted {trustedCount})"
       (← IO.getStdout).flush
-
       -- A structural problem already refuses acceptance, and a malformed marker's
       -- fence has no request key. Freeze only a structurally clean corpus, so its
       -- located problems are still reported; a key error without one still throws.

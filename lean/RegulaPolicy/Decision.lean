@@ -226,8 +226,7 @@ theorem labelOf_logical (i : Inventory) (roles : Roles i) (a : Array Name)
     simp [standardLogicalAxiom, hp]
   have comp : (a.any (compilerAxiom roles.native)) = false := by
     rw [Array.any_eq_false']
-    intro n hn
-    intro hc
+    intro n hn hc
     exact compiler_not_logical i roles n ((compilerAxiom_iff _ _).mp hc) (ha n hn)
   have empty : ContainsFoundation .kernelOnly a ↔ a = #[] := by
     simp [ContainsFoundation, Permitted, Array.eq_empty_iff_forall_not_mem]
@@ -258,7 +257,10 @@ theorem permitted_standard (p : ConformingProfile) (n : Name) (h : Permitted p n
     Permitted .standardLogical n := by
   cases p with
   | kernelOnly => exact False.elim h
-  | choiceFree => rcases h with h | h; exact Or.inl h; exact Or.inr (Or.inl h)
+  | choiceFree =>
+    rcases h with h | h
+    · exact Or.inl h
+    · exact Or.inr (Or.inl h)
   | standardLogical => exact h
 
 /-- Positive inspection is exactly the permitted foundation, safety exception and recorded
@@ -304,9 +306,12 @@ hole-before-unknown-before-compiler precedence. This holds even for raw role-nam
 theorem labelOf_iff (axioms native : Array Name) (label : FoundationClass) :
     labelOf axioms native = label ↔ ClassificationOK axioms native label := by
   cases label <;>
-    simp [labelOf, ClassificationOK, ContainsFoundation, standardLogicalAxiom, permits_iff,
-      compilerAxiom_iff, -Array.any_eq_true, -Array.any_eq_false, -Array.all_eq_true,
-      -Array.all_eq_false, Array.any_eq_true', Array.all_eq_true', Array.isEmpty_iff] <;> (repeat' split) <;> (try simp_all) <;> grind
+    simp only [labelOf, Array.contains_eq_mem, decide_eq_true_eq, standardLogicalAxiom,
+      Array.any_eq_true', Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+      permits_false_iff, compilerAxiom_false_iff, compilerAxiom_iff, Array.isEmpty_iff,
+      Array.all_eq_true', permits_iff, ClassificationOK, not_exists, not_and, ne_eq,
+      ContainsFoundation, Classical.not_forall, ite_eq_left_iff, not_or] <;>
+    (repeat' split) <;> (try simp_all) <;> grind
 
 /-- Public foundation output retains exact classification and inventory membership for all
 six outcomes, not only the three permitted logical profiles. -/
@@ -319,11 +324,18 @@ success and refusal outputs, including their precedence, follow this same relati
 theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
     OrderedDecision (DeclarationRequirements d r native helpers) (declarationFailure d r native helpers) := by
   by_cases hd : d.kind = .«axiom» <;> cases r <;>
-    simp [DeclarationRequirements, hd, declarationFailure,
-      KnownDependencies, SafetyOK, CompilerPolicyOK, ContractOK, ProfileOK,
-      standardLogicalAxiom, permits_iff, compilerAxiom_iff,
-      -Array.any_eq_true, -Array.any_eq_false, -Array.all_eq_true, -Array.all_eq_false,
-      Array.any_eq_true', Array.all_eq_true', Option.any_eq_true, Option.isSome_iff_ne_none] <;>
+    simp only [DeclarationRequirements, hd, ↓reduceIte, reduceCtorEq, declarationFailure,
+      BEq.rfl, Array.contains_eq_mem, decide_eq_true_eq, beq_iff_eq, orderedDecision_cons,
+      ite_eq_right_iff, Option.some.injEq, imp_false, and_self, not_false_eq_true,
+      ite_eq_left_iff, Decidable.not_not, true_and, orderedDecision_nil, false_and, or_false,
+      not_true_eq_false, Option.ite_none_left_eq_some, and_false, false_or, KnownDependencies,
+      SafetyOK, CompilerPolicyOK, ContractOK, Option.mem_def, ProfileOK, standardLogicalAxiom,
+      Array.any_eq_true', Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+      permits_false_iff, compilerAxiom_false_iff, Bool.or_eq_true, decide_eq_false_iff_not,
+      compilerAxiom_iff, bne_iff_ne, ne_eq, and_true, Option.any_eq_true,
+      Option.isSome_iff_ne_none, Classical.not_forall, not_or, not_and,
+      Bool.not_eq_false, true_or, bne_self_eq_false, Bool.and_false, Bool.false_eq_true,
+      Array.all_eq_true', permits_iff] <;>
     (repeat' split) <;> (try simp_all) <;> grind
 
 /-- Exact outcome equivalence follows from existence and uniqueness of the first failure. -/

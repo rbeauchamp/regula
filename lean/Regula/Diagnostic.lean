@@ -5,10 +5,11 @@ public import RegulaCore.Feedback
 public import RegulaCore.Source
 public import Lean.Data.Lsp.Utf16
 
-@[expose] public section
-
 /-! Canonical diagnostic values and source conversion. Payloads are indexed by the closed
 `RuleId` (design credit in RuleId); source conversion uses pinned Lean FileMap/LSP APIs. -/
+
+@[expose] public section
+
 namespace Regula
 open Lean
 

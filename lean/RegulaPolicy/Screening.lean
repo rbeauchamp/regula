@@ -64,7 +64,7 @@ theorem le_refl (a : Decimal) : a ≤ a := Nat.le_refl _
 theorem le_trans {a b c : Decimal} (hab : a ≤ b) (hbc : b ≤ c) : a ≤ c := by
   have h1 : a.mantissa * 10 ^ b.exponent ≤ b.mantissa * 10 ^ a.exponent := hab
   have h2 : b.mantissa * 10 ^ c.exponent ≤ c.mantissa * 10 ^ b.exponent := hbc
-  show a.mantissa * 10 ^ c.exponent ≤ c.mantissa * 10 ^ a.exponent
+  change a.mantissa * 10 ^ c.exponent ≤ c.mantissa * 10 ^ a.exponent
   apply Nat.le_of_mul_le_mul_right (c := 10 ^ b.exponent) _ (pow_ten_pos _)
   calc a.mantissa * 10 ^ c.exponent * 10 ^ b.exponent
       = a.mantissa * 10 ^ b.exponent * 10 ^ c.exponent := Nat.mul_right_comm ..
@@ -208,7 +208,7 @@ theorem classify_antitone (t : Thresholds) {s s' : Decimal} (h : s ≤ s') :
     rank (classify t s') ≤ rank (classify t s) := by
   have c := checkedClassify.evidence t s
   have c' := checkedClassify.evidence t s'
-  show rank (classifyImpl t s') ≤ rank (classifyImpl t s)
+  change rank (classifyImpl t s') ≤ rank (classifyImpl t s)
   cases hs' : classifyImpl t s' with
   | none => exact Nat.zero_le _
   | some sev' =>
@@ -506,7 +506,7 @@ theorem dischargeMarked?_of_discharge? {clause : String} {p : String × String}
   unfold dischargeMarked?
   rw [Option.isSome_map]
   apply splitMarker_isSome_of_append (t := " `".toList)
-  show (splitMarker dischargeMarker (trim clause.toList)).isSome
+  change (splitMarker dischargeMarker (trim clause.toList)).isSome
   cases hs : splitMarker dischargeMarker (trim clause.toList) with
   | none => simp [hs] at h
   | some _ => rfl

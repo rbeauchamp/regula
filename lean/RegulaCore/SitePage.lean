@@ -235,8 +235,8 @@ private def preHtml (text : String) : String :=
 /-- The verdict pill of a recorded run status: a marker and a word, never colour alone. -/
 def RunStatus.verdict : RunStatus → String
   | .completed => "<span class=\"regula-verdict is-good\">✓ Passes</span>"
-  | .rejected => "<span class=\"regula-verdict is-bad\">✗ Rejected</span>"
-  | .incomplete => "<span class=\"regula-verdict is-bad\">✗ Incomplete</span>"
+  | .rejected => "<span class=\"regula-verdict is-bad\">\u2717 Rejected</span>"
+  | .incomplete => "<span class=\"regula-verdict is-bad\">\u2717 Incomplete</span>"
   | .classified => "<span class=\"regula-verdict\">Classified</span>"
 
 /-- The status class of a displayed file of a run with this status. -/

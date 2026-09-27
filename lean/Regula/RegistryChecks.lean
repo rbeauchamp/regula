@@ -69,7 +69,9 @@ def main : IO Unit := do
   require (!succeeded (validatePages producer manifest [.projectAxiom] [{ page with checkedExample := false }])) "unchecked example"
   require (succeeded (validatePages producer manifest [.moduleDocumentation]
     [⟨.moduleDocumentation, RuleId.moduleDocumentation.route, true, true⟩])) "implemented module-doc detector"
-  let candidate : SourceCandidate := ⟨⟨"qualification://unicode", "α😀\r\nx"⟩, ⟨0, 9⟩, ⟨2, 6⟩⟩
+  let emoji := String.singleton (Char.ofNat 0x1F600)  -- a non-BMP character
+  let candidate : SourceCandidate :=
+    ⟨⟨"qualification://unicode", "α" ++ emoji ++ "\r\nx"⟩, ⟨0, 9⟩, ⟨2, 6⟩⟩
   let source ← IO.ofExcept (admitSource candidate)
   require (source.selectionLsp.start.line == 0 && source.selectionLsp.start.character == 1 &&
     source.selectionLsp.end.line == 0 && source.selectionLsp.end.character == 3) "UTF-8 to UTF-16 conversion"

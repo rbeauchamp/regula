@@ -4,13 +4,14 @@ public import Regula.Collect
 public import Regula.Findings
 public import RegulaCore.EditorPolicy
 
-public section
-
 /-! Local declaration decisions run the claimed `RegulaCore.EditorPolicy` registrations
 (`checkedEditorRequest`, `checkedEditorDecision`); `RegulaCore.Policy` proves they select the
 project's request and `ruleForMember` rule for the same member (`editor_request_sound`,
 `editor_decision_rule`). Deferred role observations are explicit; a snapshot result is never
 whole-project acceptance. -/
+
+public section
+
 namespace Regula.Linter.Rules
 open Lean
 open RegulaPolicy

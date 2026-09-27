@@ -131,8 +131,8 @@ theorem checkedScope : Regula.ExecutableContract admitScopeImpl ScopeContract :=
     | error e => simp [admitScopeImpl, hts, bind, Except.bind] at h
     | ok u =>
       by_cases hv : RegulaPolicy.InventoryValid ds ts
-      · simp [admitScopeImpl, hts, bind, Except.bind, RegulaPolicy.admitInventory_exact ds ts hv,
-          pure, Except.pure] at h
+      · simp only [admitScopeImpl, bind, Except.bind, hts,
+          RegulaPolicy.admitInventory_exact ds ts hv, pure, Except.pure, Except.ok.injEq] at h
         subst h
         exact ⟨rfl, rfl⟩
       · simp [admitScopeImpl, hts, bind, Except.bind, RegulaPolicy.admitInventory, hv] at h

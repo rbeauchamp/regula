@@ -39,7 +39,8 @@ def transport : Array String := Id.run do
   let decode (j : Json) := (fromJson? j : Except String Regula.Report.ExecutionBoundary)
   failures := failures ++ expectOk "boundary-positive" (decode encoded)
   for (label, field, value, expected) in #[("unknown-category", "boundary", .str "unknown", "unknown BoundaryKind"),
-      ("typo-category", "correspondence", .str "trustеd", "unknown Correspondence"),
+      -- A deliberate homoglyph: `trusted` with the Cyrillic letter U+0435 in place of `e`.
+      ("typo-category", "correspondence", .str "trust\u0435d", "unknown Correspondence"),
       ("malformed-name", "name", .str "sample", "array expected"),
       ("extra-field", "extra", .bool true, "unknown or missing JSON object fields")] do
     failures := failures ++ expectError label expected (decode (encoded.setObjVal! field value))
