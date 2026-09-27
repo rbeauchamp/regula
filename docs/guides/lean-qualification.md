@@ -285,8 +285,9 @@ push to `main`, and nightly. None is part of acceptance.
   proved oracle does not prove the entire driver or its IO effects.
 - `lean/RegulaVerification.lean`: a separately claimed cold-start runner importing only
   the pinned toolchain. It owns argument selection, command recipes, sequential execution
-  and success reporting. `scripts/verify.sh` only selects the root/GNU timeout and starts
-  this runner under the external deadline, including all root-package builds.
+  and success reporting. `scripts/verify.sh` only selects the root/GNU timeout, runs the
+  provisioning setup below, and starts this runner under the external deadline, including
+  all root-package builds.
 - `lean/RegulaProvision.lean`: a separately claimed toolchain-only setup program that
   `scripts/provision.sh` runs, and `scripts/verify.sh` through it before that deadline under
   its own 1800-second GNU timeout. It links the copy to one shared, read-only
