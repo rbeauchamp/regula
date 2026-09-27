@@ -135,17 +135,14 @@ prerequisite. Run `./scripts/verify.sh serialized-graph` only for the separate s
 claim. See the [verification sequence](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#repository-verification-sequence)
 for evidence requirements. Diagnostics do not replace a failed acceptance run.
 
-The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers` and
-`history` as parallel jobs, each with its own hard 420-second limit, when the checker, rules,
-rule examples, Lake configuration or manifests change, on every push to `main`, and nightly;
-it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml) runs both
-shards on every pull request and push to `main`, where they feed `./scripts/verify.sh site`
-([website guide](website.md)).
-The [lint-driver workflow](../../.github/workflows/lint-driver.yml) runs `lint-driver`
-under the same limit when the `lake lint` driver or anything it imports changes, or the
-adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint` change, on every push
-to `main`, and nightly. These campaigns are capability-triggered diagnostics (standard
-§8.8), not a partition of ordinary acceptance.
+The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers`,
+`history` and `lint-driver` as parallel jobs, each with its own hard 420-second limit, when the
+checker, rules, rule examples, the adopter fixtures in `examples/lake-lint-toml` and
+`examples/build-lint`, Lake configuration or manifests change, on every push to `main`, and
+nightly; it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml)
+runs both shards on every pull request and push to `main`, where they feed
+`./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
+capability-triggered diagnostics (standard §8.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
 as parallel jobs under the same limit, and the opt-in
 [intent screen](intent-screening.md#dogfood-screen) as a third job, when Lean sources, Lake
@@ -227,9 +224,9 @@ from a few mutations or a worker exit.
 
 ## Linter and website development
 
-Follow the [architecture](linter-architecture.md), [comparative design decisions](ecosystem-design.md), [developer experience](developer-experience.md) and [coverage map](rule-coverage.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
+Follow the [architecture](linter-architecture.md) and [coverage map](rule-coverage.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
 
-The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site` (after both rule-example shards), publication and the rule-change workflow. The site build complements, and never partitions, the unchanged 420-second acceptance commands. Review workflow must inspect rule IDs, exact scopes/modes, source ranges, versioned help routes and generated-source agreement where affected; no extra mandatory benchmark campaign is introduced.
+The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site` (after both rule-example shards), publication and the rule-change workflow. The site build complements, and never partitions, [acceptance](#develop-and-verify). Review workflow must inspect rule IDs, exact scopes/modes, source ranges, versioned help routes and generated-source agreement where affected; no extra mandatory benchmark campaign is introduced.
 
 The acceptance transport groups are maintained, capability-triggered diagnostics. Run
 all affected groups when worker dispatch, codecs, joins, request reconstruction or

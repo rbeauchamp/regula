@@ -1,11 +1,8 @@
 # Strict linter and rule-reference architecture
 
 PRODUCT-01 (#11), design baseline: `f943f41c50876b25c8c5c2285e6ae4315645521e`.
-This document records the implementation contract for Project 8. The registry, native
-editor linter, `lake lint` driver and rule-reference [website](website.md) are implemented. DESIGN-01 supplements
-this contract with [comparative ecosystem research](ecosystem-design.md) and the selected
-[developer experience](developer-experience.md), including command/configuration semantics,
-Mathlib-driver coexistence, presentation, search and the initial no-source-rewriting fix policy.
+This document records the implementation contract. The registry, native
+editor linter, `lake lint` driver and rule-reference [website](website.md) are implemented.
 The retired one-rule probe (historical commit `e5bc6267fa44d03a174c10ba3711e9c32545dff2`) supplied bounded
 interface evidence. The [coverage map](rule-coverage.md) accounts for the complete standard.
 
@@ -23,12 +20,12 @@ and standalone `Main` as dogfood surfaces. Operational tooling and intentionally
 fixtures remain separately classified. No new rule bans Float, IO, local mutation syntax,
 classical erased proofs, noncomputable mathematical definitions, or arbitrary naming styles.
 
-Con-ron is excluded. Optional con-leche export checking was researched in #8 and ended in a
-[no-go](con-leche-research.md); #9 is not planned, and neither ever blocked the core linter/site
-delivery. Preserve the user-selected acceptance: exactly `./scripts/verify.sh` (including cold root-package
-builds after dependency setup) then `./scripts/verify.sh docs`, each under its own hard
-**420-second** deadline. Website dependency provisioning, the site build and the diagnostic
-campaigns are separate operations, not subdivisions or substitutes for that acceptance.
+Optional con-leche export checking was researched in #8 and ended in a no-go
+([#9](https://github.com/rbeauchamp/regula/issues/9) records the decision); neither issue
+blocked the core linter/site delivery. Preserve the
+[acceptance contract](contributing.md#develop-and-verify). Website dependency provisioning, the
+site build and the diagnostic campaigns are separate operations, not subdivisions or substitutes
+for that acceptance.
 
 The [policy acceptance contract](policy-acceptance.md) refines the pure-core module
 boundary, adds the explicit `freshFile` evidence mode, and owns complete-result semantics.
@@ -204,7 +201,7 @@ The retired prototype verified serialized named kind, source location, policy re
 fallback URL; the former package-owned widget has been removed. The supported VS Code infoview interaction
 was observed for opening the URL, the Problems-panel text fallback, code serialization,
 non-BMP and CRLF ranges, stale and cancelled snapshots, and the absence of any Lean-manual
-link ([record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-14-editor-journeys.md)). An ordinary browser
+link (observed; not a proof). An ordinary browser
 link check is not editor acceptance. No Lean fork or new
 language server is selected.
 
@@ -257,7 +254,7 @@ scanned link resolving under the base path, and the registry's `--validate-site`
 dependencies are cached by toolchain and lock digest; no accepted verdict is cached. Assets are
 relative to each edition (Verso's `<base href>`).
 
-CI runs the ordinary 420-second acceptance job, the two rule-example shards and the site
+CI runs [acceptance](contributing.md#develop-and-verify), the two rule-example shards and the site
 build/check on every PR and `main`, saving the validated artifact as `site-<commit>`. On `main`,
 after the same revision's acceptance and site jobs pass, it uploads that artifact with
 `actions/upload-pages-artifact` and deploys it with `actions/deploy-pages` in the `github-pages`
@@ -282,7 +279,7 @@ paid hosting, release or visibility change is involved.
    complete rule site and publication workflow.
 6. #10 after #7/#14/#15: integrated exact-scope product acceptance and documentation.
 7. Optional #8 after #11 investigated con-leche export compatibility and ended in a
-   [no-go](con-leche-research.md), so #9 is closed as not planned.
+   no-go, so [#9](https://github.com/rbeauchamp/regula/issues/9) is closed as not planned.
 
 Open implementation details belong to their named issue: exact proof decomposition (#4/#6),
 efficient live scheduling/current-document extraction and qualification (#13), supported client
@@ -302,10 +299,9 @@ proof of Regula or an adoption of con-leche's kernel/model. The
 code dependencies and optional exports. Cite influences at the relevant component boundary;
 copied code preserves its actual license notices. Lean authors supply the linter, elaboration and message APIs; Verso authors
 supply rendering and the template. [Microsoft CA1416][ca1416], Ruff and Pyrefly are illustrative
-references, not exclusive templates. The [comparative study](ecosystem-design.md) records
-Lean, Clippy, ESLint and HLint/HLS influences and their exact limits; no external tool defines
-Lean policy or permits suppressing mandatory requirements. The archived comparative reference
-is [issue #3](https://github.com/rbeauchamp/regula/issues/3); its con-ron discussion is historical.
+references, not exclusive templates. The attribution account's
+[other linters](design-influences.md#other-linters) records the Clippy, ESLint and HLint/HLS
+influences; no external tool defines Lean policy or permits suppressing mandatory requirements.
 
 [installed]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean
 [propwhen]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean

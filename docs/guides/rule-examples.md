@@ -139,7 +139,7 @@ For development, append `--rules RG1001 RG1002` after `--evidence PATH` to produ
 explicitly scoped evidence. `--shard K/N` selects every rule whose corpus position is K − 1 modulo N, except that RG5002 follows RG5001 into its shard so the shared fresh-project theorem-type check still runs (`mem_selectRules_shard`, `mem_selectRules_some_shard`, `rg5001_rg5002_same_shard`);
 `./scripts/verify.sh diagnostics rule-examples 1/2` and `2/2` run the two CI shards. [Lean qualification](lean-qualification.md) specifies the
 proved template transformation, Lake-discovered source snapshot and trusted IO boundary. Ordinary
-acceptance (`./scripts/verify.sh`, then `./scripts/verify.sh docs`) remains separate.
+[acceptance](contributing.md#develop-and-verify) remains separate.
 Do not substitute the corpus campaign for that command. No website, editor-interaction,
 serialized-graph or full-project completion claim follows from the corpus alone.
 

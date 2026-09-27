@@ -1,8 +1,7 @@
 # Design influences and attribution scope
 
-Regula is a Lean-native linter and rule-reference website. This account was last
-re-checked for issue #10 against `a52bf1f0e2c7854c45ab6694b35b697b5e900fc8` on 2026-09-24. The
-[ecosystem study](ecosystem-design.md) explains the broader selection of tools and APIs.
+Regula is a Lean-native linter and rule-reference website. This is its attribution account:
+the code it adapts, the interfaces it depends on and the designs that influenced it.
 
 ## What con-leche contributes
 
@@ -11,7 +10,7 @@ re-checked for issue #10 against `a52bf1f0e2c7854c45ab6694b35b697b5e900fc8` on 2
 | Design inspiration | `PropWhen` illustrates an invariant-bearing canonical representation with laws at its API boundary. `InstalledEnv`/`FullyChecked` illustrates acceptance bound to a specific installed input and all required record checks. The scanner equivalence proof (`Frontend/Scan/Equiv.lean`) illustrates proving a fast executed form equal to its reference definition, the pattern of `ruleForMember_eq` and the editor-policy theorems (`editor_request_sound`, `editor_decision_rule`). | Keep precise citations in registry/policy design documentation and relevant source attribution. |
 | Current code or proof dependency | Root and website package manifests contain no con-leche dependency; the linter does not import its modules or invoke its checker. Existing registry attribution explicitly marks copied code false. | Do not describe Regula as built on con-leche or claim its correctness theorem applies here. |
 | Rule detection and developer experience | The actual semantic host is Lean; native hooks, Lake, infoview, Std/library facilities and the cross-language UX references have their own roles. | Credit those facilities and examples where used. Con-leche does not supply the linter rules, editor adapter or website UX. |
-| Optional external checking | #8 researched export/toolchain fidelity and ended in a no-go ([decision record](con-leche-research.md), pinned at `ae0c0c4e4ce6a0081648aff03fe9c39d002c4526`); #9 is closed as not planned. No adapter exists, and neither issue was a core linter prerequisite. | Keep the `con-leche` topic label on both issues. Do not describe any con-leche run as Regula evidence. The record lists what would justify revisiting. |
+| Optional external checking | [#8](https://github.com/rbeauchamp/regula/issues/8) researched export/toolchain fidelity and ended in a no-go; [#9](https://github.com/rbeauchamp/regula/issues/9) is closed as not planned, and its body records the decision and what would justify revisiting it. No adapter exists, and con-leche was never run on a Regula artifact. | Do not describe any con-leche run as Regula evidence. |
 
 The concrete precedents are [PropWhen][propwhen], [Installed][installed] and [scanner
 equivalence][equiv], pinned at `c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0`; con-leche's
@@ -52,6 +51,18 @@ dependencies).
 No other third-party code is copied or adapted in the linter, the site builder or the Verso
 extension. The rest of Regula is MIT licensed ([LICENSE](../../LICENSE)).
 
+## Other linters
+
+Regula's architecture, one Lean package working inside Lean's own checking experience, was
+chosen by comparison with other language tools, each credited for the idea it illustrates:
+compiler-integrated semantic analysis (Rust's [Clippy][clippy] and Microsoft's
+[Roslyn analyzers][roslyn]), extensible rule infrastructure ([ESLint][eslint]), cohesive rule
+discovery and fixes (Astral's [Ruff][ruff]), editor and project scope with incremental analysis
+(the [Pyrefly][pyrefly] team), and hints beside compiler feedback (Neil Mitchell's
+[HLint][hlint] and the [Haskell Language Server][hls]). Lean's command, module and environment
+linters, Batteries' linter driver and Mathlib's linter configuration are the Lean facilities it
+builds beside. No code of these projects is copied.
+
 ## Website
 
 The rule reference is rendered by Verso (Lean FRO and contributors, Apache 2.0) as a
@@ -81,16 +92,14 @@ mention con-leche. A shared metadata credit may link to this account; it is not 
 con-leche authored every rule or detector. Preserve meaningful existing attribution without
 repeating it as product branding.
 
-Core project issues use linter/policy terminology and do not carry the `con-leche` topic label.
-Policy issues #4–#7 use POLICY-01–04; older CL-01–04 references identify the same issue numbers.
-The label remains appropriate for actual con-leche research/adapter work and its historical archive.
-
-[#3](https://github.com/rbeauchamp/regula/issues/3) preserves the original con-leche/con-ron
-research. Keep it linked as historical background, outside the linter project's work-item list.
-Its original report is not edited retroactively or treated as the controlling product plan.
-Con-ron adoption remains outside scope. Project 8 and the current issue contracts govern delivery.
-
 [propwhen]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean
 [installed]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean
 [equiv]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Frontend/Scan/Equiv.lean
 [conleche-readme]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/README.md
+[clippy]: https://github.com/rust-lang/rust-clippy/blob/47e8223f80ba7c748581b48c012252a45a9f512b/book/src/development/lint_passes.md
+[roslyn]: https://learn.microsoft.com/en-us/visualstudio/code-quality/roslyn-analyzers-overview?view=visualstudio
+[eslint]: https://github.com/eslint/eslint/blob/24310e3a0e22b3c086ca402f88448676f2e1cfcd/docs/src/extend/custom-rules.md
+[ruff]: https://github.com/astral-sh/ruff/blob/feecd77879459f5285ac095542b667e86b3451ee/docs/linter.md
+[pyrefly]: https://github.com/facebook/pyrefly/blob/3aa0829a5f6816341613a32a0640f01a817ecdef/ARCHITECTURE.md
+[hlint]: https://github.com/ndmitchell/hlint/blob/c2509891034d99c86b658c1b1a121ed14d7f2434/README.md
+[hls]: https://github.com/haskell/haskell-language-server/blob/01a25d4fd847a5d5cb7e9be7b218883475d7cbbf/docs/features.md

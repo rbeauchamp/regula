@@ -86,7 +86,7 @@ prose are unchanged. Legacy output is not accepted evidence.
 The pure library is a separate Standard-Logical manifest surface, discovered by
 Lake's `.andSubmodules`, and is included in `./scripts/verify.sh`. Its exact axiom
 inventory is obtained by the same fresh declaration gate as the other positive
-surfaces. The ordinary command retains its hard 420-second deadline. Parser,
+surfaces. Parser,
 worker, generated-role, warning and execution controls qualify operational
 boundaries; they do not prove universal correctness of compiler extraction or
 full standard conformance.
@@ -95,8 +95,9 @@ After building the checker, `lake exe checkerSelftest --policy-domain-only`
 qualifies strict transport, actual external-adopter public imports, forbidden
 probe imports, recursion-helper execution coverage and positive-file warnings.
 `--policy-transport-only` repeats just the parser/decoder/admission controls.
-Run these diagnostics under the same 420-second timeout; they do not replace
-ordinary acceptance. The existing `./scripts/verify.sh diagnostics fixtures`
+Run these diagnostics under the
+[acceptance deadline](contributing.md#develop-and-verify); they do not replace ordinary
+acceptance. The existing `./scripts/verify.sh diagnostics fixtures`
 retains the declaration, generated-role and Markdown controls; execution-policy failure
 kinds are proved instead ([control inventory](lean-qualification.md#control-inventory)).
 

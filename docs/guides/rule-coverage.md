@@ -61,7 +61,7 @@ INCOMPLETE analysis using separately labelled diagnostic records. Their diagnost
 must complete; these records do not satisfy an accepted positive or rejection expectation.
 Corrections retain the intended claim and require their applicable completed positive checks.
 The four accepted-example kinds remain unchanged. Qualification is scoped operational evidence,
-not proof of universal detector correctness or completed Project 8 acceptance.
+not proof of universal detector correctness or complete product acceptance.
 
 ## Clause-to-obligation reconciliation
 
@@ -140,7 +140,8 @@ mechanical selectors/adapters in #13 and accepted-evidence construction in #7.
   controls and exact invocation/toolchain evidence. Unrun campaigns remain unrun; universal pure
   policy proofs in #6 complement rather than replace collector/integration qualification.
 - **R-GRAPH:** the optional serialized-graph claim is `freshChecker` (§8.9). The con-leche export
-  route from #8/#9 ended in a [no-go](con-leche-research.md). Absence of either claim does
+  route from #8/#9 ended in a no-go ([#9](https://github.com/rbeauchamp/regula/issues/9)).
+  Absence of either claim does
   not block core delivery. A claimed graph still requires every exact selected root covered.
 
 The report account's `Residual` type in
@@ -228,6 +229,7 @@ The normative predicates and existing implementation are Regula's. Canonical typ
 metadata and complete accepted-result design credit [con-leche's Installed.lean](https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean)
 and [PropWhen.lean](https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean),
 not an imported proof of these rules. Lean/Std and applicable Mathlib authors supply language
-semantics, lawful definitions and linter APIs. The [ecosystem study](ecosystem-design.md) records the distinct Lean/Verso and
-cross-language presentation influences; CA1416 is one illustrative example. Generated pages identify actual rule/metadata influences and adapted code/licenses at the
-appropriate component boundary; see [attribution scope](design-influences.md). Con-ron is excluded.
+semantics, lawful definitions and linter APIs. Generated pages identify actual rule/metadata
+influences and adapted code/licenses at the appropriate component boundary; the
+[attribution account](design-influences.md) records them with the Lean/Verso and cross-language
+presentation influences, of which CA1416 is one illustrative example.

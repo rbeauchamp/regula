@@ -86,8 +86,8 @@ jobs and complete result assembly belong to the
 [project acceptance paths](policy-acceptance.md#1-observed-call-flow-and-every-success-boundary).
 #13 retains the complete twenty-two-rule example corpus and #15 the published
 [rule reference](website.md). The `lake lint` driver and its configuration explanation are in the
-[adoption guide](adoption.md#6-enforce-with-lake-lint-lake-build-and-ci); the observed
-VS Code journeys are in the [editor journeys record](https://github.com/rbeauchamp/regula/blob/11e05c682ee76ddf9b7cd81fdb827b572469ed57/session/evidence/issue-14-editor-journeys.md).
+[adoption guide](adoption.md#6-enforce-with-lake-lint-lake-build-and-ci). Its VS Code behavior
+was observed, not proved.
 
 ## Documentation presence
 

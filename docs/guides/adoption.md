@@ -459,9 +459,9 @@ core-only code.
 
 A community linter's pass establishes only what that linter checks. It discharges no other
 Regula requirement, and a Regula pass says nothing about style that no enabled linter checks.
-The configuration above was exercised on a Mathlib adopter in the `lake new` layout, and the
-Batteries routes on an earlier small adopter
-([product qualification](product-qualification.md#community-linters-beside-regula)).
+The configuration above was observed on a small Mathlib adopter in the `lake new` layout, and
+the Batteries routes on another small adopter, with the `lakefile.toml` spelling; these are
+bounded observations of real runs, not proofs.
 
 ## 7. Receive diagnostics while editing
 
@@ -507,6 +507,28 @@ Those are the semantic-review rows of [standard module 9](https://rbeauchamp.git
 Conformance is the whole matrix with one terminal result (`PASS`, `FAIL`, or `INCOMPLETE`),
 not the gate alone.
 
+## Limits
+
+- `lake lint` exits 0 only for an accepted run: `Regula.Checker.Lint.accepted_sound` and
+  `RegulaPolicy.accept_iff` prove the success direction. Which rule a failure receives is
+  proved only where a rule page's *Proved linkage* says so.
+- Some adapters are operational code, not proved: RG2001/RG2002 routing of escaped errors by
+  message prefix, RG1007 contract extraction, RG2004 inventory checks, the documentation fence
+  scanner and the RG5001 header observation. The acceptance theorems cover their observations,
+  not their extraction.
+- The command-line transcript names a finding's file and declaration; exact source ranges are in
+  `--json-out` and the editor.
+- The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
+- Regula has run on small adopters only, including a Mathlib-importing library accepted
+  incrementally and fresh; there is no Mathlib-scale adopter or other-editor claim. These are
+  bounded observations of real runs, not theorems about the tools.
+- There are no released versions yet. Diagnostic help links target the moving `/dev/` route, so
+  a project pinned at an older revision reads the latest deployed explanation there; the
+  unchanged text of every published revision stays at `/rev/<commit>/rules/<ID>/`.
+- The nine residual review obligations of the
+  [coverage map](rule-coverage.md#residual-semantic-and-research-accounts) stay open; every
+  accepted account lists them.
+
 ## What you are not asked to do
 
 - **Checker qualification is not adopter conformance.** The `MUT-*` rows and the
@@ -542,9 +564,6 @@ with incrementally built dependencies. No-profile and compiler-trusting file req
 report `CLASSIFIED`, not conforming success. Documentation accepts each configured
 positive, rejection or teaching expectation without promoting negatives/teaching to
 positive conformance. Help, worker and optional graph planning exits have no audit certificate.
-In this repository, acceptance is `./scripts/verify.sh` (with cold root builds) and then
-`./scripts/verify.sh docs`, each under its own hard 420-second deadline; external-adopter and
-build-integration diagnostics and serialized-graph checking remain separate.
 
 This boundary is informed by con-leche's complete indexed result assembly, without
 importing its code or asserting its kernel/model guarantees for Lean/Lake, the filesystem,

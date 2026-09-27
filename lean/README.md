@@ -48,4 +48,4 @@ For runnable consumers with their own configurations, use the
 [standalone examples](../examples/README.md). For commands and review instructions,
 use the [contributor guide](../docs/guides/contributing.md).
 
-The [linter product architecture](../docs/guides/linter-architecture.md) fixes the registry, diagnostic, editor and site modules. The [coverage map](../docs/guides/rule-coverage.md) distinguishes the implemented detectors from semantic review, and the [product qualification](../docs/guides/product-qualification.md) records their evidence.
+The [linter product architecture](../docs/guides/linter-architecture.md) fixes the registry, diagnostic, editor and site modules. The [coverage map](../docs/guides/rule-coverage.md) distinguishes the implemented detectors from semantic review.
