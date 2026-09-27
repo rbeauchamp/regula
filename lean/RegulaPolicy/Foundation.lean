@@ -14,23 +14,51 @@ open Lean (Name)
 
 /-- Semantic failures are mapped to the one diagnostic registry by the adapter. -/
 inductive DeclarationFailure where
-  | projectAxiom | proofHole | unknownAxiom | escapeHatch | compilerTrusting
-  | executableContract | profileExceeded | invalidInventory
+  /-- The declaration is a logical `axiom` that is not an admitted generated `native_decide`
+  axiom. -/
+  | projectAxiom
+  /-- The declaration's transitive axioms include `sorryAx`. -/
+  | proofHole
+  /-- A transitive axiom is neither Standard-Logical nor compiler-trusting. -/
+  | unknownAxiom
+  /-- The declaration is `unsafe` or `partial` and is not an admitted generated
+  `_unsafe_rec` helper. -/
+  | escapeHatch
+  /-- Outside the teaching request, the declaration depends on a compiler-trusting axiom or is
+  an admitted `native_decide` axiom. -/
+  | compilerTrusting
+  /-- An executable-contract observation of the declaration records a failure. -/
+  | executableContract
+  /-- A transitive axiom lies outside the requested conforming profile. -/
+  | profileExceeded
+  /-- The declaration is not a member of the admitted inventory. -/
+  | invalidInventory
   deriving Repr, DecidableEq
 
 /-- Inspection and teaching cannot serve as a positive conformance profile. -/
 inductive InspectionRequest where
-  | classification | teaching | conforming (profile : ConformingProfile)
+  /-- No claimed profile: the declaration rules apply without a profile bound. -/
+  | classification
+  /-- The compiler-trusting claim: compiler-trusting axioms are accepted; the other
+  declaration rules still apply. -/
+  | teaching
+  /-- A conforming claim: every transitive axiom must be permitted by `profile`. -/
+  | conforming (profile : ConformingProfile)
   deriving Repr, DecidableEq
 
+/-- Whether `profile` permits axiom `n`: no axiom for Kernel-only, `propext` and `Quot.sound`
+for Choice-Free, and additionally `Classical.choice` for Standard-Logical (`permits_iff`). -/
 def ConformingProfile.permits : ConformingProfile → Name → Bool
   | .kernelOnly, _ => false
   | .choiceFree, n => n == `propext || n == `Quot.sound
   | .standardLogical, n => n == `propext || n == `Quot.sound || n == `Classical.choice
 
+/-- `name` is `propext`, `Quot.sound` or `Classical.choice`. -/
 def standardLogicalAxiom (name : Name) : Bool :=
   ConformingProfile.permits .standardLogical name
 
+/-- `name` is one of Lean's compiler-trust axioms: `Lean.trustCompiler`, `Lean.ofReduceBool` or
+`Lean.ofReduceNat`. -/
 def builtinCompilerAxiom (name : Name) : Bool :=
   name == `Lean.trustCompiler || name == `Lean.ofReduceBool
     || name == `Lean.ofReduceNat

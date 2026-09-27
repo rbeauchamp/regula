@@ -15,6 +15,7 @@ namespace Regula
 
 /-- Lean's persistent tag attribute retains selection across normal module imports. -/
 initialize materialClaimAttribute : Lean.TagAttribute ←
-  Lean.registerTagAttribute `regula_material "Marks a declaration as evidence for a material normative claim."
+  Lean.registerTagAttribute `regula_material
+      "Marks a declaration as evidence for a material normative claim."
 
 end Regula

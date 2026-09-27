@@ -15,10 +15,13 @@ Canonical diagnostic values and source conversion. Payloads are indexed by the c
 namespace Regula
 open Lean
 
+/-- The LSP range (line and UTF-16 character) of the whole reported item. -/
 def SourceLocation.fullLsp (s : SourceLocation) : Lsp.Range :=
   s.val.snapshot.source.toFileMap.utf8RangeToLspRange
     ⟨⟨s.val.full.start⟩, ⟨s.val.full.stop⟩⟩
 
+/-- The LSP range (line and UTF-16 character) of the selected part, such as a declaration
+name. -/
 def SourceLocation.selectionLsp (s : SourceLocation) : Lsp.Range :=
   s.val.snapshot.source.toFileMap.utf8RangeToLspRange
     ⟨⟨s.val.selection.start⟩, ⟨s.val.selection.stop⟩⟩
@@ -33,49 +36,79 @@ def sourceFromReport (snapshot : SourceSnapshot) (ranges : RegulaPolicy.Ranges) 
 
 /-- Range-less generated declarations retain honest module attribution. -/
 inductive Location where
+  /-- A range of an admitted source snapshot. -/
   | source (value : SourceLocation)
+  /-- A whole module, for a finding with no source range. -/
   | module (name : Name)
+  /-- The project or its configuration, identified by text such as its root path. -/
   | project (identity : String)
 
+/-- Whether a finding shows the rule violated or leaves the check incomplete. -/
 inductive Impact where
-  | violation | incomplete
+  /-- The checked source or configuration violates the rule. -/
+  | violation
+  /-- Evidence the rule needs is missing or could not be obtained, so the check did not
+  complete. -/
+  | incomplete
   deriving Repr, BEq, DecidableEq
 
+/-- The payload of a declaration-scoped rule's finding. -/
 structure DeclarationArguments where
+  /-- The declaration the finding concerns. -/
   declaration : Name
+  /-- What is wrong with it. -/
   detail : String
   deriving Repr
+/-- The payload of an execution rule's finding. -/
 structure ExecutionArguments where
+  /-- The execution root whose closure reaches the unresolved path or boundary. -/
   root : Name
+  /-- What was reached and why it fails. -/
   detail : String
   deriving Repr
+/-- The payload of a project-, configuration-, module- or documentation-scoped finding. -/
 structure ContextArguments where
+  /-- What the finding concerns, as text: a project root, a file, a module or a fence origin. -/
   subject : String
+  /-- What is wrong with it. -/
   detail : String
   deriving Repr
 
 /-- Distinct argument domains prevent constructing a declaration rule with a project payload. -/
 def Payload : RuleId → Type
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .materialDocumentation | .materialIntent => DeclarationArguments
+  | .escapeHatch | .executableContract | .materialDocumentation | .materialIntent =>
+                                                                   DeclarationArguments
   | .executionUnresolved | .executionBoundary => ExecutionArguments
   | .environment | .configuration | .sourceBuild | .coverage | .admission | .communityConfiguration
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
   | .moduleDocumentation => ContextArguments
 
+/-- Another location a diagnostic refers to, with how it relates to the finding. -/
 structure RelatedLocation where
+  /-- How the location relates to the finding, as text. -/
   relation : String
+  /-- The related location. -/
   location : Location
 
 /-- Display severity is separate from the mandatory strict impact. -/
 structure Diagnostic (id : RuleId) where
+  /-- The finding's subject and detail, in the argument domain of rule `id` (`Payload id`). -/
   arguments : Payload id
+  /-- Where the finding is. -/
   location : Location
+  /-- Other locations the finding refers to; empty unless given at construction. -/
   related : Array RelatedLocation := #[]
+  /-- The evidence mode of the run that produced the finding. -/
   mode : EvidenceMode
+  /-- The claim the subject was checked against, such as a foundation profile or execution
+  claim, if any; the message reads `classification-only` without one. -/
   claim : Option String
+  /-- Whether the finding is a violation or leaves the run incomplete. -/
   impact : Impact
+  /-- The display severity; `error` unless given. -/
   severity : Severity := .error
+  /-- `mode` is one of the evidence modes the rule's registry descriptor supports. -/
   supportedMode : mode ∈ (descriptor id).evidenceModes
 
 /-- Mode admission happens at the construction boundary, not only when displaying a result. -/
@@ -87,6 +120,7 @@ def makeDiagnostic (id : RuleId) (arguments : Payload id) (location : Location)
     .ok { arguments, location, mode, claim, impact, severity, related, supportedMode := h }
   else .error s!"unsupported diagnostic mode {mode.spelling} for {id}"
 
+/-- A diagnostic together with the rule it belongs to. -/
 abbrev Finding := (id : RuleId) × Diagnostic id
 
 /-- The subject and detail of a payload, rendered by `messageLine`. -/
@@ -121,7 +155,8 @@ def Location.place : Location → Feedback.Place
 def Diagnostic.message {id : RuleId} (d : Diagnostic id) : String :=
   let impact := if d.impact == .violation then "violation" else "incomplete"
   let (subject, detail) := argumentParts id d.arguments
-  messageLine id impact d.mode.spelling (d.claim.getD "classification-only") d.location.text subject detail
+  messageLine id impact d.mode.spelling (d.claim.getD "classification-only") d.location.text
+      subject detail
 
 /-- A finding's complete text on its own (`Feedback.standalone`): what and where, the rule's
 remedy, and the rule page and offline `lake exe regula explain` command. -/

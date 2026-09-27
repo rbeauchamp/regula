@@ -11,9 +11,45 @@ namespace RegulaVerification
 
 /-- Closed vocabulary of supported verification invocations. -/
 inductive Mode where
-  | ordinary | docs | graph | diagnostics | fixtures | structural | cli | environments | buildPolicy | lintDriver | producers | history
-  | selfLint | selfAudit
-  | ruleExamples | ruleExamplesFirst | ruleExamplesSecond | site
+  /-- No argument: the first acceptance step, which builds the acceptance executables, runs the
+  registry checks and combined qualification, and audits the claimed surfaces. -/
+  | ordinary
+  /-- `docs`: the second acceptance step, the documentation audit and the Verso standard's
+  build and render, refused unless its inputs have the content identity the first step
+  recorded. -/
+  | docs
+  /-- `serialized-graph`: the separate serialized-graph check (`freshChecker`). -/
+  | graph
+  /-- `diagnostics`: the checker self-test diagnostic, not acceptance. -/
+  | diagnostics
+  /-- `diagnostics fixtures`: the self-test's fixtures partition. -/
+  | fixtures
+  /-- `diagnostics structural`: the self-test's structural partition. -/
+  | structural
+  /-- `diagnostics cli`: the self-test's command-line partition. -/
+  | cli
+  /-- `diagnostics environments`: the self-test's environments partition. -/
+  | environments
+  /-- `diagnostics build-policy`: the self-test's build-policy partition. -/
+  | buildPolicy
+  /-- `diagnostics lint-driver`: the self-test's `lake lint` driver partition. -/
+  | lintDriver
+  /-- `diagnostics producers`: the producers qualification campaign. -/
+  | producers
+  /-- `diagnostics history`: the history qualification campaign. -/
+  | history
+  /-- `diagnostics self-lint`: this repository's own `lake lint`. -/
+  | selfLint
+  /-- `diagnostics self-audit`: the operational self-audit of the excluded `Regula` library. -/
+  | selfAudit
+  /-- `diagnostics rule-examples`: the whole rule-example corpus in one run. -/
+  | ruleExamples
+  /-- `diagnostics rule-examples 1/2`: the first of the corpus's two shards. -/
+  | ruleExamplesFirst
+  /-- `diagnostics rule-examples 2/2`: the second of the corpus's two shards. -/
+  | ruleExamplesSecond
+  /-- `site`: build and check the rule-reference site artifact from the shards' evidence. -/
+  | site
   deriving DecidableEq
 
 /-- Exactly the documented arguments for each mode, with no ignored trailing arguments. -/
@@ -39,7 +75,8 @@ def arguments : Mode → List String
 
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
-  .cli, .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfAudit, .ruleExamples, .ruleExamplesFirst,
+  .cli, .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfAudit,
+      .ruleExamples, .ruleExamplesFirst,
   .ruleExamplesSecond, .site]
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
@@ -69,7 +106,9 @@ theorem select_exact (args : List String) : (select args).map Subtype.val = pars
 
 /-- One argv invocation; there is no shell source in the recipe. -/
 structure Command where
+  /-- The program to run, found on `PATH`. -/
   program : String
+  /-- Its arguments, passed as they are. -/
   args : Array String
 
 private def lake (args : Array String) : Command := ⟨"lake", args⟩
@@ -101,12 +140,15 @@ private def ruleExampleShard (index : Nat) : List Command := [
 Qualification's private flag retains the already timed process group. -/
 def commands : Mode → List Command
   | .ordinary => [
-      lake #["build", "RegulaPolicy", "RegulaCore", "RegulaQualification", "axiomGate", "docFenceAudit", "qualify",
+      lake
+          #["build", "RegulaPolicy", "RegulaCore", "RegulaQualification", "axiomGate",
+              "docFenceAudit", "qualify",
         "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
         "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
         "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
         "+Regula.Cli.Main:olean",
-        -- Type-check, never run, the opt-in network intent screen (docs/guides/intent-screening.md).
+        -- Type-check, never run, the opt-in network intent screen
+        -- (docs/guides/intent-screening.md).
         "+Regula.Screen.Main:olean"],
       lake #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
       lake #["exe", "qualify", "--under-deadline", "combined"],
@@ -130,12 +172,16 @@ def commands : Mode → List Command
       lake #["exe", "qualify", "--under-deadline", "self-audit"]]
   | .ruleExamples => [
       lake #["build", "axiomGate", "ruleExamples", "ruleExampleQualification", "qualify"],
-      lake #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence", "tmp/rule-examples.json"]]
+      lake
+          #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence",
+              "tmp/rule-examples.json"]]
   | .ruleExamplesFirst => ruleExampleShard 1
   | .ruleExamplesSecond => ruleExampleShard 2
   | .site => [
       lake #["build", "axiomGate", "ruleExampleQualification", "site"],
-      lake (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++ #[shardEvidence 1, shardEvidence 2])]
+      lake
+          (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++
+              #[shardEvidence 1, shardEvidence 2])]
   | mode => [lake (#["exe", "checkerSelftest", "--build-bound", "--partition"] ++
       ((arguments mode).drop 1).toArray ++ #["--jobs", "4"])]
 
@@ -153,15 +199,20 @@ def execute (command : Command) : IO Unit := do
   if exit != 0 then throw <| IO.userError s!"{command.program} {command.args} failed ({exit})"
 
 private def usage : String :=
-  "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics [fixtures|structural|cli|environments|build-policy|lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
+  "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics \
+    [fixtures|structural|cli|environments|build-policy|lint-driver|producers|history|self-lint|self\
+    -audit|rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdict an attempt of `mode` invalidates, with the constant text recording it
 as incomplete. -/
 def invalidated : Mode → Option (String × String)
   | .ordinary => some (linkPath, "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n")
-  | .ruleExamples => some ("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
-  | .ruleExamplesFirst => some (shardEvidence 1, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
-  | .ruleExamplesSecond => some (shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+  | .ruleExamples =>
+      some ("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+  | .ruleExamplesFirst =>
+      some (shardEvidence 1, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+  | .ruleExamplesSecond =>
+      some (shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
   | _ => none
 
 /-- Begin an attempt: invalidate the selected mode's earlier PASS or accepted link, and remove
@@ -180,13 +231,18 @@ def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   for command in [Command.mk "git" #["diff", "--check"],
       Command.mk "git" #["diff", "--cached", "--check"],
-      Command.mk "shellcheck" #["scripts/verify.sh", "scripts/provision.sh"]] ++ commands selection.val do
+      Command.mk "shellcheck" #["scripts/verify.sh", "scripts/provision.sh"]] ++
+          commands selection.val do
     execute command
   IO.println (match selection.val with
-    | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; semantic review is separate; run `scripts/verify.sh docs` for documentation)"
-    | .docs => "documentation verification: PASS (every docs/ Lean fence and every lean block of the Verso standard, which built fresh and rendered; inputs equal the accepted ordinary inputs)"
+    | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
+      semantic review is separate; run `scripts/verify.sh docs` for documentation)"
+    | .docs => "documentation verification: PASS (every docs/ Lean fence and every lean block of \
+      the Verso standard, which built fresh and rendered; inputs equal the accepted ordinary \
+      inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
-    | .site => "site build and check: PASS (rule-reference artifact in _site; separate from acceptance; publication is verified after deployment)"
+    | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
+      acceptance; publication is verified after deployment)"
     | _ => "diagnostic qualification: PASS (selected scope only; not ordinary verification)")
 
 end RegulaVerification

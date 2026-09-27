@@ -11,28 +11,57 @@ are recomputed over the supplied observations. -/
 namespace RegulaPolicy
 open Lean (Name)
 
+/-- How a worker job terminated, as its observation reports it. Only `completed` satisfies
+`CompleteFor`; every other value leaves the plan incomplete. -/
 inductive Completion where
-  | completed | incomplete | cancelled | crashed | unsupported
+  /-- The job ran to its end and reported its evidence. -/
+  | completed
+  /-- The job ended without complete evidence. -/
+  | incomplete
+  /-- The job was cancelled before it finished. -/
+  | cancelled
+  /-- The job's worker crashed. -/
+  | crashed
+  /-- The checker does not support the job's check. -/
+  | unsupported
   deriving Repr, DecidableEq
 
+/-- The observed result of the Lake build of the claimed surface. -/
 structure BuildObservation where
+  /-- The build process's exit code. -/
   exitCode : Nat
+  /-- The warning lines of the build output. -/
   warnings : Array String
+  /-- The error lines of the build output. -/
   errors : Array String
   deriving Repr, DecidableEq
 
+/-- The observed kernel admission (replay) of one environment's owned declarations. -/
 structure AdmissionObservation where
+  /-- The modules whose declarations were replayed. -/
   modules : Array ModuleKey
+  /-- The declarations the replay had to admit: every owned one that is neither `unsafe` nor
+  `partial`. -/
   required : Array DeclarationKey
+  /-- The required declarations found in the replayed kernel environment, in order. -/
   admitted : Array DeclarationKey
+  /-- The admission failures reported; empty when the replay succeeded. -/
   failures : Array String
   deriving Repr, DecidableEq
 
+/-- The observed elaboration history of one module, which records its runtime-replacement
+edges. -/
 structure HistoryObservation where
+  /-- The module whose history was observed. -/
   moduleName : Name
+  /-- The module source the history worker elaborated. -/
   before : SourceSnapshot
+  /-- The module source as read after elaboration; `HistoryOK` requires it to equal `before`. -/
   after : SourceSnapshot
+  /-- Each observed replacement edge: a declaration and the declaration that replaces it at
+  run time. -/
   replacements : Array (Name × Name)
+  /-- The evaluators the history worker could not follow; `HistoryOK` requires none. -/
   unsupported : Array String
   deriving Repr, DecidableEq
 
@@ -40,64 +69,110 @@ structure HistoryObservation where
 Policy-negative diagnostics come from the real checker/sole-registry adapter, not invented
 compiler errors. The pure matcher does not authenticate that operational production. -/
 inductive ExampleOutcome where
+  /-- The example elaborated: the inspected declaration inventory, the declaration edges its
+  kernel replay required and admitted, and the replay's admission failures. -/
   | elaborated (inventory : Inventory) (requiredReplay admittedReplay : Array (Name × Name))
       (admissionFailures : Array String)
+  /-- The compiler rejected the example with these error lines. -/
   | compilerRejection (effectiveErrors : Array String)
+  /-- The checker rejected the example with these diagnostics. -/
   | policyRejection (diagnostics : List ExpectedDiagnostic)
+  /-- The producer did not finish; `detail` says why. No expectation accepts it
+  (`incomplete_example_refused`). -/
   | incomplete (detail : String)
 
 /-- Explicit temporary-unit mapping permits grouped inspection without conflating its
 source units. Each unit retains the original fence identity and exact compiler source. -/
 structure ExampleUnit where
+  /-- The temporary module the unit was compiled as. -/
   moduleName : Name
+  /-- The documentation fence the unit's source comes from. -/
   fence : FenceKey
+  /-- The unit's compiled source file path and text. -/
   source : SourceSnapshot
   deriving Repr, DecidableEq
 
+/-- The observed production of one documentation example fence. -/
 structure ExampleObservation where
+  /-- The fence this observation is for. -/
   fence : FenceKey
+  /-- The temporary module the fence was compiled as. -/
   unitName : Name
+  /-- Every unit of the compilation group the fence was inspected with. -/
   units : Array ExampleUnit
+  /-- The source text given to the compiler. -/
   before : String
+  /-- The source file's text read back after compilation. -/
   after : String
+  /-- The warning lines of the compiler output. -/
   warnings : Array String
+  /-- The `(module, name)` of every declaration of the inspected group; empty for a compiler
+  rejection. -/
   declarationCensus : Array (Name × Name)
+  /-- How the example's production ended. -/
   outcome : ExampleOutcome
 
 /-- Complete scan of the exact document domain, including no-fence files. -/
 structure DocumentObservation where
+  /-- The documents scanned, with their exact text. -/
   documents : Array SourceSnapshot
+  /-- The fences found in `documents`. -/
   fences : Array FenceKey
+  /-- The fence-structure failures the scan reported. -/
   structuralFailures : Array String
 
+/-- The observed serialized-graph check of the claimed modules. -/
 structure GraphObservation where
+  /-- The root modules selected for checking. -/
   selected : Array ModuleKey
+  /-- The root modules the graph checker actually checked. -/
   checked : Array ModuleKey
+  /-- The modules covered by the checked roots' import closures. -/
   covered : Array ModuleKey
+  /-- The failures the graph checker reported. -/
   failures : Array String
+  /-- Whether the check was only planned, not run; `GraphOK` requires `false`. -/
   plannedOnly : Bool
 
 /-- Evidence constructors constrain stage meaning. A mismatched constructor/subject cannot
 satisfy StageOK. Completion alone never substitutes for the applicable field relations. -/
 inductive JobEvidence where
+  /-- The manifest's classification of each target, and the targets Lake discovered. -/
   | configuration (assignments : Array TargetAssignment) (targets : Array DiscoveredTarget)
+  /-- The census the discovery job observed. -/
   | discovery (observation : Census)
+  /-- The observed build of the claimed surface. -/
   | build (observation : BuildObservation)
+  /-- The observed kernel admission of one environment. -/
   | admission (observation : AdmissionObservation)
+  /-- The observed record of one declaration. -/
   | declaration (observation : Declaration)
+  /-- The observed execution closure of one executable root. -/
   | execution (observation : ExecutionRoot)
+  /-- The observed frontend transcript of one module. -/
   | transcript (observation : Frontend.Transcript)
+  /-- The observed elaboration history of one module. -/
   | history (observation : HistoryObservation)
+  /-- The observed origin of one module's native runtime code (`NativeOrigin`). -/
   | origin (observation : NativeOrigin)
+  /-- The docstring found for a module or declaration, or `none` when it has none. -/
   | documentationPresence (docstring : Option String)
+  /-- The observed scan of the documentation files. -/
   | documentScan (observation : DocumentObservation)
+  /-- The observed production of one documentation example. -/
   | example (observation : ExampleObservation)
+  /-- The observed serialized-graph check. -/
   | graph (observation : GraphObservation)
 
+/-- One worker's reported result for one planned job. -/
 structure JobObservation where
+  /-- The planned job this observation answers. -/
   key : JobKey
+  /-- The source snapshot the worker observed; `ResultBound` requires the claim's. -/
   snapshot : Snapshot
+  /-- How the job terminated. -/
   completion : Completion
+  /-- The job's evidence payload; `StageOK` checks that its constructor fits the job. -/
   evidence : JobEvidence
 
 /-- Snapshot and target observations match the independently fixed configuration account. -/
@@ -113,7 +188,8 @@ instance (o : BuildObservation) : Decidable (BuildOK o) := by unfold BuildOK; in
 
 /-- Every frozen replay key is admitted exactly once, with no skipped/failed observations. -/
 def AdmissionOK (i : EnvironmentCensus) (o : AdmissionObservation) : Prop :=
-  o.modules = i.admissionModules ∧ o.required = i.admissionDeclarations ∧ o.admitted.toList.Pairwise (· ≠ ·) ∧
+  o.modules = i.admissionModules ∧ o.required = i.admissionDeclarations ∧
+      o.admitted.toList.Pairwise (· ≠ ·) ∧
   (∀ d ∈ o.required, d ∈ o.admitted) ∧ (∀ d ∈ o.admitted, d ∈ o.required) ∧ o.failures = #[]
 instance (i : EnvironmentCensus) (o : AdmissionObservation) : Decidable (AdmissionOK i o) := by
   unfold AdmissionOK
@@ -129,7 +205,8 @@ instance (i : EnvironmentCensus) (o : AdmissionObservation) : Decidable (Admissi
 
 /-- The indexed implementation decides the same proposition as the prior finite scan. -/
 theorem admissionOK_decide_eq_previous (i : EnvironmentCensus) (o : AdmissionObservation) :
-    decide (AdmissionOK i o) = @decide (AdmissionOK i o) (by unfold AdmissionOK; infer_instance) := by
+    decide (AdmissionOK i o) = @decide (AdmissionOK i o)
+        (by unfold AdmissionOK; infer_instance) := by
   congr
 
 /-- Source coordinates are checked against exact bytes; module/project locations remain
@@ -191,7 +268,8 @@ instance (fs : Array FenceKey) (f : FenceKey) (o : ExampleObservation) (i : Inve
 /-- Example expectation meaning: positive/teaching inspect actual pure policies; compiler
 negatives match one effective error; policy negatives require exact completed rejection
 observations. Negative/teaching results never supply conforming positive program evidence. -/
-def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey) (o : ExampleObservation) : Prop :=
+def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
+    (o : ExampleObservation) : Prop :=
   o.fence = f ∧ o.before = String.Pos.Raw.extract f.document.source ⟨f.body.start⟩ ⟨f.body.stop⟩ ∧
   o.after = o.before ∧
   match f.expectation, o.outcome with
@@ -199,7 +277,8 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey) (o
       let roles := authorize i
       o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
-      ∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d (.conforming .standardLogical) roles.native roles.helpers
+      ∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d
+          (.conforming .standardLogical) roles.native roles.helpers
   | .compilerRejection pattern _, .compilerRejection errors =>
       ∃ message ∈ errors, PatternMatch pattern message
   | .policyRejection expected _, .policyRejection actual =>
@@ -209,7 +288,8 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey) (o
       let roles := authorize i
       o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
-      (∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d .teaching roles.native roles.helpers) ∧
+      (∀ d ∈ i.declarations, d.module = o.unitName →
+          DeclarationOK d .teaching roles.native roles.helpers) ∧
       ∃ d ∈ i.declarations, d.module = o.unitName ∧ ∃ n ∈ d.axioms, CompilerAxiom roles.native n
   | _, _ => False
 
@@ -238,7 +318,8 @@ def OriginOK (i : EnvironmentCensus) (m : ModuleKey) (origin : NativeOrigin) : P
   origin.moduleName = m.name.name ∧
   ∀ r ∈ i.execution.roots, ∀ b ∈ r.boundaries,
     b.module = m.name.name → b.boundary = .nativeRuntime → b.account.nativeOrigin? = some origin
-instance (i : EnvironmentCensus) (m : ModuleKey) (o : NativeOrigin) : Decidable (OriginOK i m o) := by
+instance (i : EnvironmentCensus) (m : ModuleKey) (o : NativeOrigin) : Decidable
+    (OriginOK i m o) := by
   unfold OriginOK; infer_instance
 
 /-- History is bound to unchanged exact source, with no recorded unsupported evaluator,
@@ -251,7 +332,8 @@ def HistoryOK (c : Claim) (i : EnvironmentCensus) (m : ModuleKey) (o : HistoryOb
     b.module = m.name.name → b.boundary = .runtimeReplacement →
       ∃ target ∈ b.replacement, (b.name, target) ∈ o.replacements
 set_option synthInstance.maxSize 1024 in
-instance (c : Claim) (i : EnvironmentCensus) (m : ModuleKey) (o : HistoryObservation) : Decidable (HistoryOK c i m o) := by
+instance (c : Claim) (i : EnvironmentCensus) (m : ModuleKey) (o : HistoryObservation) : Decidable
+    (HistoryOK c i m o) := by
   unfold HistoryOK; infer_instance
 
 /-- Every selected graph root was checked and the resulting closure covers all claimed
@@ -263,7 +345,8 @@ def GraphOK (i : Census) (o : GraphObservation) : Prop :=
   (∀ m ∈ o.selected, m ∈ o.checked ∧ m ∈ i.modules) ∧
   (∀ m ∈ o.checked, m ∈ o.selected) ∧ (∀ m ∈ i.modules, m ∈ o.covered) ∧
   ∀ m ∈ o.covered, m ∈ i.allModules
-instance (i : Census) (o : GraphObservation) : Decidable (GraphOK i o) := by unfold GraphOK; infer_instance
+instance (i : Census) (o : GraphObservation) : Decidable (GraphOK i o) := by
+    unfold GraphOK; infer_instance
 
 set_option synthInstance.maxSize 1024 in
 instance (c : Claim) (fences : Array FenceKey) (f : FenceKey) (o : ExampleObservation) :
@@ -287,11 +370,13 @@ def LocalStageOK (c : Claim) (i : EnvironmentCensus) (roles : Roles i.policy)
           r.unresolved = #[] ∧ ∀ b ∈ r.boundaries, BoundaryOK request b
     | .transcript, .module m, .transcript t =>
         t ∈ i.policy.transcripts ∧ t.module = m.name.name ∧
-        ∃ entry ∈ i.moduleSources, entry.1 = m ∧ entry.2.uri = t.source ∧ entry.2.source = t.sourceContent
+        ∃ entry ∈ i.moduleSources, entry.1 = m ∧ entry.2.uri = t.source ∧ entry.2.source =
+            t.sourceContent
     | .history, .module m, .history observed => HistoryOK c i m observed
     | .origin, .module m, .origin observed => OriginOK i m observed
     | .documentationPresence, .module _, .documentationPresence doc => DocumentationPresenceOK doc
-    | .documentationPresence, .declaration _, .documentationPresence doc => MaterialDocumentationOK doc
+    | .documentationPresence, .declaration _, .documentationPresence doc =>
+        MaterialDocumentationOK doc
     | _, _, _ => False
 
 set_option synthInstance.maxSize 2048 in
@@ -356,6 +441,10 @@ is required only for the retained declaration or module. -/
 inductive LocalEvidenceTransfer (c : Claim) (localInventory flattened : EnvironmentCensus)
     (localRoles : Roles localInventory.policy) (flattenedRoles : Roles flattened.policy) :
     Stage → LocalJobSubject → JobEvidence → JobEvidence → Prop where
+  /-- An admission record restricted to the local environment: its modules and required
+  declarations are the local ones, each of which the combined environment also requires; its
+  admitted keys are a subsequence of the former ones with exactly the former keys it requires;
+  and its failures are unchanged. -/
   | admission (before after : AdmissionObservation)
       (modules : after.modules = localInventory.admissionModules)
       (required : after.required = localInventory.admissionDeclarations)
@@ -365,45 +454,61 @@ inductive LocalEvidenceTransfer (c : Claim) (localInventory flattened : Environm
       (failures : after.failures = before.failures) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .admission .scope (.admission before) (.admission after)
+  /-- The same declaration record, retained locally, with the same native-role status for each
+  of its axioms, and a helper under the local roles whenever it is one under the combined roles. -/
   | declaration (key : DeclarationKey) (d : Declaration)
       (retained : d ∈ localInventory.policy.declarations)
       (native : ∀ n ∈ d.axioms, n ∈ localRoles.native ↔ n ∈ flattenedRoles.native)
       (helpers : d.name ∈ flattenedRoles.helpers → d.name ∈ localRoles.helpers) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .declarationPolicy (.declaration key) (.declaration d) (.declaration d)
+  /-- The same execution root, retained locally, whose local execution requests are all
+  requests of the combined environment. -/
   | execution (key : RootKey) (r : ExecutionRoot)
       (retained : r ∈ localInventory.execution.roots)
       (requests : ∀ request ∈ rootRequests c localInventory r.name,
         request ∈ rootRequests c flattened r.name) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .execution (.root key) (.execution r) (.execution r)
+  /-- The same transcript, retained locally, with every combined source entry of the module
+  also a local one. -/
   | transcript (key : ModuleKey) (t : Frontend.Transcript)
       (retained : t ∈ localInventory.policy.transcripts)
-      (sources : ∀ entry ∈ flattened.moduleSources, entry.1 = key → entry ∈ localInventory.moduleSources) :
+      (sources : ∀ entry ∈ flattened.moduleSources, entry.1 = key →
+          entry ∈ localInventory.moduleSources) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .transcript (.module key) (.transcript t) (.transcript t)
+  /-- The same history observation, where every local execution root is a combined one and
+  every combined source entry of the module is a local one. -/
   | history (key : ModuleKey) (o : HistoryObservation)
       (roots : ∀ root ∈ localInventory.execution.roots, root ∈ flattened.execution.roots)
-      (sources : ∀ entry ∈ flattened.allModuleSources, entry.1 = key → entry ∈ localInventory.allModuleSources) :
+      (sources : ∀ entry ∈ flattened.allModuleSources, entry.1 = key →
+          entry ∈ localInventory.allModuleSources) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .history (.module key) (.history o) (.history o)
+  /-- The same native-origin observation, where every local execution root is a combined one. -/
   | origin (key : ModuleKey) (o : NativeOrigin)
       (roots : ∀ root ∈ localInventory.execution.roots, root ∈ flattened.execution.roots) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .origin (.module key) (.origin o) (.origin o)
+  /-- The same module docstring observation, unconditionally. -/
   | moduleDocumentation (key : ModuleKey) (doc : Option String) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
-        .documentationPresence (.module key) (.documentationPresence doc) (.documentationPresence doc)
+        .documentationPresence (.module key) (.documentationPresence doc)
+            (.documentationPresence doc)
+  /-- The same declaration docstring observation, unconditionally. -/
   | declarationDocumentation (key : DeclarationKey) (doc : Option String) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
-        .documentationPresence (.declaration key) (.documentationPresence doc) (.documentationPresence doc)
+        .documentationPresence (.declaration key) (.documentationPresence doc)
+            (.documentationPresence doc)
 
 /-- All local stages preserve the former obligations under the stated raw-data
 correspondence. No hypothesis assumes the new LocalStageOK or PolicyOK judgment. -/
 theorem LocalEvidenceTransfer.sound {c : Claim} {localInventory flattened : EnvironmentCensus}
     {localRoles : Roles localInventory.policy} {flattenedRoles : Roles flattened.policy}
     {stage : Stage} {subject : LocalJobSubject} {before after : JobEvidence}
-    (transfer : LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles stage subject before after)
+    (transfer : LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles stage
+        subject before after)
     (accepted : LocalStageOK c flattened flattenedRoles stage subject before) :
     LocalStageOK c localInventory localRoles stage subject after := by
   cases transfer with
@@ -439,7 +544,8 @@ theorem LocalEvidenceTransfer.sound {c : Claim} {localInventory flattened : Envi
 /-- The identity correspondence covers every supported local stage. In particular a
 singleton run needs no additional role/source restriction hypothesis. -/
 theorem LocalEvidenceTransfer.refl {c : Claim} {inventory : EnvironmentCensus}
-    {roles : Roles inventory.policy} {stage : Stage} {subject : LocalJobSubject} {evidence : JobEvidence}
+    {roles : Roles inventory.policy} {stage : Stage} {subject : LocalJobSubject}
+    {evidence : JobEvidence}
     (accepted : LocalStageOK c inventory roles stage subject evidence) :
     LocalEvidenceTransfer c inventory inventory roles roles stage subject evidence evidence := by
   dsimp only [LocalStageOK] at accepted
@@ -496,9 +602,12 @@ theorem environmentStageOK_at (c : Claim) (i : Census) (roles : CensusRoles i)
   rw [dite_eq_left bound]
   have slots : (⟨i.environments[slot].request.key.index, bound⟩ : Fin i.environments.size) = slot :=
     Fin.ext index
-  change (i.environments[(⟨i.environments[slot].request.key.index, bound⟩ : Fin i.environments.size)].request.key =
+  change
+      (i.environments[(⟨i.environments[slot].request.key.index, bound⟩ :
+          Fin i.environments.size)].request.key =
     i.environments[slot].request.key ∧
-    LocalStageOK c i.environments[(⟨i.environments[slot].request.key.index, bound⟩ : Fin i.environments.size)]
+    LocalStageOK c
+        i.environments[(⟨i.environments[slot].request.key.index, bound⟩ : Fin i.environments.size)]
       (roles ⟨i.environments[slot].request.key.index, bound⟩) stage subject e) ↔ _
   have transport (a b : Fin i.environments.size) (same : a = b) :
       (i.environments[a].request.key = i.environments[b].request.key ∧
@@ -514,7 +623,8 @@ theorem environmentStageOK_wrong_key (c : Claim) (i : Census) (roles : CensusRol
       slot.val = key.index → i.environments[slot].request.key ≠ key) :
     ¬ EnvironmentStageOK c i roles key stage subject e := by
   intro h
-  obtain ⟨slot, position, identity, _⟩ := environmentStageOK_resolves c i roles key stage subject e h
+  obtain ⟨slot, position, identity, _⟩ := environmentStageOK_resolves c i roles key stage
+      subject e h
   exact mismatch slot position identity
 
 theorem environmentExecution_foreign_root_refused (c : Claim) (i : Census) (roles : CensusRoles i)
@@ -541,9 +651,14 @@ theorem environmentExecution_request_refused (c : Claim) (i : Census) (roles : C
   · obtain ⟨boundary, reached, denied⟩ := boundaryFailure
     exact denied ((policy.2.2.2 request member).2 boundary reached)
 
+/-- The evidence of job `key` meets its stage's obligation: `EnvironmentStageOK` for an
+environment job; for a whole-scope or fence job, its stage's predicate (`ScopeOK`, equality of
+the discovered census with `i`, `BuildOK`, `DocumentOK`, `ExampleExpectationOK` or `GraphOK`).
+Any other combination of stage, subject and evidence constructor is `False`. -/
 def StageOK (c : Claim) (i : Census) (roles : CensusRoles i) (key : JobKey) : JobEvidence → Prop
   | evidence => match key.stage, key.subject, evidence with
-    | stage, .environment environment subject, e => EnvironmentStageOK c i roles environment stage subject e
+    | stage, .environment environment subject, e =>
+        EnvironmentStageOK c i roles environment stage subject e
     | .configuration, .scope, .configuration assignments targets => ScopeOK c i assignments targets
     | .discovery, .scope, .discovery observed => observed = i
     | .build, .scope, .build observed => BuildOK observed
@@ -563,26 +678,37 @@ former census observation with the complete newly admitted census; no success bi
 copied. Configuration, build, document and graph obligations keep their predicates. -/
 inductive GlobalEvidenceTransfer (previous current : Census) :
     Stage → JobSubject → JobEvidence → JobEvidence → Prop where
+  /-- The same configuration evidence, when both censuses have the same configured and
+  discovered targets. -/
   | configuration (assignments : Array TargetAssignment) (targets : Array DiscoveredTarget)
       (configured : current.configuredTargets = previous.configuredTargets)
       (discovered : current.discoveredTargets = previous.discoveredTargets) :
       GlobalEvidenceTransfer previous current .configuration .scope
         (.configuration assignments targets) (.configuration assignments targets)
+  /-- Discovery evidence of the previous census becomes discovery evidence of the current one. -/
   | discovery : GlobalEvidenceTransfer previous current .discovery .scope
       (.discovery previous) (.discovery current)
+  /-- The same build observation, unconditionally. -/
   | build (observation : BuildObservation) : GlobalEvidenceTransfer previous current .build .scope
       (.build observation) (.build observation)
+  /-- The same document scan, when both censuses have the same fences. -/
   | documents (observation : DocumentObservation) (fences : current.fences = previous.fences) :
       GlobalEvidenceTransfer previous current .documentScan .scope
         (.documentScan observation) (.documentScan observation)
-  | example (fence : FenceKey) (observation : ExampleObservation) (fences : current.fences = previous.fences) :
-      GlobalEvidenceTransfer previous current .example (.fence fence) (.example observation) (.example observation)
+  /-- The same example observation for the same fence, when both censuses have the same fences. -/
+  | example (fence : FenceKey) (observation : ExampleObservation)
+      (fences : current.fences = previous.fences) :
+      GlobalEvidenceTransfer previous current .example (.fence fence) (.example observation)
+          (.example observation)
+  /-- The same graph observation, when both censuses have the same graph roots, graph coverage,
+  claimed modules and all modules. -/
   | graph (observation : GraphObservation)
       (roots : current.graphRoots = previous.graphRoots)
       (coverage : current.graphCoverage = previous.graphCoverage)
       (modules : current.modules = previous.modules)
       (allModules : current.allModules = previous.allModules) :
-      GlobalEvidenceTransfer previous current .graph .scope (.graph observation) (.graph observation)
+      GlobalEvidenceTransfer previous current .graph .scope (.graph observation)
+          (.graph observation)
 
 theorem GlobalEvidenceTransfer.sound {c : Claim} {previous current : Census}
     (oldRoles : CensusRoles previous) (newRoles : CensusRoles current)

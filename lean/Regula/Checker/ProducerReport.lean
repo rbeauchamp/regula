@@ -19,6 +19,7 @@ open scoped Regula.Report
 or invalid. Trusted operational checks supply this outcome; raw data construction
 does not authenticate it. Generic worker/import failures retain their own path. -/
 structure AdmissionFailure where
+  /-- What was unavailable or invalid; the decoder refuses an empty detail. -/
   detail : String
   deriving Repr, ToJson
 
@@ -28,6 +29,8 @@ instance : FromJson AdmissionFailure := ⟨fun j => do
   if detail.isEmpty then throw "empty owned-admission failure"
   return ⟨detail⟩⟩
 
+/-- The operational census of one report (`Regula.Report.Census`), with its exact-field JSON
+codec. -/
 abbrev Census := Regula.Report.Census
 deriving instance ToJson for Regula.Report.Census
 
@@ -41,8 +44,13 @@ instance : FromJson Census := ⟨fun j => do
 /-- Replay scope can exceed report scope. Required keys come from the original environment;
 admitted keys are observed in the separately replayed kernel after `Environment.replay`. -/
 structure AdmissionReceipt where
+  /-- The modules whose owned declarations were replayed: the owned modules and the checker
+  reporter modules that import one of them, without duplicates. -/
   modules : Array Name
+  /-- The `(module, declaration)` key of every owned declaration that is neither `unsafe` nor
+  `partial`, taken from the original environment. -/
   required : Array (Name × Name)
+  /-- The required keys found in the kernel environment after replay, in the same order. -/
   admitted : Array (Name × Name)
   deriving Repr, ToJson
 
@@ -74,8 +82,12 @@ instance : FromJson ModuleHeader.Observation := ⟨fun j => do
 is frozen before docstring lookup and retains exact owning modules, including empty modules.
 Each module carries its RG5001 header observation (`RegulaPolicy.ModuleHeader`). -/
 structure DocumentationObservation where
+  /-- Each claimed module with its RG5001 header observation, read from its bound source. -/
   modules : Array (Name × ModuleHeader.Observation)
+  /-- The `(module, declaration)` key of every owned declaration the material selector chose,
+  frozen before any docstring was read. -/
   materialDeclarations : Array (Name × Name)
+  /-- Each material key with the docstring `findDocString?` returned for it, if any. -/
   declarations : Array ((Name × Name) × Option String)
   deriving Repr, ToJson
 
@@ -110,8 +122,11 @@ def HistoryOutcome.edges : HistoryOutcome → Except String (Array (Name × Name
 /-- Exact source observed for one owned module; the caller binds it to the build
 request. Paths identify files, while content equality binds their actual text. -/
 structure SourceBinding where
+  /-- The owned module the source belongs to. -/
   moduleName : Name
+  /-- The path of the source file read. -/
   path : String
+  /-- The exact text read from that file. -/
   content : String
   deriving Repr, DecidableEq, ToJson
 
@@ -125,9 +140,13 @@ instance : FromJson SourceBinding := ⟨fun j => do
 The interactive probe alone has no admission/documentation receipt. Trusted loaders supply
 both; a consumer must validate the account before using its results. -/
 structure Environment extends Regula.Report.Collected where
+  /-- The kernel-replay receipt of the owned declarations, when the loader produced one. -/
   admission : Option AdmissionReceipt := none
+  /-- The documentation observation of the claimed modules, when the loader produced one. -/
   documentation : Option DocumentationObservation := none
+  /-- The replacement-history outcome of each module whose history was requested. -/
   histories : Array (Name × HistoryOutcome) := #[]
+  /-- The exact source observed for each owned module. -/
   sourceBindings : Array SourceBinding := #[]
   deriving Repr
 
@@ -162,6 +181,8 @@ def Environment.sourceEvidenceOK (r : Environment) : Bool :=
     r.declarations.all (fun d => r.sourceBindings.any (fun s => s.moduleName == d.module &&
       d.ranges.all (·.validFor s.content)))
 
+/-- Succeed when `sourceEvidenceOK` holds, and otherwise fail with a `producer-source`
+admission failure. -/
 def Environment.validateSourceEvidence (r : Environment) : Except AdmissionFailure Unit := do
   unless r.sourceEvidenceOK do
     throw ⟨"producer-source: source coverage or coordinates mismatch"⟩
@@ -230,7 +251,8 @@ def Environment.validateHistory (r : Environment) : Name × HistoryOutcome → E
       unless path == source.path && before == source.content do
         throw "producer-source: history differs from owned source snapshot"
   | (mod, .unavailable detail) =>
-    unless !detail.isEmpty && r.census.historyRequests.all (fun (root, requested) => requested != mod ||
+    unless !detail.isEmpty && r.census.historyRequests.all
+        (fun (root, requested) => requested != mod ||
         r.execution.any (fun e => e.name == root && !e.unresolved.isEmpty)) do
       throw "producer-history: unavailable history without unresolved execution"
 
@@ -396,7 +418,8 @@ def Environment.HistoryRequestsSound (r : Environment) : Prop :=
   r.histories.map (·.1) = canonicalNames (r.census.historyRequests.map (·.2))
 
 /-- A completed history is located, source-stable, has named edge endpoints and is bound
-to the owned snapshot when its module has one; an unavailable one is explained and leaves every root requested
+to the owned snapshot when its module has one; an unavailable one is explained and leaves every root
+requested
 from its module with unresolved execution evidence. -/
 def Environment.HistoriesSound (r : Environment) : Prop :=
   (∀ mod path before after edges, (mod, .completed path before after edges) ∈ r.histories →
@@ -508,7 +531,8 @@ private theorem mem_of_foldl_insert {l : List (Name × Name)} {s : Std.HashSet (
 
 /-- The executed hash-set membership test decides membership in the required keys. -/
 private theorem mem_of_requiredSet_contains {required : Array (Name × Name)} {k : Name × Name}
-    (h : (required.foldl (fun s k => s.insert k) ({} : Std.HashSet (Name × Name))).contains k = true) :
+    (h : (required.foldl (fun s k => s.insert k) ({} : Std.HashSet (Name × Name))).contains
+        k = true) :
     k ∈ required := by
   rw [← Array.foldl_toList] at h
   rcases mem_of_foldl_insert h with h | h
@@ -549,7 +573,8 @@ theorem historyRequestsSound_of (r : Environment) (h : r.historyRequestsOK = tru
   exact ⟨⟨e, he, hn⟩, hm⟩
 
 
-theorem historiesSound_of (r : Environment) (h : ∀ entry ∈ r.histories, r.validateHistory entry = .ok ()) :
+theorem historiesSound_of (r : Environment)
+    (h : ∀ entry ∈ r.histories, r.validateHistory entry = .ok ()) :
     r.HistoriesSound := by
   constructor
   · intro mod path before after edges hmem
@@ -577,7 +602,8 @@ theorem historiesSound_of (r : Environment) (h : ∀ entry ∈ r.histories, r.va
     obtain ⟨e, he, hn, hu⟩ := (h.2 root mod hreq).resolve_left (by simp)
     exact ⟨e, he, hn, hu⟩
 
-theorem validateRoot_eq_ok (r : Environment) (root : ExecutionRoot) (h : r.validateRoot root = .ok ()) :
+theorem validateRoot_eq_ok (r : Environment) (root : ExecutionRoot)
+    (h : r.validateRoot root = .ok ()) :
     (∀ b ∈ root.boundaries, r.validateReplacementBoundary root b = .ok ()) ∧
     r.attributionOK root = true ∧ boundaryChannelsOK root = true ∧
     ∃ expected, root.closure.currentReplacementEdges.foldlM
@@ -709,13 +735,15 @@ reduction: the soundness theorem is not satisfied by an always-refusing validato
 theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
   let r : Environment := {
     toolchain := "", modules := #[`A], moduleOrigins := #[], declarations := #[], execution := #[]
-    census := { modules := #[`A], declarations := #[], executionRoots := none, historyRequests := #[] }
+    census :=
+        { modules := #[`A], declarations := #[], executionRoots := none, historyRequests := #[] }
     admission := some { modules := #[`A], required := #[], admitted := #[] }
     documentation := some {
       modules := #[(`A, ⟨true, true, []⟩)], materialDeclarations := #[], declarations := #[] }
     sourceBindings := #[{ moduleName := `A, path := "A.lean", content := "" }] }
   refine ⟨r, (validate_eq_ok r).mpr ⟨by decide +kernel, by decide +kernel, rfl,
-    ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩, ⟨_, rfl, by decide +kernel⟩,
+    ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩,
+        ⟨_, rfl, by decide +kernel⟩,
     by decide +kernel, by simp [r], by simp [r]⟩⟩
   change (unless r.sourceEvidenceOK do throw _ : Except AdmissionFailure Unit) = .ok ()
   rw [unless_eq_ok]
@@ -765,7 +793,9 @@ theorem fromJson_admissible (j : Json) (r : Environment)
 /-- A report together with the proof that the executed validator admitted it. Holding
 this value replaces re-running `validate` or `admitExecution` on the same report. -/
 structure Admitted where
+  /-- The admitted report. -/
   report : Environment
+  /-- The executed validator accepted this report. -/
   valid : report.validate = .ok ()
 
 /-- Run `checked_validate` once and retain its success as a proof. -/
@@ -813,19 +843,25 @@ theorem fromJson_admitted (j : Json) :
 
 /-- Successful transport completion is distinct from successful logical admission. -/
 inductive Outcome where
+  /-- The producer completed and returned its report. -/
   | reported (report : Environment)
+  /-- The producer completed without a report because required admission or source evidence
+  was unavailable or invalid. -/
   | admissionFailed (failure : AdmissionFailure)
 
+/-- A report as `.reported` and an admission failure as `.admissionFailed`. -/
 def Outcome.ofExcept : Except AdmissionFailure Environment → Outcome
   | .ok report => .reported report
   | .error failure => .admissionFailed failure
 
 instance : ToJson Outcome := ⟨fun
   | .reported report => Json.mkObj [("kind", toJson "reported"), ("report", toJson report)]
-  | .admissionFailed failure => Json.mkObj [("kind", toJson "admissionFailed"), ("failure", toJson failure)]⟩
+  | .admissionFailed failure =>
+      Json.mkObj [("kind", toJson "admissionFailed"), ("failure", toJson failure)]⟩
 
 /-- One outcome grammar for every report decoder `ρ`. -/
-def decodeOutcome (ρ : Type) [FromJson ρ] (j : Json) : Except String (Except AdmissionFailure ρ) := do
+def decodeOutcome (ρ : Type) [FromJson ρ] (j : Json) : Except String
+    (Except AdmissionFailure ρ) := do
   match ← j.getObjValAs? String "kind" with
   | "reported" =>
     exactFields j ["kind", "report"]

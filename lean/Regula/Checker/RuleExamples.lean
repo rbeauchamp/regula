@@ -29,35 +29,44 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
       moduleName := `RuleExample, path := path.toString, content := source }
     stable sources configuration do
       let manifest ← Manifest.load (Manifest.defaultPath repo)
-      if let some lines ← Lake.buildChecked repo (Manifest.positiveTargets manifest) "incrementally" then
+      if let some lines ← Lake.buildChecked repo
+          (Manifest.positiveTargets manifest) "incrementally" then
         throw <| IO.userError ("example dependency build failed: " ++ "\n".intercalate lines.toList)
       withScratch repo "rule-policy-example" fun scratch => do
         let compilation ← IO.ofExcept <| (← SourceAudit.compile repo scratch
           { «module» := "RuleExample", source, rejectWarnings := false }).mapError (·.detail)
         unless SourceAudit.compilationPassed compilation do
-          throw <| IO.userError "policy example did not elaborate; compiler failure is not policy rejection"
+          throw <|
+              IO.userError
+                  "policy example did not elaborate; compiler failure is not policy rejection"
         let inspected ← IO.ofExcept <| (← SourceAudit.inspectOutcome compilation inventory.leanPath
-          inventory.leanSrcPath inventory.moduleSources (some inventory.leanLibDir)).mapError (·.detail)
-        let declarations := inspected.report.declarations.qsort fun a b => Name.quickLt a.name b.name
+          inventory.leanSrcPath inventory.moduleSources (some inventory.leanLibDir)).mapError
+              (·.detail)
+        let declarations := inspected.report.declarations.qsort fun a b =>
+            Name.quickLt a.name b.name
         let scope ← IO.ofExcept <| Policy.admitScope declarations inspected.transcripts
         let mut findings := #[]
         -- The admitted inventory is exactly `declarations` (`ScopeContract`).
         for h : decl in scope.inventory.declarations do
           if let some id := Policy.ruleForMember decl (some .standardLogical) scope h then
-            let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation decl (some ⟨path.toString, source⟩)
-            findings := findings.push (← IO.ofExcept <| RuleDiagnostics.declarationFinding id decl.name
+            let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation decl
+                (some ⟨path.toString, source⟩)
+            findings := findings.push
+                (← IO.ofExcept <| RuleDiagnostics.declarationFinding id decl.name
               (Policy.classifyMember decl scope h) location .freshFile (some "standard-logical"))
         return (Json.mkObj [
           ("file", toJson path.toString), ("source", toJson source),
           ("configuration", toJson configuration), ("configurationRoot", toJson repo.toString),
           ("claim", toJson (some "standard-logical" : Option String)), ("execution", Json.null),
           ("diagnosticOnly", toJson true), ("compilerOutput", toJson compilation.process.output),
-          ("report", inspected.report.resultJson), ("frontendTranscripts", toJson inspected.transcripts)], findings)
+          ("report", inspected.report.resultJson),
+          ("frontendTranscripts", toJson inspected.transcripts)], findings)
   ResultProtocol.write output scopeJson .freshFile
     (if findings.isEmpty then .classified else .rejected) findings
     (ResultProtocol.stagesOf .freshFile) [.discovery, .build, .admission, .declarationPolicy]
   let value ← IO.ofExcept <| PolicyCodec.parse (← IO.FS.readFile output)
-  let request := ResultProtocol.requestJson "policyNegative" repo.toString path.toString none none configuration
+  let request := ResultProtocol.requestJson "policyNegative" repo.toString path.toString none none
+      configuration
   writeJson output ((value.setObjVal! "request" request).setObjVal! "effective"
     (Json.mkObj [("root", toJson repo.toString), ("configuration", toJson configuration)]))
   return if findings.isEmpty then 0 else 1
@@ -69,7 +78,8 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
   let documents ← Documentation.captureMarkdown docsRoot
   if documents.isEmpty then throw <| IO.userError "empty example documentation tree"
   let sources := documents.map fun document => (FilePath.mk document.uri, document.source)
-  let outcome ← (stable #[] requestedConfiguration <| withScratch repo "rule-document-example" fun scratch => do
+  let outcome ← (stable #[] requestedConfiguration <| withScratch repo "rule-document-example"
+      fun scratch => do
     let copy := scratch / "project"
     copyProject repo copy scratch
     let configuration ← SourceBinding.configuration copy (Manifest.defaultPath copy)
@@ -79,34 +89,42 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
       let projectSources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory
       stable projectSources configuration do
-        let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy (Manifest.positiveTargets manifest) "fresh"
+        let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
+            (Manifest.positiveTargets manifest) "fresh"
         if let some lines := buildResult then
-          throw <| IO.userError ("example dependency build failed: " ++ "\n".intercalate lines.toList)
+          throw <| IO.userError
+              ("example dependency build failed: " ++ "\n".intercalate lines.toList)
         let findings ← IO.mkRef (#[] : Array Finding)
         let classifications ← IO.mkRef (#[] : Array Documentation.Classification)
-        let certificate ← IO.mkRef (none : Option ((c : RegulaPolicy.Claim) × RegulaPolicy.AcceptedRun c))
-        let code ← Documentation.auditBuiltProject copy docsRoot inventory projectSources configuration dependencies documents (Acceptance.buildObservation buildProcess) 1 true
+        let certificate ← IO.mkRef
+            (none : Option ((c : RegulaPolicy.Claim) × RegulaPolicy.AcceptedRun c))
+        let code ← Documentation.auditBuiltProject copy docsRoot inventory projectSources
+            configuration dependencies documents (Acceptance.buildObservation buildProcess) 1 true
           (fun finding => findings.modify (·.push finding))
           (fun results => classifications.set (results.map Documentation.classification))
           (fun claim accepted => certificate.set (some ⟨claim, accepted⟩))
         let actual ← findings.get
         unless (code == 0) == actual.isEmpty do
           throw <| IO.userError "documentation completion/findings mismatch"
-        return (code, actual, ← classifications.get, copy.toString, configuration, ← certificate.get)).toBaseIO
+        return (code, actual, ← classifications.get, copy.toString, configuration,
+            ← certificate.get)).toBaseIO
   -- Markdown is not a Lean module map. Preserve its own exact snapshots even on errors.
   Documentation.checkMarkdown docsRoot documents
-  let (code, actual, classifications, configurationRoot, configuration, certificate) ← IO.ofExcept <| outcome.mapError (fun error => toString error)
+  let (code, actual, classifications, configurationRoot, configuration, certificate) ← IO.ofExcept
+      <| outcome.mapError (fun error => toString error)
   let completion ← if code == 0 then do
       let some ⟨_, accepted⟩ := certificate
         | throw <| IO.userError "documentation adapter lacks accepted evidence"
       let report := accepted.report
-      unless report.claim.val.scope == .documentation (sources.map fun (path, source) => ⟨path.toString, source⟩) do
+      unless report.claim.val.scope == .documentation
+          (sources.map fun (path, source) => ⟨path.toString, source⟩) do
         throw <| IO.userError "documentation adapter request mismatch"
       -- Only an all-positive fence set is conforming evidence; expectations are classified.
       let account := Regula.Checker.Account.account accepted
       let fences := account.val.fences
       pure (if fences.positive > 0 && fences.compilerRejection + fences.policyRejection +
-          fences.trustedTeaching == 0 then Regula.Checker.Account.Status.completed account else .classified)
+          fences.trustedTeaching == 0 then Regula.Checker.Account.Status.completed account else
+                                            .classified)
     else pure (if actual.any (·.2.impact == .incomplete) then .incomplete else .rejected)
   ResultProtocol.write output (Json.mkObj [
     ("configuration", toJson configuration), ("configurationRoot", toJson configurationRoot),
@@ -119,18 +137,24 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
   let value := match certificate with
     | some ⟨_, accepted⟩ => value.setObjVal! "acceptance" (ResultProtocol.acceptedJson accepted)
     | none => value
-  let request := ResultProtocol.requestJson "documentation" repo.toString docsRoot.toString none none requestedConfiguration
+  let request := ResultProtocol.requestJson "documentation" repo.toString docsRoot.toString none
+      none requestedConfiguration
   writeJson output ((value.setObjVal! "request" request).setObjVal! "effective"
     (Json.mkObj [("root", toJson configurationRoot), ("configuration", toJson configuration)]))
   return code
 
+/-- Run one rule-example production and return its exit code: `--policy-negative PROJECT
+SOURCE OUTPUT` runs `inspectNegative`, `--documentation PROJECT DOCS OUTPUT` runs
+`documentation`, and any other arguments throw the usage text. -/
 unsafe def run (args : List String) : IO UInt32 := do
   match args with
   | ["--policy-negative", repo, source, output] =>
       inspectNegative ⟨repo⟩ ⟨source⟩ ⟨output⟩
   | ["--documentation", repo, docs, output] =>
       documentation ⟨repo⟩ ⟨docs⟩ ⟨output⟩
-  | _ => throw <| IO.userError "usage: ruleExamples (--policy-negative PROJECT SOURCE | --documentation PROJECT DOCS) OUTPUT"
+  | _ =>
+      throw <| IO.userError "usage: ruleExamples (--policy-negative PROJECT SOURCE | \
+        --documentation PROJECT DOCS) OUTPUT"
 end Regula.Checker.RuleExamples
 
 private unsafe def ruleExamplesEntry (args : List String) : IO UInt32 := do
@@ -177,7 +201,8 @@ unsafe def main (args : List String) : IO UInt32 := do
         unless ← System.FilePath.pathExists path do return code
         let marked ← (do
           let value ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile path))
-          IO.FS.writeFile path ((value.setObjVal! "gitFacts" (.str "injected")).compress ++ "\n")).toBaseIO
+          IO.FS.writeFile path
+              ((value.setObjVal! "gitFacts" (.str "injected")).compress ++ "\n")).toBaseIO
         if let .error error := marked then
           IO.eprintln s!"rule example production incomplete: injected-facts marker: {error}"
           return 2

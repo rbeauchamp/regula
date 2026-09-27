@@ -16,35 +16,44 @@ def capture (sources : Array (Name × FilePath))
     IO (Array ProducerReport.SourceBinding) := do
   let mut bindings := #[]
   for (moduleName, path) in sources do
-    if let some previous := bindings.find? (fun (s : ProducerReport.SourceBinding) => s.moduleName == moduleName) then
+    if let some previous := bindings.find?
+        (fun (s : ProducerReport.SourceBinding) => s.moduleName == moduleName) then
       unless previous.path == path.toString do
         throw <| IO.userError "producer-source: conflicting module source paths"
       continue
     if moduleName.isAnonymous then throw <| IO.userError "producer-source: anonymous source module"
-    bindings := bindings.push { moduleName, path := path.toString, content := ← IO.FS.readFile path }
+    bindings := bindings.push
+        { moduleName, path := path.toString, content := ← IO.FS.readFile path }
     observe bindings
   return bindings
 
 /-- Compare exact text at each IO boundary; never recapture changed text as the claim. -/
-def checkSources (sources : Array ProducerReport.SourceBinding) : IO (Except AdmissionFailure Unit) := do
+def checkSources (sources : Array ProducerReport.SourceBinding) : IO
+    (Except AdmissionFailure Unit) := do
   for source in sources do
     let current ← (IO.FS.readFile source.path).toBaseIO
     match current with
-    | .error error => return .error ⟨s!"producer-source: source snapshot unavailable: {source.moduleName} ({source.path}): {error}"⟩
+    | .error error =>
+        return .error
+            ⟨s!"producer-source: source snapshot unavailable: {source.moduleName} \
+              ({source.path}): {error}"⟩
     | .ok current =>
       unless current == source.content do
         return .error ⟨s!"producer-source: source snapshot changed: {source.moduleName}"⟩
   return .ok ()
 
+/-- Throw an error when `checkSources` finds a source missing or changed. -/
 def unchanged (sources : Array ProducerReport.SourceBinding) : IO Unit := do
   IO.ofExcept <| (← checkSources sources).mapError (·.detail)
 
 /-- Require the producer's owned-source account to be the caller's frozen account
 restricted to the actual loaded environment. -/
-def validateAgainst (expected : Array ProducerReport.SourceBinding) (report : ProducerReport.Environment) :
+def validateAgainst (expected : Array ProducerReport.SourceBinding)
+    (report : ProducerReport.Environment) :
     Except AdmissionFailure Unit := do
   let required := expected.filter (fun source => report.modules.contains source.moduleName)
-  unless report.sourceBindings.size == required.size && report.sourceBindings.all required.contains do
+  unless report.sourceBindings.size == required.size &&
+      report.sourceBindings.all required.contains do
     throw ⟨"producer-source: report differs from requested source snapshots"⟩
 
 /-- Require each supplied frontend transcript to retain its captured module/path/text.
@@ -65,21 +74,29 @@ def configuration (repo manifest : FilePath) : IO (Array (FilePath × Option Str
       return (path, content)
 
 /-- Refuse a change in any captured configuration file's presence or exact text. -/
-def checkConfiguration (snapshot : Array (FilePath × Option String)) : IO (Except AdmissionFailure Unit) := do
+def checkConfiguration (snapshot : Array (FilePath × Option String)) : IO
+    (Except AdmissionFailure Unit) := do
   for (path, content) in snapshot do
     let read : IO (Option String) := do
       if ← path.pathExists then pure (some (← IO.FS.readFile path)) else pure none
     let current ← read.toBaseIO
     match current with
-    | .error error => return .error ⟨s!"producer-source: configuration snapshot unavailable: {path}: {error}"⟩
+    | .error error =>
+        return .error ⟨s!"producer-source: configuration snapshot unavailable: {path}: {error}"⟩
     | .ok current =>
       unless current == content do
         return .error ⟨s!"producer-source: configuration snapshot changed: {path}"⟩
   return .ok ()
 
+/-- Throw an error when `checkConfiguration` finds a configuration file changed, added or
+removed. -/
 def configurationUnchanged (snapshot : Array (FilePath × Option String)) : IO Unit := do
   IO.ofExcept <| (← checkConfiguration snapshot).mapError (·.detail)
 
+/-- Check the sources and configuration, run `action`, and check them again. A change is
+returned as an admission failure: before the action it skips the action, and after it it takes
+precedence over an action error. Otherwise the action's value is returned or its error
+rethrown. -/
 def withUnchanged {α : Type} (sources : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String)) (action : IO α) :
     IO (Except AdmissionFailure α) := do

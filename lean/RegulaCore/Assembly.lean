@@ -23,21 +23,33 @@ namespace Regula.Checker.Manifest
 
 open Regula.Checker.Policy (Profile)
 
+/-- One claimed surface of `foundation_manifest.json`, as decoded. -/
 structure Surface where
+  /-- The root-package `lean_lib` the surface claims. -/
   library : String
+  /-- The root-package `lean_exe` targets claimed with the library. -/
   executables : Array String
+  /-- The foundation profile every declaration of the surface must fit. -/
   claim : Profile
+  /-- How the surface's execution boundaries are judged: reported or checked. -/
   execution : RegulaPolicy.ExecutionClaim
+  /-- The manifest's stated reason for the claim. -/
   rationale : String
   deriving Repr
 
+/-- A root-package `lean_lib` the manifest excludes from every claimed surface. -/
 structure ExcludedLibrary where
+  /-- The excluded library's name. -/
   library : String
+  /-- The manifest's stated reason for the exclusion. -/
   rationale : String
   deriving Repr
 
+/-- A root-package `lean_exe` the manifest excludes from every claimed surface. -/
 structure ExcludedExecutable where
+  /-- The excluded executable's name. -/
   executable : String
+  /-- The manifest's stated reason for the exclusion. -/
   rationale : String
   deriving Repr
 
@@ -45,9 +57,13 @@ end Regula.Checker.Manifest
 
 namespace Regula.Checker
 
+/-- The decoded `foundation_manifest.json`: every root-package target, claimed or excluded. -/
 structure Manifest where
+  /-- The claimed surfaces. -/
   surfaces : Array Manifest.Surface
+  /-- The excluded libraries, each with its reason. -/
   excludedLibraries : Array Manifest.ExcludedLibrary
+  /-- The excluded executables, each with its reason. -/
   excludedExecutables : Array Manifest.ExcludedExecutable
   deriving Repr
 
@@ -58,42 +74,69 @@ namespace Regula.Checker.Lake
 open Lean (Name)
 open System (FilePath)
 
+/-- A module and the source file Lake resolves it to. -/
 structure SourceEntry where
+  /-- The module's name. -/
   «module» : Name
+  /-- Its `.lean` source file, as the Lake adapter resolved it. -/
   source : FilePath
   deriving Repr, BEq
 
+/-- One root-package `lean_lib`, as Lake's package model reports it. -/
 structure LibraryInventory where
+  /-- The library's name. -/
   library : String
+  /-- Every module of the library, in Lake's module order. -/
   modules : Array Name
+  /-- The source file of each module. -/
   sources : Array SourceEntry
   /-- The Lean options and extra `lean` arguments Lake builds the library's modules with
   (RG2006). -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
+/-- One root-package `lean_exe`, as Lake's package model reports it. -/
 structure ExecutableInventory where
+  /-- The executable's name. -/
   executable : String
+  /-- Its root module. -/
   root : Name
+  /-- The root module's source file. -/
   source : FilePath
   /-- The Lean options and extra `lean` arguments Lake builds the root module with (RG2006). -/
   options : RegulaPolicy.Community.BuildOptions
   deriving Repr, BEq
 
+/-- One dependency package of the workspace, with the files its source state is read from. -/
 structure DependencyInventory where
+  /-- The package's name. -/
   package : String
+  /-- The package's directory. -/
   root : FilePath
+  /-- The paths of its Lake configuration, manifest and `lean-toolchain` files, including both
+  lakefile names. -/
   configurationPaths : Array FilePath
+  /-- The source file of each of its modules that its library globs select, and of each
+  executable root whose source exists. -/
   sources : Array SourceEntry
   deriving Repr, BEq
 
+/-- The Lake workspace of a checked project: its root package's targets, search paths and
+dependency packages, from Lake's own package model. -/
 structure SurfaceInventory where
+  /-- The project's root directory. -/
   root : FilePath
+  /-- The root package's compiled-module output directory (Lake's `leanLibDir`). -/
   leanLibDir : FilePath
+  /-- The module search path: `leanLibDir`, then the workspace's `leanPath`. -/
   leanPath : Array FilePath
+  /-- The workspace's source search path (`leanSrcPath`). -/
   leanSrcPath : Array FilePath
+  /-- Every root-package library. -/
   libraries : Array LibraryInventory
+  /-- Every root-package executable. -/
   executables : Array ExecutableInventory
+  /-- Every package of the workspace except the root. -/
   dependencies : Array DependencyInventory
   deriving Repr, BEq
 
@@ -104,7 +147,10 @@ namespace Regula.Checker.ProducerReport
 /-- Completed history preserves the exact Lean-resolved source before/after the worker.
 Unavailable history has no successful source receipt or usable edge payload. -/
 inductive HistoryOutcome where
+  /-- The worker elaborated the source at `path`, which read `before` before and `after` after
+  it, and observed the runtime-replacement edges `replacements`. -/
   | completed (path before after : String) (replacements : Array (Lean.Name × Lean.Name))
+  /-- No history was obtained; `detail` says why. -/
   | unavailable (detail : String)
   deriving Repr
 
@@ -231,7 +277,8 @@ private theorem admitIdentities_ok (names : List Name) (identities : List Identi
 
 private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : Manifest.Surface)
     (assigned : SurfaceAssignment) :
-    assignSurface inventory surface = .ok assigned ↔ SurfaceAssigned inventory surface assigned := by
+    assignSurface inventory surface = .ok assigned ↔
+        SurfaceAssigned inventory surface assigned := by
   have rootsOk : ∀ roots : List Name,
       surface.executables.toList.mapM (executableRoot inventory) = .ok roots ↔
         roots.length = surface.executables.size ∧
@@ -356,7 +403,8 @@ def discoveredTargets (inventory : Lake.SurfaceInventory) : Array DiscoveredTarg
 snapshots before and after, and replacement edges. None is recorded as unsupported: the
 operational history worker refuses a module with unsupported evaluators, so its outcome
 is unavailable and refused. -/
-def HistoryCopied (entry : Name × ProducerReport.HistoryOutcome) (observation : HistoryObservation) :
+def HistoryCopied (entry : Name × ProducerReport.HistoryOutcome)
+    (observation : HistoryObservation) :
     Prop :=
   ∃ path before after replacements,
     entry.2 = .completed path before after replacements ∧
@@ -427,11 +475,19 @@ def histories (outcomes : Array (Name × ProducerReport.HistoryOutcome)) :
 /-- Operational observations retained after the independent census has been frozen.
 These data do not carry an accepted flag or determine the required stage list. -/
 structure FrozenEnvironment where
+  /-- The environment's frozen census. -/
   census : EnvironmentCensus
+  /-- The generated-role receipt computed during admission of this exact inventory. -/
   roles : Roles census.policy
+  /-- The observed kernel admission of the environment's owned declarations. -/
   admission : AdmissionObservation
+  /-- Each claimed module with whether its header passes RG5001's decision
+  (`RegulaPolicy.ModuleHeader.failures` is empty). -/
   moduleDocumentation : Array (Name × Bool)
+  /-- Each selected material `(module, declaration)` key with the docstring Lean returned for
+  it, if any. -/
   declarationDocumentation : Array ((Name × Name) × Option String)
+  /-- The completed elaboration histories of the environment's modules. -/
   histories : Array HistoryObservation
 
 /-- Select the role receipt already computed during admission of this exact environment.
@@ -453,9 +509,13 @@ theorem frozenEnvironmentRoles_eq (environments : Array FrozenEnvironment) :
 /-- The complete project plan retains each environment's observations without merging
 declaration namespaces, root registrations, replay or role authority. -/
 structure Frozen (claim : Claim) where
+  /-- The census of the complete request. -/
   census : Census
+  /-- The job plan derived for `claim` over this census. -/
   plan : Plan claim census
+  /-- The generated-role receipt of every environment of the census. -/
   roles : CensusRoles census
+  /-- Each environment's retained observations. -/
   environments : Array FrozenEnvironment
 
 private def requireOne {α : Type u} (what : String) (values : Array α) : Except String α :=
@@ -499,15 +559,18 @@ private def environmentEvidenceImpl (frozen : FrozenEnvironment) (stage : Stage)
             (fun r => r.module == k.moduleKey.name.name && r.name == k.name.name)
           pure <| .execution root
       | .transcript, .module k => do
-          pure <| JobEvidence.transcript (← requireOne "transcript" <| frozen.census.policy.transcripts.filter
+          pure <| JobEvidence.transcript
+              (← requireOne "transcript" <| frozen.census.policy.transcripts.filter
             (·.module == k.name.name))
       | .history, .module k => do
-          pure <| JobEvidence.history (← requireOne "history" <| frozen.histories.filter (·.moduleName == k.name.name))
+          pure <| JobEvidence.history
+              (← requireOne "history" <| frozen.histories.filter (·.moduleName == k.name.name))
       | .origin, .module k => do
           let origins := frozen.census.execution.roots.flatMap fun r => r.boundaries.filterMap
             fun b => if b.module == k.name.name then b.account.nativeOrigin? else none
           let some origin := origins[0]? | throw "missing native-runtime origin observation"
-          unless origins.all (fun other => decide (other = origin)) do throw "conflicting native-runtime origins"
+          unless origins.all (fun other => decide (other = origin)) do
+              throw "conflicting native-runtime origins"
           pure <| .origin origin
       | .documentationPresence, .module k => do
           let observation ← requireOne "module documentation" <|
@@ -539,7 +602,8 @@ private theorem filter_single {α : Type u} {p : α → Bool} {values : Array α
 docstring (presence for a module; for a registered declaration, a nonempty Intent section via
 `MaterialDocumentationOK`), not which record supplied it, so this binding is not decided again
 there. A success reports the presence of the only record with the job's module name, or
-with its module and declaration names; a refusal fails closed. Every other stage's record is bound to its subject by
+with its module and declaration names; a refusal fails closed. Every other stage's record is bound
+to its subject by
 `LocalStageOK`. -/
 def DocumentationEvidenceContract
     (evidence : FrozenEnvironment → Stage → LocalJobSubject → Except String JobEvidence) :
@@ -637,13 +701,17 @@ def observations {claim : Claim} (frozen : Frozen claim) (build : BuildObservati
   let values : Array (Nat × JobObservation) ← frozen.plan.jobs.mapIdxM fun slot key => do
     let evidence ← match key.stage, key.subject with
       | .configuration, .scope =>
-          pure (JobEvidence.configuration frozen.census.configuredTargets frozen.census.discoveredTargets)
+          pure
+              (JobEvidence.configuration frozen.census.configuredTargets
+                  frozen.census.discoveredTargets)
       | .discovery, .scope => pure <| .discovery frozen.census
       | .build, .scope => pure <| .build build
       | stage, .environment request subject =>
           checked_environmentJob.run frozen.environments request stage subject
       | _, _ => throw "unsupported observation stage for project/file collector"
-    return (slot, ({ key, snapshot := claim.val.snapshot, completion := .completed, evidence } : JobObservation))
+    return (slot,
+        ({ key, snapshot := claim.val.snapshot, completion := .completed, evidence } :
+            JobObservation))
   return values.toList
 
 end Regula.Checker.Acceptance

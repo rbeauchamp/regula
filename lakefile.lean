@@ -7,9 +7,10 @@ package «regula» where
   -- The verification toolset for Regula (see docs/).
   -- Code here exists to machine-check claims, patterns, and examples from the standard.
   -- Build warnings are failures. No automatic implicits: every binder of an elaborated
-  -- statement is written in its source (standard §8.1, RG2006).
+  -- statement is written in its source (standard §8.1, RG2006). Every public definition has a
+  -- docstring (standard §6.7, RG2006).
   leanOptions := #[⟨`warningAsError, true⟩, ⟨`autoImplicit, false⟩,
-    ⟨`relaxedAutoImplicit, false⟩]
+    ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]
 
 /-- Mathlib's standard linter set without its three Mathlib-repository linters (standard §6.7),
 for the claimed targets whose surfaces import Mathlib; RG2006 checks it. -/
@@ -37,6 +38,9 @@ lean_lib «Fixtures» where
   -- Queryable exact inventory for isolated controls and mutations. This is
   -- deliberately not a default target: many modules are meant not to build.
   globs := #[.submodules `Fixtures]
+  -- Unclaimed controls whose source is their test input: documenting them would change the
+  -- inputs, so only this library turns the package's docstring linter off.
+  leanOptions := #[⟨`linter.missingDocs, false⟩]
 
 @[default_target]
 lean_lib «RegulaPolicy» where

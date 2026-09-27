@@ -21,21 +21,56 @@ them. -/
 
 namespace Regula
 
+/-- How an audit collected its evidence (editor snapshot, incremental or fresh project, fresh
+file, documentation example or serialized graph): the policy's `RegulaPolicy.EvidenceMode`. -/
 abbrev EvidenceMode := RegulaPolicy.EvidenceMode
-abbrev EvidenceMode.spelling (mode : EvidenceMode) : String := RegulaPolicy.EvidenceMode.spelling mode
+/-- The stable text of an evidence mode, as `RegulaPolicy.EvidenceMode.spelling` gives it. -/
+abbrev EvidenceMode.spelling (mode : EvidenceMode) : String :=
+    RegulaPolicy.EvidenceMode.spelling mode
 
 /-- Retired IDs remain descriptors; replacement cannot be the retired ID itself. -/
 inductive Lifecycle (id : RuleId) where
+  /-- The rule is in force; `introduced` names the release that added it. -/
   | active (introduced : String)
+  /-- The rule was added in release `introduced` and retired in `version`; `replacement` is the
+  rule that takes over its checks, if any, and cannot be `id` itself. -/
   | retired (introduced version : String) (replacement : Option { other : RuleId // other ≠ id })
 
+/-- The kind of property a rule checks; the rule index groups and filters rules by it. -/
 inductive RuleCategory where
-  | foundation | declaration | execution | environment | configuration
-  | elaboration | coverage | admission | documentation
+  /-- The logical foundation of declarations: axioms, proof holes, compiler trust and the
+  surface profile (RG1001–RG1005). -/
+  | foundation
+  /-- The form of a declaration itself, such as `unsafe` or `partial` (RG1006). -/
+  | declaration
+  /-- Executable contracts and the execution closure of executable roots (RG1007, RG3001,
+  RG3002). -/
+  | execution
+  /-- Availability of the declared Lean environment (RG2001). -/
+  | environment
+  /-- The surface manifest and the Lake build configuration (RG2002, RG2006). -/
+  | configuration
+  /-- Warning-free elaboration of claimed source (RG2003). -/
+  | elaboration
+  /-- Attribution of owned modules to classified targets (RG2004). -/
+  | coverage
+  /-- Kernel-replay admission and source evidence (RG2005). -/
+  | admission
+  /-- Documentation fences, module headers and docstrings (RG4001–RG4004, RG5001–RG5003). -/
+  | documentation
   deriving Repr, BEq, DecidableEq
 
+/-- The severity of a finding: of a rule's findings under a strict claim, and of an intent-screen
+finding (`ScreenSeverity.toSeverity` maps the screen's levels onto these). -/
 inductive Severity where
-  | error | warning | information
+  /-- The highest level; `RuleDescriptor.defaultStrictSeverity` defaults to it. -/
+  | error
+  /-- Below `error`: the level of an intent-screen finding whose support falls below the
+  `warning` threshold but not the `error` one. No registered rule defaults to it. -/
+  | warning
+  /-- The lowest level: an intent-screen finding whose support falls below only the
+  `information` threshold. No registered rule defaults to it. -/
+  | information
   deriving Repr, BEq, DecidableEq
 
 /-- The severity names used by the registry, diagnostics and the intent screen's configuration. -/
@@ -44,36 +79,88 @@ def Severity.spelling : Severity → String
 
 /-- Availability names the detector, not completion of every future adapter. -/
 inductive Availability where
-  | existingChecker | plannedEngine
+  /-- The existing checker detects the rule. -/
+  | existingChecker
+  /-- The rule is registered for a planned detector that does not run yet. -/
+  | plannedEngine
   deriving Repr, BEq, DecidableEq
 
+/-- Credit for an outside project whose idea a rule's design follows, as the registry export and
+rule pages state it. -/
 structure Attribution where
+  /-- The credited project's name. -/
   project : String
+  /-- Its authors, as credited. -/
   authors : String
+  /-- A link to the credited source file. -/
   url : String
+  /-- The source revision the credit refers to. -/
   revision : String
+  /-- What was taken from the project, and what was not. -/
   idea : String
+  /-- Whether any of the project's code was copied. -/
   copiedCode : Bool
   deriving Repr
 
+/-- The credit every rule carries by default: the con-leche `PropWhen` design idea, with no code
+copied and no correctness theorem imported. -/
 def registryAttribution : Attribution := {
   project := "con-leche"
   authors := "Joachim Breitner and contributors, Lean FRO"
-  url := "https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean"
+  url :=
+      "https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLec\
+        he/Kernel/PropWhen.lean"
   revision := "c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0"
-  idea := "Canonical typed representation and complete indexed metadata; no imported correctness theorem"
+  idea := "Canonical typed representation and complete indexed metadata; no imported correctness \
+    theorem"
   copiedCode := false }
 
+/-- What one finding of a rule is about. -/
 inductive RuleScope where
-  | declaration | project | executionRoot | documentationFence | module | materialDeclaration
+  /-- One owned declaration. -/
+  | declaration
+  /-- The project: its environment, configuration, build, inventory or admission. -/
+  | project
+  /-- One executable root and its execution closure. -/
+  | executionRoot
+  /-- One Lean fence of the checked documentation. -/
+  | documentationFence
+  /-- One claimed module. -/
+  | module
+  /-- One declaration registered with `@[regula_material]`. -/
+  | materialDeclaration
   deriving Repr, BEq, DecidableEq
 
+/-- The evidence a rule's decision reads. -/
 inductive EvidenceKind where
-  | kernelAxioms | generatedRole | contractEvidence | environment | configuration
-  | compilation | inventory | admission | executionClosure | fenceGrammar
-  | checkedExample | metadataPresence
+  /-- The transitive axiom sets of declarations. -/
+  | kernelAxioms
+  /-- The authenticated role of a generated declaration, such as the auxiliary of a
+  `native_decide` proof or the helper of an `unsafe` or `partial` definition. -/
+  | generatedRole
+  /-- `ExecutableContract` registrations. -/
+  | contractEvidence
+  /-- The loaded Lake workspace, toolchain and dependencies. -/
+  | environment
+  /-- The surface manifest or Lake's resolved build configuration. -/
+  | configuration
+  /-- Elaboration messages of the claimed source. -/
+  | compilation
+  /-- The Lake module inventory and module attribution. -/
+  | inventory
+  /-- Kernel-replay admission and source-identity evidence. -/
+  | admission
+  /-- The execution closure of executable roots. -/
+  | executionClosure
+  /-- The marker and fence structure of documentation. -/
+  | fenceGrammar
+  /-- The outcome of elaborating a documentation example. -/
+  | checkedExample
+  /-- The presence of module and declaration docstrings. -/
+  | metadataPresence
   deriving Repr, BEq, DecidableEq
 
+/-- The scope of each rule's findings; `RuleDescriptor.scope` defaults to it. -/
 def scopeFor : RuleId → RuleScope
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract => .declaration
@@ -84,6 +171,7 @@ def scopeFor : RuleId → RuleScope
   | .moduleDocumentation => .module
   | .materialDocumentation | .materialIntent => .materialDeclaration
 
+/-- The evidence each rule's decision reads; `RuleDescriptor.evidenceKind` defaults to it. -/
 def evidenceFor : RuleId → EvidenceKind
   | .projectAxiom | .proofHole | .unknownAxiom | .profileExceeded => .kernelAxioms
   | .compilerTrusting | .escapeHatch => .generatedRole
@@ -102,7 +190,8 @@ def evidenceFor : RuleId → EvidenceKind
 `RegulaCore.Feedback` adds the rule's remedy and guidance below it. A detail can itself span
 several lines. -/
 def messageLine (id : RuleId) (impact mode claim location subject detail : String) : String :=
-  id.spelling ++ " [" ++ impact ++ "; " ++ mode ++ "; claim=" ++ claim ++ "; " ++ location ++ "]: " ++
+  id.spelling ++ " [" ++ impact ++ "; " ++ mode ++ "; claim=" ++ claim ++ "; " ++
+      location ++ "]: " ++
     subject ++ ": " ++ detail
 
 /-- The published message form: `messageLine` applied to placeholder names, so the registry
@@ -118,7 +207,12 @@ def helpUrl (id : RuleId) : String :=
 
 /-- Source language of a rule's example files. -/
 inductive ExampleLanguage where
-  | lean | json | markdown
+  /-- Lean source, including a `lakefile.lean`. -/
+  | lean
+  /-- JSON, such as a `foundation_manifest.json` or a qualification runner request. -/
+  | json
+  /-- Markdown documentation. -/
+  | markdown
   deriving Repr, BEq, DecidableEq
 
 /-- File extension of the example files, as in `examples/rules/<ID>/Fixed.<ext>`. -/
@@ -146,10 +240,15 @@ fixed phase passes a completed positive check, and the violating phase produces 
 findings. `correction` states what the correction changes and preserves; for qualification
 inputs it is the adopter-facing form of the fix. -/
 structure ExamplePair where
+  /-- The language of both files, which fixes their extension. -/
   language : ExampleLanguage
+  /-- Whether an adopter can apply the files as shown, or they are qualification inputs. -/
   audience : ExampleAudience
+  /-- The bytes of `Fixed.<ext>`, the compliant file. -/
   compliant : String
+  /-- The bytes of `Violation.<ext>`, the noncompliant file. -/
   noncompliant : String
+  /-- What the correction from the noncompliant to the compliant file changes and preserves. -/
   correction : String
 
 /-- The compliant file an agent can apply as shown; none for qualification inputs. -/
@@ -180,11 +279,17 @@ no defaults: omitting one from a rule is a compile error, and `RuleDescriptor.we
 one. Every diagnostic, the `regula` command, the agent guide, the registry export and the
 website are generated from these fields. -/
 structure RuleDescriptor (id : RuleId) where
+  /-- The rule's short name, stated as the property it demands. -/
   title : String
+  /-- The kind of property the rule checks. -/
   category : RuleCategory
+  /-- The sections of the standard the rule enforces. -/
   normativeClauses : List Clause
+  /-- The subreason every finding of the rule carries, such as `project-axiom` for RG1001. -/
   applicability : String
+  /-- Whether the existing checker detects the rule or a planned detector will. -/
   availability : Availability
+  /-- The evidence modes whose runs report the rule's findings. -/
   evidenceModes : List EvidenceMode
   /-- What the rule demands, in one line. -/
   requirement : String
@@ -196,14 +301,21 @@ structure RuleDescriptor (id : RuleId) where
   rewrites : List String
   /-- The checked compliant and noncompliant examples. -/
   examples : ExamplePair
+  /-- Whether the rule is active or retired, and since which release. -/
   lifecycle : Lifecycle id := .active "unreleased"
+  /-- The severity of the rule's findings under a strict claim. -/
   defaultStrictSeverity : Severity := .error
+  /-- What one finding is about, derived from the ID by default. -/
   scope : RuleScope := scopeFor id
+  /-- The evidence the rule's decision reads, derived from the ID by default. -/
   evidenceKind : EvidenceKind := evidenceFor id
+  /-- Credit for the design idea the rule's representation follows. -/
   attribution : Attribution := registryAttribution
 
 namespace RuleDescriptor
+/-- The ID the descriptor is indexed by. -/
 def identity {id : RuleId} (_ : RuleDescriptor id) : RuleId := id
+/-- The rule page's route, `rules/<ID>/`, derived from the ID. -/
 def helpRoute {id : RuleId} (_ : RuleDescriptor id) : String := id.route
 /-- The message form is derived from the index, never an independent field. -/
 def messageTemplate {id : RuleId} (_ : RuleDescriptor id) : String := messageForm id
@@ -211,10 +323,15 @@ end RuleDescriptor
 
 /-- Size budgets, in UTF-8 bytes, that keep inline feedback and the agent guide compact. -/
 def requirementBudget : Nat := 200
+/-- The largest `rationale`, in UTF-8 bytes. -/
 def rationaleBudget : Nat := 480
+/-- The largest `remedy`, in UTF-8 bytes. -/
 def remedyBudget : Nat := 300
+/-- The largest single entry of `rewrites`, in UTF-8 bytes. -/
 def rewriteBudget : Nat := 480
+/-- The most entries `rewrites` may have. -/
 def rewriteCountBudget : Nat := 4
+/-- The largest compliant or noncompliant example file, in UTF-8 bytes. -/
 def exampleBudget : Nat := 512
 /-- The Lean community's line limit (Mathlib's `linter.style.longLine`), for example files, whose
 lines every rule page, finding and agent briefing shows verbatim. -/
@@ -249,6 +366,9 @@ def RuleDescriptor.wellFormed {id : RuleId} (d : RuleDescriptor id) : Bool :=
     | .adopter => true
     | .qualification files => 0 < files.utf8ByteSize)
 
+/-- The modes that audit declarations outside the editor: incremental and fresh project,
+fresh file and documentation example. A rule that also reports in the editor adds
+`.editorSnapshot` to them. -/
 def declarationModes : List EvidenceMode :=
   [.incrementalProject, .freshProject, .freshFile, .documentationExample]
 
@@ -275,14 +395,17 @@ def ruleForMaterialDocumentation : RegulaPolicy.MaterialDocumentationFailure →
   | .missingIntent => .materialIntent
 
 /-- The two material-documentation failures reach distinct rules. -/
-theorem ruleForMaterialDocumentation_injective : Function.Injective ruleForMaterialDocumentation := by
+theorem ruleForMaterialDocumentation_injective :
+    Function.Injective ruleForMaterialDocumentation := by
   intro a b h
   cases a <;> cases b <;> first | rfl | cases h
 
 /-- Finding detail for each material-documentation failure, prefixed by its rule's applicability. -/
 def materialDocumentationDetail : RegulaPolicy.MaterialDocumentationFailure → String
-  | .missingDocstring => "material-documentation: document the claim, assumptions and evidence at this declaration"
-  | .missingIntent => "material-intent: add a nonempty `# Intent` section stating the requirement this claim must meet"
+  | .missingDocstring =>
+      "material-documentation: document the claim, assumptions and evidence at this declaration"
+  | .missingIntent => "material-intent: add a nonempty `# Intent` section stating the requirement \
+    this claim must meet"
 
 /-- Total metadata for the reserved vocabulary. Planned detectors never claim availability.
 Example bytes are embedded from `examples/rules/<ID>/`; the `RegulaCore` library `needs` that
@@ -294,221 +417,329 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "project-axiom"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "A claimed module declares no logical `axiom`: every assumption is a hypothesis or a proof-bearing field."
-      rationale := "An axiom extends Lean's logic for everything that imports it. An assumption that is false, or inconsistent with other axioms, makes every downstream theorem vacuous, and the kernel cannot tell. A hypothesis keeps the assumption visible in each theorem's type, so every use must supply it."
-      remedy := "Turn the assumption into a hypothesis (a binder or a proof-bearing structure field) of the results that need it, or replace the axiom with a proof."
+      requirement := "A claimed module declares no logical `axiom`: every assumption is a \
+        hypothesis or a proof-bearing field."
+      rationale := "An axiom extends Lean's logic for everything that imports it. An assumption \
+        that is false, or inconsistent with other axioms, makes every downstream theorem vacuous, \
+        and the kernel cannot tell. A hypothesis keeps the assumption visible in each theorem's \
+        type, so every use must supply it."
+      remedy := "Turn the assumption into a hypothesis (a binder or a proof-bearing structure \
+        field) of the results that need it, or replace the axiom with a proof."
       rewrites := [
-        "If the statement is provable, prove it: replace `axiom name : P` by `theorem name : P := proof`.",
-        "If it is a genuine assumption of a model, make it a parameter: `theorem result (h : P) : Q`, or a field of a structure that bundles the model and its laws.",
-        "If it states an open research target, define it as a `Prop` (`def Target : Prop := P`) and state results conditionally on it; do not assert it."]
+        "If the statement is provable, prove it: replace `axiom name : P` by `theorem name : P := \
+          proof`.",
+        "If it is a genuine assumption of a model, make it a parameter: `theorem result (h : P) : \
+          Q`, or a field of a structure that bundles the model and its laws.",
+        "If it states an open research target, define it as a `Prop` (`def Target : Prop := P`) \
+          and state results conditionally on it; do not assert it."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG1001/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1001/Violation.lean"
-        correction := "The correction proves the same `∀ n : Nat, n = n` by `rfl` instead of assuming it, under the unchanged Kernel-only claim." } }
+        correction := "The correction proves the same `∀ n : Nat, n = n` by `rfl` instead of \
+          assuming it, under the unchanged Kernel-only claim." } }
   | .proofHole => {
       title := "Proof holes are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "hole"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "No owned declaration depends on `sorryAx`: no `sorry`, `admit` or unfinished proof, directly or through an import."
-      rationale := "`sorryAx` proves every proposition. A declaration that depends on it has no evidence, even if Lean elaborated the file, and every theorem that uses it inherits the gap."
-      remedy := "Complete the proof. If the statement is an open problem, define it as a `Prop` and state results conditionally on it instead of asserting it."
+      requirement := "No owned declaration depends on `sorryAx`: no `sorry`, `admit` or unfinished \
+        proof, directly or through an import."
+      rationale := "`sorryAx` proves every proposition. A declaration that depends on it has no \
+        evidence, even if Lean elaborated the file, and every theorem that uses it inherits the \
+        gap."
+      remedy := "Complete the proof. If the statement is an open problem, define it as a `Prop` \
+        and state results conditionally on it instead of asserting it."
       rewrites := [
         "Replace the `sorry` or `admit` with a complete proof.",
-        "If the hole comes from an imported declaration, fix or replace that dependency; imported holes are not exempt.",
-        "For an open target, write `def Target : Prop := …` and prove `Target → Result`, which states exactly what is established."]
+        "If the hole comes from an imported declaration, fix or replace that dependency; imported \
+          holes are not exempt.",
+        "For an open target, write `def Target : Prop := …` and prove `Target → Result`, which \
+          states exactly what is established."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG1002/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1002/Violation.lean"
-        correction := "The correction fills the same reflexivity proof with `rfl`. The checked violation records Lean's original `sorry` warning as well; the corrected file passes the ordinary warning-rejecting gate." } }
+        correction := "The correction fills the same reflexivity proof with `rfl`. The checked \
+          violation records Lean's original `sorry` warning as well; the corrected file passes the \
+          ordinary warning-rejecting gate." } }
   | .unknownAxiom => {
       title := "Unknown transitive axioms are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "unknown-axiom"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Every transitive axiom of an owned declaration, including one from an import, is `propext`, `Quot.sound` or `Classical.choice`."
-      rationale := "A foundation label summarizes exactly which assumptions a result rests on. An unclassified axiom has no label, so no profile claim about the declaration can be true."
-      remedy := "Find where the axiom enters (often an imported dependency), and replace that dependency or its axiom with a proof or a hypothesis."
+      requirement := "Every transitive axiom of an owned declaration, including one from an \
+        import, is `propext`, `Quot.sound` or `Classical.choice`."
+      rationale := "A foundation label summarizes exactly which assumptions a result rests on. An \
+        unclassified axiom has no label, so no profile claim about the declaration can be true."
+      remedy := "Find where the axiom enters (often an imported dependency), and replace that \
+        dependency or its axiom with a proof or a hypothesis."
       rewrites := [
-        "Inspect the declaration's axiom list in the diagnostic or with `#print axioms`, and follow it to the declaration that introduces the axiom.",
-        "Replace the axiom in the dependency with a proof, or make it a hypothesis of the results that need it.",
-        "If the dependency cannot change, do not claim the affected declarations on a conforming surface."]
+        "Inspect the declaration's axiom list in the diagnostic or with `#print axioms`, and \
+          follow it to the declaration that introduces the axiom.",
+        "Replace the axiom in the dependency with a proof, or make it a hypothesis of the results \
+          that need it.",
+        "If the dependency cannot change, do not claim the affected declarations on a conforming \
+          surface."]
       examples := {
         language := .lean
         audience := .qualification "The examples are the imported dependency."
         compliant := include_str "../../examples/rules/RG1003/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1003/Violation.lean"
-        correction := "The dependency proves the same reflexivity statement instead of declaring it as an axiom, and the file that imports it is unchanged." } }
+        correction := "The dependency proves the same reflexivity statement instead of declaring \
+          it as an axiom, and the file that imports it is unchanged." } }
   | .compilerTrusting => {
       title := "Compiler-trusting proofs require separate classification", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "compiler-trusting"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Claimed declarations use no compiler-trusting proof: no `native_decide`, `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`."
-      rationale := "Compiled evaluation is outside the kernel's checking. A compiler or runtime defect could make a false proposition \"proved\". Compiler-trusting is therefore not one of the three logical labels and never counts as conforming evidence."
-      remedy := "Prove the same statement with a kernel-checked proof, for example `decide` (kernel reduction), `rfl` or an ordinary proof."
+      requirement := "Claimed declarations use no compiler-trusting proof: no `native_decide`, \
+        `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`."
+      rationale := "Compiled evaluation is outside the kernel's checking. A compiler or runtime \
+        defect could make a false proposition \"proved\". Compiler-trusting is therefore not one \
+        of the three logical labels and never counts as conforming evidence."
+      remedy := "Prove the same statement with a kernel-checked proof, for example `decide` \
+        (kernel reduction), `rfl` or an ordinary proof."
       rewrites := [
-        "Replace `by native_decide` with `by decide` when kernel reduction of the decision procedure is feasible.",
-        "Otherwise give a structural proof, or prove a smaller lemma that `decide` can handle and combine the pieces.",
-        "If the example exists only to teach the mechanism, keep it in documentation as a trusted-compiler teaching fence (RG4004), never on a claimed surface."]
+        "Replace `by native_decide` with `by decide` when kernel reduction of the decision \
+          procedure is feasible.",
+        "Otherwise give a structural proof, or prove a smaller lemma that `decide` can handle and \
+          combine the pieces.",
+        "If the example exists only to teach the mechanism, keep it in documentation as a \
+          trusted-compiler teaching fence (RG4004), never on a claimed surface."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG1004/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1004/Violation.lean"
-        correction := "The correction proves the same concrete equality `(2 : Nat) = 2` by `rfl`. The violation reports both the generated axiom and its parent theorem." } }
+        correction := "The correction proves the same concrete equality `(2 : Nat) = 2` by `rfl`. \
+          The violation reports both the generated axiom and its parent theorem." } }
   | .profileExceeded => {
       title := "Transitive axioms must fit the selected profile", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "label-exceeds-claim"
       availability := .existingChecker
       evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
-      requirement := "Each declaration's exact transitive axiom set fits the `claim` of its surface in `foundation_manifest.json`."
-      rationale := "A profile claim tells readers which logical principles every result on the surface may use. One declaration above the bound makes the claim false for the whole surface."
-      remedy := "Prove the same statement with fewer axioms, or deliberately raise the surface's claim in `foundation_manifest.json` and update its rationale."
+      requirement := "Each declaration's exact transitive axiom set fits the `claim` of its \
+        surface in `foundation_manifest.json`."
+      rationale := "A profile claim tells readers which logical principles every result on the \
+        surface may use. One declaration above the bound makes the claim false for the whole \
+        surface."
+      remedy := "Prove the same statement with fewer axioms, or deliberately raise the surface's \
+        claim in `foundation_manifest.json` and update its rationale."
       rewrites := [
-        "Find the axiom that raises the label in the diagnostic's axiom list, then find the lemma or tactic that introduces it (for example `simp` lemmas using `propext`, or classical reasoning using `Classical.choice`).",
-        "Prove the statement constructively or with a narrower lemma so the exact set fits the claim.",
-        "If the stronger foundation is intended, change the surface's `claim` and rationale explicitly; this changes the published claim and needs review."]
+        "Find the axiom that raises the label in the diagnostic's axiom list, then find the lemma \
+          or tactic that introduces it (for example `simp` lemmas using `propext`, or classical \
+          reasoning using `Classical.choice`).",
+        "Prove the statement constructively or with a narrower lemma so the exact set fits the \
+          claim.",
+        "If the stronger foundation is intended, change the surface's `claim` and rationale \
+          explicitly; this changes the published claim and needs review."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG1005/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1005/Violation.lean"
-        correction := "The correction proves the same universally quantified reflexivity with an empty axiom set, under the unchanged Kernel-only claim, instead of routing through `propext`." } }
+        correction := "The correction proves the same universally quantified reflexivity with an \
+          empty axiom set, under the unchanged Kernel-only claim, instead of routing through \
+          `propext`." } }
   | .escapeHatch => {
-      title := "Unsafe and partial declarations require exact helper authentication", category := .declaration
+      title := "Unsafe and partial declarations require exact helper authentication", category :=
+          .declaration
       normativeClauses := [.declarationInventory]
       applicability := "escape-hatch"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Claimed modules declare nothing `unsafe` or `partial`; recursion is structural or proved terminating."
-      rationale := "A positive proof surface must consist of kernel-checked definitions. Unsafe and partial code can be executed, but it cannot serve as logical evidence, and reasoning about it silently depends on its runtime behavior."
-      remedy := "Write a safe, terminating definition (structural recursion or `termination_by`), or move the unsafe/partial code out of the claimed surface."
+      requirement := "Claimed modules declare nothing `unsafe` or `partial`; recursion is \
+        structural or proved terminating."
+      rationale := "A positive proof surface must consist of kernel-checked definitions. Unsafe \
+        and partial code can be executed, but it cannot serve as logical evidence, and reasoning \
+        about it silently depends on its runtime behavior."
+      remedy := "Write a safe, terminating definition (structural recursion or `termination_by`), \
+        or move the unsafe/partial code out of the claimed surface."
       rewrites := [
         "Remove an unnecessary `unsafe` marker.",
-        "Replace `partial def` by a definition with structural recursion or a `termination_by` measure and `decreasing_by` proof.",
-        "If the computation must stay unsafe or partial, move it to a separate, unclaimed dependency package; a claimed module cannot import an excluded module of its own package (RG2004). Where a claimed executable reaches it, it is reported as a trusted `unsafe-computation` or `partial-computation` boundary, which fails under checked execution (RG3002)."]
+        "Replace `partial def` by a definition with structural recursion or a `termination_by` \
+          measure and `decreasing_by` proof.",
+        "If the computation must stay unsafe or partial, move it to a separate, unclaimed \
+          dependency package; a claimed module cannot import an excluded module of its own package \
+          (RG2004). Where a claimed executable reaches it, it is reported as a trusted \
+          `unsafe-computation` or `partial-computation` boundary, which fails under checked \
+          execution (RG3002)."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG1006/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1006/Violation.lean"
-        correction := "The correction keeps identity's domain and body and removes the unnecessary `unsafe` marker." } }
+        correction := "The correction keeps identity's domain and body and removes the unnecessary \
+          `unsafe` marker." } }
   | .executableContract => {
       title := "Executable contracts require supported closed evidence", category := .execution
       normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
       applicability := "executable-contract"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Each `ExecutableContract f R` is closed and names a safe, computable implementation `f`, with its complete domain inside `R`."
-      rationale := "A contract is useful only if it constrains the code callers run. A registration over `f n` for a fixed parameter, or over an ineligible constant, says nothing about the executable definition across its domain."
-      remedy := "Register the named implementation itself and put its complete domain inside the predicate: `theorem c : ExecutableContract f (fun g => ∀ x, P x (g x))`."
+      requirement := "Each `ExecutableContract f R` is closed and names a safe, computable \
+        implementation `f`, with its complete domain inside `R`."
+      rationale := "A contract is useful only if it constrains the code callers run. A \
+        registration over `f n` for a fixed parameter, or over an ineligible constant, says \
+        nothing about the executable definition across its domain."
+      remedy := "Register the named implementation itself and put its complete domain inside the \
+        predicate: `theorem c : ExecutableContract f (fun g => ∀ x, P x (g x))`."
       rewrites := [
-        "Move the quantified parameters into the predicate: replace `theorem c (n : Nat) : ExecutableContract (f n) (fun v => v = n)` by `theorem c : ExecutableContract f (fun g => ∀ n, g n = n)`.",
-        "Name the computable, safe, non-partial definition that callers use; route callers through `c.run`.",
-        "Universe-polymorphic implementations are supported; explicit universe instantiation is recorded."]
+        "Move the quantified parameters into the predicate: replace `theorem c (n : Nat) : \
+          ExecutableContract (f n) (fun v => v = n)` by `theorem c : ExecutableContract f (fun g \
+          => ∀ n, g n = n)`.",
+        "Name the computable, safe, non-partial definition that callers use; route callers through \
+          `c.run`.",
+        "Universe-polymorphic implementations are supported; explicit universe instantiation is \
+          recorded."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG1007/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG1007/Violation.lean"
-        correction := "The correction moves the complete natural-number domain inside the identity contract's predicate, retaining the same pointwise equality." } }
+        correction := "The correction moves the complete natural-number domain inside the identity \
+          contract's predicate, retaining the same pointwise equality." } }
   | .environment => {
       title := "The declared Lean environment must be available", category := .environment
       normativeClauses := [.elaborationEnvironment]
       applicability := "environment"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "The audit runs in the declared environment: Lake loads the workspace with the pinned toolchain and resolves every dependency."
-      rationale := "Every conformance claim is about one exact elaboration environment: toolchain, dependency revisions and source state. A result under an unknown or different environment is not evidence for the declared one."
-      remedy := "Repair the workspace so Lake can load it with its exact toolchain and dependencies, then rerun the same command."
+      requirement := "The audit runs in the declared environment: Lake loads the workspace with \
+        the pinned toolchain and resolves every dependency."
+      rationale := "Every conformance claim is about one exact elaboration environment: toolchain, \
+        dependency revisions and source state. A result under an unknown or different environment \
+        is not evidence for the declared one."
+      remedy := "Repair the workspace so Lake can load it with its exact toolchain and \
+        dependencies, then rerun the same command."
       rewrites := [
-        "Read the original setup error in the diagnostic detail and fix it: a missing path dependency, an unresolvable Git revision, or a toolchain that does not match `lean-toolchain`.",
-        "Provision pinned dependencies (for example `lake exe cache get` for Mathlib) before auditing; provisioning is setup, not verification.",
+        "Read the original setup error in the diagnostic detail and fix it: a missing path \
+          dependency, an unresolvable Git revision, or a toolchain that does not match \
+          `lean-toolchain`.",
+        "Provision pinned dependencies (for example `lake exe cache get` for Mathlib) before \
+          auditing; provisioning is setup, not verification.",
         "Rerun the audit; a new run produces new, complete evidence."]
       examples := {
         language := .json
-        audience := .qualification "The examples are the qualification runner's requests for the same `Example.lean`."
+        audience :=
+            .qualification
+                "The examples are the qualification runner's requests for the same `Example.lean`."
         compliant := include_str "../../examples/rules/RG2001/Fixed.json"
         noncompliant := include_str "../../examples/rules/RG2001/Violation.json"
-        correction := "The correction removes a Lake dependency that cannot be resolved (the violating workspace adds `require unavailable from \"./missing\"`); the Lean source is unchanged." } }
+        correction := "The correction removes a Lake dependency that cannot be resolved (the \
+          violating workspace adds `require unavailable from \"./missing\"`); the Lean source is \
+          unchanged." } }
   | .configuration => {
       title := "Configuration must classify the complete Lake surface", category := .configuration
       normativeClauses := [.lakeSurfaces]
       applicability := "configuration"
       availability := .existingChecker
       evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
-      requirement := "`foundation_manifest.json` is valid schema 2 and classifies every root `lean_lib` and `lean_exe` exactly once."
-      rationale := "Coverage is only meaningful against a complete, exact classification. Silently ignoring an unknown key or an unclassified target would let modules escape the audit or let a typo change the claim."
-      remedy := "Fix the manifest: exactly the four top-level keys, one entry per root `lean_lib` and `lean_exe` (claimed or excluded with a rationale), and valid `claim` and `execution` values."
+      requirement := "`foundation_manifest.json` is valid schema 2 and classifies every root \
+        `lean_lib` and `lean_exe` exactly once."
+      rationale := "Coverage is only meaningful against a complete, exact classification. Silently \
+        ignoring an unknown key or an unclassified target would let modules escape the audit or \
+        let a typo change the claim."
+      remedy := "Fix the manifest: exactly the four top-level keys, one entry per root `lean_lib` \
+        and `lean_exe` (claimed or excluded with a rationale), and valid `claim` and `execution` \
+        values."
       rewrites := [
         "Remove or correct unknown keys and invalid values; the diagnostic names them.",
-        "Add each root library and executable to `surfaces` or to the matching exclusion array, with a rationale.",
-        "A claimed executable must be a standalone root such as `Main`; its root module cannot belong to a manifested library.",
-        "Run `lake lint -- --explain-config` to see the manifest, scope, profiles and stages the driver would use, without auditing."]
+        "Add each root library and executable to `surfaces` or to the matching exclusion array, \
+          with a rationale.",
+        "A claimed executable must be a standalone root such as `Main`; its root module cannot \
+          belong to a manifested library.",
+        "Run `lake lint -- --explain-config` to see the manifest, scope, profiles and stages the \
+          driver would use, without auditing."]
       examples := {
         language := .json
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2002/Fixed.json"
         noncompliant := include_str "../../examples/rules/RG2002/Violation.json"
-        correction := "The examples are `foundation_manifest.json` files. The correction removes the unknown manifest key without changing the selected source, profile or execution requirement." } }
+        correction := "The examples are `foundation_manifest.json` files. The correction removes \
+          the unknown manifest key without changing the selected source, profile or execution \
+          requirement." } }
   | .sourceBuild => {
       title := "Claimed source must elaborate warning-free", category := .elaboration
       normativeClauses := [.cleanElaboration]
       applicability := "source-build"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Every claimed module elaborates from source without errors or warnings; Lean's default warnings stay enabled, and disabling a linter never discharges what it checks."
-      rationale := "Warnings often mark real defects (unused hypotheses, deprecated semantics, unreachable cases). Treating them as failures keeps the elaborated statements exactly those the author intended, and prevents a local option from changing what conformance means."
-      remedy := "Fix the compiler diagnostic at its source. Never disable a Lean default warning; disable a community linter only for one declaration, where its guidance allows, with the reason."
+      requirement := "Every claimed module elaborates from source without errors or warnings; \
+        Lean's default warnings stay enabled, and disabling a linter never discharges what it \
+        checks."
+      rationale := "Warnings often mark real defects (unused hypotheses, deprecated semantics, \
+        unreachable cases). Treating them as failures keeps the elaborated statements exactly \
+        those the author intended, and prevents a local option from changing what conformance \
+        means."
+      remedy := "Fix the compiler diagnostic at its source. Never disable a Lean default warning; \
+        disable a community linter only for one declaration, where its guidance allows, with the \
+        reason."
       rewrites := [
         "Read the preserved compiler message, fix the cause and rebuild.",
-        "Remove dead bindings or rename intentionally unused ones only when the name was genuinely unused; do not rename a variable that should have been used.",
-        "Do not add `set_option linter.… false` for a Lean default warning such as `linter.unusedVariables`. A declaration-scoped `set_option linter.NAME false in` or `@[nolint NAME]` is only for a community linter, enabled by a dependency or the project, where its guidance allows, and establishes nothing the linter checks."]
+        "Remove dead bindings or rename intentionally unused ones only when the name was genuinely \
+          unused; do not rename a variable that should have been used.",
+        "Do not add `set_option linter.… false` for a Lean default warning such as \
+          `linter.unusedVariables`. A declaration-scoped `set_option linter.NAME false in` or \
+          `@[nolint NAME]` is only for a community linter, enabled by a dependency or the project, \
+          where its guidance allows, and establishes nothing the linter checks."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2003/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2003/Violation.lean"
-        correction := "The correction removes a dead lambda binding while preserving identity's complete natural-number behavior. No warning or linter is disabled." } }
+        correction := "The correction removes a dead lambda binding while preserving identity's \
+          complete natural-number behavior. No warning or linter is disabled." } }
   | .coverage => {
       title := "Owned coverage must match the exact Lake inventory", category := .coverage
       normativeClauses := [.lakeSurfaces]
       applicability := "coverage"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Every owned module belongs to exactly one manifested library, and no claimed module imports an excluded or checker-probe module."
-      rationale := "A conformance claim covers an exact set of modules. A module imported into a claimed library but outside every surface would contribute declarations nobody classified, and an umbrella import alone does not define that set."
-      remedy := "Remove the forbidden import, or add the module to the intended claimed library's globs, so every owned module belongs to exactly one classified target."
+      requirement := "Every owned module belongs to exactly one manifested library, and no claimed \
+        module imports an excluded or checker-probe module."
+      rationale := "A conformance claim covers an exact set of modules. A module imported into a \
+        claimed library but outside every surface would contribute declarations nobody classified, \
+        and an umbrella import alone does not define that set."
+      remedy := "Remove the forbidden import, or add the module to the intended claimed library's \
+        globs, so every owned module belongs to exactly one classified target."
       rewrites := [
-        "Delete imports of excluded modules (for example checker or fixture modules) from claimed code.",
-        "Use a glob with the intended meaning, such as ``.andSubmodules `Lib`` in `lakefile.lean` or `[\"Lib\", \"Lib.+\"]` in `lakefile.toml`, so every intended module is in the library.",
+        "Delete imports of excluded modules (for example checker or fixture modules) from claimed \
+          code.",
+        "Use a glob with the intended meaning, such as ``.andSubmodules `Lib`` in `lakefile.lean` \
+          or `[\"Lib\", \"Lib.+\"]` in `lakefile.toml`, so every intended module is in the \
+          library.",
         "Classify any new root library or executable in the manifest (RG2002)."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2004/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2004/Violation.lean"
-        correction := "The correction removes an unused forbidden reporter import; the reflexivity statement and its assumptions are unchanged." } }
+        correction := "The correction removes an unused forbidden reporter import; the reflexivity \
+          statement and its assumptions are unchanged." } }
   | .admission => {
       title := "Required admission and source evidence must be complete", category := .admission
       normativeClauses := [.cleanElaboration]
       applicability := "admission"
       availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Owned declarations pass kernel replay from the exact frozen sources; no metaprogram adds unchecked declarations."
-      rationale := "Successful elaboration alone is not checked admission: metaprograms and debug options can store declarations the kernel never checked. An accepted result must rest on kernel-checked evidence for the exact frozen sources."
-      remedy := "Remove the construction that bypasses kernel checking (or the source change during the run), then run the project command that collects the missing evidence."
+      requirement := "Owned declarations pass kernel replay from the exact frozen sources; no \
+        metaprogram adds unchecked declarations."
+      rationale := "Successful elaboration alone is not checked admission: metaprograms and debug \
+        options can store declarations the kernel never checked. An accepted result must rest on \
+        kernel-checked evidence for the exact frozen sources."
+      remedy := "Remove the construction that bypasses kernel checking (or the source change \
+        during the run), then run the project command that collects the missing evidence."
       rewrites := [
-        "Remove uses of `debug.skipKernelTC`, `addDecl` with unchecked values, or other metaprograms that add unchecked declarations; state and prove the theorem normally.",
+        "Remove uses of `debug.skipKernelTC`, `addDecl` with unchecked values, or other \
+          metaprograms that add unchecked declarations; state and prove the theorem normally.",
         "Do not edit sources while an audit runs; rerun it.",
         "For an editor pending result, run `lake lint` (or `lake lint -- --fresh`)."]
       examples := {
@@ -516,7 +747,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2005/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2005/Violation.lean"
-        correction := "The correction replaces ill-typed unchecked evidence with a checked proof of the same reflexivity statement." } }
+        correction := "The correction replaces ill-typed unchecked evidence with a checked proof \
+          of the same reflexivity statement." } }
   | .communityConfiguration => {
       title := "Claimed targets must build with the community configuration"
       category := .configuration
@@ -524,21 +756,24 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "community-configuration"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Each claimed target turns `autoImplicit` and `relaxedAutoImplicit` off in \
-        `leanOptions`, disables no linter beyond the §6.7 exclusions and with Mathlib enables its \
-        standard set; no `-D` undoes this."
-      rationale := "An automatic implicit adds a binder the source does not show, so the elaborated \
+      requirement := "Each claimed target sets in `leanOptions`: automatic implicits off, \
+        `linter.missingDocs` on, no linter off beyond the §6.7 exclusions and, with Mathlib, its \
+        standard set on; no `-D` undoes this."
+      rationale := "An automatic implicit adds a binder the source does not show, so the \
+        elaborated \
         statement can quantify over more than the text a reviewer compares with the intent. A \
-        linter turned off for a whole target hides its warnings from the warning-free build \
-        (RG2003). A `-D` extra `lean` argument can override `leanOptions`, where the audit reads \
-        these options."
+        linter reports only where it is on: without `linter.missingDocs`, or with a linter off \
+        for a whole target, the warning-free build (RG2003) never sees those warnings. A `-D` \
+        extra `lean` argument can override `leanOptions`, where the audit reads these options."
       remedy := "Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` \
-        false and, with Mathlib, the standard set and its three §6.7 exclusions; remove other \
-        linter disables and each `-D` extra `lean` argument that overrides these options."
+        false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 \
+        exclusions; remove other linter disables and each `-D` extra `lean` argument that \
+        overrides these options."
       rewrites := [
-        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩`` to `leanOptions` \
-          (`autoImplicit = false` and `relaxedAutoImplicit = false` under `[leanOptions]` in \
-          `lakefile.toml`), then declare each universe and implicit the build reports as unknown.",
+        "Add ``⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, \
+          ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
+          `lakefile.toml`), then declare each universe and implicit the build reports as unknown \
+          and document each declaration it reports.",
         "With Mathlib, also set `weak.linter.mathlibStandardSet` to true and \
           `weak.linter.style.header`, `weak.linter.hashCommand` false and \
           `weak.linter.style.longFile` 0.",
@@ -552,19 +787,25 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         compliant := include_str "../../examples/rules/RG2006/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG2006/Violation.lean"
         correction := "The examples are the package's `lakefile.lean` (the corpus run adds its \
-          `require regula` line). The correction turns automatic implicits off without changing \
-          the library, its source or its other options." } }
+          `require regula` line). The correction adds the three options every claimed target \
+          sets, automatic implicits off and `linter.missingDocs` on, without changing the \
+          library or its source." } }
   | .executionUnresolved => {
       title := "Execution closure must have no unresolved paths", category := .execution
       normativeClauses := [.computationMechanisms]
       applicability := "execution-unresolved"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Every path in an executable root's execution closure resolves; no metaprogram hides replacement history."
-      rationale := "An execution account that silently skipped an unresolved path would overstate what the compiled program is known to run."
-      remedy := "Remove the construction that prevents the analysis (for example a metaprogramming command such as `run_cmd` in the module), or make the missing compiled code available, then rerun."
+      requirement := "Every path in an executable root's execution closure resolves; no \
+        metaprogram hides replacement history."
+      rationale := "An execution account that silently skipped an unresolved path would overstate \
+        what the compiled program is known to run."
+      remedy := "Remove the construction that prevents the analysis (for example a metaprogramming \
+        command such as `run_cmd` in the module), or make the missing compiled code available, \
+        then rerun."
       rewrites := [
-        "Remove metaprogramming commands from modules whose `implemented_by` history must be authenticated, or move them elsewhere.",
+        "Remove metaprogramming commands from modules whose `implemented_by` history must be \
+          authenticated, or move them elsewhere.",
         "Ensure every dependency's compiled code is available in the build.",
         "Break cycles consisting only of replacement edges."]
       examples := {
@@ -572,35 +813,51 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG3001/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG3001/Violation.lean"
-        correction := "The correction removes a no-effect `run_cmd` metaprogramming command that prevents history authentication; the reference, replacement and correspondence theorem are unchanged." } }
+        correction := "The correction removes a no-effect `run_cmd` metaprogramming command that \
+          prevents history authentication; the reference, replacement and correspondence theorem \
+          are unchanged." } }
   | .executionBoundary => {
       title := "Checked execution requires admitted correspondence", category := .execution
       normativeClauses := [.computationMechanisms]
       applicability := "execution-trusted-boundary"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Under `\"execution\": \"checked\"`, every reachable replacement or `extern` boundary has a kernel-checked equality with its reference."
-      rationale := "`@[implemented_by g] def f` makes the kernel reason about `f` while compiled code runs `g`. Without a proof relating them, theorems about `f` say nothing about the program's behavior."
-      remedy := "Prove the replacement equal to its reference on the complete domain, or remove the trusted boundary, or claim `report` execution instead and keep the boundary reported."
+      requirement := "Under `\"execution\": \"checked\"`, every reachable replacement or `extern` \
+        boundary has a kernel-checked equality with its reference."
+      rationale := "`@[implemented_by g] def f` makes the kernel reason about `f` while compiled \
+        code runs `g`. Without a proof relating them, theorems about `f` say nothing about the \
+        program's behavior."
+      remedy := "Prove the replacement equal to its reference on the complete domain, or remove \
+        the trusted boundary, or claim `report` execution instead and keep the boundary reported."
       rewrites := [
-        "State and prove `theorem f_eq (x) : f x = g x` (either direction, any prefix of the domain with congruence) for the full domain, including implicit and instance arguments.",
+        "State and prove `theorem f_eq (x) : f x = g x` (either direction, any prefix of the \
+          domain with congruence) for the full domain, including implicit and instance arguments.",
         "Replace `implemented_by` with a proof-backed `@[csimp]` equality where it fits.",
-        "If an external boundary is intended (an `extern` implementation, or unsafe or partial code in an unclaimed dependency), claim `report` execution, where it is reported as trusted and not failed. An owned `unsafe` or `partial` declaration on a claimed surface still fails RG1006 in either mode."]
+        "If an external boundary is intended (an `extern` implementation, or unsafe or partial \
+          code in an unclaimed dependency), claim `report` execution, where it is reported as \
+          trusted and not failed. An owned `unsafe` or `partial` declaration on a claimed surface \
+          still fails RG1006 in either mode."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG3002/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG3002/Violation.lean"
-        correction := "The correction adds the missing equality between the reference and its replacement on the full natural-number domain, keeping the checked execution claim and both implementations." } }
+        correction := "The correction adds the missing equality between the reference and its \
+          replacement on the full natural-number domain, keeping the checked execution claim and \
+          both implementations." } }
   | .fenceStructure => {
       title := "Documentation fences must have a valid classification", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "fence-structure"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
-      requirement := "Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before the `lean` fence it classifies, and every fence is closed."
-      rationale := "A misspelled or misplaced marker must not silently turn a negative example into a positive one or hide a fence from checking. Fail-closed structure keeps every documented Lean claim checked as intended."
-      remedy := "Put each `lean-fail` or `lean-trusted-compiler` marker immediately before the `lean` fence it classifies, with a valid pattern, and close every fence."
+      requirement := "Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before \
+        the `lean` fence it classifies, and every fence is closed."
+      rationale := "A misspelled or misplaced marker must not silently turn a negative example \
+        into a positive one or hide a fence from checking. Fail-closed structure keeps every \
+        documented Lean claim checked as intended."
+      remedy := "Put each `lean-fail` or `lean-trusted-compiler` marker immediately before the \
+        `lean` fence it classifies, with a valid pattern, and close every fence."
       rewrites := [
         "Move the marker so no blank line or other content separates it from its fence.",
         "Delete orphan markers, or add the fence they were meant to classify.",
@@ -610,63 +867,86 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG4001/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4001/Violation.md"
-        correction := "The correction removes the orphan marker; the positive reflexivity fence is unchanged." } }
+        correction :=
+            "The correction removes the orphan marker; the positive reflexivity fence is \
+              unchanged." } }
   | .positiveExample => {
-      title := "Positive examples require warning-free elaboration and admission", category := .documentation
+      title := "Positive examples require warning-free elaboration and admission", category :=
+          .documentation
       normativeClauses := [.documentationChecks]
       applicability := "positive-example"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
-      requirement := "An unmarked `lean` fence in the checked docs elaborates verbatim and warning-free and passes the declaration and axiom rules."
-      rationale := "Readers copy documented examples and trust them. A positive example that does not elaborate, or that proves its claim with an axiom, teaches a false claim."
-      remedy := "Make the example correct as printed: fix its errors or warnings, and make its declarations satisfy the same rules as project code."
+      requirement := "An unmarked `lean` fence in the checked docs elaborates verbatim and \
+        warning-free and passes the declaration and axiom rules."
+      rationale := "Readers copy documented examples and trust them. A positive example that does \
+        not elaborate, or that proves its claim with an axiom, teaches a false claim."
+      remedy := "Make the example correct as printed: fix its errors or warnings, and make its \
+        declarations satisfy the same rules as project code."
       rewrites := [
-        "Fix the underlying finding shown with this diagnostic (for example prove the statement instead of declaring an axiom).",
-        "If the example is meant to fail, mark it with an exact `lean-fail` marker instead (RG4003).",
+        "Fix the underlying finding shown with this diagnostic (for example prove the statement \
+          instead of declaring an axiom).",
+        "If the example is meant to fail, mark it with an exact `lean-fail` marker instead \
+          (RG4003).",
         "Import what the example needs inside the fence; the checker inserts nothing."]
       examples := {
         language := .markdown
         audience := .adopter
         compliant := include_str "../../examples/rules/RG4002/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4002/Violation.md"
-        correction := "The correction proves the same reflexivity claim in the positive fence; the violation reports the RG1001 underlying rejection alongside RG4002." } }
+        correction := "The correction proves the same reflexivity claim in the positive fence; the \
+          violation reports the RG1001 underlying rejection alongside RG4002." } }
   | .negativeExample => {
       title := "Negative examples require completed intended rejection", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "negative-example"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
-      requirement := "A `lean-fail` fence fails to elaborate with one error message that matches its whole pattern."
-      rationale := "A negative example documents what Lean rejects. If it stops failing, or fails for another reason, the documentation claims a rejection that no longer holds."
-      remedy := "Make the example fail for exactly the documented reason, adjust the pattern to match one real error message, or remove the marker if the example is valid."
+      requirement := "A `lean-fail` fence fails to elaborate with one error message that matches \
+        its whole pattern."
+      rationale := "A negative example documents what Lean rejects. If it stops failing, or fails \
+        for another reason, the documentation claims a rejection that no longer holds."
+      remedy := "Make the example fail for exactly the documented reason, adjust the pattern to \
+        match one real error message, or remove the marker if the example is valid."
       rewrites := [
-        "If the example is actually valid, remove the `lean-fail` marker so it is checked as positive.",
-        "If it should fail, edit the example so it fails for the documented reason, and write a pattern that matches that one error message.",
+        "If the example is actually valid, remove the `lean-fail` marker so it is checked as \
+          positive.",
+        "If it should fail, edit the example so it fails for the documented reason, and write a \
+          pattern that matches that one error message.",
         "Keep patterns to literal fragments joined by `.*` and alternatives separated by `|`."]
       examples := {
         language := .markdown
         audience := .adopter
         compliant := include_str "../../examples/rules/RG4003/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4003/Violation.md"
-        correction := "The correction labels an already valid reflexivity proof as a positive example instead of inventing a compiler failure." } }
+        correction := "The correction labels an already valid reflexivity proof as a positive \
+          example instead of inventing a compiler failure." } }
   | .trustedExample => {
-      title := "Teaching examples require authenticated compiler classification", category := .documentation
+      title := "Teaching examples require authenticated compiler classification", category :=
+          .documentation
       normativeClauses := [.documentationChecks]
       applicability := "trusted-example"
       availability := .existingChecker
       evidenceModes := [.documentationExample]
-      requirement := "A `lean-trusted-compiler` fence elaborates warning-free and contains an authenticated compiler-trusting declaration."
-      rationale := "Conforming claims reject compiler-trusting proofs (RG1004). A teaching fence is how the documentation shows one: it is classified and never counts as a conforming positive. A marker on an ordinary example would hide it from positive checking."
-      remedy := "Use the marker only for an example that demonstrates `native_decide` (or another authenticated compiler-trusting mechanism); otherwise remove it."
+      requirement := "A `lean-trusted-compiler` fence elaborates warning-free and contains an \
+        authenticated compiler-trusting declaration."
+      rationale := "Conforming claims reject compiler-trusting proofs (RG1004). A teaching fence \
+        is how the documentation shows one: it is classified and never counts as a conforming \
+        positive. A marker on an ordinary example would hide it from positive checking."
+      remedy := "Use the marker only for an example that demonstrates `native_decide` (or another \
+        authenticated compiler-trusting mechanism); otherwise remove it."
       rewrites := [
-        "Remove the marker from an example that is an ordinary kernel proof; it is then checked as a positive example.",
-        "For a genuine teaching example, keep the `native_decide` proof and import only the module that provides it (for example `import Init`)."]
+        "Remove the marker from an example that is an ordinary kernel proof; it is then checked as \
+          a positive example.",
+        "For a genuine teaching example, keep the `native_decide` proof and import only the module \
+          that provides it (for example `import Init`)."]
       examples := {
         language := .markdown
         audience := .adopter
         compliant := include_str "../../examples/rules/RG4004/Fixed.md"
         noncompliant := include_str "../../examples/rules/RG4004/Violation.md"
-        correction := "The correction labels the same kernel proof as a positive example rather than as native teaching." } }
+        correction := "The correction labels the same kernel proof as a positive example rather \
+          than as native teaching." } }
   | .moduleDocumentation => {
       title := "Claimed modules need a leading module docstring and no repeated import"
       category := .documentation
@@ -674,7 +954,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "module-documentation"
       availability := .existingChecker
       evidenceModes := projectModes
-      requirement := "Every claimed module has a module docstring (`/-! … -/`) as its first command \
+      requirement := "Every claimed module has a module docstring (`/-! … -/`) as its first \
+        command \
         after the imports, and its header repeats no import with the same modifiers."
       rationale := "Module documentation tells a reader which declarations carry the module's \
         claims and under which assumptions, so the claims can be reviewed without reading every \
@@ -697,43 +978,60 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG5001/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5001/Violation.lean"
-        correction := "The correction adds module documentation to the unchanged reflexivity evidence." } }
+        correction :=
+            "The correction adds module documentation to the unchanged reflexivity evidence." } }
   | .materialDocumentation => {
-      title := "Registered public material declarations require docstrings", category := .documentation
+      title := "Registered public material declarations require docstrings", category :=
+          .documentation
       normativeClauses := [.inlineDocumentation]
       applicability := "material-documentation"
       availability := .existingChecker
       evidenceModes := projectModes
-      requirement := "Every public `@[regula_material]` declaration has a docstring stating its purpose, hypotheses, result and boundary."
-      rationale := "A material claim must be readable without reconstructing it from the proof: the docstring states what the declaration establishes and under which assumptions, and binds the written intent to that exact declaration."
-      remedy := "Add a docstring stating the declaration's formal purpose, domain and hypotheses, result and boundary, with a labelled `# Intent` section (RG5003)."
+      requirement := "Every public `@[regula_material]` declaration has a docstring stating its \
+        purpose, hypotheses, result and boundary."
+      rationale := "A material claim must be readable without reconstructing it from the proof: \
+        the docstring states what the declaration establishes and under which assumptions, and \
+        binds the written intent to that exact declaration."
+      remedy := "Add a docstring stating the declaration's formal purpose, domain and hypotheses, \
+        result and boundary, with a labelled `# Intent` section (RG5003)."
       rewrites := [
-        "Add `/-- … -/` immediately before the declaration, stating purpose, domain and hypotheses, result and boundary (standard §5.1).",
-        "Include a `# Intent` section with the requirement the claim must meet (standard §5.2); a missing Intent section is RG5003."]
+        "Add `/-- … -/` immediately before the declaration, stating purpose, domain and \
+          hypotheses, result and boundary (standard §5.1).",
+        "Include a `# Intent` section with the requirement the claim must meet (standard §5.2); a \
+          missing Intent section is RG5003."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG5002/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5002/Violation.lean"
-        correction := "The correction adds the registered theorem's docstring, including its `# Intent` section; registration, proposition and proof are unchanged." } }
+        correction := "The correction adds the registered theorem's docstring, including its `# \
+          Intent` section; registration, proposition and proof are unchanged." } }
   | .materialIntent => {
-      title := "Registered public material declarations require an Intent section", category := .documentation
+      title := "Registered public material declarations require an Intent section", category :=
+          .documentation
       normativeClauses := [.faithfulExplanation]
       applicability := "material-intent"
       availability := .existingChecker
       evidenceModes := projectModes
-      requirement := "Every public `@[regula_material]` docstring has a nonempty `# Intent` section stating the requirement the claim must meet."
-      rationale := "The explanation states what the formal statement says; the intent states what it is required to say. Comparing the two, and both with the declaration, exposes statements that are faithfully explained but wrong (standard §5.2)."
-      remedy := "Add a heading whose text is exactly `Intent` to the docstring, followed by the requirement the claim must meet, stated from the source mathematics or specification."
+      requirement := "Every public `@[regula_material]` docstring has a nonempty `# Intent` \
+        section stating the requirement the claim must meet."
+      rationale := "The explanation states what the formal statement says; the intent states what \
+        it is required to say. Comparing the two, and both with the declaration, exposes \
+        statements that are faithfully explained but wrong (standard §5.2)."
+      remedy := "Add a heading whose text is exactly `Intent` to the docstring, followed by the \
+        requirement the claim must meet, stated from the source mathematics or specification."
       rewrites := [
-        "Add `# Intent` with the requirement in your own words, derived from the source mathematics or program specification, not from the Lean statement.",
+        "Add `# Intent` with the requirement in your own words, derived from the source \
+          mathematics or program specification, not from the Lean statement.",
         "Prefer a level-one heading; a top-level Verso docstring header must be `#`."]
       examples := {
         language := .lean
         audience := .adopter
         compliant := include_str "../../examples/rules/RG5003/Fixed.lean"
         noncompliant := include_str "../../examples/rules/RG5003/Violation.lean"
-        correction := "The correction adds a nonempty `# Intent` section, structured with a `## Requirement` subsection, to the registered theorem's existing docstring; the explanation, registration, proposition and proof are unchanged." } }
+        correction := "The correction adds a nonempty `# Intent` section, structured with a `## \
+          Requirement` subsection, to the registered theorem's existing docstring; the \
+          explanation, registration, proposition and proof are unchanged." } }
 
 /-- Every rule names at least one compliant rewrite, checked exhaustively over the closed
 registry by kernel evaluation (list shape only, so no string literal is reduced). Field

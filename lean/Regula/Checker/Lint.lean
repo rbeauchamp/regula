@@ -8,7 +8,8 @@ import Regula.Checker.AxiomGate
 It runs the same project audit body as `axiomGate` (incremental by default, fresh with
 `--fresh`) and maps that audit's own recorded terminal status to four exit classes through the
 claimed `RegulaCore.Lint.classify`. It adds no detector, policy or acceptance path: its
-success line is `Account.pass` of the accepted account the audit recorded. `--explain-config` is a read-only
+success line is `Account.pass` of the accepted account the audit recorded. `--explain-config` is a
+read-only
 account of the configuration an audit would use; it runs no audit and, like `--help`, exits
 with the non-success configuration class, so a `lintDriverArgs` entry cannot make every
 `lake lint` succeed.
@@ -18,17 +19,30 @@ namespace Regula.Checker.Lint
 
 open Lean System
 
+/-- The command-line options of one `lake lint` run of this driver, as `parseArgs` reads them. -/
 structure Options where
+  /-- `--project DIR`: the project to audit instead of the current one. -/
   project : Option String := none
+  /-- `--manifest PATH`: the surface manifest instead of `foundation_manifest.json`. -/
   manifest : Option String := none
+  /-- `--json-out PATH`: where the audit writes its versioned result JSON. -/
   jsonOut : Option String := none
+  /-- `--fresh`: audit an isolated copy built from empty output instead of incrementally. -/
   fresh : Bool := false
+  /-- `--verbose`: pass `--verbose` to the audit, which then also prints every classified
+  declaration. -/
   verbose : Bool := false
+  /-- `--explain-config`: print the configuration an audit would use, run no audit and exit
+  with the configuration class. -/
   explain : Bool := false
+  /-- `--help` or `-h`: print the usage text, run no audit and exit with the configuration
+  class. -/
   help : Bool := false
 
+/-- The usage text: the accepted arguments and the meaning of each exit code. -/
 def usage : String :=
-  "usage: lake lint [-- [--fresh] [--project DIR] [--manifest PATH] [--json-out PATH] [--verbose]]\n" ++
+  "usage: lake lint [-- [--fresh] [--project DIR] [--manifest PATH] [--json-out PATH] \
+    [--verbose]]\n" ++
   "       lake lint -- --explain-config [--fresh] [--project DIR] [--manifest PATH]\n" ++
   "Checks every manifested Lake surface: incremental elaboration with current policy\n" ++
   "inspection by default, or an isolated fresh build with --fresh.\n" ++
@@ -90,7 +104,9 @@ private def explain (options : Options) : IO Outcome := do
     | none => Manifest.defaultPath repo
   IO.println "regula lint configuration (read-only; no audit was run)"
   IO.println s!"project: {repo}"
-  IO.println s!"manifest: {manifestPath} ({if options.manifest.isSome then "--manifest" else "project-root default"})"
+  IO.println
+      s!"manifest: {manifestPath} \
+        ({if options.manifest.isSome then "--manifest" else "project-root default"})"
   let manifest ← Manifest.load manifestPath
   let inventory ← Lake.surfaceInventory repo
   discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
@@ -98,7 +114,8 @@ private def explain (options : Options) : IO Outcome := do
   IO.println s!"mode: {modeText options.fresh}"
   IO.println s!"required stages: {", ".intercalate (projectStages.map ResultProtocol.stageName)}"
   for surface in manifest.surfaces do
-    let modules := ((inventory.libraries.find? (·.library == surface.library)).map (·.modules)).getD #[]
+    let modules := ((inventory.libraries.find? (·.library == surface.library)).map (·.modules)).getD
+        #[]
     IO.println s!"surface {surface.library}: claim {surface.claim}, execution {surface.execution}"
     IO.println s!"  modules: {", ".intercalate (modules.map toString).toList}"
     unless surface.executables.isEmpty do
@@ -107,7 +124,8 @@ private def explain (options : Options) : IO Outcome := do
     IO.println s!"excluded library {excluded.library}: {excluded.rationale}"
   for excluded in manifest.excludedExecutables do
     IO.println s!"excluded executable {excluded.executable}: {excluded.rationale}"
-  IO.println ("not run by this command: documentation fences (`lake exe axiomGate --with-docs`); " ++
+  IO.println
+      ("not run by this command: documentation fences (`lake exe axiomGate --with-docs`); " ++
     "editor options such as linter.regula affect only local feedback")
   return .configuration
 
@@ -161,12 +179,14 @@ private unsafe def lint (args : List String) : IO Outcome := do
         return .configuration
     if let some message ← dispatchRefusal then return ← refuse message
     if options.explain then return ← explain options
-    IO.println s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}"
+    IO.println
+        s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}"
     (← IO.getStdout).flush
     let worker ← Lake.buildTargets (← repoRoot) #[workerTarget]
     unless worker.succeeded && (← (← workerBinary).pathExists) do
       IO.eprintln worker.output
-      IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did not build"
+      IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did not \
+        build"
       return .incomplete
     AxiomGate.claimedBuild.set Lake.buildAuditTargets
     let code ← AxiomGate.entry (gateArgs options)
@@ -182,7 +202,8 @@ private unsafe def lint (args : List String) : IO Outcome := do
 incomplete otherwise, never the violation class. -/
 unsafe def run (args : List String) : IO UInt32 := do
   let outcome ← try lint args catch error =>
-    let outcome := if error.toString.startsWith "manifest-" then Outcome.configuration else .incomplete
+    let outcome := if error.toString.startsWith "manifest-" then Outcome.configuration else
+                                                                  .incomplete
     IO.eprintln s!"regula lint: {outcome.label}: {error}"
     pure outcome
   return outcome.exitCode

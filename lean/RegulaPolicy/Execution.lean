@@ -4,10 +4,15 @@ import Regula.Contract
 /-! # Execution decisions
 
 Executable execution decisions and their exact finite-observation specification.
-Neither policy equivalence nor admitted origin data proves extraction or native runtime correctness. -/
+Neither policy equivalence nor admitted origin data proves extraction or native runtime
+correctness. -/
 namespace RegulaPolicy
+/-- Which execution rule a failure belongs to. -/
 inductive ExecutionFailureKind where
-  | executionUnresolved | executionBoundary
+  /-- An unresolved path, or a boundary whose correspondence is unresolved (RG3001). -/
+  | executionUnresolved
+  /-- A trusted boundary that a checked-correspondence claim does not admit (RG3002). -/
+  | executionBoundary
   deriving Repr, DecidableEq
 
 /-- Execution-claim failures over the typed coverage account. Unresolved
@@ -15,8 +20,11 @@ paths and unclassified boundaries block in every mode; a trusted boundary
 blocks a checked-correspondence claim unless it is a toolchain native-runtime
 primitive. -/
 structure ExecutionFailure where
+  /-- The rule the failure belongs to. -/
   id : ExecutionFailureKind
+  /-- The execution root whose closure reaches the failing path or boundary. -/
   root : ExecutionRoot
+  /-- Human-readable text naming the root and the unresolved path or reached boundary. -/
   detail : String
 
 /-- A resolved boundary in checked mode has checked evidence or the typed native-runtime
@@ -31,7 +39,8 @@ instance (claim : ExecutionClaim) (b : ExecutionBoundary) : Decidable (BoundaryO
 Completeness of actual execution-root/closure extraction is a separate operational obligation. -/
 def ExecutionOK (inventory : ExecutionInventory) (claim : ExecutionClaim) : Prop :=
   ∀ r ∈ inventory.roots, r.unresolved = #[] ∧ ∀ b ∈ r.boundaries, BoundaryOK claim b
-instance (inventory : ExecutionInventory) (claim : ExecutionClaim) : Decidable (ExecutionOK inventory claim) := by
+instance (inventory : ExecutionInventory) (claim : ExecutionClaim) : Decidable
+    (ExecutionOK inventory claim) := by
   unfold ExecutionOK; infer_instance
 
 /-- One boundary's deterministic diagnostic, retaining unresolved-before-trusted precedence. -/
@@ -49,12 +58,16 @@ def rootFailures (root : ExecutionRoot) (claim : ExecutionClaim) : Array Executi
   root.unresolved.map (fun item => ⟨.executionUnresolved, root, s!"{root.name}: {item}"⟩) ++
     root.boundaries.flatMap (boundaryFailures root claim)
 
+/-- Every execution failure of the inventory under `claim`: each root's failures
+(`rootFailures`), in root order. It is empty exactly when `ExecutionOK` holds
+(`executionFailureRecords_empty_iff`). -/
 def executionFailureRecords (inventory : ExecutionInventory)
     (claim : ExecutionClaim) : Array ExecutionFailure :=
   inventory.roots.flatMap (fun root => rootFailures root claim)
 
 /-- All and only boundary-policy violations produce a failure. -/
-theorem boundaryFailures_empty_iff (r : ExecutionRoot) (c : ExecutionClaim) (b : ExecutionBoundary) :
+theorem boundaryFailures_empty_iff (r : ExecutionRoot) (c : ExecutionClaim)
+    (b : ExecutionBoundary) :
     boundaryFailures r c b = #[] ↔ BoundaryOK c b := by
   unfold boundaryFailures BoundaryOK
   cases c <;> cases hb : b.correspondence <;> simp
@@ -92,10 +105,15 @@ theorem rootFailures_ids (r : ExecutionRoot) (c : ExecutionClaim) :
 
 /-- Named execution-coverage counts rendered by gate output. -/
 structure ExecutionSummary where
+  /-- The number of execution-root observations. -/
   roots : Nat
+  /-- The number of boundary observations over all roots. -/
   boundaries : Nat
+  /-- The number of boundary observations with checked correspondence. -/
   checked : Nat
+  /-- The number of boundary observations with trusted correspondence. -/
   trusted : Nat
+  /-- The number of unresolved diagnostics: unresolved root paths plus unresolved boundaries. -/
   unresolved : Nat
   deriving Repr, DecidableEq
 

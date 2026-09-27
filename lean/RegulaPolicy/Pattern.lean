@@ -7,9 +7,12 @@ linked to explicit grammar and ordered-split relations. A match concerns one eff
 error message; message severity and producer completion are operational observations. -/
 namespace RegulaPolicy
 
+/-- The pattern without its optional leading `(?s)` marker. -/
 def patternBody (pattern : String) : String :=
   if pattern.startsWith "(?s)" then pattern.drop 4 |>.toString else pattern
 
+/-- The pattern body split at `|` into alternatives, each split at `.*` into the literals that
+must occur in order. -/
 def patternAlternatives (pattern : String) : List (List String) :=
   (patternBody pattern).splitOn "|" |>.map (·.splitOn ".*")
 
@@ -56,7 +59,8 @@ theorem orderedLiterals_iff (literals : List String) (text : String) :
 
 /-- Invalid patterns are refused even when a direct caller omits scanner validation. -/
 def matchesPattern (pattern text : String) : Bool :=
-  decide (PatternValid pattern) && (patternAlternatives pattern).any (fun ls => orderedLiterals ls text)
+  decide (PatternValid pattern) && (patternAlternatives pattern).any
+      (fun ls => orderedLiterals ls text)
 
 /-- All and only the declared valid ordered-split relations are recognized. -/
 theorem matchesPattern_iff (pattern text : String) :

@@ -32,19 +32,33 @@ namespace Regula
 
 /-- A section of the standard cited by the rule registry. -/
 inductive Clause where
+  /-- §5.1 Inline Documentation Requirements. -/
   | inlineDocumentation
+  /-- §5.2 Faithful Explanation of Formal Claims. -/
   | faithfulExplanation
+  /-- §5.3 Module Documentation. -/
   | moduleDocumentation
+  /-- §6.2 Module Purpose and Linter Discipline. -/
   | linterDiscipline
+  /-- §6.4 Import Discipline. -/
   | importDiscipline
+  /-- §6.7 Community Conventions and Linters. -/
   | communityConventions
+  /-- §8.1 Declare the Elaboration Environment. -/
   | elaborationEnvironment
+  /-- §8.2 Define Surfaces Through Lake Semantics. -/
   | lakeSurfaces
+  /-- §8.3 Clean Elaboration and Diagnostics. -/
   | cleanElaboration
+  /-- §8.4 Inventory Every Owned Declaration. -/
   | declarationInventory
+  /-- §8.5 Proof Completeness and Foundation Strength. -/
   | proofCompleteness
+  /-- §8.6 Classify Lean Computation Mechanisms Exactly. -/
   | computationMechanisms
+  /-- §8.7 Check Lean Documentation Verbatim. -/
   | documentationChecks
+  /-- §8.12 Opt-in Enforcing Build Linter. -/
   | enforcingBuildLinter
   deriving DecidableEq, Repr
 
@@ -88,7 +102,8 @@ def title : Clause → String
 /-- The chapter's route below `standard/`, which is also its Verso part's `file`. Exhaustive, so
 a new clause cannot fall into another chapter by default. -/
 def chapter : Clause → String
-  | .inlineDocumentation | .faithfulExplanation | .moduleDocumentation => "5-documentation-standards"
+  | .inlineDocumentation | .faithfulExplanation | .moduleDocumentation =>
+                                                   "5-documentation-standards"
   | .linterDiscipline | .importDiscipline | .communityConventions => "6-code-organization"
   | .elaborationEnvironment | .lakeSurfaces | .cleanElaboration | .declarationInventory
   | .proofCompleteness | .computationMechanisms | .documentationChecks

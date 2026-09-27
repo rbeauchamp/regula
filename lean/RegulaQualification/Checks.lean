@@ -15,7 +15,9 @@ namespace RegulaQualification
 /-- A labeled executable assertion about an observation. Labels explain refusal;
 the Boolean is the exact predicate being checked, not evidence about external IO. -/
 structure Check where
+  /-- The text `evaluate` returns when this assertion is the first false one. -/
   label : String
+  /-- Whether the assertion is true of the supplied observation. -/
   holds : Bool
   deriving Repr, DecidableEq
 

@@ -68,7 +68,7 @@ names are the required-stage slots of `RegulaPolicy.Stage` whose observation the
 | RG2003 | §8.3; DECL-01, BUILD-01 | `Lake.buildChecked` result lines; file compile via `SourceAudit` | incremental, fresh, file | build | Acceptance side only (`BuildOK`) | corpus; build-policy, lint-driver (exit 3), `sourceDiagnosticFailure` controls | Project runs: always INCOMPLETE. File runs reject warnings only with `--claim` | Lake build |
 | RG2004 | §8.2; DECL-02/03 | Inline inventory checks in `AxiomGate` | incremental, fresh | discovery | Acceptance side only (`ScopeOK`, `checked_surfaceAssignments`) | corpus; structural, environments controls | Violation for `unexpected-project-module`; INCOMPLETE for omission, not-fresh, attribution mismatch | Lake module arrays, `.olean` origin |
 | RG2005 | §8.3; DECL-01/02 | `Admission.validate`, source freshness, authentication; editor pending | editor, incremental, fresh, file, docs | admission, transcript | Acceptance side (`AdmissionOK`); `editor_decision_pending` | corpus demonstration; fixture, history controls | Always INCOMPLETE; imported base trusted | Lean `Environment.replay` |
-| RG2006 | §8.1, §6.7, §6.2; DECL-01 | `RegulaPolicy.Community.failures` on each claimed target's Lake `leanOptions`, `weakLeanArgs` and `leanArgs` (`Lake.buildOptions`); Mathlib from the surface's loaded environment | incremental, fresh | configuration (reported after inspection; a violation does not stop the run) | `failures_eq_nil_iff`, `conforming_of_mathlib`, `leanArgument_mem_failures_iff` (the `-D` reading over argument characters) and five fixed-argument cases; reading Lake's configuration is operational | corpus; self-lint (Regula's own targets, Mathlib and core-only) | `linter.missingDocs` not yet decided; source `set_option`, `lake` command-line options and extra `lean` arguments other than `-D` not read | Lake `LeanLib`/`LeanExe` configuration |
+| RG2006 | §8.1, §6.7, §6.2; DECL-01 | `RegulaPolicy.Community.failures` on each claimed target's Lake `leanOptions`, `weakLeanArgs` and `leanArgs` (`Lake.buildOptions`); Mathlib from the surface's loaded environment | incremental, fresh | configuration (reported after inspection; a violation does not stop the run) | `failures_eq_nil_iff`, `conforming_of_mathlib`, `conforming_missingDocs`, `leanArgument_mem_failures_iff` (the `-D` reading over argument characters), `missingDocs_unset_fails` and five fixed-argument cases; reading Lake's configuration is operational | corpus; self-lint (Regula's own targets, Mathlib and core-only) | source `set_option`, `lake` command-line options and extra `lean` arguments other than `-D` not read | Lake `LeanLib`/`LeanExe` configuration |
 | RG3001 | §8.6; COMP-03 | `executionFailureRecords` → `RuleDiagnostics.executionFinding` | incremental, fresh, file | execution, history | `executionFailureRecords_empty_iff`, `checked_executionFailures`, `executionRule_injective` | corpus demonstration; policy-domain controls | Always INCOMPLETE; closure overapproximates runtime edges; not an editor rule | Lean compiler IR |
 | RG3002 | §8.6; COMP-03/04 | Same, checked-mode branch | incremental, fresh, file | execution, origin (Init native-runtime exemption) | Same; `BoundaryOK` | corpus; fixture, build-policy controls | Native runtime stays trusted; external code unproved | Lean compiler IR |
 | RG4001 | §8.7; DOC-03 | `Documentation.scan` | docs | documentScan | Acceptance side (`DocumentOK`); scanner unproved | corpus; fence corpus controls | Structure only | — |
@@ -234,6 +234,12 @@ control. They are observations of the operational adapters; the decisions they f
   `autoImplicit` set to `"true"`, exit 1.
 - The repository's `Audit` library without its Mathlib options: one RG2006 finding for `Audit`
   naming the four Mathlib options, exit 1; the core-only targets were not reported.
+- After `linter.missingDocs` joined the decision, the repository with that option removed from
+  the package `leanOptions` and `moreLeanArgs := #["-Dlinter.missingDocs=false"]` on
+  `RegulaPolicy` (`diagnostics self-lint`): one RG2006 finding for each of the eight claimed
+  targets naming `linter.missingDocs` as unset, and for `RegulaPolicy` also the `-D` argument,
+  exit 1. With the option set, one docstring removed from `RegulaCore.RuleId` failed the build
+  (`missing doc string for public def all`), which RG2003 reports.
 
 The two `moreLeanArgs` runs observe the adapter; the `-D` decision itself is kernel-checked in
 `RegulaPolicy.Community`. `leanArgument_mem_failures_iff` shows that it reports a `-D` argument
@@ -361,12 +367,6 @@ Review of the delivered product found and fixed:
   revision reads the latest deployed explanation there; the unchanged text of any published
   revision stays at `/rev/<commit>/rules/<ID>/`, and versioned `/v/` links await a release.
 - All nine residual obligations stay open; every accepted account lists them.
-- Known gap (recorded 2026-09-27): no claimed target of this repository enables
-  `linter.missingDocs` (standard §6.7; the 2026-09-26 community-alignment audit counted about
-  720 definitions without a docstring), so `DOGFOOD-01` does not hold for that obligation until
-  [#97](https://github.com/rbeauchamp/regula/issues/97) is closed. The other §6.7 options,
-  Mathlib's standard set on `Audit`, `AuditApp` and `auditApp`, are enabled and RG2006 checks
-  them.
 
 ## Optional external checking
 

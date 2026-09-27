@@ -68,30 +68,40 @@ The operational bridge separately checks correspondence with Lean's FileMap. -/
 def Position.validForLines (p : Position) (lines : List String) : Bool :=
   p.line > 0 && (lines[p.line - 1]?).any (fun line => p.column ≤ line.length)
 
+/-- `Position.validForLines` over the lines of `source`, split at each `\n`. -/
 def Position.validFor (p : Position) (source : String) : Bool :=
   p.validForLines (source.splitOn "\n")
 
+/-- `a` is at or before `b`: lines compared first, then columns on the same line. -/
 def positionLE (a b : Position) : Bool :=
   a.line < b.line || (a.line == b.line && a.column ≤ b.column)
 
+/-- The UTF-16 column of `p`: the UTF-16 code units of the first `p.column` characters of
+line `p.line` (a character above U+FFFF counts two). A missing line counts as empty. -/
 def utf16ColumnLines (p : Position) (lines : List String) : Nat :=
   (((lines[p.line - 1]?).getD "").toList.take p.column).foldl
     (fun n c => n + if c.toNat > 65535 then 2 else 1) 0
 
+/-- `utf16ColumnLines` over the lines of `source`, split at each `\n`. -/
 def utf16Column (p : Position) (source : String) : Nat :=
   utf16ColumnLines p (source.splitOn "\n")
 
+/-- Both ends select boundaries on existing lines, the start is not after the end, and the
+recorded UTF-16 columns equal those `utf16ColumnLines` computes for the two ends. -/
 def Range.validForLines (r : Range) (lines : List String) : Bool :=
   r.start.validForLines lines && r.end.validForLines lines && positionLE r.start r.end &&
   r.startUtf16 == utf16ColumnLines r.start lines && r.endUtf16 == utf16ColumnLines r.end lines
 
+/-- `Range.validForLines` over the lines of `source`, split at each `\n`. -/
 def Range.validFor (r : Range) (source : String) : Bool :=
   r.validForLines (source.splitOn "\n")
 
+/-- Both ranges are valid for the lines and the selection range lies within the full range. -/
 def Ranges.validForLines (r : Ranges) (lines : List String) : Bool :=
   r.range.validForLines lines && r.selectionRange.validForLines lines &&
   positionLE r.range.start r.selectionRange.start && positionLE r.selectionRange.end r.range.end
 
+/-- `Ranges.validForLines` over the lines of `source`, split at each `\n`. -/
 def Ranges.validFor (r : Ranges) (source : String) : Bool :=
   r.validForLines (source.splitOn "\n")
 
@@ -102,9 +112,11 @@ theorem Ranges.validForLines_eq (r : Ranges) (source : String) :
         positionLE r.range.start r.selectionRange.start &&
         positionLE r.selectionRange.end r.range.end) := rfl
 
+/-- Both ends select boundaries on existing lines and the start is not after the end. -/
 def Frontend.SyntaxRange.validForLines (r : Frontend.SyntaxRange) (lines : List String) : Bool :=
   r.start.validForLines lines && r.end.validForLines lines && positionLE r.start r.end
 
+/-- `Frontend.SyntaxRange.validForLines` over the lines of `source`, split at each `\n`. -/
 def Frontend.SyntaxRange.validFor (r : Frontend.SyntaxRange) (source : String) : Bool :=
   r.validForLines (source.splitOn "\n")
 
@@ -146,7 +158,8 @@ def declarationCoordinatesDecidable (decls : Array Declaration)
     (∀ d ∈ decls, d.module = moduleName → d.ranges.all (·.validForLines lines) = true) :=
   inferInstance
 
-instance instDecidableInventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Transcript) :
+instance instDecidableInventoryValid (decls : Array Declaration)
+    (transcripts : Array Frontend.Transcript) :
     Decidable (InventoryValid decls transcripts) := by
   unfold InventoryValid
   -- A let in the proposition is reduced during instance synthesis. Bind the
@@ -175,8 +188,11 @@ theorem inventoryValid_append_false_of_shared_name
 
 /-- No raw constructor or decoder can omit the inventory-validity proof. -/
 structure Inventory where
+  /-- The admitted declaration observations, in the order supplied. -/
   declarations : Array Declaration
+  /-- The admitted frontend transcripts, one per module, in the order supplied. -/
   transcripts : Array Frontend.Transcript
+  /-- Proof that the declarations and transcripts satisfy `InventoryValid`. -/
   valid : InventoryValid declarations transcripts
   deriving DecidableEq
 
@@ -315,17 +331,24 @@ instance instDecidableExecutionRootValid (r : ExecutionRoot) : Decidable r.Valid
     decidable_of_iff (n ∈ nodes) (by simp [nodes, Std.ExtHashSet.mem_ofList])
   infer_instance
 
+/-- Execution roots have pairwise distinct names and each satisfies `ExecutionRoot.Valid`. -/
 def ExecutionValid (roots : Array ExecutionRoot) : Prop :=
   UniqueNames (roots.map (·.name)) ∧ ∀ r ∈ roots, r.Valid
-instance instDecidableExecutionValid (roots : Array ExecutionRoot) : Decidable (ExecutionValid roots) := by
+instance instDecidableExecutionValid (roots : Array ExecutionRoot) : Decidable
+    (ExecutionValid roots) := by
   unfold ExecutionValid
   infer_instance
 
+/-- Execution-root observations bundled with the proof of their structural validity. -/
 structure ExecutionInventory where
+  /-- The admitted execution roots, in the order supplied. -/
   roots : Array ExecutionRoot
+  /-- Proof that the roots satisfy `ExecutionValid`. -/
   valid : ExecutionValid roots
   deriving DecidableEq
 
+/-- Admit the roots unchanged when `ExecutionValid` holds, and refuse them otherwise
+(`admitExecution_exact`, `admitExecution_preserves`). -/
 def admitExecution (roots : Array ExecutionRoot) : Except String ExecutionInventory :=
   if h : ExecutionValid roots then .ok ⟨roots, h⟩
   else .error "invalid execution inventory: identity, occurrence, or origin binding"

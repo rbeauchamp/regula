@@ -1,4 +1,5 @@
-/-! An unconditional pointwise proof over the complete input domain, including its proof argument. -/
+/-! An unconditional pointwise proof over the complete input domain, including its proof
+argument. -/
 def fixtures_pointwise_impl (n : Nat) (_h : 0 < n) : Nat := 2 * n
 @[implemented_by fixtures_pointwise_impl]
 def fixtures_pointwise_reference (n : Nat) (_h : 0 < n) : Nat := n + n

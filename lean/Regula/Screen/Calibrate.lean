@@ -22,31 +22,50 @@ open Questions
 
 /-- Whether the explanation describes the item's own statement or its base's. -/
 inductive Variant where
-  | faithful | stale
+  /-- The item's own explanation, which describes its own statement. -/
+  | faithful
+  /-- The base item's explanation paired with a mutant's statement, so the mutation shows
+  only in the Lean statement. -/
+  | stale
   deriving Repr, DecidableEq
 
+/-- The variant's name in the report and evidence rows: `faithful` or `stale`. -/
 def Variant.spelling : Variant → String
   | .faithful => "faithful" | .stale => "stale"
 
 /-- One labelled judged answer. -/
 structure Row where
+  /-- The corpus item judged; for a correspondence row, the formal definition. -/
   item : Name
+  /-- The item's mutation kind; `formalCorrect` or `formalWrong` for a correspondence row. -/
   mutation : Mutation
+  /-- The corpus split the item belongs to. -/
   split : Split
+  /-- The state mode the question was asked under. -/
   mode : StateMode
+  /-- Whether the explanation sent was the item's own or its base's. -/
   variant : Variant
+  /-- The judgment this answer is for. -/
   judgment : Judgment
+  /-- What was judged: `clause i` for coverage, `claim` for the claim-level judgments, or the
+  English clause for a correspondence row. -/
   subject : String
+  /-- Whether the corpus labels this subject a defect in the judged respect. -/
   defect : Bool
+  /-- The model's support probability; a value below the threshold is a finding. -/
   support : Decimal
+  /-- The digest of the request that produced the answer (its cache key). -/
   digest : String
   /-- For strength: the most probable option and the labelled option. -/
   strength? : Option (String × Strength) := none
 
+/-- The strength option's name, as the question offers it and the evidence rows record it. -/
 def Strength.spelling : Strength → String
   | .equivalent => "equivalent" | .stronger => "stronger" | .weaker => "weaker"
   | .incomparable => "incomparable"
 
+/-- A strength label is a defect when the claim is weaker than the intent or incomparable
+with it. -/
 def isDefectStrength : Strength → Bool
   | .weaker | .incomparable => true
   | .equivalent | .stronger => false
@@ -75,19 +94,26 @@ def judgeItem (cache : System.FilePath) (model : PinnedModel) (item : Item) (tex
     | _ => ""
   rows := rows.push { row .strength "claim" (isDefectStrength item.strength) support with
     strength? := some (chosen, item.strength) }
-  for (id, judgment, label) in [("quantifier_order", Judgment.quantifierOrder, item.quantifierOrder),
-      ("totalization", .totalization, item.totalization), ("exclusions", .exclusions, item.exclusions)] do
+  for (id, judgment, label) in
+      [("quantifier_order", Judgment.quantifierOrder, item.quantifierOrder),
+      ("totalization", .totalization, item.totalization),
+      ("exclusions", .exclusions, item.exclusions)] do
     let p ← noulOf r id
     rows := rows.push (row judgment "claim" (!label) p.val)
   return rows.toList
 
 /-- Rates at one threshold: false negatives among defects, false positives among the rest. -/
 structure Rates where
+  /-- How many rows are labelled defects. -/
   defects : Nat
+  /-- How many rows are not labelled defects. -/
   clean : Nat
+  /-- Defect rows whose support is at or above the threshold, so no finding is raised. -/
   falseNegatives : Nat
+  /-- Clean rows whose support is below the threshold, so a finding is raised. -/
   falsePositives : Nat
 
+/-- The counts of `Rates` for `rows` at `threshold`. -/
 def rates (rows : List Row) (threshold : Decimal) : Rates :=
   let defects := rows.filter (·.defect)
   let clean := rows.filter (!·.defect)
@@ -104,11 +130,15 @@ def aucTwice (rows : List Row) : Nat × Nat :=
     acc + (if d.support < c.support then 2 else if c.support < d.support then 0 else 1)) acc) 0
   (pairs, 2 * defects.length * clean.length)
 
+/-- `k/n` followed by `k / n` rounded to three decimals, as in `3/8 (0.375)`; `n/a`
+when `n` is 0. -/
 def ratio (k n : Nat) : String :=
   if n = 0 then "n/a" else
     let permille := (k * 1000 + n / 2) / n
-    s!"{k}/{n} ({permille / 1000}.{"".pushn '0' (3 - (toString (permille % 1000)).length)}{permille % 1000})"
+    s!"{k}/{n} \
+      ({permille / 1000}.{"".pushn '0' (3 - (toString (permille % 1000)).length)}{permille % 1000})"
 
+/-- The thresholds the report tabulates, with their labels: 0.2, 0.5 and 0.6. -/
 def thresholds : List (String × Decimal) := [("0.2", ⟨2, 1⟩), ("0.5", ⟨5, 1⟩), ("0.6", ⟨6, 1⟩)]
 
 /-- AUC in thousandths, rounded; `none` without both defects and clean rows. -/
@@ -123,7 +153,8 @@ def meetsCriteria (rows : List Row) : Bool × String :=
   let w := rates rows ⟨5, 1⟩
   let e := rates rows ⟨2, 1⟩
   let c3 := decide (5 ≤ w.defects) && decide (10 ≤ w.clean)
-  let c1 := decide (w.falseNegatives * 4 ≤ w.defects) && decide (w.falsePositives * 100 ≤ 15 * w.clean)
+  let c1 := decide (w.falseNegatives * 4 ≤ w.defects) && decide
+      (w.falsePositives * 100 ≤ 15 * w.clean)
   let c2 := decide (e.falsePositives * 20 ≤ e.clean)
   (c1 && c2 && c3, s!"C1 {if c1 then "pass" else "fail"}, C2 {if c2 then "pass" else "fail"}, " ++
     s!"C3 {if c3 then "pass" else "fail"}")
@@ -137,10 +168,15 @@ def tableRow (label : String) (rows : List Row) : String :=
   s!"| {label} | {rows.filter (·.defect) |>.length} / {rows.filter (!·.defect) |>.length} | " ++
     " | ".intercalate cells ++ s!" | {ratio auc total} |"
 
+/-- The Markdown header and separator rows of a rates table: false-negative and false-positive
+rates at each threshold, then AUC. -/
 def tableHeader : String :=
-  "| group | defects / clean | FNR@0.2 | FPR@0.2 | FNR@0.5 | FPR@0.5 | FNR@0.6 | FPR@0.6 | AUC |\n" ++
+  "| group | defects / clean | FNR@0.2 | FPR@0.2 | FNR@0.5 | FPR@0.5 | FNR@0.6 | FPR@0.6 | AUC \
+    |\n" ++
   "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
 
+/-- A row as one evidence record: its labels, the rendered support probability, the request
+digest and, for a strength row, the most probable option and the labelled one. -/
 def rowJson (r : Row) : Json :=
   Json.mkObj ([("item", .str r.item.toString), ("mutation", .str r.mutation.spelling),
     ("split", .str (if r.split == .dev then "dev" else "test")), ("state", .str r.mode.spelling),
@@ -198,15 +234,21 @@ def run (cache : System.FilePath) (model : PinnedModel) (split : Split) (env : E
       usage := usage.add r
       let p ← noulOf r "correspondence"
       correspondenceRows := correspondenceRows.push
-        { item := c.formal, mutation := if c.label then .formalCorrect else .formalWrong, split := .test,
-          mode := .statement, variant := .faithful, judgment := .correspondence, subject := c.clause,
+        { item := c.formal, mutation := if c.label then .formalCorrect else .formalWrong,
+                                                                             split := .test,
+          mode := .statement, variant := .faithful, judgment := .correspondence,
+              subject := c.clause,
           defect := !c.label, support := p.val, digest := r.digest }
   let all := rows ++ correspondenceRows
   IO.FS.writeFile records (Json.arr (all.map rowJson)).pretty
   let group (j : Judgment) (m : StateMode) (v : Option Variant) :=
-    rows.toList.filter fun r => r.judgment == j && r.mode == m && (v.all (r.variant == ·) || r.mutation == .base || r.mutation == .rewrite)
-  let mut lines : Array String := #[s!"Model `{model.val}`, split `{if split == .dev then "dev" else "test"}`: " ++
-    s!"{usage.requests} requests sent, {usage.cached} answered from cache, {usage.tokensText} input tokens billed.", ""]
+    rows.toList.filter fun r => r.judgment == j && r.mode == m &&
+                                 (v.all (r.variant == ·) || r.mutation == .base ||
+                                     r.mutation == .rewrite)
+  let mut lines : Array String :=
+      #[s!"Model `{model.val}`, split `{if split == .dev then "dev" else "test"}`: " ++
+    s!"{usage.requests} requests sent, {usage.cached} answered from cache, {usage.tokensText} \
+      input tokens billed.", ""]
   for j in [Judgment.coverage, .strength, .quantifierOrder, .totalization, .exclusions] do
     lines := lines ++ #[s!"### {j.spelling}", "", tableHeader]
     for m in [StateMode.full, .statement, .explanation] do
@@ -214,13 +256,16 @@ def run (cache : System.FilePath) (model : PinnedModel) (split : Split) (env : E
         lines := lines.push (tableRow s!"{m.spelling}" (group j m none))
       else
         for v in [Variant.faithful, .stale] do
-          lines := lines.push (tableRow s!"{m.spelling}, {v.spelling} explanation" (group j m (some v)))
+          lines := lines.push
+              (tableRow s!"{m.spelling}, {v.spelling} explanation" (group j m (some v)))
     lines := lines.push ""
   let strengthRows := rows.toList.filter fun r => r.judgment == .strength && r.mode == .full
   let exact := strengthRows.filter fun r => match r.strength? with
     | some (chosen, label) => chosen == Strength.spelling label
     | none => false
-  lines := lines ++ #[s!"Strength exact option agreement (full state, both explanations): {ratio exact.length strengthRows.length}", ""]
+  lines := lines ++
+      #[s!"Strength exact option agreement (full state, both \
+        explanations): {ratio exact.length strengthRows.length}", ""]
   if split == .test then
     lines := lines ++ #["### correspondence", "", tableHeader,
       tableRow "clause pair" correspondenceRows.toList, ""]
@@ -229,24 +274,33 @@ def run (cache : System.FilePath) (model : PinnedModel) (split : Split) (env : E
   for j in [Judgment.coverage, .strength, .quantifierOrder, .totalization, .exclusions] do
     let (okF, whyF) := meetsCriteria (group j .full (some .faithful))
     let (okS, whyS) := meetsCriteria (group j .full (some .stale))
-    lines := lines.push (s!"- {j.spelling}: {if okF && okS then "calibrated thresholds (error 0.2, warning 0.5)" else "no calibrated thresholds"}" ++
+    lines := lines.push
+        (s!"- {j.spelling}: {if okF && okS then "calibrated thresholds (error 0.2, warning \
+          0.5)" else "no calibrated thresholds"}" ++
       s!" — full/faithful: {whyF}; full/stale: {whyS}")
   if split == .test then
     let (ok, why) := meetsCriteria correspondenceRows.toList
-    lines := lines.push s!"- correspondence: {if ok then "calibrated thresholds (error 0.2, warning 0.5)" else "no calibrated thresholds"} — {why}"
+    lines :=
+        lines.push
+            s!"- correspondence: {if ok then "calibrated thresholds (error 0.2, warning \
+              0.5)" else "no calibrated thresholds"} — {why}"
   let mean (gs : List (List Row)) : Nat :=
     let xs := gs.filterMap aucPermille
     if xs.isEmpty then 0 else xs.foldl (· + ·) 0 / xs.length
   let modeScore (m : StateMode) : Nat := mean <| [Judgment.coverage, .strength].flatMap fun j =>
-    if m == .statement then [group j m none, group j m none] else [group j m (some .faithful), group j m (some .stale)]
+    if m == .statement then [group j m none, group j m none] else
+                             [group j m (some .faithful), group j m (some .stale)]
   let scores := [StateMode.full, .statement, .explanation].map fun m => (m, modeScore m)
-  let best := scores.foldl (fun (b : StateMode × Nat) s => if b.2 < s.2 then s else b) (.full, modeScore .full)
-  lines := lines.push (s!"- default state: `{best.1.spelling}` (mean coverage and strength AUC in thousandths: " ++
+  let best := scores.foldl (fun (b : StateMode × Nat) s => if b.2 < s.2 then s else b)
+      (.full, modeScore .full)
+  lines := lines.push
+      (s!"- default state: `{best.1.spelling}` (mean coverage and strength AUC in thousandths: " ++
     ", ".intercalate (scores.map fun (m, s) => s!"{m.spelling} {s}") ++ "; ties keep full)")
   for j in [Judgment.coverage, .strength] do
     let st := (aucPermille (group j .statement none)).getD 0
     let fs := (aucPermille (group j .full (some .stale))).getD 0
-    lines := lines.push (s!"- {j.spelling} reads the Lean statement: {decide (800 ≤ st) && decide (800 ≤ fs)} " ++
+    lines := lines.push
+        (s!"- {j.spelling} reads the Lean statement: {decide (800 ≤ st) && decide (800 ≤ fs)} " ++
       s!"(statement-only AUC {st}, full-state stale-explanation AUC {fs}; rule: both at least 800)")
   lines := lines.push ""
   IO.FS.writeFile report ("\n".intercalate lines.toList)

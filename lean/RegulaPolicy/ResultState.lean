@@ -12,8 +12,14 @@ open Std
 
 universe u v
 
+/-- Why `ResultState.insertResult` refused a result. -/
 inductive AdmissionFailure where
-  | unknownKey | duplicateResult | invalidBinding
+  /-- The result's key is not in the required key set. -/
+  | unknownKey
+  /-- The result's key already holds a result. -/
+  | duplicateResult
+  /-- The payload does not satisfy the binding relation for its key. -/
+  | invalidBinding
   deriving Repr, DecidableEq
 
 /-- Every occupied slot belongs to the fixed plan and satisfies its payload binding.
@@ -21,7 +27,9 @@ Std's extensional map supplies unique lookup. `insertResult` refuses occupied sl
 direct proof-bearing construction enforces only this stated subset/binding invariant. -/
 structure ResultState {κ : Type u} {β : Type v} [Ord κ] [TransOrd κ]
     (required : CanonicalSet κ) (bound : κ → β → Prop) where
+  /-- The admitted results, at most one per key. -/
   entries : ExtTreeMap κ β
+  /-- Proof that every stored key is required and its payload satisfies `bound`. -/
   valid : ∀ k v, entries[k]? = some v → k ∈ required ∧ bound k v
 
 namespace ResultState
@@ -215,7 +223,10 @@ private theorem batchOK_step [DecidableRel bound] (s next : ResultState required
       rcases List.mem_cons.mp member with rfl | member
       · exact conditions
       · have hv := valid entry member
-        exact ⟨hv.1, (insertResult_frame s k entry.1 v next hi (different entry member)).symm.trans hv.2.1,
+        exact
+            ⟨hv.1,
+                (insertResult_frame s k entry.1 v next hi
+                    (different entry member)).symm.trans hv.2.1,
           hv.2.2⟩
 
 /-- Universal success characterization for the executed fold, including every sequence
@@ -255,7 +266,9 @@ end ResultState
 /-- An insertion refusal from `ResultState.collect`, in supplied order, or the first
 requested slot that received no result. -/
 inductive IndexedFailure where
+  /-- `ResultState.collect` refused a supplied response with `failure`. -/
   | admission (failure : AdmissionFailure)
+  /-- The requested slot `slot` received no result. -/
   | missing (slot : Nat)
   deriving Repr, DecidableEq
 
@@ -296,7 +309,8 @@ private theorem mem_zip_range {β : Type} (l : List β) (k : Nat) (v : β) :
   · rintro ⟨i, h, rfl, rfl⟩; exact ⟨h, rfl⟩
   · rintro ⟨h, rfl⟩; exact ⟨k, h, rfl, rfl⟩
 
-private theorem nodup_of_keys {β : Type} {l : List (Nat × β)} (h : (l.map Prod.fst).Nodup) : l.Nodup :=
+private theorem nodup_of_keys {β : Type} {l : List (Nat × β)} (h : (l.map Prod.fst).Nodup) :
+    l.Nodup :=
   List.Pairwise.of_map Prod.fst (fun _ _ hne heq => hne (heq ▸ rfl)) h
 
 /-- Exact success relation of the actual indexed admission, for every payload type. -/
@@ -362,7 +376,8 @@ theorem admitIndexedResults_ok_iff {α : Type} (count : Nat) (binding : Nat → 
             have hk : k < count := by simpa using (batch.2 _ member).1
             refine ⟨hl ▸ hk, ?_⟩
             have first := (ResultState.collect_empty_lookup responses final hc k v).mpr member
-            have second := (ResultState.collect_empty_lookup responses final hc k _).mpr (present k hk)
+            have second := (ResultState.collect_empty_lookup responses final hc k _).mpr
+                (present k hk)
             rw [first] at second
             exact (Option.some.inj second).symm
           · rintro ⟨hk, rfl⟩

@@ -11,4 +11,5 @@ import RegulaPolicy.Acceptance
 /-! # Public pure policy library
 
 Public pure policy library: admitted observations, executable semantic decisions,
-and concrete accepted-result proofs. Operational acquisition and global integration remain separate. -/
+and concrete accepted-result proofs. Operational acquisition and global integration remain
+separate. -/

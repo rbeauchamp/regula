@@ -99,7 +99,8 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
       label := "lean/invocation", exitCode := 2,
       contains := #["unknown or incomplete argument: --bogus"] } #["--", "--bogus"])
   restore adopter originals
-  mutate widget "namespace Widget" "/-- A control that does not elaborate. -/\ndef lintBroken : Nat := \"text\"\nnamespace Widget"
+  mutate widget "namespace Widget" "/-- A control that does not elaborate. -/\ndef lintBroken : \
+    Nat := \"text\"\nnamespace Widget"
   failures := failures ++ (← expect adopter {
       label := "lean/incomplete", exitCode := 3,
       contains := #["build-failed", "regula lint: INCOMPLETE (exit 3)"] })
@@ -147,7 +148,8 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG1001", "liveFinding", "regula lint: VIOLATION (exit 1)"],
       excludes := #["build-failed", "editorSnapshot"] })
   restore adopter originals
-  failures := failures ++ (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
+  failures := failures ++
+      (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
   return failures
 
 /-- With the checker's `axiomGate` worker binary removed, `lake lint` builds it and still
@@ -164,7 +166,8 @@ def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
   let results ← mapConcurrent jobs #[("lean", leanAdopter), ("toml", tomlAdopter)]
-    fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter => control repo adopter
+    fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
+                            control repo adopter
   return results.foldl (· ++ ·) #[]
 
 end Regula.Checker.LintQualification

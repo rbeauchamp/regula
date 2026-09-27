@@ -134,8 +134,11 @@ theorem sumWf_eq_sumTo (n : Nat) : sumWf n = sumTo n := by
 so this instance does not select another relation for its laws. Bundled order
 hierarchies are also valid when their instance paths agree. -/
 class Flourishable (α : Type) where
+  /-- Combines two values into one that the lawful mixin requires to be at least the first. -/
   enhance : α → α → α
+  /-- Combines two values into one that the lawful mixin requires to be at most the first. -/
   diminish : α → α → α
+  /-- A real-valued measurement of a value. -/
   measure : α → ℝ
 
 /-- Lawful mixin: every law is a proof-requiring field over the operations,
@@ -143,8 +146,11 @@ relative to a separately supplied lawful order (`Preorder α`), as Mathlib's
 `IsOrderedAddMonoid` is relative to `[Preorder α]`. An instance of this
 class is the claim that `α`'s operations are lawful for that order. -/
 class LawfulFlourishable (α : Type) [Preorder α] [Flourishable α] : Prop where
+  /-- `enhance a b` is at least `a` in the supplied order. -/
   enhance_increases : ∀ a b : α, a ≤ Flourishable.enhance a b
+  /-- `diminish a b` is at most `a` in the supplied order. -/
   diminish_decreases : ∀ a b : α, Flourishable.diminish a b ≤ a
+  /-- `measure` is monotone from the supplied order to the order of `ℝ`. -/
   measure_monotone :
     ∀ a b : α, a ≤ b → Flourishable.measure a ≤ Flourishable.measure b
 

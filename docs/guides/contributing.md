@@ -163,10 +163,14 @@ requires of claimed code:
   [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md):
   proofs, including `ExecutableContract` registrations, in `snake_case`; propositions and
   types in `UpperCamelCase`; other terms in `lowerCamelCase`.
-- **Options and linters.** Every claimed target builds with `autoImplicit` and
-  `relaxedAutoImplicit` off; `Audit`, `AuditApp` and `auditApp` also enable Mathlib's standard
-  linter set with the §6.7 exclusions (`mathlibLinters` in the root `lakefile.lean`). RG2006
-  checks both. Declare universes and implicit binders explicitly.
+- **Options and linters.** Every library and executable builds with `autoImplicit` and
+  `relaxedAutoImplicit` off and `linter.missingDocs` on (the package `leanOptions`; only the
+  `Fixtures` controls turn the linter off); `Audit`, `AuditApp` and `auditApp` also enable
+  Mathlib's standard linter set with the §6.7 exclusions (`mathlibLinters` in the root
+  `lakefile.lean`). RG2006 checks these options on the claimed targets. Declare universes and
+  implicit binders explicitly, and give every public declaration, constructor and field a
+  docstring that states what it is or guarantees, no more than its definition and proofs
+  establish (standard §5.1).
 - **Module docstrings.** Each module starts, directly after its imports and before any
   `public section`, with a `/-! # Title … -/` docstring (RG5001 checks the position).
 - **Evaluation is observation.** Prefer a kernel-checked `example … := by decide` to a

@@ -35,7 +35,8 @@ re-paying it per verdict:
 With `--build-bound`, the closed partitions are `fixtures` (in-process fixtures,
 scanner, and fence corpus), `structural` (structural/compiler-path and
 manifest controls), `cli` (the complete CLI sweep), `environments` (packaging
-and fresh-state controls), `build-policy` (ordinary-build enforcement), and `lint-driver` (`lake lint`
+and fresh-state controls), `build-policy` (ordinary-build enforcement), and `lint-driver` (`lake
+lint`
 dispatch and exit classes).
 Each starts with the same baseline preparation.
 Their disjoint union is the full run; no partition alone reports full qualification.
@@ -50,30 +51,50 @@ open Regula.Checker
 open Regula.Checker.Documentation
 open Regula.Checker.Policy
 
+/-- The verdict a fixture declares in `fixtures.json` (`expect`). -/
 inductive Expectation where
+  /-- The checker must accept the fixture. -/
   | pass
+  /-- The checker must reject the fixture, for the declared reasons. -/
   | fail
   deriving Repr, BEq
 
+/-- One entry of `Fixtures/fixtures.json`, resolved to its Lake fixture module. -/
 structure FixtureSpec where
+  /-- The fixture's module name, the entry's key. -/
   moduleName : String
+  /-- The fixture's source file, as Lake resolves it in the `Fixtures` library. -/
   source : FilePath
+  /-- Whether the checker must accept or reject the fixture. -/
   expectation : Expectation
+  /-- For a rejection, the exact set of `VIOLATION[...]` reasons expected, or
+  `#["compile-error"]` for a fixture that must fail to compile. -/
   reasons : Array String := #[]
+  /-- The foundation profile passed as `--claim`, when the entry sets one. -/
   claim : Option Profile := none
+  /-- The execution mode passed as `--execution`, when the entry sets one. -/
   execution : Option String := none
+  /-- For an accepted fixture, a foundation label some declaration must be reported with. -/
   label : Option String := none
+  /-- For a compile-error fixture, the pattern its output must match (default `error`). -/
   pattern : Option String := none
+  /-- Texts the checker output must contain, whatever the verdict. -/
   output : Array String := #[]
   deriving Repr
 
 /-- Disjoint groups whose union is the complete build-bound qualification. -/
 inductive Partition where
+  /-- In-process fixture verdicts, the Markdown scanner and the fence corpus. -/
   | fixtures
+  /-- Structural, compiler-path and manifest controls. -/
   | structural
+  /-- Every fixture through a real `axiomGate --file` invocation. -/
   | cli
+  /-- The end-to-end fence corpus and the external-adopter and clean-checkout controls. -/
   | environments
+  /-- Ordinary-build enforcement controls (`build-policy`). -/
   | buildPolicy
+  /-- `lake lint` dispatch and exit-class controls (`lint-driver`). -/
   | lintDriver
   deriving Repr, BEq, DecidableEq
 
@@ -86,27 +107,36 @@ private def Partition.label : Partition → String
   | .lintDriver => "lint-driver"
 
 /-- The full run enumerates each supported partition exactly once. -/
-private def Partition.all : List Partition := [.fixtures, .structural, .cli, .environments, .buildPolicy, .lintDriver]
+private def Partition.all : List Partition :=
+    [.fixtures, .structural, .cli, .environments, .buildPolicy, .lintDriver]
 
 private theorem Partition.all_complete (partition : Partition) : partition ∈ all := by
   cases partition <;> simp [all]
 
 private theorem Partition.all_nodup : all.Nodup := by decide
 
+/-- The parsed `checkerSelftest` command-line options. -/
 structure Options where
+  /-- `--jobs N`: the number of parallel workers; must be positive. -/
   jobs : Nat := 4
+  /-- `--structural-only`: run only the structural controls after the baseline build. -/
   structuralOnly : Bool := false
+  /-- `--build-bound`: also run the conditional, build-bound tier. -/
   buildBound : Bool := false
+  /-- `--partition NAME`: run only this build-bound group; requires `--build-bound`. -/
   partition : Option Partition := none
+  /-- `--help` or `-h`: print the usage and exit. -/
   help : Bool := false
 
 private def usage : String :=
-  "usage: lake exe checkerSelftest -- [--jobs N] [--structural-only] [--build-bound [--partition fixtures|structural|cli|environments|build-policy|lint-driver]]\n" ++
+  "usage: lake exe checkerSelftest -- [--jobs N] [--structural-only] [--build-bound [--partition \
+    fixtures|structural|cli|environments|build-policy|lint-driver]]\n" ++
   "--fences-only: focused in-process and public fence qualification, without the full suite\n" ++
   "default tier: every planted-defect verdict in one process plus a real-CLI smoke tier\n" ++
   "--build-bound: additionally run the conditional tier (real-CLI sweep, end-to-end\n" ++
   "fence corpus, external adopters, clean-checkout environment, public controls)\n" ++
-  "--partition: run only the named build-bound group; all six groups are required for full qualification"
+  "--partition: run only the named build-bound group; all six groups are required for full \
+    qualification"
 
 private def parseArgs : List String → Options → IO Options
   | [], options => do
@@ -161,17 +191,20 @@ private structure SourceLayout where
 private def loadSourceLayout (repo : FilePath) : IO SourceLayout := do
   let relativeDir ← Workspace.withRootWorkspace repo fun ws => pure ws.root.config.srcDir.normalize
   if relativeDir.isAbsolute || relativeDir.components.contains ".." then
-    throw <| IO.userError "self-test: package source directory must stay inside the copied repository"
+    throw <|
+        IO.userError "self-test: package source directory must stay inside the copied repository"
   return { relativeDir }
 
-private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO (Array FixtureSpec) := do
+private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
+    (Array FixtureSpec) := do
   let path := (repo / layout.relativeDir) / "Fixtures" / "fixtures.json"
   let inventory ← Lake.surfaceInventory repo
   let some library := inventory.libraries.find? (·.library == "Fixtures")
     | throw <| IO.userError "fixture manifest: Lake omitted the Fixtures library"
   let value ← readJson path
   let object ← IO.ofExcept value.getObj?
-  let allowed := #["expect", "reason", "reasons", "claim", "execution", "label", "pattern", "output"]
+  let allowed :=
+      #["expect", "reason", "reasons", "claim", "execution", "label", "pattern", "output"]
   let mut fixtures : Array FixtureSpec := #[]
   for moduleName in object.keysArray.qsort (· < ·) do
     let some source := library.sources.find? (·.«module» == moduleName.toName)
@@ -180,7 +213,8 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO (
     let specObject ← IO.ofExcept spec.getObj?
     let unknown := specObject.keysArray.filter fun key => !allowed.contains key
     if !unknown.isEmpty then
-      throw <| IO.userError s!"{moduleName}: fixture manifest has unknown keys {repr unknown.toList}"
+      throw <|
+          IO.userError s!"{moduleName}: fixture manifest has unknown keys {repr unknown.toList}"
     let expectation ← match ← requiredString spec "expect" moduleName with
       | "pass" => pure Expectation.pass
       | "fail" => pure Expectation.fail
@@ -209,7 +243,8 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO (
       | .error _ => pure #[]
       | .ok value => jsonStringArray s!"{moduleName}.output" value
     fixtures := fixtures.push {
-      moduleName, source := source.source, expectation, reasons, claim, execution, label, pattern, output }
+      moduleName, source := source.source, expectation, reasons, claim, execution, label,
+          pattern, output }
   if library.modules.size != fixtures.size then
     throw <| IO.userError <|
       s!"fixture manifest/Lake module count mismatch: {fixtures.size}/{library.modules.size}"
@@ -257,7 +292,8 @@ private def assessFixtureOutput (fixture : FixtureSpec) (succeeded : Bool)
       if fixture.reasons == #["compile-error"] then
         let pattern := fixture.pattern.getD "error"
         if !Documentation.matchesPattern pattern.toLower output.toLower then
-          return some s!"{fixture.moduleName}: compile failure missed pattern {repr pattern}:\n{output}"
+          return some
+              s!"{fixture.moduleName}: compile failure missed pattern {repr pattern}:\n{output}"
         return none
       let actual := violationReasons output
       let expected := uniqueSorted fixture.reasons
@@ -406,7 +442,8 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
         let out := scratch / s!"transcript-{item.index + 1}.json"
         let spawned ← runProcess repo
           (repo / ".lake" / "build" / "bin" / "checkerSelftest").toString
-          #["--transcript-worker", (Regula.RegistryCodec.nameJson moduleName.toName).compress, item.compilation.sourcePath.toString,
+          #["--transcript-worker", (Regula.RegistryCodec.nameJson moduleName.toName).compress,
+              item.compilation.sourcePath.toString,
             out.toString]
           #[("LEAN_PATH", some leanPathEnv)]
         if !spawned.succeeded then return (moduleName, none)
@@ -483,15 +520,25 @@ private def scannerQualification : Array String := Id.run do
   let cases : Array (String × String × String) := #[
     ("positive", "```lean\ntheorem ok : True := trivial\n```\n", ""),
     ("unclosed", "```lean\ntheorem x : True := trivial\n", "never closed"),
-    ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n", "pattern is empty"),
-    ("invalid-pattern", "<!-- lean-fail: [ -->\n```lean\ndef n : Nat := \"x\"\n```\n", "unsupported"),
+    ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n",
+        "pattern is empty"),
+    ("invalid-pattern", "<!-- lean-fail: [ -->\n```lean\ndef n : Nat := \"x\"\n```\n",
+        "unsupported"),
     ("malformed-marker", "<!-- lean-fail -->\n```lean\ndef n : Nat := \"x\"\n```\n", "malformed"),
-    ("marker-typo", "<!--lean-fail: Type mismatch-->\n```lean\ntheorem t : 1 = 1 := rfl\n```\n", "malformed"),
-    ("marker-truncated", "<!-- lean-trusted -->\n```lean\ntheorem t : 1 = 1 := rfl\n```\n", "malformed"),
-    ("duplicate-marker", "<!-- lean-fail: Type mismatch -->\n<!-- lean-trusted-compiler -->\n```lean\ndef n : Nat := \"x\"\n```\n", "multiple markers"),
-    ("blank-separation", "<!-- lean-fail: Type mismatch -->\n\n```lean\ndef n : Nat := \"x\"\n```\n", "not immediately adjacent"),
-    ("prose-orphan", "<!-- lean-fail: Type mismatch -->\nprose\n```lean\ndef n : Nat := \"x\"\n```\n", "not immediately adjacent"),
-    ("nonlean-target", "<!-- lean-fail: Type mismatch -->\n```text\ndef n : Nat := \"x\"\n```\n", "not attached"),
+    ("marker-typo", "<!--lean-fail: Type mismatch-->\n```lean\ntheorem t : 1 = 1 := rfl\n```\n",
+        "malformed"),
+    ("marker-truncated", "<!-- lean-trusted -->\n```lean\ntheorem t : 1 = 1 := rfl\n```\n",
+        "malformed"),
+    ("duplicate-marker", "<!-- lean-fail: Type mismatch -->\n<!-- lean-trusted-compiler \
+      -->\n```lean\ndef n : Nat := \"x\"\n```\n", "multiple markers"),
+    ("blank-separation",
+        "<!-- lean-fail: Type mismatch -->\n\n```lean\ndef n : Nat := \"x\"\n```\n",
+            "not immediately adjacent"),
+    ("prose-orphan",
+        "<!-- lean-fail: Type mismatch -->\nprose\n```lean\ndef n : Nat := \"x\"\n```\n",
+            "not immediately adjacent"),
+    ("nonlean-target", "<!-- lean-fail: Type mismatch -->\n```text\ndef n : Nat := \"x\"\n```\n",
+        "not attached"),
     ("eof-marker", "<!-- lean-fail: Type mismatch -->", "left at end")
   ]
   let mut failures : Array String := #[]
@@ -501,8 +548,10 @@ private def scannerQualification : Array String := Id.run do
       if result.fences.size != 1 || !result.problems.isEmpty then
         failures := failures.push s!"scanner/{name}: expected one clean fence"
     else if !result.problems.any (·.contains expectedProblem) then
-      failures := failures.push s!"scanner/{name}: missing problem containing {repr expectedProblem}"
-  if !Documentation.matchesPattern "(?s)failed.*law|Fields missing" "prefix failed\nfor a law suffix" then
+      failures :=
+          failures.push s!"scanner/{name}: missing problem containing {repr expectedProblem}"
+  if !Documentation.matchesPattern "(?s)failed.*law|Fields missing"
+      "prefix failed\nfor a law suffix" then
     failures := failures.push "scanner/pattern: ordered/alternative matching failed"
   failures
 
@@ -510,35 +559,65 @@ private def scannerQualification : Array String := Id.run do
 and the end-to-end public `docFenceAudit` control in the conditional tier. -/
 private def fenceCorpusCases : Array (String × String × String) := #[
   ("unclosed", "```lean\ntheorem x : True := trivial\n", "never closed"),
-  ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n", "pattern is empty"),
+  ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n",
+      "pattern is empty"),
   ("invalid-pattern", "<!-- lean-fail: [ -->\n```lean\ndef n : Nat := \"x\"\n```\n", "unsupported"),
-  ("malformed-marker", "<!-- lean-fail -->\n```lean\ndef n : Nat := \"x\"\n```\n", "malformed Lean fence marker"),
-  ("duplicate-marker", "<!-- lean-fail: Type mismatch -->\n<!-- lean-trusted-compiler -->\n```lean\ndef n : Nat := \"x\"\n```\n", "multiple markers target one fence"),
-  ("blank-separation", "<!-- lean-fail: Type mismatch -->\n\n```lean\ndef n : Nat := \"x\"\n```\n", "not immediately adjacent"),
-  ("prose-orphan", "<!-- lean-fail: Type mismatch -->\nprose\n```lean\ndef n : Nat := \"x\"\n```\n", "not immediately adjacent"),
-  ("nonlean-target", "<!-- lean-fail: Type mismatch -->\n```text\ndef n : Nat := \"x\"\n```\n", "not attached to a ```lean fence"),
+  ("malformed-marker", "<!-- lean-fail -->\n```lean\ndef n : Nat := \"x\"\n```\n",
+      "malformed Lean fence marker"),
+  ("duplicate-marker", "<!-- lean-fail: Type mismatch -->\n<!-- lean-trusted-compiler \
+    -->\n```lean\ndef n : Nat := \"x\"\n```\n", "multiple markers target one fence"),
+  ("blank-separation", "<!-- lean-fail: Type mismatch -->\n\n```lean\ndef n : Nat := \"x\"\n```\n",
+      "not immediately adjacent"),
+  ("prose-orphan", "<!-- lean-fail: Type mismatch -->\nprose\n```lean\ndef n : Nat := \"x\"\n```\n",
+      "not immediately adjacent"),
+  ("nonlean-target", "<!-- lean-fail: Type mismatch -->\n```text\ndef n : Nat := \"x\"\n```\n",
+      "not attached to a ```lean fence"),
   ("eof-marker", "<!-- lean-fail: Type mismatch -->", "left at end of file"),
   ("positive", "```lean\ntheorem nested_ok : 1 = 1 := rfl\n```\n", "positive.md:1 PASS"),
-  ("raw-import", "```lean\ntheorem missing_import : Glossary.Time = Glossary.Time := rfl\n```\n", "did not elaborate verbatim"),
-  ("warning", "```lean\nset_option warningAsError false in\ndef hidden_warning (unused : Nat) : Nat := 1\n```\n", "emitted warning"),
+  ("raw-import", "```lean\ntheorem missing_import : Glossary.Time = Glossary.Time := rfl\n```\n",
+      "did not elaborate verbatim"),
+  ("warning", "```lean\nset_option warningAsError false in\ndef hidden_warning (unused : Nat) : \
+    Nat := 1\n```\n", "emitted warning"),
   ("hole", "```lean\ntheorem docs_hole : False := by sorry\n```\n", "hole.md:1 FAIL"),
   ("project-axiom", "```lean\naxiom docs_axiom : False\n```\n", "project-axiom"),
-  ("valid-negative", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := \"x\"\n```\n", "valid-negative.md:2 PASS_NEG"),
-  ("negative-info-only", "<!-- lean-fail: expectedOnlyInfo -->\n```lean\n#eval IO.println \"expectedOnlyInfo\"\n#check missingActualError\n```\n", "negative-info-only.md:2 FAIL"),
-  ("negative-cross-errors", "<!-- lean-fail: missingFirst.*missingSecond -->\n```lean\n#check missingFirst\n#check missingSecond\n```\n", "negative-cross-errors.md:2 FAIL"),
-  ("negative-multiline", "<!-- lean-fail: Type mismatch.*String.*Nat -->\n```lean\ndef n : Nat := \"x\"\n```\n", "negative-multiline.md:2 PASS_NEG"),
-  ("negative-import", "<!-- lean-fail: unknown module prefix -->\n```lean\nimport MissingDiagnosticModule\n```\n", "negative-import.md:2 PASS_NEG"),
-  ("negative-promoted-warning", "<!-- lean-fail: promotedWarning -->\n```lean\nimport Lean\nset_option warningAsError true in\nrun_cmd Lean.logWarning \"promotedWarning\"\n```\n", "negative-promoted-warning.md:2 PASS_NEG"),
-  ("negative-header-syntax", "<!-- lean-fail: unexpected -->\n```lean\nimport (\n```\n", "negative-header-syntax.md:2 PASS_NEG"),
-  ("negative-abnormal", "<!-- lean-fail: deliberate -->\n```lean\nimport Lean\nrun_cmd do\n  let child ← IO.Process.spawn { cmd := \"echo\", args := #[\"error: deliberate\"] }\n  discard child.wait\n  Lean.logError \"deliberate\"\nrun_cmd (IO.Process.exit 7 : IO Unit)\n```\n", "diagnostic worker did not complete"),
-  ("trusted-native", "<!-- lean-trusted-compiler -->\n```lean\nimport Init\ntheorem docs_native : Nat.gcd 1071 462 = 21 := by native_decide\n```\n", "trusted-native.md:2 PASS_TRUSTED"),
-  ("trusted-spoof", "<!-- lean-trusted-compiler -->\n```lean\naxiom Attack._native.native_decide.ax_1 : False\n```\n", "trusted-spoof.md:2 FAIL"),
-  ("negative-compiles", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := 1\n```\n", "negative example elaborated successfully"),
-  ("negative-other-diagnostic", "<!-- lean-fail: Unknown constant -->\n```lean\ndef n : Nat := \"x\"\n```\n", "failed, but not with expected diagnostic"),
-  ("trusted-without-mechanism", "<!-- lean-trusted-compiler -->\n```lean\ntheorem plain : 1 = 1 := rfl\n```\n", "trusted marker found no compiler-trusting declaration"),
+  ("valid-negative", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := \"x\"\n```\n",
+      "valid-negative.md:2 PASS_NEG"),
+  ("negative-info-only", "<!-- lean-fail: expectedOnlyInfo -->\n```lean\n#eval IO.println \
+    \"expectedOnlyInfo\"\n#check missingActualError\n```\n", "negative-info-only.md:2 FAIL"),
+  ("negative-cross-errors", "<!-- lean-fail: missingFirst.*missingSecond -->\n```lean\n#check \
+    missingFirst\n#check missingSecond\n```\n", "negative-cross-errors.md:2 FAIL"),
+  ("negative-multiline",
+      "<!-- lean-fail: Type mismatch.*String.*Nat -->\n```lean\ndef n : Nat := \"x\"\n```\n",
+          "negative-multiline.md:2 PASS_NEG"),
+  ("negative-import",
+      "<!-- lean-fail: unknown module prefix -->\n```lean\nimport MissingDiagnosticModule\n```\n",
+          "negative-import.md:2 PASS_NEG"),
+  ("negative-promoted-warning", "<!-- lean-fail: promotedWarning -->\n```lean\nimport \
+    Lean\nset_option warningAsError true in\nrun_cmd Lean.logWarning \"promotedWarning\"\n```\n",
+        "negative-promoted-warning.md:2 PASS_NEG"),
+  ("negative-header-syntax", "<!-- lean-fail: unexpected -->\n```lean\nimport (\n```\n",
+      "negative-header-syntax.md:2 PASS_NEG"),
+  ("negative-abnormal", "<!-- lean-fail: deliberate -->\n```lean\nimport Lean\nrun_cmd do\n  let \
+    child ← IO.Process.spawn { cmd := \"echo\", args := #[\"error: deliberate\"] }\n  discard \
+    child.wait\n  Lean.logError \"deliberate\"\nrun_cmd (IO.Process.exit 7 : IO Unit)\n```\n",
+        "diagnostic worker did not complete"),
+  ("trusted-native", "<!-- lean-trusted-compiler -->\n```lean\nimport Init\ntheorem docs_native : \
+    Nat.gcd 1071 462 = 21 := by native_decide\n```\n", "trusted-native.md:2 PASS_TRUSTED"),
+  ("trusted-spoof", "<!-- lean-trusted-compiler -->\n```lean\naxiom \
+    Attack._native.native_decide.ax_1 : False\n```\n", "trusted-spoof.md:2 FAIL"),
+  ("negative-compiles", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := 1\n```\n",
+      "negative example elaborated successfully"),
+  ("negative-other-diagnostic",
+      "<!-- lean-fail: Unknown constant -->\n```lean\ndef n : Nat := \"x\"\n```\n",
+          "failed, but not with expected diagnostic"),
+  ("trusted-without-mechanism",
+      "<!-- lean-trusted-compiler -->\n```lean\ntheorem plain : 1 = 1 := rfl\n```\n",
+          "trusted marker found no compiler-trusting declaration"),
   -- The pinned renderer prints a named diagnostic as `warning(name):`
   -- (`Lean.mkErrorStringWithPos`); the audit must reject that form too.
-  ("named-warning", "```lean\nimport Lean\nopen Lean\nset_option warningAsError false in\nrun_cmd Lean.logNamedWarningAt (← getRef) `lean.selftestNamedWarning m!\"named\"\n```\n", "emitted warning")
+  ("named-warning", "```lean\nimport Lean\nopen Lean\nset_option warningAsError false in\nrun_cmd \
+    Lean.logNamedWarningAt (← getRef) `lean.selftestNamedWarning m!\"named\"\n```\n",
+        "emitted warning")
 ]
 
 /-- Corpus cases that only the public `docFenceAudit` control can exercise:
@@ -547,7 +626,9 @@ workers in, which the in-process auditor does not reproduce. -/
 private def publicOnlyFenceCases : Array (String × String × String) := #[
   -- Resolvable only through an inherited `LEAN_PATH`: the control injects a
   -- search-path entry holding a compiled module that no Lake workspace owns.
-  ("stale-import", "```lean\nimport StaleImport\ntheorem stale_ok : staleImportValue = 1 := rfl\n```\n", "did not elaborate verbatim")
+  ("stale-import",
+      "```lean\nimport StaleImport\ntheorem stale_ok : staleImportValue = 1 := rfl\n```\n",
+          "did not elaborate verbatim")
 ]
 
 /-- A valid source rejection must not be satisfied by an import setup error.
@@ -561,7 +642,8 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.toml") <|
     "name = \"diagnostic_control\"\n[leanOptions]\nautoImplicit = false\n" ++
-      "relaxedAutoImplicit = false\n[[lean_lib]]\nname = \"SetupSentinel\"\n"
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
+        \"SetupSentinel\"\n"
   let source := project / "SetupSentinel.lean"
   let artifact := output / "SetupSentinel.olean"
   IO.FS.writeFile source "def setupValue : Nat := 0\n"
@@ -651,7 +733,8 @@ private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Na
     failures := failures.push "scanner/corpus: malformed corpus unexpectedly passed"
   for (name, _, expected) in fenceCorpusCases do
     if !(fenceOriginOutput output s!"{name}.md").contains expected then
-      failures := failures.push s!"scanner/corpus/{name}: missing diagnostic {repr expected}:\n{output}"
+      failures :=
+          failures.push s!"scanner/corpus/{name}: missing diagnostic {repr expected}:\n{output}"
   return failures ++ (← diagnosticSetupQualification repo scratch)
 
 /-- End-to-end public `docFenceAudit` control over the adversarial corpus
@@ -681,12 +764,15 @@ private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Ar
     failures := failures.push "scanner/public: malformed corpus unexpectedly passed"
   -- A malformed marker is reported at its own file and line; it must not abort
   -- the run with a bare, unlocated failure.
-  if !result.output.contains "[X] empty-pattern.md:1: invalid lean-fail pattern: diagnostic pattern is empty"
+  if !result.output.contains
+      "[X] empty-pattern.md:1: invalid lean-fail pattern: diagnostic pattern is empty"
       || result.output.contains "FAIL: diagnostic pattern is empty" then
-    failures := failures.push s!"scanner/public/located-marker: missing located malformed-marker diagnostic:\n{result.output}"
+    failures := failures.push s!"scanner/public/located-marker: missing located malformed-marker \
+      diagnostic:\n{result.output}"
   for (name, _, expected) in cases do
     if !(fenceOriginOutput result.output s!"{name}.md").contains (publicExpectation expected) then
-      failures := failures.push s!"scanner/public/{name}: missing diagnostic {repr (publicExpectation expected)}:\n{result.output}"
+      failures := failures.push s!"scanner/public/{name}: missing \
+        diagnostic {repr (publicExpectation expected)}:\n{result.output}"
   return failures
 
 private def expectManifestFailure (name : String) (action : IO Manifest)
@@ -722,13 +808,15 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
   if valid.excludedExecutables.isEmpty then
     failures := failures.push "manifest/valid: no excluded executables"
   let missing := scratch / "missing.json"
-  if let some failure ← expectManifestFailure "missing" (Manifest.load missing) "manifest-missing" then
+  if let some failure ← expectManifestFailure "missing"
+      (Manifest.load missing) "manifest-missing" then
     failures := failures.push failure
   if let some failure ← expectManifestPublicFailure repo "missing" missing "manifest-missing" then
     failures := failures.push failure
   let malformed := scratch / "malformed.json"
   IO.FS.writeFile malformed "{"
-  if let some failure ← expectManifestPublicFailure repo "malformed" malformed "manifest-malformed" then
+  if let some failure ← expectManifestPublicFailure repo "malformed" malformed
+      "manifest-malformed" then
     failures := failures.push failure
   let incomplete := scratch / "incomplete.json"
   IO.FS.writeFile incomplete
@@ -745,7 +833,8 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
     failures := failures.push failure
   let unknown := scratch / "unknown.json"
   IO.FS.writeFile unknown <| "{\"schema-version\":2,\"surfaces\":[{" ++
-    "\"library\":\"Audit\",\"claim\":\"standard-logical\",\"rationale\":\"control\",\"extra\":true}]," ++
+    "\"library\":\"Audit\",\"claim\":\"standard-logical\",\"rationale\":\"control\",\"extra\":true}\
+      ]," ++
     "\"excluded-libraries\":[{\"library\":\"Fixtures\",\"rationale\":\"mutations\"}]," ++
     "\"excluded-executables\":[]}"
   if let some failure ← expectManifestPublicFailure repo "unknown" unknown
@@ -753,7 +842,8 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
     failures := failures.push failure
   let badExecution := scratch / "bad-execution.json"
   IO.FS.writeFile badExecution <| "{\"schema-version\":2,\"surfaces\":[{" ++
-    "\"library\":\"Audit\",\"claim\":\"standard-logical\",\"execution\":\"bogus\",\"rationale\":\"control\"}]," ++
+    "\"library\":\"Audit\",\"claim\":\"standard-logical\",\"execution\":\"bogus\",\"rationale\":\"c\
+      ontrol\"}]," ++
     "\"excluded-libraries\":[],\"excluded-executables\":[]}"
   if let some failure ← expectManifestPublicFailure repo "bad-execution" badExecution
       "manifest-schema: surfaces[0].execution must be \"report\" or \"checked\"" then
@@ -853,7 +943,8 @@ private def auditAppVariant (repo : FilePath) (executables : Array String) (excl
 /-- Structural mutation cluster: discovery of added modules, suppressed
 warnings, and contamination of the claimed library root by excluded fixture
 modules (direct and exact-prefix-lookalike). -/
-private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath) : IO (Array String) := do
+private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath) : IO
+    (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
@@ -866,9 +957,11 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
   withNewFile (sources / "AuditApp" / "AdmissionProbe.lean") unchecked do
     for (name, args) in #[("project-admission", #["--incremental"]),
         ("build-admission", #["--build-lint"])] do
-      if let some failure := expectedFailure name (← gate args) #["kernel-admission", "admissionFalse"] then
+      if let some failure := expectedFailure name (← gate args)
+          #["kernel-admission", "admissionFalse"] then
         failures.modify (·.push failure)
-    let imported := "import AuditApp.AdmissionProbe\ntheorem importedAdmission : False := admissionFalse\n"
+    let imported :=
+        "import AuditApp.AdmissionProbe\ntheorem importedAdmission : False := admissionFalse\n"
     withNewFile (copy / "ImportedAdmission.lean") imported do
       if let some failure := expectedFailure "file-imported-admission"
           (← gate #["--file", "ImportedAdmission.lean"])
@@ -880,12 +973,14 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
           #["kernel-admission", "admissionFalse"] then
         failures.modify (·.push failure)
   withNewFile (sources / "AuditApp" / "DiscoveryAxiom.lean")
-      "/-! Discovery control for an otherwise unused owned axiom. -/\naxiom selftest_discovered_axiom : False\n" do
+      "/-! Discovery control for an otherwise unused owned axiom. -/\n/-- An unused owned axiom, \
+        which RG1001 rejects. -/\naxiom selftest_discovered_axiom : False\n" do
     if let some failure := expectedFailure "add-only-discovery" (← gate)
         #["project-axiom", "selftest_discovered_axiom"] then
       failures.modify (·.push failure)
   withNewFile (sources / "AuditApp" / "SuppressedWarning.lean")
-      "set_option warningAsError false in\ndef selftest_suppressed_warning (unused : Nat) : Nat := 1\n" do
+      "set_option warningAsError false in\ndef selftest_suppressed_warning (unused : Nat) : Nat := \
+        1\n" do
     -- `linter.unusedVariables` occurs only on the warning's continuation
     -- line, so the transcript must carry the whole diagnostic block.
     if let some failure := expectedFailure "warning-suppression" (← gate)
@@ -925,7 +1020,8 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
 /-- Structural mutation cluster: unlisted root-owned modules, unclassified
 Lake libraries and executables, claimed standalone executable roots, and
 executable contamination. -/
-private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath) : IO (Array String) := do
+private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath) : IO
+    (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
@@ -972,7 +1068,8 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
   -- mutation under test.
   let claimedManifestText ← auditAppVariant repo #["selftestTool"] true
   let claimedGate := gate #["--manifest", claimedManifest.toString, "--incremental"]
-  withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\ndef main : IO Unit := pure ()\n" do
+  withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- \
+    Does nothing. -/\ndef main : IO Unit := pure ()\n" do
     withReplacedFile lakefile (originalLakefile ++ exeDecl) do
       if let some failure := expectedFailure "unclassified-exe" (← gate)
           #["manifest-incomplete", "selftestTool"] then
@@ -987,13 +1084,15 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
           #["--plan-only", "--manifest", claimedManifest.toString]
         if !plan.succeeded || !plan.output.contains "SelftestMain" then
           failures.modify (·.push
-            s!"structural/claimed-exe-fresh: exe root missing its own fresh coverage root:\n{plan.output}")
+            s!"structural/claimed-exe-fresh: exe root missing its own fresh coverage \
+              root:\n{plan.output}")
       withRemovedFile (sources / "SelftestMain.lean") do
         if let some failure := expectedFailure "claimed-exe-source-removed" (← claimedGate)
             #["lake-query-malformed", "invalid source"] then
           failures.modify (·.push failure)
   withNewFile (sources / "SelftestMain.lean")
-      "import Fixtures.Mutations.DirectAxiom\n/-! Standalone import-contamination control. -/\ndef main : IO Unit := pure ()\n" do
+      "import Fixtures.Mutations.DirectAxiom\n/-! Standalone import-contamination control. -/\n/-- \
+        Does nothing. -/\ndef main : IO Unit := pure ()\n" do
     withReplacedFile lakefile (originalLakefile ++ exeDecl) do
       IO.FS.writeFile claimedManifest claimedManifestText
       if let some failure := expectedFailure "exe-contamination" (← claimedGate)
@@ -1006,7 +1105,8 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
 
 /-- Structural mutation cluster: omitted executable classification,
 application-surface proof erasure and admission weakening. -/
-private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath) : IO (Array String) := do
+private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath) : IO
+    (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
@@ -1057,7 +1157,8 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
 
 /-- Structural mutation cluster: fresh-checker coverage of an added module and
 the final restored-state control. -/
-private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath) : IO (Array String) := do
+private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath) : IO
+    (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
@@ -1066,7 +1167,8 @@ private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath
       "namespace AuditApp.UnimportedSafe\ndef value : Nat := 1\nend AuditApp.UnimportedSafe\n" do
     let plan ← runBinaryFrom repo copy "freshChecker" #["--plan-only"]
     if !plan.succeeded || !plan.output.contains "AuditApp.UnimportedSafe" then
-      failures.modify (·.push s!"structural/fresh-coverage: added module was omitted:\n{plan.output}")
+      failures.modify
+          (·.push s!"structural/fresh-coverage: added module was omitted:\n{plan.output}")
   -- Restored control in fresh mode (empty-output elaboration of the copy), so the
   -- harness's green-restore evidence covers stale-artifact freedom, not only
   -- incremental rebuilds.
@@ -1079,14 +1181,16 @@ private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath
 and restores that source through a fresh public file audit. `--file` creates and
 removes a separate elaboration directory for every invocation. The fixed
 negative sweep additionally asserts the exact violation set. -/
-private def correspondenceRestoration (layout : SourceLayout) (repo scratch : FilePath) : IO (Array String) := do
+private def correspondenceRestoration (layout : SourceLayout) (repo scratch : FilePath) : IO
+    (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let controls := #[
     ("RepeatedCorrespondence", "Nat := _n\n", "Nat := _m\n"),
     ("OmittedCorrespondence", "Nat := m\n", "Nat := m + _n\n"),
     ("SpecializedUniverseCorrespondence", "{α : Type}", "{α : Type u}")]
   for (fixture, restricted, general) in controls do
-    let negative ← IO.FS.readFile ((repo / layout.relativeDir) / "Fixtures" / "Mutations" / s!"{fixture}.lean")
+    let negative ← IO.FS.readFile
+        ((repo / layout.relativeDir) / "Fixtures" / "Mutations" / s!"{fixture}.lean")
     let positive := negative.replace restricted general
     if positive == negative then
       failures.modify (·.push s!"correspondence/{fixture}: mutation anchor missing")
@@ -1097,21 +1201,25 @@ private def correspondenceRestoration (layout : SourceLayout) (repo scratch : Fi
         #["--file", source.toString, "--claim", "standard-logical", "--execution", "checked"]
       let green ← gate
       if !green.succeeded || !green.output.contains "correspondence=checked" then
-        failures.modify (·.push s!"correspondence/{fixture}: expected checked PASS:\n{green.output}")
+        failures.modify
+            (·.push s!"correspondence/{fixture}: expected checked PASS:\n{green.output}")
       withReplacedFile source negative do
         if let some failure := expectedFailure fixture (← gate)
-            #["execution-trusted-boundary", "no kernel-checked unconditional correspondence proof"] then
+            #["execution-trusted-boundary", "no kernel-checked unconditional correspondence proof"]
+                then
           failures.modify (·.push failure)
       let restored ← gate
       if !restored.succeeded || !restored.output.contains "correspondence=checked" then
-        failures.modify (·.push s!"correspondence/{fixture}: fresh restored control failed:\n{restored.output}")
+        failures.modify
+            (·.push s!"correspondence/{fixture}: fresh restored control failed:\n{restored.output}")
   failures.get
 
 /-- Public project-surface correspondence control, the exact conditional-premise
 mutation, and a fresh restored control. Only the reference body changes: the
 positive reference equals the replacement by reduction; the mutation removes
 that equality and leaves only a theorem requiring False. -/
-private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy : FilePath) : IO (Array String) := do
+private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy : FilePath) : IO
+    (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let lakefile := copy / "lakefile.lean"
@@ -1121,8 +1229,10 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy :
   let checkedManifest := originalManifest.replace "\"surfaces\":["
     ("\"surfaces\":[{\"library\":\"CorrespondenceControl\",\"claim\":\"standard-logical\"," ++
       "\"execution\":\"checked\",\"rationale\":\"correspondence control\"},")
-  if checkedManifest == originalManifest then return #["correspondence/control: manifest anchor missing"]
-  let negative ← IO.FS.readFile ((repo / layout.relativeDir) / "Fixtures" / "Mutations" / "ConditionalCorrespondence.lean")
+  if checkedManifest == originalManifest then
+      return #["correspondence/control: manifest anchor missing"]
+  let negative ← IO.FS.readFile
+      ((repo / layout.relativeDir) / "Fixtures" / "Mutations" / "ConditionalCorrespondence.lean")
   let positive := negative.replace "def falseReference (n : Nat) : Nat := n\n"
     "def falseReference (n : Nat) : Nat := n + 1\n"
   if positive == negative then return #["correspondence/control: mutation anchor missing"]
@@ -1134,7 +1244,8 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy :
       withNewFile source positive do
         let green ← gate
         if !green.succeeded || !green.output.contains "kernel-defeq" then
-          failures.modify (·.push s!"correspondence/control: expected checked PASS:\n{green.output}")
+          failures.modify
+              (·.push s!"correspondence/control: expected checked PASS:\n{green.output}")
         withReplacedFile source negative do
           if let some failure := expectedFailure "conditional-correspondence" (← gate)
               #["execution-trusted-boundary", "falseReference",
@@ -1142,7 +1253,8 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy :
             failures.modify (·.push failure)
         let restored ← gate
         if !restored.succeeded || !restored.output.contains "kernel-defeq" then
-          failures.modify (·.push s!"correspondence/restored: fresh control failed:\n{restored.output}")
+          failures.modify
+              (·.push s!"correspondence/restored: fresh control failed:\n{restored.output}")
   for failure in ← correspondenceRestoration layout repo copy do
     failures.modify (·.push failure)
   failures.get
@@ -1150,10 +1262,12 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy :
 /-- Structural qualification: the mutation clusters run in parallel, each in
 its own isolated project copy claiming the derived structural surfaces, so no
 two concurrent Lake builds ever share a build directory. -/
-private unsafe def structuralQualification (layout : SourceLayout) (repo scratch : FilePath) (jobs : Nat)
+private unsafe def structuralQualification (layout : SourceLayout) (repo scratch : FilePath)
+    (jobs : Nat)
     : IO (Array String) := do
   let parts : Array (FilePath → FilePath → IO (Array String)) :=
-    #[structuralPartA layout, structuralPartB layout, structuralPartC layout, structuralPartD layout, structuralCorrespondence layout,
+    #[structuralPartA layout, structuralPartB layout, structuralPartC layout,
+        structuralPartD layout, structuralCorrespondence layout,
       CompilerPaths.qualify]
   let results ← mapConcurrent (min parts.size (max 1 jobs))
     (parts.mapIdx fun index part => (index, part)) fun (index, part) => do
@@ -1198,7 +1312,8 @@ private def freshControlManifest (manifest : Manifest) : Json :=
 project-owned modules must itself build the claimed libraries when the main
 build directory is empty, instead of relying on a prior `lake build`. Each
 control starts from a copied repository with no `.lake/build` at all. -/
-private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath) : IO (Array String) := do
+private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath) :
+    IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   let runScrubbed (dir : FilePath) (name : String) (args : Array String) : IO ProcessResult :=
     runProcess dir (repo / ".lake" / "build" / "bin" / name).toString args
@@ -1219,14 +1334,17 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       #["--jobs", "4", "--docs-root", corpus.toString]
     if !result.succeeded || !result.output.contains "conforming-positive-pass=1/1" then
       failures.modify (·.push
-        s!"fence-env/doc-fences: fence importing an owned module failed from unbuilt state:\n{result.output}")
+        s!"fence-env/doc-fences: fence importing an owned module failed from unbuilt \
+          state:\n{result.output}")
   timedPhase "clean-checkout/file-mode" <| unbuilt "file-mode" fun dir => do
     let result ← runScrubbed dir "axiomGate"
-      #["--file", ((dir / layout.relativeDir) / "Fixtures" / "Positive" / "ExternalUse.lean").toString,
+      #["--file",
+          ((dir / layout.relativeDir) / "Fixtures" / "Positive" / "ExternalUse.lean").toString,
         "--claim", "standard-logical"]
     if !result.succeeded then
       failures.modify (·.push
-        s!"fence-env/file-mode: --file importing the owned library failed from unbuilt state:\n{result.output}")
+        s!"fence-env/file-mode: --file importing the owned library failed from unbuilt \
+          state:\n{result.output}")
   -- The driver's build and root selection depend only on the manifest and Lake's
   -- import graph, never on which declarations a module holds. So this control
   -- claims two import-free `prelude` modules instead of the repository surface:
@@ -1239,7 +1357,9 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     IO.FS.createDirAll (sources / "FreshControl")
     for stem in freshControlStems do
       IO.FS.writeFile ((sources / "FreshControl") / s!"{stem}.lean")
-        s!"prelude\n/-! Import-free clean-checkout freshChecker root. -/\ninductive FreshControl.{stem} : Type where\n  | unit\n"
+        s!"prelude\n/-! Import-free clean-checkout freshChecker root. -/\n/-- A type with one \
+          value. -/\ninductive FreshControl.{stem} : Type where\n  /-- Its one value. -/\n  | \
+          unit\n"
     let lakefile := dir / "lakefile.lean"
     IO.FS.writeFile lakefile ((← IO.FS.readFile lakefile) ++
       "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n")
@@ -1269,10 +1389,12 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
           check.getObjVal? "coveredModules"
         checked := checked ++ covered
       if status != "completed" || checks.size != expected.size
-          || uniqueSorted modules != uniqueSorted expected || uniqueSorted roots != uniqueSorted expected
+          || uniqueSorted modules != uniqueSorted expected || uniqueSorted roots !=
+              uniqueSorted expected
           || uniqueSorted checked != uniqueSorted expected then
         failures.modify (·.push
-          s!"fence-env/fresh-checker: accepted root checks did not cover exactly {expected}:\n{result.output}")
+          s!"fence-env/fresh-checker: accepted root checks did not cover \
+            exactly {expected}:\n{result.output}")
   failures.get
 
 private def adopterManifestText : String :=
@@ -1289,7 +1411,8 @@ private def adopterOmittedExeText : String :=
 
 private def adopterTomlLakefile (checkerPath : String) : String :=
   "name = \"widget_adopter\"\n\n" ++
-  "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n\n" ++
+  "[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\nlinter.missingDocs = \
+    true\n\n" ++
   "[[require]]\nname = \"regula\"\n" ++
   s!"path = \"{checkerPath}\"\n\n" ++
   "[[lean_lib]]\nname = \"Widget\"\nglobs = [\"Widget\", \"Widget.+\"]\n\n" ++
@@ -1298,7 +1421,8 @@ private def adopterTomlLakefile (checkerPath : String) : String :=
 private def adopterLeanLakefile (checkerPath : String) : String :=
   "import Lake\nopen Lake DSL\n\n" ++
   "package «widget_adopter» where\n" ++
-  "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\n\n" ++
+  "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, \
+    true⟩]\n\n" ++
   s!"require «regula» from \"{checkerPath}\"\n\n" ++
   "@[default_target]\nlean_lib «Widget» where\n  globs := #[.andSubmodules `Widget]\n\n" ++
   "lean_exe «widget_tool» where\n  root := `Main\n"
@@ -1346,15 +1470,20 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
       let resolved ← IO.FS.realPath (adopter / checkerDir)
       if resolved != (← IO.FS.realPath repo) then
         throw <| IO.userError <|
-          s!"adopter/{label}/setup: relative checker path {checkerDir} resolves to {resolved}, not {repo}"
+          s!"adopter/{label}/setup: relative checker path {checkerDir} resolves to {resolved}, \
+            not {repo}"
     let lakeManifest ← adopterLakeManifest repo checkerDir
     IO.FS.writeFile (adopter / s!"lakefile.{format}") (lakefileText checkerDir)
     IO.FS.writeBinFile (adopter / "lean-toolchain")
       (← IO.FS.readBinFile (repo / "lean-toolchain"))
-    IO.FS.writeFile (adopter / "Widget.lean") "import Widget.Extra\n/-! Re-export the arithmetic identity in Widget.Extra. -/\n"
+    IO.FS.writeFile
+        (adopter / "Widget.lean")
+            "import Widget.Extra\n/-! Re-export the arithmetic identity in Widget.Extra. -/\n"
     IO.FS.writeFile (adopter / "Widget" / "Extra.lean")
-      "/-! Closed natural-number arithmetic identity. -/\ntheorem widget_extra_thm : 1 + 1 = 2 := rfl\n"
-    IO.FS.writeFile (adopter / "Main.lean") "/-! Standalone no-effect IO entrypoint. -/\ndef main : IO Unit := pure ()\n"
+      "/-! Closed natural-number arithmetic identity. -/\ntheorem widget_extra_thm : 1 + 1 = 2 := \
+        rfl\n"
+    IO.FS.writeFile (adopter / "Main.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- Does \
+      nothing. -/\ndef main : IO Unit := pure ()\n"
     IO.FS.writeFile (adopter / "foundation_manifest.json") (adopterManifestText ++ "\n")
     writeJson (adopter / "lake-manifest.json") lakeManifest
     IO.FS.createDirAll (adopter / ".lake")
@@ -1385,7 +1514,8 @@ private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array St
         #["manifest-incomplete", "widget_tool"] then
       failures.modify (·.push failure)
     withNewFile (adopter / "Widget" / "Rogue.lean")
-        "/-! Discovery control for a glob-owned axiom. -/\naxiom widget_rogue_axiom : False\n" do
+        "/-! Discovery control for a glob-owned axiom. -/\n/-- A glob-owned axiom, which RG1001 \
+          rejects. -/\naxiom widget_rogue_axiom : False\n" do
       if let some failure := expectedFailure s!"adopter/{label}/rogue-module" (← gate)
           #["project-axiom", "widget_rogue_axiom"] then
         failures.modify (·.push failure)
@@ -1444,7 +1574,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     timedPhase "manifest controls" <| withScratch repo "checker-manifest" fun scratch =>
       manifestQualification repo scratch
   for failure in ← IO.ofExcept (← IO.wait manifestTask) do failures.modify (·.push failure)
-  IO.println "self-test manifest: completed (valid + missing in-process; missing, malformed, incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
+  IO.println "self-test manifest: completed (valid + missing in-process; missing, malformed, \
+    incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
   let structural ← IO.ofExcept (← IO.wait structuralTask)
   for failure in structural do failures.modify (·.push failure)
   IO.println <| "self-test structural: " ++
@@ -1486,19 +1617,22 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
   withScratch repo "checker-scanner" fun scratch => do
     for failure in ← timedPhase "public fence corpus" (publicScannerQualification repo scratch) do
       failures.modify (·.push failure)
-  IO.println s!"self-test public fence corpus: completed ({(fenceCorpusCases ++ publicOnlyFenceCases).size} end-to-end cases)"
+  IO.println s!"self-test public fence corpus: completed \
+    ({(fenceCorpusCases ++ publicOnlyFenceCases).size} end-to-end cases)"
   withScratch repo "checker-adopter" fun scratch => do
     let adopter ← timedPhase "external adopters" (adopterQualification repo scratch)
     for failure in adopter do failures.modify (·.push failure)
     IO.println <| "self-test external adopters: " ++
       (if adopter.isEmpty then "PASS" else "FAIL") ++
-      " (lakefile.toml + lakefile.lean + relative-path require: empty exclusions, fresh positive gate, --project, omitted exe, " ++
+      " (lakefile.toml + lakefile.lean + relative-path require: empty exclusions, fresh positive \
+        gate, --project, omitted exe, " ++
       "rogue module, unlisted-module contamination, fresh plan)"
   let fenceEnv ← IO.ofExcept (← IO.wait fenceEnvTask)
   for failure in fenceEnv do failures.modify (·.push failure)
   IO.println <| "self-test fence environment: " ++
     (if fenceEnv.isEmpty then "PASS" else "FAIL") ++
-    " (clean-checkout doc fences, --file, freshChecker with no prior build on a two-root control surface)"
+    " (clean-checkout doc fences, --file, freshChecker with no prior build on a two-root control \
+      surface)"
   let surface ← timedPhase "public surface" <| runBinary repo "axiomGate" #["--incremental"]
   if !surface.succeeded then
     failures.modify (·.push s!"surface/baseline: public incremental gate failed:\n{surface.output}")
@@ -1527,7 +1661,8 @@ private def runLintDriver (repo : FilePath) (jobs : Nat)
 
 /-- Full and selected runs use the same group implementations. This exhaustive
 match assigns each supported partition exactly one implementation. -/
-private unsafe def runPartition (layout : SourceLayout) (partition : Partition) (repo : FilePath) (jobs : Nat)
+private unsafe def runPartition (layout : SourceLayout) (partition : Partition) (repo : FilePath)
+    (jobs : Nat)
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit :=
   match partition with
   | .fixtures => runFixtures repo jobs fixtures failures
@@ -1545,14 +1680,21 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
     IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
     IO.FS.writeFile (project / "lakefile.toml") <|
       "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\n" ++
-        "relaxedAutoImplicit = false\n[[lean_lib]]\nname = \"Snapshot\"\n" ++
+        "relaxedAutoImplicit = false\nlinter.missingDocs = true\n[[lean_lib]]\nname = \
+          \"Snapshot\"\n" ++
         "[[lean_lib]]\nname = \"Companion\"\n"
     IO.FS.writeFile (Manifest.defaultPath project)
-      "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Control\"},{\"library\":\"Companion\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Parallel surface control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+      "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\
+        \"standard-logical\",\"execution\":\"report\",\"rationale\":\"Control\"},{\"library\":\"Com\
+        panion\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"ratio\
+        nale\":\"Parallel surface \
+        control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
     let docs := project / "docs" / ".cache"
     IO.FS.createDirAll docs
     let mut failures := #[]
-    for phase in #["baseline", "invalid", "restored", "invalid-source", "invalid-companion", "source-restored"] do
+    for phase in
+        #["baseline", "invalid", "restored", "invalid-source", "invalid-companion",
+            "source-restored"] do
       IO.FS.writeFile (project / "Snapshot.lean") <|
         "/-! Source used for fence-import isolation qualification. -/\n" ++
         (if phase == "invalid-source" then "axiom unproved : True\n"
@@ -1596,9 +1738,14 @@ private def forcedCollectorQualification (repo scratch : FilePath) : IO (Array S
   if let some failure := expectedFailure "source-imported-excluded-collector" negative
       #["unexpected-project-module", "excluded module Regula.Collect"] then
     failures := failures.push failure
-  unless restored.succeeded do failures := failures.push s!"forced-collector-restored: {restored.output}"
+  unless restored.succeeded do failures :=
+                                failures.push s!"forced-collector-restored: {restored.output}"
   return failures
 
+/-- Runs the qualification suite: one of the focused `--…-only` controls or the internal
+transcript worker when the arguments name it, otherwise the baseline build and then the
+selected tiers or partition. Prints each failure and returns `1` when any control fails, `0`
+otherwise. -/
 unsafe def run (args : List String) : IO UInt32 := do
   if args == ["--forced-collector-only"] then
     let repo ← repoRoot
@@ -1606,7 +1753,9 @@ unsafe def run (args : List String) : IO UInt32 := do
     if !build.succeeded then IO.println build.output; return 1
     let failures ← withScratch repo "forced-collector-control" (forcedCollectorQualification repo)
     for failure in failures do IO.println s!"FAIL: {failure}"
-    if failures.isEmpty then IO.println "forced collector qualification: PASS (fresh positive, excluded-source refusal, restored)"
+    if failures.isEmpty then
+        IO.println "forced collector qualification: PASS (fresh positive, excluded-source refusal, \
+          restored)"
     return if failures.isEmpty then 0 else 1
   if args == ["--policy-transport-only"] then
     let failures := PolicyQualification.transport
@@ -1627,7 +1776,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     let failures ← withScratch repo "policy-domain-controls" fun scratch => do
       return PolicyQualification.transport ++ (← PolicyQualification.publicPaths repo scratch)
     for failure in failures do IO.println s!"FAIL: {failure}"
-    if failures.isEmpty then IO.println "policy domain qualification: PASS (transport and public paths)"
+    if failures.isEmpty then
+        IO.println "policy domain qualification: PASS (transport and public paths)"
     return if failures.isEmpty then 0 else 1
   if args == ["--combined-snapshot-only"] then
     let failures ← combinedSnapshotQualification (← repoRoot)
@@ -1643,7 +1793,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     let failures := inProcess ++ publicCases ++ (← combinedSnapshotQualification repo)
     for failure in failures do IO.println s!"FAIL: {failure}"
     if failures.isEmpty then
-      IO.println "focused fence qualification: PASS (in-process, import setup/restoration, public corpus; not full qualification)"
+      IO.println "focused fence qualification: PASS (in-process, import setup/restoration, public \
+        corpus; not full qualification)"
     return if failures.isEmpty then 0 else 1
   if args == ["--build-lint-only"] then
     let repo ← repoRoot
@@ -1669,9 +1820,12 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- never see the harness's imported attribute state), before the parent
   -- shared environment load.
   if let ["--transcript-worker", moduleWire, source, out] := args then
-    let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
+    let moduleName ← IO.ofExcept <| Regula.RegistryCodec.parseName
+        (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse moduleWire)
     let transcript ← Frontend.buildCurrentSearchPath moduleName source
-    writeJson out (workerPacket (sourceWorkerRequest "transcript" moduleName source transcript.sourceContent) (toJson transcript))
+    writeJson out
+        (workerPacket (sourceWorkerRequest "transcript" moduleName source transcript.sourceContent)
+            (toJson transcript))
     return 0
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
@@ -1685,7 +1839,8 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- later phase sees an already-warm build.
   let surfaceManifest ← Manifest.load (Manifest.defaultPath repo)
   let build ← timedPhase "baseline build" <| runProcess repo "lake"
-    (#["build", "axiomGate", "lint", "docFenceAudit", "freshChecker", "Fixtures.Mutations.DirectAxiom"]
+    (#["build", "axiomGate", "lint", "docFenceAudit", "freshChecker",
+        "Fixtures.Mutations.DirectAxiom"]
       ++ Manifest.positiveTargets surfaceManifest)
   if !build.succeeded then
     IO.println s!"FAIL: baseline checker and claimed-surface build failed:\n{build.output}"
@@ -1695,7 +1850,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     return ← withScratch repo "checker-structural" fun scratch => do
       let structural ← structuralQualification layout repo scratch options.jobs
       if structural.isEmpty then
-        IO.println s!"checker structural self-test: PASS (including {CompilerPaths.caseCount} compiler-path mutations with fresh restorations)"
+        IO.println s!"checker structural self-test: PASS (including {CompilerPaths.caseCount} \
+          compiler-path mutations with fresh restorations)"
         return 0
       IO.println s!"FAIL: {structural.size} structural qualification failure(s)"
       for failure in structural do IO.println s!"\n{failure}"
@@ -1718,12 +1874,15 @@ unsafe def run (args : List String) : IO UInt32 := do
     return 1
   let elapsed := (← IO.monoNanosNow) - started
   if let some partition := options.partition then
-    IO.println s!"checker self-test partition {partition.label}: PASS ({elapsed / 1000000000}s; this partition alone is not full qualification)"
+    IO.println s!"checker self-test partition {partition.label}: PASS ({elapsed / 1000000000}s; \
+      this partition alone is not full qualification)"
     return 0
   IO.println <| s!"checker self-test: PASS ({fixtures.size} fixed fixtures in-process; " ++
-    (if options.buildBound then s!"{fixtures.size} real-CLI controls (including all smoke controls); "
+    (if options.buildBound then
+        s!"{fixtures.size} real-CLI controls (including all smoke controls); "
       else s!"{smokeFixtureNames.size} real-CLI smoke controls; ") ++
-    s!"{fenceCorpusCases.size + publicOnlyFenceCases.size} Markdown cases plus import-setup controls; 9 manifest cases; structural controls including explicit contract mutations; " ++
+    s!"{fenceCorpusCases.size + publicOnlyFenceCases.size} Markdown cases plus import-setup \
+      controls; 9 manifest cases; structural controls including explicit contract mutations; " ++
     s!"{CompilerPaths.caseCount} imported compiler-path mutations with fresh restorations; " ++
     (if options.buildBound then
       "build-bound tier: full real-CLI fixture sweep, end-to-end fence corpus, " ++
@@ -1735,6 +1894,9 @@ unsafe def run (args : List String) : IO UInt32 := do
 
 end Regula.Checker.CheckerSelftest
 
+/-- The `checkerSelftest` executable: initializes Lean's search path, enables initializer
+execution and runs `Regula.Checker.CheckerSelftest.run`, printing any exception as `FAIL:` and
+returning `1`. -/
 unsafe def main (args : List String) : IO UInt32 := do
   try
     Regula.Checker.initializeLeanSearchPath

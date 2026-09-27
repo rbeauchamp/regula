@@ -381,9 +381,7 @@ The Regula repository applies the applicable universal rules to itself and quali
 * checker changes receive focused qualification for affected capabilities under §8.8; unchanged capability evidence is reused; and
 * when this repository claims separate serialized-graph checking, it runs a fresh `leanchecker` pass over every declared root needed for complete module coverage.
 
-Every claimed target builds with `autoImplicit` and `relaxedAutoImplicit` off (§8.1), and `Audit`, `AuditApp` and the `auditApp` executable, whose surfaces import Mathlib, enable Mathlib's standard linter set with exactly the exclusions of {ref "67-community-conventions-and-linters"}[module 6 §6.7]; the repository's own audit checks these options (RG2006).
-
-*Known gap (recorded 2026-09-27)*: the repository does not yet meet the `linter.missingDocs` requirement of {ref "67-community-conventions-and-linters"}[module 6 §6.7] on its own claimed surfaces. Its claimed targets (`Audit`, `AuditApp`, `auditApp`, `RegulaCore`, `RegulaPolicy`, `RegulaQualification`, `RegulaVerification`, and `RegulaProvision`) do not enable it; the 2026-09-26 community-alignment audit counted about 720 of their definitions without a docstring. Until follow-up work closes [issue #97](https://github.com/rbeauchamp/regula/issues/97), `DOGFOOD-01` does not hold for that obligation, and the list above describes everything else.
+Every claimed target builds with `autoImplicit` and `relaxedAutoImplicit` off (§8.1) and Lean's `linter.missingDocs` on, and `Audit`, `AuditApp` and the `auditApp` executable, whose surfaces import Mathlib, enable Mathlib's standard linter set with exactly the exclusions of {ref "67-community-conventions-and-linters"}[module 6 §6.7]; the repository's own audit checks these options (RG2006).
 
 # 8.11 Adopting the Checker in Another Project
 %%%
@@ -402,7 +400,7 @@ The checker package is self-contained: an external Lean project adopts it by req
 
 An adopter also enables the community linters that {ref "67-community-conventions-and-linters"}[module 6 §6.7] requires and runs the recommended ones beside the checker:
 
-* In the Lake `leanOptions` of every claimed library and executable, `linter.missingDocs` set to `true`, `autoImplicit` and `relaxedAutoImplicit` set to `false` (§8.1) and, in a surface that imports Mathlib, `weak.linter.mathlibStandardSet` set to `true` with the Mathlib-repository linters that §6.7 lists turned off. Their warnings are build warnings, so the checker's warning-free build rejects them (RG2003). RG2006 checks every one of these options except `linter.missingDocs`, which review confirms.
+* In the Lake `leanOptions` of every claimed library and executable, `linter.missingDocs` set to `true`, `autoImplicit` and `relaxedAutoImplicit` set to `false` (§8.1) and, in a surface that imports Mathlib, `weak.linter.mathlibStandardSet` set to `true` with the Mathlib-repository linters that §6.7 lists turned off. Their warnings are build warnings, so the checker's warning-free build rejects them (RG2003). RG2006 checks every one of these options.
 * Batteries' environment linters run as a separate command, `lake exe runLinter`. It lints the built modules and builds only a module that has no build output, so a stale build is linted as it is: run `lake build` first on either route. Lake has one `lintDriver` per package: a project that keeps `batteries/runLinter` as its driver runs `lake build && lake lint` and the checker with `lake exe lint`, and a project whose driver is `regula/lint` runs `lake lint` and, separately, `lake build && lake exe runLinter`. Each command's success establishes only its own checks.
 
 The exact adapter steps, including glob syntax in both lakefile formats, a minimal manifest, and the community linter configuration, are in this repository's {repo "docs/guides/adoption.md"}[adoption guide].

@@ -35,8 +35,11 @@ open Lean (Name)
 /-- Axioms an operational definition may reach beyond Standard-Logical. None is `sorryAx` or a
 compiler axiom, so erasing them can never hide a hole or compiler trust. -/
 structure ToolchainAxioms where
+  /-- The axiom names, as the operational adapter observed them. -/
   names : Array Name
+  /-- `sorryAx` is not among them. -/
   not_hole : `sorryAx ∉ names
+  /-- None of them is `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`. -/
   not_compiler : ∀ n ∈ names, ¬ CompilerAxiom #[] n
 
 /-- Admission of an observed toolchain axiom set; it refuses a hole or compiler axiom. -/

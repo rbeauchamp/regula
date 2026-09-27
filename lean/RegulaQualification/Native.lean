@@ -12,24 +12,37 @@ namespace RegulaQualification.Native
 /-- Fields consumed from a native compiler diagnostic. Additional JSON fields are not
 used by this general oracle; case-specific range checks inspect the original JSON. -/
 structure Message where
+  /-- The message kind Lean serializes, its top-level tag: for example
+  `Regula.<id>._namedError` for a native diagnostic and `[anonymous]` for an untagged message. -/
   kind : String
+  /-- The message's severity, such as `warning` or `error`. -/
   severity : String
+  /-- The message text. -/
   data : String
+  /-- The file the message is attributed to. -/
   fileName : String
   deriving Repr
 
 /-- Expected compiler messages are ordered and matched by severity and text fragment. -/
 structure CompilerMessage where
+  /-- The severity the compiler message must have. -/
   severity : String
+  /-- A fragment the compiler message's text must contain. -/
   text : String
 
 /-- Exact observation requirements selected before running a source control. -/
 structure Expected where
+  /-- The kinds of the expected Regula messages, as a multiset. -/
   kinds : List String
+  /-- The file every Regula message must be attributed to. -/
   fileName : String
+  /-- Whether the compiler must exit with a nonzero code. -/
   errors : Bool := false
+  /-- The severity every Regula message must have. -/
   severity : String := "warning"
+  /-- The expected non-Regula compiler messages, in order. -/
   compiler : List CompilerMessage := []
+  /-- When set, text some Regula message must contain. -/
   detail : Option String := none
 
 /-- Regula owns precisely the native named-error prefix used by the old harness. -/
@@ -102,7 +115,8 @@ def Matches (expected : Expected) (exitCode : Nat) (stderr : String)
   (native.map (·.kind)).mergeSort (· ≤ ·) = expected.kinds.mergeSort (· ≤ ·) ∧
   (exitCode != 0) = expected.errors ∧ stderr = "" ∧
   (∀ message ∈ native, NativeMatches expected message) ∧
-  expected.detail.all (fun detail => native.any (fun message => message.data.contains detail)) = true
+  expected.detail.all
+      (fun detail => native.any (fun message => message.data.contains detail)) = true
 
 /-- The actual adapter oracle uses the registered proof-backed evaluator. -/
 def validate (expected : Expected) (exitCode : Nat) (stderr : String)
@@ -112,7 +126,8 @@ def validate (expected : Expected) (exitCode : Nat) (stderr : String)
 /-- Soundness and completeness of the whole supplied-observation contract. -/
 theorem validate_exact (expected : Expected) (exitCode : Nat) (stderr : String)
     (messages : List Message) :
-    validate expected exitCode stderr messages = .ok () ↔ Matches expected exitCode stderr messages := by
+    validate expected exitCode stderr messages = .ok () ↔
+        Matches expected exitCode stderr messages := by
   simp only [validate, Regula.ExecutableContract.run, checks, List.all_filter, List.any_filter,
     evaluate_success, Satisfied, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
     compilerMatches_exact, beq_iff_eq, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_eq_eq_not,

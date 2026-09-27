@@ -21,6 +21,7 @@ Use a named constant as `implementation`; put its complete domain inside `condit
 Classical evidence is permitted under the selected Standard-Logical profile. -/
 structure ExecutableContract {α : Type u} (implementation : α)
     (condition : α → Prop) : Prop where
+  /-- A proof of `condition` about exactly `implementation`. -/
   evidence : condition implementation
 
 /-- Consume the required proof and return exactly the registered implementation.

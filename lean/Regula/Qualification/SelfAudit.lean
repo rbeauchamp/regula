@@ -36,7 +36,9 @@ def claim : String := "operational"
 
 /-- Observations of one module in its own imported environment. -/
 structure ModuleObservation where
+  /-- The observed module. -/
   «module» : Name
+  /-- The collected record of every constant the module owns, in `ownedConstants` order. -/
   declarations : Array RegulaPolicy.Declaration
   /-- Owned declarations of this module that kernel replay admitted. -/
   admitted : Nat
@@ -44,6 +46,8 @@ structure ModuleObservation where
   toolchain : Array Name
   /-- The module's RG5001 header observation, read from its Lake source file. -/
   header : RegulaPolicy.ModuleHeader.Observation
+  /-- Each public `@[regula_material]` declaration the module owns, with its RG5002/RG5003
+  documentation failure, or `none` when its docstring passes. -/
   material : Array (Name × Option MaterialDocumentationFailure)
 
 /-- Whether `owner`'s artifact is the pinned toolchain's own `Lake` module. -/
@@ -99,14 +103,25 @@ private def declarationText (id : RuleId) (name : Name) (detail : String) (modul
 
 /-- One module's region-free verdict, transported from its worker process as JSON. -/
 structure ModuleResult where
+  /-- The audited module's name. -/
   «module» : String
+  /-- How many constants the module owns. -/
   declarations : Nat
+  /-- How many of its owned declarations kernel replay admitted. -/
   admitted : Nat
+  /-- How many of its declarations carry an executable-contract registration. -/
   contracts : Nat
+  /-- The rendered text of every finding: module documentation, material documentation and
+  declarations that `RegulaPolicy.operationalFailure` rejects. -/
   violations : Array String
+  /-- Declarations that are `unsafe` or `partial` and have no unsafe-recursion base, reported
+  rather than failed. -/
   unsafeDeclarations : Array String
+  /-- The opaque bases of the module's `partial def`s, reported rather than failed. -/
   partialDefinitions : Array String
+  /-- The admitted axioms, outside Standard-Logical, that a toolchain `Lake` module declares. -/
   toolchainAxioms : Array String
+  /-- Non-proposition declarations whose axioms include one of those toolchain axioms. -/
   toolchainDependents : Array String
   deriving ToJson, FromJson
 
@@ -129,7 +144,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   for d in o.declarations do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with
-    | none => if d.isUnsafe || d.isPartial then unsafeDeclarations := unsafeDeclarations.push d.name.toString
+    | none => if d.isUnsafe || d.isPartial then unsafeDeclarations :=
+                                                 unsafeDeclarations.push d.name.toString
     | some base =>
       -- A `partial def` compiles to an opaque base implemented by this helper; safe
       -- structural or well-founded recursion keeps a definition base.
@@ -143,7 +159,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
       let detail := (descriptor id).applicability ++
         (if extra.isEmpty then "" else s!" (axioms outside Standard-Logical: {extra.toList})")
       violations := violations.push (← declarationText id d.name detail o.module)
-  return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations, unsafeDeclarations,
+  return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,
+      unsafeDeclarations,
     partialDefinitions,
     toolchain.names.map toString, dependents⟩
 
@@ -189,13 +206,21 @@ def check (jobs : Nat := 4) : IO Unit := do
   let unsafeDeclarations := union (·.unsafeDeclarations)
   let partialDefinitions := union (·.partialDefinitions)
   let dependents := union (·.toolchainDependents)
-  IO.println s!"operational self-audit of library {library}: {results.size}/{info.modules.size} module(s), {declarations} declaration(s) inspected, {admitted} (every one neither unsafe nor partial) kernel-admitted, {contracts} executable contract registration(s)"
-  IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe declaration(s): {unsafeDeclarations.toList}"
-  IO.println s!"reported, not failed: {partialDefinitions.size} partial definition(s): {partialDefinitions.toList}"
-  IO.println s!"reported, not failed: {dependents.size} definition(s) reach toolchain Lake axiom(s) {(union (·.toolchainAxioms)).toList}: {dependents.toList}"
-  IO.println "trusted, not verified: Lean import and kernel replay, the collector's observations, the toolchain artifact paths, worker processes and JSON transport, and every execution path (the library's executables make no execution claim)"
+  IO.println s!"operational self-audit of library {library}: {results.size}/{info.modules.size} \
+    module(s), {declarations} declaration(s) inspected, {admitted} (every one neither unsafe nor \
+    partial) kernel-admitted, {contracts} executable contract registration(s)"
+  IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
+    declaration(s): {unsafeDeclarations.toList}"
+  IO.println s!"reported, not failed: {partialDefinitions.size} partial \
+    definition(s): {partialDefinitions.toList}"
+  IO.println s!"reported, not failed: {dependents.size} definition(s) reach toolchain Lake \
+    axiom(s) {(union (·.toolchainAxioms)).toList}: {dependents.toList}"
+  IO.println "trusted, not verified: Lean import and kernel replay, the collector's observations, \
+    the toolchain artifact paths, worker processes and JSON transport, and every execution path \
+    (the library's executables make no execution claim)"
   unless violations.isEmpty && incomplete.isEmpty do
-    throw <| IO.userError s!"operational self-audit: FAIL ({violations.size} violation(s), {incomplete.size} incomplete module(s))"
+    throw <| IO.userError s!"operational self-audit: FAIL ({violations.size} \
+      violation(s), {incomplete.size} incomplete module(s))"
   IO.println "operational self-audit: PASS (operational claim only; not a conforming proof surface)"
 
 end Regula.Qualification.SelfAudit

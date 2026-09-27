@@ -18,6 +18,8 @@ def main (args : List String) : IO Unit := do
     let after ← IO.ofExcept (json.getObjVal? "checkerAfter")
     unless before == after do throw <| IO.userError "checker sources changed"
     for record in ← IO.ofExcept ((json.getObjVal? "records").bind Lean.Json.getArr?) do
-      IO.ofExcept (Regula.Checker.RuleExampleQualification.qualify (record.setObjVal! "checkerSources" before))
+      IO.ofExcept
+          (Regula.Checker.RuleExampleQualification.qualify
+              (record.setObjVal! "checkerSources" before))
   else IO.ofExcept (Regula.Checker.RuleExampleQualification.qualifyCorpus json)
   IO.println "rule example evidence: PASS (scoped diagnostic qualification; no Accepted claim)"

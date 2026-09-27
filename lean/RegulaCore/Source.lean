@@ -16,21 +16,30 @@ they do not authenticate how either was acquired. -/
 namespace Regula
 open Lean
 
+/-- A source text with the URI it is reported under (`RegulaPolicy.SourceSnapshot`). -/
 abbrev SourceSnapshot := RegulaPolicy.SourceSnapshot
+/-- A span of UTF-8 byte offsets, start inclusive and stop exclusive (`RegulaPolicy.ByteRange`). -/
 abbrev ByteRange := RegulaPolicy.ByteRange
 
 /-- Raw coordinates are admitted only after checking character boundaries and containment. -/
 structure SourceCandidate where
+  /-- The source the byte offsets refer to. -/
   snapshot : SourceSnapshot
+  /-- The byte range of the whole reported item. -/
   full : ByteRange
+  /-- The byte range of the selected part, such as a declaration name. -/
   selection : ByteRange
   deriving Repr, BEq
 
 namespace SourceCandidate
+/-- `n` is at most the byte size of `source`, and `FileMap` maps it to a position and back to
+`n` itself; this is how a character boundary is recognized. -/
 def boundary (source : String) (n : Nat) : Bool :=
   n ≤ source.utf8ByteSize &&
     (source.toFileMap.ofPosition (source.toFileMap.toPosition ⟨n⟩)).byteIdx == n
 
+/-- The URI is nonempty, the selection lies within the full range with ordered ends, and all
+four offsets are character boundaries of the source. -/
 def valid (c : SourceCandidate) : Bool :=
   !c.snapshot.uri.isEmpty && c.full.start ≤ c.selection.start &&
   c.selection.start ≤ c.selection.stop && c.selection.stop ≤ c.full.stop &&
@@ -41,6 +50,7 @@ end SourceCandidate
 /-- Invalid coordinates cannot inhabit an admitted source location. -/
 abbrev SourceLocation := { c : SourceCandidate // c.valid = true }
 
+/-- Admits a candidate as a `SourceLocation` exactly when `valid` holds, refusing it otherwise. -/
 def admitSource (c : SourceCandidate) : Except String SourceLocation :=
   if h : c.valid = true then .ok ⟨c, h⟩ else .error "invalid source coordinates"
 

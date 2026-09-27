@@ -22,15 +22,26 @@ def ids (j : Json) : Except String (List String) := do
 
 /-- Fixed expectation, selected before the public command runs. -/
 structure Expected where
+  /-- Whether the command must exit with a nonzero code. -/
   failure : Bool := false
+  /-- When set, the result's exact `mode`. -/
   mode : Option String := none
+  /-- The result's exact terminal `status`. -/
   status : String := "completed"
+  /-- The exact sequence of diagnostic IDs in the result; each must also occur in the
+  transcript. -/
   ids : List String := []
+  /-- Text the transcript must contain; for an RG2005 diagnostic, also its detail. -/
   reason : String := ""
+  /-- Whether the transcript must report a single inspection group of one fence. -/
   grouped : Bool := false
+  /-- Text a successful transcript must contain. -/
   positiveText : String := "PASS"
+  /-- When set, the `impact` every diagnostic must have. -/
   impact : Option String := none
+  /-- When set, the `mode` every diagnostic must have. -/
   diagnosticMode : Option String := none
+  /-- When set, the `subject` argument every RG2005 diagnostic must have. -/
   evidenceSubject : Option String := none
 
 /-- Exact observable requirements shared by fence and failed-operation controls.
@@ -40,10 +51,12 @@ def requirements (expected : Expected) (code : Nat) (transcript : String)
   let mut checks := [
     Check.mk "exit agrees with expected refusal" ((code != 0) == expected.failure),
     ⟨"intended transcript reason", transcript.contains expected.reason⟩,
-    ⟨"inspection group retained", !expected.grouped || transcript.contains "inspection group 1/1: 1 fence(s)"⟩,
+    ⟨"inspection group retained", !expected.grouped ||
+        transcript.contains "inspection group 1/1: 1 fence(s)"⟩,
     ⟨"positive transcript", expected.failure || transcript.contains expected.positiveText⟩,
     ⟨"all expected transcript diagnostics", expected.ids.all (fun id => transcript.contains id)⟩,
-    ⟨"no invented evidence refusal", expected.ids.contains "RG2005" || !(transcript.contains "RG2005")⟩]
+    ⟨"no invented evidence refusal", expected.ids.contains "RG2005" ||
+        !(transcript.contains "RG2005")⟩]
   if let some result := result then
     checks := checks ++ [
       ⟨"exact diagnostic sequence", (← ids result) == expected.ids⟩,
@@ -58,13 +71,16 @@ def requirements (expected : Expected) (code : Nat) (transcript : String)
       if (← text diagnostic "id") == "RG2005" then
         checks := checks ++ [
           ⟨"typed evidence reason", (← detail diagnostic).contains expected.reason⟩,
-          ⟨"evidence project location", (← text (← field diagnostic "location") "kind") == "project"⟩]
+          ⟨"evidence project location", (← text (← field diagnostic "location") "kind") ==
+              "project"⟩]
         if let some subject := expected.evidenceSubject then
-          checks := checks ++ [⟨"evidence subject", (← text (← field diagnostic "arguments") "subject") == subject⟩]
+          checks := checks ++
+              [⟨"evidence subject", (← text (← field diagnostic "arguments") "subject") == subject⟩]
   return checks
 
 /-- This is the actual supplied-observation oracle used by the IO adapter. -/
-def validate (expected : Expected) (code : Nat) (transcript : String) (result : Option Json) : Except String Unit :=
+def validate (expected : Expected) (code : Nat) (transcript : String) (result : Option Json) :
+    Except String Unit :=
   checked_decoded.run (requirements expected code transcript result)
 
 /-- Successful admission iff decoding succeeds and every specified requirement holds;
@@ -79,12 +95,15 @@ admission diagnostics (fence and project), and exactly one compilation diagnosti
 def documentationChecks (transcript scope reason phase : String) : List Check :=
   let lines := transcript.splitOn "\n"
   let admission := lines.filter (·.startsWith "RG2005 [")
-  let unavailable := ["source-missing", "source-unreadable", "configuration-unreadable"].contains phase
+  let unavailable :=
+      ["source-missing", "source-unreadable", "configuration-unreadable"].contains phase
   [⟨"snapshot refusal", transcript.contains reason⟩,
    ⟨"fence compilation evidence", transcript.contains "fence compilation: "⟩,
    ⟨"two distinct admission diagnostics", admission.length == 2 && admission.eraseDups.length == 2⟩,
-   ⟨"one fence admission diagnostic", (admission.filter (·.contains "project/configuration control.md:1]")).length == 1⟩,
-   ⟨"one project admission diagnostic", (admission.filter (·.contains s!"project/configuration {scope}]")).length == 1⟩,
+   ⟨"one fence admission diagnostic",
+       (admission.filter (·.contains "project/configuration control.md:1]")).length == 1⟩,
+   ⟨"one project admission diagnostic",
+       (admission.filter (·.contains s!"project/configuration {scope}]")).length == 1⟩,
    ⟨"one fence compilation diagnostic", (lines.filter (·.startsWith "RG4002 [")).length == 1⟩,
    ⟨"IO failure detail", !unavailable || transcript.toLower.contains
      (if phase == "source-missing" then "no such file or directory" else "is a directory")⟩,
@@ -98,6 +117,7 @@ def validateDocumentation (transcript scope reason phase : String) : Except Stri
 /-- Transcript success and refusal are governed by all requirements, not an exit alone. -/
 theorem checked_documentation : Regula.ExecutableContract validateDocumentation
     (fun run => ∀ transcript scope reason phase,
-      run transcript scope reason phase = .ok () ↔ Satisfied (documentationChecks transcript scope reason phase)) :=
+      run transcript scope reason phase = .ok () ↔ Satisfied
+          (documentationChecks transcript scope reason phase)) :=
   ⟨fun _ _ _ _ => evaluate_success _⟩
 end RegulaQualification.Evidence

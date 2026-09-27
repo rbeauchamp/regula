@@ -41,6 +41,7 @@ inductive EvidenceClass where
   | openReview
   deriving Repr, DecidableEq
 
+/-- The label a screen report prints for an evidence class. -/
 def EvidenceClass.spelling : EvidenceClass → String
   | .checked => "checked" | .screened => "screened" | .openReview => "open semantic review"
 
@@ -69,11 +70,16 @@ def _root_.RegulaPolicy.Screening.Judgment.findingId (j : Judgment) : String :=
 /-- One judged answer, as recorded evidence. `support` is the probability that the claim
 meets the intent in the judged respect (for strength, equivalent or stronger). -/
 structure Judged where
+  /-- Which question this answer judges. -/
   judgment : Judgment
   /-- The clause text, or `claim` for a whole-claim judgment. -/
   subject : String
+  /-- The pinned model identifier that answered. -/
   model : PinnedModel
+  /-- The recorded question text (`Questions.questionText`): instructions and criteria as
+  compact JSON. -/
   question : String
+  /-- The probability that the claim meets the intent in the judged respect. -/
   support : Decimal
   /-- Distribution confidence, reported for Choice answers only. -/
   confidence : Option Decimal
@@ -104,13 +110,15 @@ theorem Judged.escalate_of_severity (policy : Policy) (j : Judged) (h : j.severi
   cases hr : j.route policy with
   | escalate => rfl
   | screened =>
-    obtain ⟨t, ht, hw, _⟩ := (checked_route.evidence (policy j.judgment) j.support j.confidence).mp hr
+    obtain ⟨t, ht, hw, _⟩ :=
+        (checked_route.evidence (policy j.judgment) j.support j.confidence).mp hr
     exact absurd (by
       unfold Judged.severity
       rw [ht]; exact ((checked_classify.evidence t j.support).2.2.2).mpr hw) h
 
 /-- With no thresholds configured for its judgment, an answer raises no finding and escalates. -/
-theorem Judged.unconfigured (policy : Policy) (j : Judged) (h : (policy j.judgment).thresholds = none) :
+theorem Judged.unconfigured (policy : Policy) (j : Judged)
+    (h : (policy j.judgment).thresholds = none) :
     j.severity policy = none ∧ j.route policy = .escalate := by
   refine ⟨by simp [Judged.severity, h], ?_⟩
   change routeImpl (policy j.judgment) j.support j.confidence = .escalate
@@ -120,18 +128,22 @@ theorem Judged.unconfigured (policy : Policy) (j : Judged) (h : (policy j.judgme
 inductive ClauseEvidence where
   /-- `proof` proves that the claim implies `formal` under exactly `axioms`, re-checked by Lean's
   kernel; whether `formal` states the English clause is the screened `correspondence` judgment. -/
-  | discharged (proof : Lean.Name) (formal : String) (axioms : List Lean.Name) (correspondence : Judged)
+  | discharged (proof : Lean.Name) (formal : String) (axioms : List Lean.Name)
+      (correspondence : Judged)
   /-- No formal statement: whether the claim guarantees the clause is judged. -/
   | judged (coverage : Judged)
   /-- The clause's discharge reference was refused for `reason`: nothing about the clause is
   checked or judged, and it stays open for review. -/
   | refused (proof : Lean.Name) (reason : String)
 
+/-- The judged answer of a clause: the correspondence judgment of a discharge, the coverage
+judgment of a judged clause, and none for a refused discharge. -/
 def ClauseEvidence.judgedAnswer? : ClauseEvidence → Option Judged
   | .discharged _ _ _ j => some j
   | .judged j => some j
   | .refused .. => none
 
+/-- The clause's discharge reference was refused. -/
 def ClauseEvidence.isRefused : ClauseEvidence → Bool
   | .refused .. => true
   | _ => false
@@ -157,7 +169,8 @@ theorem ClauseEvidence.refused_not_checked (e : ClauseEvidence) (h : e.isRefused
 /-- A clause's judged answer carries one of the clause's classes, and it is not `checked`. -/
 theorem ClauseEvidence.judgedAnswer_class (e : ClauseEvidence) (j : Judged)
     (h : e.judgedAnswer? = some j) : j.evidenceClass ∈ e.classes ∧ j.evidenceClass ≠ .checked :=
-  ⟨by cases e <;> simp_all [judgedAnswer?, classes, Judged.evidenceClass], Judged.evidenceClass_ne_checked _⟩
+  ⟨by cases e <;> simp_all [judgedAnswer?, classes, Judged.evidenceClass],
+      Judged.evidenceClass_ne_checked _⟩
 
 /-- The printed class labels of a clause. -/
 def ClauseEvidence.label (e : ClauseEvidence) : String :=
@@ -165,9 +178,14 @@ def ClauseEvidence.label (e : ClauseEvidence) : String :=
 
 /-- The screen of one material claim. -/
 structure ClaimScreen where
+  /-- The registered material declaration screened. -/
   claim : Lean.Name
+  /-- Each intent clause's text with how it was compared with the claim, in clause order. -/
   clauses : List (String × ClauseEvidence)
+  /-- The whole-claim strength judgment: the claim is equivalent to or stronger than the
+  intent. -/
   strength : Judged
+  /-- The whole-claim targeted judgments: quantifier order, totalization and exclusions. -/
   targeted : List Judged
 
 /-- Every judged answer of the screen. -/
@@ -177,9 +195,13 @@ def ClaimScreen.answers (s : ClaimScreen) : List Judged :=
 /-- The strongest status a screen can record. There is deliberately no checked or reviewed
 status. -/
 inductive Status where
-  | screened | escalated
+  /-- No discharge reference was refused and every answer stays screened under the policy. -/
+  | screened
+  /-- A discharge was refused or some answer escalates: the claim goes to semantic review. -/
+  | escalated
   deriving Repr, DecidableEq
 
+/-- The label a screen report prints for a status. -/
 def Status.spelling : Status → String
   | .screened => "screened" | .escalated => "escalated to review"
 
@@ -220,7 +242,8 @@ theorem ClaimScreen.escalated_of_finding (policy : Policy) (s : ClaimScreen) (j 
     cases this
 
 /-- A claim with a refused discharge is escalated. -/
-theorem ClaimScreen.escalated_of_refused (policy : Policy) (s : ClaimScreen) (c : String × ClauseEvidence)
+theorem ClaimScreen.escalated_of_refused (policy : Policy) (s : ClaimScreen)
+    (c : String × ClauseEvidence)
     (hc : c ∈ s.clauses) (h : c.2.isRefused = true) : s.status policy = .escalated := by
   cases hs : s.status policy with
   | escalated => rfl
@@ -245,7 +268,8 @@ theorem ClaimScreen.escalated_of_incomplete (policy : Policy) (s : ClaimScreen)
 def ClaimScreen.findings (policy : Policy) (s : ClaimScreen) : List (Judged × ScreenSeverity) :=
   s.answers.filterMap fun j => (j.severity policy).map (j, ·)
 
-theorem ClaimScreen.mem_findings (policy : Policy) (s : ClaimScreen) (j : Judged) (sev : ScreenSeverity) :
+theorem ClaimScreen.mem_findings (policy : Policy) (s : ClaimScreen) (j : Judged)
+    (sev : ScreenSeverity) :
     (j, sev) ∈ s.findings policy ↔ j ∈ s.answers ∧ j.severity policy = some sev := by
   simp only [findings, List.mem_filterMap, Option.map_eq_some_iff, Prod.mk.injEq]
   constructor
@@ -278,7 +302,8 @@ def ClaimScreen.lines (policy : Policy) (s : ClaimScreen) : Array String :=
     match e with
     | .discharged thm formal axioms j =>
       #[s!"  clause \"{text}\" [{e.label}]: `{thm}` proves the claim implies `{formal}` " ++
-          s!"(own proof term re-checked by the kernel, dependencies trusted as built; axioms: {if axioms.isEmpty then "none" else ", ".intercalate (axioms.map toString)})",
+          s!"(own proof term re-checked by the kernel, dependencies trusted as built; \
+            axioms: {if axioms.isEmpty then "none" else ", ".intercalate (axioms.map toString)})",
         answer "  correspondence of the formal clause to the English" j]
     | .judged j => #[answer s!"clause \"{text}\" [{e.label}] coverage" j]
     | .refused thm reason =>

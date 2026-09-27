@@ -7,9 +7,9 @@ validated. It imports only Lean's core so the deployment jobs can run it with th
 toolchain alone:
 
 ```text
-lean --run lean/Regula/Site/Deployment.lean archive REPOSITORY DIR   # used by `lake exe site build`
-lean --run lean/Regula/Site/Deployment.lean gate ARTIFACT_DIR        # before archiving and deploying
-lean --run lean/Regula/Site/Deployment.lean verify ARTIFACT_DIR      # after deploying
+lean --run lean/Regula/Site/Deployment.lean archive REPOSITORY DIR  # used by `lake exe site build`
+lean --run lean/Regula/Site/Deployment.lean gate ARTIFACT_DIR       # before archiving and deploying
+lean --run lean/Regula/Site/Deployment.lean verify ARTIFACT_DIR     # after deploying
 ```
 
 The site archive is the branch `site-archive-regula`. It holds only `rev/<commit>/` snapshot
@@ -47,11 +47,13 @@ repository rule on `site-archive-regula` would enforce it for every writer.
 namespace Regula.Site.Deployment
 open Lean System
 
-private def fail {α : Type} (message : String) : IO α := throw <| IO.userError s!"deployment verification: {message}"
+private def fail {α : Type} (message : String) : IO α := throw <|
+    IO.userError s!"deployment verification: {message}"
 
 /-- Fetch `url` into `path`; returns the HTTP status (0 when no response). -/
 def fetch (url : String) (path : FilePath) : IO Nat := do
-  let out ← IO.Process.output { cmd := "curl", args := #["--silent", "--show-error", "--max-time", "60",
+  let out ← IO.Process.output
+      { cmd := "curl", args := #["--silent", "--show-error", "--max-time", "60",
     "--output", path.toString, "--write-out", "%{http_code}", url] }
   return out.stdout.trimAscii.toString.toNat?.getD 0
 
@@ -72,7 +74,8 @@ def archiveRef : String := "refs/heads/site-archive-regula"
 def isCommit (s : String) : Bool :=
   s.length == 40 && s.toList.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')
 
-private def git (args : Array String) (env : Array (String × Option String) := #[]) : IO String := do
+private def git (args : Array String) (env : Array (String × Option String) := #[]) :
+    IO String := do
   let out ← IO.Process.output { cmd := "git", args := #["-c", "core.autocrlf=false"] ++ args, env }
   unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
   return out.stdout
@@ -84,15 +87,21 @@ def readTree (root : FilePath) : IO (List (String × ByteArray)) := do
   let mut files := []
   for path in ← root.walkDir do
     if !(← path.isDir) then
-      files := (String.intercalate "/" (path.components.drop root.components.length), ← IO.FS.readBinFile path) :: files
+      files :=
+          (String.intercalate "/" (path.components.drop root.components.length),
+              ← IO.FS.readBinFile path) :: files
   return files.mergeSort (fun a b => a.1 ≤ b.1)
 
 /-- A fetched archive: its head (`none` for an absent branch), its snapshot commits in path
 order, the scratch Git directory holding it and the directory it is extracted to. -/
 structure Archive where
+  /-- The fetched archive branch's head commit; `none` when the branch is absent. -/
   head : Option String
+  /-- The commits that have a `rev/<commit>/` snapshot, in path order. -/
   revisions : List String
+  /-- The scratch bare Git directory the archive was fetched into. -/
   gitDir : FilePath
+  /-- The directory the archive's files are extracted to. -/
   tree : FilePath
 
 /-- Fetch and extract the archive of `repository` into `dir`. Refuses an archive with any
@@ -140,7 +149,8 @@ def snapshotDirs (artifact : FilePath) : IO (List String) := do
 
 /-- Append the artifact's snapshot of `sha` to the archive: a commit whose parent is the
 archive head (none for the first snapshot), written as a Git bundle of that one commit. -/
-def appendSnapshot (archive : Archive) (artifact : FilePath) (sha : String) (bundle : FilePath) : IO String := do
+def appendSnapshot (archive : Archive) (artifact : FilePath) (sha : String) (bundle : FilePath) :
+    IO String := do
   let g := #["--git-dir", archive.gitDir.toString]
   let env := #[("GIT_INDEX_FILE", some (archive.gitDir / "append-index").toString),
     ("GIT_AUTHOR_NAME", some "github-actions[bot]"),
@@ -166,10 +176,13 @@ one; then write the next archive commit as a bundle. -/
 def gate (artifact : FilePath) : IO Unit := do
   let build ← IO.ofExcept (Json.parse (← IO.FS.readFile (artifact / "build.json")))
   let sha ← env "GITHUB_SHA"
-  unless (← field build "dirty") == .bool false do fail "the artifact was built from uncommitted changes"
-  unless (← str build "revision") == sha do fail s!"the artifact is for {← str build "revision"}, not {sha}"
+  unless (← field build "dirty") == .bool false do
+      fail "the artifact was built from uncommitted changes"
+  unless (← str build "revision") == sha do
+      fail s!"the artifact is for {← str build "revision"}, not {sha}"
   let repository := (← env "GITHUB_SERVER_URL") ++ "/" ++ (← env "GITHUB_REPOSITORY")
-  let out ← IO.Process.output { cmd := "git", args := #["ls-remote", repository, "refs/heads/main"] }
+  let out ← IO.Process.output
+      { cmd := "git", args := #["ls-remote", repository, "refs/heads/main"] }
   unless out.exitCode == 0 do fail s!"cannot read the head of main: {out.stderr}"
   let head := ((out.stdout.splitOn "\t").headD "").trimAscii.toString
   unless head == sha do fail s!"main has moved to {head}; not publishing the older {sha}"
@@ -189,10 +202,18 @@ def gate (artifact : FilePath) : IO Unit := do
   let commit ← appendSnapshot archive artifact sha ("tmp" / "site-archive.bundle")
   let parent := archive.head.getD ""
   if let some outputs ← IO.getEnv "GITHUB_OUTPUT" then
-    IO.FS.withFile outputs .append fun h => h.putStr s!"archive-parent={parent}\narchive-commit={commit}\n"
+    IO.FS.withFile outputs .append fun h =>
+        h.putStr s!"archive-parent={parent}\narchive-commit={commit}\n"
   IO.FS.removeDirAll ("tmp" / "site-archive-gate")
-  IO.println s!"deployment gate: PASS (clean artifact of {sha}, the current head of main, with all {archive.revisions.length} archived snapshots unchanged); archive commit {commit} on {if parent.isEmpty then "a new archive" else parent} written to tmp/site-archive.bundle"
+  IO.println s!"deployment gate: PASS (clean artifact of {sha}, the current head of main, with \
+    all {archive.revisions.length} archived snapshots unchanged); archive commit {commit} \
+    on {if parent.isEmpty then "a new archive" else parent} written to tmp/site-archive.bundle"
 
+/-- Post-deployment observation of the site at `pageUrl`: the artifact must be a clean build
+for that site; its `build.json` must be served live (polled up to 20 times, 15 seconds
+apart); every rule page of every edition and every snapshot's `build.json` must be served
+with the artifact's bytes; and an unpublished route must return 404 with the artifact's
+`404.html`. Any difference fails. -/
 def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
   let recorded ← IO.FS.readBinFile (artifact / "build.json")
   let build ← IO.ofExcept (Json.parse (← IO.FS.readFile (artifact / "build.json")))
@@ -200,7 +221,8 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
   let revision ← str build "revision"
   let pageUrl := if pageUrl.endsWith "/" then pageUrl else pageUrl ++ "/"
   unless pageUrl == site do fail s!"deployed at {pageUrl}, but the artifact is for {site}"
-  unless (← field build "dirty") == .bool false do fail "the artifact was built from uncommitted changes"
+  unless (← field build "dirty") == .bool false do
+      fail "the artifact was built from uncommitted changes"
   let scratch := artifact.parent.getD "." / "deployment-check"
   IO.FS.createDirAll scratch
   let probe := s!"?regula-deployment={revision}"
@@ -212,7 +234,8 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
       if (← IO.FS.readBinFile (scratch / "build.json")) == recorded then
         matched := true
         break
-    IO.println s!"attempt {attempt}: live build.json is not this artifact yet (HTTP {status}); waiting"
+    IO.println s!"attempt {attempt}: live build.json is not this artifact yet (HTTP {status}); \
+      waiting"
     IO.sleep 15000
   unless matched do fail s!"the live site does not serve the artifact of {revision}"
   let editions ← IO.ofExcept ((← field build "editions").getArr?)
@@ -225,7 +248,8 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
       let file := edition ++ route ++ "index.html"
       let status ← fetch (site ++ edition ++ route ++ probe) (scratch / "page.html")
       unless status == 200 do fail s!"{file}: HTTP {status}"
-      unless (← IO.FS.readBinFile (scratch / "page.html")) == (← IO.FS.readBinFile (artifact / file)) do
+      unless (← IO.FS.readBinFile (scratch / "page.html")) ==
+          (← IO.FS.readBinFile (artifact / file)) do
         fail s!"{file}: live bytes differ from the validated artifact"
       checked := checked + 1
   let snapshots ← snapshotDirs artifact
@@ -233,17 +257,26 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
     let file := s!"rev/{c}/build.json"
     let status ← fetch (site ++ file ++ probe) (scratch / "snapshot.json")
     unless status == 200 do fail s!"{file}: HTTP {status}"
-    unless (← IO.FS.readBinFile (scratch / "snapshot.json")) == (← IO.FS.readBinFile (artifact / file)) do
+    unless (← IO.FS.readBinFile (scratch / "snapshot.json")) ==
+        (← IO.FS.readBinFile (artifact / file)) do
       fail s!"{file}: live bytes differ from the validated artifact"
-  let status ← fetch (site ++ "v/0.0.0-unpublished/rules/RG1001/" ++ probe) (scratch / "missing.html")
+  let status ← fetch (site ++ "v/0.0.0-unpublished/rules/RG1001/" ++ probe)
+      (scratch / "missing.html")
   unless status == 404 do fail s!"unpublished route answered HTTP {status}, expected 404"
-  unless (← IO.FS.readBinFile (scratch / "missing.html")) == (← IO.FS.readBinFile (artifact / "404.html")) do
+  unless (← IO.FS.readBinFile (scratch / "missing.html")) ==
+      (← IO.FS.readBinFile (artifact / "404.html")) do
     fail "unpublished route did not serve the artifact's not-available page"
   IO.FS.removeDirAll scratch
-  IO.println s!"deployment verification: PASS ({site} serves the artifact of {revision}: build.json, {checked} rule pages, the build.json of {snapshots.length} revision snapshots, not-available page); an observation at this time, not a guarantee of availability"
+  IO.println s!"deployment verification: PASS ({site} serves the artifact of {revision}: \
+    build.json, {checked} rule pages, the build.json of {snapshots.length} revision snapshots, \
+    not-available page); an observation at this time, not a guarantee of availability"
 
 end Regula.Site.Deployment
 
+/-- Command line of `lean --run lean/Regula/Site/Deployment.lean`: `archive REPOSITORY DIR`
+fetches the site archive and writes its head and revisions to `DIR/archive.json`;
+`gate ARTIFACT_DIR` runs the deployment gate; `verify ARTIFACT_DIR` checks the live site at
+`REGULA_PAGE_URL`. Returns 2 on a usage error or a missing `REGULA_PAGE_URL`. -/
 def main (args : List String) : IO UInt32 := do
   match args with
   | ["archive", repository, dir] =>
@@ -251,10 +284,13 @@ def main (args : List String) : IO UInt32 := do
     IO.FS.writeFile (System.FilePath.mk dir / "archive.json") ((Lean.Json.mkObj [
       ("head", match archive.head with | some h => .str h | none => .null),
       ("revisions", Lean.toJson archive.revisions)]).compress ++ "\n")
-    IO.println s!"site archive: {archive.revisions.length} snapshot(s) at {archive.head.getD "an absent branch"}"
+    IO.println s!"site archive: {archive.revisions.length} snapshot(s) at {archive.head.getD "an \
+      absent branch"}"
     return 0
   | ["gate", artifact] => Regula.Site.Deployment.gate artifact; return 0
   | ["verify", artifact] =>
-    let some pageUrl ← IO.getEnv "REGULA_PAGE_URL" | IO.eprintln "REGULA_PAGE_URL is not set"; return 2
+    let some pageUrl ← IO.getEnv "REGULA_PAGE_URL" | IO.eprintln
+                                                      "REGULA_PAGE_URL is not set"; return 2
     Regula.Site.Deployment.run artifact pageUrl; return 0
-  | _ => IO.eprintln "usage: lean --run lean/Regula/Site/Deployment.lean (archive REPOSITORY DIR | gate ARTIFACT_DIR | verify ARTIFACT_DIR)"; return 2
+  | _ => IO.eprintln "usage: lean --run lean/Regula/Site/Deployment.lean (archive REPOSITORY DIR | \
+    gate ARTIFACT_DIR | verify ARTIFACT_DIR)"; return 2

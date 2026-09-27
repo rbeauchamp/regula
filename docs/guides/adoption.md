@@ -421,8 +421,8 @@ core-only code.
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each finding as RG2003
   (`INCOMPLETE`, exit 3) with the linter's message. RG2006 checks, in Lake's resolved configuration
-  of every claimed library and executable, every option above except `linter.missingDocs`
-  (which review confirms), and rejects a target-wide `false` for any other linter and any
+  of every claimed library and executable, every option above, and rejects a target-wide
+  `false` for any other linter and any
   `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these options another
   value or turns such a linter off (set options in `leanOptions`, where it reads them); a
   violation is `VIOLATION`, exit 1. Other extra `lean` arguments are allowed. It does not read

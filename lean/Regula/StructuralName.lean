@@ -8,11 +8,14 @@ JSON scalar admission is the operational bridge. Names retain every constructor.
 namespace Regula.RegistryCodec
 open Lean
 
+/-- The JSON components of a name, innermost first: `["str", s]` for a string component and
+`["num", n]` for a numeric one. -/
 def nameParts : Name → List Json
   | .anonymous => []
   | .str parent value => Json.arr #[.str "str", .str value] :: nameParts parent
   | .num parent value => Json.arr #[.str "num", toJson value] :: nameParts parent
 
+/-- A Lean name as a JSON array of its `nameParts`. -/
 def nameJson (name : Name) : Json := .arr (nameParts name).toArray
 
 private def component (j : Json) : Except String RegulaPolicy.Codec.Wire := do
@@ -26,9 +29,13 @@ private def components : List Json → Except String (List RegulaPolicy.Codec.Wi
   | [] => .ok []
   | x :: xs => return (← component x) :: (← components xs)
 
+/-- Decode name components with the pure `RegulaPolicy.Codec` decoder; it recovers every name
+from its `nameParts` (`nameParts_roundtrip`). -/
 def parseNameParts (xs : List Json) : Except String Name := do
   RegulaPolicy.Codec.parseNameParts (← components xs)
 
+/-- Decode a JSON array of name components; it recovers every name from its `nameJson`
+(`name_roundtrip`). -/
 def parseName (j : Json) : Except String Name := do
   parseNameParts (← j.getArr?).toList
 

@@ -36,8 +36,11 @@ open Questions
 
 /-- A checked discharge: `proof` proves the claim implies `formal`, under exactly `axioms`. -/
 structure Discharge where
+  /-- The referenced theorem, of type `S → P` with `S` the claim's statement. -/
   proof : Name
+  /-- The pretty-printed conclusion `P`, the formal clause judged against the English one. -/
   formal : String
+  /-- The theorem's transitive axioms, sorted by name; all are Standard-Logical axioms. -/
   axioms : List Name
 
 /-- Axioms a discharge may use: the Standard-Logical foundation (standard §4.5). A project
@@ -47,12 +50,17 @@ def dischargeAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
 
 /-- The outcome of checking one discharge reference. -/
 inductive DischargeCheck where
+  /-- Every condition of `checkDischarge` held; `d` records the checked discharge. -/
   | admitted (d : Discharge)
+  /-- The reference `proof` failed a condition, or the marker was malformed; `reason` says
+  why. -/
   | refused (proof : Name) (reason : String)
 
 /-- One claim as read from its environment. -/
 structure ClaimInput where
+  /-- The claim's declaration. -/
   name : Name
+  /-- Its Intent clauses (discharge markers removed), explanation and statement text. -/
   text : ClaimText
   /-- Per clause: no discharge marker, or the outcome of checking its reference. -/
   discharges : List (Option DischargeCheck)
@@ -69,6 +77,7 @@ def statementExpr (info : ConstantInfo) : Expr :=
     else i.type
   | _ => info.type
 
+/-- `e` as Lean's pretty-printer renders it under the current options. -/
 def pretty (e : Expr) : MetaM String := do
   return toString (← ppExpr e)
 
@@ -112,13 +121,18 @@ def checkDischarge (claimLevels : List Name) (claim : Expr) (proof : Name) : Met
   if formal.hasLooseBVars then throwError "discharge {proof}'s conclusion depends on its hypothesis"
   match Kernel.isDefEq (← getEnv) {} hypothesis claim with
   | .ok true => pure ()
-  | .ok false => throwError "discharge {proof}'s hypothesis is not definitionally equal to the claim's statement"
-  | .error _ => throwError "the kernel could not compare discharge {proof}'s hypothesis with the claim"
+  | .ok false =>
+      throwError
+          "discharge {proof}'s hypothesis is not definitionally equal to the claim's statement"
+  | .error _ =>
+      throwError "the kernel could not compare discharge {proof}'s hypothesis with the claim"
   let copy := `_intentScreen.recheck ++ proof
   if (← getEnv).contains copy then throwError "discharge {proof}'s re-check name {copy} is taken"
-  match (← getEnv).toKernelEnv.addDeclCore 0 0 (.thmDecl { thm with name := copy, all := [copy] }) none with
+  match (← getEnv).toKernelEnv.addDeclCore 0 0
+      (.thmDecl { thm with name := copy, all := [copy] }) none with
   | .ok _ => pure ()
-  | .error e => throwError "the kernel rejected discharge {proof}'s proof: {← (e.toMessageData {}).toString}"
+  | .error e =>
+      throwError "the kernel rejected discharge {proof}'s proof: {← (e.toMessageData {}).toString}"
   let axioms := (← collectAxioms proof).toList.mergeSort (·.toString ≤ ·.toString)
   if let some a := axioms.find? (!dischargeAxioms.contains ·) then
     throwError "discharge {proof} depends on {a}, outside the Standard-Logical foundation"
@@ -137,7 +151,9 @@ def readClaim (name : Name) : MetaM ClaimInput := do
     match discharge? clause with
     | some (english, proof) =>
       clauses := clauses.push english
-      let check ← try pure (DischargeCheck.admitted (← checkDischarge info.levelParams statement proof.toName))
+      let check ← try pure
+                       (DischargeCheck.admitted
+                           (← checkDischarge info.levelParams statement proof.toName))
         catch e => pure (.refused proof.toName (← e.toMessageData.toString))
       discharges := discharges.push (some check)
     | none =>
@@ -145,11 +161,13 @@ def readClaim (name : Name) : MetaM ClaimInput := do
       | some (english, reference) =>
         clauses := clauses.push english
         discharges := discharges.push (some (.refused (.mkSimple reference)
-          "malformed discharge marker: a marked clause must end with (discharged by `Name`), where Name is nonempty and contains no whitespace or backtick"))
+          "malformed discharge marker: a marked clause must end with (discharged by `Name`), where \
+            Name is nonempty and contains no whitespace or backtick"))
       | none =>
         clauses := clauses.push clause
         discharges := discharges.push none
-  return { name, text := ⟨clauses.toList, RegulaPolicy.Screening.explanation doc, ← statementText info⟩,
+  return { name, text :=
+             ⟨clauses.toList, RegulaPolicy.Screening.explanation doc, ← statementText info⟩,
            discharges := discharges.toList }
 
 /-- Where a claim's findings are reported: its Lean declaration range in its module's source,
@@ -177,21 +195,31 @@ def runMeta {α : Type} (env : Environment) (x : MetaM α) : IO α := do
 
 /-- Screening configuration. -/
 structure Config where
+  /-- The pinned model version every request names. -/
   model : PinnedModel
+  /-- The directory of cached request/response pairs. -/
   cache : System.FilePath
+  /-- What the request state holds: statement, explanation, or both. -/
   mode : StateMode
+  /-- Each judgment's thresholds and minimum confidence, which decide severity and route. -/
   policy : Policy
 
 /-- Accumulated service usage of a run. `requests` counts every POST sent, retries included.
 `inputTokens` is unknown once any billed response omitted its usage. -/
 structure Usage where
+  /-- POSTs sent, retries included. -/
   requests : Nat := 0
+  /-- Requests answered from the cache without a POST. -/
   cached : Nat := 0
+  /-- Billed input tokens of the requests sent, or `none` once one response omitted them. -/
   inputTokens : Option Nat := some 0
 
+/-- `u` after response `r`: its POST attempts are added, a cached answer is counted, and the
+input tokens of an uncached answer are added. -/
 def Usage.add (u : Usage) (r : Jev.Response) : Usage :=
   { requests := u.requests + r.attempts, cached := u.cached + (if r.cached then 1 else 0)
-    inputTokens := if r.cached then u.inputTokens else do pure ((← u.inputTokens) + (← r.inputTokens)) }
+    inputTokens := if r.cached then u.inputTokens else do pure
+                                                           ((← u.inputTokens) + (← r.inputTokens)) }
 
 /-- The billed input tokens, or `unknown`. -/
 def Usage.tokensText (u : Usage) : String :=
@@ -199,6 +227,8 @@ def Usage.tokensText (u : Usage) : String :=
   | some n => toString n
   | none => "unknown"
 
+/-- The probability the Noul answer to question `id` gives; throws when `r` has no Noul answer
+with that ID. -/
 def noulOf (r : Jev.Response) (id : String) : IO Probability := do
   match r.answers.lookup id with
   | some (.noul p) => return p
@@ -228,7 +258,8 @@ def screenClaim (cfg : Config) (input : ClaimInput) : StateT Usage IO ClaimScree
     match discharge with
     | none =>
       let p ← noulOf response s!"coverage_{i}"
-      clauses := clauses.push (clause, .judged (judged .coverage clause s!"coverage_{i}" p.val none response.digest))
+      clauses := clauses.push
+          (clause, .judged (judged .coverage clause s!"coverage_{i}" p.val none response.digest))
     | some (.refused proof reason) => clauses := clauses.push (clause, .refused proof reason)
     | some (.admitted d) =>
       let q := [("correspondence", Questions.correspondence)]
@@ -237,7 +268,8 @@ def screenClaim (cfg : Config) (input : ClaimInput) : StateT Usage IO ClaimScree
       let p ← noulOf r "correspondence"
       clauses := clauses.push (clause, .discharged d.proof d.formal d.axioms
         { judgment := .correspondence, subject := clause, model := cfg.model, support := p.val
-          confidence := none, inputsDigest := r.digest, question := questionText Questions.correspondence })
+          confidence := none, inputsDigest := r.digest, question :=
+              questionText Questions.correspondence })
   let (support, confidence) ← strengthOf response
   let targeted ← targetedJudgments.mapM fun (id, j) => do
     let p ← noulOf response id

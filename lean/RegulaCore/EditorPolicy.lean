@@ -30,6 +30,8 @@ def EditorRequestContract (parse : String → Option InspectionRequest) : Prop :
     (value = "classification-only" ∧ request = .classification) ∨
     ∃ p, ConformingProfile.parse? value = some p ∧ request = .conforming p
 
+/-- The request an editor option value selects: `classification-only` selects classification, a
+conforming profile spelling selects that profile, and every other value selects none. -/
 def editorRequestImpl (value : String) : Option InspectionRequest :=
   if value = "classification-only" then some .classification
   else (ConformingProfile.parse? value).map .conforming
@@ -64,7 +66,10 @@ def needsRoleEvidence (d : Declaration) : DeclarationFailure → Bool
 
 /-- Local outcome of a failed declaration: pending fresh role evidence, or a rule. -/
 inductive EditorDecision where
+  /-- The failure needs fresh generated-role evidence (`needsRoleEvidence`), so the editor
+  reports no rule for it yet. -/
   | pending
+  /-- The failure maps to registry rule `id` (`ruleForFailure`). -/
   | rule (id : RuleId)
   deriving DecidableEq, Repr
 
@@ -82,6 +87,8 @@ def EditorDecisionContract
       ∃ f, policyFor i roles d request = some f ∧ needsRoleEvidence d f = false ∧
         id = ruleForFailure f
 
+/-- The member's failure under `checked_memberFailure`, mapped to `.pending` when it needs
+fresh role evidence and otherwise to the rule of that failure; `none` when it passes. -/
 def editorDecisionImpl (i : Inventory) (roles : Roles i) (d : Declaration)
     (member : d ∈ i.declarations) (request : InspectionRequest) : Option EditorDecision :=
   (checked_memberFailure.run i roles d member request).map fun f =>
@@ -126,6 +133,8 @@ def LiveFeedbackContract (live : Bool → Bool → Bool) : Prop :=
   ∀ auditBuild scopeValue, live auditBuild scopeValue = true ↔
     auditBuild = false ∧ scopeValue = true
 
+/-- Local findings are emitted when the module is not an audit build and the scope's
+`linter.regula` value is on. -/
 def liveFeedbackImpl (auditBuild scopeValue : Bool) : Bool := !auditBuild && scopeValue
 
 /-- Registers `LiveFeedbackContract` about the executed switch. -/

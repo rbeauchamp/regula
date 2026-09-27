@@ -52,14 +52,17 @@ scoped instance : LawfulEqOrd Name where
 
 /-- A module/declaration key cannot be anonymous. This is not a source identifier grammar. -/
 structure Identity where
+  /-- The Lean name of the module or declaration. -/
   name : Name
+  /-- Evidence that `name` is not `Name.anonymous`. -/
   nonanonymous : name ≠ .anonymous
   deriving DecidableEq
 
 instance : Repr Identity := ⟨fun x _ => repr x.name⟩
 instance : ToString Identity := ⟨fun x => x.name.toString⟩
 instance : Ord Identity := ⟨compareOn (fun x => nameComponents x.name)⟩
-instance : TransOrd Identity := inferInstanceAs (TransCmp (compareOn (fun x : Identity => nameComponents x.name)))
+instance : TransOrd Identity := inferInstanceAs
+    (TransCmp (compareOn (fun x : Identity => nameComponents x.name)))
 instance : LawfulEqOrd Identity where
   eq_of_compare {a b} h := by
     have e : nameComponents a.name = nameComponents b.name := LawfulEqOrd.eq_of_compare h
@@ -79,12 +82,19 @@ theorem admitIdentity_exact (n : Name) (h : n ≠ .anonymous) :
 
 /-- Exact source content and logical URI; compiler/filesystem authenticity is external. -/
 structure SourceSnapshot where
+  /-- The logical URI the source is reported under; nothing here checks it against a file. -/
   uri : String
+  /-- The complete source text the recorded coordinates refer to. -/
   source : String
   deriving Repr, DecidableEq
 
+/-- A span of UTF-8 byte offsets into a source text, from `start` to one past its last byte.
+The structure itself imposes no order or boundary condition; `Regula.SourceCandidate.valid`
+checks those when a location is admitted. -/
 structure ByteRange where
+  /-- The byte offset where the span begins. -/
   start : Nat
+  /-- The byte offset one past the span's last byte. -/
   stop : Nat
   deriving Repr, DecidableEq
 end RegulaPolicy

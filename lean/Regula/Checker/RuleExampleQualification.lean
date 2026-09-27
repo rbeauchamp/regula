@@ -29,10 +29,14 @@ run_cmd do
 namespace Regula.Checker.RuleExampleQualification
 open Lean Regula Regula.Website
 
+/-- The value of `key` in the JSON object `j`, or an error when it has none. -/
 def field (j : Json) (key : String) : Except String Json := j.getObjVal? key
+/-- The string value of `key` in the JSON object `j`, or an error. -/
 def string (j : Json) (key : String) : Except String String := do
   (← field j key).getStr?
 
+/-- A JSON array of source snapshots, each an object with exactly the fields `uri` and
+`source`. -/
 def sources (j : Json) : Except String (Array RegulaPolicy.SourceSnapshot) := do
   (← j.getArr?).mapM fun source => do
     PolicyCodec.exactFields source ["uri", "source"]
@@ -54,13 +58,18 @@ theorem parseRequest_sound {json : Json} {r : ExampleRequest} (h : parseRequest 
     simp [c₂, throw, throwThe, MonadExceptOf.throw, pure, Except.pure, bind, Except.bind] at h <;>
     split at h <;> simp_all
 
+/-- The example binding of a receipt record: its `before` and `after` inputs must be equal;
+their sources and configuration, the result's toolchain and source revision and the record's
+checker sources form the admitted snapshot; the record's request must have that
+configuration's URI as its project and its parsed text as its configuration. -/
 def binding (record : Json) (mode : EvidenceMode) : Except String ExampleBinding := do
   let input ← field record "before"
   let after ← field record "after"
   unless input == after do throw "example source/configuration changed"
   let ss ← sources (← field input "sources")
   let configuration : RegulaPolicy.SourceSnapshot :=
-    ⟨← string (← field input "configuration") "uri", ← string (← field input "configuration") "source"⟩
+    ⟨← string (← field input "configuration") "uri", ← string
+        (← field input "configuration") "source"⟩
   let result ← field record "result"
   let snapshot ← RegulaPolicy.admitSnapshot {
     sources := ss, configuration
@@ -92,12 +101,16 @@ def observedSources (result : Json) (bound : ExampleBinding) :
   else if bound.request.kind == "documentation" then sources (← field scope "documents")
   else throw "missing result source account"
 
+/-- The producer's observed sources pass `admitExampleSources` against the bound snapshot
+and the displayed text, and a file or policy-negative request's own file was observed with
+exactly the displayed text. -/
 def sourceAccount (result : Json) (bound : ExampleBinding) (displayed : String) :
     Except String Unit := do
   let observed ← observedSources result bound
   let _ ← admitExampleSources bound.snapshot.val.sources observed displayed
   if bound.request.kind == "file" || bound.request.kind == "policyNegative" then
-    unless observed.any (fun source => source.uri == bound.request.subject && source.source == displayed) do
+    unless observed.any
+        (fun source => source.uri == bound.request.subject && source.source == displayed) do
       throw "missing requested file source account"
 
 private def configurationAccount (root : String) (configuration : Array (String × Option String)) :
@@ -118,7 +131,8 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
   let scope ← field result "scope"
   if let .ok _ := scope.getObj? then
     unless effectiveAccount != Json.null do throw "missing effective request account"
-    let configuration ← fromJson? (α := Array (String × Option String)) (← field scope "configuration")
+    let configuration ← fromJson? (α := Array (String × Option String))
+        (← field scope "configuration")
     let effective ← configurationAccount (← string scope "configurationRoot") configuration
     unless effective == requested &&
         (← field scope "configuration") == (← field effectiveAccount "configuration") &&
@@ -132,7 +146,8 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
           throw "effective file claim or execution differs from request"
     | "policyNegative" =>
         unless (← field scope "claim") == toJson (some "standard-logical" : Option String) &&
-            (← field scope "execution") == Json.null && (← string scope "file") == admitted.subject &&
+            (← field scope "execution") == Json.null && (← string scope "file") ==
+                admitted.subject &&
             (← field scope "diagnosticOnly") == toJson true do
           throw "wrong diagnostic-only effective request"
     | "documentation" => pure ()
@@ -143,14 +158,18 @@ def effectiveAccount (result : Json) (admitted : ExampleRequest) : Except String
         let manifest ← PolicyCodec.parse text
         let surfaces ← (← field manifest "surfaces").getArr?
         let actual ← (← field scope "surfaces").getArr?
-        unless actual.size == surfaces.size do throw "effective surface coverage differs from request"
+        unless actual.size == surfaces.size do
+            throw "effective surface coverage differs from request"
         for (expected, actual) in surfaces.zip actual do
           unless (← field expected "library") == (← field actual "library") &&
               (← field expected "claim") == (← field actual "claim") &&
-              ((field expected "execution").toOption.getD (.str "report")) == (← field actual "execution") do
+              ((field expected "execution").toOption.getD (.str "report")) ==
+              (← field actual "execution") do
             throw "effective surface claim or execution differs from request"
     | _ => throw "unknown example request kind"
 
+/-- The result's request, admitted as equal to the bound request, with its effective
+configuration and scope checked by `effectiveAccount`. -/
 def requestAccount (result : Json) (bound : ExampleBinding) : Except String ExampleRequest := do
   let observed ← parseRequest (← field result "request")
   let admitted ← admitExampleRequest bound.request observed
@@ -159,17 +178,21 @@ def requestAccount (result : Json) (bound : ExampleBinding) : Except String Exam
 
 /-- Every declared selector is required; no filtering of the actual findings occurs.
 Patterns use the same proved single-message language as compiler-negative fences. -/
-private def matchFinding (expected : Json) (actual : Finding) (input : ExampleBinding) : Except String Unit := do
-  PolicyCodec.exactFields expected ["id", "subreason", "detailPattern", "location", "subject", "impact", "claim"]
+private def matchFinding (expected : Json) (actual : Finding) (input : ExampleBinding) :
+    Except String Unit := do
+  PolicyCodec.exactFields expected
+      ["id", "subreason", "detailPattern", "location", "subject", "impact", "claim"]
   let id ← RegistryCodec.parseRule (← field expected "id")
   unless actual.1 == id do throw "unexpected rule diagnostic"
   unless (← string expected "subreason") == (descriptor id).applicability do
     throw "wrong expected rule subreason"
   let encoded := RegistryCodec.diagnosticJson actual
   let arguments ← field encoded "arguments"
-  unless RegulaPolicy.matchesPattern (← string expected "detailPattern") (← string arguments "detail") do
+  unless RegulaPolicy.matchesPattern (← string expected "detailPattern")
+      (← string arguments "detail") do
     throw s!"wrong diagnostic reason for {id}"
-  unless (← field expected "impact") == (← field encoded "impact") do throw "wrong diagnostic impact"
+  unless (← field expected "impact") == (← field encoded "impact") do
+      throw "wrong diagnostic impact"
   unless (← field expected "claim") == (← field encoded "claim") && actual.2.severity == .error do
     throw "wrong diagnostic claim or severity"
   unless actual.2.mode == input.mode do throw "wrong diagnostic mode"
@@ -213,7 +236,8 @@ def expectFindings (record result : Json) (bound : ExampleBinding) (actual : Arr
     throw "unexpected unresolved evidence"
 
 /-- The parsed actual findings, once they meet `expectFindings`. -/
-def checkFindings (record result : Json) (bound : ExampleBinding) : Except String (Array Finding) := do
+def checkFindings (record result : Json) (bound : ExampleBinding) : Except String
+    (Array Finding) := do
   let actual ← (← (← field result "diagnostics").getArr?).mapM DiagnosticCodec.parseDiagnostic
   expectFindings record result bound actual
   return actual
@@ -222,23 +246,29 @@ def checkFindings (record result : Json) (bound : ExampleBinding) : Except Strin
 def qualifyKind (record result : Json) (bound : ExampleBinding) (observedRequest : ExampleRequest)
     (mode : EvidenceMode) (code : Nat) (status kind : String) (actual : Array Finding) :
     Except String Unit := do
-  let observation : BoundObservation := ⟨{ bound with request := observedRequest }, .completed, .checked actual false⟩
+  let observation : BoundObservation :=
+      ⟨{ bound with request := observedRequest }, .completed, .checked actual false⟩
   match kind with
   | "positive" =>
-      unless bound.request.kind != "policyNegative" do throw "diagnostic-only adapter cannot qualify positive"
+      unless bound.request.kind != "policyNegative" do
+          throw "diagnostic-only adapter cannot qualify positive"
       if mode == .documentationExample then
         let raw ← (← field (← field result "scope") "fences").getArr?
         let classifications ← raw.mapM (fromJson? (α := Documentation.Classification))
         let _ ← Documentation.admitPositiveClassifications classifications
         pure ()
-      unless code == 0 && status == "completed" && actual.isEmpty do throw "positive check incomplete"
+      unless code == 0 && status == "completed" && actual.isEmpty do
+          throw "positive check incomplete"
       validateBoundExample bound .positive #[] observation
   | "policyRejection" =>
-      unless code == 1 && status == "rejected" && !actual.isEmpty do throw "policy rejection incomplete"
+      unless code == 1 && status == "rejected" && !actual.isEmpty do
+          throw "policy rejection incomplete"
       let rule ← RegistryCodec.parseRule (← field record "rule")
-      validateBoundExample bound (.policyRejection rule (descriptor rule).applicability) actual observation
+      validateBoundExample bound (.policyRejection rule (descriptor rule).applicability) actual
+          observation
   | "diagnosticDemonstration" =>
-      unless code == 1 && status == "incomplete" do throw "not the expected unavailable-analysis result"
+      unless code == 1 && status == "incomplete" do
+          throw "not the expected unavailable-analysis result"
       let rule ← RegistryCodec.parseRule (← field record "rule")
       let _ ← admitDemonstration ⟨bound, rule, actual⟩ observation
       pure ()
@@ -253,7 +283,8 @@ def qualify (record : Json) : Except String Unit := do
   unless (← string result "mode") == mode.spelling do throw "wrong example evidence mode"
   let bound ← binding record mode
   let observedRequest ← requestAccount result bound
-  unless modeMatches observedRequest.kind mode do throw "request invocation differs from evidence mode"
+  unless modeMatches observedRequest.kind mode do
+      throw "request invocation differs from evidence mode"
   let code ← (← field record "exitCode").getNat?
   unless code ≤ 1 do throw "example process did not complete normally"
   let actual ← checkFindings record result bound
@@ -283,12 +314,17 @@ theorem qualify_parts (record : Json) (h : qualify record = .ok ()) :
   simp only [bind_eq_ok] at h
   obtain ⟨result, hr, _, hid, ms, hms, mode, hmode, rm, hrm, h⟩ := h
   simp only [ite_throw_eq_ok, bind_eq_ok, throw_bind, beq_iff_eq] at h
-  obtain ⟨hrm2, bound, hb, req, hreq, hmm, ec, hec, code, hcode, hle, actual, ha, status, hs, kind, hk, src, hsrc, ⟨⟩, hsa, hq⟩ := h
+  obtain ⟨hrm2, bound, hb, req, hreq, hmm, ec, hec, code, hcode, hle, actual, ha, status, hs, kind,
+      hk, src, hsrc, ⟨⟩, hsa, hq⟩ := h
   subst hrm2
-  refine ⟨result, mode, bound, req, code, actual, status, kind, src, hr, ?_, by simp [bind_eq_ok, hms, hmode], hrm, hb, hreq, hmm, by simp [bind_eq_ok, hec, hcode], hle, ha, hs, hk, hsrc, hsa, hq⟩
+  refine
+      ⟨result, mode, bound, req, code, actual, status, kind, src, hr, ?_, by simp
+          [bind_eq_ok, hms, hmode], hrm, hb, hreq, hmm, by simp [bind_eq_ok, hec, hcode], hle, ha,
+              hs, hk, hsrc, hsa, hq⟩
   exact listForM_eq_ok.mp hid
 
-theorem checkIdentity_sound {result : Json} {entry : String × Json} (h : checkIdentity result entry = .ok ()) :
+theorem checkIdentity_sound {result : Json} {entry : String × Json}
+    (h : checkIdentity result entry = .ok ()) :
     ∃ value, field result entry.1 = .ok value ∧ (value == entry.2) = true := by
   unfold checkIdentity at h
   simp only [bind_eq_ok] at h
@@ -307,7 +343,8 @@ theorem binding_sound {record : Json} {mode : EvidenceMode} {bound : ExampleBind
   split at h
   next heq =>
     simp only [bind_eq_ok] at h
-    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, snapshot, _, rj, hrj, req, hreq, _, _, h⟩ := h
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, snapshot, _, rj,
+        hrj, req, hreq, _, _, h⟩ := h
     split at h
     next =>
       simp only [pure_eq_ok] at h
@@ -390,7 +427,9 @@ theorem qualifyKind_sound {record result : Json} {bound : ExampleBinding} {req :
     split at h
     · simp only [bind_eq_ok] at h
       obtain ⟨rj, hrj, rule, hrule, admitted, hadm, _⟩ := h
-      exact ⟨rule, by simp [bind_eq_ok, hrj, hrule], (admitDemonstration_sound _ _ admitted hadm).1 ▸ admitted.property.2⟩
+      exact
+          ⟨rule, by simp [bind_eq_ok, hrj, hrule], (admitDemonstration_sound _ _ admitted hadm).1 ▸
+              admitted.property.2⟩
     · simp only [throw_bind] at h
       cases h
   · simp at h
@@ -428,13 +467,15 @@ def RecordAdmissible (record : Json) : Prop :=
       DemonstrationOK ⟨bound, rule, actual⟩ ⟨bound, .completed, .checked actual false⟩)
 
 theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmissible record := by
-  obtain ⟨result, mode, bound, req, code, actual, status, kind, displayed, hr, hid, hmode, hrm, hb, hreq,
+  obtain ⟨result, mode, bound, req, code, actual, status, kind, displayed, hr, hid, hmode,
+      hrm, hb, hreq,
     _, hcode, hle, hfind, _, hk, hsrc, hsa, hq⟩ := qualify_parts record h
   obtain ⟨before, after, hbefore, hafter, hstable, _, rj, hrj, hbreq⟩ := binding_sound hb
   obtain ⟨rfl, oj, hoj, horeq⟩ := requestAccount_sound hreq
   obtain ⟨hsources, hpresent⟩ := sourceAccount_sound hsa
   obtain ⟨hkind, hdemo⟩ := qualifyKind_sound hq
-  refine ⟨result, mode, bound, code, displayed, kind, actual, hr, fun e he => checkIdentity_sound (hid e he),
+  refine ⟨result, mode, bound, code, displayed, kind, actual, hr, fun e he => checkIdentity_sound
+                                                                               (hid e he),
     hmode, hrm, ⟨before, after, hbefore, hafter, hstable⟩, hb, ⟨rj, hrj, hbreq⟩, ⟨oj, hoj, horeq⟩,
     hcode, hle, hsrc, hsources, hpresent, checkFindings_sound hfind, hk, hkind, ?_⟩
   simpa using hdemo

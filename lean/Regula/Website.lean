@@ -11,18 +11,31 @@ open Lean RegistryCodec
 
 /-- Policy rejection may follow successful elaboration; it is not a compiler failure. -/
 inductive ExampleExpectation where
+  /-- The example is checked, not as trusted teaching, with no finding. -/
   | positive
+  /-- The compiler rejects the example with a message the pattern `expectedMessage` matches
+  (`RegulaPolicy.matchesPattern`). -/
   | compilerRejection (expectedMessage : String)
+  /-- The example is checked and `rule` rejects it: exactly one finding, a violation of `rule`,
+  where `subreason` is the rule's applicability. -/
   | policyRejection (rule : RuleId) (subreason : String)
+  /-- The example is checked as trusted teaching with no finding. -/
   | trustedTeaching
 
 /-- Only a completed collector may supply a classified outcome. -/
 inductive ExampleOutcome where
+  /-- The collector did not complete; `detail` says why. No expectation accepts it. -/
   | incomplete (detail : String)
+  /-- The compiler rejected the example with `messages`. -/
   | compilerRejected (messages : Array String)
+  /-- The example elaborated and was checked with `findings`; `compilerTeaching` is `true` when
+  it was checked as a trusted teaching example. -/
   | checked (findings : Array Finding) (compilerTeaching : Bool)
 
-def validateExample (expected : ExampleExpectation) (outcome : ExampleOutcome) : Except String Unit := do
+/-- Succeeds when `outcome` meets `expected` as each `ExampleExpectation` constructor states;
+otherwise fails with the mismatch, including for any incomplete outcome. -/
+def validateExample (expected : ExampleExpectation) (outcome : ExampleOutcome) :
+    Except String Unit := do
   match expected, outcome with
   | .positive, .checked findings false =>
       unless findings.isEmpty do throw "unexpected diagnostics in positive example"
@@ -31,7 +44,8 @@ def validateExample (expected : ExampleExpectation) (outcome : ExampleOutcome) :
   | .compilerRejection text, .compilerRejected messages =>
       unless messages.any (RegulaPolicy.matchesPattern text) do throw "wrong compiler rejection"
   | .policyRejection rule subreason, .checked findings false =>
-      unless !subreason.isEmpty && subreason == (descriptor rule).applicability && findings.size == 1 do
+      unless !subreason.isEmpty && subreason == (descriptor rule).applicability &&
+          findings.size == 1 do
         throw "wrong policy diagnostic expectation"
       let some finding := findings[0]? | throw "missing policy diagnostic"
       unless finding.1 == rule && finding.2.impact == .violation do throw "wrong policy rejection"
@@ -42,15 +56,25 @@ def validateExample (expected : ExampleExpectation) (outcome : ExampleOutcome) :
   | _, _ => throw "example outcome does not match its classification"
 
 
+/-- The request a corpus producer run was given for one example, recorded before the run. -/
 structure ExampleRequest where
+  /-- The route: `file`, `project`, `documentation` or `policyNegative`. -/
   kind : String
+  /-- The example project's directory. -/
   project : String
+  /-- What is checked: the example file for `file` and `policyNegative`, the `docs` directory
+  for `documentation`, and the project otherwise. -/
   subject : String
+  /-- The foundation claim of a `file` request; `none` for the other kinds. -/
   claim : Option String
+  /-- The execution mode of a `file` request; `none` for the other kinds. -/
   execution : Option String
+  /-- Each configuration file path of the project with its text, `none` when it is absent. -/
   configuration : Array (String × Option String)
   deriving DecidableEq, ToJson, FromJson
 
+/-- Admit `observed` only when it equals the frozen `expected` request; the admitted value
+carries both equalities. -/
 def admitExampleRequest (expected observed : ExampleRequest) :
     Except String { request : ExampleRequest // request = observed ∧ request = expected } :=
   if h : observed = expected then .ok ⟨observed, rfl, h⟩
@@ -64,11 +88,16 @@ theorem admitExampleRequest_sound (expected observed : ExampleRequest)
 /-- Exact observation identity. Dependency state and source bytes are retained rather than
 replaced by a nominal revision or digest. Acquiring these values remains an IO obligation. -/
 structure ExampleBinding where
+  /-- The admitted sources, configuration, toolchain and checker dependency of the run. -/
   snapshot : RegulaPolicy.AdmittedSnapshot
+  /-- The evidence mode the example was produced in. -/
   mode : EvidenceMode
+  /-- The producer request. -/
   request : ExampleRequest
   deriving DecidableEq
 
+/-- Every observed source is one of the expected sources, and some observed source has exactly
+the `displayed` text. -/
 def ExampleSourcesOK (expected observed : Array RegulaPolicy.SourceSnapshot)
     (displayed : String) : Prop :=
   (∀ source ∈ observed, source ∈ expected) ∧
@@ -79,6 +108,8 @@ instance (expected observed : Array RegulaPolicy.SourceSnapshot) (displayed : St
   unfold ExampleSourcesOK
   infer_instance
 
+/-- Admit the observed sources exactly when `ExampleSourcesOK` holds, carrying that proof
+(`admitExampleSources_sound`, `admitExampleSources_complete`). -/
 def admitExampleSources (expected observed : Array RegulaPolicy.SourceSnapshot)
     (displayed : String) :
     Except String { actual : Array RegulaPolicy.SourceSnapshot //
@@ -106,8 +137,11 @@ def diagnosticRecords (findings : Array Finding) : List String :=
 /-- The collector's observation is separate from the requested binding. The operational
 adapter must report crash/cancellation honestly; admission requires completed production. -/
 structure BoundObservation where
+  /-- The binding the collector reports it ran under. -/
   binding : ExampleBinding
+  /-- Whether the collector's production completed. -/
   completion : RegulaPolicy.Completion
+  /-- The classified outcome the collector reports. -/
   outcome : ExampleOutcome
 
 /-- Exact snapshot/mode identity and completed production. This is a data relation,
@@ -124,7 +158,8 @@ def FindingBound (binding : ExampleBinding) (finding : Finding) : Prop :=
   | .source source => source.val.snapshot ∈ binding.snapshot.val.sources
   | .module name => name ≠ .anonymous
   | .project identity => identity ≠ ""
-instance (binding : ExampleBinding) (finding : Finding) : Decidable (FindingBound binding finding) := by
+instance (binding : ExampleBinding) (finding : Finding) : Decidable
+    (FindingBound binding finding) := by
   unfold FindingBound
   cases finding.2.location <;> infer_instance
 
@@ -149,8 +184,11 @@ def validateBoundExample (binding : ExampleBinding) (expected : ExampleExpectati
 /-- Expected unavailable analysis is a diagnostic demonstration, never a fifth accepted
 example kind. Exact findings and binding are required even though the audit is incomplete. -/
 structure DemonstrationRequest where
+  /-- The binding the demonstration must be observed under. -/
   binding : ExampleBinding
+  /-- The rule whose unavailable analysis the demonstration shows. -/
   rule : RuleId
+  /-- The exact findings expected, including an incomplete one for `rule`. -/
   findings : Array Finding
 
 /-- Diagnostic production must complete; analysis unavailability is carried by the actual
@@ -225,7 +263,8 @@ theorem demonstration_not_accepted (request : DemonstrationRequest)
     (observed : BoundObservation) (h : DemonstrationOK request observed)
     (expected : ExampleExpectation) (findings : Array Finding) :
     validateBoundExample request.binding expected findings observed ≠ .ok () := by
-  obtain ⟨actual, outcome, f, member, impact⟩ := demonstration_observed_incomplete request observed h
+  obtain ⟨actual, outcome, f, member, impact⟩ := demonstration_observed_incomplete request
+      observed h
   have incomplete : actual.any (fun f => f.2.impact == .incomplete) = true := by
     rw [Array.any_eq_true']
     exact ⟨f, member, by rw [impact]; rfl⟩
@@ -252,6 +291,7 @@ def validateArtifact (p : ProducerIdentity) (manifest artifact : Json) : Except 
   unless artifact == Json.mkObj [("required", toJson (required.map ruleJson)),
     ("emitted", toJson (emitted.map ruleJson)), ("pages", toJson rawPages)] do
     throw "unknown artifact fields"
-  unless emitted.all (fun id => required.contains id) do throw "emitted diagnostic has no required page"
+  unless emitted.all (fun id => required.contains id) do
+      throw "emitted diagnostic has no required page"
   validatePages p manifest required pages
 end Regula.Website

@@ -23,8 +23,11 @@ namespace Glossary
 
 /-- Parameters for a real-valued exponential curve over nominal `Time`. -/
 structure DecayingValue where
+  /-- The value at `startTime`, a non-negative real. -/
   initial : NNReal
+  /-- The exponent's rate per unit of elapsed time; a negative rate is a decay. -/
   decayRate : ℝ
+  /-- The time at which the curve takes its `initial` value. -/
   startTime : Time
 
 /-- Reference value `initial * exp (decayRate * (t.val - startTime.val))`: the
@@ -66,6 +69,7 @@ theorem decay_monotone_nonvacuous :
 /-- A discrete step count, nominally distinct from unrelated natural quantities.
 The public `val` projection and constructor make conversion explicit. -/
 structure Tick where
+  /-- The number of steps this tick counts. -/
   val : Nat
 
 /-- The natural linear order transported along the injective representation.

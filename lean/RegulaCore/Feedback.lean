@@ -99,8 +99,11 @@ theorem firstText_extends (id : RuleId) (message : String) :
 /-- Where a finding is, for ordering: a project or configuration scope, a module without a
 source range, or a byte offset in a source file. -/
 inductive Place where
+  /-- A project or configuration scope, named by its identity text. -/
   | project (identity : String)
+  /-- A module without a source range, by its module name. -/
   | module (name : String)
+  /-- A source file `uri` at byte offset `start` of the finding's selection. -/
   | source (uri : String) (start : Nat)
   deriving DecidableEq
 
@@ -108,9 +111,11 @@ inductive Place where
 def Place.rank : Place → Nat
   | .project _ => 0 | .module _ => 1 | .source .. => 2
 
+/-- The second ordering key: the project identity, module name or source URI. -/
 def Place.name : Place → String
   | .project s => s | .module n => n | .source u _ => u
 
+/-- The third ordering key: the byte offset of a source place, and 0 otherwise. -/
 def Place.start : Place → Nat
   | .source _ s => s | _ => 0
 
@@ -121,8 +126,11 @@ theorem Place.ext_key {p q : Place} (hr : p.rank = q.rank) (hn : p.name = q.name
 
 /-- One finding of a run: its rule, its place and its `messageLine`. -/
 structure Entry where
+  /-- The rule the finding reports. -/
   rule : RuleId
+  /-- Where the finding is, used to order the run. -/
   place : Place
+  /-- The finding's one-line message (`messageLine`). -/
   message : String
   deriving DecidableEq
 
@@ -222,7 +230,8 @@ theorem render_length (l : List Entry) : (render l).length = l.length := by
 /-- Marking after a prefix `a` continues from the rules `a` introduced: the mark of a finding
 depends exactly on whether `seen` or an earlier finding has its rule. -/
 theorem tagFirst_append (seen : List RuleId) (a b : List Entry) :
-    tagFirst seen (a ++ b) = tagFirst seen a ++ tagFirst ((a.map Entry.rule).reverse ++ seen) b := by
+    tagFirst seen (a ++ b) = tagFirst seen a ++ tagFirst
+        ((a.map Entry.rule).reverse ++ seen) b := by
   induction a generalizing seen with
   | nil => rfl
   | cons e es ih => simp [tagFirst, ih]

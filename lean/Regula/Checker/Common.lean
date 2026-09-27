@@ -14,9 +14,13 @@ namespace Regula.Checker
 
 open Lean System
 
+/-- The observed outcome of one finished child process. -/
 structure ProcessResult where
+  /-- The exit code the process returned. -/
   exitCode : UInt32
+  /-- Everything the process wrote to standard output. -/
   stdout : String
+  /-- Everything the process wrote to standard error. -/
   stderr : String
   deriving Repr
 
@@ -31,13 +35,16 @@ instance : FromJson ProcessResult := ⟨fun value => do
   if code >= 2^32 then throw "invalid process exit code"
   return {
     exitCode := UInt32.ofNat code,
-    stdout := ← value.getObjValAs? String "stdout", stderr := ← value.getObjValAs? String "stderr" }⟩
+    stdout := ← value.getObjValAs? String "stdout", stderr :=
+        ← value.getObjValAs? String "stderr" }⟩
 
 namespace ProcessResult
 
+/-- Standard output followed by standard error, as one text. -/
 def output (result : ProcessResult) : String :=
   result.stdout ++ result.stderr
 
+/-- Whether the process exited with code 0. -/
 def succeeded (result : ProcessResult) : Bool :=
   result.exitCode == 0
 
@@ -51,6 +58,8 @@ pre-existing build output instead of the isolated copy. -/
 def scrubbedLeanPathEnv : Array (String × Option String) :=
   #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)]
 
+/-- Run `cmd` with `args` in directory `repo`, with the environment changes `env`, wait for it
+to finish and return its exit code and captured output. -/
 def runProcess (repo : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO ProcessResult := do
   let result ← IO.Process.output { cmd, args, cwd := some repo, env }
@@ -67,6 +76,7 @@ def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
     IO.println s!"verification phase {label}: {(elapsed - start) / 1000000}ms (finished)"
     (← IO.getStdout).flush
 
+/-- The lines of `output`, split at each newline. -/
 def outputLines (output : String) : Array String :=
   output.splitOn "\n" |>.toArray
 
@@ -77,13 +87,17 @@ def isWarningLine (line : String) : Bool :=
   let lower := line.toLower
   lower.contains "warning:" || lower.contains ": warning("
 
+/-- Whether `line` reads, ignoring case, as an error diagnostic head: it contains `: error` or
+starts with `error:`. -/
 def isErrorLine (line : String) : Bool :=
   let lower := line.toLower
   lower.contains ": error" || lower.startsWith "error:"
 
+/-- The lines of `output` that `isWarningLine` accepts. -/
 def warningLines (output : String) : Array String :=
   outputLines output |>.filter isWarningLine
 
+/-- The lines of `output` that `isErrorLine` accepts. -/
 def errorLines (output : String) : Array String :=
   outputLines output |>.filter isErrorLine
 
@@ -127,7 +141,8 @@ def findRepoRoot (start : FilePath) : IO FilePath := do
     let hasLean ← (path / "lakefile.lean").pathExists
     let hasToml ← (path / "lakefile.toml").pathExists
     if hasLean && hasToml then
-      throw <| IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
+      throw <|
+          IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
     if (hasLean || hasToml) && (← (path / "lean-toolchain").pathExists) then
       return path
     match path.parent with
@@ -138,6 +153,7 @@ def findRepoRoot (start : FilePath) : IO FilePath := do
   termination_by path.toString.utf8ByteSize
   loop root
 
+/-- The project root that `findRepoRoot` finds from the current working directory. -/
 def repoRoot : IO FilePath := do
   findRepoRoot (← IO.currentDir)
 
@@ -178,7 +194,8 @@ def relocatePathDependencies (repo target : FilePath) : IO Unit := do
         let source := repo / dir
         if !(← source.isDir) then
           throw <| IO.userError <|
-            s!"lake-workspace-load-failed: path dependency '{entry.name}' at {source} is not a directory"
+            s!"lake-workspace-load-failed: path dependency '{entry.name}' at {source} is not a \
+              directory"
         overrides := overrides.push { entry with src := .path (← IO.FS.realPath source) }
   if overrides.isEmpty then return
   IO.FS.createDirAll (target / ".lake")
@@ -229,10 +246,13 @@ def copyProject (repo target exclude : FilePath) : IO Unit := do
       throw <| IO.userError s!"could not link pinned Lake packages: {link.output}"
   relocatePathDependencies repo target
 
+/-- Read the file at `path` and parse it with the strict `PolicyCodec.parse`. -/
 def readJson (path : FilePath) : IO Json := do
   let text ← IO.FS.readFile path
   IO.ofExcept <| Regula.Checker.PolicyCodec.parse text
 
+/-- Write `value` as compact JSON and a final newline to `path`, creating its parent
+directories, and print how long encoding and writing took. -/
 def writeJson (path : FilePath) (value : Json) : IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   let encodeStart ← IO.monoMsNow
@@ -242,6 +262,8 @@ def writeJson (path : FilePath) (value : Json) : IO Unit := do
   IO.FS.writeFile path encoded
   IO.println s!"diagnostic span: writeJson write {path}: {(← IO.monoMsNow) - writeStart}ms"
 
+/-- The JSON on a succeeded process's standard output, parsed strictly; a failed process or
+malformed output throws an error that names `what`. -/
 def parseJsonOutput (what : String) (result : ProcessResult) : IO Json := do
   if !result.succeeded then
     throw <| IO.userError s!"lake-query-failed: {what}: {result.output.trimAscii.toString}"
@@ -259,12 +281,16 @@ def stringArray (what : String) (value : Json) : Except String (Array String) :=
       throw s!"{what}: expected unique nonempty strings"
     return result.push text
 
+/-- `stringArray` in `IO`: the array of unique nonempty strings `value` holds, or an error
+naming `what`. -/
 def jsonStringArray (what : String) (value : Json) : IO (Array String) :=
   IO.ofExcept (stringArray what value)
 
+/-- Run `lake query TARGET --json` in `repo` and return its parsed JSON output. -/
 def lakeQuery (repo : FilePath) (target : String) : IO Json := do
   parseJsonOutput target <| ← runProcess repo "lake" #["query", target, "--json"]
 
+/-- The last `count` elements of `lines`, or all of them when there are fewer. -/
 def takeLast (count : Nat) (lines : Array String) : Array String :=
   lines.extract (lines.size - min count lines.size) lines.size
 
@@ -319,18 +345,22 @@ def mapConcurrent {α β : Type} (jobs : Nat) (items : Array α) (action : α �
     offset := stop
   return results
 
+/-- Whether `child` lies at or below `parent`, comparing the path components of both after
+resolving them with `IO.FS.realPath`. -/
 def pathWithin (child parent : FilePath) : IO Bool := do
   let child ← IO.FS.realPath child
   let parent ← IO.FS.realPath parent
   return parent.components.isPrefixOf child.components
 
+/-- The natural number `value` spells; otherwise an error saying that `flag` requires one. -/
 def parseNatArg (flag value : String) : IO Nat :=
   match value.toNat? with
   | some n => return n
   | none => throw <| IO.userError s!"{flag} requires a natural number"
 
 /-- Exact source request shared by the remaining command-line worker adapters. -/
-def sourceWorkerRequest (stage : String) (moduleName : Name) (path : FilePath) (content : String) : Json :=
+def sourceWorkerRequest (stage : String) (moduleName : Name) (path : FilePath)
+    (content : String) : Json :=
   Json.mkObj [("stage", .str stage), ("module", Regula.RegistryCodec.nameJson moduleName),
     ("source", .str path.toString), ("content", .str content)]
 
@@ -338,14 +368,20 @@ def sourceWorkerRequest (stage : String) (moduleName : Name) (path : FilePath) (
 this records completion data and never constructs policy acceptance. -/
 def workerPacket (request payload : Json) : Json := Json.mkObj [
   ("schema", toJson (1 : Nat)),
-  ("producer", Json.mkObj (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++ [("compilerCommit", .str Lean.githash)])),
+  ("producer", Json.mkObj
+      (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
+          [("compilerCommit", .str Lean.githash)])),
   ("request", request), ("payload", payload)]
 
+/-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
+request equal this checker's and `request`; otherwise an error naming the mismatch. -/
 def readWorkerPacket (request packet : Json) : Except String Json := do
   Regula.Checker.PolicyCodec.exactFields packet ["schema", "producer", "request", "payload"]
   unless (← packet.getObjValAs? Nat "schema") == 1 do throw "unsupported worker schema"
   unless (← packet.getObjVal? "producer") ==
-      Json.mkObj (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++ [("compilerCommit", .str Lean.githash)]) do
+      Json.mkObj
+          (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
+              [("compilerCommit", .str Lean.githash)]) do
     throw "worker producer or toolchain mismatch"
   unless (← packet.getObjVal? "request") == request do throw "worker request binding mismatch"
   packet.getObjVal? "payload"

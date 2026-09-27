@@ -27,6 +27,7 @@ type: a time cannot be passed directly where a resource amount is required.
 The `val` field exposes the underlying non-negative real when a formula needs
 it. -/
 structure Time where
+  /-- The non-negative real this time wraps. -/
   val : NNReal
 
 /-- Lawful linear order on `Time`, lifted from Mathlib's `NNReal` order. The
@@ -48,7 +49,9 @@ The package exposes a carrier and an introduction operation, but deliberately
 contains no payload observer or equation identifying the carrier with
 `String`. -/
 structure OpaqueDataPackage where
+  /-- The abstract type of packaged values. -/
   Carrier : Type
+  /-- Introduces a carrier value from a string; the package offers no inverse. -/
   wrap : String → Carrier
 
 /-- The concrete implementation used to initialize `opaqueDataPackage`.
@@ -96,6 +99,7 @@ inductive NetworkNodeTag
 are distinct types even though both wrap a `String`. Outside this namespace,
 write `Glossary.Id` explicitly to distinguish it from the prelude's `Id` monad. -/
 structure Id (entity : Type) where
+  /-- The identifier's text. -/
   value : String
   deriving Repr
 

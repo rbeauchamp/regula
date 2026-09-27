@@ -14,6 +14,10 @@ preparation work the corpus campaign performs before its producer pool. -/
 namespace Regula.Qualification.Preparation
 open Lean System
 
+/-- Prepares one shared producer slot and a `rule_examples` slot project in owned scratch,
+printing the wall time of each phase: surface inventory, dependency capture, input capture,
+slot and project preparation. Throws unless the scratch directory is gone afterwards; prints
+`preparation measure: PASS` on success. -/
 def check : IO Unit := do
   let root ← Regula.Qualification.rootDirectory
   let scratchRef ← IO.mkRef (none : Option FilePath)
@@ -34,7 +38,8 @@ def check : IO Unit := do
         pure (root / name, ← IO.FS.readBinFile (root / name)))
       let rootSources ← modulePaths.mapM (fun path => do
         pure (path, ← IO.FS.readBinFile path))
-      IO.println s!"prep phase: input capture: root sources={rootSources.size} configs={rootConfigs.size} deps={deps.size}"
+      IO.println s!"prep phase: input capture: root sources={rootSources.size} \
+        configs={rootConfigs.size} deps={deps.size}"
       let totalStart ← IO.monoMsNow
       let slot : Slot.ProducerSlot := ⟨scratch / "slot"⟩
       IO.FS.createDirAll slot.root

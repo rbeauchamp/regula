@@ -17,12 +17,24 @@ open Regula.Checker.Account (Status)
 /-- Exit classes. Only `accepted` is success; the others distinguish an established
 violation, invalid configuration or invocation, and incomplete evidence. -/
 inductive Outcome where
-  | accepted | violation | configuration | incomplete
+  /-- The audit completed and accepted the requested mode. -/
+  | accepted
+  /-- The audit rejected the project with at least one finding that is not configuration. -/
+  | violation
+  /-- The audit rejected the project and every finding is configuration (RG2002); the driver
+  also returns it for an invalid invocation. -/
+  | configuration
+  /-- Anything else: no recorded status, an exit code that disagrees with the recorded status,
+  or a completed run of another mode. -/
+  | incomplete
   deriving DecidableEq, Repr
 
+/-- The driver's process exit code: 0 accepted, 1 violation, 2 invalid configuration, 3
+incomplete. -/
 def Outcome.exitCode : Outcome → UInt32
   | .accepted => 0 | .violation => 1 | .configuration => 2 | .incomplete => 3
 
+/-- The upper-case class name the driver prints. -/
 def Outcome.label : Outcome → String
   | .accepted => "ACCEPTED" | .violation => "VIOLATION"
   | .configuration => "INVALID CONFIGURATION" | .incomplete => "INCOMPLETE"
@@ -35,7 +47,9 @@ theorem Outcome.exitCode_injective {a b : Outcome} (h : a.exitCode = b.exitCode)
 all configuration (RG2002) rejections. It is the `status` the result output renders, kept in
 memory without serialization. -/
 structure Observation where
+  /-- The terminal status the audit recorded. -/
   status : Status
+  /-- Every finding of the run is a configuration (RG2002) rejection. -/
   configurationOnly : Bool
 
 /-- Required meaning of the classification, for every requested mode, audit exit code and

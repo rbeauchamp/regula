@@ -13,12 +13,18 @@ open Lean
 
 /-- Ordered structure is preserved; only entire string leaves are transformed. -/
 inductive Maps (f : String → String) : Json → Json → Prop where
+  /-- `null` maps to itself. -/
   | null : Maps f .null .null
+  /-- A Boolean maps to itself. -/
   | bool (b : Bool) : Maps f (.bool b) (.bool b)
+  /-- A number maps to itself. -/
   | num (n : JsonNumber) : Maps f (.num n) (.num n)
+  /-- A string leaf maps to `f` applied to the whole string. -/
   | str (s : String) : Maps f (.str s) (.str (f s))
+  /-- An array maps to the array of related elements, in order and of the same length. -/
   | arr {xs : Array Json} {ys : List Json} (h : List.Forall₂ (Maps f) xs.toList ys) :
       Maps f (.arr xs) (.arr ys.toArray)
+  /-- An object maps to the object with the same keys in order, each value related. -/
   | obj {xs : Std.TreeMap.Raw String Json} {ys : List (String × Json)}
       (keys : xs.toList.map Prod.fst = ys.map Prod.fst)
       (values : List.Forall₂ (Maps f) (xs.toList.map Prod.snd) (ys.map Prod.snd)) :
@@ -97,7 +103,8 @@ theorem transform_sound (f : String → String) (fuel : Nat) (input output : Jso
               rw [hm] at h
               have : output = Json.mkObj ys := (Except.ok.inj h).symm
               subst output
-              have related : List.Forall₂ (fun (a b : String × Json) => a.1 = b.1 ∧ Maps f a.2 b.2) xs.toList ys := by
+              have related : List.Forall₂ (fun (a b : String × Json) => a.1 = b.1 ∧ Maps f a.2 b.2)
+                  xs.toList ys := by
                 apply mapM_related _ _ _ _ _ hm
                 intro a b hb
                 cases hv : transform f n a.2 with

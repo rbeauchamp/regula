@@ -10,7 +10,8 @@ mutate. IO/process observations remain trusted boundaries. -/
 namespace Regula.Qualification.Acceptance
 open Lean System DependencySnapshot InputInventory
 
-private def array (j : Json) (key : String) : IO (Array Json) := IO.ofExcept (j.getObjValAs? (Array Json) key)
+private def array (j : Json) (key : String) : IO (Array Json) := IO.ofExcept
+    (j.getObjValAs? (Array Json) key)
 private def first (xs : Array Json) : IO Json := do
   let some x := xs[0]? | throw <| IO.userError "mutation requires a nonempty array"
   return x
@@ -38,12 +39,15 @@ def worker (args : List String) : IO UInt32 := do
   return 0
 
 private def faults : String → Array (String × String)
-  | "fences" => #[("fence-missing", "missing required key"), ("fence-duplicate", "duplicateResult"), ("fence-misindexed", "unknownKey")]
+  | "fences" =>
+      #[("fence-missing", "missing required key"), ("fence-duplicate", "duplicateResult"),
+          ("fence-misindexed", "unknownKey")]
   | _ => #[]
 
 private def save (path : FilePath) (receipt : Json) : IO Unit := do
   let suffix ← IO.getRandomBytes 12
-  let temporary := FilePath.mk (path.toString ++ "." ++ suffix.foldl (fun s b => s ++ s!"{b.toNat}-") "")
+  let temporary := FilePath.mk
+      (path.toString ++ "." ++ suffix.foldl (fun s b => s ++ s!"{b.toNat}-") "")
   try
     writeJson temporary receipt
     IO.FS.rename temporary path
@@ -66,20 +70,28 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
   withScratch root "acceptance-controls" fun scratch => do
     let project := scratch / "project"
     IO.FS.createDirAll (project / "docs")
-    prepareProject root project "acceptance_control" "standard-logical" "Exact accepted-result transport controls."
+    prepareProject root project "acceptance_control" "standard-logical"
+        "Exact accepted-result transport controls."
     manifest project "standard-logical"
-    IO.FS.writeFile (project / "Example.lean") "import Regula.Contract\n/-! Public acceptance transport control. -/\ndef value : Nat := 7\n"
+    IO.FS.writeFile (project / "Example.lean") "import Regula.Contract\n/-! Public acceptance \
+      transport control. -/\ndef value : Nat := 7\n"
     IO.FS.writeFile (project / "docs/control.md")
-      "```lean\ntheorem documented : True := True.intro\n```\n\n<!-- lean-fail: Type mismatch -->\n```lean\nexample : False := True.intro\n```\n"
+      "```lean\ntheorem documented : True := True.intro\n```\n\n<!-- lean-fail: Type mismatch \
+        -->\n```lean\nexample : False := True.intro\n```\n"
     let bin := scratch / "tool/bin"
     IO.FS.createDirAll bin
     IO.FS.createDirAll (scratch / "tool/lib")
-    success (← run root "ln" #["-s", (root / ".lake/build/lib/lean").toString, (scratch / "tool/lib/lean").toString])
+    success
+        (← run root "ln"
+            #["-s", (root / ".lake/build/lib/lean").toString, (scratch / "tool/lib/lean").toString])
     copyExecutable executable (bin / "axiomGate-real")
     copyExecutable (← IO.appPath) (bin / "axiomGate")
     let mut sources : List (String × Json) := []
-    for name in #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json", "Example.lean", "docs/control.md"] do
-      if ← (project / name).pathExists then sources := sources ++ [(name, toJson (← IO.FS.readFile (project / name)))]
+    for name in
+        #["lean-toolchain", "lakefile.lean", "lake-manifest.json", "foundation_manifest.json",
+            "Example.lean", "docs/control.md"] do
+      if ← (project / name).pathExists then sources := sources ++
+                                             [(name, toJson (← IO.FS.readFile (project / name)))]
     update "sources" (Json.mkObj sources)
     let mut records : Array Json := #[]
     let mut cases := #[("positive", "", "")]
@@ -116,7 +128,8 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
       let status := (value.getObjValAs? String "status").toOption
       let hasAcceptance := (value.getObjVal? "acceptance").toOption.isSome
       let hasDocs := (value.getObjVal? "documentationAcceptance").toOption.isSome
-      let passed := if fault.isEmpty then result.exitCode == 0 && status == some "completed" && hasAcceptance && hasDocs
+      let passed := if fault.isEmpty then result.exitCode == 0 && status == some "completed" &&
+                                           hasAcceptance && hasDocs
         else result.exitCode != 0 && status == some "incomplete" && !hasAcceptance && !hasDocs &&
           (reason.isEmpty || log.toLower.contains reason.toLower)
       let record := Json.mkObj [("phase", toJson phase), ("fault", toJson fault),
@@ -149,12 +162,20 @@ def check (group : String) (evidence : FilePath) (attempt : Option String := non
     requireChecks [⟨"known transport group", !(faults group).isEmpty⟩]
     qualify group evidence receipt
   catch error =>
-    receipt.modify (fun r => (r.setObjVal! "status" (toJson "failed")).setObjVal! "error" (toJson error.toString))
+    receipt.modify
+        (fun r => (r.setObjVal! "status" (toJson "failed")).setObjVal! "error"
+                   (toJson error.toString))
     save evidence (← receipt.get)
     throw error
   receipt.modify (·.setObjVal! "status" (toJson "completed"))
   save evidence (← receipt.get)
 
+/-- Documentation dependency-freeze control, run in a scratch project that requires a local
+`dep` package. Through both `docFenceAudit` and `ruleExamples` it checks that a fence over
+`Dep` passes when the dependency is unchanged, is refused with "dependency snapshot changed:"
+and no acceptance when the build itself rewrites `Dep.lean`, and passes again once restored;
+then a combined `--with-docs` run must accept both code and documentation on one snapshot.
+Any failed check throws. -/
 def documentationDependencies : IO Unit := do
   let root ← rootDirectory
   withScratch root "documentation-dependency" fun scratch => do
@@ -170,11 +191,15 @@ def documentationDependencies : IO Unit := do
     IO.FS.createDirAll (project / "docs")
     toolchain root project
     IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"documentation_dependency\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[require]]\nname = \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
+      "name = \"documentation_dependency\"\n[leanOptions]\nautoImplicit = \
+        false\nrelaxedAutoImplicit = false\nlinter.missingDocs = true\n[[require]]\nname = \
+        \"dep\"\npath = \"../dependency\"\n[[lean_lib]]\nname = \"Example\"\n"
     manifest project "kernel-only"
-    let source := "import Lean\nimport Dep\n/-! Documentation prerequisite. -/\ntheorem value : Dep.n = 1 := rfl\n"
+    let source := "import Lean\nimport Dep\n/-! Documentation prerequisite. -/\ntheorem value : \
+      Dep.n = 1 := rfl\n"
     IO.FS.writeFile (project / "Example.lean") source
-    IO.FS.writeFile (project / "docs/control.md") "```lean\nimport Dep\nexample : Dep.n = 1 := rfl\n```\n"
+    IO.FS.writeFile
+        (project / "docs/control.md") "```lean\nimport Dep\nexample : Dep.n = 1 := rfl\n```\n"
     success (← run project "lake" #["update"] cleanEnv)
     for route in #["docFenceAudit", "ruleExamples"] do
       for phase in #["positive", "changed-during-build", "restored"] do
@@ -183,7 +208,9 @@ def documentationDependencies : IO Unit := do
           clearBuild dependency
         IO.FS.writeFile dependencySource original
         let bad := phase == "changed-during-build"
-        let mutation := if bad then s!"run_cmd do\n  IO.FS.writeFile {toJson dependencySource.toString |>.compress} {toJson changed |>.compress}\n" else ""
+        let mutation := if bad then s!"run_cmd do\n  \
+          IO.FS.writeFil\
+          e {toJson dependencySource.toString |>.compress} {toJson changed |>.compress}\n" else ""
         IO.FS.writeFile (project / "Example.lean") (source ++ mutation)
         let output := scratch / s!"{route}-{phase}.json"
         let args := if route == "docFenceAudit" then #["--project", project.toString, "--jobs", "1"]
@@ -191,15 +218,21 @@ def documentationDependencies : IO Unit := do
         let result ← run project (root / ".lake/build/bin" / route).toString args cleanEnv
         let log := result.stdout ++ result.stderr
         if bad then
-          requireChecks [⟨"dependency mutation occurred", (← IO.FS.readFile dependencySource) == changed⟩,
-            ⟨s!"frozen dependency refused: {log}", result.exitCode != 0 && log.contains "dependency snapshot changed:" &&
+          requireChecks
+              [⟨"dependency mutation occurred", (← IO.FS.readFile dependencySource) == changed⟩,
+            ⟨s!"frozen dependency refused: {log}", result.exitCode != 0 &&
+                log.contains "dependency snapshot changed:" &&
               !log.contains "accepted "⟩]
           if ← output.pathExists then
-            requireChecks [⟨"no acceptance", ((← readJson output).getObjVal? "acceptance").toOption.isNone⟩]
+            requireChecks
+                [⟨"no acceptance", ((← readJson output).getObjVal? "acceptance").toOption.isNone⟩]
         else
           success result
-          requireChecks [⟨"checked positive fence", result.stdout.contains "conforming-positive-pass=1/1"⟩]
-          if route == "ruleExamples" then requireChecks [⟨"documentation accepted", accepted (← readJson output)⟩]
+          requireChecks
+              [⟨"checked positive fence", result.stdout.contains "conforming-positive-pass=1/1"⟩]
+          if route == "ruleExamples" then requireChecks
+                                           [⟨"documentation accepted", accepted
+                                               (← readJson output)⟩]
         IO.println s!"documentation dependency {route}/{phase}: PASS"
     let (result, packet) ← observeProject root project (scratch / "combined.json") #["--with-docs"]
     success result

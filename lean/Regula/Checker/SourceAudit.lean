@@ -13,16 +13,24 @@ open Lean System
 open scoped Regula.Report
 open Regula.Checker
 
+/-- One source text to compile verbatim as a standalone module, with how to compile it. -/
 structure SourceSpec where
+  /-- The module name; the source is written to `<module>.lean` in the scratch directory. -/
   «module» : String
+  /-- The exact source text. -/
   source : String
+  /-- Compile with `-DwarningAsError=true`. -/
   warningAsError : Bool := false
+  /-- Count the compilation as failed when its output has a warning line (`compilationPassed`). -/
   rejectWarnings : Bool := false
+  /-- Instead of compiling to `.olean`, run the checker's diagnostic worker, which elaborates the
+  source and records its error messages (used for examples expected to fail). -/
   captureRejection : Bool := false
   deriving Repr, ToJson
 
 instance : FromJson SourceSpec := ⟨fun j => do
-  Regula.Checker.PolicyCodec.exactFields j ["module", "source", "warningAsError", "rejectWarnings", "captureRejection"]
+  Regula.Checker.PolicyCodec.exactFields j
+      ["module", "source", "warningAsError", "rejectWarnings", "captureRejection"]
   return {
     «module» := ← j.getObjValAs? _ "module"
     source := ← j.getObjValAs? _ "source"
@@ -31,17 +39,26 @@ instance : FromJson SourceSpec := ⟨fun j => do
     captureRejection := ← j.getObjValAs? _ "captureRejection"
   }⟩
 
+/-- The observed result of compiling one `SourceSpec`. -/
 structure Compilation where
+  /-- The compiled specification. -/
   spec : SourceSpec
+  /-- Where the source was written: `<scratch>/<module>.lean`. -/
   sourcePath : FilePath
+  /-- The `.olean` path passed to `lean -o`. -/
   oleanPath : FilePath
+  /-- The `.ilean` path passed to `lean -i`. -/
   ileanPath : FilePath
+  /-- The exit code and output of the compiler or diagnostic-worker process. -/
   process : ProcessResult
+  /-- With `captureRejection`, the error messages the diagnostic worker recorded; `none` when
+  it was not run or did not complete. -/
   errors : Option (Array String) := none
   deriving Repr, ToJson
 
 instance : FromJson Compilation := ⟨fun j => do
-  Regula.Checker.PolicyCodec.exactFields j ["spec", "sourcePath", "oleanPath", "ileanPath", "process", "errors"]
+  Regula.Checker.PolicyCodec.exactFields j
+      ["spec", "sourcePath", "oleanPath", "ileanPath", "process", "errors"]
   return {
     spec := ← j.getObjValAs? _ "spec"
     sourcePath := ← j.getObjValAs? _ "sourcePath"
@@ -51,9 +68,15 @@ instance : FromJson Compilation := ⟨fun j => do
     errors := ← j.getObjValAs? _ "errors"
   }⟩
 
+/-- A compiled source together with the typed environment report and frontend transcripts
+read from it. -/
 structure Inspected where
+  /-- The compilation that was inspected. -/
   compilation : Compilation
+  /-- The declaration report of the compiled module, validated against its source bindings. -/
   report : Regula.Checker.ProducerReport.Environment
+  /-- The frontend transcript of the module when its declarations need one
+  (`Policy.needsFrontendTranscript`); otherwise empty. -/
   transcripts : Array Frontend.Transcript
   deriving Repr
 
@@ -61,15 +84,24 @@ structure Inspected where
 Only JSON data crosses the process boundary; extension-held references die
 with the worker instead of accumulating across groups in the coordinator. -/
 structure GroupRequest where
+  /-- The modules to import and report on, in request order. -/
   modules : Array Name
+  /-- The captured source of each module; the worker refuses if any changes or the report
+  disagrees with it. -/
   sourceBindings : Array ProducerReport.SourceBinding
+  /-- A build-output directory whose modules must all be requested or sourced; an imported
+  module found there otherwise is refused as `unexpected-project-module`. -/
   ownedOutput : Option String := none
+  /-- Also report execution roots and the execution closure. -/
   includeExecution : Bool := true
+  /-- Report each loaded module's `.olean` origin and imports; they are also reported whenever
+  `includeExecution` is set. -/
   includeModuleOrigins : Bool := true
   deriving ToJson
 
 instance : FromJson GroupRequest := ⟨fun j => do
-  Regula.Checker.PolicyCodec.exactFields j ["modules", "sourceBindings", "ownedOutput", "includeExecution", "includeModuleOrigins"]
+  Regula.Checker.PolicyCodec.exactFields j
+      ["modules", "sourceBindings", "ownedOutput", "includeExecution", "includeModuleOrigins"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     sourceBindings := ← j.getObjValAs? _ "sourceBindings"
@@ -78,11 +110,17 @@ instance : FromJson GroupRequest := ⟨fun j => do
     includeModuleOrigins := ← j.getObjValAs? _ "includeModuleOrigins"
   }⟩
 
+/-- The result of one grouped inspection: the worker's report and the coordinator's transcripts. -/
 structure GroupReport where
+  /-- The worker's declaration report for the group, validated against its source bindings. -/
   report : Regula.Checker.ProducerReport.Environment
+  /-- The isolated frontend transcripts of the transcript sources that need one. -/
   transcripts : Array Frontend.Transcript
   deriving Repr
 
+/-- The worker side of a grouped inspection: loads the requested modules' report on the current
+search path while their sources stay unchanged, and validates the report against the source
+bindings. -/
 unsafe def inspectGroupWorker (request : GroupRequest) : IO ProducerReport.Outcome := do
   let outcome ← SourceBinding.withUnchanged request.sourceBindings #[] do
     let moduleSources := request.sourceBindings.map fun source =>
@@ -95,6 +133,10 @@ unsafe def inspectGroupWorker (request : GroupRequest) : IO ProducerReport.Outco
     return outcome
   return ProducerReport.Outcome.ofExcept (outcome.bind id)
 
+/-- Inspects `modules` in one worker process (`--inspection-group-worker`) on the current search
+path, then builds the isolated frontend transcripts needed for `transcriptSources`. Refuses when
+a source changes, a compiled source differs from the captured one, or the report's scope or
+sources disagree with the request. -/
 def inspectGroupCurrentSearchPath (modules : Array Name)
     (transcriptSources : Array (Name × FilePath) := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
@@ -170,14 +212,18 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
       let output := scratch / s!"{spec.«module»}.diagnostics.json"
       let workerStart ← IO.monoMsNow
       let process ← spawn binary.toString
-        #["--diagnostic-worker", (Regula.RegistryCodec.nameJson spec.module.toName).compress, sourcePath.toString, output.toString]
-      IO.println s!"diagnostic span: compileIn diagnostic-worker: {(← IO.monoMsNow) - workerStart}ms"
+        #["--diagnostic-worker", (Regula.RegistryCodec.nameJson spec.module.toName).compress,
+            sourcePath.toString, output.toString]
+      IO.println
+          s!"diagnostic span: compileIn diagnostic-worker: {(← IO.monoMsNow) - workerStart}ms"
       let errors ← if process.succeeded then
           try
             let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
             let payload ← IO.ofExcept <| readWorkerPacket
               (sourceWorkerRequest "diagnostic" spec.module.toName sourcePath spec.source) json
-            unless (← IO.FS.readFile sourcePath) == spec.source do throw <| IO.userError "diagnostic snapshot changed"
+            unless (← IO.FS.readFile sourcePath) == spec.source do throw <|
+                                                                    IO.userError "diagnostic \
+                                                                      snapshot changed"
             pure <| some (← IO.ofExcept <| fromJson? payload)
           catch _ => pure none
         else pure none
@@ -201,12 +247,17 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     return { spec, sourcePath, oleanPath, ileanPath, process }
 
 /-- Standalone compilation still obtains its environment through Lake. -/
-def compile (repo scratch : FilePath) (spec : SourceSpec) : IO (Except ProducerReport.AdmissionFailure Compilation) :=
+def compile (repo scratch : FilePath) (spec : SourceSpec) : IO
+    (Except ProducerReport.AdmissionFailure Compilation) :=
   compileIn repo scratch spec false
 
+/-- A request to compile several sources in one `lake env` worker. -/
 structure CompileBatch where
+  /-- The directory holding every `<module>.lean` source and receiving its outputs. -/
   scratch : FilePath
+  /-- The number of compilations run at once; must be positive. -/
   jobs : Nat
+  /-- The sources to compile; results come back in this order. -/
   specs : Array SourceSpec
   deriving ToJson
 
@@ -233,7 +284,8 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
   let sources ← specs.mapM fun spec => do
     let path := scratch / s!"{spec.module}.lean"
     IO.FS.writeFile path spec.source
-    pure ({ moduleName := spec.module.toName, path := path.toString, content := spec.source } : ProducerReport.SourceBinding)
+    pure ({ moduleName := spec.module.toName, path := path.toString, content := spec.source } :
+        ProducerReport.SourceBinding)
   SourceBinding.withUnchanged sources #[] do
     let binary ← workerBinary
     withScratch repo "compile-batch" fun work => do
@@ -245,7 +297,8 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
         scrubbedLeanPathEnv
       if !result.succeeded then throw <| IO.userError result.output
       let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
-      let payload ← IO.ofExcept <| readWorkerPacket (toJson ({ scratch, jobs, specs } : CompileBatch)) json
+      let payload ← IO.ofExcept <| readWorkerPacket
+          (toJson ({ scratch, jobs, specs } : CompileBatch)) json
       let binding (i : Nat) (actual : Compilation) : Bool :=
         match specs[i]? with
         | none => false
@@ -260,6 +313,8 @@ def compileBatch (repo scratch : FilePath) (jobs : Nat) (specs : Array SourceSpe
           throw <| IO.userError "compile batch source snapshot changed"
       return compilations
 
+/-- The process succeeded and, when the specification rejects warnings, printed no warning
+line. -/
 def compilationPassed (value : Compilation) : Bool :=
   value.process.succeeded
     && (!value.spec.rejectWarnings || (warningLines value.process.output).isEmpty)
@@ -271,6 +326,9 @@ def sourceDiagnosticFailure (value : Compilation) : Bool :=
   value.process.exitCode ≤ 1 && (outputLines value.process.output).any (fun line =>
     line.startsWith (value.sourcePath.toString ++ ":") && (isErrorLine line || isWarningLine line))
 
+/-- Reads the typed report of a compiled source (and its frontend transcript when needed) while
+its source stays unchanged; throws when the compilation did not pass, and returns an admission
+failure as `.error`. -/
 unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePath := #[])
     (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
@@ -280,12 +338,14 @@ unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePa
   let some scratch := value.sourcePath.parent
     | throw <| IO.userError "compiled source has no parent directory"
   let source : ProducerReport.SourceBinding := {
-    moduleName := value.spec.module.toName, path := value.sourcePath.toString, content := value.spec.source }
+    moduleName := value.spec.module.toName, path := value.sourcePath.toString, content :=
+        value.spec.source }
   return (← SourceBinding.withUnchanged #[source] #[] do
     SourceBinding.unchanged #[source]
     let sources ← SourceBinding.capture (moduleSources.push (source.moduleName, value.sourcePath))
     return (← SourceBinding.withUnchanged sources #[] do
-      let reportResult ← Environment.loadReportOutcome #[value.spec.«module».toName] (#[scratch] ++ extraSearchRoots) sourceRoots
+      let reportResult ← Environment.loadReportOutcome #[value.spec.«module».toName]
+          (#[scratch] ++ extraSearchRoots) sourceRoots
         (sources.map fun s => (s.moduleName, FilePath.mk s.path)) ownedOutput
       if let .error failure := reportResult then return .error failure
       let .ok report := reportResult
@@ -305,19 +365,24 @@ unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePa
     ).bind id
   ).bind id
 
+/-- `inspectOutcome` with an admission failure raised as an `IO` error carrying its detail. -/
 unsafe def inspect (value : Compilation) (extraSearchRoots : Array FilePath := #[])
     (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
     IO Inspected := do
-  IO.ofExcept <| (← inspectOutcome value extraSearchRoots sourceRoots moduleSources ownedOutput).mapError (·.detail)
+  IO.ofExcept <|
+      (← inspectOutcome value extraSearchRoots sourceRoots moduleSources ownedOutput).mapError
+      (·.detail)
 
 /-- Inspect with a caller-owned, already configured Lean search path. -/
 unsafe def inspectCurrentSearchPath (value : Compilation)
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) : IO Inspected := do
+    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
+        IO Inspected := do
   if !compilationPassed value then
     throw <| IO.userError s!"source did not elaborate: {value.spec.«module»}"
   let source : ProducerReport.SourceBinding := {
-    moduleName := value.spec.module.toName, path := value.sourcePath.toString, content := value.spec.source }
+    moduleName := value.spec.module.toName, path := value.sourcePath.toString, content :=
+        value.spec.source }
   let outcome ← SourceBinding.withUnchanged #[source] #[] do
     SourceBinding.unchanged #[source]
     let sources ← SourceBinding.capture (moduleSources.push (source.moduleName, value.sourcePath))
@@ -337,6 +402,8 @@ unsafe def inspectCurrentSearchPath (value : Compilation)
     IO.ofExcept <| outcome.mapError (·.detail)
   IO.ofExcept <| outcome.mapError (·.detail)
 
+/-- Compiles `spec` through Lake and inspects the result; returns the compiler output as `.error`
+when compilation does not pass, or the inspection error followed by that output. -/
 unsafe def compileAndInspect (repo scratch : FilePath) (spec : SourceSpec)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :

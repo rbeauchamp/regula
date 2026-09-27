@@ -8,7 +8,8 @@ Link between the two required verification steps: ordinary project acceptance an
 the separately timed documentation-fence audit. Each step computes one location-independent
 content identity from its own fresh captures of the root sources, configuration,
 dependency inputs, Markdown documents and, when given, a Verso documentation library with its
-package's inputs (`Documentation.Sources.captureLinked`). Ordinary acceptance records the identity only
+package's inputs (`Documentation.Sources.captureLinked`). Ordinary acceptance records the identity
+only
 after its accepted success has passed every freshness recheck with exit code 0; the
 documentation step refuses unless its own identity is
 equal. The SHA-256 digest is computed by the trusted external `shasum` tool; equality
@@ -46,7 +47,8 @@ def identityJson (projectRoot docsRoot : FilePath)
     -- below the repository, the parent of `docsRoot`.
     ("documents", toJson (documents.map fun document =>
       let below := relative docsRoot document.uri
-      (if below != document.uri then below else relative (docsRoot.parent.getD docsRoot) document.uri,
+      (if below != document.uri then below else relative
+                                                 (docsRoot.parent.getD docsRoot) document.uri,
         document.source)))]
 
 /-- SHA-256 of the compact identity bytes, computed by the external `shasum` tool. -/
@@ -73,7 +75,9 @@ def invalidate (path : FilePath) : IO Unit :=
 /-- The identity of one accepted run's captured inputs, computed before its success line
 and held, unrecorded, until the run's outer freshness recheck has passed. -/
 structure Pending where
+  /-- The lowercase hexadecimal SHA-256 of the run's input identity, from `identity`. -/
   digest : String
+  /-- The run's account, whose accepted jobs `record` writes beside the digest. -/
   account : Account
 
 /-- Written only after accepted ordinary success. It cannot be called without a `Pending`, whose
@@ -95,6 +99,7 @@ def require (path : FilePath) (digest : String) : IO Unit := do
       (value.getObjValAs? String "status").toOption == some "accepted" do
     throw <| IO.userError s!"acceptance link is not an accepted ordinary result: {path}"
   unless (value.getObjValAs? String "identity").toOption == some digest do
-    throw <| IO.userError "acceptance link identity differs: documentation inputs are not the accepted ordinary inputs"
+    throw <| IO.userError "acceptance link identity differs: documentation inputs are not the \
+      accepted ordinary inputs"
 
 end Regula.Checker.AcceptanceLink

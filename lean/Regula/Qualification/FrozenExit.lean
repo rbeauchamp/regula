@@ -8,11 +8,14 @@ namespace Regula.Qualification.FrozenExit
 open Lean System RegulaQualification RegulaQualification.Evidence SourceEvidence
 
 private def importSource (enabled : Bool) (action : String) : String :=
-  "import Lean\nopen Lean Elab Command in\nrun_cmd do\n  let path ← getFileName\n  elabCommand (← `(initialize do\n    if " ++
-    (if enabled then "true" else "false") ++ " && (← IO.appPath).fileName == some \"axiomGate\" then\n      let path : System.FilePath := $(quote path)\n      " ++ action ++
+  "import Lean\nopen Lean Elab Command in\nrun_cmd do\n  let path ← getFileName\n  elabCommand (← \
+    `(initialize do\n    if " ++
+    (if enabled then "true" else "false") ++ " && (← IO.appPath).fileName == some \"axiomGate\" \
+      then\n      let path : System.FilePath := $(quote path)\n      " ++ action ++
     "))\ntheorem valid : True := True.intro\n"
 
-private def lost := "open Lean Elab Command in\nrun_cmd do\n  let path ← getFileName\n  IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
+private def lost := "open Lean Elab Command in\nrun_cmd do\n  let path ← getFileName\n  \
+  IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
 
 private structure Case where
   label : String
@@ -44,7 +47,8 @@ def check : IO Unit := do
     prepareCoreProject root project "frozen_adopter" "standard-logical"
     let manifest ← IO.FS.readFile (project / "foundation_manifest.json")
     let check := runCase root project manifest
-    for (binary, flags) in #[("docFenceAudit", #["--jobs", "1", "--verbose"]), ("axiomGate", #["--with-docs"])] do
+    for (binary, flags) in
+        #[("docFenceAudit", #["--jobs", "1", "--verbose"]), ("axiomGate", #["--with-docs"])] do
       let action := "IO.FS.writeFile path ((← IO.FS.readFile path) ++ \"\\n\")"
       for phase in #["positive", "changed", "restored"] do
         let bad := phase == "changed"
@@ -57,31 +61,43 @@ def check : IO Unit := do
         label := s!"import/{binary}/missing-and-throw", binary, flags, grouped := true,
         fence := importSource true action, ids := ["RG4002", "RG2005"],
         reason := "producer-source: source snapshot unavailable: DocFence_1" }
-      check { label := s!"import/{binary}/throw-restored", binary, flags, grouped := true, fence := importSource false action }
-      let action := "let _ := path\n      throw <| IO.userError \"producer-source: deliberate unchanged initializer failure\""
+      check { label := s!"import/{binary}/throw-restored", binary, flags, grouped := true, fence :=
+                importSource false action }
+      let action := "let _ := path\n      throw <| IO.userError \"producer-source: deliberate \
+        unchanged initializer failure\""
       check {
         label := s!"import/{binary}/unchanged-exception", binary, flags, grouped := true,
-        fence := importSource true action, ids := ["RG4002"], reason := "checker inspection failed" }
-      check { label := s!"import/{binary}/exception-restored", binary, flags, grouped := true, fence := importSource false action }
+        fence := importSource true action, ids := ["RG4002"], reason :=
+            "checker inspection failed" }
+      check { label := s!"import/{binary}/exception-restored", binary, flags, grouped := true,
+                fence := importSource false action }
     for (label, binary, flags) in #[
         ("fresh", "axiomGate", #[]), ("incremental", "axiomGate", #["--incremental"]),
-        ("file-dependency", "axiomGate", #["--file", "Standalone.lean", "--claim", "standard-logical"]),
+        ("file-dependency", "axiomGate",
+            #["--file", "Standalone.lean", "--claim", "standard-logical"]),
         ("documentation-build", "docFenceAudit", #["--jobs", "1"])] do
       for phase in #["positive", "missing", "restored", "ordinary-error", "ordinary-restored"] do
         let missing := phase == "missing"
         let ordinary := phase == "ordinary-error"
         check {
           label := s!"build/{label}/{phase}", binary, flags,
-          source := good ++ (if missing then lost else if ordinary then "\ndef bad : Nat := \"wrong\"\n" else ""),
-          ids := if missing then ["RG2005"] else if ordinary then [if binary == "axiomGate" then "RG2003" else "error"] else [],
-          reason := if missing then "producer-source: source snapshot unavailable: Example" else "" }
-    for (binary, flags) in #[("docFenceAudit", #["--jobs", "1"]), ("axiomGate", #["--with-docs"])] do
+          source := good ++
+              (if missing then lost else if ordinary then "\ndef bad : Nat := \"wrong\"\n" else ""),
+          ids := if missing then ["RG2005"] else if ordinary then
+                                                  [if binary == "axiomGate" then "RG2003" else
+                                                                                  "error"] else [],
+          reason := if missing then
+              "producer-source: source snapshot unavailable: Example" else "" }
+    for (binary, flags) in
+        #[("docFenceAudit", #["--jobs", "1"]), ("axiomGate", #["--with-docs"])] do
       check {
         label := s!"compile/{binary}/missing", binary, flags, fence := good ++ lost,
-        ids := ["RG4002", "RG2005"], reason := "producer-source: source snapshot unavailable: DocFence_1" }
+        ids := ["RG4002", "RG2005"], reason :=
+            "producer-source: source snapshot unavailable: DocFence_1" }
       check { label := s!"compile/{binary}/restored", binary, flags }
     let flags := #["--file", "Standalone.lean", "--claim", "standard-logical"]
-    let mutation := "open Lean Elab Command in\nrun_cmd do\n  let path := (← IO.currentDir) / \"Standalone.lean\"\n  IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
+    let mutation := "open Lean Elab Command in\nrun_cmd do\n  let path := (← IO.currentDir) / \
+      \"Standalone.lean\"\n  IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
     check {
       label := "build/original-file-missing", flags, source := good ++ mutation,
       ids := ["RG2005"], reason := "producer-source: source snapshot unavailable: AuditFile_" }
@@ -90,7 +106,8 @@ def check : IO Unit := do
       label := "compile/file/missing", flags, fileSource := good ++ lost,
       ids := ["RG2005"], reason := "producer-source: source snapshot unavailable: AuditFile_" }
     check { label := "compile/file/restored", flags }
-    let mutation := "run_cmd do\n  let path := (← IO.currentDir) / \"foundation_manifest.json\"\n  IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
+    let mutation := "run_cmd do\n  let path := (← IO.currentDir) / \"foundation_manifest.json\"\n  \
+      IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
     check {
       label := "build/configuration-missing", source := good ++ mutation,
       ids := ["RG2005"], reason := "producer-source: configuration snapshot changed:" }

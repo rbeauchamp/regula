@@ -4,7 +4,8 @@ import RegulaPolicy.Codec
 /-! # Strict operational JSON parsing
 
 Strict operational JSON parsing. Scalar syntax reuses Lean's parser; the container
-recursion below is adapted from the Lean 4 repository's `src/Lean/Data/Json/Parser.lean` (notice as at
+recursion below is adapted from the Lean 4 repository's `src/Lean/Data/Json/Parser.lean` (notice as
+at
 `v4.34.0`), modified to reject duplicate keys before insertion and to guard each recursive
 call with consumed input, which makes it total. Upstream notice, retained:
 
@@ -86,6 +87,8 @@ termination_by 2 * remaining start + 1
 decreasing_by all_goals omega
 end
 
+/-- Parse `text` as exactly one JSON value surrounded only by whitespace, rejecting an object
+with a repeated key; an error names what failed to parse. -/
 def parse (text : String) : Except String Json :=
   Parser.run (do ws; let j ← value; eof; return j) text
 

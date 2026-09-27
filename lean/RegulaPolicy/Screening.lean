@@ -39,7 +39,9 @@ open RegulaPolicy.Intent
 /-- A nonnegative decimal number with value `mantissa / 10 ^ exponent`. JSON numbers are
 decimal text, so the service's probabilities are represented without rounding. -/
 structure Decimal where
+  /-- The decimal digits as a natural number. -/
   mantissa : Nat
+  /-- The number of those digits after the decimal point. -/
   exponent : Nat
   deriving Repr, DecidableEq
 
@@ -99,7 +101,8 @@ def add (a b : Decimal) : Decimal :=
 def render (d : Decimal) : String :=
   let whole := d.mantissa / 10 ^ d.exponent
   let digits := toString (d.mantissa % 10 ^ d.exponent)
-  let fraction := (("".pushn '0' (d.exponent - digits.length) ++ digits).toList.reverse.dropWhile (· == '0')).reverse
+  let fraction := (("".pushn '0' (d.exponent - digits.length) ++ digits).toList.reverse.dropWhile
+      (· == '0')).reverse
   if fraction.isEmpty then toString whole else s!"{whole}.{String.ofList fraction}"
 
 /-- Instances of the exact order and of rescaling invariance. -/
@@ -118,7 +121,8 @@ abbrev Probability := { p : Decimal // p ≤ Decimal.one }
 stores it) as a probability. Negative or greater-than-one values are refused. -/
 def probability? (mantissa : Int) (exponent : Nat) : Option Probability :=
   match mantissa with
-  | .ofNat m => if h : (⟨m, exponent⟩ : Decimal) ≤ Decimal.one then some ⟨⟨m, exponent⟩, h⟩ else none
+  | .ofNat m => if h : (⟨m, exponent⟩ : Decimal) ≤ Decimal.one then some
+                                                                     ⟨⟨m, exponent⟩, h⟩ else none
   | .negSucc _ => none
 
 /-- Admission is exact: a value is admitted exactly when it is nonnegative and at most one,
@@ -150,7 +154,12 @@ theorem probability?_eq_some_iff (mantissa : Int) (exponent : Nat) (p : Probabil
 /-- Severity of a screening finding, in the rule-severity vocabulary (`Regula.Severity`:
 error, warning, information). A screen never produces a checked or passing verdict. -/
 inductive ScreenSeverity where
-  | information | warning | error
+  /-- Support below the information threshold only. -/
+  | information
+  /-- Support below the warning threshold. -/
+  | warning
+  /-- Support below the error threshold. -/
+  | error
   deriving Repr, DecidableEq
 
 /-- Order of findings: no finding, then information, then warning, then error. -/
@@ -164,10 +173,15 @@ def rank : Option ScreenSeverity → Nat
 error, below `warning` a warning, below `information` information. Well formed by
 construction. -/
 structure Thresholds where
+  /-- Support below this probability is an error. -/
   error : Decimal
+  /-- Support below this probability, and not below `error`, is a warning. -/
   warning : Decimal
+  /-- Support below this probability, and not below `warning`, is information. -/
   information : Decimal
+  /-- Proof that the error threshold does not exceed the warning threshold. -/
   error_le_warning : error ≤ warning
+  /-- Proof that the warning threshold does not exceed the information threshold. -/
   warningLeInformation : warning ≤ information
 
 /-- The executed severity decision. -/
@@ -245,7 +259,9 @@ inductive Route where
 is raised and every result escalates) and an optional minimum distribution confidence,
 applied only to answers that report one (Choice). -/
 structure JudgmentPolicy where
+  /-- The severity mapping; `none` raises no finding and escalates every result. -/
   thresholds : Option Thresholds := none
+  /-- A reported confidence below this value escalates the result; `none` sets no minimum. -/
   minConfidence : Option Decimal := none
 
 /-- Whether a reported confidence meets the policy's minimum. -/
@@ -420,7 +436,9 @@ theorem checked_clauses : Regula.ExecutableContract intentClausesImpl ClausesCon
 def intentClauses : String → List String := checked_clauses.run
 
 theorem clauses_examples :
-    intentClauses "Claim.\n\n# Intent\n- Sorted output.\n- Same elements,\n  with multiplicity.\n\n# Notes\nx" =
+    intentClauses
+        "Claim.\n\n# Intent\n- Sorted output.\n- Same elements,\n  with multiplicity.\n\n# \
+          Notes\nx" =
       ["Sorted output.", "Same elements, with multiplicity."] ∧
     intentClauses "Claim.\n\n# Intent\nOne requirement\nover two lines." =
       ["One requirement over two lines."] ∧
@@ -436,7 +454,8 @@ def explanationLines : List (List Char) → List (List Char)
   | line :: rest =>
     match headingLevel? line with
     | some level =>
-      if isIntentHeading line && sectionHasContent level rest then [] else line :: explanationLines rest
+      if isIntentHeading line && sectionHasContent level rest then [] else line ::
+                                                                            explanationLines rest
     | none => line :: explanationLines rest
 
 /-- The explanation text of a docstring, trimmed. -/
@@ -488,7 +507,8 @@ def discharge? (clause : String) : Option (String × String) := do
   else none
 
 theorem discharge_examples :
-    discharge? "Same elements. (discharged by `Demo.sort_perm`)" = some ("Same elements.", "Demo.sort_perm") ∧
+    discharge? "Same elements. (discharged by `Demo.sort_perm`)" = some
+        ("Same elements.", "Demo.sort_perm") ∧
     discharge? "Same elements." = none ∧
     discharge? "Same elements. (discharged by `a b`)" = none ∧
     discharge? "(discharged by `x`) trailing" = none := by
@@ -528,14 +548,29 @@ theorem dischargeMarked_examples :
 /-- The judgments a screen asks. `correspondence` asks whether the formal statement of a
 discharged clause states its English text. -/
 inductive Judgment where
-  | coverage | correspondence | strength | quantifierOrder | totalization | exclusions
+  /-- Whether the claim, exactly as stated, guarantees one Intent clause. -/
+  | coverage
+  /-- Whether a discharged clause's formal statement states exactly its English text. -/
+  | correspondence
+  /-- How the whole claim compares with the whole intent (a `Strength` distribution). -/
+  | strength
+  /-- Whether the claim keeps the intent's quantifier structure and order. -/
+  | quantifierOrder
+  /-- Whether the claim avoids relying on a conventional value of a partial operation in a
+  case the intent treats as undefined or excluded. -/
+  | totalization
+  /-- Whether the claim honors every exclusion and limit the intent states. -/
+  | exclusions
   deriving Repr, DecidableEq
 
+/-- Every judgment, once each (`Judgment.mem_all`). -/
 def Judgment.all : List Judgment :=
   [.coverage, .correspondence, .strength, .quantifierOrder, .totalization, .exclusions]
 
 theorem Judgment.mem_all (j : Judgment) : j ∈ all := by cases j <;> decide
 
+/-- The judgment's name in the screen configuration; distinct judgments have distinct
+names (`Judgment.spelling_injective`). -/
 def Judgment.spelling : Judgment → String
   | .coverage => "coverage" | .correspondence => "correspondence" | .strength => "strength"
   | .quantifierOrder => "quantifier-order" | .totalization => "totalization"
@@ -553,7 +588,15 @@ def Judgment.reportsConfidence : Judgment → Bool
 
 /-- Strength of the formal claim relative to the intent (the options of the strength Choice). -/
 inductive Strength where
-  | equivalent | stronger | weaker | incomparable
+  /-- The claim establishes exactly what the intent requires. -/
+  | equivalent
+  /-- The claim establishes everything the intent requires and more. -/
+  | stronger
+  /-- The claim establishes less than the intent requires. -/
+  | weaker
+  /-- The claim misses a requirement and also asserts something the intent does not require
+  or excludes, or it concerns a different property. -/
+  | incomparable
   deriving Repr, DecidableEq
 
 /-- Support for the intent from a strength distribution: the probability that the claim

@@ -14,6 +14,9 @@ namespace RegulaPolicy
 open Lean (Name)
 open Frontend
 
+/-- The declaration a generated `native_decide` axiom name belongs to: for
+`parent._native.native_decide.ax_N…` with a nonanonymous `parent` and a suffix of `ax_` then
+`_`-separated nonempty digit runs, `some parent`; otherwise `none`. -/
 def nativeParent? : Name → Option Name
   | .str (.str (.str parent "_native") "native_decide") suffix => do
       guard (parent != .anonymous && suffix.startsWith "ax_")
@@ -26,7 +29,8 @@ def nativeParent? : Name → Option Name
 the extra fresh frontend transcript. This core works over primitive fields so
 a batched harness can apply the identical predicate to raw environment
 constant records before paying any environment load. -/
-def declarationNeedsTranscript (isUnsafe isPartial : Bool) (kind : DeclarationKind) (name : Name) : Bool :=
+def declarationNeedsTranscript (isUnsafe isPartial : Bool) (kind : DeclarationKind)
+    (name : Name) : Bool :=
   isUnsafe || isPartial || (kind == .«axiom» && (nativeParent? name).isSome)
 
 /-- Only declaration kinds that could receive a generated-role exception need
@@ -35,22 +39,34 @@ def needsFrontendTranscript (decls : Array Declaration) : Bool :=
   decls.any fun decl =>
     declarationNeedsTranscript decl.isUnsafe decl.isPartial decl.kind decl.name
 
+/-- Lean's command elaborator for a declaration command. -/
 def declarationElaborator := `Lean.Elab.Command.elabDeclaration
+/-- Lean's macro that expands a declaration with a namespaced name into a `namespace` block. -/
 def namespacedDeclarationElaborator :=
   `Lean.Elab.Command.expandNamespacedDeclaration
+/-- The syntax kind of a declaration command. -/
 def declarationKind := `Lean.Parser.Command.declaration
+/-- Lean's tactic elaborator for `native_decide`. -/
 def nativeDecideElaborator := `Lean.Elab.Tactic.evalNativeDecide
+/-- The syntax kind of the `native_decide` tactic. -/
 def nativeDecideKind := `Lean.Parser.Tactic.nativeDecide
 
+/-- The part of an evaluator observation that identifies it in an evaluator chain. -/
 structure EvaluatorKey where
+  /-- Whether the evaluator elaborated a command, a tactic or a term. -/
   role : EvaluatorRole
+  /-- The elaborator's declaration name (anonymous when none was recorded). -/
   elaborator : Name
+  /-- The syntax kind the evaluator elaborated. -/
   kind : Name
   deriving Repr, DecidableEq
 
+/-- The role, elaborator and syntax kind of an evaluator observation. -/
 def key (value : Evaluator) : EvaluatorKey :=
   { role := value.role, elaborator := value.elaborator, kind := value.kind }
 
+/-- The only non-term evaluator sequence `NativeCommand` accepts: the declaration command,
+then its `by` block and tactic sequence, then `native_decide`, in that order. -/
 def nativeDecideChain : Array EvaluatorKey := #[
   ⟨.command, declarationElaborator, declarationKind⟩,
   ⟨.tactic, .anonymous, `Lean.Parser.Term.byTactic⟩,
@@ -67,6 +83,7 @@ def PositionLE (a b : Position) : Prop :=
   a.line < b.line ∨ (a.line = b.line ∧ a.column ≤ b.column)
 instance (a b : Position) : Decidable (PositionLE a b) := by unfold PositionLE; infer_instance
 
+/-- The start and end of a declaration's full recorded range, when Lean recorded one. -/
 def declarationRange? (d : Declaration) : Option SyntaxRange :=
   d.ranges.map fun r => ⟨r.range.start, r.range.end⟩
 
@@ -87,7 +104,8 @@ def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (parent :
     (cmd.addedDeclarations.filter (fun d => nativeParent? d.name == some parent &&
       d.kind == .«axiom» && d.type == a.type)).size == 1) = #[c]
 instance (ts : Array Transcript) (a : Declaration) (p : Name) (c : Command) :
-    Decidable (NativeIntroducingCommand ts a p c) := by unfold NativeIntroducingCommand; infer_instance
+    Decidable (NativeIntroducingCommand ts a p c) := by
+        unfold NativeIntroducingCommand; infer_instance
 
 /-- Literal declaration origin, including the exact built-in dotted-name expansion. -/
 def LiteralDeclaration (c : Command) (r : SyntaxRange) : Prop :=
@@ -104,7 +122,8 @@ instance (c : Command) (r : SyntaxRange) : Decidable (LiteralDeclaration c r) :=
 def PinnedEvaluator (e : Evaluator) : Prop :=
   e.pinned = true ∧ e.elaborator ≠ `Lean.Elab.Tactic.evalRunTac ∧
     e.elaborator ≠ `Lean.Elab.Term.elabRunElab
-instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by unfold PinnedEvaluator; infer_instance
+instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by
+    unfold PinnedEvaluator; infer_instance
 
 /-- Nested binders require exact selection attribution as well as source containment. -/
 def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop :=
@@ -114,7 +133,8 @@ def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop
       ∃ b ∈ c.bindings, b.name = base.name ∧
         b.range = some ⟨ranges.selectionRange.start, ranges.selectionRange.end⟩) ∧
   ∀ e ∈ c.evaluators, PinnedEvaluator e
-instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable (RecursiveCommand c b r) := by
+instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
+    (RecursiveCommand c b r) := by
   unfold RecursiveCommand; infer_instance
 
 /-- Native teaching permits exactly the pinned complete non-term evaluator sequence. -/
@@ -130,14 +150,16 @@ def NativeAxiomShape (a : Declaration) : Prop :=
   a.isUnsafe = false ∧ a.isPartial = false ∧ a.implementedBy = none ∧ a.extern = false ∧
   a.nativeBoolShape = true ∧ a.nativeReplay = some true ∧ a.name ∈ a.axioms ∧
   ∀ n ∈ a.axioms, n = a.name ∨ Permitted .standardLogical n
-instance (a : Declaration) : Decidable (NativeAxiomShape a) := by unfold NativeAxiomShape; infer_instance
+instance (a : Declaration) : Decidable (NativeAxiomShape a) := by
+    unfold NativeAxiomShape; infer_instance
 
 /-- Exact supported parent and recorded use shape, with no safety/runtime escape. -/
 def NativeParentShape (a p : Declaration) : Prop :=
   p.isProp = true ∧ p.kind ∈ #[DeclarationKind.theorem, .opaque, .definition] ∧
   p.module = a.module ∧ a.name ∈ p.axioms ∧ a.nativeUseParents = #[p.name] ∧
   p.isUnsafe = false ∧ p.isPartial = false ∧ p.implementedBy = none ∧ p.extern = false
-instance (a p : Declaration) : Decidable (NativeParentShape a p) := by unfold NativeParentShape; infer_instance
+instance (a p : Declaration) : Decidable (NativeParentShape a p) := by
+    unfold NativeParentShape; infer_instance
 
 /-- All native teaching requirements jointly hold, including unique use and introduction.
 Names locate a candidate; the remaining relations supply the required data-level evidence. -/
@@ -162,7 +184,8 @@ def RecursiveHelperShape (h : Declaration) : Prop :=
   h.unsafeRecValueOrigin.isSome = true ∧ h.unsafeRecValueExact = some true ∧
   h.unsafeRecValueDefeq = some true ∧ h.unsafeRecEquationExact = some true ∧
   h.unsafeRecEquationDefeq = some true
-instance (h : Declaration) : Decidable (RecursiveHelperShape h) := by unfold RecursiveHelperShape; infer_instance
+instance (h : Declaration) : Decidable (RecursiveHelperShape h) := by
+    unfold RecursiveHelperShape; infer_instance
 
 /-- Safe recursive base, exact type/universes, and bounded helper/equation dependencies. -/
 def RecursiveBaseShape (h b : Declaration) : Prop :=
@@ -171,13 +194,15 @@ def RecursiveBaseShape (h b : Declaration) : Prop :=
   h.type = b.type ∧ h.levelParams = b.levelParams ∧ (∀ n ∈ h.axioms, n ∈ b.axioms) ∧
   ∃ eqAxioms ∈ h.unsafeRecEquationAxioms,
     ∀ n ∈ eqAxioms, Permitted .standardLogical n ∨ n ∈ b.axioms
-instance (h b : Declaration) : Decidable (RecursiveBaseShape h b) := by unfold RecursiveBaseShape; infer_instance
+instance (h b : Declaration) : Decidable (RecursiveBaseShape h b) := by
+    unfold RecursiveBaseShape; infer_instance
 
 /-- Mutual-group order is preserved, with exact helper transformation and self-reference. -/
 def RecursiveGroup (h b : Declaration) : Prop :=
   b.all ≠ #[] ∧ h.all = b.all.map (fun n => Name.str n "_unsafe_rec") ∧
   h.name ∈ b.all.map (fun n => Name.str n "_unsafe_rec") ∧ h.name ∈ h.valueConstants
-instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by unfold RecursiveGroup; infer_instance
+instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by
+    unfold RecursiveGroup; infer_instance
 
 /-- Every recursive-helper guard is required for one base and the same unique command. -/
 def RecursiveHelperOK (ds : Array Declaration) (ts : Array Transcript) (h : Declaration) : Prop :=

@@ -22,6 +22,8 @@ open Lean Lean.Elab
 open RegulaPolicy (EvaluatorRole)
 open Regula.Checker.PolicyCodec (exactFields)
 
+/-- One import of the elaborated module (`RegulaPolicy.Frontend.ImportRecord`), with the
+exact-field JSON codec the frontend workers exchange. -/
 abbrev ImportRecord := RegulaPolicy.Frontend.ImportRecord
 deriving instance ToJson for RegulaPolicy.Frontend.ImportRecord
 instance : FromJson RegulaPolicy.Frontend.ImportRecord := ⟨fun j => do
@@ -33,6 +35,8 @@ instance : FromJson RegulaPolicy.Frontend.ImportRecord := ⟨fun j => do
     isMeta := ← j.getObjValAs? _ "isMeta"
   }⟩
 
+/-- A source range as line/column start and end positions (`RegulaPolicy.Frontend.SyntaxRange`),
+with its exact-field JSON codec. -/
 abbrev SyntaxRange := RegulaPolicy.Frontend.SyntaxRange
 deriving instance ToJson for RegulaPolicy.Frontend.SyntaxRange
 instance : FromJson RegulaPolicy.Frontend.SyntaxRange := ⟨fun j => do
@@ -42,6 +46,9 @@ instance : FromJson RegulaPolicy.Frontend.SyntaxRange := ⟨fun j => do
     «end» := ← j.getObjValAs? _ "end"
   }⟩
 
+/-- One elaborator invocation read from a command's info tree: its role, elaborator, syntax
+kind, source range and whether it is pinned (`RegulaPolicy.Frontend.Evaluator`), with its
+exact-field JSON codec. -/
 abbrev Evaluator := RegulaPolicy.Frontend.Evaluator
 deriving instance ToJson for RegulaPolicy.Frontend.Evaluator
 instance : FromJson RegulaPolicy.Frontend.Evaluator := ⟨fun j => do
@@ -54,6 +61,8 @@ instance : FromJson RegulaPolicy.Frontend.Evaluator := ⟨fun j => do
     pinned := ← j.getObjValAs? _ "pinned"
   }⟩
 
+/-- One constant a command added: its name, kind and printed type
+(`RegulaPolicy.Frontend.AddedDeclaration`), with its exact-field JSON codec. -/
 abbrev AddedDeclaration := RegulaPolicy.Frontend.AddedDeclaration
 deriving instance ToJson for RegulaPolicy.Frontend.AddedDeclaration
 instance : FromJson RegulaPolicy.Frontend.AddedDeclaration := ⟨fun j => do
@@ -64,6 +73,8 @@ instance : FromJson RegulaPolicy.Frontend.AddedDeclaration := ⟨fun j => do
     «type» := ← j.getObjValAs? _ "type"
   }⟩
 
+/-- The binder site of a declared constant at its declaration identifier
+(`RegulaPolicy.Frontend.DeclarationBinding`), with its exact-field JSON codec. -/
 abbrev DeclarationBinding := RegulaPolicy.Frontend.DeclarationBinding
 deriving instance ToJson for RegulaPolicy.Frontend.DeclarationBinding
 instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
@@ -73,10 +84,13 @@ instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
     range := ← j.getObjValAs? _ "range"
   }⟩
 
+/-- One elaborated command that added constants, with its evaluators and binders
+(`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
 abbrev Command := RegulaPolicy.Frontend.Command
 deriving instance ToJson for RegulaPolicy.Frontend.Command
 instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
-  exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations", "evaluators", "bindings"]
+  exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations",
+      "evaluators", "bindings"]
   return {
     commandElaborator := ← j.getObjValAs? _ "commandElaborator"
     commandKind := ← j.getObjValAs? _ "commandKind"
@@ -87,10 +101,13 @@ instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
     bindings := ← j.getObjValAs? _ "bindings"
   }⟩
 
+/-- The fresh-elaboration transcript of one module (`RegulaPolicy.Frontend.Transcript`),
+with its exact-field JSON codec. -/
 abbrev Transcript := RegulaPolicy.Frontend.Transcript
 deriving instance ToJson for RegulaPolicy.Frontend.Transcript
 instance : FromJson RegulaPolicy.Frontend.Transcript := ⟨fun j => do
-  exactFields j ["module", "source", "sourceBytes", "sourceContent", "leanVersion", "leanGitHash", "imports", "commands", "runtimeReplacements", "replacementHistoryUnsupported"]
+  exactFields j ["module", "source", "sourceBytes", "sourceContent", "leanVersion", "leanGitHash",
+      "imports", "commands", "runtimeReplacements", "replacementHistoryUnsupported"]
   return {
     «module» := ← j.getObjValAs? _ "module"
     source := ← j.getObjValAs? _ "source"
@@ -288,11 +305,13 @@ decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
 /-- Source metaprograms can compile with a temporary replacement and restore
 the map within one command. Command snapshots cannot certify that history.
 Imported trusted elaborators remain inside the documented process boundary. -/
-private def unsupportedReplacementEvaluators (compilerEnv : Environment) (attributeRefs : Array Name)
+private def unsupportedReplacementEvaluators (compilerEnv : Environment)
+    (attributeRefs : Array Name)
     (baselineEnv commandEnv : Environment)
     (tree : InfoTree) : Array String :=
   match tree with
-  | .context _ child => unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv child
+  | .context _ child =>
+      unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv child
   | .node info children => Id.run do
       let evaluator? := (evaluatorInfo? info).map fun (role, i) =>
         (role, i.elaborator, i.stx.getKind)
@@ -317,7 +336,8 @@ private def unsupportedReplacementEvaluators (compilerEnv : Environment) (attrib
             else #[]
         | none => #[]
       return (elems children).attach.foldl (fun found ⟨child, _⟩ =>
-        found ++ unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv child) own
+        found ++ unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv
+            child) own
   | .hole _ => #[]
 termination_by tree
 decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
@@ -370,7 +390,8 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   let attributeRefs := (← Lean.attributeMapRef.get).toArray.map (·.2.ref)
   let inputCtx := Parser.mkInputContext sourceBefore sourcePath.toString
   let ctx := { inputCtx with }
-  let opts := (Lean.Elab.async.set (warningAsError.set {} true) false).setBool Regula.Linter.auditBuildOption true
+  let opts := (Lean.Elab.async.set (warningAsError.set {} true) false).setBool
+      Regula.Linter.auditBuildOption true
   let processor := Lean.Language.Lean.process
   let importsRef ← IO.mkRef (#[] : Array Import)
   let snap ← processor (fun stx => do
@@ -400,7 +421,8 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
         if baseline?.isNone then
           baseline? := some commandCtx.env
         if let some compilerEnv := compilerEnv? then
-          for evaluator in unsupportedReplacementEvaluators compilerEnv attributeRefs (baseline?.getD commandCtx.env)
+          for evaluator in unsupportedReplacementEvaluators compilerEnv attributeRefs
+              (baseline?.getD commandCtx.env)
               commandCtx.env tree do
             if !replacementHistoryUnsupported.contains evaluator then
               replacementHistoryUnsupported := replacementHistoryUnsupported.push evaluator
@@ -472,9 +494,15 @@ unsafe def build (moduleName : Name) (sourcePath : System.FilePath)
   try buildCore moduleName sourcePath
   finally Lean.searchPathRef.set oldSearchPath
 
+/-- The request a `--frontend-worker` process reads: which module to elaborate, from which
+source file, with which extra search roots first. -/
 structure WorkerRequest where
+  /-- The module name the source is elaborated as. -/
   moduleName : Name
+  /-- The path of the source file to elaborate. -/
   source : String
+  /-- Search roots placed before the worker's own search path, such as freshly built
+  package outputs. -/
   searchRoots : Array String
   deriving ToJson
 
@@ -495,7 +523,8 @@ def buildIsolated (moduleName : Name) (sourcePath : System.FilePath)
     searchRoots := extraSearchRoots.map (·.toString)
   } : WorkerRequest)
   unless transcript.module == moduleName && transcript.source == sourcePath.toString &&
-      transcript.sourceContent == sourceBefore && transcript.sourceBytes == sourceBefore.utf8ByteSize &&
+      transcript.sourceContent == sourceBefore && transcript.sourceBytes ==
+          sourceBefore.utf8ByteSize &&
       transcript.leanVersion == Lean.versionString && transcript.leanGitHash == Lean.githash &&
       (← IO.FS.readFile sourcePath) == sourceBefore do
     throw <| IO.userError "frontend worker snapshot or toolchain binding mismatch"

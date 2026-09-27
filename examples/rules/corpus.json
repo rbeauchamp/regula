@@ -567,7 +567,7 @@
       {
         "id": "RG2006",
         "subreason": "community-configuration",
-        "detailPattern": "community-configuration:.*autoImplicit.*relaxedAutoImplicit",
+        "detailPattern": "community-configuration:.*autoImplicit.*relaxedAutoImplicit.*linter.missingDocs",
         "location": {
           "kind": "project",
           "identity": "$PROJECT"

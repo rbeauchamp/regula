@@ -19,7 +19,8 @@ theorem validateDecoded_exact (decoded : Except String (List Check)) :
       ∃ checks, decoded = .ok checks ∧ Satisfied checks := by
   cases decoded with
   | error error => simp [validateDecoded, Except.bind]
-  | ok checks => simp [validateDecoded, Except.bind, Regula.ExecutableContract.run, evaluate_success]
+  | ok checks =>
+      simp [validateDecoded, Except.bind, Regula.ExecutableContract.run, evaluate_success]
 
 /-- Registered contract used by report adapters, not an IO authenticity assertion. -/
 theorem checked_decoded : Regula.ExecutableContract validateDecoded

@@ -13,8 +13,13 @@ namespace Regula.Checker.Lake
 open Lean System
 open Regula.Checker
 
+/-- The root package facts the audit checks module origins against: its Lean library names and
+the directory its compiled modules are written to. -/
 structure RootInventory where
+  /-- The names of the root package's Lean libraries. -/
   libraries : Array String
+  /-- The root package's compiled-module output directory (Lake's `leanLibDir`); a module
+  whose `.olean` lies below it is root-package output. -/
   leanLibDir : FilePath
   deriving Repr, BEq
 
@@ -118,9 +123,12 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
         sources := sources.push { «module» := exe.root.name, source }
       let root ← IO.FS.realPath package.dir
       let configurationPaths := #[package.configFile, package.manifestFile,
-        package.dir / "lean-toolchain", package.dir / "lakefile.lean", package.dir / "lakefile.toml"]
+        package.dir / "lean-toolchain", package.dir / "lakefile.lean",
+            package.dir / "lakefile.toml"]
         |>.toList.eraseDups.toArray
-      pure ({ package := package.baseName.toString, root, sources, configurationPaths } : DependencyInventory)
+      pure
+          ({ package := package.baseName.toString, root, sources, configurationPaths } :
+              DependencyInventory)
     let root ← IO.FS.realPath repo
     return { root, leanLibDir, leanPath, leanSrcPath, libraries, executables, dependencies }
 
@@ -180,7 +188,8 @@ def buildCheckedObservation (repo : FilePath) (targets : Array String)
     -- that context so public-gate qualification can identify the obligation.
     else if !(errorLines build.output).isEmpty then outputLines build.output
     else takeLast 20 (outputLines build.output)
-  return (build, some (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
+  return (build, some
+      (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
     ++ diagnostics))
 
 /-- Compatibility diagnostic projection. Acceptance callers retain the process observation. -/
@@ -188,6 +197,8 @@ def buildChecked (repo : FilePath) (targets : Array String)
     (mode : String) : IO (Option (Array String)) := do
   return (← buildCheckedObservation repo targets mode).2
 
+/-- The modules `moduleName` imports transitively, as `lake query +MODULE:transImports`
+reports them in `repo`. -/
 def transitiveImports (repo : FilePath) (moduleName : String) : IO (Array String) := do
   jsonStringArray s!"transitive imports for {moduleName}" <|
     ← lakeQuery repo s!"+{moduleName}:transImports"

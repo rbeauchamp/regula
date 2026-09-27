@@ -15,7 +15,8 @@ private def atomicWrite (path : FilePath) (value : Json) : IO Unit := do
   IO.FS.writeFile temporary (value.compress ++ "\n")
   IO.FS.rename temporary path
 
-private def save (attempt : String) (path : FilePath) (packets records : Array Json) (status : String) : IO Unit :=
+private def save (attempt : String) (path : FilePath) (packets records : Array Json)
+    (status : String) : IO Unit :=
   atomicWrite path <| Json.mkObj [
     ("attemptId", toJson attempt), ("schemaVersion", toJson (1 : Nat)), ("status", toJson status),
     ("packets", toJson packets), ("controls", toJson records)]
@@ -39,7 +40,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let expected := assignments.map (fun a => a.modules.map (·.name))
   let dependencies ← Snapshot.dependencies inventory
   let targets := manifest.surfaces.flatMap fun s => #[s.library] ++ s.executables
-  let (build, failure) ← Lake.buildCheckedObservation root targets "incrementally for environment qualification"
+  let (build, failure) ← Lake.buildCheckedObservation root targets
+      "incrementally for environment qualification"
   let mut records := #[Json.mkObj [("case", toJson "build"), ("observation", toJson build)]]
   let mut packets : Array Json := #[]
   save attempt path packets records "incomplete"
@@ -53,7 +55,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
     -- Retain even a report whose subsequent frontend acquisition or validation fails.
     let packetPath := path.addExtension s!"packet-{reports.size}.json"
     atomicWrite packetPath (Json.mkObj [("expectedModules", toJson modules),
-      ("report", toJson report), ("transcripts", toJson (#[] : Array RegulaPolicy.Frontend.Transcript)),
+      ("report", toJson report),
+      ("transcripts", toJson (#[] : Array RegulaPolicy.Frontend.Transcript)),
       ("frontendComplete", toJson false)])
     packets := packets.push (toJson packetPath.toString)
     save attempt path packets records "incomplete"
@@ -64,7 +67,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
     for name in candidates do
       let some source := sources.find? (·.moduleName == name)
         | throw <| IO.userError s!"missing captured frontend source: {name}"
-      transcripts := transcripts.push (← Regula.Checker.Frontend.buildIsolated name ⟨source.path⟩ inventory.leanPath)
+      transcripts := transcripts.push
+          (← Regula.Checker.Frontend.buildIsolated name ⟨source.path⟩ inventory.leanPath)
     let inspected : Acceptance.RequestedInspection :=
       ⟨modules, ← IO.ofExcept (ProducerReport.admit report), transcripts⟩
     reports := reports.push inspected
@@ -84,7 +88,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let some right := reports[rightIndex]? | throw <| IO.userError "application packet absent"
   let collisions := left.report.declarations.flatMap fun a =>
     (right.report.declarations.filter (·.name == a.name)).map fun b =>
-      Json.mkObj [("name", toJson a.name), ("leftOwner", toJson a.module), ("rightOwner", toJson b.module)]
+      Json.mkObj
+          [("name", toJson a.name), ("leftOwner", toJson a.module), ("rightOwner", toJson b.module)]
   let joined := Policy.admitScope (left.report.declarations ++ right.report.declarations)
     (left.transcripts ++ right.transcripts)
   records := records.push <| Json.mkObj [("case", toJson "concatenated-inventory"),
@@ -96,14 +101,16 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let snapshotSources ← Acceptance.sourceSnapshots sources histories
   let snapshot ← IO.ofExcept <| Snapshot.make root configuration snapshotSources dependencies
   let claim ← IO.ofExcept <| admitClaim {
-    scope := .project, mode := .incrementalProject, snapshot := snapshot.val, surfaces := assignments }
+    scope := .project, mode := .incrementalProject, snapshot := snapshot.val, surfaces :=
+        assignments }
   let freeze := fun input => Acceptance.freeze claim expected
     (Acceptance.configuredTargets manifest) (Acceptance.discoveredTargets inventory)
     sources inventory.leanLibDir input
   let frozen ← freeze reports
   let buildObservation := Acceptance.buildObservation build
   let _ ← Acceptance.finish frozen buildObservation
-  records := records.push <| Json.mkObj [("case", toJson "complete-positive"), ("passed", toJson true)]
+  records := records.push <| Json.mkObj
+      [("case", toJson "complete-positive"), ("passed", toJson true)]
   save attempt path packets records "incomplete"
   -- A mutated report must pass the same `admit` that decoded reports pass, so a malformed
   -- report is refused before `freeze` exactly as the transport decoder refuses it.
@@ -111,11 +118,19 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
     let admitted ← IO.ofExcept <| ProducerReport.admit { left.report with sourceBindings := #[] }
     pure (reports.set! leftIndex { left with admitted })
   for (name, mutated, reason) in #[
-      ("omitted-environment", fun _ => pure (reports.extract 0 (reports.size - 1)), "missing, duplicate or unrequested environment inspection"),
-      ("duplicate-environment", fun _ => pure (reports.push left), "missing, duplicate or unrequested environment inspection"),
-      ("same-count-duplicate-environment", fun _ => pure (reports.set! rightIndex left), "producer census differs from independently requested environment"),
-      ("rebound-environment", fun _ => pure (reports.set! leftIndex right), "producer census differs from independently requested environment"),
-      ("source-binding-omission", omitted, "producer-source: source coverage or coordinates mismatch")] do
+      ("omitted-environment", fun _ => pure (reports.extract 0 (reports.size - 1)),
+                                        "missing, duplicate or unrequested environment inspection"),
+      ("duplicate-environment", fun _ => pure (reports.push left),
+                                          "missing, duplicate or unrequested environment \
+                                            inspection"),
+      ("same-count-duplicate-environment", fun _ => pure (reports.set! rightIndex left),
+                                                     "producer census differs from independently \
+                                                       requested environment"),
+      ("rebound-environment", fun _ => pure (reports.set! leftIndex right),
+                                        "producer census differs from independently requested \
+                                          environment"),
+      ("source-binding-omission", omitted,
+          "producer-source: source coverage or coordinates mismatch")] do
     let result ← (do freeze (← mutated ())).toBaseIO
     let refusal := match result with | .ok _ => "" | .error error => error.toString
     records := records.push <| Json.mkObj [("case", toJson name), ("refusal", toJson refusal)]
@@ -126,7 +141,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let mut replayChanged := false
   let replayInputs := inputs.map fun (slot, observation) =>
     match observation.evidence with
-    | .admission value => (slot, { observation with evidence := .admission { value with admitted := #[] } })
+    | .admission value =>
+        (slot, { observation with evidence := .admission { value with admitted := #[] } })
     | _ => (slot, observation)
   for (_, observation) in inputs do
     if let .admission value := observation.evidence then
@@ -135,7 +151,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let replayRefused := match finalize frozen.plan frozen.roles replayInputs with
     | .error (.acceptance .policyViolation) => true
     | _ => false
-  records := records.push <| Json.mkObj [("case", toJson "replay-omission"), ("refused", toJson replayRefused)]
+  records := records.push <| Json.mkObj
+      [("case", toJson "replay-omission"), ("refused", toJson replayRefused)]
   save attempt path packets records "incomplete"
   requireChecks [⟨"replay-omission", replayRefused⟩]
   let some foreignRoot := right.report.execution.find? (·.name == `main)
@@ -159,7 +176,10 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let unresolvedInputs := inputs.map fun (slot, observation) =>
     match observation.evidence with
     | .execution value =>
-        (slot, { observation with evidence := .execution { value with unresolved := #["qualification unresolved execution"] } })
+        (slot,
+            { observation with evidence := .execution
+                                 { value with unresolved :=
+                                                #["qualification unresolved execution"] } })
     | _ => (slot, observation)
   let transcripts := reports.flatMap (·.transcripts)
   let some foreignTranscript := transcripts[0]?
@@ -207,7 +227,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   SourceBinding.unchanged sources
   SourceBinding.configurationUnchanged configuration
   Snapshot.inputsUnchanged inventory dependencies
-  records := records.push <| Json.mkObj [("case", toJson "restored-complete-positive"), ("passed", toJson true)]
+  records := records.push <| Json.mkObj
+      [("case", toJson "restored-complete-positive"), ("passed", toJson true)]
   save attempt path packets records "complete"
   IO.println "environment census qualification: PASS (scoped native observations)"
 

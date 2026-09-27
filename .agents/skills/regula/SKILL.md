@@ -11,7 +11,7 @@ This project's Lean code and proofs must meet the Regula standard. Apply these r
 - `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, remedy and rule guidance (result schema 3). When a stage did not complete, `complete` is false and `stagesNotRun` names the stages, so fixing these findings can reveal more.
 - A finding names its rule ID, what is wrong and where, and the fix. The first finding of each rule adds why, common rewrites and a compliant example (or, where the checked files are qualification inputs, the correction). `lake exe regula explain <ID>` prints the full rule offline; `lake exe regula rules` lists all rules.
 - No option, attribute or flag waives a rule on a claimed surface. Do not disable a Lean warning, weaken a statement, or drop a registration to pass.
-- Follow the Lean community's style, naming and documentation conventions (standard §6.7). Every claimed target enables `linter.missingDocs` (document every definition) in its `leanOptions`, with the options RG2006 checks; `lake lint` rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. Disable a community linter only for a single declaration, where its guidance allows, with the reason; that never discharges a rule.
+- Follow the Lean community's style, naming and documentation conventions (standard §6.7). Every claimed target enables `linter.missingDocs` (document every definition) in its `leanOptions`, with the other options RG2006 checks; `lake lint` rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. Disable a community linter only for a single declaration, where its guidance allows, with the reason; that never discharges a rule.
 - Passing is mechanical: a theorem must still state the intended claim, with its hypotheses and limits, which review checks.
 
 ## Every declaration
@@ -243,8 +243,8 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
 
 ### RG2006 Claimed targets must build with the community configuration
 
-Each claimed target turns `autoImplicit` and `relaxedAutoImplicit` off in `leanOptions`, disables no linter beyond the §6.7 exclusions and with Mathlib enables its standard set; no `-D` undoes this.
-Fix: Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false and, with Mathlib, the standard set and its three §6.7 exclusions; remove other linter disables and each `-D` extra `lean` argument that overrides these options.
+Each claimed target sets in `leanOptions`: automatic implicits off, `linter.missingDocs` on, no linter off beyond the §6.7 exclusions and, with Mathlib, its standard set on; no `-D` undoes this.
+Fix: Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 exclusions; remove other linter disables and each `-D` extra `lean` argument that overrides these options.
 
 ```lean
 import Lake

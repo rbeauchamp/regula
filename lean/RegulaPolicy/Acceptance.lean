@@ -19,7 +19,10 @@ def ResultBound {c : Claim} {i : Census} (p : Plan c i) (slot : Nat) (o : JobObs
 instance {c : Claim} {i : Census} (p : Plan c i) (slot : Nat) (o : JobObservation) :
     Decidable (ResultBound p slot o) := by unfold ResultBound; infer_instance
 
-abbrev ResultTable {c : Claim} {i : Census} (p : Plan c i) := ResultState (requiredSlots p) (ResultBound p)
+/-- The result table of plan `p`: observations keyed by the plan's job slots, each occupied slot
+bound to its planned job key and the claim's snapshot (`ResultBound`). -/
+abbrev ResultTable {c : Claim} {i : Census} (p : Plan c i) := ResultState (requiredSlots p)
+    (ResultBound p)
 
 /-- Completeness quantifies the independent plan, including discovery/build/scan slots when
 subject inventories are empty. Unique lookup and absence of extra keys come from ResultState. -/
@@ -52,8 +55,13 @@ def AllPolicyOK {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
 instance {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i) (s : ResultTable p) :
     Decidable (AllPolicyOK p roles s) := by unfold AllPolicyOK; infer_instance
 
+/-- Why `accept` refuses a result table. -/
 inductive AcceptanceFailure where
-  | incomplete | policyViolation
+  /-- Some planned slot has no completed observation (`CompleteFor` fails). -/
+  | incomplete
+  /-- Every slot completed, but some planned job's observation fails its policy
+  (`AllPolicyOK` fails). -/
+  | policyViolation
   deriving Repr, DecidableEq
 
 /-- Mechanical acceptance for these exact claim, census, plan and result inputs. A negative
@@ -61,8 +69,11 @@ or teaching example remains an accepted expectation, not a conforming positive p
 No serialized accepted flag can construct either proof. The structure is a `Type`, not a
 `Prop`, although its fields are propositions: `accept` returns it as the success value of an
 `Except`, whose value type is a `Type`. -/
-structure Accepted {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i) (s : ResultTable p) : Type where
+structure Accepted {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
+    (s : ResultTable p) : Type where
+  /-- Every planned slot holds a completed observation. -/
   complete : CompleteFor p s
+  /-- Every planned slot's observation meets its policy. -/
   policy : AllPolicyOK p roles s
 
 /-- Recompute completeness and actual pure policy relations after payload admission. -/
@@ -117,11 +128,17 @@ theorem accept_policyViolation {c : Claim} {i : Census} (p : Plan c i) (roles : 
 /-- Report projection carries the exact accepted inputs; it cannot substitute a different
 scope, inventory, job order, or payload table. Renderers and audit exits consume this in #7. -/
 structure AcceptedReport where
+  /-- The accepted claim. -/
   claim : Claim
+  /-- The census the plan was built from. -/
   census : Census
+  /-- The plan's job keys in slot order. -/
   jobs : Array JobKey
+  /-- The accepted observation of each slot, keyed by slot index. -/
   results : ExtTreeMap Nat JobObservation
 
+/-- The report of an acceptance: its claim, census, plan jobs and result entries, unchanged
+(`accepted_report_identity`). -/
 def Accepted.report {c : Claim} {i : Census} {p : Plan c i} {roles : CensusRoles i}
     {s : ResultTable p} (_ : Accepted p roles s) : AcceptedReport :=
   ⟨c, i, p.jobs, s.entries⟩
@@ -129,7 +146,8 @@ def Accepted.report {c : Claim} {i : Census} {p : Plan c i} {roles : CensusRoles
 /-- Exact report identity is by construction, not reconstructed from diagnostics or counts. -/
 theorem accepted_report_identity {c : Claim} {i : Census} {p : Plan c i} {roles : CensusRoles i}
     {s : ResultTable p} (a : Accepted p roles s) :
-    a.report.claim = c ∧ a.report.census = i ∧ a.report.jobs = p.jobs ∧ a.report.results = s.entries :=
+    a.report.claim = c ∧ a.report.census = i ∧ a.report.jobs = p.jobs ∧ a.report.results =
+        s.entries :=
   ⟨rfl, rfl, rfl, rfl⟩
 
 /-- Every populated entry is an exact planned key, with no out-of-plan observations. -/
@@ -152,7 +170,9 @@ theorem accepted_covers_slot {c : Claim} {i : Census} {p : Plan c i} {roles : Ce
   exact (Option.some.inj hother).symm
 /-- Collection failures and completed-policy refusals remain distinct. -/
 inductive FinalizationFailure where
+  /-- A response could not be admitted into the result table (`ResultState.collect`). -/
   | collection (reason : AdmissionFailure)
+  /-- The collected table was refused by `accept`. -/
   | acceptance (reason : AcceptanceFailure)
   deriving Repr, DecidableEq
 
@@ -161,14 +181,18 @@ retains the full response sequence, including multiplicity, instead of trusting 
 This follows con-leche's checked-record/collection architecture without importing it. -/
 structure Finalized {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
     (inputs : List (Nat × JobObservation)) where
+  /-- The result table collected from `inputs`. -/
   table : ResultTable p
+  /-- `table` is what collecting every input into the empty table returns. -/
   collected : ResultState.collect .empty inputs = .ok table
+  /-- The acceptance of `table`. -/
   accepted : Accepted p roles table
 
 /-- The sole pure finalization path collects every response, then recomputes the approved
 policies for every independently required slot. Neither stage can supply a shorter plan. -/
 def finalize {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
-    (inputs : List (Nat × JobObservation)) : Except FinalizationFailure (Finalized p roles inputs) :=
+    (inputs : List (Nat × JobObservation)) : Except FinalizationFailure
+    (Finalized p roles inputs) :=
   match hc : ResultState.collect (bound := ResultBound p) .empty inputs with
   | .error failure => .error (.collection failure)
   | .ok table => match accept p roles table with
@@ -178,7 +202,8 @@ def finalize {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
 /-- A collector refusal is the exact finalization refusal, before policy evaluation. -/
 theorem finalize_collection_error {c : Claim} {i : Census} (p : Plan c i)
     (roles : CensusRoles i) (inputs : List (Nat × JobObservation)) (failure : AdmissionFailure)
-    (hc : ResultState.collect (required := requiredSlots p) (bound := ResultBound p) .empty inputs = .error failure) :
+    (hc : ResultState.collect (required := requiredSlots p) (bound := ResultBound p) .empty inputs =
+        .error failure) :
     finalize p roles inputs = .error (.collection failure) := by
   unfold finalize
   split
@@ -241,7 +266,8 @@ theorem finalized_covers_input {c : Claim} {i : Census} {p : Plan c i}
     (result : Finalized p roles inputs) (slot : Nat) (hs : slot < p.jobs.size) :
     ∃ o, (slot, o) ∈ inputs ∧ p.jobs[slot]? = some o.key ∧ PolicyOK c i roles o := by
   obtain ⟨o, lookup, key, policy, _⟩ := accepted_covers_slot result.accepted slot hs
-  exact ⟨o, (ResultState.collect_empty_lookup inputs result.table result.collected slot o).mp lookup,
+  exact
+      ⟨o, (ResultState.collect_empty_lookup inputs result.table result.collected slot o).mp lookup,
     key, policy⟩
 
 /-- Completeness and policies on a collected table correspond exactly to the supplied
@@ -278,7 +304,8 @@ theorem finalize_iff {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRole
     exact (collected_policy_iff p roles inputs result.table result.collected).mp
       ⟨result.accepted.complete, result.accepted.policy⟩
   · rintro ⟨batch, policy⟩
-    obtain ⟨table, hc⟩ := (ResultState.collect_success_iff inputs (ResultState.empty : ResultTable p)).mpr batch
+    obtain ⟨table, hc⟩ :=
+        (ResultState.collect_success_iff inputs (ResultState.empty : ResultTable p)).mpr batch
     obtain ⟨accepted, ha⟩ := accept_complete p roles table
       ((collected_policy_iff p roles inputs table hc).mpr policy)
     refine ⟨⟨table, hc, accepted⟩, ?_⟩
@@ -303,7 +330,8 @@ theorem finalize_reindexed {c : Claim} {i : Census} (p : Plan c i) (roles : Cens
     (retained : ∀ source ∈ original, reindex source ≠ [])
     (positions : inputs.map Prod.fst = List.range p.jobs.size)
     (sourceStatus : ∀ source ∈ original,
-      source.2.key.claim = c ∧ source.2.snapshot = c.val.snapshot ∧ source.2.completion = .completed)
+      source.2.key.claim = c ∧ source.2.snapshot = c.val.snapshot ∧ source.2.completion =
+          .completed)
     (binding : ∀ source ∈ original, ∀ entry ∈ reindex source,
       p.jobs[entry.1]? = some entry.2.key ∧ entry.2.key.claim = c ∧
       entry.2.snapshot = source.2.snapshot ∧ entry.2.completion = source.2.completion ∧
@@ -392,7 +420,8 @@ theorem finalize_singleton_transfer {c : Claim} {i : Census} (p : Plan c i) (rol
       StageOK c i roles entry.2.key entry.2.evidence) :
     ∃ result, finalize p roles inputs = .ok result := by
   apply (finalize_reindexed p roles inputs inputs (fun entry => [entry])
-    (by simp) (by simp) positions (fun entry he => ⟨(binding entry he).2, status entry he⟩) ?_ ?_ ?_).2
+    (by simp) (by simp) positions (fun entry he => ⟨(binding entry he).2, status entry he⟩)
+        ?_ ?_ ?_).2
   · intro source hs entry he
     simp only [List.mem_singleton] at he
     subst entry
@@ -401,22 +430,30 @@ theorem finalize_singleton_transfer {c : Claim} {i : Census} (p : Plan c i) (rol
     simp only [List.mem_singleton] at he
     subst entry
     obtain ⟨key, judgment⟩ := localJudgments source hs environment subject subjectEq
-    exact ⟨⟨0, by rw [singleton]; exact Nat.zero_lt_one⟩, key.symm, _, _, LocalEvidenceTransfer.refl judgment, judgment⟩
+    exact
+        ⟨⟨0, by rw [singleton]; exact Nat.zero_lt_one⟩, key.symm, _, _,
+            LocalEvidenceTransfer.refl judgment, judgment⟩
   · intro source hs entry he global
     simp only [List.mem_singleton] at he
     subst entry
     have judgment := globalJudgments source hs global
-    exact ⟨i, roles, GlobalEvidenceTransfer.refl roles source.2.key source.2.evidence global judgment,
+    exact
+        ⟨i, roles, GlobalEvidenceTransfer.refl roles source.2.key source.2.evidence global judgment,
       judgment⟩
 
 /-- The request index remains fixed through the operational boundary. The census is
 obtained externally, while its plan, roles, collected observations and acceptance are
 all checked here. Constructors require every proof; serialized reports carry none. -/
 structure AcceptedRun (c : Claim) where
+  /-- The census the external collector reported for `c`. -/
   census : Census
+  /-- The admitted plan of `c` over `census`. -/
   plan : Plan c census
+  /-- The generated-role observations (`Roles`) of each environment of `census`. -/
   roles : CensusRoles census
+  /-- Every worker response as a slot and its observation, in arrival order, duplicates kept. -/
   inputs : List (Nat × JobObservation)
+  /-- The collection and acceptance of `inputs` under `plan` and `roles`. -/
   result : Finalized plan roles inputs
 
 /-- Renderers receive the report of the same accepted request, never an independently
@@ -452,7 +489,8 @@ theorem accepted_environment_resolves {c : Claim} {i : Census} {p : Plan c i}
   subst o
   have stage := policy.2.2.2
   simp only [StageOK, subjectEq] at stage
-  exact environmentStageOK_resolves c i roles environment observation.key.stage subject observation.evidence stage
+  exact environmentStageOK_resolves c i roles environment observation.key.stage subject
+      observation.evidence stage
 
 /-- Even roots with identical imported names must be the exact structural root of the
 bound environment and satisfy every execution mode requested by that environment. -/
@@ -462,7 +500,8 @@ theorem accepted_execution_resolves {c : Claim} {i : Census} {p : Plan c i}
     (observed : s.entries[slot]? = some observation)
     (environment : EnvironmentKey) (key : RootKey) (root : ExecutionRoot)
     (subjectEq : observation.key.subject = .environment environment (.root key))
-    (stageEq : observation.key.stage = .execution) (evidenceEq : observation.evidence = .execution root) :
+    (stageEq : observation.key.stage = .execution)
+    (evidenceEq : observation.evidence = .execution root) :
     ∃ localSlot : Fin i.environments.size, localSlot.val = environment.index ∧
       i.environments[localSlot].request.key = environment ∧
       root ∈ i.environments[localSlot].execution.roots ∧
@@ -470,22 +509,33 @@ theorem accepted_execution_resolves {c : Claim} {i : Census} {p : Plan c i}
       ∀ request ∈ rootRequests c i.environments[localSlot] root.name,
         root.unresolved = #[] ∧ ∀ boundary ∈ root.boundaries, BoundaryOK request boundary := by
   obtain ⟨localSlot, position, identity, policy⟩ :=
-    accepted_environment_resolves accepted slot bound observation observed environment (.root key) subjectEq
+    accepted_environment_resolves accepted slot bound observation observed environment
+        (.root key) subjectEq
   rw [stageEq, evidenceEq] at policy
   exact ⟨localSlot, position, identity, policy⟩
 
 /-- Combined ordinary acceptance retains both independently complete plans, indexed by
 one exact snapshot and the requested Markdown inventory. Neither component is promoted
 to the other's scope; negative/teaching fences remain expectation evidence. -/
-structure CombinedAccepted (projectClaim documentClaim : Claim) (documents : Array SourceSnapshot) where
+structure CombinedAccepted (projectClaim documentClaim : Claim)
+    (documents : Array SourceSnapshot) where
+  /-- The accepted whole-project run. -/
   project : AcceptedRun projectClaim
+  /-- The accepted documentation-example run. -/
   documentation : AcceptedRun documentClaim
+  /-- The project run's claim has the whole-project scope. -/
   projectScope : projectClaim.val.scope = .project
+  /-- The project run's claim is a fresh project audit. -/
   projectMode : projectClaim.val.mode = .freshProject
+  /-- The documentation run's claim covers exactly `documents`. -/
   documentScope : documentClaim.val.scope = .documentation documents
+  /-- The documentation run's claim checks documentation examples. -/
   documentMode : documentClaim.val.mode = .documentationExample
+  /-- Both claims name the same source snapshot. -/
   sameSnapshot : projectClaim.val.snapshot = documentClaim.val.snapshot
 
+/-- Pair a project run and a documentation run when their claims have the required scopes and
+modes and the same snapshot; otherwise an error naming the mismatch classes. -/
 def combineAccepted {pc dc : Claim} (documents : Array SourceSnapshot)
     (project : AcceptedRun pc) (documentation : AcceptedRun dc) :
     Except String (CombinedAccepted pc dc documents) :=
@@ -499,7 +549,8 @@ def combineAccepted {pc dc : Claim} (documents : Array SourceSnapshot)
 theorem combined_reports_same_snapshot {pc dc : Claim} {documents : Array SourceSnapshot}
     (accepted : CombinedAccepted pc dc documents) :
     accepted.project.report.claim = pc ∧ accepted.documentation.report.claim = dc ∧
-      accepted.project.report.claim.val.snapshot = accepted.documentation.report.claim.val.snapshot :=
+      accepted.project.report.claim.val.snapshot =
+          accepted.documentation.report.claim.val.snapshot :=
   ⟨rfl, rfl, accepted.sameSnapshot⟩
 
 /-- Both whole-domain capstones remain available at the composed public success boundary. -/
@@ -508,8 +559,10 @@ theorem combined_policy {pc dc : Claim} {documents : Array SourceSnapshot}
     (CompleteFor accepted.project.plan accepted.project.result.table ∧
       AllPolicyOK accepted.project.plan accepted.project.roles accepted.project.result.table) ∧
     (CompleteFor accepted.documentation.plan accepted.documentation.result.table ∧
-      AllPolicyOK accepted.documentation.plan accepted.documentation.roles accepted.documentation.result.table) :=
+      AllPolicyOK accepted.documentation.plan accepted.documentation.roles
+          accepted.documentation.result.table) :=
   ⟨⟨accepted.project.result.accepted.complete, accepted.project.result.accepted.policy⟩,
-    ⟨accepted.documentation.result.accepted.complete, accepted.documentation.result.accepted.policy⟩⟩
+    ⟨accepted.documentation.result.accepted.complete,
+        accepted.documentation.result.accepted.policy⟩⟩
 
 end RegulaPolicy

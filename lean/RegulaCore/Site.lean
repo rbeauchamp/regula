@@ -21,7 +21,8 @@ decision it takes about that data is a function here.
   the artifact's size.
 - `escape`, `escape_safe`: HTML text escaping; escaped text contains none of the markup
   characters `<`, `>`, `"`, `'` or the backtick that would end a Verso code fence.
-- `htmlBlock`, `htmlBlock_ok`: the only way the generator inserts raw HTML into Verso source (by inspection of the generator; guide prose and clause labels enter as Verso markup).
+- `htmlBlock`, `htmlBlock_ok`: the only way the generator inserts raw HTML into Verso source (by
+  inspection of the generator; guide prose and clause labels enter as Verso markup).
 - `Selection`, `emptySelections`, `mem_emptySelections`: the index filters and the exact
   set of filter combinations for which the no-match notice is shown.
 - `admitDiff`: a line diff admitted only when it reproduces both compared texts.
@@ -73,6 +74,7 @@ instance (s : String) : Decidable (IsCommit s) := inferInstanceAs (Decidable (_ 
 /-- A validated commit identifier. Revision routes only accept this type. -/
 abbrev Commit := { s : String // IsCommit s }
 
+/-- The commit identifier `s`, when it is 40 lowercase hexadecimal digits (`IsCommit`). -/
 def Commit.parse? (s : String) : Option Commit :=
   if h : IsCommit s then some ⟨s, h⟩ else none
 
@@ -80,7 +82,9 @@ def Commit.parse? (s : String) : Option Commit :=
 `rev c` is the snapshot of commit `c`. Released-package editions (`v/<version>/`) are part
 of the route policy but none is published, so the type has no constructor for them. -/
 inductive Edition where
+  /-- The development edition: the latest successful deployment of `main`. -/
   | dev
+  /-- The snapshot of commit `commit`. -/
   | rev (commit : Commit)
 
 /-- Artifact directory of an edition, relative to the project site root. -/
@@ -242,6 +246,7 @@ theorem escape_no_backtick (s : String) : (escape s).toList.contains '`' = false
 
 /-! ## Index filters -/
 
+/-- Every rule category, in the index filter's order (`mem_categories`). -/
 def categories : List RuleCategory :=
   [.foundation, .declaration, .execution, .environment, .configuration, .elaboration,
     .coverage, .admission, .documentation]
@@ -249,6 +254,7 @@ def categories : List RuleCategory :=
 theorem mem_categories (c : RuleCategory) : c ∈ categories := by
   cases c <;> simp [categories]
 
+/-- Every evidence mode, in the index filter's order (`mem_modes`). -/
 def modes : List EvidenceMode :=
   [.editorSnapshot, .incrementalProject, .freshProject, .freshFile, .documentationExample,
     .serializedGraph]
@@ -256,34 +262,41 @@ def modes : List EvidenceMode :=
 theorem mem_modes (m : EvidenceMode) : m ∈ modes := by
   cases m <;> simp [modes]
 
+/-- Every availability, in the index filter's order (`mem_availabilities`). -/
 def availabilities : List Availability := [.existingChecker, .plannedEngine]
 
 theorem mem_availabilities (a : Availability) : a ∈ availabilities := by
   cases a <;> simp [availabilities]
 
+/-- The category's identifier in the index filter's markup and CSS. -/
 def _root_.Regula.RuleCategory.slug : RuleCategory → String
   | .foundation => "foundation" | .declaration => "declaration" | .execution => "execution"
   | .environment => "environment" | .configuration => "configuration"
   | .elaboration => "elaboration" | .coverage => "coverage" | .admission => "admission"
   | .documentation => "documentation"
 
+/-- The category's display name. -/
 def _root_.Regula.RuleCategory.label : RuleCategory → String
   | .foundation => "Foundation" | .declaration => "Declaration" | .execution => "Execution"
   | .environment => "Environment" | .configuration => "Configuration"
   | .elaboration => "Elaboration" | .coverage => "Coverage" | .admission => "Admission"
   | .documentation => "Documentation"
 
+/-- The availability's identifier in the index filter's markup and CSS. -/
 def _root_.Regula.Availability.slug : Availability → String
   | .existingChecker => "existingChecker" | .plannedEngine => "plannedEngine"
 
+/-- The availability's display text. -/
 def _root_.Regula.Availability.label : Availability → String
   | .existingChecker => "Enforced by the checker" | .plannedEngine => "Planned"
 
+/-- The scope's display text. -/
 def _root_.Regula.RuleScope.label : RuleScope → String
   | .declaration => "declaration" | .project => "project" | .executionRoot => "execution root"
   | .documentationFence => "documentation fence" | .module => "module"
   | .materialDeclaration => "registered material declaration"
 
+/-- The evidence mode's display text. -/
 def modeLabel : EvidenceMode → String
   | .editorSnapshot => "editor snapshot" | .incrementalProject => "incremental project"
   | .freshProject => "fresh project" | .freshFile => "fresh file"
@@ -291,8 +304,11 @@ def modeLabel : EvidenceMode → String
 
 /-- One filter state: each dimension is either unrestricted (`none`) or one value. -/
 structure Selection where
+  /-- The selected rule category, or `none` for every category. -/
   category : Option RuleCategory
+  /-- The selected evidence mode, or `none` for every mode. -/
   mode : Option EvidenceMode
+  /-- The selected availability, or `none` for every availability. -/
   availability : Option Availability
 
 /-- A rule is listed under a selection when it matches every restricted dimension. -/
@@ -336,15 +352,20 @@ theorem mem_emptySelections (s : Selection) :
 
 /-- One line of a displayed diff. -/
 inductive DiffLine where
+  /-- A line present before and after the change. -/
   | keep (line : String)
+  /-- A line present only before the change. -/
   | remove (line : String)
+  /-- A line present only after the change. -/
   | add (line : String)
   deriving DecidableEq
 
+/-- The line this diff line contributes to the text before the change. -/
 def DiffLine.before : DiffLine → List String
   | .keep l | .remove l => [l]
   | .add _ => []
 
+/-- The line this diff line contributes to the text after the change. -/
 def DiffLine.after : DiffLine → List String
   | .keep l | .add l => [l]
   | .remove _ => []
@@ -352,10 +373,12 @@ def DiffLine.after : DiffLine → List String
 /-- Keep the longest common prefix and suffix and replace the middle. -/
 def prefixDiff : List String → List String → List DiffLine
   | a :: as, b :: bs => if a = b then .keep a :: prefixDiff as bs else
-      let suffix := ((a :: as).reverse.zip (b :: bs).reverse).takeWhile (fun p => p.1 = p.2) |>.length
+      let suffix := ((a :: as).reverse.zip (b :: bs).reverse).takeWhile
+          (fun p => p.1 = p.2) |>.length
       let middleA := (a :: as).take ((a :: as).length - suffix)
       let middleB := (b :: bs).take ((b :: bs).length - suffix)
-      middleA.map .remove ++ middleB.map .add ++ ((a :: as).drop ((a :: as).length - suffix)).map .keep
+      middleA.map .remove ++ middleB.map .add ++
+          ((a :: as).drop ((a :: as).length - suffix)).map .keep
   | as, bs => as.map .remove ++ bs.map .add
 
 /-- A displayed diff is admitted only when it reproduces both compared line lists. -/
@@ -374,15 +397,20 @@ theorem admitDiff_control :
 
 /-- One start tag: lowercase name and attributes with entity-decoded values. -/
 structure Tag where
+  /-- The lowercase tag name. -/
   name : String
+  /-- The attributes in order: lowercase name and entity-decoded value (empty when none is
+  given). -/
   attributes : List (String × String)
   deriving DecidableEq, Repr
 
 /-- Decode the entities the builder and Verso emit in attribute values. -/
 def decodeEntities (s : String) : String :=
-  ((((s.replace "&quot;" "\"").replace "&#39;" "'").replace "&lt;" "<").replace "&gt;" ">").replace "&amp;" "&"
+  ((((s.replace "&quot;" "\"").replace "&#39;" "'").replace "&lt;" "<").replace "&gt;" ">").replace
+      "&amp;" "&"
 
-private def isSpace (c : Char) : Bool := c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\x0c'
+private def isSpace (c : Char) : Bool := c == ' ' || c == '\n' || c == '\t' || c == '\r' ||
+    c == '\x0c'
 
 /-- Attribute list of a tag body (the text after the tag name, before `>`). -/
 def parseAttributes : Nat → List Char → List (String × String)
@@ -399,10 +427,12 @@ def parseAttributes : Nat → List Char → List (String × String)
       match afterEq.dropWhile isSpace with
       | '"' :: body =>
         let value := body.takeWhile (· != '"')
-        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel (body.drop (value.length + 1))
+        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel
+        (body.drop (value.length + 1))
       | '\'' :: body =>
         let value := body.takeWhile (· != '\'')
-        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel (body.drop (value.length + 1))
+        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel
+        (body.drop (value.length + 1))
       | body =>
         let value := body.takeWhile (fun c => !isSpace c)
         (key, decodeEntities (String.ofList value)) :: parseAttributes fuel (body.drop value.length)
@@ -417,7 +447,12 @@ def tagBody : List Char → Option Char → List Char
 
 /-- Tokenizer state: ordinary markup, or raw text of a comment or script/style element. -/
 inductive ScanMode where
-  | markup | comment | raw (element : String)
+  /-- Ordinary markup, where a `<` may start a tag. -/
+  | markup
+  /-- Inside an HTML comment, until `-->`. -/
+  | comment
+  /-- Inside the raw text of a `script` or `style` element, until its end tag. -/
+  | raw (element : String)
 
 /-- Start tags of an HTML document, skipping comments and script/style contents. -/
 def scanTags (html : String) : List Tag :=
@@ -431,10 +466,12 @@ def scanTags (html : String) : List Tag :=
     | .markup =>
       if chunk.startsWith "!--" then
         (if ((chunk.drop 3).toString.splitOn "-->").length > 1 then .markup else .comment, tags)
-      else if chunk.startsWith "/" || chunk.startsWith "!" || chunk.startsWith "?" then (.markup, tags)
+      else if chunk.startsWith "/" || chunk.startsWith "!" || chunk.startsWith "?" then
+            (.markup, tags)
       else
         let body := tagBody chunk.toList none
-        let name := String.ofList (body.takeWhile (fun c => !(isSpace c || c == '/' || c == '>'))) |>.toLower
+        let name := String.ofList (body.takeWhile (fun c => !(isSpace c || c == '/' || c == '>')))
+            |>.toLower
         if name.isEmpty then (.markup, tags) else
         let rest := body.drop name.length
         let tag : Tag := ⟨name, parseAttributes (rest.length + 1) rest⟩
@@ -455,20 +492,28 @@ def Tag.ids (t : Tag) : List String :=
 /-- One scanned output file: its artifact path, whether it is HTML, the fragment targets it
 defines, its `<base href>` if any, and the links it contains. -/
 structure Page where
+  /-- The file's path in the artifact. -/
   path : String
+  /-- The file is HTML and was scanned. -/
   html : Bool
+  /-- The fragment targets it defines: every `id`, and the `name` of each `a`. -/
   ids : List String
+  /-- The `href` of its first `base` element, if any. -/
   base : Option String
+  /-- The `href` and `src` values of its tags other than `base`. -/
   links : List String
   deriving DecidableEq, Repr
 
+/-- Scan the HTML file `source` at artifact path `path` for its targets, base and links. -/
 def Page.ofHtml (path source : String) : Page :=
   let tags := scanTags source
   { path, html := true, ids := tags.flatMap Tag.ids,
     base := (tags.find? (·.name == "base")).bind (·.get? "href"),
     links := tags.flatMap Tag.links }
 
-def Page.ofOther (path : String) : Page := { path, html := false, ids := [], base := none, links := [] }
+/-- A non-HTML file at `path`: it defines no targets and contains no links. -/
+def Page.ofOther (path : String) : Page :=
+    { path, html := false, ids := [], base := none, links := [] }
 
 /-- Directory part of an artifact path, with trailing `/`, or empty at the root. -/
 def directory (path : String) : String :=
@@ -479,7 +524,8 @@ def directory (path : String) : String :=
 /-- Normalize `.` and `..` segments; `none` when a path leaves the artifact root. -/
 def normalize (path : String) : Option String :=
   let segments := path.splitOn "/"
-  let trailing := segments.getLast? == some "" || segments.getLast? == some "." || segments.getLast? == some ".."
+  let trailing := segments.getLast? == some "" || segments.getLast? == some "." ||
+      segments.getLast? == some ".."
   let step (acc : Option (List String)) (s : String) : Option (List String) :=
     acc.bind fun stack =>
       if s == "" || s == "." then some stack
@@ -491,8 +537,12 @@ def normalize (path : String) : Option String :=
 
 /-- What a link denotes after resolution against the base path. -/
 inductive Target where
+  /-- A reference with a scheme other than `javascript:` or `data:`. -/
   | external
+  /-- The artifact file `path` (a directory denotes its `index.html`), with `fragment` after
+  `#`, empty when there is none. -/
   | internal (path : String) (fragment : String)
+  /-- A refused link, for `reason`. -/
   | invalid (reason : String)
   deriving DecidableEq
 
@@ -531,7 +581,8 @@ def resolve (page : Page) (link : String) : Target :=
           | none => some page.path
           | some b => if b.startsWith "/" then underBase b else some (directory page.path ++ b)
         -- Normalize the base first, so a trailing `..` or `.` segment denotes its directory.
-        (baseUrl.bind normalize).map fun u => if pathPart.isEmpty then u else directory u ++ pathPart
+        (baseUrl.bind normalize).map fun u => if pathPart.isEmpty then u else
+                                                                        directory u ++ pathPart
     match absolute with
     | none => .invalid s!"link outside {basePath}"
     | some raw =>
@@ -552,7 +603,8 @@ def LinkOK (pages : List Page) (page : Page) (link : String) : Prop :=
     ∃ target ∈ pages, (target.path = file ∨ target.path = file ++ "/index.html") ∧
       (fragment = "" ∨ ¬ target.html ∨ fragment ∈ target.ids)
 
-instance (pages : List Page) (page : Page) (link : String) : Decidable (LinkOK pages page link) := by
+instance (pages : List Page) (page : Page) (link : String) : Decidable
+    (LinkOK pages page link) := by
   unfold LinkOK
   split <;> infer_instance
 
@@ -661,27 +713,34 @@ scanned as markup. The string operations do not reduce in the kernel. -/
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"/other/x\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkErrors [Page.ofHtml "dev/index.html" "<script>if (a<b) {}</script><a href=\"https://x.org/\">x</a>"] == []
+#guard linkErrors
+    [Page.ofHtml "dev/index.html" "<script>if (a<b) {}</script><a href=\"https://x.org/\">x</a>"] ==
+    []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"missing/?u=http://x\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"javascript://x\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"x\"><a href=\"missing.html\">x</a>"] != []
+#guard linkErrors
+    [Page.ofHtml "dev/rules/a.html" "<base href=\"x\"><a href=\"missing.html\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a title=\"a>b\" href=\"missing/\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>",
   Page.ofOther "dev/rules/x"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>", Page.ofOther "dev/x"] == []
+#guard linkErrors
+    [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>",
+        Page.ofOther "dev/x"] == []
 
 /-! ## Normative clause anchors -/
 
 /-- GitHub's heading anchor for an ASCII heading: lowercase, spaces to hyphens, other
 punctuation removed. -/
 def headingSlug (heading : String) : String :=
-  String.ofList ((heading.toLower.toList.filter (fun c => c.isAlphanum || c == ' ' || c == '-' || c == '_')).map
+  String.ofList
+      ((heading.toLower.toList.filter
+          (fun c => c.isAlphanum || c == ' ' || c == '-' || c == '_')).map
     (fun c => if c == ' ' then '-' else c))
 
 /-- Every anchor the registry links in the standard, as its page below the standard's root and
@@ -721,7 +780,8 @@ def documentAnchors (texts : List String) : List (String × String) :=
   texts.flatMap fun text => (routesAfter standardUrl text).map routeAnchor
 
 /-- The anchors that no page with their path defines. An empty fragment needs only the page. -/
-def missingAnchors (pages : List Page) (anchors : List (String × String)) : List (String × String) :=
+def missingAnchors (pages : List Page) (anchors : List (String × String)) : List
+    (String × String) :=
   let index := pageIndex pages
   anchors.filter fun anchor =>
     !((index.getD anchor.1 []).any fun page => anchor.2 == "" || page.ids.contains anchor.2)
@@ -730,13 +790,15 @@ def missingAnchors (pages : List Page) (anchors : List (String × String)) : Lis
 fragment as an `id` or the fragment is empty. -/
 theorem missingAnchors_nil_iff (pages : List Page) (anchors : List (String × String)) :
     missingAnchors pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ (anchor.2 = "" ∨ anchor.2 ∈ page.ids) := by
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧
+          (anchor.2 = "" ∨ anchor.2 ∈ page.ids) := by
   simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex, Decidable.or_iff_not_imp_left]
 
 /-- Registered contract of the executed anchor check. -/
 theorem checked_missingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
     ∀ pages anchors, run pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧
+          (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
   ⟨missingAnchors_nil_iff⟩
 
 /-! ## Checklist row map -/
@@ -769,7 +831,10 @@ labelled with its fragment and the fragments are the same list. -/
 def rowMapMismatch (linked : List (Option String × String)) (rows : List String) : Option String :=
   if linked == rows.map fun row => (some row, row) then none else
     let fragments := linked.map (·.2)
-    some s!"rows it does not link: {rows.filter (· ∉ fragments)}; linked fragments that are not rows: {fragments.filter (· ∉ rows)}; links not labelled with their fragment as one code span: {(linked.filter fun link => link.1 != some link.2).map (·.2)}; otherwise a row is linked more than once or out of the checklist's order"
+    some s!"rows it does not link: {rows.filter (· ∉ fragments)}; linked fragments that are not \
+      rows: {fragments.filter (· ∉ rows)}; links not labelled with their fragment as one code \
+      span: {(linked.filter fun link => link.1 != some link.2).map (·.2)}; otherwise a row is \
+      linked more than once or out of the checklist's order"
 
 /-- The executed row-map check passes exactly when the map links the checklist's rows, each
 once, in the checklist's order, each labelled with exactly its row as one code span, and links
@@ -793,7 +858,8 @@ text, and only elements of the row class are rows. -/
   ">; `" ++ standardUrl ++ "introduction/`."] ==
   [("9-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkedRows ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
+#guard linkedRows
+    ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
   "9-compliance-audit/)") == [(some "A-1", "A-1")]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkedRows ("[`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-2) [A-3](" ++ standardUrl ++
@@ -801,7 +867,8 @@ text, and only elements of the row class are rows. -/
   [(some "A-1", "A-2"), (none, "A-3"), (none, "A-4")]
 example : (rowMapMismatch [(some "A-1", "A-2")] ["A-2"] != none) = true := by decide
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard renderedRows "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==
+#guard renderedRows
+    "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==
   ["A-1"]
 
 end Regula.Site

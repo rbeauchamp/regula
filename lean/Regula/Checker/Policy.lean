@@ -16,9 +16,16 @@ open Lean (Name)
 open Regula.Report
 open RegulaPolicy (FoundationClass)
 
+/-- The execution claim of a surface or single-file audit, `report` or `checked`
+(`RegulaPolicy.ExecutionClaim`). -/
 abbrev ExecutionClaim := RegulaPolicy.ExecutionClaim
-abbrev ExecutionClaim.parse? (s : String) : Option ExecutionClaim := RegulaPolicy.ExecutionClaim.parse? s
-abbrev ExecutionClaim.toString (x : ExecutionClaim) : String := RegulaPolicy.ExecutionClaim.spelling x
+/-- The execution claim `s` spells, if any (`RegulaPolicy.ExecutionClaim.parse?`). -/
+abbrev ExecutionClaim.parse? (s : String) : Option ExecutionClaim :=
+    RegulaPolicy.ExecutionClaim.parse? s
+/-- The text of an execution claim, `report` or `checked`
+(`RegulaPolicy.ExecutionClaim.spelling`). -/
+abbrev ExecutionClaim.toString (x : ExecutionClaim) : String :=
+    RegulaPolicy.ExecutionClaim.spelling x
 
 /-- Admit the scope through `checked_scope` with the frontend's coordinate check, itself
 `checked_coordinates.run`. `ScopeContract`, instantiated at `Frontend.validateCoordinates`,
@@ -28,11 +35,20 @@ def admitScope (ds : Array Declaration) (ts : Array Frontend.Transcript := #[]) 
     Except String PolicyScope :=
   checked_scope.run Frontend.validateCoordinates ds ts
 
+/-- Whether a declaration with these fields could receive a generated-role exception and so
+needs a fresh frontend transcript (`RegulaPolicy.declarationNeedsTranscript`). -/
 abbrev declarationNeedsTranscript := RegulaPolicy.declarationNeedsTranscript
+/-- Whether any of the declarations needs a fresh frontend transcript
+(`RegulaPolicy.needsFrontendTranscript`). -/
 abbrev needsFrontendTranscript := RegulaPolicy.needsFrontendTranscript
 
+/-- Execution roots admitted with a proof of their structural validity
+(`RegulaPolicy.ExecutionInventory`). -/
 abbrev ExecutionInventory := RegulaPolicy.ExecutionInventory
+/-- Admit execution roots unchanged when they are structurally valid, and refuse them
+otherwise (`RegulaPolicy.admitExecution`). -/
 abbrev admitExecution := RegulaPolicy.admitExecution
+/-- One execution-claim failure: its rule, root and detail (`RegulaPolicy.ExecutionFailure`). -/
 abbrev ExecutionFailure := RegulaPolicy.ExecutionFailure
 
 /-- The decision's own records, unchanged: kind, root, detail and order are preserved by
@@ -83,6 +99,8 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
   s!"{decl.name} ({decl.kind}){flagText}{roleText} type={decl.prettyType} " ++
     s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}"
 
+/-- One-line text of a declaration for `--verbose` output: its name, kind, flags, roles,
+type, axioms and foundation label, or `invalid-inventory` when the scope has no label for it. -/
 def classify (decl : Declaration) (scope : PolicyScope) : String :=
   classifyWith decl ((labelOf decl scope).toOption.map (·.spelling) |>.getD "invalid-inventory")
 

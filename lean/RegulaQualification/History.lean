@@ -11,9 +11,11 @@ namespace RegulaQualification.History
 open Lean RegulaPolicy.Guards
 
 private def field (value : Json) (name : String) : Except String Json := value.getObjVal? name
-private def array (value : Json) (name : String) : Except String (Array Json) := value.getObjValAs? _ name
+private def array (value : Json) (name : String) : Except String (Array Json) :=
+    value.getObjValAs? _ name
 private def text (value : Json) (name : String) : Except String String := value.getObjValAs? _ name
-private def nameJson (name : String) : Json := toJson (name.splitOn "." |>.map fun part => #["str", part])
+private def nameJson (name : String) : Json := toJson
+    (name.splitOn "." |>.map fun part => #["str", part])
 
 /-- The report account the public protocol selects: the file report, or the first
 surface's report for a project invocation. -/
@@ -59,9 +61,12 @@ private def rootChecks (unsupported : Bool) (root : Json) : Except String (List 
   let names ← visits.mapM (field · "name")
   let compiler ← array root "compilerEdges"
   let mut edges := compiler
-  for key in #["logicalEdges", "candidateEdges", "historyEdges", "currentReplacementEdges", "helperEdges"] do
+  for key in
+      #["logicalEdges", "candidateEdges", "historyEdges", "currentReplacementEdges",
+          "helperEdges"] do
     edges := edges ++ (← array closure key)
-  let mut checks := [Check.mk "exact unique closure visits" (names.size == nodes.toList.eraseDups.length &&
+  let mut checks :=
+      [Check.mk "exact unique closure visits" (names.size == nodes.toList.eraseDups.length &&
     names.all nodes.contains && nodes.all names.contains)]
   for i in [:visits.size] do
     let visit := visits[i]!
@@ -74,7 +79,9 @@ private def rootChecks (unsupported : Bool) (root : Json) : Except String (List 
       let predecessor ← match visits[index]? with
         | some value => field value "name"
         | none => throw "parent outside traversal"
-      checks := checks ++ [⟨"backward retained parent edge", index < i && edges.contains (toJson #[predecessor, name])⟩]
+      checks := checks ++
+          [⟨"backward retained parent edge", index < i && edges.contains
+              (toJson #[predecessor, name])⟩]
   for edge in edges do
     let pair ← edge.getArr?
     let [a, b] := pair.toList | throw "invalid closure edge"
@@ -82,20 +89,26 @@ private def rootChecks (unsupported : Bool) (root : Json) : Except String (List 
   if (← field root "name") == nameJson "reference" then
     let current ← array closure "currentReplacementEdges"
     let history ← array closure "historyEdges"
-    checks := checks ++ [⟨"current replacement retained", current.contains (toJson #[nameJson "reference", nameJson "target"])⟩,
-      ⟨"earlier replacement remains historical", unsupported || (history.contains (toJson #[nameJson "reference", nameJson "earlier"]) &&
+    checks := checks ++
+        [⟨"current replacement retained", current.contains
+            (toJson #[nameJson "reference", nameJson "target"])⟩,
+      ⟨"earlier replacement remains historical", unsupported ||
+          (history.contains (toJson #[nameJson "reference", nameJson "earlier"]) &&
         !current.contains (toJson #[nameJson "reference", nameJson "earlier"]))⟩]
-  return (checks, compiler.any (fun edge => edge == toJson #[nameJson "recursiveSum", nameJson "recursiveSum"]))
+  return (checks, compiler.any
+      (fun edge => edge == toJson #[nameJson "recursiveSum", nameJson "recursiveSum"]))
 
 /-- Source binding, registered private/imported roots, and reached-closure traversal
 witnesses added upstream. -/
-def closureRequirements (account ownModule : Json) (source : String) (unsupported : Bool) : Except String (List Check) := do
+def closureRequirements (account ownModule : Json) (source : String) (unsupported : Bool) :
+    Except String (List Check) := do
   let bindings ← array account "sourceBindings"
   let snapshots ← bindings.toList.filterMapM fun entry => do
     if (← field entry "moduleName") == ownModule then return some (← text entry "content")
     return none
   let declarations ← array account "declarations"
-  let some contract := declarations.find? (fun entry => (entry.getObjVal? "name").toOption == some (nameJson "privateContract"))
+  let some contract := declarations.find?
+      (fun entry => (entry.getObjVal? "name").toOption == some (nameJson "privateContract"))
     | throw "missing private contract"
   let privateRoot ← field (← field contract "executableContract") "root"
   let census ← array (← field account "census") "declarations"
@@ -108,14 +121,17 @@ def closureRequirements (account ownModule : Json) (source : String) (unsupporte
   let isPrivate ← unregistered.getObjValAs? Bool "private"
   let fixed := [
     Check.mk "exact source snapshot" (snapshots == [source]),
-    ⟨"registered private root executed", execution.any (fun entry => (entry.getObjVal? "name").toOption == some privateRoot)⟩,
+    ⟨"registered private root executed", execution.any
+        (fun entry => (entry.getObjVal? "name").toOption == some privateRoot)⟩,
     ⟨"registered private root inventoried", census.contains (toJson #[ownModule, privateRoot])⟩,
     ⟨"unregistered root private", isPrivate⟩,
     ⟨"unregistered private root inventoried", census.contains (toJson #[ownModule, hidden])⟩,
-    ⟨"unregistered private root not executed", execution.all (fun entry => (entry.getObjVal? "name").toOption != some hidden)⟩,
+    ⟨"unregistered private root not executed", execution.all
+        (fun entry => (entry.getObjVal? "name").toOption != some hidden)⟩,
     ⟨"registered imported root executed", importedRootExecuted execution ownModule⟩]
   let perRoot ← execution.toList.mapM (rootChecks unsupported)
-  return fixed ++ (perRoot.map (·.1)).flatten ++ [⟨"recursive IR calls retained", perRoot.any (·.2)⟩]
+  return fixed ++ (perRoot.map (·.1)).flatten ++
+      [⟨"recursive IR calls retained", perRoot.any (·.2)⟩]
 
 /-- Unsupported evaluators require explicit unavailability, never a successful empty
 history, and unresolved execution evidence for every requested root. -/
@@ -129,7 +145,8 @@ def unsupportedRequirements (account ownModule history : Json) (requests : Array
     return none
   return [
     ⟨"unsupported history explicitly unavailable", (← text history "kind") == "unavailable"⟩,
-    ⟨"unsupported evaluator reason", (← text history "detail").contains "unsupported replacement-history evaluators"⟩,
+    ⟨"unsupported evaluator reason",
+        (← text history "detail").contains "unsupported replacement-history evaluators"⟩,
     ⟨"every requested root has unresolved execution evidence", coverage⟩,
     ⟨"requested execution unresolved", requested.all (! ·.isEmpty)⟩]
 
@@ -141,8 +158,10 @@ def completedRequirements (history : Json) (source : String) : Except String (Li
     ⟨"history before binds source", (← text history "before") == source⟩,
     ⟨"history after binds source", (← text history "after") == source⟩,
     ⟨"history has Lean source path", (← text history "path").endsWith ".lean"⟩,
-    ⟨"earlier replacement retained", replacements.contains (toJson #[nameJson "reference", nameJson "earlier"])⟩,
-    ⟨"current replacement retained", replacements.contains (toJson #[nameJson "reference", nameJson "target"])⟩]
+    ⟨"earlier replacement retained", replacements.contains
+        (toJson #[nameJson "reference", nameJson "earlier"])⟩,
+    ⟨"current replacement retained", replacements.contains
+        (toJson #[nameJson "reference", nameJson "target"])⟩]
 
 /-- Mandatory decoding plus all preserved history assertions. `fileMode` selects the
 actual public report shape; unsupported evaluators require explicit unavailability,
@@ -165,8 +184,10 @@ def requirements (report : Json) (code : Nat) (mode source : String)
     ⟨"history exit", code == (if unsupported then 1 else 0)⟩,
     ⟨"history mode", (← text report "mode") == mode⟩,
     ⟨"history diagnostics", ids.eraseDups == (if unsupported then ["RG3001"] else [])⟩,
-    ⟨"history status", (← text report "status") == (if unsupported then "incomplete" else "completed")⟩,
-    ⟨"nonempty unique history requests", !requests.isEmpty && requests.toList.eraseDups.length == requests.size⟩,
+    ⟨"history status", (← text report "status") ==
+        (if unsupported then "incomplete" else "completed")⟩,
+    ⟨"nonempty unique history requests", !requests.isEmpty && requests.toList.eraseDups.length ==
+        requests.size⟩,
     ⟨"all three requested roots", ["reference", "first", "second"].all
       (fun root => requests.contains (toJson #[nameJson root, ownModule]))⟩]
   let modeChecks ← if unsupported then unsupportedRequirements account ownModule history requests
@@ -184,7 +205,8 @@ always-refusing implementation while retaining this required equivalence. -/
 theorem checked_validation : Regula.ExecutableContract validate
     (fun run => ∀ report code mode source fileMode unsupported,
       run report code mode source fileMode unsupported = .ok () ↔
-        ∃ checks, requirements report code mode source fileMode unsupported = .ok checks ∧ Satisfied checks) :=
+        ∃ checks, requirements report code mode source fileMode unsupported = .ok checks ∧
+            Satisfied checks) :=
   ⟨fun _ _ _ _ _ _ => validateDecoded_exact _⟩
 
 /-! ### What an admitted history report establishes
@@ -194,8 +216,10 @@ dropped or emptied execution entries): every admitted report, not only the mutat
 ones, satisfies the stated relation. They concern supplied JSON only. -/
 
 /-- A successful closure account contains the imported-root check over its execution list. -/
-theorem closureRequirements_imported {account ownModule : Json} {source : String} {unsupported : Bool}
-    {checks : List Check} (h : closureRequirements account ownModule source unsupported = .ok checks) :
+theorem closureRequirements_imported {account ownModule : Json} {source : String}
+    {unsupported : Bool}
+    {checks : List Check}
+        (h : closureRequirements account ownModule source unsupported = .ok checks) :
     ∃ execution, account.getObjValAs? (Array Json) "execution" = .ok execution ∧
       ⟨"registered imported root executed", importedRootExecuted execution ownModule⟩ ∈ checks := by
   unfold closureRequirements at h
@@ -212,8 +236,10 @@ theorem closureRequirements_imported {account ownModule : Json} {source : String
   · simp at h
 
 /-- A successful unsupported-evaluator account contains the unresolved-coverage check. -/
-theorem unsupportedRequirements_unresolved {account ownModule history : Json} {requests : Array Json}
-    {checks : List Check} (h : unsupportedRequirements account ownModule history requests = .ok checks) :
+theorem unsupportedRequirements_unresolved {account ownModule history : Json}
+    {requests : Array Json}
+    {checks : List Check}
+        (h : unsupportedRequirements account ownModule history requests = .ok checks) :
     ∃ execution coverage, account.getObjValAs? (Array Json) "execution" = .ok execution ∧
       requestedRootsUnresolved requests execution ownModule = .ok coverage ∧
       ⟨"every requested root has unresolved execution evidence", coverage⟩ ∈ checks := by
@@ -224,18 +250,25 @@ theorem unsupportedRequirements_unresolved {account ownModule history : Json} {r
 
 /-- An admitted requirement list contains the closure checks and, for an unsupported
 evaluator, the unsupported-evaluator checks. -/
-theorem requirements_parts {report : Json} {code : Nat} {mode source : String} {fileMode unsupported : Bool}
-    {checks : List Check} (h : requirements report code mode source fileMode unsupported = .ok checks) :
-    ∃ acc own requests, History.account report fileMode = .ok acc ∧ History.ownModule acc = .ok own ∧
-      (acc.getObjVal? "census" >>= fun census => census.getObjValAs? (Array Json) "historyRequests") =
+theorem requirements_parts {report : Json} {code : Nat} {mode source : String}
+    {fileMode unsupported : Bool}
+    {checks : List Check}
+        (h : requirements report code mode source fileMode unsupported = .ok checks) :
+    ∃ acc own requests, History.account report fileMode = .ok acc ∧
+        History.ownModule acc = .ok own ∧
+      (acc.getObjVal? "census" >>= fun census => census.getObjValAs?
+                                                  (Array Json) "historyRequests") =
         .ok requests ∧
-      (∃ closure, closureRequirements acc own source unsupported = .ok closure ∧ ∀ c ∈ closure, c ∈ checks) ∧
+      (∃ closure, closureRequirements acc own source unsupported = .ok closure ∧ ∀ c ∈ closure,
+          c ∈ checks) ∧
       (unsupported = true → ∃ history modeChecks,
-        unsupportedRequirements acc own history requests = .ok modeChecks ∧ ∀ c ∈ modeChecks, c ∈ checks) := by
+        unsupportedRequirements acc own history requests = .ok modeChecks ∧ ∀ c ∈ modeChecks,
+            c ∈ checks) := by
   unfold requirements at h
   simp only [bind_eq_ok] at h
   obtain ⟨acc, hacc, census, hcensus, requests, hrequests, own, hown, _, _, owned, _, h⟩ := h
-  refine ⟨acc, own, requests, hacc, hown, by simpa [bind_eq_ok] using ⟨census, hcensus, hrequests⟩, ?_⟩
+  refine
+      ⟨acc, own, requests, hacc, hown, by simpa [bind_eq_ok] using ⟨census, hcensus, hrequests⟩, ?_⟩
   split at h
   next history _ =>
     simp only [bind_eq_ok] at h
@@ -253,8 +286,10 @@ theorem requirements_parts {report : Json} {code : Nat} {mode source : String} {
 /-- Every admitted history report's own account executes the imported registered root
 `Nat.add` attributed to a module other than the audited one. -/
 theorem validate_importedRootExecuted {report : Json} {code : Nat} {mode source : String}
-    {fileMode unsupported : Bool} (h : validate report code mode source fileMode unsupported = .ok ()) :
-    ∃ acc own execution, History.account report fileMode = .ok acc ∧ History.ownModule acc = .ok own ∧
+    {fileMode unsupported : Bool}
+        (h : validate report code mode source fileMode unsupported = .ok ()) :
+    ∃ acc own execution, History.account report fileMode = .ok acc ∧
+        History.ownModule acc = .ok own ∧
       acc.getObjValAs? (Array Json) "execution" = .ok execution ∧
       importedRootExecuted execution own = true := by
   obtain ⟨checks, hreq, hsat⟩ := (validateDecoded_exact _).mp h
@@ -268,7 +303,8 @@ theorem validate_unsupported_unresolved {report : Json} {code : Nat} {mode sourc
     {fileMode : Bool} (h : validate report code mode source fileMode true = .ok ()) :
     ∃ acc own requests execution, History.account report fileMode = .ok acc ∧
       History.ownModule acc = .ok own ∧
-      (acc.getObjVal? "census" >>= fun census => census.getObjValAs? (Array Json) "historyRequests") =
+      (acc.getObjVal? "census" >>= fun census => census.getObjValAs?
+                                                  (Array Json) "historyRequests") =
         .ok requests ∧
       acc.getObjValAs? (Array Json) "execution" = .ok execution ∧
       requestedRootsUnresolved requests execution own = .ok true := by

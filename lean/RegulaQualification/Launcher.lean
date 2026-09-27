@@ -46,13 +46,21 @@ theorem admit_complete (raw : String) (env : Environment) (h : decode raw = .ok 
 
 /-- Full in-memory identity of one real compiler control, excluding measured duration. -/
 structure Observation where
+  /-- The control's name: the stem of the compiled source file's path. -/
   label : String
+  /-- The compiler's arguments, the source path last. -/
   args : Array String
+  /-- The text of the compiled source file. -/
   source : String
+  /-- The compiler's exit code. -/
   exitCode : Nat
+  /-- The compiler's standard output. -/
   stdout : String
+  /-- The compiler's standard error. -/
   stderr : String
+  /-- The captured environment, which the direct launch uses. -/
   environment : Environment
+  /-- The resolved path of the `lean` executable, which the direct launch uses. -/
   executable : String
   deriving BEq, DecidableEq
 
