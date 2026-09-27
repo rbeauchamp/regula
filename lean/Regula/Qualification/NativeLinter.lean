@@ -139,7 +139,11 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       { label := "ModuleAxiom", source := moduleStyle ++ "public axiom forbidden : False\n", ids := ["RG1001"] },
       { label := "ModuleMissing", source := (moduleStyle.replace "/-! Collector qualification control. -/\n" "").replace
           claimDoc "", ids := ["RG5001", "RG5002"] },
-      { label := "Collect", source := inspect }]
+      { label := "Collect", source := inspect },
+      -- RG5001 beyond presence: a command before the module docstring, and a repeated import.
+      { label := "MisplacedDoc", source := base.replace "/-! Collector" "set_option pp.all false\n/-! Collector",
+        ids := ["RG5001"] },
+      { label := "RepeatedImport", source := "import Regula.Linter\n" ++ base, ids := ["RG5001"] }]
     let messages ← Regula.Checker.mapWorkQueue jobs independent check
     let some axiomMessages := messages[0]? | throw <| IO.userError "missing Axiom control"
     let some missingMessages := messages[2]? | throw <| IO.userError "missing Missing control"
@@ -205,9 +209,9 @@ def paired : IO Unit := do
         report.modify (·.setObjVal! "runs" (toJson runs))
       let some before := observations[0]? | throw <| IO.userError "missing baseline"
       let some after := observations[1]? | throw <| IO.userError "missing candidate"
-      requireChecks [⟨"37 exact paired controls", RegulaQualification.Launcher.checked_equivalence.run before after⟩]
+      requireChecks [⟨"39 exact paired controls", RegulaQualification.Launcher.checked_equivalence.run before after⟩]
       report.modify fun value => (value.setObjVal! "equivalent" (.bool true)).setObjVal! "outcome" (.str "PASS")
-      IO.println "launcher diagnostic: PASS (37 exact paired controls; timing is an observation only)"
+      IO.println "launcher diagnostic: PASS (39 exact paired controls; timing is an observation only)"
   catch e =>
     report.modify (·.setObjVal! "outcome" (.str "FAIL"))
     throw e

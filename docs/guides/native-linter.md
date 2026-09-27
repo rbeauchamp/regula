@@ -135,7 +135,7 @@ Add modes only for actual producer interfaces and document their partial scope.
 
 `lake exe qualify native` qualifies the actual native bridge,
 including warning promotion, codes, current/imported ownership, private/generated
-coverage and both documentation formats. Each of its 37 controls is its own compiler
+coverage and both documentation formats. Each of its 39 controls is its own compiler
 process with its own source path; they run four at a time in dependency order, with the
 imported-artifact controls after the artifacts they import and the restored controls after
 every malformed one. The existing public adopter controls
