@@ -123,7 +123,7 @@ inductive Step where
 
 /-- Mathlib's step: only a link to the shared checkout is kept. A real directory is
 replaced when it is a clean Git checkout (its work is held by its remotes) and otherwise refused,
-so no per-copy Mathlib survives provisioning and no local change is discarded. -/
+so provisioning completes only with Mathlib linked and discards no local change. -/
 def mathlibStep (target : String) : Observed → Step
   | .absent => .install
   | .link resolved => if resolved == target then .keep else .replace
