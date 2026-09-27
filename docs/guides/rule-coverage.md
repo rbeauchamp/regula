@@ -184,7 +184,7 @@ presence check or a checker PASS.
 | [`FOUND-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-03) | RG1003/1004/1005 | R-QUALIFY |
 | [`FOUND-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-04) | RG1005 | R-QUALIFY |
 | [`FOUND-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-05) | RG1004/2005 | R-QUALIFY |
-| [`DECL-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-01) | RG2001–2005 | R-QUALIFY; source/dependency identity boundary; review of the §6.7 linter options and of every source-local linter disable (§6.2), which the audit cannot see |
+| [`DECL-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-01) | RG2001–2005 | R-QUALIFY; source/dependency identity boundary; review of the §6.7 linter options, of every source-local linter disable (§6.2) and of repeated imports (§6.4), which the audit cannot see |
 | [`DECL-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-02) | RG2004/2005 | R-QUALIFY |
 | [`DECL-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-03) | RG2004/2005 plus RG1001/1004/1006 | R-QUALIFY |
 | [`DECL-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-04) | RG2001/2002/2004/2005 | R-QUALIFY |
@@ -196,7 +196,7 @@ presence check or a checker PASS.
 | [`BUILD-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-02) | RG1005/1007 | R-QUALIFY |
 | [`BUILD-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-03) | RG1007/2004/3001/3002 | R-INVARIANT, R-QUALIFY |
 | [`BUILD-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-04) | RG2002/2004/2005; uncached policy job | R-QUALIFY |
-| [`DOC-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-01) | RG5001/5002 presence and explicit selection; RG2003 rejects `linter.missingDocs` reports where it is enabled | R-DOC |
+| [`DOC-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-01) | RG5001/5002 presence and explicit selection; RG2003 rejects `linter.missingDocs` reports where it is enabled | R-DOC; module-docstring placement (§5.3) is review |
 | [`DOC-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-02) | RG5003 Intent-section presence for explicit selection; no general prose-equivalence detector | R-DOC, R-INTENT |
 | [`DOC-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-03) | RG4001 | R-QUALIFY |
 | [`DOC-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-04) | RG4002 and underlying declaration/admission rules | R-INTENT, R-QUALIFY |

@@ -413,7 +413,10 @@ core-only code.
   Omit the last four lines in a project without Mathlib. The three excluded linters enforce
   Mathlib's contribution header (copyright, Apache 2.0 license and authors), its ban on
   `#` commands such as a passing `#guard`, and its file-length limit; standard §6.7 gives the
-  reasons. `lake new NAME math` already writes `weak.linter.mathlibStandardSet` and
+  reasons. Turning off the header linter also turns off its checks that the module docstring is
+  the first command after the imports and that no import is repeated. Both remain requirements
+  (standard §5.3 and §6.4), which no linter or Regula rule then checks, so review does.
+  `lake new NAME math` already writes `weak.linter.mathlibStandardSet` and
   `relaxedAutoImplicit`; add the rest. In `lakefile.lean` the same options are
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each finding as RG2003

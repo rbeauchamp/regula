@@ -197,16 +197,17 @@ required a module docstring in the import-only root.
   of the two modules the root imports; `lake lint` exit 3 (`INCOMPLETE`, RG2003).
 - Without `weak.linter.hashCommand = false`: a warning on the `#guard`
   (`` `#`-commands, such as '#guard', are not allowed in 'Mathlib' ``); `lake lint` exit 3.
-- Without `weak.linter.style.longFile = 0`: no warning on the 1608-line module, so the set leaves
-  that option off downstream; the explicit `0` keeps it off.
+- Without `weak.linter.style.longFile = 0`: no warning on the 1608-line module. The set does not
+  turn that line-count option on downstream, so the explicit `0` removed nothing here.
 - A docstring line of 101 characters: Mathlib's `This line exceeds the 100 character limit`
   warning and `lake lint` exit 3. The same line under `set_option linter.style.longLine false in`
   with a comment giving the reason: no warning, exit 0.
 - An undocumented definition: `missing doc string for public def undocumented` and
   `lake lint` exit 3.
 
-The standard set's other linters and `linter.missingDocs` stayed active, and in this layout each
-exclusion is what removes its linter's warnings.
+The header and `hashCommand` exclusions each removed their linter's warnings, and the `longFile`
+setting was inert. Of the set's other linters only `linter.style.longLine` was exercised, and it
+still fired, as did `linter.missingDocs`.
 
 ### Earlier runs: the Mathlib and Batteries routes
 

@@ -115,7 +115,7 @@ number := false
 
 *Requirement*: Every claimed module MUST elaborate in the environment supplied by its imports and language settings on the declared toolchain. The audit MUST discover it through the claimed Lake targets, including any claimed standalone executable roots, as specified in {ref "82-define-surfaces-through-lake-semantics"}[module 8 §8.2].
 
-Use imports to make significant dependencies explicit. Import minimality, direct versus transitive spelling, sorting, and grouping are recommendations, not requirements. Choose a consistent arrangement that fits the project. Mathlib and project imports do not require a particular order.
+Use imports to make significant dependencies explicit. Import minimality, direct versus transitive spelling, sorting, and grouping are recommendations, not requirements. The one exception is the community convention that a claimed module MUST NOT repeat an import with the same modifiers (§6.7). Choose a consistent arrangement that fits the project. Mathlib and project imports do not require a particular order.
 
 Imports supply declarations, instances, syntax, and elaboration extensions. Changing imports can change how the same source text elaborates. An unused import does not add an axiom to every declaration by itself. Each declaration's elaborated logical dependencies determine the exact transitive axiom set ({ref "85-proof-completeness-and-foundation-strength"}[module 8 §8.5]).
 
@@ -287,7 +287,7 @@ number := false
 * *Lean's `linter.missingDocs`*, with value `true`. It reports every public definition, structure, class, inductive type, constructor, field, and syntax extension that has no docstring, the community's rule that every definition is documented.
 * *Mathlib's standard linter set*, for a library that imports Mathlib: `weak.linter.mathlibStandardSet` with value `true`, the syntax linters Mathlib itself builds with (line length, tactic style, whitespace, and others).
 
-A few linters of that set enforce policies of the Mathlib repository itself rather than community conventions. A library that enables the set MUST turn them off in the same `leanOptions`; at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
+A few linters of that set enforce policies of the Mathlib repository itself. A library that enables the set MUST turn them off in the same `leanOptions`; at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
 
 :::table +header
 *
@@ -307,6 +307,10 @@ A few linters of that set enforce policies of the Mathlib repository itself rath
   * `0`
   * Its 1500-line file limit is the Mathlib repository's file-size policy, and Mathlib documents no limit for downstream projects; `0` keeps it off.
 :::
+
+Turning off `linter.style.header` also turns off two community checks that the same linter makes: that the module docstring is the first command after the imports, on every module, and that no import is repeated with the same modifiers, on the modules that the library root imports. Both remain requirements ({ref "53-module-documentation"}[module 5 §5.3], {ref "64-import-discipline"}[§6.4]). Under this configuration no community linter and no Regula rule checks them (RG5001 checks only that a module docstring exists), so review confirms them (`DOC-01`, `DECL-01`).
+
+Two linters of the set whose messages mention Mathlib stay in the baseline. `linter.style.native` reports `native_decide` and `decide +native`, which conforming proof surfaces already exclude as compiler-trusting ({ref "34-foundation-strength-axioms-are-reported-never-assumed"}[module 3 §3.4], {ref "85-proof-completeness-and-foundation-strength"}[module 8 §8.5]). `linter.style.setOption` reports the development-only `debug`, `pp`, `profiler`, and `trace` options and an unscoped `maxHeartbeats` setting; a deliberate use takes the declaration-scoped disable of §6.2.
 
 Their findings are ordinary build warnings, so the warning-free elaboration of {ref "83-clean-elaboration-and-diagnostics"}[§8.3] (RG2003) rejects every one of them. The standard enforces this community baseline by composing the community's linters with that rule; it restates none of their checks. Its own universal rules stay technical Lean rules (`SCOPE-04` in {ref "9-compliance-and-quality-audit"}[module 9]), and they are stricter where they apply: a registered material declaration needs a docstring that states its claim exactly ({ref "51-inline-documentation-requirements"}[module 5 §5.1–§5.2]; RG5002, RG5003). The checker does not detect whether these options are set, so review confirms them (`DECL-01`).
 
