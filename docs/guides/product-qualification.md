@@ -171,15 +171,50 @@ These are bounded observations of real runs, not theorems about the tools.
 ## Community linters beside Regula
 
 Standard §6.7 requires every claimed library to enable Lean's `linter.missingDocs` and, with
-Mathlib, Mathlib's standard linter set; it and the
+Mathlib, Mathlib's standard linter set without its three Mathlib-repository linters; it and the
 [adoption guide](adoption.md#community-conventions-and-linters) recommend running Batteries'
-linters beside `lake lint`. `linter.missingDocs` was not enabled in the runs below, so they
-observe the Mathlib and Batteries routes only. These controls ran on 2026-09-26 on a
-disposable adopter (Lean 4.34.0, Mathlib `5ed2965`, this repository's checker by path) whose
-`lakefile.toml` set `weak.linter.mathlibStandardSet`, `autoImplicit` and `relaxedAutoImplicit`
-under `[leanOptions]`, and whose one claimed library (Standard-Logical) imported
-`Mathlib.Order.Basic` and held a documented definition and theorem. With
-`lintDriver = "regula/lint"`:
+linters beside `lake lint`. The first run below exercises that exact configuration. The earlier
+runs after it observe the Mathlib and Batteries routes without `linter.missingDocs` or the
+exclusions.
+
+### The required configuration in the `lake new` layout
+
+These controls ran on 2026-09-26 (Lean 4.34.0) on a disposable adopter in the layout that
+`lake new Adopter math` creates: a root `Adopter.lean` in the working directory importing
+`Adopter.Basic` and `Adopter.Long`. Its `lakefile.toml` held the template's `[leanOptions]`
+plus exactly the options of the adoption guide: `linter.missingDocs`, `autoImplicit`, and the
+standard set with `weak.linter.style.header`, `weak.linter.hashCommand` and
+`weak.linter.style.longFile` off. It required Mathlib `5ed2965` by Git revision and this
+repository's checker by path, with `lintDriver = "regula/lint"`, and its one claimed library
+(Standard-Logical) had the adoption guide's globs. `Adopter.Basic` imported
+`Mathlib.Order.Basic` and held a documented definition, a documented theorem and a passing
+`#guard`; `Adopter.Long` held 800 documented definitions in 1608 lines. Regula's RG5001 also
+required a module docstring in the import-only root.
+
+- The clean library: `lake build` emitted no warning, and `lake lint` and
+  `lake lint -- --fresh` both exited 0 (`PASS`).
+- Without `weak.linter.style.header = false`: a header warning (`Copyright too short!`) in each
+  of the two modules the root imports; `lake lint` exit 3 (`INCOMPLETE`, RG2003).
+- Without `weak.linter.hashCommand = false`: a warning on the `#guard`
+  (`` `#`-commands, such as '#guard', are not allowed in 'Mathlib' ``); `lake lint` exit 3.
+- Without `weak.linter.style.longFile = 0`: no warning on the 1608-line module, so the set leaves
+  that option off downstream; the explicit `0` keeps it off.
+- A docstring line of 101 characters: Mathlib's `This line exceeds the 100 character limit`
+  warning and `lake lint` exit 3. The same line under `set_option linter.style.longLine false in`
+  with a comment giving the reason: no warning, exit 0.
+- An undocumented definition: `missing doc string for public def undocumented` and
+  `lake lint` exit 3.
+
+The standard set's other linters and `linter.missingDocs` stayed active, and in this layout each
+exclusion is what removes its linter's warnings.
+
+### Earlier runs: the Mathlib and Batteries routes
+
+These controls ran on 2026-09-26 on a disposable adopter (Lean 4.34.0, Mathlib `5ed2965`, this
+repository's checker by path) whose `lakefile.toml` set `weak.linter.mathlibStandardSet`,
+`autoImplicit` and `relaxedAutoImplicit` under `[leanOptions]`, and whose one claimed library
+(Standard-Logical) imported `Mathlib.Order.Basic` and held a documented definition and theorem.
+With `lintDriver = "regula/lint"`:
 
 - The clean library: `lake lint` exit 0 (`ACCEPTED`), so the standard set emitted nothing there.
 - One docstring line of 101 characters: `lake lint` exit 3 (`INCOMPLETE`), RG2003 `build-failed` with
@@ -197,7 +232,7 @@ and `lake exe lint` (Regula) both exited 0 on the clean library. An undocumented
 rebuild linted the stale build of a previous mutation, which is why the guide runs `lake build`
 first.
 
-These observe one small adopter through the `lakefile.toml` route on this toolchain. They are
+These observe two small adopters through the `lakefile.toml` route on this toolchain. They are
 not a theorem about either tool, and the `lakefile.lean` spelling of the options was not run.
 
 ## Website
@@ -275,8 +310,9 @@ Review of the delivered product found and fixed:
 - Editor: only VS Code with the Lean 4 extension; no latency claim; the browser-side page view
   after the external hand-off is not observable from this environment beyond the process
   hand-off and the live route.
-- A small Mathlib-importing library was accepted incrementally and fresh, and one small adopter
-  ran Regula beside Mathlib's syntax linters and Batteries' `runLinter`
+- A small Mathlib-importing library was accepted incrementally and fresh, and two small adopters
+  ran Regula beside Mathlib's syntax linters, one of them in the `lake new` layout with the
+  complete §6.7 configuration, and Batteries' `runLinter`
   ([above](#community-linters-beside-regula)); there is no Mathlib-scale adopter or
   other-editor claim, and no released versions (`/v/` pages need a separately authorized
   release).

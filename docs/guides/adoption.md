@@ -394,20 +394,28 @@ core-only code.
 
 - **Required linters.** Every claimed library enables Lean's `linter.missingDocs`, which
   reports every public definition without a docstring, and, in a project that depends on
-  Mathlib, the syntax linters Mathlib builds with. Also turn off automatic implicits
+  Mathlib, the syntax linters Mathlib builds with, except the three that enforce policies of
+  the Mathlib repository itself. Also turn off automatic implicits
   ([standard §8.1](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#81-declare-the-elaboration-environment)):
 
   ```toml
   [leanOptions]
   linter.missingDocs = true
-  weak.linter.mathlibStandardSet = true
   autoImplicit = false
   relaxedAutoImplicit = false
+  # With Mathlib: its standard set, without its Mathlib-repository linters.
+  weak.linter.mathlibStandardSet = true
+  weak.linter.style.header = false
+  weak.linter.hashCommand = false
+  weak.linter.style.longFile = 0
   ```
 
-  Omit `weak.linter.mathlibStandardSet` in a project without Mathlib. In `lakefile.lean` the
-  same options are
-  ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]``.
+  Omit the last four lines in a project without Mathlib. The three excluded linters enforce
+  Mathlib's contribution header (copyright, Apache 2.0 license and authors), its ban on
+  `#` commands such as a passing `#guard`, and its file-length limit; standard §6.7 gives the
+  reasons. `lake new NAME math` already writes `weak.linter.mathlibStandardSet` and
+  `relaxedAutoImplicit`; add the rest. In `lakefile.lean` the same options are
+  ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each finding as RG2003
   (`INCOMPLETE`, exit 3) with the linter's message. Regula does not check that the options are
   set; review does. Where the community's guidance accepts an exception, such as a long URL,
@@ -432,9 +440,9 @@ core-only code.
 
 A community linter's pass establishes only what that linter checks. It discharges no other
 Regula requirement, and a Regula pass says nothing about style that no enabled linter checks.
-The Mathlib and Batteries routes were exercised on a small Mathlib-importing adopter
-([product qualification](product-qualification.md#community-linters-beside-regula));
-`linter.missingDocs` was not enabled in that run.
+The configuration above was exercised on a Mathlib adopter in the `lake new` layout, and the
+Batteries routes on an earlier small adopter
+([product qualification](product-qualification.md#community-linters-beside-regula)).
 
 ## 7. Receive diagnostics while editing
 

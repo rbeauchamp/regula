@@ -72,7 +72,7 @@ number := false
 
 *Linter discipline*: Every warning emitted while elaborating a conforming surface is an error under {ref "83-clean-elaboration-and-diagnostics"}[module 8 §8.3]. Setting `warningAsError := false` does not bypass audit checks. Turning off a linter can prevent its diagnostic but does not establish the underlying property. Applicable semantic matrix rows still require their own evidence.
 
-Lean's default warnings, those Lean emits under its default options (including the core linters enabled by default, such as `linter.unusedVariables`), MUST NOT be disabled in a claimed module. Every other linter is a community linter here, however it came to run: a Lean core linter that is off by default and that the project enables (such as `linter.missingDocs`, §6.7), a linter that a dependency turns on for every importer (such as Mathlib's `linter.unusedTactic`), or one that the project enables from a dependency (such as Mathlib's standard set, §6.7). A community linter MAY be disabled for a single declaration where the community's own guidance allows that, with `set_option linter.NAME false in` before the declaration or `@[nolint NAME]` on it and a comment stating why. Such a disable removes that linter's finding for that declaration only. It establishes nothing about the property the linter checks and never discharges a requirement of this standard. The audit sees only emitted warnings, so review checks which linters a module disables.
+Lean's default warnings, those Lean emits under its default options (including the core linters enabled by default, such as `linter.unusedVariables`), MUST NOT be disabled in a claimed module. Every other linter is a community linter here, however it came to run: a Lean core linter that is off by default and that the project enables (such as `linter.missingDocs`, §6.7), a linter that a dependency turns on for every importer (such as Mathlib's `linter.unusedTactic`), or one that the project enables from a dependency (such as Mathlib's standard set, §6.7). The Mathlib-repository linters that §6.7 turns off are outside the required baseline, so the project-wide setting §6.7 gives them is not a disable in this sense. A community linter MAY be disabled for a single declaration where the community's own guidance allows that, with `set_option linter.NAME false in` before the declaration or `@[nolint NAME]` on it and a comment stating why. Such a disable removes that linter's finding for that declaration only. It establishes nothing about the property the linter checks and never discharges a requirement of this standard. The audit sees only emitted warnings, so review checks which linters a module disables.
 
 # 6.3 Naming Conventions
 %%%
@@ -285,7 +285,28 @@ number := false
 *Requirement*: A claimed surface MUST follow the Lean community's conventions for style, formatting, naming, and documentation form as the community's own linters enforce them. Every claimed library MUST enable these linters in its Lake `leanOptions`:
 
 * *Lean's `linter.missingDocs`*, with value `true`. It reports every public definition, structure, class, inductive type, constructor, field, and syntax extension that has no docstring, the community's rule that every definition is documented.
-* *Mathlib's standard linter set*, for a library that imports Mathlib: `weak.linter.mathlibStandardSet` with value `true`, the syntax linters Mathlib itself builds with (line length, module header, tactic style, and others).
+* *Mathlib's standard linter set*, for a library that imports Mathlib: `weak.linter.mathlibStandardSet` with value `true`, the syntax linters Mathlib itself builds with (line length, tactic style, whitespace, and others).
+
+A few linters of that set enforce policies of the Mathlib repository itself rather than community conventions. A library that enables the set MUST turn them off in the same `leanOptions`; at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
+
+:::table +header
+*
+  * Option
+  * Value
+  * Why it is excluded
+*
+  * `weak.linter.style.header`
+  * `false`
+  * It requires Mathlib's contribution header, a copyright line, the Apache 2.0 license statement, and an authors line, in every module that the library root imports: the Mathlib repository's licensing and attribution policy.
+*
+  * `weak.linter.hashCommand`
+  * `false`
+  * It reports every `#` command that prints nothing, such as a passing `#guard`, as "not allowed in 'Mathlib'"; outside Mathlib a `#guard` is a checked build-time assertion.
+*
+  * `weak.linter.style.longFile`
+  * `0`
+  * Its 1500-line file limit is the Mathlib repository's file-size policy, and Mathlib documents no limit for downstream projects; `0` keeps it off.
+:::
 
 Their findings are ordinary build warnings, so the warning-free elaboration of {ref "83-clean-elaboration-and-diagnostics"}[§8.3] (RG2003) rejects every one of them. The standard enforces this community baseline by composing the community's linters with that rule; it restates none of their checks. Its own universal rules stay technical Lean rules (`SCOPE-04` in {ref "9-compliance-and-quality-audit"}[module 9]), and they are stricter where they apply: a registered material declaration needs a docstring that states its claim exactly ({ref "51-inline-documentation-requirements"}[module 5 §5.1–§5.2]; RG5002, RG5003). The checker does not detect whether these options are set, so review confirms them (`DECL-01`).
 
@@ -310,4 +331,4 @@ number := false
 * Claimed Lake targets determine audit coverage, including declared executable roots.
 * Module documentation explains material declarations and assumptions; naming and layout conventions aid navigation.
 * Namespaces, private names, body exposure, and opaque representations provide different boundaries. State and check the boundary actually claimed.
-* Style, naming, and documentation form follow the Lean community's conventions. Every claimed library enables Lean's `linter.missingDocs` and, when it imports Mathlib, Mathlib's standard linter set, whose warnings RG2003 rejects; a declaration-scoped disable of a community linter never discharges a requirement.
+* Style, naming, and documentation form follow the Lean community's conventions. Every claimed library enables Lean's `linter.missingDocs` and, when it imports Mathlib, Mathlib's standard linter set without its Mathlib-repository linters, whose warnings RG2003 rejects; a declaration-scoped disable of a community linter never discharges a requirement.

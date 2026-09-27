@@ -147,8 +147,9 @@ def agentGuide : String :=
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
   "Every claimed library enables `linter.missingDocs` (document every definition) and, with " ++
-  "Mathlib, `weak.linter.mathlibStandardSet`; `lake lint` rejects their warnings. Run Batteries' " ++
-  "linters with `lake exe runLinter`. Disable a community linter only for a single declaration, " ++
+  "Mathlib, `weak.linter.mathlibStandardSet` with its Mathlib-repository linters off; `lake lint` " ++
+  "rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
+  "Disable a community linter only for a single declaration, " ++
   "where its guidance allows, with the reason; that never discharges a rule.\n" ++
   "- Passing is mechanical: a theorem must still state the intended claim, with its hypotheses " ++
   "and limits, which review checks.\n\n" ++

@@ -398,8 +398,8 @@ The checker package is self-contained: an external Lean project adopts it by req
 
 An adopter also enables the community linters that {ref "67-community-conventions-and-linters"}[module 6 §6.7] requires and runs the recommended ones beside the checker:
 
-* In the Lake `leanOptions` of every claimed library, `linter.missingDocs` set to `true` and, in a library that imports Mathlib, `weak.linter.mathlibStandardSet` set to `true`. Their warnings are build warnings, so the checker's warning-free build rejects them (RG2003). The checker does not detect whether the options are set.
-* Batteries' environment linters run as a separate command, `lake exe runLinter`. Lake has one `lintDriver` per package: a project that keeps `batteries/runLinter` as its driver runs the checker with `lake exe lint`, and a project whose driver is `regula/lint` runs `lake exe runLinter` separately. Each command's success establishes only its own checks.
+* In the Lake `leanOptions` of every claimed library, `linter.missingDocs` set to `true` and, in a library that imports Mathlib, `weak.linter.mathlibStandardSet` set to `true` with the Mathlib-repository linters that §6.7 lists turned off. Their warnings are build warnings, so the checker's warning-free build rejects them (RG2003). The checker does not detect whether the options are set.
+* Batteries' environment linters run as a separate command, `lake exe runLinter`. It lints the built modules and builds only a module that has no build output, so a stale build is linted as it is: run `lake build` first on either route. Lake has one `lintDriver` per package: a project that keeps `batteries/runLinter` as its driver runs `lake build && lake lint` and the checker with `lake exe lint`, and a project whose driver is `regula/lint` runs `lake lint` and, separately, `lake build && lake exe runLinter`. Each command's success establishes only its own checks.
 
 The exact adapter steps, including glob syntax in both lakefile formats, a minimal manifest, and the community linter configuration, are in this repository's {repo "docs/guides/adoption.md"}[adoption guide].
 

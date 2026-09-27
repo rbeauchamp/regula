@@ -54,9 +54,9 @@ example (t : Time) : 0 ≤ t.val := t.val.property
 /-- This alias exposes the exact theorem checked in `Audit.DocClaims`: for every
 curve with a negative rate and every ordered pair of nominal times, the
 later reference value is no greater than the earlier reference value. -/
-theorem valueAt_antitone_of_decayRate_neg (v : DecayingValue) (h : v.decayRate < 0) :
-    ∀ t₁ t₂ : Time, t₁ ≤ t₂ → v.valueAt t₂ ≤ v.valueAt t₁ :=
-  decay_monotone v h
+theorem valueAt_antitone_of_decayRate_neg (v : DecayingValue) (h : v.decayRate < 0)
+    (t₁ t₂ : Time) (h₁₂ : t₁ ≤ t₂) : v.valueAt t₂ ≤ v.valueAt t₁ :=
+  decay_monotone v h t₁ t₂ h₁₂
 
 /-- The displayed hypotheses are jointly satisfiable; this is not a claim of
 reachability in an external system. -/
