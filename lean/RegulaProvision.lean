@@ -28,8 +28,8 @@ beside it records the copies provisioned to link it, and each run removes the sh
 directories of other pins and toolchains that no registered copy still links. One exclusive
 lock under `~/.cache/mathlib-packages` orders all of this. The pure planning decisions below
 carry proofs; Git, Lake, `cp`, `chmod`, `ln`, rename and file locking are trusted process and
-filesystem effects. GitHub Actions keeps provisioning with `lake exe cache get`, so this
-program does nothing there.
+filesystem effects. GitHub Actions keeps provisioning with `lake -d audit exe cache get`, so
+this program does nothing there.
 
 Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
 `scripts/verify.sh` runs it before its deadline. -/

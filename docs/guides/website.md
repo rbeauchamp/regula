@@ -108,7 +108,7 @@ detector qualification, not a proof that the detectors are correct for all input
 
 ## Build and preview locally
 
-After provisioning the root dependencies and the pinned Verso package once:
+After provisioning the shared Mathlib and the pinned Verso package once:
 
 ```sh
 ./scripts/provision.sh                                # root setup (shared, read-only Mathlib)

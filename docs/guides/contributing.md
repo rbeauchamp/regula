@@ -81,8 +81,8 @@ dangling link is relinked by its next provisioning, which recreates the director
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
 so copies wait while another copy creates a new pin.
 
-- Do not run `lake exe cache get` locally: it unpacks a full Mathlib into the copy, and
-  with the link in place it fails on the read-only directory. A Lake write into the shared
+- Do not run Mathlib's `cache get` locally (`lake -d audit exe cache get`): it unpacks a full
+  Mathlib into the copy, and with the link in place it fails on the read-only directory. A Lake write into the shared
   Mathlib fails the same way, which is how an unintended rebuild shows up.
 - Write probes that need Mathlib as single files under `tmp/` and check them with
   `lake -d audit env lean tmp/Probe.lean`; a separate Lake project there would fetch its own
@@ -92,7 +92,7 @@ so copies wait while another copy creates a new pin.
   by the next run that creates one while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch left directly under `tmp/` by earlier versions is
   never reclaimed; remove it by hand.
-- GitHub Actions keeps `lake exe cache get` and its dependency cache; provisioning does
+- GitHub Actions keeps `lake -d audit exe cache get` and its dependency cache; provisioning does
   nothing there. A shared directory is never modified, only removed whole.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
