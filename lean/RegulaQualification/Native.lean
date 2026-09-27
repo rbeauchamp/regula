@@ -12,7 +12,8 @@ namespace RegulaQualification.Native
 /-- Fields consumed from a native compiler diagnostic. Additional JSON fields are not
 used by this general oracle; case-specific range checks inspect the original JSON. -/
 structure Message where
-  /-- The message's named-error kind; empty for a compiler diagnostic, which has none. -/
+  /-- The message kind Lean serializes, its top-level tag: for example
+  `Regula.<id>._namedError` for a native diagnostic and `[anonymous]` for an untagged message. -/
   kind : String
   /-- The message's severity, such as `warning` or `error`. -/
   severity : String

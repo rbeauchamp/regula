@@ -15,7 +15,8 @@ inductive Mode where
   registry checks and combined qualification, and audits the claimed surfaces. -/
   | ordinary
   /-- `docs`: the second acceptance step, the documentation audit and the Verso standard's
-  build and render, refused unless its inputs equal those the first step accepted. -/
+  build and render, refused unless its inputs have the content identity the first step
+  recorded. -/
   | docs
   /-- `serialized-graph`: the separate serialized-graph check (`freshChecker`). -/
   | graph

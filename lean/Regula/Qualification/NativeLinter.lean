@@ -43,14 +43,12 @@ structure Control where
   contains `-DwarningAsError=true` and `warning` otherwise. -/
   nativeSeverity : Option String := none
 
-/-- Decode required message fields without silently defaulting malformed values. A
-missing `kind` denotes a compiler diagnostic, as in Lean's native JSON protocol. -/
+/-- Decode required message fields without silently defaulting malformed values. Lean's
+JSON protocol serializes every message's `kind`, `[anonymous]` when it has no tag. -/
 def decode (value : Json) : Except String RegulaQualification.Native.Message := do
-  let kind ← match value.getObjVal? "kind" with
-    | .ok field => field.getStr?
-    | .error _ => pure ""
   return {
-    kind, severity := (← value.getObjValAs? String "severity"),
+    kind := (← value.getObjValAs? String "kind"),
+    severity := (← value.getObjValAs? String "severity"),
     data := (← value.getObjValAs? String "data"), fileName :=
         (← value.getObjValAs? String "fileName") }
 

@@ -621,10 +621,10 @@ def guide : RuleId → Guide
           the target meets `Conforming`, the declarative statement of its conditions, and \
           `conforming_of_mathlib` that the Mathlib requirement includes the core-only one; \
           `conforming_missingDocs` states what a conforming target gives `linter.missingDocs`, \
-          and `missingDocs_unset_fails` that a target with only the automatic-implicit options \
-          fails with exactly that option. `leanArgument_mem_failures_iff` shows that it reports a \
-          `-D` argument exactly when \
-          some `-D` form, stated over the characters of the arguments (`Defines`), sets a \
+          and `missingDocs_unset_fails` that a core-only target (`mathlib = false`) with only \
+          the automatic-implicit options and no extra `lean` arguments fails with exactly that \
+          option. `leanArgument_mem_failures_iff` shows that it reports a `-D` argument exactly \
+          when some `-D` form, stated over the characters of the arguments (`Defines`), sets a \
           checked option to a contradicting value; `autoImplicit_argument_fails`, \
           `maxHeartbeats_argument_passes`, `linter_argument_fails`, \
           `excluded_linter_argument_passes` and `plugin_argument_passes` fix five argument \

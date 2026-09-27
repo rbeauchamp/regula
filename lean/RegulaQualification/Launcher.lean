@@ -58,9 +58,9 @@ structure Observation where
   stdout : String
   /-- The compiler's standard error. -/
   stderr : String
-  /-- The captured environment the launch used. -/
+  /-- The captured environment, which the direct launch uses. -/
   environment : Environment
-  /-- The resolved path of the `lean` executable the launch used. -/
+  /-- The resolved path of the `lean` executable, which the direct launch uses. -/
   executable : String
   deriving BEq, DecidableEq
 

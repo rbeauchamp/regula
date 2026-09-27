@@ -21,8 +21,9 @@ off another linter.
 - `conforming_of_mathlib`: the Mathlib requirement strengthens the core-only one.
 - `conforming_autoImplicit`, `conforming_missingDocs`: what a conforming target gives the
   automatic-implicit options and `linter.missingDocs`.
-- `missingDocs_unset_fails`: a target with only the automatic-implicit options fails with
-  exactly the missing `linter.missingDocs`.
+- `missingDocs_unset_fails`: a core-only target (`mathlib = false`) with only the
+  automatic-implicit options and no extra `lean` arguments fails with exactly the missing
+  `linter.missingDocs`.
 - `mem_argumentTexts_iff`: the `-D` reading holds exactly the settings of `Defines`, stated over
   the characters of the arguments.
 - `leanArgument_mem_failures_iff`: a `-D` argument fails exactly when some `-D` form sets a
@@ -475,8 +476,9 @@ theorem conforming_missingDocs (o : BuildOptions) (mathlib : Bool) (h : Conformi
     simp [required, baseline]
   exact ⟨(h.1 _ hr).1, (h.1 _ hr).2, fun s hs hs' => (h.2.2 s hs).1 _ hr hs'⟩
 
-/-- A core-only target that turns automatic implicits off and sets nothing else fails with
-exactly one failure: `linter.missingDocs` is not set. -/
+/-- A core-only target (`mathlib = false`) that turns automatic implicits off, sets no other
+option and has no extra `lean` arguments fails with exactly one failure: `linter.missingDocs` is
+not set. -/
 theorem missingDocs_unset_fails :
     failures ⟨[(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false)], []⟩ false =
       [.option `linter.missingDocs (.bool true) []] := by
