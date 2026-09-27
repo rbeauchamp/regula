@@ -70,7 +70,7 @@ accepted project evidence or forges an inventory-bound Roles receipt.
 | `Collect.currentModule` | All constants in Lean's current-module map, including private/generated/unused and binder-less declarations. | The caller establishes completion; a partially elaborated environment is still partial. |
 | Module hook | RG5001 module-doc presence, docstring position and repeated imports (from the module's own source header), and RG5002 docstring and RG5003 Intent-section presence for explicitly registered public declarations in the completed local map. | It does not repeat all command policy diagnostics or certify complete local declaration-policy coverage. |
 | `Collect.declaration name .snapshot` | Canonical semantic facts for that exact current/imported declaration, with Lean ownership, ranges, transitive axioms and contract shape. | Native replay and generated-role authentication are omitted. |
-| `Collect.declaration name .replayCandidate` | The same constructor with existing replay/equation/parent observations used by `Probe`. | Observations still require fresh transcripts and the existing authorization/admission checks. |
+| `Collect.declaration name .replayCandidate` | The same constructor with the native replay and recursive-helper equation observations used by `Probe`. | Observations still require fresh transcripts and the existing authorization/admission checks. |
 
 The local adapter calls the executed pure policy and shares its total failure-to-ID
 mapping with the project checker. It defers potential generated-role exceptions
