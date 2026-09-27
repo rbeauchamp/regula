@@ -1,7 +1,9 @@
 module
 
 public import RegulaPolicy.Foundation
+public import Lean.PrivateName
 import all Init.Meta.Defs
+import all Lean.PrivateName
 
 /-! # Generated native-proof axiom names
 
@@ -9,32 +11,39 @@ On the pinned Lean 4.34.0, every proof by native evaluation goes through
 `Lean.Meta.nativeEqTrue tacticName e` (`Lean/Meta/Native.lean`). After compiling and running `e`,
 it adds an axiom `e = true` named `mkAuxDeclName (`_native ++ tacticName ++ `ax)`, and
 `DeclNameGenerator.mkUniqueName` (`Lean/CoreM.lean`) turns that infix into
-`namePrefix ++ infix` with each generator index appended by `Name.appendIndexAfter`. The
-toolchain's tactics pass exactly three tactic names: `native_decide` and `decide +native` through
-`evalDecideCore` (`Lean/Elab/Tactic/Decide.lean`), and `bv_decide` through
-`LratCert.toReflectionProof` (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean`).
+`namePrefix ++ infix` with each generator index appended by `Name.appendIndexAfter`, made private
+to the module (`mkPrivateName`) while a `module` file elaborates without exporting. The pinned
+sources call `nativeEqTrue` at exactly two sites, which pass exactly three tactic names
+(`NativeTactic`): `elabNativeDecideCore` (`Lean/Elab/Tactic/Decide.lean:59`), reached from
+`evalDecideCore` (`:82`) with `native_decide` or, for `decide +native`, `decide`; and
+`LratCert.toReflectionProof` (`Lean/Meta/Tactic/BVDecide/Prover/Bitblast.lean:39`) with
+`bv_decide`, reached from `lratBitblaster` (`:100`) and `lratChecker` (`:115`). `NativeEvaluator`
+enumerates the tactic elaborators that reach them.
 
 `nativeAxiomOrigin?` recognizes exactly the names that scheme generates for those tactics, and
 `compilerTrustingAxiomName` is the single name-level compiler-trust classification.
 `nativeAxiomOrigin?_sound` and `nativeAxiomOrigin?_nativeAxiomName` prove the two inclusions; the
 second assumes `RuntimeStringAppend`, because `Name.appendIndexAfter` appends with the logically
-opaque `String.Internal.append`. A recognized name is not an authorization: the generated-role
-relation in `RoleSpecification` authenticates the actual axiom. -/
+opaque `String.Internal.append`. `generatedPrefix_iff` proves that the names recognized under a
+prefix related to a declaration by `GeneratedPrefix` are exactly those the generator gives that
+declaration's native axioms in its own module, in either privacy mode. A recognized name is not
+an authorization: the generated-role relation in `RoleSpecification` authenticates the actual
+axiom. -/
 
 @[expose] public section
 
 namespace RegulaPolicy
 open Lean (Name)
 
-/-- A tactic of the pinned toolchain whose elaborator adds its axiom through
-`Lean.Meta.nativeEqTrue`. Each constructor passes a distinct `tacticName`. -/
+/-- A `tacticName` the pinned toolchain passes to `Lean.Meta.nativeEqTrue`: the family of axiom
+names one or more tactic evaluators (`NativeEvaluator`) generate. -/
 inductive NativeTactic where
-  /-- `native_decide`: `evalNativeDecide` runs `evalDecideCore `native_decide`. -/
+  /-- `native_decide`: `evalDecideCore `native_decide`. -/
   | nativeDecide
-  /-- `decide +native`: `evalDecide` runs `evalDecideCore `decide` with `native` set. -/
+  /-- `decide +native`: `evalDecideCore `decide` with `native` set. -/
   | decideNative
-  /-- `bv_decide`: `evalBvDecide` reaches `LratCert.toReflectionProof`, which passes
-  `bv_decide`. -/
+  /-- `bv_decide`: `LratCert.toReflectionProof`, whichever `bv_decide` family tactic reached
+  it. -/
   | bvDecide
   deriving Repr, DecidableEq
 
@@ -42,14 +51,6 @@ namespace NativeTactic
 
 /-- Every native tactic, in declaration order. -/
 def all : List NativeTactic := [.nativeDecide, .decideNative, .bvDecide]
-
-/-- The finite list is complete. -/
-theorem mem_all (t : NativeTactic) : t ∈ all := by
-  cases t <;> simp [all]
-
-/-- An existential over the three tactics is decided by checking each one. -/
-instance decidableExists (P : NativeTactic → Prop) [DecidablePred P] : Decidable (∃ t, P t) :=
-  decidable_of_iff (∃ t ∈ all, P t) ⟨fun ⟨t, _, h⟩ => ⟨t, h⟩, fun ⟨t, h⟩ => ⟨t, mem_all t, h⟩⟩
 
 /-- The one-component `tacticName` the pinned elaborator passes to `nativeEqTrue`. -/
 def component : NativeTactic → String
@@ -68,18 +69,6 @@ def ofComponent? (component : String) : Option NativeTactic :=
 theorem ofComponent?_component (t : NativeTactic) : ofComponent? t.component = some t := by
   cases t <;> rfl
 
-/-- Lean's tactic elaborator that calls `nativeEqTrue` with this tactic's name. -/
-def elaborator : NativeTactic → Name
-  | .nativeDecide => `Lean.Elab.Tactic.evalNativeDecide
-  | .decideNative => `Lean.Elab.Tactic.evalDecide
-  | .bvDecide => `Lean.Elab.Tactic.BVDecide.evalBvDecide
-
-/-- The syntax kind that elaborator is registered for. -/
-def syntaxKind : NativeTactic → Name
-  | .nativeDecide => `Lean.Parser.Tactic.nativeDecide
-  | .decideNative => `Lean.Parser.Tactic.decide
-  | .bvDecide => `Lean.Parser.Tactic.bvDecide
-
 /-- The infixes of the auxiliary definitions the same tactic run adds and its axiom's statement
 mentions: `bv_decide`'s reflected expression and certificate (`TacticContext.new` in
 `Lean/Meta/Tactic/BVDecide/TacticContext.lean`). -/
@@ -88,6 +77,65 @@ def auxiliaryInfixes : NativeTactic → List String
   | .bvDecide => ["_expr_def", "_cert_def"]
 
 end NativeTactic
+
+/-- A tactic elaborator of the pinned toolchain, registered by `builtin_tactic` for its syntax
+kind, that reaches a `nativeEqTrue` call site. The `grind =>` and `sym =>` forms of the
+`bv_decide` family (`Lean.Elab.Tactic.Grind.evalBvDecide`, `evalBvTrace` and `evalBvCheck`,
+`Lean/Elab/Tactic/Grind/BVDecide.lean:28,40,58`) also reach `LratCert.toReflectionProof`; they
+are registered by `builtin_grind_tactic` instead, which the checker's pinned-evaluator
+observation does not cover, so they are deliberately not listed. -/
+inductive NativeEvaluator where
+  /-- `native_decide`: `evalNativeDecide` (`Lean/Elab/Tactic/Decide.lean:190`). -/
+  | nativeDecide
+  /-- `decide +native`: `evalDecide` (`Lean/Elab/Tactic/Decide.lean:186`). -/
+  | decideNative
+  /-- `bv_decide`: `BVDecide.evalBvDecide` (`Lean/Elab/Tactic/BVDecide.lean:190`), through
+  `bvDecide` and `lratBitblaster`. -/
+  | bvDecide
+  /-- `bv_decide?`: `BVDecide.evalBvTraceTactic` (`Lean/Elab/Tactic/BVDecide.lean:204`), through
+  `BVTrace.evalBvTrace`, `bvDecide` and `lratBitblaster`. -/
+  | bvTrace
+  /-- `bv_check "file.lrat"`: `BVDecide.evalBvCheckTactic` (`Lean/Elab/Tactic/BVDecide.lean:225`),
+  through `BVCheck.evalBvCheck` and `lratChecker`, with the certificate read from the file. -/
+  | bvCheck
+  deriving Repr, DecidableEq
+
+namespace NativeEvaluator
+
+/-- Every native evaluator, in declaration order. -/
+def all : List NativeEvaluator := [.nativeDecide, .decideNative, .bvDecide, .bvTrace, .bvCheck]
+
+/-- The finite list is complete. -/
+theorem mem_all (e : NativeEvaluator) : e ∈ all := by
+  cases e <;> simp [all]
+
+/-- An existential over the evaluators is decided by checking each one. -/
+instance decidableExists (P : NativeEvaluator → Prop) [DecidablePred P] : Decidable (∃ e, P e) :=
+  decidable_of_iff (∃ e ∈ all, P e) ⟨fun ⟨e, _, h⟩ => ⟨e, h⟩, fun ⟨e, h⟩ => ⟨e, mem_all e, h⟩⟩
+
+/-- The `tacticName` this evaluator's call reaches `nativeEqTrue` with. -/
+def family : NativeEvaluator → NativeTactic
+  | .nativeDecide => .nativeDecide
+  | .decideNative => .decideNative
+  | .bvDecide | .bvTrace | .bvCheck => .bvDecide
+
+/-- The elaborator's declaration name. -/
+def elaborator : NativeEvaluator → Name
+  | .nativeDecide => `Lean.Elab.Tactic.evalNativeDecide
+  | .decideNative => `Lean.Elab.Tactic.evalDecide
+  | .bvDecide => `Lean.Elab.Tactic.BVDecide.evalBvDecide
+  | .bvTrace => `Lean.Elab.Tactic.BVDecide.evalBvTraceTactic
+  | .bvCheck => `Lean.Elab.Tactic.BVDecide.evalBvCheckTactic
+
+/-- The syntax kind that elaborator is registered for. -/
+def syntaxKind : NativeEvaluator → Name
+  | .nativeDecide => `Lean.Parser.Tactic.nativeDecide
+  | .decideNative => `Lean.Parser.Tactic.decide
+  | .bvDecide => `Lean.Parser.Tactic.bvDecide
+  | .bvTrace => `Lean.Parser.Tactic.bvTrace
+  | .bvCheck => `Lean.Parser.Tactic.bvCheck
+
+end NativeEvaluator
 
 /-- The name `mkAuxDeclName kind` gives under the name prefix `parent` with generator indices
 `idxs`, before module privacy: `DeclNameGenerator.mkUniqueName.curr` on `parent ++ kind`. -/
@@ -154,6 +202,23 @@ def generatedAuxParent? (kind : String) (n : Name) : Option Name :=
         some parent
       else none
   | _ => none
+
+/-- The last step of `DeclNameGenerator.mkUniqueName.curr` in module `m`: while a `module` file
+elaborates without exporting (`hidden`), a name that is not already private becomes
+`mkPrivateName env n = mkPrivateNameCore m (privateToUserName n)` (`Lean/Modifiers.lean`), with
+`env.mainModule = m`; otherwise the name is unchanged. -/
+def modulePrivacy (m : Name) (hidden : Bool) (n : Name) : Name :=
+  if hidden && !Lean.isPrivateName n then Lean.mkPrivateNameCore m (Lean.privateToUserName n)
+  else n
+
+/-- `pfx` is the prefix Lean's generator gives the generated names of declaration `parent` of
+module `m`: `parent` itself, or, for a public `parent` whose proof elaborates without exporting,
+its private form in its own module, whose `privateToUserName` is `parent`. -/
+def GeneratedPrefix (m parent pfx : Name) : Prop :=
+  pfx = parent ∨ (Lean.isPrivateName parent = false ∧ pfx = Lean.mkPrivateNameCore m parent)
+
+instance (m parent pfx : Name) : Decidable (GeneratedPrefix m parent pfx) := by
+  unfold GeneratedPrefix; infer_instance
 
 /-- Name-level compiler trust: one of Lean's three compiler axioms or a name the `nativeEqTrue`
 scheme generates for a native tactic. The execution probe classifies by this definition; the
@@ -340,5 +405,104 @@ theorem compilerTrustingAxiomName_iff (hAppend : RuntimeStringAppend) (n : Name)
   rintro (h | h)
   · simp [compilerTrustingAxiomName, h]
   · simp [compilerTrustingAxiomName, (nativeAxiomOrigin?_isSome_iff hAppend n).mpr h]
+
+/-! ## Module privacy: the prefix of a declaration's generated names -/
+
+/-- Appending names without macro scopes adds none. -/
+theorem appendCore_hasMacroScopes {a b : Name} (ha : a.hasMacroScopes = false)
+    (hb : b.hasMacroScopes = false) : (a.appendCore b).hasMacroScopes = false := by
+  induction b with
+  | anonymous => exact ha
+  | str p s _ => exact hb
+  | num p d ih => exact ih hb
+
+/-- The private prefix `_private.m.0` of a module without macro scopes has none. -/
+theorem privatePrefix_hasMacroScopes {m : Name} (hm : m.hasMacroScopes = false) :
+    (Name.mkNum (Lean.privateHeader ++ m) 0).hasMacroScopes = false := by
+  change (Name.append Lean.privateHeader m).hasMacroScopes = false
+  unfold Name.append
+  rw [hm]
+  exact appendCore_hasMacroScopes rfl hm
+
+/-- Without macro scopes, `mkPrivateNameCore` appends the private prefix structurally. -/
+theorem mkPrivateNameCore_eq {m n : Name} (hm : m.hasMacroScopes = false)
+    (hn : n.hasMacroScopes = false) :
+    Lean.mkPrivateNameCore m n = (Name.mkNum (Lean.privateHeader ++ m) 0).appendCore n := by
+  change Name.append _ n = _
+  unfold Name.append
+  rw [privatePrefix_hasMacroScopes hm, hn]
+
+/-- A generated name is private exactly when its prefix is. -/
+theorem isPrivateName_nativeTail (parent : Name) (component suffix : String) :
+    Lean.isPrivateName (.str (.str (.str parent "_native") component) suffix) =
+      Lean.isPrivateName parent := by
+  simp [Lean.isPrivateName, Lean.privateHeader, BEq.beq, Name.beq]
+
+/-- A generated name's private form is the generated name of the private prefix. -/
+theorem modulePrivacy_nativeAxiomName (hAppend : RuntimeStringAppend) {m parent : Name}
+    (hm : m.hasMacroScopes = false) (hs : parent.hasMacroScopes = false) (hidden : Bool)
+    (t : NativeTactic) (idxs : List Nat) :
+    modulePrivacy m hidden (nativeAxiomName parent t idxs) =
+      nativeAxiomName (modulePrivacy m hidden parent) t idxs := by
+  have hP := appendCore_hasMacroScopes (privatePrefix_hasMacroScopes hm) hs
+  rw [nativeAxiomName_eq hAppend parent t idxs hs]
+  unfold modulePrivacy
+  rw [isPrivateName_nativeTail]
+  by_cases hv : (hidden && !Lean.isPrivateName parent) = true
+  · simp only [hv, ↓reduceIte, Lean.privateToUserName]
+    have hnp : Lean.isPrivateName parent = false := by simp_all
+    simp only [isPrivateName_nativeTail, hnp, Bool.false_eq_true, ↓reduceIte]
+    rw [mkPrivateNameCore_eq hm (by simp [Name.hasMacroScopes, indexSuffix_ne_hyg]),
+      mkPrivateNameCore_eq hm hs, nativeAxiomName_eq hAppend _ t idxs hP]
+    rfl
+  · simp only [hv, Bool.false_eq_true, ↓reduceIte]
+    rw [nativeAxiomName_eq hAppend parent t idxs hs]
+
+/-- The private form of an ordinary declaration name is again an ordinary generated prefix. -/
+theorem nativeGenerated_modulePrivacy {m parent : Name} {idxs : List Nat}
+    (hm : m.hasMacroScopes = false) (h : NativeGenerated parent idxs) (hidden : Bool) :
+    NativeGenerated (modulePrivacy m hidden parent) idxs := by
+  unfold modulePrivacy
+  split
+  · rename_i hv
+    have hnp : Lean.isPrivateName parent = false := by simp_all
+    simp only [Lean.privateToUserName, hnp, Bool.false_eq_true, ↓reduceIte]
+    rw [mkPrivateNameCore_eq hm h.2.1]
+    refine ⟨?_, appendCore_hasMacroScopes (privatePrefix_hasMacroScopes hm) h.2.1, h.2.2⟩
+    cases parent with
+    | anonymous => exact absurd rfl h.1
+    | str p s => simp [Name.appendCore]
+    | num p d => simp [Name.appendCore]
+  · exact h
+
+/-- Soundness and completeness of the prefix relation: for an ordinary declaration `parent` of
+module `m`, the names the recognizer assigns to `parent` through `GeneratedPrefix` are exactly
+those `DeclNameGenerator.mkUniqueName.curr` gives the native axioms of its proofs, in either
+privacy mode. -/
+theorem generatedPrefix_iff (hAppend : RuntimeStringAppend) {m parent : Name}
+    (hm : m.hasMacroScopes = false) (hp : parent ≠ .anonymous)
+    (hs : parent.hasMacroScopes = false) (n : Name) (t : NativeTactic) :
+    (∃ pfx, nativeAxiomOrigin? n = some (pfx, t) ∧ GeneratedPrefix m parent pfx) ↔
+      ∃ hidden idxs, idxs ≠ [] ∧ (∀ i ∈ idxs, 0 < i) ∧
+        n = modulePrivacy m hidden (nativeAxiomName parent t idxs) := by
+  constructor
+  · rintro ⟨pfx, ho, hpfx⟩
+    obtain ⟨idxs, hg, rfl⟩ := nativeAxiomOrigin?_sound ho
+    rcases hpfx with rfl | ⟨hnp, rfl⟩
+    · exact ⟨false, idxs, hg.2.2.1, hg.2.2.2, by simp [modulePrivacy]⟩
+    · refine ⟨true, idxs, hg.2.2.1, hg.2.2.2, ?_⟩
+      rw [modulePrivacy_nativeAxiomName hAppend hm hs]
+      simp [modulePrivacy, hnp, Lean.privateToUserName]
+  · rintro ⟨hidden, idxs, hne, hpos, rfl⟩
+    have hg : NativeGenerated parent idxs := ⟨hp, hs, hne, hpos⟩
+    refine ⟨modulePrivacy m hidden parent, ?_, ?_⟩
+    · rw [modulePrivacy_nativeAxiomName hAppend hm hs]
+      exact nativeAxiomOrigin?_nativeAxiomName hAppend (nativeGenerated_modulePrivacy hm hg hidden)
+    · unfold modulePrivacy GeneratedPrefix
+      split
+      · rename_i hv
+        have hnp : Lean.isPrivateName parent = false := by simp_all
+        simp [hnp, Lean.privateToUserName]
+      · exact Or.inl rfl
 
 end RegulaPolicy

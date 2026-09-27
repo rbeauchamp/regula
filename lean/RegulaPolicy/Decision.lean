@@ -206,7 +206,7 @@ theorem native_not_logical (i : Inventory) (roles : Roles i) (n : Name)
     (hn : n ∈ roles.native) : ¬ Permitted .standardLogical n := by
   rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, _, ha, hrole⟩
-  rcases hrole.2.2 with ⟨p, _, _, hparent, _⟩
+  rcases hrole.2.2 with ⟨_, _, _, hparent, _⟩
   obtain ⟨_, _, hshape⟩ := nativeAxiomOrigin?_shape hparent
   intro hp
   rcases hp with hp | hp | hp
@@ -215,22 +215,24 @@ theorem native_not_logical (i : Inventory) (roles : Roles i) (n : Name)
     simp at hshape
 
 /-- Every authenticated native role is a name the `nativeEqTrue` scheme generates for a native
-tactic, for the parent and tactic its relation authenticated. -/
+tactic, under a generated prefix of an inventory declaration in that declaration's own module
+(`GeneratedPrefix`, characterized by `generatedPrefix_iff`). -/
 theorem native_generated (i : Inventory) (roles : Roles i) (n : Name) (hn : n ∈ roles.native) :
-    GeneratedNativeAxiom n := by
+    ∃ p ∈ i.declarations, ∃ pfx t idxs, GeneratedPrefix p.module p.name pfx ∧
+      NativeGenerated pfx idxs ∧ n = nativeAxiomName pfx t idxs := by
   rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, _, rfl, hrole⟩
-  rcases hrole.2.2 with ⟨p, _, t, hparent, _⟩
+  rcases hrole.2.2 with ⟨p, hp, ⟨pfx, t⟩, hparent, hprefix, _⟩
   obtain ⟨idxs, hg, h⟩ := nativeAxiomOrigin?_sound hparent
-  exact ⟨p.name, t, idxs, hg, h⟩
+  exact ⟨p, hp, pfx, t, idxs, hprefix, hg, h⟩
 
 /-- The execution probe's name-level classification agrees on every authenticated native role. -/
 theorem native_compilerTrustingAxiomName (i : Inventory) (roles : Roles i) (n : Name)
     (hn : n ∈ roles.native) : compilerTrustingAxiomName n = true := by
   rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
   rcases hn with ⟨a, _, rfl, hrole⟩
-  rcases hrole.2.2 with ⟨p, _, t, hparent, _⟩
-  simp [compilerTrustingAxiomName, hparent]
+  rcases hrole.2.2 with ⟨_, _, _, hparent, _⟩
+  simp [compilerTrustingAxiomName, Option.mem_def.mp hparent]
 
 /-- The compiler-trusting and logical sets are disjoint for actual inventory-bound roles. -/
 theorem compiler_not_logical (i : Inventory) (roles : Roles i) (n : Name)

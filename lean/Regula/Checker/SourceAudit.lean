@@ -229,8 +229,10 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
         else pure none
       return { spec, sourcePath, oleanPath, ileanPath, process, errors }
     let warningArgs := if spec.warningAsError then #["-DwarningAsError=true"] else #[]
-    let args := warningArgs ++
-      #["-o", oleanPath.toString, "-i", ileanPath.toString, sourcePath.toString]
+    -- The scratch root names the module `spec.module`, the name its inventory and fresh
+    -- transcript use, so the module's private names agree across all three.
+    let args := warningArgs ++ #["-R", scratch.toString,
+      "-o", oleanPath.toString, "-i", ileanPath.toString, sourcePath.toString]
     -- The worker sees only the workspace's own search path: an import that the
     -- fresh claimed-surface build did not produce fails here instead of
     -- resolving from the invoking checkout's inherited `LEAN_PATH`.

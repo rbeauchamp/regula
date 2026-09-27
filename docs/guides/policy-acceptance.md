@@ -456,13 +456,15 @@ Do not collapse exactness and definitional comparison, or set-normalize ordered 
 
 `NativeTeachingOK(decls,transcripts,a)` retains **all** guards in
 `authorizedNativeAxioms`: a name that `nativeEqTrue`'s scheme generates for `native_decide`,
-`decide +native` or `bv_decide` (`nativeAxiomOrigin?`), which fixes the parent and tactic;
-internal safe proposition axiom, that tactic's exact asserted statement and successful replay,
-permitted dependency set; same-module safe proposition parent of supported kind, the tactic's
+`decide +native` or `bv_decide` (`nativeAxiomOrigin?`), which fixes the tactic and a prefix that
+is the parent's name or, for a public parent, its private form in the parent's own module
+(`GeneratedPrefix`); internal safe proposition axiom, that tactic's exact asserted statement and
+successful replay, permitted dependency set; same-module safe proposition parent of supported kind, the tactic's
 exact parent-use bridge, unique direct user; nested exact ranges; unique introducing command
 shared with parent, adding one axiom of that origin with the same asserted statement; literal
-declaration, pinned complete evaluator chain ending in that tactic's evaluator and one
-evaluator range equal to the axiom's. Names only locate candidates. This evidence only permits teaching classification;
+declaration, pinned complete evaluator chain ending in an evaluator of that tactic name
+(`NativeEvaluator`: `native_decide`, `decide +native`, `bv_decide`, `bv_decide?` or `bv_check`)
+and one evaluator range equal to the axiom's. Names only locate candidates. This evidence only permits teaching classification;
 it never relaxes a conforming profile.
 
 Freeze these relations as independently written component predicates, then prove the

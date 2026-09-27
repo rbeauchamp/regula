@@ -555,9 +555,14 @@ private def scannerQualification : Array String := Id.run do
     failures := failures.push "scanner/pattern: ordered/alternative matching failed"
   failures
 
+/-- A committed LRAT certificate for `(x &&& y) + (x ||| y) = x + y` over `BitVec 2`, which
+`bv_check` reads by absolute path because a fence compiles in a scratch directory. -/
+private def bvCheckCertificate (repo : FilePath) : FilePath :=
+  repo / "lean" / "Fixtures" / "BvCheck.lrat"
+
 /-- The adversarial fence corpus shared by the in-process default-tier audit
 and the end-to-end public `docFenceAudit` control in the conditional tier. -/
-private def fenceCorpusCases : Array (String × String × String) := #[
+private def fenceCorpusCases (repo : FilePath) : Array (String × String × String) := #[
   ("unclosed", "```lean\ntheorem x : True := trivial\n", "never closed"),
   ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n",
       "pattern is empty"),
@@ -623,6 +628,21 @@ private def fenceCorpusCases : Array (String × String × String) := #[
   ("trusted-tactic-spoof", "<!-- lean-trusted-compiler -->\n```lean\naxiom \
     Attack._native.decide.ax_1 : False\naxiom Attack._native.bv_decide.ax_1 : False\n```\n",
       "trusted-tactic-spoof.md:2 FAIL"),
+  -- A public theorem of a `module` file elaborates its proof without exporting, so its generated
+  -- names are private to the module; each native tactic is still authenticated.
+  ("trusted-module-native", "<!-- lean-trusted-compiler -->\n```lean\nmodule\nimport \
+    Std.Tactic.BVDecide\nmeta import Std.Tactic.BVDecide.Reflect\npublic theorem \
+    docs_module_native_decide : (2 : Nat) = 2 := by native_decide\npublic theorem \
+    docs_module_decide_native : Nat.gcd 1071 462 = 21 := by decide +native\npublic theorem \
+    docs_module_bv_decide (x y : BitVec 8) : x * y = y * x := by bv_decide\n```\n",
+      "trusted-module-native.md:2 PASS_TRUSTED"),
+  -- `bv_decide?` and `bv_check` reach the same `nativeEqTrue` call through their own evaluators.
+  ("trusted-bv-trace", "<!-- lean-trusted-compiler -->\n```lean\nimport Std.Tactic.BVDecide\n\
+    theorem docs_bv_trace (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by bv_decide?\n\
+    ```\n", "trusted-bv-trace.md:2 PASS_TRUSTED"),
+  ("trusted-bv-check", s!"<!-- lean-trusted-compiler -->\n```lean\nimport Std.Tactic.BVDecide\n\
+    theorem docs_bv_check (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by\n  bv_check \
+    -binaryProofs \"{bvCheckCertificate repo}\"\n```\n", "trusted-bv-check.md:2 PASS_TRUSTED"),
   ("negative-compiles", "<!-- lean-fail: Type mismatch -->\n```lean\ndef n : Nat := 1\n```\n",
       "negative example elaborated successfully"),
   ("negative-other-diagnostic",
@@ -725,7 +745,7 @@ private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Na
     : IO (Array String) := do
   let mut tasks : Array Documentation.Task := #[]
   let mut structural : Array String := #[]
-  for (name, text, _) in fenceCorpusCases do
+  for (name, text, _) in fenceCorpusCases repo do
     let scan := Documentation.scan text s!"{name}.md"
     structural := structural ++ scan.problems
     for fence in scan.fences do
@@ -749,7 +769,7 @@ private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Na
     if result.status == .fail then failCount := failCount + 1
   if structural.isEmpty && failCount == 0 then
     failures := failures.push "scanner/corpus: malformed corpus unexpectedly passed"
-  for (name, _, expected) in fenceCorpusCases do
+  for (name, _, expected) in fenceCorpusCases repo do
     if !(fenceOriginOutput output s!"{name}.md").contains expected then
       failures :=
           failures.push s!"scanner/corpus/{name}: missing diagnostic {repr expected}:\n{output}"
@@ -758,7 +778,7 @@ private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Na
 /-- End-to-end public `docFenceAudit` control over the adversarial corpus
 (conditional tier: it re-runs the auditor against a clean-checkout copy). -/
 private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Array String) := do
-  let cases := fenceCorpusCases ++ publicOnlyFenceCases
+  let cases := fenceCorpusCases repo ++ publicOnlyFenceCases
   let docsRoot := scratch / "docs"
   IO.FS.createDirAll docsRoot
   for (name, text, _) in cases do
@@ -1579,7 +1599,7 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
     for failure in corpus do failures.modify (·.push failure)
     IO.println <| "self-test Markdown: " ++
       (if corpus.isEmpty then "PASS" else "FAIL") ++
-      s!" (scanner controls + {fenceCorpusCases.size} in-process corpus cases)"
+      s!" (scanner controls + {(fenceCorpusCases repo).size} in-process corpus cases)"
 
 /-- Structural/compiler-path mutations and manifest controls retain their
 isolated copies, task joins, and complete failure accumulation. -/
@@ -1636,7 +1656,7 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
     for failure in ← timedPhase "public fence corpus" (publicScannerQualification repo scratch) do
       failures.modify (·.push failure)
   IO.println s!"self-test public fence corpus: completed \
-    ({(fenceCorpusCases ++ publicOnlyFenceCases).size} end-to-end cases)"
+    ({(fenceCorpusCases repo ++ publicOnlyFenceCases).size} end-to-end cases)"
   withScratch repo "checker-adopter" fun scratch => do
     let adopter ← timedPhase "external adopters" (adopterQualification repo scratch)
     for failure in adopter do failures.modify (·.push failure)
@@ -1899,7 +1919,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     (if options.buildBound then
         s!"{fixtures.size} real-CLI controls (including all smoke controls); "
       else s!"{smokeFixtureNames.size} real-CLI smoke controls; ") ++
-    s!"{fenceCorpusCases.size + publicOnlyFenceCases.size} Markdown cases plus import-setup \
+    s!"{(fenceCorpusCases repo).size + publicOnlyFenceCases.size} Markdown cases plus import-setup \
       controls; 9 manifest cases; structural controls including explicit contract mutations; " ++
     s!"{CompilerPaths.caseCount} imported compiler-path mutations with fresh restorations; " ++
     (if options.buildBound then

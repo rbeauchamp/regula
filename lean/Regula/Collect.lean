@@ -207,15 +207,13 @@ private def isExactNativeUse (tactic : NativeTactic) (axiomName : Name) (asserte
         ((value.replace fun e => if bridge e then some (mkConst ``True.intro) else none).find?
           (·.isConstOf axiomName)).isNone
 
-/-- Whether `candidate` can mention the constant `axiomName`: a constant only mentions constants
-of its own environment, and Lean orders imported modules after their own imports, so a user is in
-the current document, in the axiom's module or in a later one. Only the `bv_decide` search, which
-inspects whole proofs, is restricted this way. -/
-private def mayMention (env : Environment) (axiomName candidate : Name) : Bool :=
-  match env.getModuleIdxFor? candidate, env.getModuleIdxFor? axiomName with
-  | none, _ => true
-  | some _, none => false
-  | some candidateIdx, some axiomIdx => axiomIdx.toNat ≤ candidateIdx.toNat
+/-- Whether `candidate` is in the module of the constant `axiomName` (both in the current
+document or both imported from the same module): the only parents `NativeParentShape` accepts
+(`p.module = a.module`). A user elsewhere is not searched; an owned one still fails
+`NativeTeachingOK`, whose parent must be the unique declaration mentioning the axiom. This bounds
+the whole-proof `bv_decide` search by the size of the axiom's own module. -/
+private def sameModule (env : Environment) (axiomName candidate : Name) : Bool :=
+  env.getModuleIdxFor? candidate == env.getModuleIdxFor? axiomName
 
 /-- Independently replay the Boolean native evaluation without retaining any
 declaration it creates. This remains compiler evidence, never a kernel proof. -/
@@ -325,8 +323,7 @@ def declaration (name : Name) (stage : Stage) :
     | none => #[]
     | some (_, tactic, asserted) =>
         env.constants.fold (init := #[]) fun parents parentName parentInfo =>
-          if (tactic != .bvDecide || mayMention env name parentName) &&
-              isExactNativeUse tactic name asserted parentInfo then
+          if sameModule env name parentName && isExactNativeUse tactic name asserted parentInfo then
             parents.push parentName
           else parents
   let levelParams : List Name := info.levelParams

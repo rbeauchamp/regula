@@ -50,20 +50,20 @@ structure EvaluatorKey where
 def key (value : Evaluator) : EvaluatorKey :=
   { role := value.role, elaborator := value.elaborator, kind := value.kind }
 
-/-- The evaluator of native tactic `t`: its pinned tactic elaborator and syntax kind. -/
-def NativeTactic.evaluatorKey (t : NativeTactic) : EvaluatorKey :=
-  ⟨.tactic, t.elaborator, t.syntaxKind⟩
+/-- The key of native evaluator `e`: its pinned tactic elaborator and syntax kind. -/
+def NativeEvaluator.evaluatorKey (e : NativeEvaluator) : EvaluatorKey :=
+  ⟨.tactic, e.elaborator, e.syntaxKind⟩
 
-/-- The only non-term evaluator sequence `NativeCommand t` accepts: the declaration command,
-then its `by` block and tactic sequence, then the tactic `t`, in that order. -/
-def nativeTacticChain (t : NativeTactic) : Array EvaluatorKey := #[
+/-- The only non-term evaluator sequence `NativeCommand e` accepts: the declaration command,
+then its `by` block and tactic sequence, then the tactic of `e`, in that order. -/
+def nativeTacticChain (e : NativeEvaluator) : Array EvaluatorKey := #[
   ⟨.command, declarationElaborator, declarationKind⟩,
   ⟨.tactic, .anonymous, `Lean.Parser.Term.byTactic⟩,
   ⟨.tactic, .anonymous, `by⟩,
   ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq, `Lean.Parser.Tactic.tacticSeq⟩,
   ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq1Indented,
     `Lean.Parser.Tactic.tacticSeq1Indented⟩,
-  t.evaluatorKey
+  e.evaluatorKey
 ]
 
 /-- Source containment uses the lexicographic codepoint position order. -/
@@ -86,16 +86,17 @@ instance (ts : Array Transcript) (m n : Name) (c : Command) :
     Decidable (IntroducingCommand ts m n c) := by unfold IntroducingCommand; infer_instance
 
 /-- The native observation must match exactly one added axiom in exactly one command: the same
-generated origin and the same asserted statement. The statement names the tactic run's own
-auxiliary definitions by their unindexed base (`nativeStatement`), since a fresh transcript and
-an asynchronous build can index generated names differently. -/
+generated origin (the recognized prefix `pfx`, in the same privacy form, and tactic `t`) and the
+same asserted statement. The statement names the tactic run's own auxiliary definitions by their
+unindexed base (`nativeStatement`), since a fresh transcript and an asynchronous build can index
+generated names differently. -/
 def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (t : NativeTactic)
-    (parent : Name) (c : Command) : Prop :=
+    (pfx : Name) (c : Command) : Prop :=
   (moduleCommands ts a.module).filter (fun cmd =>
-    (cmd.addedDeclarations.filter (fun d => nativeAxiomOrigin? d.name == some (parent, t) &&
+    (cmd.addedDeclarations.filter (fun d => nativeAxiomOrigin? d.name == some (pfx, t) &&
       d.kind == .«axiom» && d.nativeStatement == a.nativeStatement)).size == 1) = #[c]
-instance (ts : Array Transcript) (a : Declaration) (t : NativeTactic) (p : Name) (c : Command) :
-    Decidable (NativeIntroducingCommand ts a t p c) := by
+instance (ts : Array Transcript) (a : Declaration) (t : NativeTactic) (pfx : Name) (c : Command) :
+    Decidable (NativeIntroducingCommand ts a t pfx c) := by
         unfold NativeIntroducingCommand; infer_instance
 
 /-- Literal declaration origin, including the exact built-in dotted-name expansion. -/
@@ -128,12 +129,23 @@ instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
     (RecursiveCommand c b r) := by
   unfold RecursiveCommand; infer_instance
 
-/-- Native teaching permits exactly the pinned complete non-term evaluator sequence of `t`. -/
-def NativeCommand (t : NativeTactic) (c : Command) (r : SyntaxRange) : Prop :=
-  LiteralDeclaration c r ∧ (∀ e ∈ c.evaluators, PinnedEvaluator e) ∧
-  (c.evaluators.filter (·.role != .term)).map key = nativeTacticChain t
-instance (t : NativeTactic) (c : Command) (r : SyntaxRange) : Decidable (NativeCommand t c r) := by
+/-- Native teaching permits exactly the pinned complete non-term evaluator sequence of `e`. -/
+def NativeCommand (e : NativeEvaluator) (c : Command) (r : SyntaxRange) : Prop :=
+  LiteralDeclaration c r ∧ (∀ v ∈ c.evaluators, PinnedEvaluator v) ∧
+  (c.evaluators.filter (·.role != .term)).map key = nativeTacticChain e
+instance (e : NativeEvaluator) (c : Command) (r : SyntaxRange) :
+    Decidable (NativeCommand e c r) := by
   unfold NativeCommand; infer_instance
+
+/-- An evaluator of name family `t` is the command's complete pinned evaluator sequence over the
+parent's range `pr`, and exactly one observation of it has the axiom's range `ar`. -/
+def NativeEvaluatorCommand (t : NativeTactic) (c : Command) (pr ar : SyntaxRange) : Prop :=
+  ∃ e : NativeEvaluator, e.family = t ∧ NativeCommand e c pr ∧
+    ExactlyOne (c.evaluators.filter (fun v => v.role == .tactic &&
+      v.elaborator == e.elaborator && v.kind == e.syntaxKind)) (fun v => v.range = some ar)
+instance (t : NativeTactic) (c : Command) (pr ar : SyntaxRange) :
+    Decidable (NativeEvaluatorCommand t c pr ar) := by
+  unfold NativeEvaluatorCommand; infer_instance
 
 /-- Native axiom shape, the asserted statement of its tactic and successful independent replay
 observations. -/
@@ -154,19 +166,18 @@ instance (a p : Declaration) : Decidable (NativeParentShape a p) := by
     unfold NativeParentShape; infer_instance
 
 /-- All native teaching requirements jointly hold, including unique use and introduction.
-The name locates a candidate parent and native tactic (`nativeAxiomOrigin?`); the remaining
-relations supply the required data-level evidence, including that tactic's own evaluator. -/
+The name locates a generated prefix of the parent in its own module and a native tactic
+(`nativeAxiomOrigin?`, `GeneratedPrefix`); the remaining relations supply the required
+data-level evidence, including an evaluator of that tactic's name family. -/
 def NativeTeachingOK (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) : Prop :=
-  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ t,
-    nativeAxiomOrigin? a.name = some (p.name, t) ∧ NativeParentShape a p ∧
+  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ o ∈ nativeAxiomOrigin? a.name,
+    GeneratedPrefix p.module p.name o.1 ∧ NativeParentShape a p ∧
     (ds.filter (fun d => d.valueConstants.contains a.name)) = #[p] ∧
     ∃ pr ∈ declarationRange? p, ∃ ar ∈ declarationRange? a,
       PositionLE pr.start ar.start ∧ PositionLE ar.end pr.end ∧
       ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
-        NativeIntroducingCommand ts a t p.name c ∧ NativeCommand t c pr ∧ p.name ∈ c.added ∧
-        ExactlyOne (c.evaluators.filter (fun e => e.role == .tactic &&
-          e.elaborator == t.elaborator && e.kind == t.syntaxKind)) (fun e =>
-          e.range = some ar))
+        NativeIntroducingCommand ts a o.2 o.1 c ∧ p.name ∈ c.added ∧
+          NativeEvaluatorCommand o.2 c pr ar)
 instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
 
