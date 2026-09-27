@@ -268,7 +268,7 @@ An array's capacity is spare storage, not its logical size. `Array.emptyWithCapa
 import Init
 
 /-- Produce exactly `count` natural-number offsets. -/
-def makeOffsets (count stride : Nat) : Array Nat := Id.run do
+def strideOffsets (count stride : Nat) : Array Nat := Id.run do
   let mut offsets : Array Nat := Array.emptyWithCapacity count
   for i in [:count] do
     offsets := offsets.push (i * stride)
@@ -504,6 +504,7 @@ import Init
 def countMatching (predicate : Nat → Bool) (xs : List Nat) : Nat :=
   go xs 0
 where
+  /-- Add the number of matching elements of the list to the running count. -/
   go : List Nat → Nat → Nat
     | [], count => count
     | x :: rest, count =>
@@ -675,7 +676,7 @@ Expose independent work before waiting:
 import Init
 
 /-- Expose two independent computations; task scheduling determines overlap. -/
-def computePair (work : Array UInt64 → UInt64)
+def workPair (work : Array UInt64 → UInt64)
     (left right : Array UInt64) : UInt64 × UInt64 :=
   let pending := Task.spawn (fun _ => work left)
   let rightResult := work right

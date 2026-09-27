@@ -376,6 +376,57 @@ evidence trusts Lake's build cache. Upload `tmp/regula.json` if another step con
 the machine result. Its `status` is `completed` only when the accepted result was
 constructed.
 
+### Community conventions and linters
+
+Regula's rules are Lean correctness rules. For style, naming and documentation form, follow the
+Lean community's conventions and run the community's own linters beside `lake lint`
+([standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)):
+Mathlib's [style](https://leanprover-community.github.io/contribute/style.html),
+[naming](https://leanprover-community.github.io/contribute/naming.html) and
+[documentation](https://leanprover-community.github.io/contribute/doc.html) guides for code that
+depends on Mathlib, and Lean's
+[standard library style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md)
+and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md) for
+core-only code.
+
+- **Mathlib's syntax linters.** In a project that depends on Mathlib, enable the set Mathlib
+  builds with, and turn off automatic implicits
+  ([standard §8.1](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#81-declare-the-elaboration-environment)):
+
+  ```toml
+  [leanOptions]
+  weak.linter.mathlibStandardSet = true
+  autoImplicit = false
+  relaxedAutoImplicit = false
+  ```
+
+  In `lakefile.lean` the same options are
+  ``leanOptions := #[⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]``.
+  The linters report through build warnings, so `lake lint` reports each finding as RG2003
+  (`INCOMPLETE`, exit 3) with the linter's message. Where Mathlib's guidance accepts an
+  exception, such as a long URL, disable that linter for the one declaration
+  (`set_option linter.style.longLine false in`) with a comment giving the reason. Never
+  disable Lean's default warnings, such as `linter.unusedVariables` or `warn.sorry`. Regula
+  sees only emitted warnings, so it cannot tell these cases apart; review checks every
+  disable.
+- **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others)
+  report through their own command, not build warnings. Run `lake build` first: `runLinter`
+  reads the built modules and does not rebuild them. Lake has one `lintDriver` per package, so
+  keep one driver and run the other as its own command:
+
+  ```sh
+  # lintDriver = "regula/lint"
+  lake lint && lake build && lake exe runLinter
+  # lintDriver = "batteries/runLinter"
+  lake build && lake lint && lake exe lint
+  ```
+
+  Each command's exit status covers only its own checks, so CI requires both.
+
+A community linter's pass is a style observation. It discharges no Regula rule, and a Regula
+pass says nothing about style. Both routes were exercised on a small Mathlib-importing adopter
+([product qualification](product-qualification.md#community-linters-beside-regula)).
+
 ## 7. Receive diagnostics while editing
 
 Import `Regula.Linter` from a module your project already imports widely. The

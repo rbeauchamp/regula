@@ -154,6 +154,8 @@ transitive package resolution does not require compiling its mathematical module
   plus `findDocString?` and module-doc metadata for the scoped presence checks. Text adequacy
   remains review. Reuse Batteries/Mathlib linter tests only after demonstrating their predicate
   and scope match; do not turn upstream optional style rules into universal strict rules.
+  Adopters run the community linters beside Regula instead
+  ([standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)).
 - Lake [PackageConfig.lintDriver][lake-config] accepts `"regula/lint"` in either
   lakefile format. The `lint` executable is qualified end to end by the `lint-driver`
   campaign in both formats. The driver builds only explicit manifest-derived targets, never

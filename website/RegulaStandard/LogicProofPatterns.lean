@@ -42,17 +42,19 @@ number := false
 import Mathlib.Basic.Real.Basic
 import Mathlib.Data.List.Basic
 
-/-- A system state that must maintain invariants -/
+/-- A system state that must maintain invariants. -/
 structure SystemState where
+  /-- The number of participants. -/
   participants : ℕ
+  /-- The number of active proposals. -/
   activeProposals : ℕ
-  -- Invariant: can't have more proposals than participants
+  /-- Invariant: there are no more active proposals than participants. -/
   inv : activeProposals ≤ participants
 
 /-- Non-vacuity: states satisfying the invariant exist. -/
 example : Nonempty SystemState := ⟨⟨3, 1, by omega⟩⟩
 
-/-- Adding a participant maintains the invariant -/
+/-- Adding a participant maintains the invariant. -/
 def addParticipant (s : SystemState) : SystemState where
   participants := s.participants + 1
   activeProposals := s.activeProposals
@@ -61,28 +63,29 @@ def addParticipant (s : SystemState) : SystemState where
     have h := s.inv
     omega
 
-theorem addParticipant_preserves_inv (s : SystemState) :
+/-- The input's active proposals stay within the participants after adding one. -/
+theorem activeProposals_le_addParticipant_participants (s : SystemState) :
     s.activeProposals ≤ (addParticipant s).participants :=
   -- Proof is immediate from construction
   (addParticipant s).inv
 
 /-- Composition preserves the invariant stated above. Because the invariant
-    is a *field* of `SystemState`, no side conditions on `f` and `g` are needed
-    for this bound — their results already carry it. -/
-theorem compose_preserves_safety (f g : SystemState → SystemState) :
-    ∀ s, ((f ∘ g) s).activeProposals ≤ ((f ∘ g) s).participants := by
-  intro s
-  exact (f (g s)).inv
+is a *field* of `SystemState`, no side conditions on `f` and `g` are needed
+for this bound — their results already carry it. -/
+theorem comp_activeProposals_le_participants (f g : SystemState → SystemState)
+    (s : SystemState) : ((f ∘ g) s).activeProposals ≤ ((f ∘ g) s).participants :=
+  (f (g s)).inv
 
-/-- Prove the excluded states are excluded -/
-theorem no_proposals_without_participants : ¬∃ (s : SystemState), s.participants = 0 ∧ s.activeProposals > 0 := by
+/-- Prove the excluded states are excluded. -/
+theorem not_exists_participants_eq_zero_and_activeProposals_pos :
+    ¬∃ s : SystemState, s.participants = 0 ∧ 0 < s.activeProposals := by
   intro ⟨s, hp, ha⟩
   have : s.activeProposals ≤ s.participants := s.inv
   rw [hp] at this
   omega
 ```
 
-The theorem `compose_preserves_safety` follows from the result type: every returned `SystemState` carries its bound. The functions are total in Lean’s logic. This theorem establishes no relation between inputs and outputs beyond the invariant. It does not provide an execution time bound or connect to an external process ({ref "16-claim-boundaries-and-automated-checking"}[module 1 §1.6]).
+The theorem `comp_activeProposals_le_participants` follows from the result type: every returned `SystemState` carries its bound. The functions are total in Lean’s logic. This theorem establishes no relation between inputs and outputs beyond the invariant. It does not provide an execution time bound or connect to an external process ({ref "16-claim-boundaries-and-automated-checking"}[module 1 §1.6]).
 
 # 3.2 Proof Patterns
 %%%
@@ -127,13 +130,16 @@ def ReviewPlan.stepCount : ReviewPlan → ℕ
 
 /-- State for a bounded retry model. -/
 structure RetryState where
+  /-- Retries still to run. -/
   remaining : ℕ
+  /-- Retries already completed. -/
   completed : ℕ
 
-/-- Well-founded recursion: each call has one fewer remaining retry. -/
-def RetryState.finish (s : RetryState) : ℕ :=
+/-- The completed count once every remaining retry has run. Well-founded recursion:
+each call has one fewer remaining retry. -/
+def RetryState.totalCompleted (s : RetryState) : ℕ :=
   if _h : s.remaining = 0 then s.completed
-  else finish { remaining := s.remaining - 1, completed := s.completed + 1 }
+  else totalCompleted { remaining := s.remaining - 1, completed := s.completed + 1 }
   termination_by s.remaining
   decreasing_by omega
 ```
@@ -156,11 +162,11 @@ import Mathlib.Data.Nat.Basic
 example : (1 : ℕ) / 0 = 0 := rfl
 
 /-- A restricted domain is expressed by the API when the model wants one:
-    the denominator subtype carries the proof obligation. -/
-def safeDiv (a : ℕ) (d : {d : ℕ // d > 0}) : ℕ := a / d.val
+the denominator subtype carries the proof obligation. -/
+def safeDiv (a : ℕ) (d : {d : ℕ // 0 < d}) : ℕ := a / d.val
 
 /-- `safeDiv` agrees with the underlying total division. -/
-theorem safeDiv_eq (a : ℕ) (d : {d : ℕ // d > 0}) : safeDiv a d = a / d.val := rfl
+theorem safeDiv_eq (a : ℕ) (d : {d : ℕ // 0 < d}) : safeDiv a d = a / d.val := rfl
 
 example : safeDiv 6 ⟨2, by decide⟩ = 3 := rfl
 ```
@@ -170,7 +176,7 @@ The subtype documents the intended domain at the type level. The underlying divi
 ```lean (fails := "Tactic `decide` proved|proved that the proposition")
 import Mathlib.Data.Nat.Basic
 
-def safeDiv (a : ℕ) (d : {d : ℕ // d > 0}) : ℕ := a / d.val
+def safeDiv (a : ℕ) (d : {d : ℕ // 0 < d}) : ℕ := a / d.val
 
 -- The domain restriction is enforced at elaboration: the zero divisor cannot be
 -- supplied a proof, so this call does not elaborate.
@@ -193,17 +199,17 @@ Kernel-checked exhaustive case analysis over a closed finite domain is a proof, 
 import Mathlib.Data.Nat.Notation
 
 /-- The naive claim
-        ∀ (l₁ l₂ : List ℕ), (l₁ ++ l₂).reverse = l₁.reverse ++ l₂.reverse
-    is refuted by the counterexample l₁ = [1], l₂ = [2]
-    (LHS [2, 1] ≠ RHS [1, 2]). The corrected statement follows from the
-    library theorem, regardless of how the counterexample was found. -/
-theorem reverse_append_correct (l₁ l₂ : List ℕ) :
+`∀ (l₁ l₂ : List ℕ), (l₁ ++ l₂).reverse = l₁.reverse ++ l₂.reverse`
+is refuted by the counterexample `l₁ = [1]`, `l₂ = [2]`
+(LHS `[2, 1]` ≠ RHS `[1, 2]`). The corrected statement follows from the
+library theorem, regardless of how the counterexample was found. -/
+theorem reverse_append_eq (l₁ l₂ : List ℕ) :
     (l₁ ++ l₂).reverse = l₂.reverse ++ l₁.reverse :=
   @List.reverse_append ℕ l₁ l₂
 
-/-- info: 'reverse_append_correct' depends on axioms: [propext] -/
+/-- info: 'reverse_append_eq' depends on axioms: [propext] -/
 #guard_msgs in
-#print axioms reverse_append_correct
+#print axioms reverse_append_eq
 ```
 
 A discovered counterexample can become a checked refutation, and a discovered witness can become a checked existence proof. A corrected universal statement requires its own proof; the preceding test run does not establish it.
@@ -228,9 +234,12 @@ The following class and instance elaborate, but the two advertised laws are fals
 import Mathlib.Basic.Real.Basic
 import Mathlib.Tactic.NormNum
 
--- ❌ CRITICAL VIOLATION: Laws only in documentation
+/-- ❌ CRITICAL VIOLATION: laws only in documentation. The operations below are
+the class's only fields. -/
 class BadFlourishing (α : Type) where
+  /-- A binary combining operation. -/
   enhance : α → α → α
+  /-- A real-valued measure. -/
   measure : α → ℝ
   -- Law: enhance is associative (comment only)
   -- Law: measure is monotone (comment only)
@@ -266,12 +275,16 @@ Failure to prove a law leaves an unresolved obligation. A counterexample may sho
 ```lean
 import Mathlib.Basic.Real.Basic     -- `measure : α → ℝ` and the ℝ instance below
 import Mathlib.Algebra.Order.Group.Defs
+
 /-- The order is a separate lawful parameter (`Preorder`), not an `LE` parent
-    the instance could choose for itself. -/
+the instance could choose for itself. -/
 class Flourishable (α : Type) [Preorder α] where
   -- Operations
+  /-- An operation that must not decrease its first argument. -/
   enhance : α → α → α
+  /-- An operation that must not increase its first argument. -/
   diminish : α → α → α
+  /-- A real-valued measure that must preserve the order. -/
   measure : α → ℝ
 
   -- Laws that MUST be proven for every instance
@@ -280,7 +293,7 @@ class Flourishable (α : Type) [Preorder α] where
   measure_monotone : ∀ a b, a ≤ b → measure a ≤ measure b
 
 /-- Concrete instance with ALL laws proven. Mathlib's order lemmas prove the
-    max/min laws; the identity measure preserves the supplied inequality. -/
+max/min laws; the identity measure preserves the supplied inequality. -/
 instance : Flourishable ℝ where
   enhance := max
   diminish := min
@@ -304,7 +317,7 @@ These laws state that `enhance` does not decrease its first argument, `diminish`
 import Audit.Economy
 
 /-- The claim names the mixin; the ℝ instance discharged every law from
-    Mathlib's lattice lemmas. -/
+Mathlib's lattice lemmas. -/
 example : Economy.LawfulFlourishable ℝ := inferInstance
 
 /-- Using a law requires the mixin in the binders. -/
@@ -340,7 +353,7 @@ And a law cannot be used from the operations alone:
 import Audit.Economy
 
 /-- The mixin is not required, so the law is not available. -/
-theorem noMixin {α : Type} [Preorder α] [Economy.Flourishable α] (a b : α) :
+theorem le_enhance {α : Type} [Preorder α] [Economy.Flourishable α] (a b : α) :
     a ≤ Economy.Flourishable.enhance a b :=
   Economy.LawfulFlourishable.enhance_increases a b
 ```
@@ -371,29 +384,30 @@ In contrast, the natural-number validator in {ref "11-the-principle-of-represent
 import Mathlib.Data.List.Basic
 
 /-- A proposition over natural-number arithmetic. -/
-def hasQuorum (n : ℕ) (total : ℕ) : Prop :=
-  3 * n > 2 * total
+def HasQuorum (n : ℕ) (total : ℕ) : Prop :=
+  2 * total < 3 * n
 
-/-- A *computable* decision procedure for the predicate -/
-instance (n total : ℕ) : Decidable (hasQuorum n total) :=
-  inferInstanceAs (Decidable (3 * n > 2 * total))
+/-- A *computable* decision procedure for the predicate. -/
+instance (n total : ℕ) : Decidable (HasQuorum n total) :=
+  inferInstanceAs (Decidable (2 * total < 3 * n))
 
-/-- Now we can branch on it in computable code -/
-def canProceed (votes total : ℕ) : String :=
-  if hasQuorum votes total then
+/-- The decision message; it branches on the predicate in computable code. -/
+def quorumDecision (votes total : ℕ) : String :=
+  if HasQuorum votes total then
     "Proceed with proposal"
   else
     "Insufficient votes"
 
 -- The predicate is both logically precise and computationally usable
-example : canProceed 7 10 = "Proceed with proposal" := rfl
+example : quorumDecision 7 10 = "Proceed with proposal" := rfl
 
 /-- The contrast: `Classical.propDecidable` decides ANY proposition — but it
-    is noncomputable and choice-dependent. It licenses `if` in *proofs*,
-    never an executable decision. -/
-noncomputable def cd (p : Prop) : Decidable p := Classical.propDecidable p
+is noncomputable and choice-dependent. It licenses `if` in *proofs*,
+never an executable decision. -/
+noncomputable def classicalDecidable (p : Prop) : Decidable p := Classical.propDecidable p
 
-#print axioms cd  -- 'cd' depends on axioms: [propext, Classical.choice, Quot.sound]
+-- 'classicalDecidable' depends on axioms: [propext, Classical.choice, Quot.sound]
+#print axioms classicalDecidable
 ```
 
 *Rule*: A decision used in erased proof code must respect the claimed foundation profile. A decision used to select runtime data must have a computable producer. A `Decidable` type alone establishes neither executability nor foundation profile.
@@ -447,18 +461,18 @@ open Economy
 example : sumTo 100 = 5050 := by decide
 
 /-- Analytic discharge: one rewrite by the universal theorem, then
-    kernel-accelerated literal arithmetic. -/
+kernel-accelerated literal arithmetic. -/
 example : sumTo 100 = 5050 := by rw [sumTo_eq_closedSum]; rfl
 
 /-- The universal statement costs one induction for every `n`. -/
 example (n : Nat) : 2 * sumTo n = n * (n + 1) := two_mul_sumTo n
 
 /-- The well-founded twin agrees pointwise; the proof goes through its
-    equation theorem, the stable interface, rather than through transparency. -/
+equation theorem, the stable interface, rather than through transparency. -/
 example : sumWf 100 = 5050 := by rw [sumWf_eq_sumTo]; decide
 
 /-- Kernel replay of the well-founded definition is available; only the
-    elaborator's default-transparency reduction is not. -/
+elaborator's default-transparency reduction is not. -/
 example : sumWf 10 = 55 := by decide +kernel
 
 #print axioms sumTo   -- 'Economy.sumTo' does not depend on any axioms
@@ -479,14 +493,14 @@ example : Economy.sumWf 10 = 55 := by decide
 import Init
 
 /-- Kernel-checked: `decide` produces a proof term the kernel re-checks. -/
-theorem kernel_checked : Nat.gcd 1071 462 = 21 := by decide
+theorem gcd_1071_462_kernel : Nat.gcd 1071 462 = 21 := by decide
 
 /-- Compiler-trusting: `native_decide` trusts the compiled evaluation. -/
-theorem compiler_trusted : Nat.gcd 1071 462 = 21 := by native_decide
+theorem gcd_1071_462_native : Nat.gcd 1071 462 = 21 := by native_decide
 
-#print axioms kernel_checked
--- 'kernel_checked' does not depend on any axioms
-#print axioms compiler_trusted
+#print axioms gcd_1071_462_kernel
+-- 'gcd_1071_462_kernel' does not depend on any axioms
+#print axioms gcd_1071_462_native
 -- The output includes a per-invocation `._native.native_decide` axiom;
 -- inspect the printed name rather than relying on its generated suffix.
 ```
@@ -518,9 +532,9 @@ number := false
 import Mathlib.Data.Fin.Basic
 import Mathlib.Data.Vector.Basic
 
-/-- Return a value with its proof of property -/
-def findPositive (l : List ℕ) : Option {x : ℕ // x > 0 ∧ x ∈ l} :=
-  match hx : l.find? (· > 0) with
+/-- Return a value with its proof of property. -/
+def findPositive (l : List ℕ) : Option {x : ℕ // 0 < x ∧ x ∈ l} :=
+  match hx : l.find? (0 < ·) with
   | none => none
   | some x =>
     have hp := List.find?_some hx
@@ -528,28 +542,32 @@ def findPositive (l : List ℕ) : Option {x : ℕ // x > 0 ∧ x ∈ l} :=
 
 /-- Access requires an index whose bound has been established. -/
 def safeGet {α : Type} {n : ℕ} (v : Vector α n) (i : Fin n) : α :=
-  v.get i  -- The index carries the proof `i.val < n`; this is an API claim, not a runtime-cost claim.
+  -- The index carries the proof `i.val < n`; this is an API claim, not a runtime-cost claim.
+  v.get i
 
-/-- Witness-bearing comparison -/
+/-- Witness-bearing comparison. -/
 inductive CompareResult (a b : ℕ) : Type
   | lt (h : a < b) : CompareResult a b
   | eq (h : a = b) : CompareResult a b
-  | gt (h : a > b) : CompareResult a b
+  | gt (h : b < a) : CompareResult a b
 
+/-- The comparison of `a` and `b`, with the proof of the relation that holds. -/
 def compare (a b : ℕ) : CompareResult a b :=
   if h : a < b then .lt h
   else if h : a = b then .eq h
   else .gt (by omega)
 
-/-- Type-level state machine whose invalid transitions are type errors -/
+/-- Type-level state machine whose invalid transitions are type errors. -/
 inductive State : Type
   | ready | running | done
 
+/-- The allowed transitions between states; a missing edge has no constructor. -/
 inductive ValidTransition : State → State → Type
   | start : ValidTransition .ready .running
   | finish : ValidTransition .running .done
   | reset : ValidTransition .done .ready
 
+/-- The target state of an allowed transition. -/
 def transition {s₁ s₂ : State} (_ : ValidTransition s₁ s₂) : State := s₂
 
 /-- There is no direct transition from ready to done in this relation. -/
@@ -571,11 +589,12 @@ What a theorem _does_ transitively use of Lean's standard logical axioms is not 
 ```lean
 import Mathlib.Tactic.NormNum
 
-theorem my_safety_theorem : 1 + 1 = 2 := by norm_num
+/-- A small arithmetic fact, proved by `norm_num`. -/
+theorem Nat.one_add_one_eq_two : (1 : ℕ) + 1 = 2 := by norm_num
 
 -- The output is exactly this theorem's slice of the trusted base:
-#print axioms my_safety_theorem
--- 'my_safety_theorem' depends on axioms: [propext]
+#print axioms Nat.one_add_one_eq_two
+-- 'Nat.one_add_one_eq_two' depends on axioms: [propext]
 ```
 
 * *Foundation profiles* — kernel-only, choice-free, standard-logical — are defined precisely in {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[module 4 §4.5]. The repository's gate ({ref "85-proof-completeness-and-foundation-strength"}[module 8 §8.5]) computes each declaration's exact transitive axiom set and its profile mechanically, including through Mathlib dependencies.
@@ -634,7 +653,7 @@ def referenceStep (n : Nat) : Nat := 1 + n
 def replacementStep (n : Nat) : Nat := n + 1
 
 /-- Exact function equality; no additional premises or native evaluation. -/
-@[csimp] theorem referenceStep_eq : referenceStep = replacementStep :=
+@[csimp] theorem referenceStep_eq_replacementStep : referenceStep = replacementStep :=
   funext fun n => Nat.add_comm 1 n
 
 /-- Subsequent compilation can use the replacement. -/
@@ -820,17 +839,20 @@ An executable may have a classical correctness proof under Standard-Logical. Pro
 ```lean
 import Regula.Contract
 
+/-- The successor of a natural number. -/
 def successor (n : Nat) : Nat := n + 1
 
-theorem successorContract : Regula.ExecutableContract successor
+/-- `successor` returns `n + 1` for every `n`, proved classically for illustration. -/
+theorem successor_contract : Regula.ExecutableContract successor
     (fun f => ∀ n, f n = n + 1) :=
   ⟨Classical.byContradiction (fun h => h (fun _ => rfl))⟩
 
-def next (n : Nat) : Nat := successorContract.run n
+/-- `successor`, run through its registered contract. -/
+def next (n : Nat) : Nat := successor_contract.run n
 
-/-- info: 'successorContract' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'successor_contract' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
-#print axioms successorContract
+#print axioms successor_contract
 
 example (n : Nat) : next n = n + 1 := rfl
 ```
@@ -850,8 +872,8 @@ theorem missing : Regula.ExecutableContract successor
 Existence evidence cannot fill a promised data result:
 
 ```lean (fails := "Type mismatch")
-theorem successorExists (n : Nat) : ∃ m : Nat, m = n + 1 := ⟨n + 1, rfl⟩
-def promised (n : Nat) : {m : Nat // m = n + 1} := successorExists n
+theorem exists_eq_add_one (n : Nat) : ∃ m : Nat, m = n + 1 := ⟨n + 1, rfl⟩
+def promised (n : Nat) : {m : Nat // m = n + 1} := exists_eq_add_one n
 ```
 
 Using choice to extract the data makes it a noncomputable specification instead:
@@ -979,12 +1001,12 @@ import Audit.Research
 open Research
 
 /-- Conditional completeness: the implication is proved for every `n`, with no
-    inhabitant of the antecedent required or supplied. -/
+inhabitant of the antecedent required or supplied. -/
 example (n : ℕ) (hodd : Odd n) (hperf : n.Perfect) : 9 ≤ n ∧ ¬ IsPrimePow n :=
   ⟨oddPerfect_nine_le hodd hperf, Perfect.not_isPrimePow hperf⟩
 
 /-- The reduction instantiated at `9`: the only remaining obligation is the
-    explicit bound hypothesis, which this example does not pretend to have. -/
+explicit bound hypothesis, which this example does not pretend to have. -/
 example (hbound : ∀ n, Odd n → n.Perfect → n < 9) : ¬ OddPerfectExists :=
   not_oddPerfectExists_of_bound 9 hbound search_below_nine
 

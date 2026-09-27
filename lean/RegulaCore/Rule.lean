@@ -453,13 +453,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "source-build"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Every claimed module elaborates from source without errors or warnings, with no warning or linter disabled."
+      requirement := "Every claimed module elaborates from source without errors or warnings; Lean's default warnings stay enabled, and disabling a linter never discharges what it checks."
       rationale := "Warnings often mark real defects (unused hypotheses, deprecated semantics, unreachable cases). Treating them as failures keeps the elaborated statements exactly those the author intended, and prevents a local option from changing what conformance means."
-      remedy := "Fix the compiler diagnostic at its source. Do not disable the warning or linter that reported it."
+      remedy := "Fix the compiler diagnostic at its source. Never disable a Lean default warning; disable a community linter only for one declaration, where its guidance allows, with the reason."
       rewrites := [
         "Read the preserved compiler message, fix the cause and rebuild.",
         "Remove dead bindings or rename intentionally unused ones only when the name was genuinely unused; do not rename a variable that should have been used.",
-        "Do not add `set_option linter.… false`: disabling a linter hides its warning but does not discharge the property it checks."]
+        "Do not add `set_option linter.… false` for a Lean default warning such as `linter.unusedVariables`. A declaration-scoped `set_option linter.NAME false in` or `@[nolint NAME]` is only for a community linter the project enabled, where its guidance allows, and establishes nothing the linter checks."]
       examples := {
         language := .lean
         audience := .adopter

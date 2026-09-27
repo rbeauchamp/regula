@@ -89,7 +89,7 @@ The non-vacuity requirement is proportional to the intended claim:
 import Mathlib.Data.Nat.Notation
 
 /-- This witness establishes that the refined type is inhabited.
-    It does not establish reachability or a program-behavior property. -/
+It does not establish reachability or a program-behavior property. -/
 example : Nonempty {n : ℕ // n % 2 = 0} := ⟨⟨4, by omega⟩⟩
 ```
 

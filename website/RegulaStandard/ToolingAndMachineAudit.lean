@@ -37,6 +37,8 @@ number := false
 
 Parsing, elaboration, generated declarations, tactics, theorem names, and reduction behavior can change with the toolchain or dependencies. The gate reports the environment it loads. Its declaration results do not prove that a dependency checkout matches its recorded revision.
 
+*Recommendation*: Claimed surfaces SHOULD elaborate with the options `autoImplicit` and `relaxedAutoImplicit` set to `false`, as Mathlib's own build does; set both in the Lake `leanOptions` of every claimed library. With automatic implicits, an unbound identifier in a declaration's signature becomes a universally quantified implicit argument that the source does not show. A misspelled name can then add a binder and change the quantifiers that a reviewer compares with the intent ({ref "52-faithful-explanation-of-formal-claims"}[module 5 §5.2]). With both options off, such an identifier is an elaboration error. The elaborated declaration remains authoritative under either setting.
+
 # 8.2 Define Surfaces Through Lake Semantics
 %%%
 tag := "82-define-surfaces-through-lake-semantics"
@@ -86,7 +88,7 @@ number := false
 * The build output and exit status MUST both be checked. A zero exit with a warning is not a warning-free result.
 * For the checker qualification in §8.8, re-establish the positive control after a negative mutation (§8.8 states when a separate fresh workspace satisfies this). The qualification harness must keep the mutation’s artifacts from satisfying that control.
 
-This repository's normal declaration gate uses an isolated copy under the checked project's `tmp/`. It omits VCS data, Lake build state, and artifact caches; shares dependency checkouts through `.lake/packages`; and re-anchors relative path dependencies recorded in the manifest to their original directories. A missing relative dependency fails as `lake-workspace-load-failed`. The copy starts with empty root-package output and is removed afterward. Lake can reuse existing dependency artifacts and may rebuild missing or invalidated dependencies. This establishes fresh source elaboration for the claimed root-package surface, not fresh checking of every imported dependency. Disabling a linter can prevent it from emitting a warning but does not discharge the semantic property the linter was intended to check.
+This repository's normal declaration gate uses an isolated copy under the checked project's `tmp/`. It omits VCS data, Lake build state, and artifact caches; shares dependency checkouts through `.lake/packages`; and re-anchors relative path dependencies recorded in the manifest to their original directories. A missing relative dependency fails as `lake-workspace-load-failed`. The copy starts with empty root-package output and is removed afterward. Lake can reuse existing dependency artifacts and may rebuild missing or invalidated dependencies. This establishes fresh source elaboration for the claimed root-package surface, not fresh checking of every imported dependency. Disabling a linter can prevent it from emitting a warning but does not discharge the semantic property the linter was intended to check. Lean's default warnings are never disabled on a claimed surface; a community linter the project enabled may be disabled for a single declaration only as {ref "62-module-purpose-and-linter-discipline"}[module 6 §6.2] describes. The audit cannot see a disabled linter, so review checks the disables.
 
 `lake build` remains necessary to elaborate source, run command elaborators and linters, and produce the `.olean` files used by later checks. Successful elaboration alone does not establish checked admission: metaprogramming APIs and local options can store unchecked declarations. Before accepting proof, positive-fence, or correspondence evidence, the gate MUST complete kernel checking of every owned logical declaration and its owned dependencies, including mutual inductive groups and their generated constructors and recursors. Imported dependencies outside the owned inventory remain the declared trusted base. Authored unsafe/partial declarations remain forbidden; generated helpers require §8.4's separate authentication and cannot supply logical evidence. Unsupported or incomplete admission fails the affected claim. The shipped project, file, fence, and build-linter paths share `Admission.validate`. It forces the completed environment, excludes owned declarations from the imported replay base, replays safe non-partial declarations with pinned `Lean.Kernel.Environment.replay`, and checks coverage before report construction. Source option restoration or checking a new reference to a stored theorem cannot substitute for this dependency admission. This does not recheck the whole imported dependency graph or establish the optional §8.9 claim.
 
@@ -394,7 +396,12 @@ The checker package is self-contained: an external Lean project adopts it by req
 * Runs execute from the adopter's project root or an explicit `--project DIR`. Scratch work, including the §8.3 isolated disposable copy, uses a temporary directory under the checked project's `tmp/` and is removed afterward.
 * The normal project-wide gate builds in its own isolated copy (§8.3), so it does not need a preliminary build of the claimed surface in the main checkout. Single-file audits and the enforcing build linter use incremental builds in the target checkout. Establish a shared baseline before concurrent qualification runs, and avoid concurrent builds writing the same workspace output. Separate audit copies still share dependency checkouts, whose missing artifacts may need building.
 
-The exact adapter steps, including glob syntax in both lakefile formats and a minimal manifest, are in this repository's {repo "docs/guides/adoption.md"}[adoption guide].
+An adopter also follows the Lean community's conventions and runs its linters beside the checker ({ref "67-community-conventions-and-linters"}[module 6 §6.7]):
+
+* In a project that depends on Mathlib, `weak.linter.mathlibStandardSet` set to `true` in the Lake `leanOptions` enables Mathlib's syntax linters. Their warnings are build warnings, so the checker's warning-free build rejects them (RG2003).
+* Batteries' environment linters run as a separate command, `lake exe runLinter`. Lake has one `lintDriver` per package: a project that keeps `batteries/runLinter` as its driver runs the checker with `lake exe lint`, and a project whose driver is `regula/lint` runs `lake exe runLinter` separately. Each command's success establishes only its own checks.
+
+The exact adapter steps, including glob syntax in both lakefile formats, a minimal manifest, and the community linter configuration, are in this repository's {repo "docs/guides/adoption.md"}[adoption guide].
 
 # 8.12 Opt-in Enforcing Build Linter
 %%%
@@ -402,7 +409,7 @@ tag := "812-opt-in-enforcing-build-linter"
 number := false
 %%%
 
-An adopter MAY enable the shipped whole-surface Lean build linter. Once enabled, it MUST enforce its selected foundation and execution requirements: an emitted source warning, a policy violation, or an unresolved claimed path fails the build. This mode is not advisory and does not use source-local linter suppression options to authorize exceptions.
+An adopter MAY enable the shipped whole-surface Lean build linter. Once enabled, it MUST enforce its selected foundation and execution requirements: an emitted source warning, a policy violation, or an unresolved claimed path fails the build. This mode is not advisory: no source-local option authorizes an exception to its foundation or execution policy. A declaration-scoped disable of a community linter ({ref "62-module-purpose-and-linter-discipline"}[module 6 §6.2]) stops only that linter's warning and changes no policy result.
 
 The {repo "examples/build-lint/"}[complete minimal adopter] contains the public recipe:
 

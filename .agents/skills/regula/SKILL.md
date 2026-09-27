@@ -10,7 +10,8 @@ This project's Lean code and proofs must meet the Regula standard. Apply these r
 - Check with `lake lint` (`lake lint -- --fresh` for a fresh-source audit). Exit codes: 0 ACCEPTED, 1 VIOLATION, 2 INVALID CONFIGURATION, 3 INCOMPLETE.
 - `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, remedy and rule guidance (result schema 3). When a stage did not complete, `complete` is false and `stagesNotRun` names the stages, so fixing these findings can reveal more.
 - A finding names its rule ID, what is wrong and where, and the fix. The first finding of each rule adds why, common rewrites and a compliant example (or, where the checked files are qualification inputs, the correction). `lake exe regula explain <ID>` prints the full rule offline; `lake exe regula rules` lists all rules.
-- No option, attribute or flag waives a rule on a claimed surface. Do not disable a warning or linter, weaken a statement, or drop a registration to pass.
+- No option, attribute or flag waives a rule on a claimed surface. Do not disable a Lean warning, weaken a statement, or drop a registration to pass.
+- Follow the Lean community's style, naming and documentation conventions and run its linters beside `lake lint` (standard §6.7): Mathlib's through `weak.linter.mathlibStandardSet`, Batteries' through `lake exe runLinter`. Disable one only for a single declaration, where its guidance allows, with the reason; that never discharges a rule.
 - Passing is mechanical: a theorem must still state the intended claim, with its hypotheses and limits, which review checks.
 
 ## Every declaration
@@ -55,6 +56,7 @@ Fix: Write a safe, terminating definition (structural recursion or `termination_
 
 ```lean
 /-! Identity on natural numbers. -/
+/-- The identity function on natural numbers. -/
 def identity (n : Nat) : Nat := n
 ```
 
@@ -77,11 +79,12 @@ Compliant form: The dependency proves the same reflexivity statement instead of 
 
 ### RG2003 Claimed source must elaborate warning-free
 
-Every claimed module elaborates from source without errors or warnings, with no warning or linter disabled.
-Fix: Fix the compiler diagnostic at its source. Do not disable the warning or linter that reported it.
+Every claimed module elaborates from source without errors or warnings; Lean's default warnings stay enabled, and disabling a linter never discharges what it checks.
+Fix: Fix the compiler diagnostic at its source. Never disable a Lean default warning; disable a community linter only for one declaration, where its guidance allows, with the reason.
 
 ```lean
 /-! Identity on natural numbers. -/
+/-- The identity function on natural numbers. -/
 def identity (n : Nat) : Nat := n
 ```
 
@@ -105,7 +108,9 @@ Every claimed module has a module docstring (`/-! … -/`).
 Fix: Add a module docstring that identifies the module's material declarations and assumptions.
 
 ```lean
-/-! Reflexivity for every natural number; no additional assumptions. -/
+/-! # Reflexivity
+
+Reflexivity for every natural number; no additional assumptions. -/
 theorem reflexive (n : Nat) : n = n := rfl
 ```
 
@@ -152,6 +157,7 @@ Fix: Register the named implementation itself and put its complete domain inside
 ```lean
 import Regula.Contract
 /-! Identity on natural numbers, with its full-domain contract. -/
+/-- The identity function on natural numbers. -/
 def identity (n : Nat) : Nat := n
 theorem contract : Regula.ExecutableContract identity (fun f => ∀ n, f n = n) := ⟨fun _ => rfl⟩
 ```
@@ -163,7 +169,9 @@ Fix: Prove the replacement equal to its reference on the complete domain, or rem
 
 ```lean
 /-! The identity specification and replacement agree on every input. -/
+/-- The replacement code for `identity`: it computes `0 + n`. -/
 def alternative (n : Nat) : Nat := 0 + n
+/-- The identity on natural numbers; compiled code runs `alternative` instead. -/
 @[implemented_by alternative] def identity (n : Nat) : Nat := n
 theorem correspondence (n : Nat) : identity n = alternative n := (Nat.zero_add n).symm
 ```
@@ -176,7 +184,9 @@ Fix: Remove the construction that prevents the analysis (for example a metaprogr
 ```lean
 import Lean
 /-! Identity and its extensionally equal replacement. -/
+/-- The replacement code for `identity`: it computes `0 + n`. -/
 def alternative (n : Nat) : Nat := 0 + n
+/-- The identity on natural numbers; compiled code runs `alternative` instead. -/
 @[implemented_by alternative] def identity (n : Nat) : Nat := n
 theorem correspondence (n : Nat) : identity n = alternative n := (Nat.zero_add n).symm
 ```

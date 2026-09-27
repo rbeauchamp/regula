@@ -288,9 +288,11 @@ def guide : RuleId → Guide
       established := [
         "Every claimed module elaborated from source without errors or warnings under the audit's build."]
       notEstablished := [
-        "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is incremental and trusts Lake's build cache."]
+        "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is incremental and trusts Lake's build cache.",
+        "That no linter was disabled: a disabled linter emits nothing for this rule to reject."]
       configuration := [
-        "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a linter (for example `set_option linter.unusedVariables false`) can stop it from emitting, which makes this rule pass without discharging the property the linter checks; do not do it.",
+        "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a linter stops it from emitting, which makes this rule pass without establishing the property the linter checks. Never disable Lean's default warnings, such as `linter.unusedVariables` (for example with `set_option linter.unusedVariables false`).",
+        "A community linter the project enabled itself, such as Mathlib's standard set (`weak.linter.mathlibStandardSet`), reports through build warnings, so this rule rejects its findings. Where the community's guidance accepts an exception, disable that linter for one declaration (`set_option linter.NAME false in` or `@[nolint NAME]`) with a comment giving the reason (standard §6.2). The detector sees only emitted warnings, so it cannot tell such a disable from a forbidden one; review checks them.",
         projectCommands]
       limitations := [
         "`lake lint` builds with Regula's audit-build marker, which turns the local linter off whatever the source sets `linter.regula` to, so Regula's own local findings are not build warnings there and its policy stages report those rules. `axiomGate` and the build-lint `policy` target keep ordinary options, so in a module that imports `Regula.Linter` a local Regula finding is a build warning and makes the result INCOMPLETE under this rule."]

@@ -168,6 +168,35 @@ campaigns at the #10 revisions ([record][q10-runs]).
 
 These are bounded observations of real runs, not theorems about the tools.
 
+## Community linters beside Regula
+
+Standard §6.7 and the [adoption guide](adoption.md#community-conventions-and-linters) tell adopters
+to run the Lean community's linters beside `lake lint`. These controls ran on 2026-09-26 on a
+disposable adopter (Lean 4.34.0, Mathlib `5ed2965`, this repository's checker by path) whose
+`lakefile.toml` set `weak.linter.mathlibStandardSet`, `autoImplicit` and `relaxedAutoImplicit`
+under `[leanOptions]`, and whose one claimed library (Standard-Logical) imported
+`Mathlib.Order.Basic` and held a documented definition and theorem. With
+`lintDriver = "regula/lint"`:
+
+- The clean library: `lake lint` exit 0 (`ACCEPTED`), so the standard set emitted nothing there.
+- One docstring line of 101 characters: `lake lint` exit 3 (`INCOMPLETE`), RG2003 `build-failed` with
+  Mathlib's `This line exceeds the 100 character limit` warning as its evidence.
+- The same line under `set_option linter.style.longLine false in` on its declaration: exit 0.
+- A declaration under `set_option linter.unusedVariables false in` with an unused argument:
+  exit 0. The audit sees no disabled linter, which is why standard §6.2 leaves that check to
+  review.
+- `lake build` then `lake exe runLinter`: exit 0 for the clean library and exit 1 (Batteries'
+  `unusedArguments`) for the previous mutation, which Regula had accepted.
+
+With `lintDriver = "batteries/runLinter"`, after `lake build`: `lake lint` (Batteries' linters)
+and `lake exe lint` (Regula) both exited 0 on the clean library. An undocumented definition gave
+`lake lint` exit 1 (`docBlame`) and `lake exe lint` exit 0. Earlier, `runLinter` without a
+rebuild linted the stale build of a previous mutation, which is why the guide runs `lake build`
+first.
+
+These observe one small adopter through the `lakefile.toml` route on this toolchain. They are
+not a theorem about either tool, and the `lakefile.lean` spelling of the options was not run.
+
 ## Website
 
 - **Proved** (claimed `RegulaCore.Site*` and `RegulaCore.Guide`, except `helpUrl_dev` in the excluded
@@ -243,8 +272,9 @@ Review of the delivered product found and fixed:
 - Editor: only VS Code with the Lean 4 extension; no latency claim; the browser-side page view
   after the external hand-off is not observable from this environment beyond the process
   hand-off and the live route.
-- A small Mathlib-importing library was accepted incrementally and fresh; there is no
-  Mathlib-scale adopter, Mathlib-driver coexistence run (`lake exe lint` beside `runLinter`) or
+- A small Mathlib-importing library was accepted incrementally and fresh, and one small adopter
+  ran Regula beside Mathlib's syntax linters and Batteries' `runLinter`
+  ([above](#community-linters-beside-regula)); there is no Mathlib-scale adopter or
   other-editor claim, and no released versions (`/v/` pages need a separately authorized
   release).
 - Diagnostic help links target the moving `/dev/` route, so an adopter pinned at an older

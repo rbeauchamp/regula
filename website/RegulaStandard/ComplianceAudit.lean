@@ -63,9 +63,9 @@ number := false
   * Identify the exact model and implementation definitions. For distinct objects, require a checked relation sufficient to transfer the claimed property; reuse definitional equality or existing evidence where it suffices. State the external execution assumptions separately; otherwise narrow or remove the claim.
 *
   * {checklistRow}[SCOPE-04]
-  * Universal rules are technical Lean rules, not arbitrary style or application-domain policy.
-  * {ref "14-principled-mathematical-modeling"}[1 §1.4], {ref "6-code-organization"}[6]
-  * For each universal rule, identify the precise type, proof, elaboration, resolution, module, or computation consequence.
+  * Universal rules are technical Lean rules, not arbitrary style or application-domain policy. Style, naming, and documentation form defer to the Lean community's conventions and linters.
+  * {ref "14-principled-mathematical-modeling"}[1 §1.4], {ref "6-code-organization"}[6], {ref "67-community-conventions-and-linters"}[6 §6.7]
+  * For each universal rule, identify the precise type, proof, elaboration, resolution, module, or computation consequence. Confirm that style, naming, and documentation-form guidance points to the community's guides and linters instead of restating them as rules.
 *
   * {checklistRow}[SCOPE-05]
   * The object and kind of every material claim are clear: abstract mathematical, executable Lean definition, refinement/correspondence, or external/effectful boundary. Combined claims keep these scopes distinct. An unresolved execution path or a partial surface presented as whole-application coverage blocks the affected claim.
@@ -235,8 +235,8 @@ number := false
 *
   * {checklistRow}[DECL-01]
   * Every exact module in each claimed Lake library and every claimed standalone executable root is discovered and elaborated from source in fresh root-package build state, warning-free, under the declared exact elaboration environment, with completed owned logical declaration and dependency admission under §8.3.
-  * {ref "81-declare-the-elaboration-environment"}[8 §8.1–§8.3]
-  * Read the elaborated Lake library module arrays and executable roots. Import every claimed module and reconcile exact attribution and additional root-owned imports. Record toolchain and dependency source state; reject emitted warnings and stale root-package artifacts. Dependency artifacts may be reused under §8.3. The `modules` facet can include local imports beyond the configured array; it is a cross-check, not an interchangeable inventory.
+  * {ref "81-declare-the-elaboration-environment"}[8 §8.1–§8.3], {ref "62-module-purpose-and-linter-discipline"}[6 §6.2]
+  * Read the elaborated Lake library module arrays and executable roots. Import every claimed module and reconcile exact attribution and additional root-owned imports. Record toolchain and dependency source state; reject emitted warnings and stale root-package artifacts. Dependency artifacts may be reused under §8.3. The `modules` facet can include local imports beyond the configured array; it is a cross-check, not an interchangeable inventory. Review source-local linter options, which the audit cannot see: no claimed module disables a Lean default warning, and each disabled community linter is declaration-scoped with a stated reason (§6.2).
 *
   * {checklistRow}[DECL-02]
   * Every constant in every owned module is inventoried; proof-valued definitions and instances are not omitted.

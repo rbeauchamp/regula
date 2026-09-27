@@ -38,7 +38,7 @@ theorem classicalTruth : True :=
   Classical.choice (show Nonempty True from ⟨True.intro⟩)
 ```
 
-`Widget.successorContract` requires the exact relation `∀ n, f n = n + 1` about
+`Widget.successor_contract` requires the exact relation `∀ n, f n = n + 1` about
 `Widget.successor : Nat → Nat` and `Widget.next` consumes that evidence. The relation is
 not carried by the return type, so an implementation of the same type that returns
 anything else cannot satisfy the unchanged requirement, and missing/weaker evidence cannot
