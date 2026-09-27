@@ -362,9 +362,11 @@ def guide : RuleId → Guide
           option under both spellings must give the required value under each. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
           One finding per target lists every failure.",
-        "`lean` reads a `-D` at the first `D` of an argument that begins with a single `-` (`-D`, \
-          or after flags as in `-qD`), with its value after the `D` or in the next argument; the \
-          rule reads every such setting. Any other extra argument is allowed."]
+        "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
+          single `-` (`-D`, or after flags as in `-qD`), with its value after the `D` or in the \
+          next argument; the rule reads every such candidate, so it can also reject one that \
+          `lean` does not read as a `-D`, such as the value of `-o`. Any other extra argument is \
+          allowed."]
       rationaleDetail := [
         "Standard §8.1 requires the options because they decide which binders a declaration's \
           elaborated type has. Standard §6.7 adopts the community's linters as its conventions \
@@ -398,8 +400,9 @@ def guide : RuleId → Guide
         "Whether a surface imports Mathlib is read from its whole loaded environment, so every \
           claimed target of such a surface, including an executable whose own root does not \
           import Mathlib, needs the Mathlib options.",
-        "The `-D` reading follows the command-line parser of the Lean executable; that \
-          correspondence is observed, not proved.",
+        "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \
+          as read from Lean's `Lean.Shell` source and its getopt handling; that correspondence \
+          is neither proved nor observed.",
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "SCOPE-04", "DOGFOOD-01"]

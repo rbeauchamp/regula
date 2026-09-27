@@ -36,11 +36,14 @@ merged with later entries taking precedence, and its `weakLeanArgs` and `moreLea
 extra arguments it reads only their `-D` settings, and any other argument is allowed, including
 one that loads a plugin or a setup file. `argumentSettings` models the `lean` command line: every
 `-D` it parses starts at the first `D` of an argument that begins with a single `-`, and its
-value follows the `D` or is the next argument. That correspondence with the command-line parser
-of the Lean executable is observed, not proved. The decision does not read `set_option` commands
-in source, which review checks (`DECL-01`), nor options given to `lake` on its command line.
-Which targets are claimed and whether a target imports Mathlib are supplied by the operational
-adapter. The `linter.missingDocs` requirement of §6.7 is not part of this decision yet. -/
+value follows the `D` or is the next argument, so the model reads a superset of the `-D`
+settings and can reject a candidate `lean` does not read as one. That correspondence with the
+command-line parser of the Lean executable is assumed, read from Lean's `Lean.Shell` source and
+its getopt handling; it is neither proved nor observed. The decision does not read `set_option`
+commands in source, which review checks (`DECL-01`), nor options given to `lake` on its command
+line. Which targets are claimed and whether a target imports Mathlib are supplied by the
+operational adapter. The `linter.missingDocs` requirement of §6.7 is not part of this decision
+yet. -/
 
 @[expose] public section
 
