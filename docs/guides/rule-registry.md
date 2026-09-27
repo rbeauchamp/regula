@@ -5,7 +5,7 @@ The implementation lives in `RegulaCore.RuleId`, `RegulaCore.Rule`,
 `Regula.DiagnosticCodec` and `Regula.Website`; the first two are on the claimed
 `RegulaCore` surface, whose declarations the gate audits. These modules supply one
 vocabulary to the checker, the native editor linter and the
-[rule-reference website](website.md), whose pages `RegulaCore.Site*` derive from `descriptor`. The [coverage map](rule-coverage.md) defines the twenty-one
+[rule-reference website](website.md), whose pages `RegulaCore.Site*` derive from `descriptor`. The [coverage map](rule-coverage.md) defines the twenty-two
 reserved predicates and their residual semantic obligations.
 
 ## Identity and authoring
@@ -311,7 +311,7 @@ commands (`parseCommand_arguments`, `parseCommand_sound`). `descriptor_rewrites_
 supplied findings: that the checker supplies every finding it established, and that the
 process writes the lines, are operational.
 
-`RegistryChecks` exhaustively checks the twenty-one canonical descriptors, that each embedded
+`RegistryChecks` exhaustively checks the twenty-two canonical descriptors, that each embedded
 example equals its corpus file and that the committed `.agents/skills/regula/SKILL.md` is the
 generated briefing, and exercises
 malformed transport, missing/duplicate routes, unsupported modes, Unicode/CRLF

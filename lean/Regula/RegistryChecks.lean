@@ -38,7 +38,7 @@ private def succeeded {ε : Type u} {α : Type v} : Except ε α → Bool
 def main : IO Unit := do
   let producer := Regula.Checker.ResultProtocol.producer
   let manifest := registryJson producer
-  -- Exhaustive checks over the genuinely closed 21-rule vocabulary.
+  -- Exhaustive checks over the genuinely closed 22-rule vocabulary.
   for id in RuleId.all do
     require (succeeded (parseDescriptor (descriptorJson id))) s!"descriptor {id}"
     require (!(descriptor id).title.isEmpty && !(descriptor id).normativeClauses.isEmpty)

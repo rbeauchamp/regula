@@ -33,7 +33,7 @@ Product contract and design:
 
 - [Linter and website architecture](guides/linter-architecture.md): selected interfaces, pins,
   versioned help links and delivery sequence.
-- [Complete rule coverage](guides/rule-coverage.md): twenty-one selected diagnostics and all
+- [Complete rule coverage](guides/rule-coverage.md): twenty-two selected diagnostics and all
   residual checklist obligations.
 - [Rule registry and diagnostics](guides/rule-registry.md): implemented typed interfaces, output
   migration, source conventions and qualification.

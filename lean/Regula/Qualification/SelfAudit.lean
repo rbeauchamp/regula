@@ -14,7 +14,8 @@ campaign applies the rules that do hold for operational code, per module of the 
 Lake discovers it: completed kernel admission of every owned safe declaration (RG2005), the
 executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007) on the
 observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, and
-the live linter's module-doc and material-documentation presence predicates
+the live linter's module-header (RG5001: docstring present and first, no repeated import) and
+material-documentation presence predicates
 (`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations and
 the pinned toolchain's Lake axioms that in-process Lake APIs reach are reported, never failed.
 

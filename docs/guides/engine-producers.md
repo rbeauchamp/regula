@@ -33,7 +33,8 @@ Verso declaration docs and inherited docs follow the same Lean lookup semantics 
 feedback. Private declarations and unregistered public declarations do not acquire RG5002
 or RG5003 obligations. Registration completeness and text fidelity remain **R-DOC** review.
 
-The project gate now emits RG5001 for a missing claimed module doc, RG5002 for a missing
+The project gate now emits RG5001 for a claimed module whose docstring is missing or not its first
+command after the imports, or whose header repeats an import, RG5002 for a missing
 docstring on a selected declaration, and RG5003 for a selected declaration's docstring
 without a nonempty `# Intent` section, in both fresh and incremental project modes. The
 recorded docstring is classified by the proved `RegulaPolicy.materialDocumentationFailure`. It does
@@ -121,7 +122,7 @@ The module/documentation source pairs are [RG5001](../../examples/rules/RG5001/)
 [RG5002](../../examples/rules/RG5002/) and [RG5003](../../examples/rules/RG5003/). Each correction preserves exactly
 `∀ n : Nat, n = n`, with the same proof and no new assumptions. Only documentation is added.
 They are isolated from positive libraries and copied byte-for-byte into a disposable
-Core-only adopter as `Example.lean`. The complete twenty-one-rule corpus and its separate
+Core-only adopter as `Example.lean`. The complete twenty-two-rule corpus and its separate
 unavailable-analysis demonstrations are described in [rule examples](rule-examples.md).
 
 Run `./scripts/verify.sh diagnostics producers` for the bounded operational campaign.
