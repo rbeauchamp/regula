@@ -341,31 +341,70 @@ def guide : RuleId → Guide
       checklist := ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03", "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04", "DOGFOOD-05"]
       sources := ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean", "lean/Regula/Checker/SourceBinding.lean"] }
   | .communityConfiguration => {
-      problem := "A claimed library or executable is built with automatic implicits on, turns off a linter for all its modules beyond the three Mathlib-repository linters that standard §6.7 excludes, passes extra arguments to `lean`, or, in a surface that imports Mathlib, leaves Mathlib's standard linter set or its exclusions unset."
+      problem := "A claimed library or executable is built with automatic implicits on, turns off \
+        a linter for all its modules beyond the three Mathlib-repository linters that standard \
+        §6.7 excludes, overrides these options with a `-D` extra `lean` argument, or, in a surface \
+        that imports Mathlib, leaves Mathlib's standard linter set or its exclusions unset."
       trigger := [
-        "After the claimed surfaces build, the checker reads Lake's resolved configuration of every claimed library and executable: its `leanOptions` (build type, package, then target, a later entry replacing an earlier one) and its `weakLeanArgs` and `moreLeanArgs`. The proved decision `RegulaPolicy.Community.failures` rejects the target, with applicability `community-configuration`, when `autoImplicit` or `relaxedAutoImplicit` is not set to `false`, when any other `linter.…` option than `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to `false`, or when there is any extra `lean` argument.",
-        "A target of a surface whose loaded environment contains a Mathlib module must also set `weak.linter.mathlibStandardSet` to `true`, `weak.linter.style.header` and `weak.linter.hashCommand` to `false`, and `weak.linter.style.longFile` to `0`.",
-        "A key's leading `weak.` component is read as the option it sets; a target that gives one option under both spellings must give the required value under each. One finding per target lists every failure."]
+        "After the claimed surfaces build, the checker reads Lake's resolved configuration of \
+          every claimed library and executable: its `leanOptions` (build type, package, then \
+          target, a later entry replacing an earlier one) and its `weakLeanArgs` and \
+          `moreLeanArgs`. The proved decision `RegulaPolicy.Community.failures` rejects the \
+          target, with applicability `community-configuration`, when `autoImplicit` or \
+          `relaxedAutoImplicit` is not set to `false`, when any other `linter.…` option than \
+          `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
+          `false`, or when a `-D name=value` among the extra arguments gives a required option \
+          another value or sets such a linter to `false`.",
+        "A target of a surface whose loaded environment contains a Mathlib module must also set \
+          `weak.linter.mathlibStandardSet` to `true`, `weak.linter.style.header` and \
+          `weak.linter.hashCommand` to `false`, and `weak.linter.style.longFile` to `0`.",
+        "A key's leading `weak.` component is read as the option it sets; a target that gives one \
+          option under both spellings must give the required value under each. A string value \
+          counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
+          One finding per target lists every failure.",
+        "`lean` reads a `-D` at the first `D` of an argument that begins with a single `-` (`-D`, \
+          or after flags as in `-qD`), with its value after the `D` or in the next argument; the \
+          rule reads every such setting. Any other extra argument is allowed."]
       rationaleDetail := [
-        "Standard §8.1 requires the options because they decide which binders a declaration's elaborated type has. Standard §6.7 adopts the community's linters as its conventions baseline, and a linter enforces its convention only where it is on: RG2003 rejects warnings, not a missing linter."]
+        "Standard §8.1 requires the options because they decide which binders a declaration's \
+          elaborated type has. Standard §6.7 adopts the community's linters as its conventions \
+          baseline, and a linter enforces its convention only where it is on: RG2003 rejects \
+          warnings, not a missing linter."]
       proofShape := [
-        "No proof obligation on the checked project. The decision is proved: `RegulaPolicy.Community.failures_eq_nil_iff` shows that it reports nothing exactly when the target meets `Conforming`, the declarative statement of its conditions, and `conforming_of_mathlib` that the Mathlib requirement includes the core-only one."]
+        "No proof obligation on the checked project. The decision is proved: \
+          `RegulaPolicy.Community.failures_eq_nil_iff` shows that it reports nothing exactly when \
+          the target meets `Conforming`, the declarative statement of its conditions, and \
+          `conforming_of_mathlib` that the Mathlib requirement includes the core-only one."]
       established := [
-        "Every claimed library and executable is built through Lake with automatic implicits off and no extra `lean` arguments, turns off no linter target-wide beyond the §6.7 exclusions and, in a Mathlib surface, enables the standard set with exactly those exclusions."]
+        "Every claimed library and executable is built through Lake with automatic implicits \
+          off, turns off no linter target-wide beyond the §6.7 exclusions and, in a Mathlib \
+          surface, enables the standard set with exactly those exclusions; no `-D` extra `lean` \
+          argument overrides these options."]
       notEstablished := [
-        "That `linter.missingDocs` is enabled. Standard §6.7 requires it; review confirms it (`DECL-01`) until this rule checks it.",
-        "That no module sets an option back in source, such as `set_option autoImplicit true` or a linter disable; review checks source options (§6.2).",
-        "That the community linters' own checks pass; their warnings are RG2003's."]
+        "That `linter.missingDocs` is enabled. Standard §6.7 requires it; review confirms it \
+          (`DECL-01`) until this rule checks it.",
+        "That no module sets an option back in source, such as `set_option autoImplicit true` or \
+          a linter disable; review checks source options (§6.2).",
+        "That the community linters' own checks pass; their warnings are RG2003's.",
+        "That extra `lean` arguments other than `-D`, such as `--plugin` or `--setup`, leave the \
+          options unchanged."]
       configuration := [
-        "The Lake configuration is the input; no manifest field, source option or command-line flag exempts a claimed target.",
+        "The Lake configuration is the input; no manifest field, source option or command-line \
+          flag exempts a claimed target.",
         projectCommands]
       limitations := [
-        "Options given on `lake`'s own command line are not read; the rule reads what Lake resolves for the workspace the audit loads.",
-        "Whether a surface imports Mathlib is read from its whole loaded environment, so every claimed target of such a surface, including an executable whose own root does not import Mathlib, needs the Mathlib options.",
+        "Options given on `lake`'s own command line are not read; the rule reads what Lake \
+          resolves for the workspace the audit loads.",
+        "Whether a surface imports Mathlib is read from its whole loaded environment, so every \
+          claimed target of such a surface, including an executable whose own root does not \
+          import Mathlib, needs the Mathlib options.",
+        "The `-D` reading follows the command-line parser of the Lean executable; that \
+          correspondence is observed, not proved.",
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "SCOPE-04", "DOGFOOD-01"]
-      sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
+      sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
+        "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {
       problem := "The conservative execution closure of an executable root has a path the checker could not resolve: a missing compiled body, unavailable replacement history, an unsupported evaluator, or a cycle of replacement edges. The execution claim is INCOMPLETE."
       trigger := [
@@ -487,23 +526,42 @@ def guide : RuleId → Guide
       checklist := ["DOC-05"]
       sources := ["lean/Regula/Checker/Documentation.lean", "lean/Regula/Checker/Frontend.lean", "lean/RegulaPolicy/Decision.lean"] }
   | .moduleDocumentation => {
-      problem := "A module in a claimed surface has no module docstring (`/-! … -/` or Verso module documentation), has one that is not the first command after its imports, or repeats an import with the same modifiers."
+      problem := "A module in a claimed surface has no module docstring (`/-! … -/` or Verso \
+        module documentation), has one that is not the first command after its imports, or \
+        repeats an import with the same modifiers."
       trigger := [
-        "When a claimed module finishes elaborating, the checker asks Lean for its module documentation and parses the module's header and first command from its source with Lean's own parser. The proved decision `RegulaPolicy.ModuleHeader.failures` then rejects, with applicability `module-documentation`, a module without module documentation; a module whose first command after the imports is not a module docstring (for example `@[expose] public section` or a declaration; a `set_option … in` prefix, the community's form for a Verso module docstring, is read through); and each import that occurs twice with the same `public`, `meta` and `all` modifiers. Empty modules are included."]
+        "When a claimed module finishes elaborating, the checker asks Lean for its module \
+          documentation and parses the module's header and first command from its source with \
+          Lean's own parser. The proved decision `RegulaPolicy.ModuleHeader.failures` then \
+          rejects, with applicability `module-documentation`, a module without module \
+          documentation; a module whose first command after the imports is not a module \
+          docstring (for example `@[expose] public section` or a declaration; a \
+          `set_option … in` prefix, the community's form for a Verso module docstring, is read \
+          through); and each import that occurs twice with the same `public`, `meta` and `all` \
+          modifiers. Empty modules are included."]
       rationaleDetail := []
       proofShape := [
-        "No proof obligation on the checked project. `RegulaPolicy.ModuleHeader.failures_eq_nil_iff` proves that the decision reports nothing exactly when the module is documented, its docstring comes first and its imports are pairwise different."]
+        "No proof obligation on the checked project. \
+          `RegulaPolicy.ModuleHeader.failures_eq_nil_iff` proves that the decision reports \
+          nothing exactly when the module is documented, its docstring comes first and its \
+          imports are pairwise different."]
       established := [
-        "Every claimed module has module documentation, its first command after the imports is a module docstring, and its header repeats no import."]
+        "Every claimed module has module documentation, its first command after the imports is \
+          a module docstring, and its header repeats no import."]
       notEstablished := [
-        "That the documentation identifies all material declarations and assumptions, or describes them faithfully (R-DOC). Presence and position say nothing about content; no section layout is imposed.",
-        "Import minimality: an unused or transitively redundant import that is not repeated is not reported."]
+        "That the documentation identifies all material declarations and assumptions, or \
+          describes them faithfully (R-DOC). Presence and position say nothing about content; no \
+          section layout is imposed.",
+        "Import minimality: an unused or transitively redundant import that is not repeated is \
+          not reported."]
       configuration := [noLocalException, projectCommands]
       limitations := [
-        "The editor reports this rule only when the module has finished elaborating without errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
+        "The editor reports this rule only when the module has finished elaborating without \
+          errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.doc]
       checklist := ["DOC-01", "DECL-01"]
-      sources := ["lean/RegulaPolicy/ModuleHeader.lean", "lean/Regula/Linter/Documentation.lean", "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/DocumentationStandards.lean"] }
+      sources := ["lean/RegulaPolicy/ModuleHeader.lean", "lean/Regula/Linter/Documentation.lean",
+        "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/DocumentationStandards.lean"] }
   | .materialDocumentation => {
       problem := "A public declaration registered with `@[regula_material]` as evidence for a material normative claim has no docstring."
       trigger := [

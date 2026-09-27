@@ -243,8 +243,8 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
 
 ### RG2006 Claimed targets must build with the community configuration
 
-Each claimed Lake target turns `autoImplicit` and `relaxedAutoImplicit` off in `leanOptions`, turns off no linter beyond the §6.7 exclusions, and with Mathlib enables its standard set.
-Fix: Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false and, with Mathlib, the standard set and its three §6.7 exclusions; remove other linter disables and extra `lean` arguments.
+Each claimed target turns `autoImplicit` and `relaxedAutoImplicit` off in `leanOptions`, disables no linter beyond the §6.7 exclusions and with Mathlib enables its standard set; no `-D` undoes this.
+Fix: Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false and, with Mathlib, the standard set and its three §6.7 exclusions; remove other linter disables and each `-D` extra `lean` argument that overrides these options.
 
 ```lean
 import Lake

@@ -241,7 +241,8 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
       -- The case file is the package's `lakefile.lean`; the run adds its `require` of the
       -- slot's ROOT copy, as `Slot.prepareSlotProject` writes it.
       let config := project / "lakefile.lean"
-      let require := ((← IO.FS.readFile config).splitOn "\n").filter (·.startsWith "require regula ")
+      let require := ((← IO.FS.readFile config).splitOn "\n").filter
+        (·.startsWith "require regula ")
       IO.FS.writeFile config ((← IO.FS.readFile (folder / s!"{case}.lean")) ++ "\n" ++
         "\n".intercalate require ++ "\n")
     else if rule == "RG1003" then

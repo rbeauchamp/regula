@@ -550,9 +550,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         for (moduleName, observation) in documentation.modules do
           let moduleFindings ← IO.ofExcept <| Regula.Linter.Documentation.moduleFindings
             moduleName observation mode (some surface.claim.toString)
-          unless moduleFindings.isEmpty do
-            findings := findings ++ moduleFindings
-            failures := failures.push s!"module-documentation: {moduleName}"
+          for finding in moduleFindings do
+            findings := findings.push finding
+            let detail := (Regula.argumentParts finding.1 finding.2.arguments).2
+            failures := failures.push s!"{detail} ({moduleName})"
         -- RG2006: the options Lake builds each claimed target of this surface with, decided by
         -- the proved `RegulaPolicy.Community.failures` (`failures_eq_nil_iff`). The surface
         -- imports Mathlib when its loaded environment contains a `Mathlib` module.

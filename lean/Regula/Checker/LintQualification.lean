@@ -122,15 +122,17 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       label := "toml/foreign-dir", exitCode := 2,
       contains := #["without -d/--dir", "regula lint: INVALID CONFIGURATION"],
       excludes := #["regula lint: PASS"] } #["-d", adopter.toString])
-  mutate double "end Gadget"
-    "set_option linter.regula false in\n/-- A control assumption. -/\naxiom optedOut : True\nend Gadget"
+  mutate double "end Gadget" <|
+    "set_option linter.regula false in\n/-- A control assumption. -/\n" ++
+      "axiom optedOut : True\nend Gadget"
   failures := failures ++ (← expect adopter {
       label := "toml/editor-opt-out", exitCode := 1,
       contains := #["RG1001", "optedOut", "regula lint: VIOLATION (exit 1)"] })
   restore adopter originals
   -- A source re-enable cannot bring live feedback back into the audit build (#69).
-  mutate double "end Gadget"
-    "set_option linter.regula true\n/-- A control assumption. -/\naxiom reenabled : True\nend Gadget"
+  mutate double "end Gadget" <|
+    "set_option linter.regula true\n/-- A control assumption. -/\n" ++
+      "axiom reenabled : True\nend Gadget"
   failures := failures ++ (← expect adopter {
       label := "toml/source-reenabled", exitCode := 1,
       contains := #["RG1001", "reenabled", "regula lint: VIOLATION (exit 1)"],

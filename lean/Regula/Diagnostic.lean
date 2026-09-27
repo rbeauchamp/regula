@@ -97,7 +97,8 @@ def argumentParts : (id : RuleId) → Payload id → String × String
   | .executionUnresolved, a | .executionBoundary, a => (toString a.root, a.detail)
   | .environment, a | .configuration, a | .sourceBuild, a | .coverage, a
   | .admission, a | .communityConfiguration, a | .fenceStructure, a | .positiveExample, a
-  | .negativeExample, a | .trustedExample, a | .moduleDocumentation, a => (toString a.subject, a.detail)
+  | .negativeExample, a | .trustedExample, a | .moduleDocumentation, a =>
+    (toString a.subject, a.detail)
 
 /-- Lean's position (one-based line, codepoint column) of the start of a source selection. -/
 def SourceLocation.startPosition (s : SourceLocation) : Position :=

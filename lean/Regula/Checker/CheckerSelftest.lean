@@ -559,8 +559,9 @@ private unsafe def diagnosticSetupQualification (repo scratch : FilePath) : IO (
   IO.FS.createDirAll output
   IO.FS.createDirAll compiled
   IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
-  IO.FS.writeFile (project / "lakefile.toml")
-    "name = \"diagnostic_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"SetupSentinel\"\n"
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"diagnostic_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\n[[lean_lib]]\nname = \"SetupSentinel\"\n"
   let source := project / "SetupSentinel.lean"
   let artifact := output / "SetupSentinel.olean"
   IO.FS.writeFile source "def setupValue : Nat := 0\n"
@@ -787,7 +788,8 @@ private def withNewFile {α : Type} (path : FilePath) (text : String) (action : 
   try action
   finally if ← path.pathExists then IO.FS.removeFile path
 
-private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) : IO α := do
+private def withReplacedFile {α : Type} (path : FilePath) (text : String) (action : IO α) :
+    IO α := do
   let original ← IO.FS.readFile path
   IO.FS.writeFile path text
   try action
@@ -961,7 +963,8 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
       if let some failure := expectedFailure "unclassified-library" (← gate)
           #["manifest-incomplete", "ExtraSurface"] then
         failures.modify (·.push failure)
-  let exeDecl := "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n"
+  let exeDecl :=
+    "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n  leanOptions := mathlibLinters\n"
   let claimedManifest := copy / "claimed-exe.json"
   -- The claimed-exe controls claim only the added executable: the application
   -- executable's root `Main` already defines `main`, so a surface claiming
@@ -1540,8 +1543,10 @@ a single invalid fence, and its restored positive in an isolated tiny project. -
 private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) :=
   withScratch repo "combined-snapshot-control" fun project => do
     IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
-    IO.FS.writeFile (project / "lakefile.toml")
-      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\nrelaxedAutoImplicit = false\n[[lean_lib]]\nname = \"Snapshot\"\n[[lean_lib]]\nname = \"Companion\"\n"
+    IO.FS.writeFile (project / "lakefile.toml") <|
+      "name = \"snapshot_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+        "relaxedAutoImplicit = false\n[[lean_lib]]\nname = \"Snapshot\"\n" ++
+        "[[lean_lib]]\nname = \"Companion\"\n"
     IO.FS.writeFile (Manifest.defaultPath project)
       "{\"schema-version\":2,\"surfaces\":[{\"library\":\"Snapshot\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Control\"},{\"library\":\"Companion\",\"executables\":[],\"claim\":\"standard-logical\",\"execution\":\"report\",\"rationale\":\"Parallel surface control\"}],\"excluded-libraries\":[],\"excluded-executables\":[]}"
     let docs := project / "docs" / ".cache"

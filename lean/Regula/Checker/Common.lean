@@ -300,7 +300,8 @@ def mapWorkQueue {α β : Type} (jobs : Nat) (items : Array α)
       s!"internal error: work queue result admission: {repr failure}"
 
 /-- Bounded concurrent map implemented in deterministic batches. -/
-def mapConcurrent {α β : Type} (jobs : Nat) (items : Array α) (action : α → IO β) : IO (Array β) := do
+def mapConcurrent {α β : Type} (jobs : Nat) (items : Array α) (action : α → IO β) :
+    IO (Array β) := do
   if jobs == 0 then throw <| IO.userError "job count must be positive"
   let mut results : Array β := #[]
   let mut offset := 0

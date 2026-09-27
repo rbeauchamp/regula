@@ -13,7 +13,8 @@ open Lean System
 open Regula.Checker
 open scoped Regula.Report
 
-private def expectError {α : Type u} (label expected : String) (result : Except String α) : Array String :=
+private def expectError {α : Type u} (label expected : String) (result : Except String α) :
+    Array String :=
   match result with
   | .ok _ => #[s!"{label}: invalid input was accepted"]
   | .error error => if error.contains expected then #[]
@@ -124,7 +125,9 @@ private def setup (repo adopter : FilePath) : IO Unit := do
   IO.FS.createDirAll adopter
   IO.FS.writeFile (adopter / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
   IO.FS.writeFile (adopter / "lakefile.lean") <|
-    "import Lake\nopen Lake DSL\npackage policy_adopter where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\nrequire regula from " ++
+    "import Lake\nopen Lake DSL\npackage policy_adopter where\n" ++
+      "  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩]\n" ++
+      "require regula from " ++
       (toJson repo.toString).compress ++ "\n@[default_target] lean_lib PublicApi\n"
   IO.FS.writeFile (adopter / "foundation_manifest.json") <| Json.compress <| Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [

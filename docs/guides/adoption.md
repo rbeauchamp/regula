@@ -423,15 +423,16 @@ core-only code.
   (`INCOMPLETE`, exit 3) with the linter's message. RG2006 checks, in Lake's resolved configuration
   of every claimed library and executable, every option above except `linter.missingDocs`
   (which review confirms), and rejects a target-wide `false` for any other linter and any
-  `moreLeanArgs` or `weakLeanArgs` (set options in `leanOptions`, where it reads them); a
-  violation is `VIOLATION`, exit 1. It does not read `set_option` in source, which
-  review checks. Where the community's guidance accepts an exception, such as a long URL,
-  disable that linter for the one declaration (`set_option linter.style.longLine false in`)
-  with a comment giving the reason. The same holds for every community linter, including those
-  Mathlib turns on for every importer, such as `linter.unusedTactic`. Never disable Lean's
-  default warnings, such as `linter.unusedVariables` or `warn.sorry`. Regula sees only emitted
-  warnings of a source-level disable, so it cannot tell these cases apart; review checks every
-  such disable.
+  `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these options another
+  value or turns such a linter off (set options in `leanOptions`, where it reads them); a
+  violation is `VIOLATION`, exit 1. Other extra `lean` arguments are allowed. It does not read
+  `set_option` in source, which review checks. Where the community's guidance accepts an
+  exception, such as a long URL, disable that linter for the one declaration
+  (`set_option linter.style.longLine false in`) with a comment giving the reason. The same
+  holds for every community linter, including those Mathlib turns on for every importer, such
+  as `linter.unusedTactic`. Never disable Lean's default warnings, such as
+  `linter.unusedVariables` or `warn.sorry`. Regula sees only emitted warnings of a source-level
+  disable, so it cannot tell these cases apart; review checks every such disable.
 - **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
   recommended. They report through their own command, not build warnings. Run `lake build`
   first: `runLinter` reads the built modules and does not rebuild them. Lake has one

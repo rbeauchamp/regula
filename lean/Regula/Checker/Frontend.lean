@@ -150,8 +150,8 @@ private theorem sizeOf_lt_nodesElems {α : Type u} [SizeOf α] {x : α} :
     · have := sizeOf_lt_nodesElems ns h; simp; omega
 end
 
-private theorem sizeOf_lt_elems {α : Type u} [SizeOf α] {x : α} {t : PersistentArray α} (h : x ∈ elems t) :
-    sizeOf x < sizeOf t := by
+private theorem sizeOf_lt_elems {α : Type u} [SizeOf α] {x : α} {t : PersistentArray α}
+    (h : x ∈ elems t) : sizeOf x < sizeOf t := by
   rcases t with ⟨root, tail, _, _, _⟩
   simp only [elems, List.mem_append] at h
   rcases h with h | h
