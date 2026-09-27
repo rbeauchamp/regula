@@ -41,6 +41,15 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
   let declarations ← array account "declarations"
   let declaration ← first declarations
   let material := if rule == "RG5002" then #[key] else #[]
+  -- The RG5001 header observation: RG5002's fixtures import `Regula.MaterialClaim`; a
+  -- documented fixture's docstring is its first command.
+  let documented := rule == "RG5002" || fixed
+  let imports := if rule == "RG5002" then toJson #[Json.mkObj [
+      ("module", nameJson "Regula.MaterialClaim"), ("importAll", .bool false),
+      ("isExported", .bool true), ("isMeta", .bool false)]]
+    else toJson (#[] : Array Json)
+  let header := Json.mkObj [("documented", .bool documented),
+    ("documentationFirst", .bool documented), ("imports", imports)]
   let doc := if fixed then Json.str ("Every natural number equals itself, without additional hypotheses.\n\n" ++
     "# Intent\nEquality on natural numbers must be reflexive for every value, with no side condition. ") else .null
   let mut checks : List Check := [
@@ -58,7 +67,8 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"snapshot module", (← field snapshot "module") == nameJson "Example"⟩,
     ⟨"exact source bytes", (← text snapshot "source") == source⟩,
     ⟨"snapshot filename", (System.FilePath.mk (← text snapshot "path")).fileName == some "Example.lean"⟩,
-    ⟨"module documentation", (← field docs "modules") == toJson #[toJson #[nameJson "Example", .bool (rule == "RG5002" || fixed)]]⟩,
+    ⟨"module documentation",
+      (← field docs "modules") == toJson #[toJson #[nameJson "Example", header]]⟩,
     ⟨"material selection", (← field docs "materialDeclarations") == toJson material⟩,
     ⟨"declaration documentation", (← field docs "declarations") == toJson (if material.isEmpty then #[] else #[toJson #[key, doc]])⟩,
     ⟨"one declaration", declarations.size == 1⟩,

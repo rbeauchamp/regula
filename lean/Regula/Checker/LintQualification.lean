@@ -122,19 +122,21 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       label := "toml/foreign-dir", exitCode := 2,
       contains := #["without -d/--dir", "regula lint: INVALID CONFIGURATION"],
       excludes := #["regula lint: PASS"] } #["-d", adopter.toString])
-  mutate double "end Gadget" "set_option linter.regula false in\naxiom optedOut : True\nend Gadget"
+  mutate double "end Gadget"
+    "set_option linter.regula false in\n/-- A control assumption. -/\naxiom optedOut : True\nend Gadget"
   failures := failures ++ (← expect adopter {
       label := "toml/editor-opt-out", exitCode := 1,
       contains := #["RG1001", "optedOut", "regula lint: VIOLATION (exit 1)"] })
   restore adopter originals
   -- A source re-enable cannot bring live feedback back into the audit build (#69).
-  mutate double "end Gadget" "set_option linter.regula true\naxiom reenabled : True\nend Gadget"
+  mutate double "end Gadget"
+    "set_option linter.regula true\n/-- A control assumption. -/\naxiom reenabled : True\nend Gadget"
   failures := failures ++ (← expect adopter {
       label := "toml/source-reenabled", exitCode := 1,
       contains := #["RG1001", "reenabled", "regula lint: VIOLATION (exit 1)"],
       excludes := #["build-failed", "editorSnapshot"] })
   restore adopter originals
-  mutate double "end Gadget" "axiom liveFinding : True\nend Gadget"
+  mutate double "end Gadget" "/-- A control assumption. -/\naxiom liveFinding : True\nend Gadget"
   let ordinary ← runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
   unless ordinary.succeeded && ordinary.output.contains "RG1001 [violation; editorSnapshot" do
     failures := failures.push s!"lake-lint/toml/live-build: {ordinary.output}"

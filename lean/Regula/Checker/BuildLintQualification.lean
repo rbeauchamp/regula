@@ -248,9 +248,13 @@ private def runCase (repo adopter : FilePath) (test : Case) : IO (Array String) 
   setup repo adopter
   if let some source := test.support then addSupport adopter source
   for (path, source) in test.files do
-    -- A control's intended defect is independent of module-doc presence.
+    -- A control's intended defect is independent of its module docstring, which comes
+    -- directly after the imports (RG5001).
     let source := if (FilePath.mk path).extension == some "lean" then
-        source ++ s!"\n/-! Build integration control for {test.name}. -/\n"
+        let lines := source.splitOn "\n"
+        let header := lines.takeWhile (·.startsWith "import ")
+        "\n".intercalate (header ++ [s!"/-! Build integration control for {test.name}. -/"] ++
+          lines.drop header.length)
       else source
     IO.FS.writeFile (adopter / path) source
   let mut failures := positive s!"{test.name}/positive" (← build adopter)
