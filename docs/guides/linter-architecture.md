@@ -100,7 +100,7 @@ functions. JSON is transport; proof-bearing validated values are the in-process 
 ## Exact initial enforcement and evidence
 
 The coverage map fixes **22 rule IDs**, including existing declaration, execution, workspace,
-warning and fence capabilities and three narrowly scoped documentation-presence additions
+warning and fence capabilities and three narrowly scoped documentation additions
 (RG5001–RG5003; RG5003 was added for #57).
 #12 introduces identity and rendering without silently changing detection. #13 connects all
 existing conditions to typed IDs and implements the first two documentation gaps. Each rule page

@@ -67,7 +67,7 @@ accepted project evidence or forges an inventory-bound Roles receipt.
 | --- | --- | --- |
 | Command hook / `Collect.commandDeclarations` | Records for constant binders in this command's Lean information trees; actual policy decisions RG1001–RG1007 when required evidence is available. | Elaborators can add constants without binder information. This is not a complete declaration census. |
 | `Collect.currentModule` | All constants in Lean's current-module map, including private/generated/unused and binder-less declarations. | The caller establishes completion; a partially elaborated environment is still partial. |
-| Module hook | RG5001 metadata presence, and RG5002 docstring and RG5003 Intent-section presence for explicitly registered public declarations in the completed local map. | It does not repeat all command policy diagnostics or certify complete local declaration-policy coverage. |
+| Module hook | RG5001 module-doc presence, docstring position and repeated imports (from the module's own source header), and RG5002 docstring and RG5003 Intent-section presence for explicitly registered public declarations in the completed local map. | It does not repeat all command policy diagnostics or certify complete local declaration-policy coverage. |
 | `Collect.declaration name .snapshot` | Canonical semantic facts for that exact current/imported declaration, with Lean ownership, ranges, transitive axioms and contract shape. | Native replay and generated-role authentication are omitted. |
 | `Collect.declaration name .replayCandidate` | The same constructor with existing replay/equation/parent observations used by `Probe`. | Observations still require fresh transcripts and the existing authorization/admission checks. |
 

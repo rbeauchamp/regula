@@ -345,7 +345,7 @@ Review of the delivered product found and fixed:
 - The human transcript names the file and declaration of a finding; exact ranges are in
   `--json-out` and the editor.
 - RG2001/RG2002 routing of escaped errors is by error-message prefix, and RG1007 contract
-  extraction, RG2004 inventory checks, the fence scanner and RG5001 presence are operational
+  extraction, RG2004 inventory checks, the fence scanner and the RG5001 observation are operational
   code in the excluded `Regula` library; the acceptance theorems cover their observations, not
   their extraction.
 - Editor: only VS Code with the Lean 4 extension; no latency claim; the browser-side page view

@@ -39,7 +39,7 @@ reduction of the long string literals costs seconds per field. Every finding
 exports and the website render these fields; none keeps its own copy. `existingChecker`
 means the named existing predicate has a checker implementation; it does not
 mean that every planned live editor adapter is complete.
-RG5001–RG5003 now have native metadata-presence observers. RG1001–RG1007
+RG5001–RG5003 now have native observers. RG1001–RG1007
 have partial command feedback; RG2002 covers invalid local foundation requests,
 and RG2005 covers unavailable or pending local analysis. Full project integration
 is separate from those local modes. See [native-linter.md](native-linter.md) for
