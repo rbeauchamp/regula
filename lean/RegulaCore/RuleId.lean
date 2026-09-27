@@ -24,7 +24,8 @@ inductive RuleId where
   /-- RG1003: an owned declaration's transitive axiom set contains an axiom outside `propext`,
   `Quot.sound` and `Classical.choice`. -/
   | unknownAxiom
-  /-- RG1004: a claimed declaration uses a compiler-trusting proof, such as `native_decide`. -/
+  /-- RG1004: a claimed declaration uses a compiler-trusting proof, such as `native_decide`,
+  `decide +native` or `bv_decide`. -/
   | compilerTrusting
   /-- RG1005: a declaration's transitive axiom set exceeds the `claim` of its surface. -/
   | profileExceeded

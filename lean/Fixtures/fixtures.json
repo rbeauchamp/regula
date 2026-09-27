@@ -115,10 +115,23 @@
  },
  "Fixtures.Mutations.NativeSemanticForge": {
   "expect": "fail",
-  "reasons": [
-   "project-axiom",
-   "unknown-axiom"
-  ]
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.DecideNativeProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.BvDecideProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.GrindBvDecideProof": {
+  "expect": "fail",
+  "reason": "compiler-trusting"
+ },
+ "Fixtures.Mutations.NativeTacticNameSpoof": {
+  "expect": "fail",
+  "reason": "project-axiom"
  },
  "Fixtures.Mutations.TrustCompiler": {
   "expect": "fail",

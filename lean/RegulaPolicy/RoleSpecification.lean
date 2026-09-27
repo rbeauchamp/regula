@@ -1,6 +1,6 @@
 module
 
-public import RegulaPolicy.Foundation
+public import RegulaPolicy.NativeAxiom
 
 /-! # Generated-role relations
 
@@ -13,17 +13,6 @@ These finite decidable relations do not attest that a compiler observation is tr
 namespace RegulaPolicy
 open Lean (Name)
 open Frontend
-
-/-- The declaration a generated `native_decide` axiom name belongs to: for
-`parent._native.native_decide.ax_N…` with a nonanonymous `parent` and a suffix of `ax_` then
-`_`-separated nonempty digit runs, `some parent`; otherwise `none`. -/
-def nativeParent? : Name → Option Name
-  | .str (.str (.str parent "_native") "native_decide") suffix => do
-      guard (parent != .anonymous && suffix.startsWith "ax_")
-      let numbers := (suffix.drop 3).toString.splitOn "_"
-      guard (!numbers.isEmpty && numbers.all fun n => !n.isEmpty && n.toList.all Char.isDigit)
-      return parent
-  | _ => none
 
 /-- Only declaration kinds that could receive a generated-role exception need
 the extra fresh frontend transcript. This core works over primitive fields so
@@ -46,37 +35,6 @@ def namespacedDeclarationElaborator :=
   `Lean.Elab.Command.expandNamespacedDeclaration
 /-- The syntax kind of a declaration command. -/
 def declarationKind := `Lean.Parser.Command.declaration
-/-- Lean's tactic elaborator for `native_decide`. -/
-def nativeDecideElaborator := `Lean.Elab.Tactic.evalNativeDecide
-/-- The syntax kind of the `native_decide` tactic. -/
-def nativeDecideKind := `Lean.Parser.Tactic.nativeDecide
-
-/-- The part of an evaluator observation that identifies it in an evaluator chain. -/
-structure EvaluatorKey where
-  /-- Whether the evaluator elaborated a command, a tactic or a term. -/
-  role : EvaluatorRole
-  /-- The elaborator's declaration name (anonymous when none was recorded). -/
-  elaborator : Name
-  /-- The syntax kind the evaluator elaborated. -/
-  kind : Name
-  deriving Repr, DecidableEq
-
-/-- The role, elaborator and syntax kind of an evaluator observation. -/
-def key (value : Evaluator) : EvaluatorKey :=
-  { role := value.role, elaborator := value.elaborator, kind := value.kind }
-
-/-- The only non-term evaluator sequence `NativeCommand` accepts: the declaration command,
-then its `by` block and tactic sequence, then `native_decide`, in that order. -/
-def nativeDecideChain : Array EvaluatorKey := #[
-  ⟨.command, declarationElaborator, declarationKind⟩,
-  ⟨.tactic, .anonymous, `Lean.Parser.Term.byTactic⟩,
-  ⟨.tactic, .anonymous, `by⟩,
-  ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq, `Lean.Parser.Tactic.tacticSeq⟩,
-  ⟨.tactic, `Lean.Elab.Tactic.evalTacticSeq1Indented,
-    `Lean.Parser.Tactic.tacticSeq1Indented⟩,
-  ⟨.tactic, nativeDecideElaborator, nativeDecideKind⟩
-]
-
 
 /-- Source containment uses the lexicographic codepoint position order. -/
 def PositionLE (a b : Position) : Prop :=
@@ -97,14 +55,18 @@ def IntroducingCommand (ts : Array Transcript) (m n : Name) (c : Command) : Prop
 instance (ts : Array Transcript) (m n : Name) (c : Command) :
     Decidable (IntroducingCommand ts m n c) := by unfold IntroducingCommand; infer_instance
 
-/-- The native observation must match exactly one added axiom in exactly one command. -/
-def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (parent : Name)
-    (c : Command) : Prop :=
+/-- `c` is the one command of `a`'s module that adds an axiom of the generated origin `(pfx, t)`
+(the recognized prefix, in the same privacy form, and tactic) with `a`'s asserted statement. The
+match is by origin and statement, never by exact name: the statement names the tactic run's own
+auxiliary definitions by their unindexed base (`nativeStatement`), since a fresh transcript and an
+asynchronous build can index generated names differently. -/
+def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (t : NativeTactic)
+    (pfx : Name) (c : Command) : Prop :=
   (moduleCommands ts a.module).filter (fun cmd =>
-    (cmd.addedDeclarations.filter (fun d => nativeParent? d.name == some parent &&
-      d.kind == .«axiom» && d.type == a.type)).size == 1) = #[c]
-instance (ts : Array Transcript) (a : Declaration) (p : Name) (c : Command) :
-    Decidable (NativeIntroducingCommand ts a p c) := by
+    cmd.addedDeclarations.any (fun d => nativeAxiomOrigin? d.name == some (pfx, t) &&
+      d.kind == .«axiom» && d.nativeStatement == a.nativeStatement)) = #[c]
+instance (ts : Array Transcript) (a : Declaration) (t : NativeTactic) (pfx : Name) (c : Command) :
+    Decidable (NativeIntroducingCommand ts a t pfx c) := by
         unfold NativeIntroducingCommand; infer_instance
 
 /-- Literal declaration origin, including the exact built-in dotted-name expansion. -/
@@ -137,43 +99,50 @@ instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
     (RecursiveCommand c b r) := by
   unfold RecursiveCommand; infer_instance
 
-/-- Native teaching permits exactly the pinned complete non-term evaluator sequence. -/
-def NativeCommand (c : Command) (r : SyntaxRange) : Prop :=
-  LiteralDeclaration c r ∧ (∀ e ∈ c.evaluators, PinnedEvaluator e) ∧
-  (c.evaluators.filter (·.role != .term)).map key = nativeDecideChain
-instance (c : Command) (r : SyntaxRange) : Decidable (NativeCommand c r) := by
-  unfold NativeCommand; infer_instance
-
-/-- Native axiom shape and successful independent replay observations. -/
+/-- Native axiom shape, the asserted statement of its tactic and successful independent replay
+observations. -/
 def NativeAxiomShape (a : Declaration) : Prop :=
   a.kind = .«axiom» ∧ a.internal = true ∧ a.isProp = true ∧
   a.isUnsafe = false ∧ a.isPartial = false ∧ a.implementedBy = none ∧ a.extern = false ∧
-  a.nativeBoolShape = true ∧ a.nativeReplay = some true ∧ a.name ∈ a.axioms ∧
+  a.nativeStatement.isSome = true ∧ a.nativeReplay = some true ∧ a.name ∈ a.axioms ∧
   ∀ n ∈ a.axioms, n = a.name ∨ Permitted .standardLogical n
 instance (a : Declaration) : Decidable (NativeAxiomShape a) := by
     unfold NativeAxiomShape; infer_instance
 
-/-- Exact supported parent and recorded use shape, with no safety/runtime escape. -/
-def NativeParentShape (a p : Declaration) : Prop :=
-  p.isProp = true ∧ p.kind ∈ #[DeclarationKind.theorem, .opaque, .definition] ∧
-  p.module = a.module ∧ a.name ∈ p.axioms ∧ a.nativeUseParents = #[p.name] ∧
-  p.isUnsafe = false ∧ p.isPartial = false ∧ p.implementedBy = none ∧ p.extern = false
-instance (a p : Declaration) : Decidable (NativeParentShape a p) := by
-    unfold NativeParentShape; infer_instance
+/-- A native-proof axiom `a` is authenticated exactly when three observations hold.
 
-/-- All native teaching requirements jointly hold, including unique use and introduction.
-Names locate a candidate; the remaining relations supply the required data-level evidence. -/
+1. Name: `a`'s name is one the pinned `nativeEqTrue` scheme generates for a native tactic
+   (`nativeAxiomOrigin?`, characterized by `nativeAxiomOrigin?_isSome_iff`), under a prefix that
+   is the name of a declaration `p` of `a`'s module or its module-private form
+   (`GeneratedPrefix`, characterized by `generatedPrefix_iff`).
+2. Statement and replay: `a` is a safe internal proposition axiom asserting `e = true` with `e` in
+   that tactic family's shape (`nativeStatement`), an independent native evaluation of `e`
+   returned `true`, and `a` depends on no other axiom outside the standard logical set
+   (`NativeAxiomShape`).
+3. Provenance: in a fresh re-elaboration of the source, the one command introducing `p` is the one
+   command adding an axiom of that origin and statement (`NativeIntroducingCommand`), and no
+   `axiom` declaration node occurs in that command's syntax, in a command its information tree
+   records or in a macro expansion there, quoted syntax included (`Command.declaresAxiom`).
+
+Soundness. By (2), whatever code added `a`, it asserts only a closed Boolean fact that compiled
+evaluation confirms, so trusting it is exactly trusting the compiler: an authenticated axiom is
+at worst compiler-trusting, never a hidden logical assumption. By (3), a user's own `axiom`
+declaration, written directly or produced by a macro, is never attributed to a native proof: in a
+separate command it fails the shared-command condition, and in the same command it is present in
+syntax that Lean records whether or not elaborating it succeeds. The check matches no names, so a
+macro cannot separate the declared name from it; its only cost is that a command which both
+declares an axiom and uses a native tactic has no native axiom authenticated. A custom tactic,
+elaborator or metaprogram that adds such an axiom without declaring it relies on (2) alone and is
+classified compiler-trusting, which (2) makes accurate. No command, evaluator or proof-term shape
+is required beyond (1)-(3), so wrappers (namespaced names, attributes, `set_option … in`, `where`
+clauses, parameters, `grind =>` and `sym =>` blocks, module-private names) do not change the
+classification. `native_provenance` states what an authenticated role extracts from these
+observations; it does not make them truthful. -/
 def NativeTeachingOK (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) : Prop :=
-  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds,
-    nativeParent? a.name = some p.name ∧ NativeParentShape a p ∧
-    (ds.filter (fun d => d.valueConstants.contains a.name)) = #[p] ∧
-    ∃ pr ∈ declarationRange? p, ∃ ar ∈ declarationRange? a,
-      PositionLE pr.start ar.start ∧ PositionLE ar.end pr.end ∧
-      ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
-        NativeIntroducingCommand ts a p.name c ∧ NativeCommand c pr ∧ p.name ∈ c.added ∧
-        ExactlyOne (c.evaluators.filter (fun e => e.role == .tactic &&
-          e.elaborator == nativeDecideElaborator && e.kind == nativeDecideKind)) (fun e =>
-          e.range = some ar))
+  NativeAxiomShape a ∧ a ∈ ds ∧ ∃ p ∈ ds, ∃ o ∈ nativeAxiomOrigin? a.name,
+    p.module = a.module ∧ GeneratedPrefix p.module p.name o.1 ∧
+    ExactlyOne ((moduleCommands ts p.module).filter (fun c => c.added.contains p.name)) (fun c =>
+      NativeIntroducingCommand ts a o.2 o.1 c ∧ c.declaresAxiom = false)
 instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
 

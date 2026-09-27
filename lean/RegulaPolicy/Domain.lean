@@ -92,7 +92,8 @@ inductive BoundaryKind where
   /-- Any other opaque constant; its body is checked only when no compiled helper replaces it. -/
   | «opaqueComputation»
   /-- An axiom that trusts the compiler, reached by execution: `Lean.trustCompiler`,
-  `Lean.ofReduceBool`, `Lean.ofReduceNat` or a `native_decide` axiom. -/
+  `Lean.ofReduceBool`, `Lean.ofReduceNat` or a name the `nativeEqTrue` scheme generates for
+  `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
   deriving Repr, DecidableEq, Inhabited
 
@@ -624,14 +625,15 @@ structure Declaration where
   /-- For such a helper: the axioms of the base's unfolding equation, sorted and without
   duplicates. -/
   unsafeRecEquationAxioms : Option (Array Lean.Name)
-  /-- The type has the shape `Decidable.decide p = true` that a `native_decide` axiom asserts. -/
-  nativeBoolShape : Bool
-  /-- For a replay candidate of that shape: whether an independent native evaluation of the
-  `decide` expression returned `true` (`false` also when the replay failed). -/
+  /-- For an axiom whose name the `nativeEqTrue` scheme generates for a native tactic
+  (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
+  (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
+  own auxiliary definitions for `bv_decide`): the `repr` of `e`, naming each of those auxiliary
+  definitions by its unindexed base. Otherwise `none`. -/
+  nativeStatement : Option String
+  /-- For a replay candidate with a statement: whether an independent native evaluation of
+  `e` returned `true` (`false` also when the replay failed). -/
   nativeReplay : Option Bool
-  /-- For a replay candidate of that shape: the declarations whose whole proof applies
-  `of_decide_eq_true` to this axiom for the same `decide` expression. -/
-  nativeUseParents : Array Lean.Name
   /-- Lean's declaration ranges, when it recorded them. -/
   ranges : Option Ranges
   /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without
@@ -976,6 +978,9 @@ structure AddedDeclaration where
   kind : DeclarationKind
   /-- The `repr` of its kernel type expression. -/
   «type» : String
+  /-- The native statement of a generated native-proof axiom, computed as
+  `Declaration.nativeStatement`; otherwise `none`. -/
+  nativeStatement : Option String := none
   deriving Repr, DecidableEq
 
 /-- A constant binder in a command's information tree: where a declared name is written. -/
@@ -1002,6 +1007,10 @@ structure Command where
   evaluators : Array Evaluator
   /-- The constant binders of the command's information tree. -/
   bindings : Array DeclarationBinding := #[]
+  /-- Whether the command's syntax, a command its information tree records, or the output of a
+  macro expansion there contains an `axiom` declaration node, quoted syntax included. It is read
+  from syntax, so it holds even when elaborating that declaration failed. -/
+  declaresAxiom : Bool
   deriving Repr, DecidableEq
 
 /-- The record of one fresh frontend elaboration of a module's exact source. -/

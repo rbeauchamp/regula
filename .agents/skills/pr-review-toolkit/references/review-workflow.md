@@ -70,7 +70,9 @@ not close the finding. Qualification observations do not prove universal checker
 
 Keep prose, definitions, and checker policy aligned where they encode the same claim.
 Preserve module 8's assurance boundary: custom or ambiguous evaluator paths cannot justify
-generated-role exemptions; arbitrary process or trusted-plugin compromise is outside scope.
+the recursive-helper exception, a native-proof axiom rests on its natively replayed statement
+and command provenance instead, and arbitrary process or trusted-plugin compromise is outside
+scope.
 
 Choose checks from AGENTS.md and the applicable checklist rows:
 

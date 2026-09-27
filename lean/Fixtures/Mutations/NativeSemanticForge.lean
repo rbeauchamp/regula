@@ -1,8 +1,9 @@
 /-
 Mutation: public environment APIs can synthesize a native-looking Boolean
-axiom and an exact `of_decide_eq_true` parent proof with nested source ranges.
-The checker must reject the custom-command origin even though native replay of
-the asserted Boolean succeeds and the final semantic relationship is exact.
+axiom and an exact `of_decide_eq_true` parent proof with nested source ranges
+from a custom command. The axiom asserts only a Boolean fact that native replay
+confirms, so it must be classified compiler-trusting, never logical, and still
+rejected on a standard-logical surface.
 -/
 import Lean
 

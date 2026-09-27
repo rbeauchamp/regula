@@ -620,7 +620,7 @@ def legacyJson (value : Json) (sourceRoot targetRoot : String := "") : Json :=
       else
         let value := if ["name", "module", "root", "replacement", "implementedBy", "unsafeRecBase",
             "elaborator", "kind", "commandElaborator", "commandKind"].contains k then legacyName v
-          else if ["modules", "axioms", "valueConstants", "all", "levelParams", "nativeUseParents",
+          else if ["modules", "axioms", "valueConstants", "all", "levelParams",
             "unsafeRecEquationAxioms", "compilerCallers", "added", "imports"].contains k then
               match v with
               | .arr values => .arr (values.map legacyName)

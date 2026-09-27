@@ -149,8 +149,8 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecValueOrigin", "unsafeRecValueExact",
                   "unsafeRecValueDefeq", "unsafeRecEquationExact", "unsafeRecEquationDefeq",
-                      "unsafeRecEquationAxioms", "nativeBoolShape", "nativeReplay",
-                          "nativeUseParents", "ranges", "axioms", "executableContract"]
+                      "unsafeRecEquationAxioms", "nativeStatement", "nativeReplay", "ranges",
+                          "axioms", "executableContract"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -181,9 +181,8 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     unsafeRecEquationExact := ← j.getObjValAs? _ "unsafeRecEquationExact"
     unsafeRecEquationDefeq := ← j.getObjValAs? _ "unsafeRecEquationDefeq"
     unsafeRecEquationAxioms := ← j.getObjValAs? _ "unsafeRecEquationAxioms"
-    nativeBoolShape := ← j.getObjValAs? _ "nativeBoolShape"
+    nativeStatement := ← j.getObjValAs? _ "nativeStatement"
     nativeReplay := ← j.getObjValAs? _ "nativeReplay"
-    nativeUseParents := ← j.getObjValAs? _ "nativeUseParents"
     ranges := ← j.getObjValAs? _ "ranges"
     axioms := ← j.getObjValAs? _ "axioms"
     executableContract := ← j.getObjValAs? _ "executableContract"

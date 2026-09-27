@@ -52,8 +52,8 @@ The screen accepts the reference only when these conditions hold:
   such dependencies are kernel re-admitted only when the project passes Regula's fresh
   acceptance (fresh source elaboration and kernel admission of its claimed surfaces).
 - Its transitive axioms lie within the Standard-Logical foundation: `propext`, `Quot.sound`
-  and `Classical.choice`. A project axiom, `sorryAx`, `Lean.ofReduceBool` (`native_decide`) or
-  `Lean.trustCompiler` refuses it. The report lists the exact axioms.
+  and `Classical.choice`. A project axiom, `sorryAx`, a native-proof axiom (`native_decide`,
+  `decide +native` or `bv_decide`), `Lean.ofReduceBool` or `Lean.trustCompiler` refuses it. The report lists the exact axioms.
 
 The kernel re-checked the implication's own proof term, relative to its trusted dependencies,
 and the screen's adapter ran the other checks. That part of the clause is **checked** and

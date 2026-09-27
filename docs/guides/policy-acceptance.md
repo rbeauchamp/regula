@@ -455,12 +455,21 @@ exact literal/nested binder attribution, pinned evaluators and complete introduc
 Do not collapse exactness and definitional comparison, or set-normalize ordered groups.
 
 `NativeTeachingOK(decls,transcripts,a)` retains **all** guards in
-`authorizedNativeAxioms`: internal safe proposition axiom, exact Boolean shape and successful
-replay, permitted dependency set; same-module safe proposition parent of supported kind,
-exact parent-use shape, unique direct user; nested exact ranges; unique introducing command
-shared with parent; literal declaration, pinned complete evaluator chain and one native
-range. Names only locate candidates. This evidence only permits teaching classification;
-it never relaxes a conforming profile.
+`authorizedNativeAxioms`, which rest on three observations and no syntax shape: (1) a name that
+`nativeEqTrue`'s scheme generates for `native_decide`, `decide +native` or `bv_decide`
+(`nativeAxiomOrigin?`), which fixes the tactic and a prefix that is the name of a declaration of
+the axiom's module or, for a public one, its private form there (`GeneratedPrefix`); (2) an
+internal safe proposition axiom with that tactic's exact asserted statement, successful
+independent replay and permitted dependency set (`NativeAxiomShape`); (3) the one transcript
+command introducing that declaration is the one command adding an axiom of that origin and
+statement (`NativeIntroducingCommand`), and no `axiom` declaration occurs in its recorded syntax
+or macro expansions (`Command.declaresAxiom`, read from syntax Lean records even when that
+declaration fails), so an authored `axiom`, direct or macro-produced, never qualifies. By (2)
+any axiom that qualifies asserts only a natively confirmed Boolean fact, so a custom elaborator
+that adds one is classified compiler-trusting, which is accurate. Wrappers such as namespaced
+names, attributes, `set_option … in`, `where` clauses and `grind =>` blocks do not matter. Names
+only locate candidates. This evidence only permits teaching classification; it never relaxes a
+conforming profile.
 
 Freeze these relations as independently written component predicates, then prove the
 **executed** typed validators return evidence iff the relation holds on supported records.

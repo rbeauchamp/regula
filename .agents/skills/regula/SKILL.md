@@ -44,15 +44,17 @@ theorem reflexive (n : Nat) : n = n := rfl
 
 ### RG1004 Compiler-trusting proofs require separate classification
 
-Claimed declarations use no compiler-trusting proof: no `native_decide`, `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`.
+Claimed declarations use no compiler-trusting proof: no `native_decide`, `decide +native`, `bv_decide`, `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`.
 Fix: Prove the same statement with a kernel-checked proof, for example `decide` (kernel reduction), `rfl` or an ordinary proof.
 
 ```lean
 import Init
-/-! # Concrete equality
+/-! # Concrete facts
 
-The same concrete equality has a kernel proof. -/
+The same concrete facts have kernel proofs. -/
 theorem equal : (2 : Nat) = 2 := rfl
+theorem gcdValue : Nat.gcd 1071 462 = 21 := by decide
+theorem commute (x y : BitVec 8) : x * y = y * x := BitVec.mul_comm x y
 ```
 
 ### RG1006 Unsafe and partial declarations require exact helper authentication
@@ -312,7 +314,7 @@ theorem reflexive (n : Nat) : n = n := rfl
 ### RG4004 Teaching examples require authenticated compiler classification
 
 A `lean-trusted-compiler` fence elaborates warning-free and contains an authenticated compiler-trusting declaration.
-Fix: Use the marker only for an example that demonstrates `native_decide` (or another authenticated compiler-trusting mechanism); otherwise remove it.
+Fix: Use the marker only for an example that demonstrates `native_decide`, `decide +native` or `bv_decide` (or another authenticated compiler-trusting mechanism); otherwise remove it.
 
 ````markdown
 ```lean

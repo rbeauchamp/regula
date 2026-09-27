@@ -14,7 +14,7 @@ open Lean (Name)
 
 /-- Semantic failures are mapped to the one diagnostic registry by the adapter. -/
 inductive DeclarationFailure where
-  /-- The declaration is a logical `axiom` that is not an admitted generated `native_decide`
+  /-- The declaration is a logical `axiom` that is not an admitted generated native-proof
   axiom. -/
   | projectAxiom
   /-- The declaration's transitive axioms include `sorryAx`. -/
@@ -25,7 +25,7 @@ inductive DeclarationFailure where
   `_unsafe_rec` helper. -/
   | escapeHatch
   /-- Outside the teaching request, the declaration depends on a compiler-trusting axiom or is
-  an admitted `native_decide` axiom. -/
+  an admitted generated native-proof axiom. -/
   | compilerTrusting
   /-- An executable-contract observation of the declaration records a failure. -/
   | executableContract

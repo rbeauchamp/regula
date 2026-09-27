@@ -56,7 +56,7 @@ def Declaration.Valid (d : Declaration) : Prop :=
   canonicalNames d.axioms = d.axioms ∧ canonicalNames d.valueConstants = d.valueConstants ∧
   (∀ ns ∈ d.unsafeRecEquationAxioms, canonicalNames ns = ns ∧ ∀ n ∈ ns, Named n) ∧
   (∀ n ∈ d.axioms, Named n) ∧ (∀ n ∈ d.valueConstants, Named n) ∧
-  (∀ n ∈ d.all, Named n) ∧ (∀ n ∈ d.nativeUseParents, Named n) ∧
+  (∀ n ∈ d.all, Named n) ∧
   (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧
   (∀ c ∈ d.executableContract, c.failure.isSome = true ∨ Named c.root)
 instance instDecidableDeclarationValid (d : Declaration) : Decidable d.Valid := by

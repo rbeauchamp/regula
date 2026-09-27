@@ -217,7 +217,7 @@ number := false
   * {checklistRow}[FOUND-05]
   * Native/compiler-generated proof axioms are classified separately and rejected from the conforming positive proof surface; final-environment metadata alone cannot spoof the classification.
   * {ref "85-proof-completeness-and-foundation-strength"}[8 §8.5–§8.6]
-  * Inspect generated proof axioms and dependent declarations; require exact semantic shape and native replay plus fresh built-in frontend attribution for the compiler-trusting classification. Qualification: distinguish a real native proof, a native-looking project axiom, and a custom frontend forging the final semantic shape.
+  * Inspect generated proof axioms and dependent declarations; the compiler-trusting classification requires a name the `nativeEqTrue` scheme generates under a declaration of the axiom's module, the tactic's exact asserted statement with a successful independent native replay, and fresh-transcript provenance: the one command introducing that declaration adds the axiom, and no `axiom` declaration occurs in that command's recorded syntax or macro expansions. Qualification: a real native proof is compiler-trusting; a native-named `axiom` declared directly, through a macro, or through a macro whose declaration fails after adding the axiom stays a project axiom; a custom frontend forging the final semantic shape of a natively true proof is classified compiler-trusting, never logical.
 :::
 
 ## Declaration and Module Coverage
@@ -244,7 +244,7 @@ number := false
   * Compare environment constant counts and exact names; classify `isProp` from the elaborated type and validate the trusted-runner report. Qualification includes an audited module registering a colliding observer-command token.
 *
   * {checklistRow}[DECL-03]
-  * Ownership uses Lean/Lake semantics. Generated-role exceptions require fresh frontend attribution and the exact semantic relationship in §8.4–§8.5; names or forgeable final metadata alone cannot authorize them.
+  * Ownership uses Lean/Lake semantics. Generated-role exceptions require fresh-frontend evidence: exact attribution and semantic relationship for recursive helpers (§8.4), and native replay with command provenance for native-proof axioms (§8.5); names or forgeable final metadata alone cannot authorize them.
   * {ref "82-define-surfaces-through-lake-semantics"}[8 §8.2], {ref "84-inventory-every-owned-declaration"}[8 §8.4]
   * Inspect ownership and every claimed exception. Qualification: exact-prefix lookalikes, private and auxiliary-looking names, native-name spoofs, custom-command `addDecl`, and nested-`run_tac` generated-role forgeries receive their intended classification or rejection.
 *

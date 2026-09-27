@@ -1,4 +1,5 @@
 import Regula.Report
+import Regula.Collect
 import Regula.Diagnostic
 import RegulaCore.Coordinates
 import RegulaCore.EditorPolicy
@@ -61,16 +62,17 @@ instance : FromJson RegulaPolicy.Frontend.Evaluator := ⟨fun j => do
     pinned := ← j.getObjValAs? _ "pinned"
   }⟩
 
-/-- One constant a command added: its name, kind and printed type
+/-- One constant a command added: its name, kind, printed type and native statement
 (`RegulaPolicy.Frontend.AddedDeclaration`), with its exact-field JSON codec. -/
 abbrev AddedDeclaration := RegulaPolicy.Frontend.AddedDeclaration
 deriving instance ToJson for RegulaPolicy.Frontend.AddedDeclaration
 instance : FromJson RegulaPolicy.Frontend.AddedDeclaration := ⟨fun j => do
-  exactFields j ["name", "kind", "type"]
+  exactFields j ["name", "kind", "type", "nativeStatement"]
   return {
     name := ← j.getObjValAs? _ "name"
     kind := ← j.getObjValAs? _ "kind"
     «type» := ← j.getObjValAs? _ "type"
+    nativeStatement := ← j.getObjValAs? _ "nativeStatement"
   }⟩
 
 /-- The binder site of a declared constant at its declaration identifier
@@ -84,13 +86,13 @@ instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
     range := ← j.getObjValAs? _ "range"
   }⟩
 
-/-- One elaborated command that added constants, with its evaluators and binders
-(`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
+/-- One elaborated command that added constants, with its evaluators, binders and whether it
+declares an axiom (`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
 abbrev Command := RegulaPolicy.Frontend.Command
 deriving instance ToJson for RegulaPolicy.Frontend.Command
 instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
   exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations",
-      "evaluators", "bindings"]
+      "evaluators", "bindings", "declaresAxiom"]
   return {
     commandElaborator := ← j.getObjValAs? _ "commandElaborator"
     commandKind := ← j.getObjValAs? _ "commandKind"
@@ -99,6 +101,7 @@ instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
     addedDeclarations := ← j.getObjValAs? _ "addedDeclarations"
     evaluators := ← j.getObjValAs? _ "evaluators"
     bindings := ← j.getObjValAs? _ "bindings"
+    declaresAxiom := ← j.getObjValAs? _ "declaresAxiom"
   }⟩
 
 /-- The fresh-elaboration transcript of one module (`RegulaPolicy.Frontend.Transcript`),
@@ -302,6 +305,25 @@ private def declarationBindings (fileMap : FileMap) (tree : InfoTree) :
 termination_by tree
 decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
 
+/-- Whether a command's information tree records an `axiom` declaration: in the syntax of a
+command it elaborates or in the output of a macro expansion. Lean records both nodes in a
+`finally` step (`withInfoTreeContext`, `withInfoContext`), so the answer does not depend on
+elaborating that declaration succeeding. -/
+private def declaresAxiom (tree : InfoTree) : Bool :=
+  match tree with
+  | .context _ child => declaresAxiom child
+  | .node info children =>
+      let syntaxDeclaresAxiom := fun (stx : Syntax) =>
+        (stx.find? (·.isOfKind ``Lean.Parser.Command.«axiom»)).isSome
+      let own := match info with
+        | .ofCommandInfo i => syntaxDeclaresAxiom i.stx
+        | .ofMacroExpansionInfo i => syntaxDeclaresAxiom i.output
+        | _ => false
+      (elems children).attach.foldl (fun found ⟨child, _⟩ => found || declaresAxiom child) own
+  | .hole _ => false
+termination_by tree
+decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
+
 /-- Source metaprograms can compile with a temporary replacement and restore
 the map within one command. Command snapshots cannot certify that history.
 Imported trusted elaborators remain inside the documented process boundary. -/
@@ -356,7 +378,8 @@ private def constantRecord (env : Environment) (name : Name) : AddedDeclaration 
   let info := env.constants.find! name
   { name := name
     kind := constantKind info
-    «type» := toString (repr info.type) }
+    «type» := toString (repr info.type)
+    nativeStatement := Regula.Collect.nativeStatement? name info.type }
 
 /-- In ordinary command snapshots, only the local map can gain declarations.
 When pointer identity confirms the same immutable imported map allocation, scan
@@ -448,6 +471,7 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
                 evaluators := evaluatorRecords (baseline?.getD commandCtx.env)
                   commandCtx.env commandCtx.fileMap tree specializeSame
                 bindings := declarationBindings commandCtx.fileMap tree
+                declaresAxiom := declaresAxiom tree
               }
           before? := some after
         else if before?.isNone then
