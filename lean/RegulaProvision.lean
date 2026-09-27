@@ -707,10 +707,11 @@ end RegulaProvision
 def main : IO Unit := do
   if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
     IO.println "provisioning: skipped on GitHub Actions (CI provisions .lake/packages with `lake \
-      exe cache get`)"
+      -d audit exe cache get`)"
     return
   if System.Platform.isWindows then
-    IO.println "provisioning: not supported on Windows; provision with `lake exe cache get`"
+    IO.println "provisioning: not supported on Windows; provision with `lake -d audit exe cache \
+      get`"
     return
   let repo ← IO.FS.realPath (← IO.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
