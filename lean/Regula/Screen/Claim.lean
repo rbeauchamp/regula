@@ -121,13 +121,18 @@ def checkDischarge (claimLevels : List Name) (claim : Expr) (proof : Name) : Met
   if formal.hasLooseBVars then throwError "discharge {proof}'s conclusion depends on its hypothesis"
   match Kernel.isDefEq (← getEnv) {} hypothesis claim with
   | .ok true => pure ()
-  | .ok false => throwError "discharge {proof}'s hypothesis is not definitionally equal to the claim's statement"
-  | .error _ => throwError "the kernel could not compare discharge {proof}'s hypothesis with the claim"
+  | .ok false =>
+      throwError
+          "discharge {proof}'s hypothesis is not definitionally equal to the claim's statement"
+  | .error _ =>
+      throwError "the kernel could not compare discharge {proof}'s hypothesis with the claim"
   let copy := `_intentScreen.recheck ++ proof
   if (← getEnv).contains copy then throwError "discharge {proof}'s re-check name {copy} is taken"
-  match (← getEnv).toKernelEnv.addDeclCore 0 0 (.thmDecl { thm with name := copy, all := [copy] }) none with
+  match (← getEnv).toKernelEnv.addDeclCore 0 0
+      (.thmDecl { thm with name := copy, all := [copy] }) none with
   | .ok _ => pure ()
-  | .error e => throwError "the kernel rejected discharge {proof}'s proof: {← (e.toMessageData {}).toString}"
+  | .error e =>
+      throwError "the kernel rejected discharge {proof}'s proof: {← (e.toMessageData {}).toString}"
   let axioms := (← collectAxioms proof).toList.mergeSort (·.toString ≤ ·.toString)
   if let some a := axioms.find? (!dischargeAxioms.contains ·) then
     throwError "discharge {proof} depends on {a}, outside the Standard-Logical foundation"
@@ -146,7 +151,9 @@ def readClaim (name : Name) : MetaM ClaimInput := do
     match discharge? clause with
     | some (english, proof) =>
       clauses := clauses.push english
-      let check ← try pure (DischargeCheck.admitted (← checkDischarge info.levelParams statement proof.toName))
+      let check ← try pure
+                       (DischargeCheck.admitted
+                           (← checkDischarge info.levelParams statement proof.toName))
         catch e => pure (.refused proof.toName (← e.toMessageData.toString))
       discharges := discharges.push (some check)
     | none =>
@@ -154,11 +161,13 @@ def readClaim (name : Name) : MetaM ClaimInput := do
       | some (english, reference) =>
         clauses := clauses.push english
         discharges := discharges.push (some (.refused (.mkSimple reference)
-          "malformed discharge marker: a marked clause must end with (discharged by `Name`), where Name is nonempty and contains no whitespace or backtick"))
+          "malformed discharge marker: a marked clause must end with (discharged by `Name`), where \
+            Name is nonempty and contains no whitespace or backtick"))
       | none =>
         clauses := clauses.push clause
         discharges := discharges.push none
-  return { name, text := ⟨clauses.toList, RegulaPolicy.Screening.explanation doc, ← statementText info⟩,
+  return { name, text :=
+             ⟨clauses.toList, RegulaPolicy.Screening.explanation doc, ← statementText info⟩,
            discharges := discharges.toList }
 
 /-- Where a claim's findings are reported: its Lean declaration range in its module's source,
@@ -209,7 +218,8 @@ structure Usage where
 input tokens of an uncached answer are added. -/
 def Usage.add (u : Usage) (r : Jev.Response) : Usage :=
   { requests := u.requests + r.attempts, cached := u.cached + (if r.cached then 1 else 0)
-    inputTokens := if r.cached then u.inputTokens else do pure ((← u.inputTokens) + (← r.inputTokens)) }
+    inputTokens := if r.cached then u.inputTokens else do pure
+                                                           ((← u.inputTokens) + (← r.inputTokens)) }
 
 /-- The billed input tokens, or `unknown`. -/
 def Usage.tokensText (u : Usage) : String :=
@@ -248,7 +258,8 @@ def screenClaim (cfg : Config) (input : ClaimInput) : StateT Usage IO ClaimScree
     match discharge with
     | none =>
       let p ← noulOf response s!"coverage_{i}"
-      clauses := clauses.push (clause, .judged (judged .coverage clause s!"coverage_{i}" p.val none response.digest))
+      clauses := clauses.push
+          (clause, .judged (judged .coverage clause s!"coverage_{i}" p.val none response.digest))
     | some (.refused proof reason) => clauses := clauses.push (clause, .refused proof reason)
     | some (.admitted d) =>
       let q := [("correspondence", Questions.correspondence)]
@@ -257,7 +268,8 @@ def screenClaim (cfg : Config) (input : ClaimInput) : StateT Usage IO ClaimScree
       let p ← noulOf r "correspondence"
       clauses := clauses.push (clause, .discharged d.proof d.formal d.axioms
         { judgment := .correspondence, subject := clause, model := cfg.model, support := p.val
-          confidence := none, inputsDigest := r.digest, question := questionText Questions.correspondence })
+          confidence := none, inputsDigest := r.digest, question :=
+              questionText Questions.correspondence })
   let (support, confidence) ← strengthOf response
   let targeted ← targetedJudgments.mapM fun (id, j) => do
     let p ← noulOf response id

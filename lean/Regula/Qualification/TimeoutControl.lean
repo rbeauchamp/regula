@@ -35,20 +35,28 @@ def main (args : List String) : IO UInt32 := do
     let root ← rootDirectory
     withScratch root "timeout-control" fun scratch => do
       let positive ← observe #["positive"]
-      requireChecks [⟨"positive process control", positive.exitCode == 0 && positive.stdout.contains "restored-control"⟩]
+      requireChecks
+          [⟨"positive process control", positive.exitCode == 0 &&
+              positive.stdout.contains "restored-control"⟩]
       let pidPath := scratch / "descendant.pid"
       let start ← IO.monoMsNow
       let negative ← observe #["bounded", pidPath.toString]
       let elapsed := (← IO.monoMsNow) - start
-      requireChecks [⟨"timed descendant really started", negative.stdout.contains "descendant-ready"⟩,
+      requireChecks
+          [⟨"timed descendant really started", negative.stdout.contains "descendant-ready"⟩,
         ⟨"group timeout refused", negative.exitCode == 137⟩,
         ⟨"pipes drained within observation allowance", elapsed < 15000⟩]
       let pid ← IO.FS.readFile pidPath
       let status ← IO.Process.output { cmd := "ps", args := #["-o", "stat=", "-p", pid] }
       let state := status.stdout.trimAscii.toString
-      requireChecks [⟨"descendant terminated (absent or unreaped zombie)", state.isEmpty || state.startsWith "Z"⟩]
+      requireChecks
+          [⟨"descendant terminated (absent or unreaped zombie)", state.isEmpty ||
+              state.startsWith "Z"⟩]
       let restored ← observe #["positive"]
-      requireChecks [⟨"restored process control", restored.exitCode == 0 && restored.stdout.contains "restored-control"⟩]
-      IO.println s!"group timeout: positive / live descendant with inherited pipes / refusal ({elapsed}ms) / terminated / restored PASS"
+      requireChecks
+          [⟨"restored process control", restored.exitCode == 0 &&
+              restored.stdout.contains "restored-control"⟩]
+      IO.println s!"group timeout: positive / live descendant with inherited pipes / refusal \
+        ({elapsed}ms) / terminated / restored PASS"
       return 0
   | _ => throw <| IO.userError "timeout control takes no public arguments"

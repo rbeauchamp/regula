@@ -4,7 +4,8 @@ import RegulaPolicy.Codec
 /-! # Strict operational JSON parsing
 
 Strict operational JSON parsing. Scalar syntax reuses Lean's parser; the container
-recursion below is adapted from the Lean 4 repository's `src/Lean/Data/Json/Parser.lean` (notice as at
+recursion below is adapted from the Lean 4 repository's `src/Lean/Data/Json/Parser.lean` (notice as
+at
 `v4.34.0`), modified to reject duplicate keys before insertion and to guard each recursive
 call with consumed input, which makes it total. Upstream notice, retained:
 

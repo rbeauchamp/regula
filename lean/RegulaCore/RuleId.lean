@@ -7,7 +7,8 @@ module
 Closed public rule identity. Canonical construction is inspired by con-leche's
 `PropWhen.lean` and `Cached/Installed.lean`, revision
 c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0 (Lean FRO, Joachim Breitner and contributors).
-No upstream code or proof is copied. Normative predicates remain in the standard (`website/RegulaStandard`).
+No upstream code or proof is copied. Normative predicates remain in the standard
+(`website/RegulaStandard`).
 -/
 
 @[expose] public section
@@ -135,7 +136,8 @@ theorem parse_spelling (id : RuleId) : parse? id.spelling = some id := by
   cases id <;> rfl
 
 /-- Parsing succeeds only on a rule's exact spelling. -/
-theorem spelling_of_parse {s : String} {id : RuleId} (h : parse? s = some id) : id.spelling = s := by
+theorem spelling_of_parse {s : String} {id : RuleId} (h : parse? s = some id) :
+    id.spelling = s := by
   unfold parse? at h
   split at h <;> first | cases h; rfl | cases h
 

@@ -10,7 +10,8 @@ producer window and shared by every producer, which must not write it (no permis
 enforces this; the `sharedIdentity` check refuses a changed end state rather than
 preventing a write, and a write restored to identical content is not detected);
 each producer writes only its own fresh workspace. Lake dependency packages are not
-copied: the slot manifest names the captured original dependency roots. The ROOT copy and those dependency roots are
+copied: the slot manifest names the captured original dependency roots. The ROOT copy and those
+dependency roots are
 shared and must have no writer during the window. `SharedIdentity` checks the end
 state of that requirement fail-closed: a content-level identity of every entry under every shared
 root is captured before any producer starts and must be equal after every producer
@@ -71,7 +72,8 @@ def relativeOf (root path : FilePath) : FilePath :=
 /-- Excluded copy-walk roots: scratch, tmp, nested slot directories and the
 shared package recursion. -/
 def excluded (relative : String) : Bool :=
-  (relative.splitOn "/" |>.any fun part => part == "tmp" || part == "scratch" || part.startsWith "slot-")
+  (relative.splitOn "/" |>.any fun part => part == "tmp" || part == "scratch" ||
+                                            part.startsWith "slot-")
     || relative == ".lake/packages" || relative.startsWith ".lake/packages/"
 
 /-- True when `path` resolves inside `root` (executed normalization check).
@@ -459,7 +461,9 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   IO.FS.writeBinFile (project / "lean-toolchain")
     (← IO.FS.readBinFile (slot.root / "root" / "lean-toolchain"))
   IO.FS.writeFile (project / "lakefile.lean")
-    s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
+    s!"import Lake\nopen Lake DSL\npackage {packageName} where\n  leanOptions := #[⟨`autoImplicit, \
+      false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nrequire regula \
+      from {toJson (slot.root / "root").toString |>.compress}\n@[default_target] lean_lib Example\n"
   writeJson (project / "foundation_manifest.json") (Json.mkObj [
     ("schema-version", toJson (2 : Nat)), ("surfaces", toJson #[Json.mkObj [
       ("library", .str "Example"), ("claim", .str claim), ("execution", .str "checked"),
@@ -483,7 +487,8 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   -- which would materialize (clone/copy) into each fresh workspace's own
   -- `.lake/packages`.
   let packages := packages.map (fun entry =>
-    (entry.setObjVal! "inherited" (.bool true)).setObjVal! "type" (.str "path")) |>.push (Json.mkObj [
+    (entry.setObjVal! "inherited" (.bool true)).setObjVal! "type" (.str "path")) |>.push
+        (Json.mkObj [
     ("name", .str "regula"), ("scope", .str ""), ("type", .str "path"),
     ("dir", .str (slot.root / "root").toString), ("configFile", .str "lakefile.lean"),
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false)])

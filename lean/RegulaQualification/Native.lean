@@ -114,7 +114,8 @@ def Matches (expected : Expected) (exitCode : Nat) (stderr : String)
   (native.map (·.kind)).mergeSort (· ≤ ·) = expected.kinds.mergeSort (· ≤ ·) ∧
   (exitCode != 0) = expected.errors ∧ stderr = "" ∧
   (∀ message ∈ native, NativeMatches expected message) ∧
-  expected.detail.all (fun detail => native.any (fun message => message.data.contains detail)) = true
+  expected.detail.all
+      (fun detail => native.any (fun message => message.data.contains detail)) = true
 
 /-- The actual adapter oracle uses the registered proof-backed evaluator. -/
 def validate (expected : Expected) (exitCode : Nat) (stderr : String)
@@ -124,7 +125,8 @@ def validate (expected : Expected) (exitCode : Nat) (stderr : String)
 /-- Soundness and completeness of the whole supplied-observation contract. -/
 theorem validate_exact (expected : Expected) (exitCode : Nat) (stderr : String)
     (messages : List Message) :
-    validate expected exitCode stderr messages = .ok () ↔ Matches expected exitCode stderr messages := by
+    validate expected exitCode stderr messages = .ok () ↔
+        Matches expected exitCode stderr messages := by
   simp only [validate, Regula.ExecutableContract.run, checks, List.all_filter, List.any_filter,
     evaluate_success, Satisfied, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp,
     compilerMatches_exact, beq_iff_eq, List.all_eq_true, Bool.or_eq_true, Bool.not_eq_eq_eq_not,

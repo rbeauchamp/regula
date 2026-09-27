@@ -39,7 +39,8 @@ def check (evidence : Option FilePath) : IO Unit := do
         for kind in #["Fixed", "Violation", "Fixed"] do
           let relative := s!"examples/rules/{rule}/{kind}.lean"
           let bytes ← IO.FS.readBinFile (root / relative)
-          let some source := String.fromUTF8? bytes | throw <| IO.userError "fixture must be valid UTF-8"
+          let some source := String.fromUTF8? bytes | throw <|
+                                                       IO.userError "fixture must be valid UTF-8"
           IO.FS.writeBinFile (project / "Example.lean") bytes
           -- Fixed runs from a cleared build; Violation keeps the prior Fixed build.
           if kind == "Fixed" then clearBuild project
@@ -47,23 +48,30 @@ def check (evidence : Option FilePath) : IO Unit := do
           let (result, report) ← observeProject root project output flags
           let account ← IO.ofExcept (RegulaQualification.Producer.account report)
           let declarations ← IO.ofExcept (account.getObjValAs? (Array Json) "declarations")
-          let some declaration := declarations[0]? | throw <| IO.userError "missing theorem declaration"
+          let some declaration := declarations[0]? | throw <|
+                                                      IO.userError "missing theorem declaration"
           let observedType ← IO.ofExcept (declaration.getObjVal? "type")
           let expectedType := theoremType.getD observedType
           theoremType := some expectedType
-          IO.ofExcept (RegulaQualification.Producer.checked_validation.run report result.exitCode.toNat
+          IO.ofExcept
+              (RegulaQualification.Producer.checked_validation.run report result.exitCode.toNat
             rule mode source (kind == "Fixed") expectedType)
-          requireChecks [⟨"fixture bytes unchanged", (← IO.FS.readBinFile (project / "Example.lean")) == bytes⟩]
+          requireChecks
+              [⟨"fixture bytes unchanged", (← IO.FS.readBinFile (project / "Example.lean"))
+                  == bytes⟩]
           records := records.push (Json.mkObj [
             ("rule", .str rule), ("case", .str kind), ("invocation", .str invocation),
             ("path", .str relative), ("source", .str source), ("result", report)])
           IO.println s!"{invocation} project {rule}/{kind}: PASS"
-    let mainSource := "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
+    let mainSource := "/-! Standalone no-effect IO entrypoint. -/\n/-- Does nothing. -/\ndef main \
+      : IO Unit := pure ()\n"
     for phase in #["positive", "axiom"] do
       let project ← fresh s!"standalone-{phase}"
-      IO.FS.writeBinFile (project / "Example.lean") (← IO.FS.readBinFile (root / "examples/rules/RG5002/Fixed.lean"))
+      IO.FS.writeBinFile (project / "Example.lean")
+          (← IO.FS.readBinFile (root / "examples/rules/RG5002/Fixed.lean"))
       let config := project / "lakefile.lean"
-      IO.FS.writeFile config ((← IO.FS.readFile config) ++ "\nlean_exe sampleTool where\n  root := `SelftestMain\n")
+      IO.FS.writeFile config
+          ((← IO.FS.readFile config) ++ "\nlean_exe sampleTool where\n  root := `SelftestMain\n")
       let manifestPath := project / "foundation_manifest.json"
       let manifest ← readJson manifestPath
       let surfaces ← IO.ofExcept (manifest.getObjValAs? (Array Json) "surfaces")
@@ -71,11 +79,13 @@ def check (evidence : Option FilePath) : IO Unit := do
       writeJson manifestPath (manifest.setObjVal! "surfaces"
         (toJson #[surface.setObjVal! "executables" (toJson #["sampleTool"])]))
       let source := mainSource ++
-        (if phase == "axiom" then "/-- An owned axiom, which RG1001 rejects. -/\naxiom ownedAssumption : True\n" else "")
+        (if phase == "axiom" then
+            "/-- An owned axiom, which RG1001 rejects. -/\naxiom ownedAssumption : True\n" else "")
       IO.FS.writeFile (project / "SelftestMain.lean") source
       let (result, report) ← observeProject root project (project / s!"standalone-{phase}.json") #[]
       IO.ofExcept (RegulaQualification.checked_decoded.run
-        (RegulaQualification.Producer.standaloneRequirements report result.exitCode.toNat (phase == "axiom")))
+        (RegulaQualification.Producer.standaloneRequirements report result.exitCode.toNat
+            (phase == "axiom")))
       IO.println s!"standalone executable {phase}: PASS"
     return records
   if let some path := evidence then

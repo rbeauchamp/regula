@@ -369,7 +369,8 @@ def executionFailureLine (failure : RegulaPolicy.ExecutionFailure) : String :=
 record `k`, with no line added or dropped. The lines are therefore empty exactly when
 `ExecutionOK` holds, so rendering cannot hide a failure. -/
 def ExecutionFailuresContract
-    (render : RegulaPolicy.ExecutionInventory → RegulaPolicy.ExecutionClaim → Array String) : Prop :=
+    (render : RegulaPolicy.ExecutionInventory → RegulaPolicy.ExecutionClaim → Array String) :
+        Prop :=
   ∀ inventory claim,
     (render inventory claim).size = (RegulaPolicy.executionFailureRecords inventory claim).size ∧
     (∀ k (h : k < (render inventory claim).size)

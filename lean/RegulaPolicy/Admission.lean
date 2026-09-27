@@ -158,7 +158,8 @@ def declarationCoordinatesDecidable (decls : Array Declaration)
     (∀ d ∈ decls, d.module = moduleName → d.ranges.all (·.validForLines lines) = true) :=
   inferInstance
 
-instance instDecidableInventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Transcript) :
+instance instDecidableInventoryValid (decls : Array Declaration)
+    (transcripts : Array Frontend.Transcript) :
     Decidable (InventoryValid decls transcripts) := by
   unfold InventoryValid
   -- A let in the proposition is reduced during instance synthesis. Bind the
@@ -333,7 +334,8 @@ instance instDecidableExecutionRootValid (r : ExecutionRoot) : Decidable r.Valid
 /-- Execution roots have pairwise distinct names and each satisfies `ExecutionRoot.Valid`. -/
 def ExecutionValid (roots : Array ExecutionRoot) : Prop :=
   UniqueNames (roots.map (·.name)) ∧ ∀ r ∈ roots, r.Valid
-instance instDecidableExecutionValid (roots : Array ExecutionRoot) : Decidable (ExecutionValid roots) := by
+instance instDecidableExecutionValid (roots : Array ExecutionRoot) : Decidable
+    (ExecutionValid roots) := by
   unfold ExecutionValid
   infer_instance
 

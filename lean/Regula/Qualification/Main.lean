@@ -27,7 +27,8 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
       Regula.Qualification.RegistryCli.check
       Regula.Qualification.NativeLinter.checkAll
   | ["native-launcher"] => Regula.Qualification.NativeLinter.paired
-  | ["rule-examples", "--evidence", path] => Regula.Qualification.RuleExamples.check ⟨path⟩ none attempt
+  | ["rule-examples", "--evidence", path] => Regula.Qualification.RuleExamples.check
+                                              ⟨path⟩ none attempt
   | "rule-examples" :: "--evidence" :: path :: "--rules" :: rules =>
       Regula.Qualification.RuleExamples.check ⟨path⟩ (some rules.toArray) attempt
   | ["rule-examples", "--evidence", path, "--shard", spec] => do
@@ -45,8 +46,10 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
   | ["history"] => Regula.Qualification.History.check
   | ["self-audit"] => Regula.Qualification.SelfAudit.check
   | ["self-audit-module", m, source] => Regula.Qualification.SelfAudit.worker m source
-  | ["environments", "--evidence", path] => Regula.Qualification.EnvironmentCensus.check ⟨path⟩ attempt
-  | ["acceptance", group, "--evidence", path] => Regula.Qualification.Acceptance.check group ⟨path⟩ attempt
+  | ["environments", "--evidence", path] => Regula.Qualification.EnvironmentCensus.check
+                                             ⟨path⟩ attempt
+  | ["acceptance", group, "--evidence", path] => Regula.Qualification.Acceptance.check group
+                                                  ⟨path⟩ attempt
   | ["acceptance-snapshots", group] => Regula.Qualification.DependencySnapshot.check group
   | ["prep-measure"] => Regula.Qualification.Preparation.check
   | ["documentation-dependencies"] => Regula.Qualification.Acceptance.documentationDependencies
@@ -57,8 +60,14 @@ private unsafe def dispatch (args : List String) (attempt : Option String := non
   | ["fence-evidence"] => Regula.Qualification.SourceEvidence.fences
   | ["frozen-exits"] => Regula.Qualification.FrozenExit.check
   | ["documentation-source"] => Regula.Qualification.DocumentationSource.check false
-  | ["documentation-source", "--source-read-only"] => Regula.Qualification.DocumentationSource.check true
-  | _ => throw <| IO.userError "usage: lake exe qualify registry|native|combined|native-launcher|producers [--evidence PATH]|environments --evidence PATH|acceptance GROUP --evidence PATH|acceptance-snapshots dependencies|history|self-audit|git-status|all|documentation-dependencies|input-inventory|history|closure-evidence|configuration-capture|fence-evidence|frozen-exits|documentation-source [--source-read-only]|rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
+  | ["documentation-source", "--source-read-only"] =>
+      Regula.Qualification.DocumentationSource.check true
+  | _ => throw <| IO.userError "usage: lake exe qualify \
+    registry|native|combined|native-launcher|producers [--evidence PATH]|environments --evidence \
+    PATH|acceptance GROUP --evidence PATH|acceptance-snapshots \
+    dependencies|history|self-audit|git-status|all|documentation-dependencies|input-inventory|histo\
+    ry|closure-evidence|configuration-capture|fence-evidence|frozen-exits|documentation-source \
+    [--source-read-only]|rule-examples --evidence PATH [--rules RULE ... | --shard K/N]"
 
 /-- Standalone commands get one group-wide 420-second bound. The private protocol flag
 is supplied by this wrapper or the already timed acceptance driver, never documented

@@ -25,7 +25,8 @@ def worker (args : List String) : IO UInt32 := do
   if active then
     if mode == "root-add" then
       IO.FS.createDirAll "Example"
-      IO.FS.writeFile "Example/New.lean" "/-! Added after root discovery. -/\naxiom escaped : False\n"
+      IO.FS.writeFile "Example/New.lean"
+          "/-! Added after root discovery. -/\naxiom escaped : False\n"
     else if mode.startsWith "docs-" then
       let target : FilePath := ← requiredEnv "INVENTORY_DOC"
       if mode == "docs-remove" then IO.FS.removeFile target
@@ -55,7 +56,9 @@ def check : IO Unit := do
     toolchain root project
     IO.FS.writeFile (project / "Example.lean") "/-! Empty declared surface. -/\n"
     IO.FS.writeFile (project / "lakefile.lean")
-      "import Lake\nopen Lake DSL\npackage inventory_control where\n  leanOptions := #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, true⟩]\nlean_lib Example where\n  globs := #[.andSubmodules `Example]\n"
+      "import Lake\nopen Lake DSL\npackage inventory_control where\n  leanOptions := \
+        #[⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`linter.missingDocs, \
+        true⟩]\nlean_lib Example where\n  globs := #[.andSubmodules `Example]\n"
     manifest project "kernel-only"
     success (← run project "lake" #["update"] cleanEnv)
     let tools := scratch / "tools"
@@ -66,7 +69,8 @@ def check : IO Unit := do
     let record := scratch / "build.json"
     let path ← requiredEnv "PATH"
     let env := cleanEnv ++ #[("REGULA_QUALIFICATION_WRAPPER", some "inventory"),
-      ("INVENTORY_LAKE", some resolved.stdout.trimAscii.toString), ("INVENTORY_RECORD", some record.toString),
+      ("INVENTORY_LAKE", some resolved.stdout.trimAscii.toString),
+      ("INVENTORY_RECORD", some record.toString),
       ("PATH", some (tools.toString ++ ":" ++ path))]
     for (mode, flag) in #[("incremental", "--incremental"), ("build-lint", "--build-lint")] do
       for phase in #["positive", "root-add", "restored"] do
@@ -85,7 +89,8 @@ def check : IO Unit := do
           let observation ← readJson record
           requireChecks [⟨"added root actually built", observation == Json.mkObj [
             ("buildExit", toJson (0 : Nat)), ("addedBuilt", toJson true)]⟩,
-            ⟨s!"root inventory refusal: {log}\n{packet.compress}", result.exitCode != 0 && log.contains "root inventory changed:" &&
+            ⟨s!"root inventory refusal: {log}\n{packet.compress}", result.exitCode != 0 &&
+                log.contains "root inventory changed:" &&
               !log.contains "accepted " &&
               (packet.getObjValAs? String "status").toOption == some "incomplete" &&
               (packet.getObjVal? "acceptance").toOption.isNone⟩]
@@ -114,12 +119,17 @@ def check : IO Unit := do
         let log := result.stdout ++ result.stderr
         if bad then
           let observation ← readJson record
-          let reason := if phase == "docs-remove" then "documentation inventory changed" else "documentation source changed"
-          requireChecks [⟨"prerequisite build succeeded", (observation.getObjValAs? Nat "buildExit").toOption == some 0⟩,
+          let reason := if phase == "docs-remove" then "documentation inventory changed" else
+                                                        "documentation source changed"
+          requireChecks
+              [⟨"prerequisite build succeeded", (observation.getObjValAs? Nat "buildExit").toOption
+                  == some 0⟩,
             ⟨s!"Markdown inventory refused: {log}", result.exitCode != 0 && log.contains reason &&
               !log.contains "accepted "⟩]
           if ← output.pathExists then
-            requireChecks [⟨"no documentation acceptance", ((← readJson output).getObjVal? "acceptance").toOption.isNone⟩]
+            requireChecks
+                [⟨"no documentation acceptance",
+                    ((← readJson output).getObjVal? "acceptance").toOption.isNone⟩]
         else success result
         IO.println s!"Markdown inventory {route}/{phase}: PASS"
 end Regula.Qualification.InputInventory

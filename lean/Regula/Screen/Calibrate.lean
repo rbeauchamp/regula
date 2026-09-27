@@ -94,8 +94,10 @@ def judgeItem (cache : System.FilePath) (model : PinnedModel) (item : Item) (tex
     | _ => ""
   rows := rows.push { row .strength "claim" (isDefectStrength item.strength) support with
     strength? := some (chosen, item.strength) }
-  for (id, judgment, label) in [("quantifier_order", Judgment.quantifierOrder, item.quantifierOrder),
-      ("totalization", .totalization, item.totalization), ("exclusions", .exclusions, item.exclusions)] do
+  for (id, judgment, label) in
+      [("quantifier_order", Judgment.quantifierOrder, item.quantifierOrder),
+      ("totalization", .totalization, item.totalization),
+      ("exclusions", .exclusions, item.exclusions)] do
     let p ← noulOf r id
     rows := rows.push (row judgment "claim" (!label) p.val)
   return rows.toList
@@ -133,7 +135,8 @@ when `n` is 0. -/
 def ratio (k n : Nat) : String :=
   if n = 0 then "n/a" else
     let permille := (k * 1000 + n / 2) / n
-    s!"{k}/{n} ({permille / 1000}.{"".pushn '0' (3 - (toString (permille % 1000)).length)}{permille % 1000})"
+    s!"{k}/{n} \
+      ({permille / 1000}.{"".pushn '0' (3 - (toString (permille % 1000)).length)}{permille % 1000})"
 
 /-- The thresholds the report tabulates, with their labels: 0.2, 0.5 and 0.6. -/
 def thresholds : List (String × Decimal) := [("0.2", ⟨2, 1⟩), ("0.5", ⟨5, 1⟩), ("0.6", ⟨6, 1⟩)]
@@ -150,7 +153,8 @@ def meetsCriteria (rows : List Row) : Bool × String :=
   let w := rates rows ⟨5, 1⟩
   let e := rates rows ⟨2, 1⟩
   let c3 := decide (5 ≤ w.defects) && decide (10 ≤ w.clean)
-  let c1 := decide (w.falseNegatives * 4 ≤ w.defects) && decide (w.falsePositives * 100 ≤ 15 * w.clean)
+  let c1 := decide (w.falseNegatives * 4 ≤ w.defects) && decide
+      (w.falsePositives * 100 ≤ 15 * w.clean)
   let c2 := decide (e.falsePositives * 20 ≤ e.clean)
   (c1 && c2 && c3, s!"C1 {if c1 then "pass" else "fail"}, C2 {if c2 then "pass" else "fail"}, " ++
     s!"C3 {if c3 then "pass" else "fail"}")
@@ -167,7 +171,8 @@ def tableRow (label : String) (rows : List Row) : String :=
 /-- The Markdown header and separator rows of a rates table: false-negative and false-positive
 rates at each threshold, then AUC. -/
 def tableHeader : String :=
-  "| group | defects / clean | FNR@0.2 | FPR@0.2 | FNR@0.5 | FPR@0.5 | FNR@0.6 | FPR@0.6 | AUC |\n" ++
+  "| group | defects / clean | FNR@0.2 | FPR@0.2 | FNR@0.5 | FPR@0.5 | FNR@0.6 | FPR@0.6 | AUC \
+    |\n" ++
   "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
 
 /-- A row as one evidence record: its labels, the rendered support probability, the request
@@ -229,15 +234,21 @@ def run (cache : System.FilePath) (model : PinnedModel) (split : Split) (env : E
       usage := usage.add r
       let p ← noulOf r "correspondence"
       correspondenceRows := correspondenceRows.push
-        { item := c.formal, mutation := if c.label then .formalCorrect else .formalWrong, split := .test,
-          mode := .statement, variant := .faithful, judgment := .correspondence, subject := c.clause,
+        { item := c.formal, mutation := if c.label then .formalCorrect else .formalWrong,
+                                                                             split := .test,
+          mode := .statement, variant := .faithful, judgment := .correspondence,
+              subject := c.clause,
           defect := !c.label, support := p.val, digest := r.digest }
   let all := rows ++ correspondenceRows
   IO.FS.writeFile records (Json.arr (all.map rowJson)).pretty
   let group (j : Judgment) (m : StateMode) (v : Option Variant) :=
-    rows.toList.filter fun r => r.judgment == j && r.mode == m && (v.all (r.variant == ·) || r.mutation == .base || r.mutation == .rewrite)
-  let mut lines : Array String := #[s!"Model `{model.val}`, split `{if split == .dev then "dev" else "test"}`: " ++
-    s!"{usage.requests} requests sent, {usage.cached} answered from cache, {usage.tokensText} input tokens billed.", ""]
+    rows.toList.filter fun r => r.judgment == j && r.mode == m &&
+                                 (v.all (r.variant == ·) || r.mutation == .base ||
+                                     r.mutation == .rewrite)
+  let mut lines : Array String :=
+      #[s!"Model `{model.val}`, split `{if split == .dev then "dev" else "test"}`: " ++
+    s!"{usage.requests} requests sent, {usage.cached} answered from cache, {usage.tokensText} \
+      input tokens billed.", ""]
   for j in [Judgment.coverage, .strength, .quantifierOrder, .totalization, .exclusions] do
     lines := lines ++ #[s!"### {j.spelling}", "", tableHeader]
     for m in [StateMode.full, .statement, .explanation] do
@@ -245,13 +256,16 @@ def run (cache : System.FilePath) (model : PinnedModel) (split : Split) (env : E
         lines := lines.push (tableRow s!"{m.spelling}" (group j m none))
       else
         for v in [Variant.faithful, .stale] do
-          lines := lines.push (tableRow s!"{m.spelling}, {v.spelling} explanation" (group j m (some v)))
+          lines := lines.push
+              (tableRow s!"{m.spelling}, {v.spelling} explanation" (group j m (some v)))
     lines := lines.push ""
   let strengthRows := rows.toList.filter fun r => r.judgment == .strength && r.mode == .full
   let exact := strengthRows.filter fun r => match r.strength? with
     | some (chosen, label) => chosen == Strength.spelling label
     | none => false
-  lines := lines ++ #[s!"Strength exact option agreement (full state, both explanations): {ratio exact.length strengthRows.length}", ""]
+  lines := lines ++
+      #[s!"Strength exact option agreement (full state, both \
+        explanations): {ratio exact.length strengthRows.length}", ""]
   if split == .test then
     lines := lines ++ #["### correspondence", "", tableHeader,
       tableRow "clause pair" correspondenceRows.toList, ""]
@@ -260,24 +274,33 @@ def run (cache : System.FilePath) (model : PinnedModel) (split : Split) (env : E
   for j in [Judgment.coverage, .strength, .quantifierOrder, .totalization, .exclusions] do
     let (okF, whyF) := meetsCriteria (group j .full (some .faithful))
     let (okS, whyS) := meetsCriteria (group j .full (some .stale))
-    lines := lines.push (s!"- {j.spelling}: {if okF && okS then "calibrated thresholds (error 0.2, warning 0.5)" else "no calibrated thresholds"}" ++
+    lines := lines.push
+        (s!"- {j.spelling}: {if okF && okS then "calibrated thresholds (error 0.2, warning \
+          0.5)" else "no calibrated thresholds"}" ++
       s!" — full/faithful: {whyF}; full/stale: {whyS}")
   if split == .test then
     let (ok, why) := meetsCriteria correspondenceRows.toList
-    lines := lines.push s!"- correspondence: {if ok then "calibrated thresholds (error 0.2, warning 0.5)" else "no calibrated thresholds"} — {why}"
+    lines :=
+        lines.push
+            s!"- correspondence: {if ok then "calibrated thresholds (error 0.2, warning \
+              0.5)" else "no calibrated thresholds"} — {why}"
   let mean (gs : List (List Row)) : Nat :=
     let xs := gs.filterMap aucPermille
     if xs.isEmpty then 0 else xs.foldl (· + ·) 0 / xs.length
   let modeScore (m : StateMode) : Nat := mean <| [Judgment.coverage, .strength].flatMap fun j =>
-    if m == .statement then [group j m none, group j m none] else [group j m (some .faithful), group j m (some .stale)]
+    if m == .statement then [group j m none, group j m none] else
+                             [group j m (some .faithful), group j m (some .stale)]
   let scores := [StateMode.full, .statement, .explanation].map fun m => (m, modeScore m)
-  let best := scores.foldl (fun (b : StateMode × Nat) s => if b.2 < s.2 then s else b) (.full, modeScore .full)
-  lines := lines.push (s!"- default state: `{best.1.spelling}` (mean coverage and strength AUC in thousandths: " ++
+  let best := scores.foldl (fun (b : StateMode × Nat) s => if b.2 < s.2 then s else b)
+      (.full, modeScore .full)
+  lines := lines.push
+      (s!"- default state: `{best.1.spelling}` (mean coverage and strength AUC in thousandths: " ++
     ", ".intercalate (scores.map fun (m, s) => s!"{m.spelling} {s}") ++ "; ties keep full)")
   for j in [Judgment.coverage, .strength] do
     let st := (aucPermille (group j .statement none)).getD 0
     let fs := (aucPermille (group j .full (some .stale))).getD 0
-    lines := lines.push (s!"- {j.spelling} reads the Lean statement: {decide (800 ≤ st) && decide (800 ≤ fs)} " ++
+    lines := lines.push
+        (s!"- {j.spelling} reads the Lean statement: {decide (800 ≤ st) && decide (800 ≤ fs)} " ++
       s!"(statement-only AUC {st}, full-state stale-explanation AUC {fs}; rule: both at least 800)")
   lines := lines.push ""
   IO.FS.writeFile report ("\n".intercalate lines.toList)

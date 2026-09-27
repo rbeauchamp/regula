@@ -33,7 +33,8 @@ def check : IO Unit := do
       let report ← readJson output
       match RegulaQualification.Registry.checked_validation.run result.exitCode.toNat report with
       | .ok () => pure ()
-      | .error detail => throw <| IO.userError s!"{arguments}: {detail}\n{result.stdout}{result.stderr}\n{report}"
+      | .error detail =>
+          throw <| IO.userError s!"{arguments}: {detail}\n{result.stdout}{result.stderr}\n{report}"
   IO.println "registry CLI qualification: PASS (7 configuration failures invalidate current output)"
 
 end Regula.Qualification.RegistryCli

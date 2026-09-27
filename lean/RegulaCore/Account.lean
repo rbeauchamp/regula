@@ -9,7 +9,8 @@ mechanical success projects this account, and the account is a function of one
 success must not blur:
 
 * the exact formal relation Lean checked (`CompleteFor ∧ AllPolicyOK` for the claim's
-  plan, the right side of `acceptanceTheorem`), with each registered `ExecutableContract`'s implementation and rendered
+  plan, the right side of `acceptanceTheorem`), with each registered `ExecutableContract`'s
+  implementation and rendered
   requirement;
 * the trusted mechanisms and execution boundaries that relation assumes (`Trusted`, and
   the per-environment execution counts, whose trusted boundaries are reported, not verified);
@@ -20,7 +21,8 @@ success must not blur:
 `Status.completed` requires an `Account`, and every `Account` is the projection of some
 accepted run (`Account.accepted`). So no rendered status reads `completed` without an
 accepted run: missing, incomplete or unsupported evidence has none. That the run is the
-current request's, rather than another accepted run, is each caller's binding. `Coverage` keeps local, incremental, file,
+current request's, rather than another accepted run, is each caller's binding. `Coverage` keeps
+local, incremental, file,
 documentation and editor feedback distinct from fresh whole-project acceptance
 (`AccountContract`). None of this authenticates the IO observations the run consumed. -/
 
@@ -105,7 +107,8 @@ def Coverage.spelling : Coverage → String
 /-- Human wording. Only the fresh whole-project text speaks of whole-project acceptance. -/
 def Coverage.text : Coverage → String
   | .freshWholeProject => "fresh whole-project acceptance of the claimed Lake surfaces"
-  | .incrementalProject => "incremental project acceptance over existing build state, not a fresh-source audit"
+  | .incrementalProject =>
+      "incremental project acceptance over existing build state, not a fresh-source audit"
   | .freshFile => "fresh single-file acceptance, not project acceptance"
   | .documentation => "documentation-example acceptance"
   | .serializedGraph => "serialized-graph recheck acceptance"
@@ -146,7 +149,8 @@ def Trusted.spelling : Trusted → String
 /-- The human description of each mechanism, as the result and account lines show it. -/
 def Trusted.detail : Trusted → String
   | .toolchain => "Lean elaborator, kernel and compiler at the snapshot's toolchain identity"
-  | .acquisition => "manifest parsing, Lake loading, and source, configuration and dependency acquisition"
+  | .acquisition =>
+      "manifest parsing, Lake loading, and source, configuration and dependency acquisition"
   | .extraction => "environment extraction, compiler and worker processes, and JSON transport"
   | .runtime => "native runtime and every execution boundary reported as trusted"
 
@@ -227,7 +231,8 @@ def contractsOf (i : Census) : Array ContractAccount :=
 
 /-- Required meaning of the account, for every claim and accepted run. Mode, scope,
 surfaces, toolchain and job count are the accepted report's own. Coverage is `coverageOf` the
-claim's mode (`coverage_fresh_iff`: fresh whole-project exactly for a fresh project claim). The contracts are exactly the inventory's
+claim's mode (`coverage_fresh_iff`: fresh whole-project exactly for a fresh project claim). The
+contracts are exactly the inventory's
 registrations. Execution counts are `executionSummary` of each accepted environment, in
 order. The fence counts partition the accepted fences by expectation. Every residual
 obligation stays unresolved, R-GRAPH exactly when a serialized graph is claimed. -/
@@ -266,7 +271,8 @@ private def accountImpl {c : Claim} (run : AcceptedRun c) : AccountData :=
     fences := ⟨fences.countP isPositive, fences.countP isCompilerRejection,
       fences.countP isPolicyRejection, fences.countP isTrustedTeaching⟩
     trusted := Trusted.all
-    unresolved := Residual.all.filter fun r => r != .graph || report.claim.val.mode == .serializedGraph }
+    unresolved := Residual.all.filter fun r => r != .graph || report.claim.val.mode ==
+                                                .serializedGraph }
 
 private theorem fence_partition (fences : Array FenceKey) :
     fences.countP isPositive + fences.countP isCompilerRejection +
@@ -367,23 +373,31 @@ def pass (label : String) (a : Account) : String :=
 execution counts, fence kinds, trusted mechanisms, and the unresolved review identifiers. -/
 def lines (a : Account) : Array String :=
   let d := a.val
-  let checked := s!"checked: {acceptanceTheorem} — each of the {d.jobs} required jobs has exactly one " ++
+  let checked :=
+      s!"checked: {acceptanceTheorem} — each of the {d.jobs} required jobs has exactly one " ++
     "completed observation meeting its stage policy (CompleteFor ∧ AllPolicyOK)"
   let contracts := d.contracts.map fun k =>
-    s!"{RuleId.executableContract.spelling} contract {k.registration}: Lean checked the requirement about implementation " ++
+    s!"{RuleId.executableContract.spelling} contract {k.registration}: Lean checked the \
+      requirement about implementation " ++
       s!"{k.implementation}: {k.requirement}; unresolved review: " ++
       s!"{residualList ContractAccount.unresolved} (adequacy of the requirement, caller coverage)"
   let execution := d.execution.mapIdx fun i s =>
     s!"execution environment {i}: {s.roots} root(s), {s.boundaries} boundary observation(s) " ++
-      s!"({s.checked} checked, {s.trusted} trusted and reported, not verified), {s.unresolved} unresolved"
+      s!"({s.checked} checked, {s.trusted} trusted and reported, not verified), {s.unresolved} \
+        unresolved"
   let f := d.fences
-  let fences := if f.positive + f.compilerRejection + f.policyRejection + f.trustedTeaching = 0 then #[]
-    else #[s!"fences: {f.positive} conforming positive; {f.compilerRejection} compiler-rejection " ++
-      s!"and {f.policyRejection} policy-rejection expectations; {f.trustedTeaching} trusted teaching. " ++
+  let fences := if f.positive + f.compilerRejection + f.policyRejection + f.trustedTeaching =
+      0 then #[]
+    else
+        #[s!"fences: {f.positive} conforming positive; {f.compilerRejection} compiler-rejection " ++
+      s!"and {f.policyRejection} policy-rejection expectations; {f.trustedTeaching} trusted \
+        teaching. " ++
       "Only positive fences are conforming evidence."]
-  let trusted := s!"trusted, not verified: Lean {d.toolchain.leanVersion} ({d.toolchain.compilerCommit}); " ++
+  let trusted :=
+      s!"trusted, not verified: Lean {d.toolchain.leanVersion} ({d.toolchain.compilerCommit}); " ++
     "; ".intercalate (d.trusted.map (·.detail))
-  let unresolved := s!"unresolved semantic review, where applicable: {residualList d.unresolved}. " ++
+  let unresolved :=
+      s!"unresolved semantic review, where applicable: {residualList d.unresolved}. " ++
     "These identifiers name open obligations, not completed reviews."
   #[checked] ++ contracts ++ execution ++ fences ++ #[trusted, unresolved]
 

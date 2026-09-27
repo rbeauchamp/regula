@@ -79,16 +79,20 @@ def ClassificationOK (axioms native : Array Name) (label : FoundationClass) : Pr
   | .unknownAxiom => ¬ hole ∧ ¬ known
   | .compilerTrusting => ¬ hole ∧ known ∧ compiler
   | .kernelOnly => ¬ hole ∧ known ∧ ¬ compiler ∧ axioms = #[]
-  | .choiceFree => ¬ hole ∧ known ∧ ¬ compiler ∧ axioms ≠ #[] ∧ ContainsFoundation .choiceFree axioms
-  | .standardLogical => ¬ hole ∧ known ∧ ¬ compiler ∧ axioms ≠ #[] ∧ ¬ ContainsFoundation .choiceFree axioms
+  | .choiceFree => ¬ hole ∧ known ∧ ¬ compiler ∧ axioms ≠ #[] ∧
+                    ContainsFoundation .choiceFree axioms
+  | .standardLogical => ¬ hole ∧ known ∧ ¬ compiler ∧ axioms ≠ #[] ∧
+                         ¬ ContainsFoundation .choiceFree axioms
 
 /-- An ordered requirement relation selects the first unsatisfied obligation. This is a
 proposition about requirements and outcomes, not a second Boolean decision algorithm. -/
-inductive OrderedDecision : List (DeclarationFailure × Prop) → Option DeclarationFailure → Prop where
+inductive OrderedDecision : List (DeclarationFailure × Prop) → Option DeclarationFailure →
+    Prop where
   /-- With no requirement left, no failure is selected. -/
   | done : OrderedDecision [] none
   /-- An unmet first requirement selects its own failure reason. -/
-  | fail {reason requirement rest} : ¬ requirement → OrderedDecision ((reason, requirement) :: rest) (some reason)
+  | fail {reason requirement rest} : ¬ requirement → OrderedDecision ((reason, requirement) :: rest)
+      (some reason)
   /-- A met first requirement defers to the decision on the remaining requirements. -/
   | next {reason requirement rest result} : requirement → OrderedDecision rest result →
       OrderedDecision ((reason, requirement) :: rest) result
@@ -128,7 +132,8 @@ theorem OrderedDecision.unique {requirements : List (DeclarationFailure × Prop)
 
 /-- Normative diagnostic priority. Owned axioms have only the authenticated teaching case;
 other declarations must meet each obligation in this explicit order. -/
-def declarationRequirements (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
+def declarationRequirements (d : Declaration) (r : InspectionRequest)
+    (native helpers : Array Name) :
     List (DeclarationFailure × Prop) :=
   if d.kind = .«axiom» then
     [(.projectAxiom, d.name ∈ native), (.compilerTrusting, r = .teaching)]

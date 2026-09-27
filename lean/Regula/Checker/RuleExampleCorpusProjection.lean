@@ -33,9 +33,12 @@ private theorem filterM_map (f : α → β) (p : β → Except String Bool) (xs 
     rw [show List.filterAuxM p (xs.map f) [] =
       (List.filterAuxM (fun x => p (f x)) xs []).map (List.map f) from filterAuxM_map f p xs []]
     generalize List.filterAuxM (fun x => p (f x)) xs [] = res
-    cases res <;> simp [bind, Bind.bind, Except.bind, Except.map, Functor.map, pure, Pure.pure, Except.pure, List.map_reverse]
+    cases res <;> simp
+        [bind, Bind.bind, Except.bind, Except.map, Functor.map, pure, Pure.pure, Except.pure,
+            List.map_reverse]
 
-private def phaseCheck (records : Array Json) (rule phase : String) : Except String (ForInStep PUnit) := do
+private def phaseCheck (records : Array Json) (rule phase : String) : Except String
+    (ForInStep PUnit) := do
   let matching ← records.filterM fun record => do
     return (← string record "rule") == rule && (← string record "phase") == phase
   unless matching.size == 1 do throw "missing or repeated fixture phase"
@@ -116,8 +119,10 @@ every per-record admission, and the first refusal. No hypothesis constrains meta
 producer JSON, rule order, phase completeness, or validity of the supplied records. -/
 theorem qualifyCorpus_records (fields : List (String × Json))
     (inputs : Array (List (String × Json) × Json)) :
-    qualifyCorpus (corpus fields (inputs.map fun (metadata, result) => record metadata (resultView result))) =
-    qualifyCorpus (corpus fields (inputs.map fun (metadata, result) => record metadata result)) := by
+    qualifyCorpus
+        (corpus fields (inputs.map fun (metadata, result) => record metadata (resultView result))) =
+    qualifyCorpus (corpus fields (inputs.map fun (metadata, result) => record metadata result)) :=
+        by
   apply qualifyCorpus_congr
   · intro item checker
     exact congrArg (fun x => x.bind Json.getStr?)

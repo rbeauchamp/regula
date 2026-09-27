@@ -144,7 +144,8 @@ def buildPlan (repo manifestPath : FilePath) : IO Plan := do
   let covered := uniqueSorted <| coverage.foldl (fun all item => all ++ item.modules) #[]
   if covered != modules then
     let missing := modules.filter fun moduleName => !covered.contains moduleName
-    throw <| IO.userError s!"fresh-coverage-incomplete: no selected root covers {repr missing.toList}"
+    throw <|
+        IO.userError s!"fresh-coverage-incomplete: no selected root covers {repr missing.toList}"
   return { moduleSets, modules, roots, coverage }
 
 private def planJson (plan : Plan) (checks : Array Check) : Json :=
@@ -198,27 +199,35 @@ private unsafe def freezeGraph (plan : Plan) (snapshot : RegulaPolicy.AdmittedSn
         unless ← pathWithin path inventory.leanLibDir do
           throw <| IO.userError "graph module resolved outside owned build output"
         let (data, _) ← Lean.readModuleData path
-        pure (⟨key.name.name, path.toString, data.imports.map (·.module)⟩ : RegulaPolicy.ModuleOrigin)
+        pure
+            (⟨key.name.name, path.toString, data.imports.map (·.module)⟩ :
+                RegulaPolicy.ModuleOrigin)
     finally Lean.searchPathRef.set previous
   let policy ← IO.ofExcept <| RegulaPolicy.admitInventory #[] #[]
   let execution ← IO.ofExcept <| RegulaPolicy.admitExecution #[]
   let request : RegulaPolicy.EnvironmentRequest := { key := ⟨snapshot, 0⟩, modules }
   let environment : RegulaPolicy.EnvironmentCensus := {
-    request, policy, execution, modules, importedModules := #[], origins, moduleSources, importedSources := #[],
+    request, policy, execution, modules, importedModules := #[], origins, moduleSources,
+        importedSources := #[],
     unclassifiedRootImports := #[], admissionDeclarations := #[], declarations := #[], roots := #[],
     materialDeclarations := #[] }
   let census : RegulaPolicy.Census := {
-    requests := #[request], environments := #[environment], modules, moduleSources, graphRoots, graphCoverage,
-    configuredTargets := Acceptance.configuredTargets manifest, discoveredTargets := Acceptance.discoveredTargets inventory }
+    requests := #[request], environments := #[environment], modules, moduleSources, graphRoots,
+        graphCoverage,
+    configuredTargets := Acceptance.configuredTargets manifest, discoveredTargets :=
+        Acceptance.discoveredTargets inventory }
   let admitted ← IO.ofExcept <| RegulaPolicy.buildPlan claim census
-  return ⟨claim, census, admitted, fun slot => RegulaPolicy.authorize census.environments[slot].policy⟩
+  return ⟨claim, census, admitted, fun slot =>
+      RegulaPolicy.authorize census.environments[slot].policy⟩
 
 private def finishGraph (frozen : FrozenGraph) (build : ProcessResult) (checks : Array Check) :
     Except String (RegulaPolicy.AcceptedRun frozen.claim) := do
   let checked ← checks.mapM fun check => do
-    let [key] := (frozen.census.graphRoots.filter fun key => key.name.name.toString == check.root).toList
+    let [key] :=
+        (frozen.census.graphRoots.filter fun key => key.name.name.toString == check.root).toList
       | throw "unrequested graph root response"
-    let [coverage] := (frozen.census.graphCoverage.filter (fun entry => decide (entry.1 = key))).toList
+    let [coverage] :=
+        (frozen.census.graphCoverage.filter (fun entry => decide (entry.1 = key))).toList
       | throw "missing frozen graph coverage"
     unless coverage.2.map (·.name.name.toString) == check.coveredModules do
       throw "graph response coverage mismatch"
@@ -229,12 +238,17 @@ private def finishGraph (frozen : FrozenGraph) (build : ProcessResult) (checks :
     covered := frozen.census.graphCoverage.flatMap (·.2), failures := #[], plannedOnly := false }
   let inputs ← frozen.plan.jobs.mapIdxM fun slot key => do
     let evidence ← match key.stage, key.subject with
-      | .configuration, .scope => pure (RegulaPolicy.JobEvidence.configuration frozen.census.configuredTargets frozen.census.discoveredTargets)
+      | .configuration, .scope =>
+          pure
+              (RegulaPolicy.JobEvidence.configuration frozen.census.configuredTargets
+                  frozen.census.discoveredTargets)
       | .discovery, .scope => pure (.discovery frozen.census)
       | .build, .scope => pure (.build (Acceptance.buildObservation build))
       | .graph, .scope => pure (.graph graph)
       | _, _ => throw "unsupported graph observation stage"
-    pure (slot, ({ key, snapshot := frozen.claim.val.snapshot, completion := .completed, evidence } : RegulaPolicy.JobObservation))
+    pure
+        (slot, ({ key, snapshot := frozen.claim.val.snapshot, completion := .completed, evidence } :
+            RegulaPolicy.JobObservation))
   let result ← (RegulaPolicy.finalize frozen.plan frozen.roles inputs.toList).mapError
     (fun failure => s!"graph acceptance refused: {repr failure}")
   return ⟨frozen.census, frozen.plan, frozen.roles, inputs.toList, result⟩
@@ -283,7 +297,8 @@ unsafe def run (args : List String) : IO UInt32 := do
   let mut accepted : Option ((c : RegulaPolicy.Claim) × RegulaPolicy.AcceptedRun c) := none
   if !options.planOnly then
     let manifest ← Manifest.load manifestPath
-    let (build, buildResult) ← Lake.buildCheckedObservation repo (Manifest.positiveTargets manifest) "incrementally"
+    let (build, buildResult) ← Lake.buildCheckedObservation repo
+        (Manifest.positiveTargets manifest) "incrementally"
     if let some lines := buildResult then
       for line in lines do IO.println s!"    {line}"
       return 1
@@ -309,9 +324,11 @@ unsafe def run (args : List String) : IO UInt32 := do
       | some ⟨_, receipt⟩ => (value.setObjVal! "status"
           (.str (Account.Status.completed (Account.account receipt)).spelling)).setObjVal!
           "acceptance" (ResultProtocol.acceptedJson receipt)
-      | none => value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
+      | none =>
+          value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
     writeJson (resolve repo path) value
-  IO.println s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"
+  IO.println
+      s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"
   if !failures.isEmpty then
     IO.println s!"FAIL: {failures.size} fresh-check violation(s)"
     for failure in failures do IO.println s!"  {failure}"
@@ -322,7 +339,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     let some ⟨_, receipt⟩ := accepted | throw <| IO.userError "missing accepted graph evidence"
     let account := Account.account receipt
     for line in account.lines do IO.println line
-    IO.println s!"{account.pass "fresh checker"} ({receipt.report.census.modules.size} modules, {account.val.jobs} accepted serialized-graph jobs)"
+    IO.println s!"{account.pass "fresh checker"} ({receipt.report.census.modules.size} \
+      modules, {account.val.jobs} accepted serialized-graph jobs)"
   return 0
 
 end Regula.Checker.FreshChecker

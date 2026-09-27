@@ -60,7 +60,8 @@ def forcedStructuralName (report : Regula.Checker.ProducerReport.Environment) : 
 /-- The extracted constructor is also force-loaded by Probe. Its artifact must
 be the checker's exact artifact. Unlike the neutral name codec, it remains in
 the excluded-library scan whenever another module actually imports it. -/
-def forcedCollectorOnly (report : Regula.Checker.ProducerReport.Environment) : IO (Option Name) := do
+def forcedCollectorOnly (report : Regula.Checker.ProducerReport.Environment) : IO
+    (Option Name) := do
   let name ← forcedPublicModule report `Regula.Collect "shared collector"
   if report.moduleOrigins.any (fun origin =>
       !probeModuleNames.contains origin.name.toString && origin.imports.contains name) then
@@ -111,7 +112,8 @@ deterministic function of the module source, the effective search path (`searchI
 see `loadReportCore`) and the pinned binary, with the audit's inherited environment and
 unchanged imported artifacts. Every field is compared exactly before a record is used, so
 under that assumption a reused record carries the bytes this worker would have produced;
-the requester still validates the packet and its own before/after source comparison. The first worker
+the requester still validates the packet and its own before/after source comparison. The first
+worker
 to claim a key (an exclusive-create lock) runs the subprocess; the others wait for its
 record, and run the subprocess themselves if the record does not appear or does not match.
 Without `memo`, or on any memo failure, the worker runs as before; a failure to publish a
@@ -187,7 +189,9 @@ private def replacementHistory (sourceRoots : Array FilePath)
       let written ← historyWorkerOutput (memo.map (·.1)) inputs do
         let result ← IO.Process.output {
           cmd := (bin / "axiomGate").toString
-          args := #["--replacement-history-worker", (Regula.RegistryCodec.nameJson moduleName).compress, source.toString,
+          args :=
+              #["--replacement-history-worker", (Regula.RegistryCodec.nameJson moduleName).compress,
+                  source.toString,
             output.toString]
           env := #[("LEAN_PATH", some searchPath)] }
         if result.exitCode != 0 then
@@ -202,7 +206,8 @@ private def replacementHistory (sourceRoots : Array FilePath)
       return .completed source.toString sourceBefore sourceAfter edges
   catch error => return .unavailable error.toString
 
-private unsafe def loadReportCoreAtSearchPath (modules : Array Name) (sourceRoots : Array FilePath := #[])
+private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
+    (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option (FilePath × String) := none) :
@@ -225,14 +230,16 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name) (sourceRoot
       else requested.push probeModuleName.toName
     let imports := importNames.map fun module =>
       ({ module, importAll := true } : Import)
-    let env ← timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true) (level := .private)
+    let env ← timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true)
+        (level := .private)
     let ownedModules := requested ++ moduleSources.map (·.1) |>.filter
       (fun name => !probeModuleNames.contains name.toString)
     if let some root := ownedOutput then
       for name in env.header.moduleNames do
         if !ownedModules.contains name && !probeModuleNames.contains name.toString then
           if ← pathWithin (← Lean.findOLean name) root then
-            throw <| IO.userError s!"unexpected-project-module: kernel-admission cannot classify {name}"
+            throw <|
+                IO.userError s!"unexpected-project-module: kernel-admission cannot classify {name}"
     let admissionResult ← timedPhase "kernel admission" <| Admission.validate env ownedModules
     if let .error failure := admissionResult then return .error failure
     let .ok admission := admissionResult
@@ -271,7 +278,8 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name) (sourceRoot
     }
     let state := Elab.Command.mkState env
     match ← timedPhase "declaration report" <| EIO.toIO' <|
-        (Regula.Probe.environmentReport requested.toList loadHistory includeExecution includeModuleOrigins).run ctx |>.run state with
+        (Regula.Probe.environmentReport requested.toList loadHistory includeExecution
+            includeModuleOrigins).run ctx |>.run state with
     | .error ex => throw <| IO.userError (← ex.toMessageData.toString)
     | .ok (report, _) =>
       let historyTable ← histories.get
@@ -290,7 +298,8 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name) (sourceRoot
       SourceBinding.unchanged report.sourceBindings
       if let .error failure := report.validateSourceEvidence then return .error failure
       -- The project coordinator's decoder runs this exact check once and keeps its success as a
-      -- `ProducerReport.Admitted` proof for `Acceptance.freezeEnvironment`; only that caller opts out.
+      -- `ProducerReport.Admitted` proof for `Acceptance.freezeEnvironment`; only that caller opts
+      -- out.
       if validateReport then IO.ofExcept (ProducerReport.checked_validate.run report)
       return .ok report
   ).bind id

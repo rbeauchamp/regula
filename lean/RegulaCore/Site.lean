@@ -21,7 +21,8 @@ decision it takes about that data is a function here.
   the artifact's size.
 - `escape`, `escape_safe`: HTML text escaping; escaped text contains none of the markup
   characters `<`, `>`, `"`, `'` or the backtick that would end a Verso code fence.
-- `htmlBlock`, `htmlBlock_ok`: the only way the generator inserts raw HTML into Verso source (by inspection of the generator; guide prose and clause labels enter as Verso markup).
+- `htmlBlock`, `htmlBlock_ok`: the only way the generator inserts raw HTML into Verso source (by
+  inspection of the generator; guide prose and clause labels enter as Verso markup).
 - `Selection`, `emptySelections`, `mem_emptySelections`: the index filters and the exact
   set of filter combinations for which the no-match notice is shown.
 - `admitDiff`: a line diff admitted only when it reproduces both compared texts.
@@ -372,10 +373,12 @@ def DiffLine.after : DiffLine → List String
 /-- Keep the longest common prefix and suffix and replace the middle. -/
 def prefixDiff : List String → List String → List DiffLine
   | a :: as, b :: bs => if a = b then .keep a :: prefixDiff as bs else
-      let suffix := ((a :: as).reverse.zip (b :: bs).reverse).takeWhile (fun p => p.1 = p.2) |>.length
+      let suffix := ((a :: as).reverse.zip (b :: bs).reverse).takeWhile
+          (fun p => p.1 = p.2) |>.length
       let middleA := (a :: as).take ((a :: as).length - suffix)
       let middleB := (b :: bs).take ((b :: bs).length - suffix)
-      middleA.map .remove ++ middleB.map .add ++ ((a :: as).drop ((a :: as).length - suffix)).map .keep
+      middleA.map .remove ++ middleB.map .add ++
+          ((a :: as).drop ((a :: as).length - suffix)).map .keep
   | as, bs => as.map .remove ++ bs.map .add
 
 /-- A displayed diff is admitted only when it reproduces both compared line lists. -/
@@ -403,9 +406,11 @@ structure Tag where
 
 /-- Decode the entities the builder and Verso emit in attribute values. -/
 def decodeEntities (s : String) : String :=
-  ((((s.replace "&quot;" "\"").replace "&#39;" "'").replace "&lt;" "<").replace "&gt;" ">").replace "&amp;" "&"
+  ((((s.replace "&quot;" "\"").replace "&#39;" "'").replace "&lt;" "<").replace "&gt;" ">").replace
+      "&amp;" "&"
 
-private def isSpace (c : Char) : Bool := c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\x0c'
+private def isSpace (c : Char) : Bool := c == ' ' || c == '\n' || c == '\t' || c == '\r' ||
+    c == '\x0c'
 
 /-- Attribute list of a tag body (the text after the tag name, before `>`). -/
 def parseAttributes : Nat → List Char → List (String × String)
@@ -422,10 +427,12 @@ def parseAttributes : Nat → List Char → List (String × String)
       match afterEq.dropWhile isSpace with
       | '"' :: body =>
         let value := body.takeWhile (· != '"')
-        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel (body.drop (value.length + 1))
+        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel
+        (body.drop (value.length + 1))
       | '\'' :: body =>
         let value := body.takeWhile (· != '\'')
-        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel (body.drop (value.length + 1))
+        (key, decodeEntities (String.ofList value)) :: parseAttributes fuel
+        (body.drop (value.length + 1))
       | body =>
         let value := body.takeWhile (fun c => !isSpace c)
         (key, decodeEntities (String.ofList value)) :: parseAttributes fuel (body.drop value.length)
@@ -459,10 +466,12 @@ def scanTags (html : String) : List Tag :=
     | .markup =>
       if chunk.startsWith "!--" then
         (if ((chunk.drop 3).toString.splitOn "-->").length > 1 then .markup else .comment, tags)
-      else if chunk.startsWith "/" || chunk.startsWith "!" || chunk.startsWith "?" then (.markup, tags)
+      else if chunk.startsWith "/" || chunk.startsWith "!" || chunk.startsWith "?" then
+            (.markup, tags)
       else
         let body := tagBody chunk.toList none
-        let name := String.ofList (body.takeWhile (fun c => !(isSpace c || c == '/' || c == '>'))) |>.toLower
+        let name := String.ofList (body.takeWhile (fun c => !(isSpace c || c == '/' || c == '>')))
+            |>.toLower
         if name.isEmpty then (.markup, tags) else
         let rest := body.drop name.length
         let tag : Tag := ⟨name, parseAttributes (rest.length + 1) rest⟩
@@ -503,7 +512,8 @@ def Page.ofHtml (path source : String) : Page :=
     links := tags.flatMap Tag.links }
 
 /-- A non-HTML file at `path`: it defines no targets and contains no links. -/
-def Page.ofOther (path : String) : Page := { path, html := false, ids := [], base := none, links := [] }
+def Page.ofOther (path : String) : Page :=
+    { path, html := false, ids := [], base := none, links := [] }
 
 /-- Directory part of an artifact path, with trailing `/`, or empty at the root. -/
 def directory (path : String) : String :=
@@ -514,7 +524,8 @@ def directory (path : String) : String :=
 /-- Normalize `.` and `..` segments; `none` when a path leaves the artifact root. -/
 def normalize (path : String) : Option String :=
   let segments := path.splitOn "/"
-  let trailing := segments.getLast? == some "" || segments.getLast? == some "." || segments.getLast? == some ".."
+  let trailing := segments.getLast? == some "" || segments.getLast? == some "." ||
+      segments.getLast? == some ".."
   let step (acc : Option (List String)) (s : String) : Option (List String) :=
     acc.bind fun stack =>
       if s == "" || s == "." then some stack
@@ -570,7 +581,8 @@ def resolve (page : Page) (link : String) : Target :=
           | none => some page.path
           | some b => if b.startsWith "/" then underBase b else some (directory page.path ++ b)
         -- Normalize the base first, so a trailing `..` or `.` segment denotes its directory.
-        (baseUrl.bind normalize).map fun u => if pathPart.isEmpty then u else directory u ++ pathPart
+        (baseUrl.bind normalize).map fun u => if pathPart.isEmpty then u else
+                                                                        directory u ++ pathPart
     match absolute with
     | none => .invalid s!"link outside {basePath}"
     | some raw =>
@@ -591,7 +603,8 @@ def LinkOK (pages : List Page) (page : Page) (link : String) : Prop :=
     ∃ target ∈ pages, (target.path = file ∨ target.path = file ++ "/index.html") ∧
       (fragment = "" ∨ ¬ target.html ∨ fragment ∈ target.ids)
 
-instance (pages : List Page) (page : Page) (link : String) : Decidable (LinkOK pages page link) := by
+instance (pages : List Page) (page : Page) (link : String) : Decidable
+    (LinkOK pages page link) := by
   unfold LinkOK
   split <;> infer_instance
 
@@ -700,27 +713,34 @@ scanned as markup. The string operations do not reduce in the kernel. -/
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"/other/x\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkErrors [Page.ofHtml "dev/index.html" "<script>if (a<b) {}</script><a href=\"https://x.org/\">x</a>"] == []
+#guard linkErrors
+    [Page.ofHtml "dev/index.html" "<script>if (a<b) {}</script><a href=\"https://x.org/\">x</a>"] ==
+    []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"missing/?u=http://x\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a href=\"javascript://x\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"x\"><a href=\"missing.html\">x</a>"] != []
+#guard linkErrors
+    [Page.ofHtml "dev/rules/a.html" "<base href=\"x\"><a href=\"missing.html\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/index.html" "<a title=\"a>b\" href=\"missing/\">x</a>"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>",
   Page.ofOther "dev/rules/x"] != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkErrors [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>", Page.ofOther "dev/x"] == []
+#guard linkErrors
+    [Page.ofHtml "dev/rules/a.html" "<base href=\"..\"><a href=\"x\">x</a>",
+        Page.ofOther "dev/x"] == []
 
 /-! ## Normative clause anchors -/
 
 /-- GitHub's heading anchor for an ASCII heading: lowercase, spaces to hyphens, other
 punctuation removed. -/
 def headingSlug (heading : String) : String :=
-  String.ofList ((heading.toLower.toList.filter (fun c => c.isAlphanum || c == ' ' || c == '-' || c == '_')).map
+  String.ofList
+      ((heading.toLower.toList.filter
+          (fun c => c.isAlphanum || c == ' ' || c == '-' || c == '_')).map
     (fun c => if c == ' ' then '-' else c))
 
 /-- Every anchor the registry links in the standard, as its page below the standard's root and
@@ -760,7 +780,8 @@ def documentAnchors (texts : List String) : List (String × String) :=
   texts.flatMap fun text => (routesAfter standardUrl text).map routeAnchor
 
 /-- The anchors that no page with their path defines. An empty fragment needs only the page. -/
-def missingAnchors (pages : List Page) (anchors : List (String × String)) : List (String × String) :=
+def missingAnchors (pages : List Page) (anchors : List (String × String)) : List
+    (String × String) :=
   let index := pageIndex pages
   anchors.filter fun anchor =>
     !((index.getD anchor.1 []).any fun page => anchor.2 == "" || page.ids.contains anchor.2)
@@ -769,13 +790,15 @@ def missingAnchors (pages : List Page) (anchors : List (String × String)) : Lis
 fragment as an `id` or the fragment is empty. -/
 theorem missingAnchors_nil_iff (pages : List Page) (anchors : List (String × String)) :
     missingAnchors pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ (anchor.2 = "" ∨ anchor.2 ∈ page.ids) := by
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧
+          (anchor.2 = "" ∨ anchor.2 ∈ page.ids) := by
   simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex, Decidable.or_iff_not_imp_left]
 
 /-- Registered contract of the executed anchor check. -/
 theorem checked_missingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
     ∀ pages anchors, run pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧ (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
+      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧
+          (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
   ⟨missingAnchors_nil_iff⟩
 
 /-! ## Checklist row map -/
@@ -808,7 +831,10 @@ labelled with its fragment and the fragments are the same list. -/
 def rowMapMismatch (linked : List (Option String × String)) (rows : List String) : Option String :=
   if linked == rows.map fun row => (some row, row) then none else
     let fragments := linked.map (·.2)
-    some s!"rows it does not link: {rows.filter (· ∉ fragments)}; linked fragments that are not rows: {fragments.filter (· ∉ rows)}; links not labelled with their fragment as one code span: {(linked.filter fun link => link.1 != some link.2).map (·.2)}; otherwise a row is linked more than once or out of the checklist's order"
+    some s!"rows it does not link: {rows.filter (· ∉ fragments)}; linked fragments that are not \
+      rows: {fragments.filter (· ∉ rows)}; links not labelled with their fragment as one code \
+      span: {(linked.filter fun link => link.1 != some link.2).map (·.2)}; otherwise a row is \
+      linked more than once or out of the checklist's order"
 
 /-- The executed row-map check passes exactly when the map links the checklist's rows, each
 once, in the checklist's order, each labelled with exactly its row as one code span, and links
@@ -832,7 +858,8 @@ text, and only elements of the row class are rows. -/
   ">; `" ++ standardUrl ++ "introduction/`."] ==
   [("9-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkedRows ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
+#guard linkedRows
+    ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
   "9-compliance-audit/)") == [(some "A-1", "A-1")]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard linkedRows ("[`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-2) [A-3](" ++ standardUrl ++
@@ -840,7 +867,8 @@ text, and only elements of the row class are rows. -/
   [(some "A-1", "A-2"), (none, "A-3"), (none, "A-4")]
 example : (rowMapMismatch [(some "A-1", "A-2")] ["A-2"] != none) = true := by decide
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard renderedRows "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==
+#guard renderedRows
+    "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==
   ["A-1"]
 
 end Regula.Site

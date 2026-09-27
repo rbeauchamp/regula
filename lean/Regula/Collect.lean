@@ -197,7 +197,8 @@ private def executableContract? (env : Environment) (info : ConstantInfo) :
     let requirement ← Meta.ppExpr (mkApp args[2]! implementation)
     let root := implementation.constName?
     let failure ← if !parameters.isEmpty then
-        pure <| some "registration must be closed; put the implementation's complete domain inside its predicate"
+        pure <| some "registration must be closed; put the implementation's complete domain inside \
+          its predicate"
       else match root with
       | none => pure <| some "implementation must be a named constant with its complete domain"
       | some name => do
@@ -207,9 +208,11 @@ private def executableContract? (env : Environment) (info : ConstantInfo) :
           pure <| some "promised implementation is noncomputable"
         else if target.isUnsafe || target.isPartial then
           pure <| some "promised implementation is unsafe or partial"
-        else if !(← Meta.isProp target.type) && (kindOf target == .definition || kindOf target == .opaque) then
+        else if !(← Meta.isProp target.type) &&
+              (kindOf target == .definition || kindOf target == .opaque) then
           let typeProducing ← returnsSort target.type
-          pure <| if typeProducing then some "promised implementation returns a type, not runtime data" else none
+          pure <| if typeProducing then
+              some "promised implementation returns a type, not runtime data" else none
         else pure <| some "promised implementation is not an executable data/function definition"
     return some {
       root := root.getD .anonymous
@@ -252,8 +255,10 @@ def declaration (name : Name) (stage : Stage) :
     return toString (← Meta.ppExpr info.type)
   let ranges? ← findDeclarationRangesCore? name
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
-  let unsafeRecValueEvidence? ← if stage == .replayCandidate then unsafeRecValueEvidence env name info else pure none
-  let unsafeRecEquationEvidence? ← if stage == .replayCandidate then unsafeRecEquationEvidence env name else pure none
+  let unsafeRecValueEvidence? ← if stage == .replayCandidate then
+      unsafeRecValueEvidence env name info else pure none
+  let unsafeRecEquationEvidence? ← if stage == .replayCandidate then
+      unsafeRecEquationEvidence env name else pure none
   let nativeReplay? ← if stage == .replayCandidate then replayNative? info.type else pure none
   let nativeUseParents : Array Name :=
     match if stage == .replayCandidate then nativeBoolExpr? info.type else none with

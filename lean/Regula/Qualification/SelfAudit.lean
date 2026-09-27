@@ -144,7 +144,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   for d in o.declarations do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with
-    | none => if d.isUnsafe || d.isPartial then unsafeDeclarations := unsafeDeclarations.push d.name.toString
+    | none => if d.isUnsafe || d.isPartial then unsafeDeclarations :=
+                                                 unsafeDeclarations.push d.name.toString
     | some base =>
       -- A `partial def` compiles to an opaque base implemented by this helper; safe
       -- structural or well-founded recursion keeps a definition base.
@@ -158,7 +159,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
       let detail := (descriptor id).applicability ++
         (if extra.isEmpty then "" else s!" (axioms outside Standard-Logical: {extra.toList})")
       violations := violations.push (← declarationText id d.name detail o.module)
-  return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations, unsafeDeclarations,
+  return ⟨o.module.toString, o.declarations.size, o.admitted, contracts, violations,
+      unsafeDeclarations,
     partialDefinitions,
     toolchain.names.map toString, dependents⟩
 
@@ -204,13 +206,21 @@ def check (jobs : Nat := 4) : IO Unit := do
   let unsafeDeclarations := union (·.unsafeDeclarations)
   let partialDefinitions := union (·.partialDefinitions)
   let dependents := union (·.toolchainDependents)
-  IO.println s!"operational self-audit of library {library}: {results.size}/{info.modules.size} module(s), {declarations} declaration(s) inspected, {admitted} (every one neither unsafe nor partial) kernel-admitted, {contracts} executable contract registration(s)"
-  IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe declaration(s): {unsafeDeclarations.toList}"
-  IO.println s!"reported, not failed: {partialDefinitions.size} partial definition(s): {partialDefinitions.toList}"
-  IO.println s!"reported, not failed: {dependents.size} definition(s) reach toolchain Lake axiom(s) {(union (·.toolchainAxioms)).toList}: {dependents.toList}"
-  IO.println "trusted, not verified: Lean import and kernel replay, the collector's observations, the toolchain artifact paths, worker processes and JSON transport, and every execution path (the library's executables make no execution claim)"
+  IO.println s!"operational self-audit of library {library}: {results.size}/{info.modules.size} \
+    module(s), {declarations} declaration(s) inspected, {admitted} (every one neither unsafe nor \
+    partial) kernel-admitted, {contracts} executable contract registration(s)"
+  IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
+    declaration(s): {unsafeDeclarations.toList}"
+  IO.println s!"reported, not failed: {partialDefinitions.size} partial \
+    definition(s): {partialDefinitions.toList}"
+  IO.println s!"reported, not failed: {dependents.size} definition(s) reach toolchain Lake \
+    axiom(s) {(union (·.toolchainAxioms)).toList}: {dependents.toList}"
+  IO.println "trusted, not verified: Lean import and kernel replay, the collector's observations, \
+    the toolchain artifact paths, worker processes and JSON transport, and every execution path \
+    (the library's executables make no execution claim)"
   unless violations.isEmpty && incomplete.isEmpty do
-    throw <| IO.userError s!"operational self-audit: FAIL ({violations.size} violation(s), {incomplete.size} incomplete module(s))"
+    throw <| IO.userError s!"operational self-audit: FAIL ({violations.size} \
+      violation(s), {incomplete.size} incomplete module(s))"
   IO.println "operational self-audit: PASS (operational claim only; not a conforming proof surface)"
 
 end Regula.Qualification.SelfAudit

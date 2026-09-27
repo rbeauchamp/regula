@@ -35,7 +35,8 @@ instance : FromJson ProcessResult := ⟨fun value => do
   if code >= 2^32 then throw "invalid process exit code"
   return {
     exitCode := UInt32.ofNat code,
-    stdout := ← value.getObjValAs? String "stdout", stderr := ← value.getObjValAs? String "stderr" }⟩
+    stdout := ← value.getObjValAs? String "stdout", stderr :=
+        ← value.getObjValAs? String "stderr" }⟩
 
 namespace ProcessResult
 
@@ -140,7 +141,8 @@ def findRepoRoot (start : FilePath) : IO FilePath := do
     let hasLean ← (path / "lakefile.lean").pathExists
     let hasToml ← (path / "lakefile.toml").pathExists
     if hasLean && hasToml then
-      throw <| IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
+      throw <|
+          IO.userError s!"ambiguous Lean project root {path}: both lakefile.lean and lakefile.toml"
     if (hasLean || hasToml) && (← (path / "lean-toolchain").pathExists) then
       return path
     match path.parent with
@@ -192,7 +194,8 @@ def relocatePathDependencies (repo target : FilePath) : IO Unit := do
         let source := repo / dir
         if !(← source.isDir) then
           throw <| IO.userError <|
-            s!"lake-workspace-load-failed: path dependency '{entry.name}' at {source} is not a directory"
+            s!"lake-workspace-load-failed: path dependency '{entry.name}' at {source} is not a \
+              directory"
         overrides := overrides.push { entry with src := .path (← IO.FS.realPath source) }
   if overrides.isEmpty then return
   IO.FS.createDirAll (target / ".lake")
@@ -356,7 +359,8 @@ def parseNatArg (flag value : String) : IO Nat :=
   | none => throw <| IO.userError s!"{flag} requires a natural number"
 
 /-- Exact source request shared by the remaining command-line worker adapters. -/
-def sourceWorkerRequest (stage : String) (moduleName : Name) (path : FilePath) (content : String) : Json :=
+def sourceWorkerRequest (stage : String) (moduleName : Name) (path : FilePath)
+    (content : String) : Json :=
   Json.mkObj [("stage", .str stage), ("module", Regula.RegistryCodec.nameJson moduleName),
     ("source", .str path.toString), ("content", .str content)]
 
@@ -364,7 +368,9 @@ def sourceWorkerRequest (stage : String) (moduleName : Name) (path : FilePath) (
 this records completion data and never constructs policy acceptance. -/
 def workerPacket (request payload : Json) : Json := Json.mkObj [
   ("schema", toJson (1 : Nat)),
-  ("producer", Json.mkObj (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++ [("compilerCommit", .str Lean.githash)])),
+  ("producer", Json.mkObj
+      (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
+          [("compilerCommit", .str Lean.githash)])),
   ("request", request), ("payload", payload)]
 
 /-- The payload of a worker packet whose schema is 1 and whose producer, toolchain commit and
@@ -373,7 +379,9 @@ def readWorkerPacket (request packet : Json) : Except String Json := do
   Regula.Checker.PolicyCodec.exactFields packet ["schema", "producer", "request", "payload"]
   unless (← packet.getObjValAs? Nat "schema") == 1 do throw "unsupported worker schema"
   unless (← packet.getObjVal? "producer") ==
-      Json.mkObj (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++ [("compilerCommit", .str Lean.githash)]) do
+      Json.mkObj
+          (Regula.RegistryCodec.identityFields Regula.Checker.Producer.identity ++
+              [("compilerCommit", .str Lean.githash)]) do
     throw "worker producer or toolchain mismatch"
   unless (← packet.getObjVal? "request") == request do throw "worker request binding mismatch"
   packet.getObjVal? "payload"

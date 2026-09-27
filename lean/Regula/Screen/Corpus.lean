@@ -145,7 +145,8 @@ than every later element, and `l.mergeSort` is a permutation of `l`.
 # Intent
 - Sorting returns its output in nondecreasing order.
 - The output contains exactly the input's elements, each as many times as in the input. -/
-def C_weaken : Prop := ∀ l : List Nat, l.mergeSort.Pairwise (fun a b => a ≤ b + 1) ∧ l.mergeSort.Perm l
+def C_weaken : Prop := ∀ l : List Nat, l.mergeSort.Pairwise (fun a b => a ≤ b + 1) ∧
+    l.mergeSort.Perm l
 
 /-- For every list `l` of natural numbers without duplicates, `l.mergeSort` is pairwise
 nondecreasing and is a permutation of `l`.
@@ -153,7 +154,8 @@ nondecreasing and is a permutation of `l`.
 # Intent
 - Sorting returns its output in nondecreasing order.
 - The output contains exactly the input's elements, each as many times as in the input. -/
-def C_hypothesis : Prop := ∀ l : List Nat, l.Nodup → l.mergeSort.Pairwise (· ≤ ·) ∧ l.mergeSort.Perm l
+def C_hypothesis : Prop := ∀ l : List Nat, l.Nodup → l.mergeSort.Pairwise (· ≤ ·) ∧
+    l.mergeSort.Perm l
 
 /-! ### D (test): division bounds -/
 
@@ -162,7 +164,8 @@ def C_hypothesis : Prop := ∀ l : List Nat, l.Nodup → l.mergeSort.Pairwise (�
 # Intent
 - For a nonzero divisor, the quotient times the divisor does not exceed the dividend.
 - For a nonzero divisor, the dividend is less than the quotient plus one, times the divisor.
-- Division by zero is undefined for this requirement; the claim must not assert anything about a zero divisor. -/
+- Division by zero is undefined for this requirement; the claim must not assert anything about a
+  zero divisor. -/
 def D_base : Prop := ∀ n d : Nat, d ≠ 0 → n / d * d ≤ n ∧ n < (n / d + 1) * d
 
 /-- For all natural numbers `n` and `d` with `0 < d`, `n / d * d ≤ n` and `n < (n / d + 1) * d`.
@@ -170,7 +173,8 @@ def D_base : Prop := ∀ n d : Nat, d ≠ 0 → n / d * d ≤ n ∧ n < (n / d +
 # Intent
 - For a nonzero divisor, the quotient times the divisor does not exceed the dividend.
 - For a nonzero divisor, the dividend is less than the quotient plus one, times the divisor.
-- Division by zero is undefined for this requirement; the claim must not assert anything about a zero divisor. -/
+- Division by zero is undefined for this requirement; the claim must not assert anything about a
+  zero divisor. -/
 def D_rewrite : Prop := ∀ n d : Nat, 0 < d → n / d * d ≤ n ∧ n < (n / d + 1) * d
 
 /-- For all natural numbers `n` and `d`, `n / d * d ≤ n` (for `d = 0` this uses `n / 0 = 0`),
@@ -179,7 +183,8 @@ and if `d ≠ 0` then `n < (n / d + 1) * d`.
 # Intent
 - For a nonzero divisor, the quotient times the divisor does not exceed the dividend.
 - For a nonzero divisor, the dividend is less than the quotient plus one, times the divisor.
-- Division by zero is undefined for this requirement; the claim must not assert anything about a zero divisor. -/
+- Division by zero is undefined for this requirement; the claim must not assert anything about a
+  zero divisor. -/
 def D_totalize : Prop := ∀ n d : Nat, n / d * d ≤ n ∧ (d ≠ 0 → n < (n / d + 1) * d)
 
 /-- For all natural numbers `n` and `d` with `d ≠ 0`, `n / d * d ≤ n`.
@@ -187,7 +192,8 @@ def D_totalize : Prop := ∀ n d : Nat, n / d * d ≤ n ∧ (d ≠ 0 → n < (n 
 # Intent
 - For a nonzero divisor, the quotient times the divisor does not exceed the dividend.
 - For a nonzero divisor, the dividend is less than the quotient plus one, times the divisor.
-- Division by zero is undefined for this requirement; the claim must not assert anything about a zero divisor. -/
+- Division by zero is undefined for this requirement; the claim must not assert anything about a
+  zero divisor. -/
 def D_drop : Prop := ∀ n d : Nat, d ≠ 0 → n / d * d ≤ n
 
 /-- For all natural numbers `n` and `d` with `d ≠ 0`, `n / d * d ≤ n` and `n ≤ (n / d + 1) * d`.
@@ -195,7 +201,8 @@ def D_drop : Prop := ∀ n d : Nat, d ≠ 0 → n / d * d ≤ n
 # Intent
 - For a nonzero divisor, the quotient times the divisor does not exceed the dividend.
 - For a nonzero divisor, the dividend is less than the quotient plus one, times the divisor.
-- Division by zero is undefined for this requirement; the claim must not assert anything about a zero divisor. -/
+- Division by zero is undefined for this requirement; the claim must not assert anything about a
+  zero divisor. -/
 def D_weaken : Prop := ∀ n d : Nat, d ≠ 0 → n / d * d ≤ n ∧ n ≤ (n / d + 1) * d
 
 /-- For all natural numbers `n` and `d` with `d ≠ 0` and `d ≤ n`, `n / d * d ≤ n` and
@@ -204,7 +211,8 @@ def D_weaken : Prop := ∀ n d : Nat, d ≠ 0 → n / d * d ≤ n ∧ n ≤ (n /
 # Intent
 - For a nonzero divisor, the quotient times the divisor does not exceed the dividend.
 - For a nonzero divisor, the dividend is less than the quotient plus one, times the divisor.
-- Division by zero is undefined for this requirement; the claim must not assert anything about a zero divisor. -/
+- Division by zero is undefined for this requirement; the claim must not assert anything about a
+  zero divisor. -/
 def D_hypothesis : Prop := ∀ n d : Nat, d ≠ 0 → d ≤ n → n / d * d ≤ n ∧ n < (n / d + 1) * d
 
 /-! ### E (test): an even number above every number -/
@@ -273,14 +281,16 @@ def F_hypothesis : Prop := ∃ b : Nat, ∀ i : Nat, i < 100 → IntentCorpus.co
 
 # Intent
 - Subtracting `b` from `a` and adding `b` back returns `a`, whenever `b` does not exceed `a`.
-- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on truncated subtraction. -/
+- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on
+  truncated subtraction. -/
 def G_base : Prop := ∀ a b : Nat, b ≤ a → a - b + b = a
 
 /-- For all natural numbers `a` and `b` with `b ≤ a`, `b + (a - b) = a`.
 
 # Intent
 - Subtracting `b` from `a` and adding `b` back returns `a`, whenever `b` does not exceed `a`.
-- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on truncated subtraction. -/
+- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on
+  truncated subtraction. -/
 def G_rewrite : Prop := ∀ a b : Nat, b ≤ a → b + (a - b) = a
 
 /-- For all natural numbers `a` and `b`, `a - b + b = max a b` (natural-number subtraction
@@ -288,21 +298,24 @@ truncates at `0`).
 
 # Intent
 - Subtracting `b` from `a` and adding `b` back returns `a`, whenever `b` does not exceed `a`.
-- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on truncated subtraction. -/
+- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on
+  truncated subtraction. -/
 def G_totalize : Prop := ∀ a b : Nat, a - b + b = max a b
 
 /-- For all natural numbers `a` and `b` with `b ≤ a` and `b ≤ 5`, `a - b + b = a`.
 
 # Intent
 - Subtracting `b` from `a` and adding `b` back returns `a`, whenever `b` does not exceed `a`.
-- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on truncated subtraction. -/
+- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on
+  truncated subtraction. -/
 def G_hypothesis : Prop := ∀ a b : Nat, b ≤ a → b ≤ 5 → a - b + b = a
 
 /-- For all natural numbers `a` and `b` with `b ≤ a`, `a - b + b ≤ a`.
 
 # Intent
 - Subtracting `b` from `a` and adding `b` back returns `a`, whenever `b` does not exceed `a`.
-- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on truncated subtraction. -/
+- Subtraction with `b` greater than `a` is outside this requirement; the claim must not rely on
+  truncated subtraction. -/
 def G_weaken : Prop := ∀ a b : Nat, b ≤ a → a - b + b ≤ a
 
 /-! ### H (test): limiter admission -/
@@ -650,7 +663,8 @@ in the original list. -/
 def J_formal_member : Prop := ∀ (p : Nat → Bool) (l : List Nat) (x : Nat), x ∈ l.filter p → x ∈ l
 /-- Formal clause labelled as not stating the filtering clause: it concludes that the kept
 element satisfies the predicate instead. -/
-def J_formal_member_bad : Prop := ∀ (p : Nat → Bool) (l : List Nat) (x : Nat), x ∈ l.filter p → p x = true
+def J_formal_member_bad : Prop := ∀ (p : Nat → Bool) (l : List Nat) (x : Nat), x ∈ l.filter p →
+    p x = true
 /-- Formal clause labelled as stating the minimum clause: a nonempty list has a minimum at most
 each of its elements. -/
 def K_formal : Prop := ∀ l : List Nat, l ≠ [] → ∃ m, l.min? = some m ∧ ∀ x ∈ l, m ≤ x
@@ -664,7 +678,8 @@ permutation of `l`.
 
 # Intent
 - Sorting returns its output in nondecreasing order.
-- The output contains exactly the input's elements, each as many times as in the input. (discharged by `IntentCorpus.mergeSort_perm_of_correct`) -/
+- The output contains exactly the input's elements, each as many times as in the input. (discharged
+  by `IntentCorpus.mergeSort_perm_of_correct`) -/
 theorem mergeSort_correct : ∀ l : List Nat, l.mergeSort.Pairwise (· ≤ ·) ∧ l.mergeSort.Perm l :=
   fun l => ⟨by
     have := List.pairwise_mergeSort (le := fun a b : Nat => decide (a ≤ b))
@@ -749,130 +764,200 @@ structure Item where
 /-- The labelled calibration items, grouped by base (`A` to `Q`), each base first. -/
 def items : List Item := [
   -- A (dev)
-  { name := ``IntentCorpus.A_base, base := ``IntentCorpus.A_base, mutation := .base, split := .dev, strength := .equivalent },
-  { name := ``IntentCorpus.A_rewrite, base := ``IntentCorpus.A_base, mutation := .rewrite, split := .dev, strength := .equivalent },
-  { name := ``IntentCorpus.A_weaken, base := ``IntentCorpus.A_base, mutation := .weakenInequality, split := .dev,
+  { name := ``IntentCorpus.A_base, base := ``IntentCorpus.A_base, mutation := .base, split := .dev,
+      strength := .equivalent },
+  { name := ``IntentCorpus.A_rewrite, base := ``IntentCorpus.A_base, mutation := .rewrite, split :=
+      .dev, strength := .equivalent },
+  { name := ``IntentCorpus.A_weaken, base := ``IntentCorpus.A_base, mutation := .weakenInequality,
+      split := .dev,
     uncovered := [0, 1], strength := .weaker },
-  { name := ``IntentCorpus.A_hypothesis, base := ``IntentCorpus.A_base, mutation := .addHypothesis, split := .dev,
+  { name := ``IntentCorpus.A_hypothesis, base := ``IntentCorpus.A_base, mutation := .addHypothesis,
+      split := .dev,
     uncovered := [0, 1], strength := .weaker },
   -- B (dev)
-  { name := ``IntentCorpus.B_base, base := ``IntentCorpus.B_base, mutation := .base, split := .dev, strength := .equivalent },
-  { name := ``IntentCorpus.B_rewrite, base := ``IntentCorpus.B_base, mutation := .rewrite, split := .dev, strength := .equivalent },
-  { name := ``IntentCorpus.B_drop, base := ``IntentCorpus.B_base, mutation := .dropConjunct, split := .dev,
+  { name := ``IntentCorpus.B_base, base := ``IntentCorpus.B_base, mutation := .base, split := .dev,
+      strength := .equivalent },
+  { name := ``IntentCorpus.B_rewrite, base := ``IntentCorpus.B_base, mutation := .rewrite, split :=
+      .dev, strength := .equivalent },
+  { name := ``IntentCorpus.B_drop, base := ``IntentCorpus.B_base, mutation := .dropConjunct,
+      split := .dev,
     uncovered := [0], strength := .weaker },
-  { name := ``IntentCorpus.B_weaken, base := ``IntentCorpus.B_base, mutation := .weakenInequality, split := .dev,
+  { name := ``IntentCorpus.B_weaken, base := ``IntentCorpus.B_base, mutation := .weakenInequality,
+      split := .dev,
     uncovered := [1], strength := .weaker },
-  { name := ``IntentCorpus.B_totalize, base := ``IntentCorpus.B_base, mutation := .totalize, split := .dev,
+  { name := ``IntentCorpus.B_totalize, base := ``IntentCorpus.B_base, mutation := .totalize,
+      split := .dev,
     uncovered := [2], strength := .incomparable, totalization := false, exclusions := false },
   -- C
-  { name := ``IntentCorpus.C_base, base := ``IntentCorpus.C_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.C_rewrite, base := ``IntentCorpus.C_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.C_drop, base := ``IntentCorpus.C_base, mutation := .dropConjunct, split := .test,
+  { name := ``IntentCorpus.C_base, base := ``IntentCorpus.C_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.C_rewrite, base := ``IntentCorpus.C_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.C_drop, base := ``IntentCorpus.C_base, mutation := .dropConjunct,
+      split := .test,
     uncovered := [1], strength := .weaker },
-  { name := ``IntentCorpus.C_weaken, base := ``IntentCorpus.C_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.C_weaken, base := ``IntentCorpus.C_base, mutation := .weakenInequality,
+      split := .test,
     uncovered := [0], strength := .weaker },
-  { name := ``IntentCorpus.C_hypothesis, base := ``IntentCorpus.C_base, mutation := .addHypothesis, split := .test,
+  { name := ``IntentCorpus.C_hypothesis, base := ``IntentCorpus.C_base, mutation := .addHypothesis,
+      split := .test,
     uncovered := [0, 1], strength := .weaker },
   -- D
-  { name := ``IntentCorpus.D_base, base := ``IntentCorpus.D_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.D_rewrite, base := ``IntentCorpus.D_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.D_totalize, base := ``IntentCorpus.D_base, mutation := .totalize, split := .test,
+  { name := ``IntentCorpus.D_base, base := ``IntentCorpus.D_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.D_rewrite, base := ``IntentCorpus.D_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.D_totalize, base := ``IntentCorpus.D_base, mutation := .totalize,
+      split := .test,
     uncovered := [2], strength := .incomparable, totalization := false, exclusions := false },
-  { name := ``IntentCorpus.D_drop, base := ``IntentCorpus.D_base, mutation := .dropConjunct, split := .test,
+  { name := ``IntentCorpus.D_drop, base := ``IntentCorpus.D_base, mutation := .dropConjunct,
+      split := .test,
     uncovered := [1], strength := .weaker },
-  { name := ``IntentCorpus.D_weaken, base := ``IntentCorpus.D_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.D_weaken, base := ``IntentCorpus.D_base, mutation := .weakenInequality,
+      split := .test,
     uncovered := [1], strength := .weaker },
-  { name := ``IntentCorpus.D_hypothesis, base := ``IntentCorpus.D_base, mutation := .addHypothesis, split := .test,
+  { name := ``IntentCorpus.D_hypothesis, base := ``IntentCorpus.D_base, mutation := .addHypothesis,
+      split := .test,
     uncovered := [0, 1], strength := .weaker },
   -- E
-  { name := ``IntentCorpus.E_base, base := ``IntentCorpus.E_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.E_rewrite, base := ``IntentCorpus.E_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.E_swap, base := ``IntentCorpus.E_base, mutation := .swapQuantifiers, split := .test,
+  { name := ``IntentCorpus.E_base, base := ``IntentCorpus.E_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.E_rewrite, base := ``IntentCorpus.E_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.E_swap, base := ``IntentCorpus.E_base, mutation := .swapQuantifiers,
+      split := .test,
     strength := .stronger, quantifierOrder := false },
-  { name := ``IntentCorpus.E_weaken, base := ``IntentCorpus.E_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.E_weaken, base := ``IntentCorpus.E_base, mutation := .weakenInequality,
+      split := .test,
     uncovered := [0], strength := .weaker },
-  { name := ``IntentCorpus.E_drop, base := ``IntentCorpus.E_base, mutation := .dropConjunct, split := .test,
+  { name := ``IntentCorpus.E_drop, base := ``IntentCorpus.E_base, mutation := .dropConjunct,
+      split := .test,
     uncovered := [0], strength := .weaker },
   -- F
-  { name := ``IntentCorpus.F_base, base := ``IntentCorpus.F_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.F_rewrite, base := ``IntentCorpus.F_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.F_swap, base := ``IntentCorpus.F_base, mutation := .swapQuantifiers, split := .test,
+  { name := ``IntentCorpus.F_base, base := ``IntentCorpus.F_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.F_rewrite, base := ``IntentCorpus.F_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.F_swap, base := ``IntentCorpus.F_base, mutation := .swapQuantifiers,
+      split := .test,
     uncovered := [0], strength := .weaker, quantifierOrder := false },
-  { name := ``IntentCorpus.F_hypothesis, base := ``IntentCorpus.F_base, mutation := .addHypothesis, split := .test,
+  { name := ``IntentCorpus.F_hypothesis, base := ``IntentCorpus.F_base, mutation := .addHypothesis,
+      split := .test,
     uncovered := [0], strength := .weaker },
   -- G
-  { name := ``IntentCorpus.G_base, base := ``IntentCorpus.G_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.G_rewrite, base := ``IntentCorpus.G_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.G_totalize, base := ``IntentCorpus.G_base, mutation := .totalize, split := .test,
+  { name := ``IntentCorpus.G_base, base := ``IntentCorpus.G_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.G_rewrite, base := ``IntentCorpus.G_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.G_totalize, base := ``IntentCorpus.G_base, mutation := .totalize,
+      split := .test,
     uncovered := [1], strength := .incomparable, totalization := false, exclusions := false },
-  { name := ``IntentCorpus.G_hypothesis, base := ``IntentCorpus.G_base, mutation := .addHypothesis, split := .test,
+  { name := ``IntentCorpus.G_hypothesis, base := ``IntentCorpus.G_base, mutation := .addHypothesis,
+      split := .test,
     uncovered := [0], strength := .weaker },
-  { name := ``IntentCorpus.G_weaken, base := ``IntentCorpus.G_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.G_weaken, base := ``IntentCorpus.G_base, mutation := .weakenInequality,
+      split := .test,
     uncovered := [0], strength := .weaker },
   -- H
-  { name := ``IntentCorpus.H_base, base := ``IntentCorpus.H_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.H_rewrite, base := ``IntentCorpus.H_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.H_drop, base := ``IntentCorpus.H_base, mutation := .dropConjunct, split := .test,
+  { name := ``IntentCorpus.H_base, base := ``IntentCorpus.H_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.H_rewrite, base := ``IntentCorpus.H_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.H_drop, base := ``IntentCorpus.H_base, mutation := .dropConjunct,
+      split := .test,
     uncovered := [1], strength := .weaker },
-  { name := ``IntentCorpus.H_weaken, base := ``IntentCorpus.H_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.H_weaken, base := ``IntentCorpus.H_base, mutation := .weakenInequality,
+      split := .test,
     -- Erratum after the test run, disclosed in the guide: the claim asserts admission when
     -- usage would reach capacity + 1, ignoring the stated limit.
     uncovered := [0], strength := .incomparable, exclusions := false },
-  { name := ``IntentCorpus.H_hypothesis, base := ``IntentCorpus.H_base, mutation := .addHypothesis, split := .test,
+  { name := ``IntentCorpus.H_hypothesis, base := ``IntentCorpus.H_base, mutation := .addHypothesis,
+      split := .test,
     uncovered := [0, 1], strength := .weaker },
   -- I
-  { name := ``IntentCorpus.I_base, base := ``IntentCorpus.I_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.I_rewrite, base := ``IntentCorpus.I_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.I_hypothesis, base := ``IntentCorpus.I_base, mutation := .addHypothesis, split := .test,
+  { name := ``IntentCorpus.I_base, base := ``IntentCorpus.I_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.I_rewrite, base := ``IntentCorpus.I_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.I_hypothesis, base := ``IntentCorpus.I_base, mutation := .addHypothesis,
+      split := .test,
     uncovered := [0], strength := .weaker },
-  { name := ``IntentCorpus.I_weaken, base := ``IntentCorpus.I_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.I_weaken, base := ``IntentCorpus.I_base, mutation := .weakenInequality,
+      split := .test,
     uncovered := [0], strength := .weaker },
   -- J
-  { name := ``IntentCorpus.J_base, base := ``IntentCorpus.J_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.J_rewrite, base := ``IntentCorpus.J_base, mutation := .rewrite, split := .test, strength := .stronger },
-  { name := ``IntentCorpus.J_drop, base := ``IntentCorpus.J_base, mutation := .dropConjunct, split := .test,
+  { name := ``IntentCorpus.J_base, base := ``IntentCorpus.J_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.J_rewrite, base := ``IntentCorpus.J_base, mutation := .rewrite, split :=
+      .test, strength := .stronger },
+  { name := ``IntentCorpus.J_drop, base := ``IntentCorpus.J_base, mutation := .dropConjunct,
+      split := .test,
     uncovered := [1], strength := .weaker },
-  { name := ``IntentCorpus.J_swap, base := ``IntentCorpus.J_base, mutation := .swapQuantifiers, split := .test,
+  { name := ``IntentCorpus.J_swap, base := ``IntentCorpus.J_base, mutation := .swapQuantifiers,
+      split := .test,
     uncovered := [0, 1], strength := .weaker, quantifierOrder := false },
   -- K
-  { name := ``IntentCorpus.K_base, base := ``IntentCorpus.K_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.K_rewrite, base := ``IntentCorpus.K_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.K_swap, base := ``IntentCorpus.K_base, mutation := .swapQuantifiers, split := .test,
+  { name := ``IntentCorpus.K_base, base := ``IntentCorpus.K_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.K_rewrite, base := ``IntentCorpus.K_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.K_swap, base := ``IntentCorpus.K_base, mutation := .swapQuantifiers,
+      split := .test,
     strength := .stronger, quantifierOrder := false },
-  { name := ``IntentCorpus.K_drop, base := ``IntentCorpus.K_base, mutation := .dropConjunct, split := .test,
+  { name := ``IntentCorpus.K_drop, base := ``IntentCorpus.K_base, mutation := .dropConjunct,
+      split := .test,
     uncovered := [0], strength := .weaker },
-  { name := ``IntentCorpus.K_weaken, base := ``IntentCorpus.K_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.K_weaken, base := ``IntentCorpus.K_base, mutation := .weakenInequality,
+      split := .test,
     uncovered := [0], strength := .weaker },
   -- L
-  { name := ``IntentCorpus.L_base, base := ``IntentCorpus.L_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.L_rewrite, base := ``IntentCorpus.L_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.L_totalize, base := ``IntentCorpus.L_base, mutation := .totalize, split := .test,
+  { name := ``IntentCorpus.L_base, base := ``IntentCorpus.L_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.L_rewrite, base := ``IntentCorpus.L_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.L_totalize, base := ``IntentCorpus.L_base, mutation := .totalize,
+      split := .test,
     uncovered := [1], strength := .incomparable, totalization := false, exclusions := false },
-  { name := ``IntentCorpus.L_hypothesis, base := ``IntentCorpus.L_base, mutation := .addHypothesis, split := .test,
+  { name := ``IntentCorpus.L_hypothesis, base := ``IntentCorpus.L_base, mutation := .addHypothesis,
+      split := .test,
     uncovered := [0], strength := .weaker },
   -- M
-  { name := ``IntentCorpus.M_base, base := ``IntentCorpus.M_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.M_rewrite, base := ``IntentCorpus.M_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.M_totalize, base := ``IntentCorpus.M_base, mutation := .totalize, split := .test,
+  { name := ``IntentCorpus.M_base, base := ``IntentCorpus.M_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.M_rewrite, base := ``IntentCorpus.M_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.M_totalize, base := ``IntentCorpus.M_base, mutation := .totalize,
+      split := .test,
     uncovered := [1], strength := .incomparable, totalization := false, exclusions := false },
-  { name := ``IntentCorpus.M_weaken, base := ``IntentCorpus.M_base, mutation := .weakenInequality, split := .test,
+  { name := ``IntentCorpus.M_weaken, base := ``IntentCorpus.M_base, mutation := .weakenInequality,
+      split := .test,
     uncovered := [0], strength := .weaker },
   -- O
-  { name := ``IntentCorpus.O_base, base := ``IntentCorpus.O_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.O_rewrite, base := ``IntentCorpus.O_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.O_swap, base := ``IntentCorpus.O_base, mutation := .swapQuantifiers, split := .test,
+  { name := ``IntentCorpus.O_base, base := ``IntentCorpus.O_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.O_rewrite, base := ``IntentCorpus.O_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.O_swap, base := ``IntentCorpus.O_base, mutation := .swapQuantifiers,
+      split := .test,
     strength := .stronger, quantifierOrder := false },
   -- P
-  { name := ``IntentCorpus.P_base, base := ``IntentCorpus.P_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.P_rewrite, base := ``IntentCorpus.P_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.P_swap, base := ``IntentCorpus.P_base, mutation := .swapQuantifiers, split := .test,
+  { name := ``IntentCorpus.P_base, base := ``IntentCorpus.P_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.P_rewrite, base := ``IntentCorpus.P_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.P_swap, base := ``IntentCorpus.P_base, mutation := .swapQuantifiers,
+      split := .test,
     strength := .stronger, quantifierOrder := false },
   -- Q
-  { name := ``IntentCorpus.Q_base, base := ``IntentCorpus.Q_base, mutation := .base, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.Q_rewrite, base := ``IntentCorpus.Q_base, mutation := .rewrite, split := .test, strength := .equivalent },
-  { name := ``IntentCorpus.Q_totalize, base := ``IntentCorpus.Q_base, mutation := .totalize, split := .test,
+  { name := ``IntentCorpus.Q_base, base := ``IntentCorpus.Q_base, mutation := .base, split := .test,
+      strength := .equivalent },
+  { name := ``IntentCorpus.Q_rewrite, base := ``IntentCorpus.Q_base, mutation := .rewrite, split :=
+      .test, strength := .equivalent },
+  { name := ``IntentCorpus.Q_totalize, base := ``IntentCorpus.Q_base, mutation := .totalize,
+      split := .test,
     uncovered := [1], strength := .incomparable, totalization := false, exclusions := false },
-  { name := ``IntentCorpus.Q_drop, base := ``IntentCorpus.Q_base, mutation := .dropConjunct, split := .test,
+  { name := ``IntentCorpus.Q_drop, base := ``IntentCorpus.Q_base, mutation := .dropConjunct,
+      split := .test,
     uncovered := [0], strength := .weaker }]
 
 /-- One labelled English-clause / Lean-clause pair (test split). -/
@@ -888,25 +973,31 @@ structure CorrespondenceItem where
 labelled as stating it and one labelled as not stating it. -/
 def correspondenceItems : List CorrespondenceItem :=
   let sorted := "Sorting returns its output in nondecreasing order."
-  let perm := "The output contains exactly the input's elements, each as many times as in the input."
+  let perm :=
+      "The output contains exactly the input's elements, each as many times as in the input."
   let lower := "For a nonzero divisor, the quotient times the divisor does not exceed the dividend."
-  let even := "Every natural number is exceeded by some even number, which may be chosen depending on it."
-  let round := "Subtracting `b` from `a` and adding `b` back returns `a`, whenever `b` does not exceed `a`."
+  let even :=
+      "Every natural number is exceeded by some even number, which may be chosen depending on it."
+  let round :=
+      "Subtracting `b` from `a` and adding `b` back returns `a`, whenever `b` does not exceed `a`."
   let sound := "An admitted request never takes usage above capacity."
   let rev := "Reversing a list twice returns the original list."
   let member := "Every element kept by filtering comes from the original list."
   let minimum := "Every nonempty list has a minimum that is at most each of its elements."
-  let average := "For a nonempty list, the average (the sum divided by the length, rounded down) is at most the sum."
+  let average := "For a nonempty list, the average (the sum divided by the length, rounded down) \
+    is at most the sum."
   let predecessor := "Every positive natural number is one more than its predecessor."
   let first := "Every nonempty list has a first element, and it is one of the list's elements."
-  [⟨sorted, ``IntentCorpus.C_formal_order, true⟩, ⟨sorted, ``IntentCorpus.C_formal_order_bad, false⟩,
+  [⟨sorted, ``IntentCorpus.C_formal_order, true⟩,
+      ⟨sorted, ``IntentCorpus.C_formal_order_bad, false⟩,
    ⟨perm, ``IntentCorpus.C_formal_perm, true⟩, ⟨perm, ``IntentCorpus.C_formal_perm_bad, false⟩,
    ⟨lower, ``IntentCorpus.D_formal_lower, true⟩, ⟨lower, ``IntentCorpus.D_formal_lower_bad, false⟩,
    ⟨even, ``IntentCorpus.E_formal, true⟩, ⟨even, ``IntentCorpus.E_formal_bad, false⟩,
    ⟨round, ``IntentCorpus.G_formal, true⟩, ⟨round, ``IntentCorpus.G_formal_bad, false⟩,
    ⟨sound, ``IntentCorpus.H_formal_sound, true⟩, ⟨sound, ``IntentCorpus.H_formal_sound_bad, false⟩,
    ⟨rev, ``IntentCorpus.I_formal, true⟩, ⟨rev, ``IntentCorpus.I_formal_bad, false⟩,
-   ⟨member, ``IntentCorpus.J_formal_member, true⟩, ⟨member, ``IntentCorpus.J_formal_member_bad, false⟩,
+   ⟨member, ``IntentCorpus.J_formal_member, true⟩,
+       ⟨member, ``IntentCorpus.J_formal_member_bad, false⟩,
    ⟨minimum, ``IntentCorpus.K_formal, true⟩, ⟨minimum, ``IntentCorpus.K_formal_bad, false⟩,
    ⟨average, ``IntentCorpus.L_formal, true⟩, ⟨average, ``IntentCorpus.L_formal_bad, false⟩,
    ⟨predecessor, ``IntentCorpus.M_formal, true⟩, ⟨predecessor, ``IntentCorpus.M_formal_bad, false⟩,

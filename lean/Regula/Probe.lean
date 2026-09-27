@@ -263,7 +263,8 @@ private def replacementCorrespondence (env : Environment) (reference replacement
           catch _ => pure (.completed none)
         return comparison.classify
   catch _ =>
-    return (.unresolved, some s!"cannot construct exact correspondence for {reference} and {replacement}")
+    return (.unresolved,
+        some s!"cannot construct exact correspondence for {reference} and {replacement}")
 
 private def compilerTrustingAxiom (name : Name) : Bool :=
   name == ``Lean.trustCompiler || name == ``Lean.ofReduceBool
@@ -404,7 +405,8 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (recursorHelpers : Array Name) (root : Name) : CommandElabM (Array Regula.Report.ExecutionBoundary ×
+    (recursorHelpers : Array Name) (root : Name) : CommandElabM
+    (Array Regula.Report.ExecutionBoundary ×
       Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
   let mut visited : Std.HashSet Name := {}
   let mut queue : Array (Name × Option Nat) := #[(root, none)]
@@ -467,10 +469,12 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     | unresolved := unresolved.push s!"{name}: module attribution is unavailable"
       continue
     let owned := ownedModules.contains moduleName
-    let entry (boundary : BoundaryKind) (correspondence : Correspondence) (replacement : Option Name) (evidence : Option String) :
+    let entry (boundary : BoundaryKind) (correspondence : Correspondence)
+        (replacement : Option Name) (evidence : Option String) :
         CommandElabM Regula.Report.ExecutionBoundary := do
       let account ← match RegulaPolicy.admitBoundaryEvidence boundary correspondence evidence
-          (if boundary == .nativeRuntime && correspondence == .trusted then nativeModules.find? moduleName else none) with
+          (if boundary == .nativeRuntime && correspondence == .trusted then
+              nativeModules.find? moduleName else none) with
         | .ok account => pure account
         | .error error => throwError "{error}"
       return {
@@ -490,7 +494,9 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       let (correspondence, evidence) ← correspondence name target
       boundaries := boundaries.push <|
         (← entry .compilerSimplification correspondence (some target)
-          (some s!"conservative constant-equality candidate={simplification.thmName}; {evidence.getD ""}"))
+          (some
+              s!"conservative constant-equality \
+                candidate={simplification.thmName}; {evidence.getD ""}"))
       queue := queue ++ enqueue #[target]
     if Lean.isExtern env name then
       let native := nativeModules.contains moduleName
@@ -509,7 +515,9 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
               if reference == name then some target else none
             historyEdges := historyEdges ++ targets.map (name, ·)
             if !targets.contains target then
-              unresolved := unresolved.push s!"{name}: fresh replacement history omits current target {target}"
+              unresolved :=
+                  unresolved.push
+                      s!"{name}: fresh replacement history omits current target {target}"
             pure <| if targets.contains target then targets else targets.push target
       for target in targets do
         replacementEdges := replacementEdges.push (name, target)
@@ -675,7 +683,8 @@ def environmentReport (modules : List Name)
             nativeModules := nativeModules.insert origin.name receipt
     let recursorHelpers := brecOnHelpers env own
     let candidates := simplificationCandidates env
-    let proofCache ← liftIO <| IO.mkRef ({} : Std.HashMap (Name × Name) (Correspondence × Option String))
+    let proofCache ← liftIO <| IO.mkRef
+        ({} : Std.HashMap (Name × Name) (Correspondence × Option String))
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←

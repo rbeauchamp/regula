@@ -47,7 +47,8 @@ unsafe def validate (env : Environment) (ownedModules : Array Name) :
     -- Importing such a module would put unchecked owned declarations back in
     -- the trusted base. Ownership must be expanded or the claim rejected.
     if data.imports.any (fun imp => owned.contains imp.module) then
-      return .error ⟨s!"[VIOLATION[kernel-admission]] unowned module {name} imports an owned module"⟩
+      return .error
+          ⟨s!"[VIOLATION[kernel-admission]] unowned module {name} imports an owned module"⟩
     imports := imports.push { module := name, importAll := true }
   let base ← importModules imports {} 0 (loadExts := false) (level := .private)
   try

@@ -29,9 +29,11 @@ def check : IO Unit := do
           IO.FS.writeFile (bin / "gtimeout") "not an executable\n"
         if fault == "spawn" then
           IO.FS.writeBinFile (bin / "gtimeout") (← IO.FS.readBinFile executable)
-          let mode ← IO.Process.output {cmd := "/bin/chmod", args := #["+x", (bin / "gtimeout").toString]}
+          let mode ← IO.Process.output
+              {cmd := "/bin/chmod", args := #["+x", (bin / "gtimeout").toString]}
           requireChecks [⟨"executable fixture", mode.exitCode == 0⟩]
-        writeJson evidence (Json.mkObj [("status", toJson "completed"), ("attemptId", toJson "old")])
+        writeJson evidence
+            (Json.mkObj [("status", toJson "completed"), ("attemptId", toJson "old")])
         let result ← IO.Process.output {
           cmd := executable.toString, args := route ++ #["--evidence", evidence.toString],
           env := #[("PATH", some bin.toString),
@@ -42,8 +44,10 @@ def check : IO Unit := do
         let attempt ← IO.ofExcept (current.getObjValAs? String "attemptId")
         let log := result.stdout ++ result.stderr
         requireChecks [⟨"failure really occurred", result.exitCode != 0⟩,
-          ⟨"old completion invalidated", status == "incomplete" && attempt != "old" && !attempt.isEmpty⟩,
-          ⟨"intended timeout discovery refusal", fault == "spawn" || log.contains "requires GNU coreutils timeout"⟩,
+          ⟨"old completion invalidated", status == "incomplete" && attempt != "old" &&
+              !attempt.isEmpty⟩,
+          ⟨"intended timeout discovery refusal", fault == "spawn" ||
+              log.contains "requires GNU coreutils timeout"⟩,
           ⟨"selected timer disappeared before spawn", fault != "spawn" ||
             (!(← (bin / "gtimeout").pathExists) && !log.contains "requires GNU coreutils timeout")⟩]
         IO.println s!"receipt boundary {route[0]!}/{fault}: PASS"

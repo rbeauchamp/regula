@@ -103,7 +103,8 @@ theorem transform_sound (f : String → String) (fuel : Nat) (input output : Jso
               rw [hm] at h
               have : output = Json.mkObj ys := (Except.ok.inj h).symm
               subst output
-              have related : List.Forall₂ (fun (a b : String × Json) => a.1 = b.1 ∧ Maps f a.2 b.2) xs.toList ys := by
+              have related : List.Forall₂ (fun (a b : String × Json) => a.1 = b.1 ∧ Maps f a.2 b.2)
+                  xs.toList ys := by
                 apply mapM_related _ _ _ _ _ hm
                 intro a b hb
                 cases hv : transform f n a.2 with

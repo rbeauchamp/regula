@@ -39,12 +39,14 @@ instance : FromJson RequestedInspection := ⟨fun value => do
   PolicyCodec.exactFields value ["expectedModules", "report", "transcripts"]
   return {
     expectedModules := ← value.getObjValAs? _ "expectedModules",
-    admitted := ← value.getObjValAs? _ "report", transcripts := ← value.getObjValAs? _ "transcripts" }⟩
+    admitted := ← value.getObjValAs? _ "report", transcripts :=
+        ← value.getObjValAs? _ "transcripts" }⟩
 
 /-- Retain one exact source per URI; repeated identical file observations are shared,
 while conflicting bytes are refused. This normalizes source maps, never job results. -/
 def sourceSnapshots (sources : Array ProducerReport.SourceBinding)
-    (histories : Array HistoryObservation) (additional : Array SourceSnapshot := #[]) : IO (Array SourceSnapshot) := do
+    (histories : Array HistoryObservation) (additional : Array SourceSnapshot := #[]) : IO
+    (Array SourceSnapshot) := do
   let mut observed := sources.map fun source => (⟨source.path, source.content⟩ : SourceSnapshot)
   for history in histories do
     unless history.before == history.after &&
@@ -54,7 +56,8 @@ def sourceSnapshots (sources : Array ProducerReport.SourceBinding)
   let mut files : Array SourceSnapshot := #[]
   for source in observed ++ additional do
     if let some previous := files.find? (·.uri == source.uri) then
-      unless previous == source do throw <| IO.userError s!"conflicting source snapshot: {source.uri}"
+      unless previous == source do throw <|
+                                    IO.userError s!"conflicting source snapshot: {source.uri}"
     else files := files.push source
   return files
 
@@ -65,11 +68,13 @@ def buildObservation (process : ProcessResult) : BuildObservation :=
 private def moduleKey (snapshot : AdmittedSnapshot) (name : Name) : Except String ModuleKey := do
   return ⟨snapshot, ← admitIdentity name⟩
 
-private def declarationKey (snapshot : AdmittedSnapshot) (key : Name × Name) : Except String DeclarationKey := do
+private def declarationKey (snapshot : AdmittedSnapshot) (key : Name × Name) :
+    Except String DeclarationKey := do
   return ⟨← moduleKey snapshot key.1, ← admitIdentity key.2⟩
 
 /-- Every report's history outcomes, in report order, through `checked_histories`. -/
-def historyObservations (reports : Array RequestedInspection) : Except String (Array HistoryObservation) :=
+def historyObservations (reports : Array RequestedInspection) : Except String
+    (Array HistoryObservation) :=
   histories (reports.flatMap (·.report.histories))
 
 /-- Reconcile full producer censuses with an independently selected positive domain. Full
@@ -78,7 +83,8 @@ must already belong to the same frozen claim; no source or profile is invented h
 private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
     (discovered : Array DiscoveredTarget)
     (sources : Array ProducerReport.SourceBinding) (ownedOutput : FilePath)
-    (inspected : RequestedInspection) (fileSource : Option FileSourceBinding := none) : IO FrozenEnvironment := do
+    (inspected : RequestedInspection) (fileSource : Option FileSourceBinding := none) :
+        IO FrozenEnvironment := do
   let snapshot : AdmittedSnapshot := ⟨claim.val.snapshot, claim.property.2.1⟩
   let positive := request.modules.map (·.name.name)
   let report := inspected.report
@@ -88,8 +94,11 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
   -- `inspected.admitted.valid` proves `checked_validate` (which includes the source-evidence
   -- guard) succeeded on this exact report; only the bindings to `sources` remain to check.
   timedPhase "freeze report validation" do
-    IO.ofExcept (← IO.lazyPure fun _ => (SourceBinding.validateAgainst sources report).mapError (·.detail))
-    IO.ofExcept (← IO.lazyPure fun _ => (SourceBinding.transcriptsMatch sources inspected.transcripts).mapError (·.detail))
+    IO.ofExcept (← IO.lazyPure fun _ => (SourceBinding.validateAgainst sources report).mapError
+                                         (·.detail))
+    IO.ofExcept
+        (← IO.lazyPure fun _ =>
+            (SourceBinding.transcriptsMatch sources inspected.transcripts).mapError (·.detail))
   let some replay := report.admission
     | throw <| IO.userError "missing completed logical admission"
   let some documentation := report.documentation
@@ -117,25 +126,31 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
       | throw <| IO.userError s!"missing independently captured source: {key.name.name}"
     return (key, ⟨source.path, source.content⟩)
   let moduleSources ← modules.mapM sourceFor
-  let importedSources ← (importedModules.filter (fun m => allSources.any (·.moduleName == m.name.name))).mapM sourceFor
+  let importedSources
+      ← (importedModules.filter (fun m => allSources.any (·.moduleName == m.name.name))).mapM
+          sourceFor
   let infrastructureSources ← ((infrastructure.map (·.moduleKey)).filter
     (fun m => allSources.any (·.moduleName == m.name.name))).mapM sourceFor
   let replayModules ← IO.ofExcept <| replay.modules.mapM (moduleKey snapshot)
   let required ← IO.ofExcept <| replay.required.mapM (declarationKey snapshot)
   let admitted ← IO.ofExcept <| replay.admitted.mapM (declarationKey snapshot)
-  let declarations ← IO.ofExcept <| (scope.inventory.declarations.map (fun d => (d.module, d.name))).mapM
+  let declarations ← IO.ofExcept <|
+      (scope.inventory.declarations.map (fun d => (d.module, d.name))).mapM
     (declarationKey snapshot)
-  let rootKeys ← IO.ofExcept <| (execution.roots.map (fun r => (r.module, r.name))).mapM (declarationKey snapshot)
+  let rootKeys ← IO.ofExcept <| (execution.roots.map (fun r => (r.module, r.name))).mapM
+      (declarationKey snapshot)
   let material ← IO.ofExcept <| documentation.materialDeclarations.mapM (declarationKey snapshot)
   let mut unclassifiedRootImports := #[]
   let configuredModules := discovered.flatMap (·.modules)
   for origin in origins do
-    if claim.val.scope == .project && !configuredModules.contains origin.name && !positive.contains origin.name &&
+    if claim.val.scope == .project && !configuredModules.contains origin.name &&
+        !positive.contains origin.name &&
         !infrastructureNames.contains origin.name && (← pathWithin origin.olean ownedOutput) then
       unclassifiedRootImports := unclassifiedRootImports.push
         (← IO.ofExcept (moduleKey snapshot origin.name))
   let census : EnvironmentCensus := {
-    request, policy := scope.inventory, execution, modules, importedModules, infrastructure, origins,
+    request, policy := scope.inventory, execution, modules, importedModules,
+        infrastructure, origins,
     moduleSources, fileSource, importedSources, infrastructureSources, unclassifiedRootImports,
     admissionModules := replayModules, admissionDeclarations := required, declarations,
     roots := rootKeys, materialDeclarations := material }
@@ -152,7 +167,8 @@ their count, index, module partition or snapshot; each complete packet is admitt
 def freeze (claim : Claim) (expected : Array (Array Name))
     (configured : Array TargetAssignment) (discovered : Array DiscoveredTarget)
     (sources : Array ProducerReport.SourceBinding) (ownedOutput : FilePath)
-    (reports : Array RequestedInspection) (fileSource : Option FileSourceBinding := none) : IO (Frozen claim) := do
+    (reports : Array RequestedInspection) (fileSource : Option FileSourceBinding := none) : IO
+    (Frozen claim) := do
   let snapshot : AdmittedSnapshot := ⟨claim.val.snapshot, claim.property.2.1⟩
   unless reports.size == expected.size do
     throw <| IO.userError "missing, duplicate or unrequested environment inspection"
@@ -182,8 +198,10 @@ def finish {claim : Claim} (frozen : Frozen claim) (build : BuildObservation) :
   -- Keep the computed collection and its equality together across the IO timer. The
   -- proof is erased; the exact collector runs once, on the complete original inputs.
   let collected ← timedPhase "result collection" <| IO.lazyPure fun _ =>
-    (⟨ResultState.collect (required := requiredSlots frozen.plan) (bound := ResultBound frozen.plan) .empty inputs, rfl⟩ :
-      { result // ResultState.collect (required := requiredSlots frozen.plan) (bound := ResultBound frozen.plan) .empty inputs = result })
+    (⟨ResultState.collect (required := requiredSlots frozen.plan)
+        (bound := ResultBound frozen.plan) .empty inputs, rfl⟩ :
+      { result // ResultState.collect (required := requiredSlots frozen.plan)
+          (bound := ResultBound frozen.plan) .empty inputs = result })
   let result : { result // result = finalize frozen.plan frozen.roles inputs } ←
     match hc : collected.val with
     | .error failure => pure ⟨.error (.collection failure), by
@@ -195,11 +213,14 @@ def finish {claim : Claim} (frozen : Frozen claim) (build : BuildObservation) :
       pure <| match ha : accepted.val with
         | .error failure =>
             ⟨.error (.acceptance failure), by
-              rw [finalize_of_collected _ _ _ _ (collected.property.trans hc), accepted.property.trans ha]⟩
+              rw [finalize_of_collected _ _ _ _ (collected.property.trans hc),
+                  accepted.property.trans ha]⟩
         | .ok evidence =>
             ⟨.ok ⟨table, collected.property.trans hc, evidence⟩, by
-              rw [finalize_of_collected _ _ _ _ (collected.property.trans hc), accepted.property.trans ha]⟩
-  let result ← IO.ofExcept <| result.val.mapError fun failure => s!"acceptance refused: {repr failure}"
+              rw [finalize_of_collected _ _ _ _ (collected.property.trans hc),
+                  accepted.property.trans ha]⟩
+  let result ← IO.ofExcept <| result.val.mapError fun failure =>
+      s!"acceptance refused: {repr failure}"
   return ⟨frozen.census, frozen.plan, frozen.roles, inputs, result⟩
 
 end Regula.Checker.Acceptance

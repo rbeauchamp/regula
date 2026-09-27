@@ -89,7 +89,8 @@ instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
 abbrev Command := RegulaPolicy.Frontend.Command
 deriving instance ToJson for RegulaPolicy.Frontend.Command
 instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
-  exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations", "evaluators", "bindings"]
+  exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations",
+      "evaluators", "bindings"]
   return {
     commandElaborator := ← j.getObjValAs? _ "commandElaborator"
     commandKind := ← j.getObjValAs? _ "commandKind"
@@ -105,7 +106,8 @@ with its exact-field JSON codec. -/
 abbrev Transcript := RegulaPolicy.Frontend.Transcript
 deriving instance ToJson for RegulaPolicy.Frontend.Transcript
 instance : FromJson RegulaPolicy.Frontend.Transcript := ⟨fun j => do
-  exactFields j ["module", "source", "sourceBytes", "sourceContent", "leanVersion", "leanGitHash", "imports", "commands", "runtimeReplacements", "replacementHistoryUnsupported"]
+  exactFields j ["module", "source", "sourceBytes", "sourceContent", "leanVersion", "leanGitHash",
+      "imports", "commands", "runtimeReplacements", "replacementHistoryUnsupported"]
   return {
     «module» := ← j.getObjValAs? _ "module"
     source := ← j.getObjValAs? _ "source"
@@ -303,11 +305,13 @@ decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
 /-- Source metaprograms can compile with a temporary replacement and restore
 the map within one command. Command snapshots cannot certify that history.
 Imported trusted elaborators remain inside the documented process boundary. -/
-private def unsupportedReplacementEvaluators (compilerEnv : Environment) (attributeRefs : Array Name)
+private def unsupportedReplacementEvaluators (compilerEnv : Environment)
+    (attributeRefs : Array Name)
     (baselineEnv commandEnv : Environment)
     (tree : InfoTree) : Array String :=
   match tree with
-  | .context _ child => unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv child
+  | .context _ child =>
+      unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv child
   | .node info children => Id.run do
       let evaluator? := (evaluatorInfo? info).map fun (role, i) =>
         (role, i.elaborator, i.stx.getKind)
@@ -332,7 +336,8 @@ private def unsupportedReplacementEvaluators (compilerEnv : Environment) (attrib
             else #[]
         | none => #[]
       return (elems children).attach.foldl (fun found ⟨child, _⟩ =>
-        found ++ unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv child) own
+        found ++ unsupportedReplacementEvaluators compilerEnv attributeRefs baselineEnv commandEnv
+            child) own
   | .hole _ => #[]
 termination_by tree
 decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
@@ -385,7 +390,8 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   let attributeRefs := (← Lean.attributeMapRef.get).toArray.map (·.2.ref)
   let inputCtx := Parser.mkInputContext sourceBefore sourcePath.toString
   let ctx := { inputCtx with }
-  let opts := (Lean.Elab.async.set (warningAsError.set {} true) false).setBool Regula.Linter.auditBuildOption true
+  let opts := (Lean.Elab.async.set (warningAsError.set {} true) false).setBool
+      Regula.Linter.auditBuildOption true
   let processor := Lean.Language.Lean.process
   let importsRef ← IO.mkRef (#[] : Array Import)
   let snap ← processor (fun stx => do
@@ -415,7 +421,8 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
         if baseline?.isNone then
           baseline? := some commandCtx.env
         if let some compilerEnv := compilerEnv? then
-          for evaluator in unsupportedReplacementEvaluators compilerEnv attributeRefs (baseline?.getD commandCtx.env)
+          for evaluator in unsupportedReplacementEvaluators compilerEnv attributeRefs
+              (baseline?.getD commandCtx.env)
               commandCtx.env tree do
             if !replacementHistoryUnsupported.contains evaluator then
               replacementHistoryUnsupported := replacementHistoryUnsupported.push evaluator
@@ -516,7 +523,8 @@ def buildIsolated (moduleName : Name) (sourcePath : System.FilePath)
     searchRoots := extraSearchRoots.map (·.toString)
   } : WorkerRequest)
   unless transcript.module == moduleName && transcript.source == sourcePath.toString &&
-      transcript.sourceContent == sourceBefore && transcript.sourceBytes == sourceBefore.utf8ByteSize &&
+      transcript.sourceContent == sourceBefore && transcript.sourceBytes ==
+          sourceBefore.utf8ByteSize &&
       transcript.leanVersion == Lean.versionString && transcript.leanGitHash == Lean.githash &&
       (← IO.FS.readFile sourcePath) == sourceBefore do
     throw <| IO.userError "frontend worker snapshot or toolchain binding mismatch"

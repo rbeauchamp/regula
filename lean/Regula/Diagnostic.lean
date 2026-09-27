@@ -77,7 +77,8 @@ structure ContextArguments where
 /-- Distinct argument domains prevent constructing a declaration rule with a project payload. -/
 def Payload : RuleId → Type
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract | .materialDocumentation | .materialIntent => DeclarationArguments
+  | .escapeHatch | .executableContract | .materialDocumentation | .materialIntent =>
+                                                                   DeclarationArguments
   | .executionUnresolved | .executionBoundary => ExecutionArguments
   | .environment | .configuration | .sourceBuild | .coverage | .admission | .communityConfiguration
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
@@ -154,7 +155,8 @@ def Location.place : Location → Feedback.Place
 def Diagnostic.message {id : RuleId} (d : Diagnostic id) : String :=
   let impact := if d.impact == .violation then "violation" else "incomplete"
   let (subject, detail) := argumentParts id d.arguments
-  messageLine id impact d.mode.spelling (d.claim.getD "classification-only") d.location.text subject detail
+  messageLine id impact d.mode.spelling (d.claim.getD "classification-only") d.location.text
+      subject detail
 
 /-- A finding's complete text on its own (`Feedback.standalone`): what and where, the rule's
 remedy, and the rule page and offline `lake exe regula explain` command. -/

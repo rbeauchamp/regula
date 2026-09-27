@@ -65,7 +65,9 @@ private def cases : Array Case := #[
     before := "standard-logical", after := "choice-free"
     expected := #["label-exceeds-claim", "Classical.choice"] },
   { name := "choice-free-positive"
-    files := #[("Widget.lean", "theorem ext : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n"),
+    files :=
+        #[("Widget.lean",
+            "theorem ext : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n"),
       ("foundation_manifest.json", manifest "choice-free")]
     path := "foundation_manifest.json"
     before := "choice-free", after := "kernel-only"
@@ -82,20 +84,24 @@ private def cases : Array Case := #[
     expected := #["project-axiom", "unusedAssumption"] },
   { name := "unimported-configured-module"
     path := "Widget/Additional.lean"
-    before := "namespace Widget.Additional", after := "/-- A control assumption. -/\naxiom unimported : True\nnamespace Widget.Additional"
+    before := "namespace Widget.Additional", after :=
+        "/-- A control assumption. -/\naxiom unimported : True\nnamespace Widget.Additional"
     expected := #["project-axiom", "unimported"] },
   { name := "missing-evidence"
     before := ":=\n  ⟨fun _ => rfl⟩", after := "where"
     expected := #["build-failed", "Fields missing", "evidence"] },
   { name := "weakened-evidence"
     before := "⟨fun _ => rfl⟩", after := "⟨fun (n : Nat) (_ : n = 0) => rfl⟩"
-    expected := #["build-failed", "Application type mismatch", "n = 0", "SuccessorSpec successor"] },
+    expected :=
+        #["build-failed", "Application type mismatch", "n = 0", "SuccessorSpec successor"] },
   { name := "unrelated-evidence"
     before := "⟨fun _ => rfl⟩", after := "⟨True.intro⟩"
     expected := #["build-failed", "Application type mismatch", "True", "SuccessorSpec"] },
   { name := "deleted-evidence"
     before := "theorem identityContract", after := "theorem discardedContract"
-    files := #[("Widget.lean", identitySource ++ "/-- A control use of the contract. -/\ndef use := identityContract.run\n")]
+    files :=
+        #[("Widget.lean", identitySource ++
+            "/-- A control use of the contract. -/\ndef use := identityContract.run\n")]
     expected := #["build-failed", "Unknown identifier"] },
   { name := "existence-is-not-witness-evidence"
     before := "⟨fun _ => rfl⟩"
@@ -122,24 +128,31 @@ private def cases : Array Case := #[
     expected := #["executable-contract", "named constant"] },
   { name := "type-producing-root-alias"
     files := #[("Widget.lean", "import Regula.Contract\n" ++
-      "/-- A control alias. -/\n@[irreducible] def ResultAlias := Nat\n/-- A control root. -/\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact 0\n" ++
+      "/-- A control alias. -/\n@[irreducible] def ResultAlias := Nat\n/-- A control root. \
+        -/\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact 0\n" ++
       "theorem contract : Regula.ExecutableContract root (fun _ => True) := ⟨True.intro⟩\n")]
-    before := "@[irreducible] def ResultAlias := Nat\n/-- A control root. -/\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact 0"
-    after := "@[irreducible] def ResultAlias := Type\n/-- A control root. -/\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact Nat"
+    before := "@[irreducible] def ResultAlias := Nat\n/-- A control root. -/\n@[macro_inline] def \
+      root : ResultAlias := by unfold ResultAlias; exact 0"
+    after := "@[irreducible] def ResultAlias := Type\n/-- A control root. -/\n@[macro_inline] def \
+      root : ResultAlias := by unfold ResultAlias; exact Nat"
     expected := #["executable-contract", "contract", "returns a type"] },
   { name := "aliased-contract-registration"
     files := #[("Widget.lean", "import Regula.Contract\n" ++
       "/-- A control root. -/\ndef root (n : Nat) := n\n" ++
-      "/-- A control requirement. -/\n@[irreducible] def Required : Prop := Regula.ExecutableContract root (fun _ => True)\n" ++
+      "/-- A control requirement. -/\n@[irreducible] def Required : Prop := \
+        Regula.ExecutableContract root (fun _ => True)\n" ++
       "theorem contract : Required := by unfold Required; exact ⟨True.intro⟩\n")]
     before := "def root", after := "noncomputable def root"
     expected := #["executable-contract", "contract", "noncomputable"] },
   { name := "private-executable-boundary"
     files := #[("Widget.lean", identitySource "private ")]
-    before := "private def identity", after := "@[extern \"lps_private_external\"] private def identity"
+    before := "private def identity", after :=
+        "@[extern \"lps_private_external\"] private def identity"
     expected := #["execution-trusted-boundary", "identity", "external"] },
   { name := "replacement-boundary"
-    files := #[("Widget.lean", identitySource "def replacement (n : Nat) := n\n/-- A control definition. -/\n@[implemented_by replacement] ")]
+    files :=
+        #[("Widget.lean", identitySource "def replacement (n : Nat) := n\n/-- A control \
+          definition. -/\n@[implemented_by replacement] ")]
     before := "def replacement (n : Nat) := n", after := "def replacement (n : Nat) := n + 1"
     expected := #["execution-trusted-boundary", "identity", "runtime-replacement"] },
   { name := "cached-execution-policy"
@@ -153,11 +166,13 @@ private def cases : Array Case := #[
     expected := #["manifest", "claim"] },
   { name := "unclassified-library"
     files := #[("Extra.lean", "theorem extra : True := True.intro\n")]
-    path := "lakefile.lean", before := "lean_lib Widget", after := "lean_lib Extra\n\nlean_lib Widget"
+    path := "lakefile.lean", before := "lean_lib Widget", after :=
+        "lean_lib Extra\n\nlean_lib Widget"
     expected := #["manifest-incomplete", "Extra"] },
   { name := "late-warning-suppression"
     before := "namespace Widget"
-    after := "set_option warningAsError false\ndef emitsWarning (unused : Nat) := 0\nnamespace Widget"
+    after :=
+        "set_option warningAsError false\ndef emitsWarning (unused : Nat) := 0\nnamespace Widget"
     expected := #["build-failed", "warning"]
     repeatCachedFailure := true },
   { name := "imported-cached-choice"
@@ -181,7 +196,8 @@ private def cases : Array Case := #[
       "theorem importedContract : Regula.ExecutableContract Support.reference " ++
       "(fun f => ∀ n, f n = n) := ⟨fun _ => rfl⟩\n")]
     support := some ("namespace Support\nunsafe def dangerous (n : Nat) := n\n" ++
-      "def target (n : Nat) := n\n@[implemented_by target] def reference (n : Nat) := n\nend Support\n")
+      "def target (n : Nat) := n\n@[implemented_by target] def reference (n : Nat) := n\nend \
+        Support\n")
     path := "support/Support.lean", before := "implemented_by target"
     after := "implemented_by dangerous"
     expected := #["execution-trusted-boundary", "unsafe-computation"] }
@@ -234,7 +250,8 @@ private def addSupport (adopter : FilePath) (source : String) : IO Unit := do
   IO.FS.writeFile (support / "lakefile.toml")
     "name = \"build_lint_support\"\n[[lean_lib]]\nname = \"Support\"\n"
   let path := adopter / "lakefile.lean"
-  IO.FS.writeFile path ((← IO.FS.readFile path) ++ "\nrequire build_lint_support from \"support\"\n")
+  IO.FS.writeFile path
+      ((← IO.FS.readFile path) ++ "\nrequire build_lint_support from \"support\"\n")
   let path := adopter / "lake-manifest.json"
   let value ← readJson path
   let packages : Array Json ← IO.ofExcept <| value.getObjValAs? (Array Json) "packages"
@@ -286,7 +303,8 @@ private def disabledControl (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile path disabled
   let source := adopter / "Widget.lean"
   let original ← IO.FS.readFile source
-  IO.FS.writeFile source "/-! Cached axiom used to qualify disabling and reenabling policy. -/\n/-- A control assumption. -/\naxiom disabledAssumption : True\n"
+  IO.FS.writeFile source "/-! Cached axiom used to qualify disabling and reenabling policy. \
+    -/\n/-- A control assumption. -/\naxiom disabledAssumption : True\n"
   let result ← build adopter
   let mut failures := if result.succeeded && !result.output.contains "build policy linter:" then #[]
     else #[s!"build-lint/disabled: ordinary build did not remain disabled:\n{result.output}"]

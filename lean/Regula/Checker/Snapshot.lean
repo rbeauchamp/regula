@@ -459,7 +459,8 @@ theorem assemble_facts_eq {project : FilePath} {package : String} {root : FilePa
     {configurationCaptures : Array (String × Option (String × ByteArray))}
     {injected observed : Option String × Bool} (h : injected = observed) :
     assemble project package root sourcePaths sourceCaptures configurationCaptures injected
-      = assemble project package root sourcePaths sourceCaptures configurationCaptures observed := by
+      = assemble project package root sourcePaths sourceCaptures configurationCaptures
+          observed := by
   rw [h]
 
 /-- Fresh capture of one dependency. Source and configuration bytes are always
@@ -537,16 +538,19 @@ def inputsUnchanged (inventory : Lake.SurfaceInventory)
       let fresh ← timedPhase "dependency snapshot capture" <| owned.mapM fun (entry, _) =>
         captureDependency current.root entry.package entry.root
           (entry.sources.map fun source => (source.module, source.source)) entry.configurationPaths
-      pure (current.dependencies == inventory.dependencies && current.dependencies.size == before.size &&
+      pure (current.dependencies == inventory.dependencies && current.dependencies.size ==
+          before.size &&
         terminalBeq fresh (owned.map (·.2)))
   unless unchanged do
-    throw <| IO.userError "dependency snapshot changed: Lake inventory or source/configuration state"
+    throw <|
+        IO.userError "dependency snapshot changed: Lake inventory or source/configuration state"
 
 /-- Exact request bytes include configuration presence/absence and actual dependency state.
 Additional imported sources (for example history) are included by the coordinator only
 after matching their own before/after producer binding against current source bytes. -/
 def make (root : FilePath) (configuration : Array (FilePath × Option String))
-    (sources : Array SourceSnapshot) (deps : Array DependencyObservation) : Except String AdmittedSnapshot :=
+    (sources : Array SourceSnapshot) (deps : Array DependencyObservation) :
+        Except String AdmittedSnapshot :=
   admitSnapshot {
     sources
     configuration := ⟨root.toString, (Json.mkObj [

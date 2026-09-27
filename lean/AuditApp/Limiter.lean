@@ -416,7 +416,8 @@ already enforced by `Limiter`, so it needs no duplicate field theorem; with the 
 it bounds every script's end state by the created capacity (`within_capacity`).
 
 # Intent
-- A slot limiter must never hand out more slots than the capacity it was created with. (discharged by `AuditApp.RequiredContracts.within_capacity`)
+- A slot limiter must never hand out more slots than the capacity it was created with.
+  (discharged by `AuditApp.RequiredContracts.within_capacity`)
 - Creation must refuse a zero capacity and start idle.
 - A grant must take exactly one free slot, and must be refused only when none is free.
 - A release must free one slot when any is in use.

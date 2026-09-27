@@ -22,7 +22,8 @@ stages) and `stagesCompleted` (those that completed), and their derivation `comp
 stage of the run completed) and `stagesNotRun` (the stages that did not). Schema 2 omitted the
 frozen configuration and dependency text from the snapshot (`snapshotJson`: a clean
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
-status) and imported-environment module lists (`acceptedJson`, `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
+status) and imported-environment module lists (`acceptedJson`,
+`ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
 def schemaVersion : Nat := 3
 
 /-- Envelope identity of every result file. -/
@@ -254,7 +255,8 @@ def admitGuidance (j : Json) : Except String Unit := do
   unless (runStages mode).contains required do
     throw "stages are not the required stages of the result's mode"
   if mode.isSome then
-    let withDocs := (← (← (← j.getObjVal? "request").getObjVal? "kind").getStr?) == "projectWithDocs"
+    let withDocs := (← (← (← j.getObjVal? "request").getObjVal? "kind").getStr?) ==
+        "projectWithDocs"
     unless withDocs == (required == stagesOf .freshProject ++ documentationStages) do
       throw "stages are not the required stages of the result's request"
   let status ← (← j.getObjVal? "status").getStr?
@@ -274,11 +276,13 @@ def requestJson (kind project subject : String) (claim execution : Option String
 /-- Write the `resultJson` of these arguments as compact JSON and a final newline to `path`,
 creating its parent directories, and print how long encoding and writing took. -/
 def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status : Status)
-    (findings : Array Finding) (expected completed : List Stage) (unresolved : Array String := #[]) :
+    (findings : Array Finding) (expected completed : List Stage)
+    (unresolved : Array String := #[]) :
     IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   let spanStart ← IO.monoMsNow
-  let encoded := Json.compress (resultJson scope mode status findings expected completed unresolved) ++ "\n"
+  let encoded := Json.compress
+      (resultJson scope mode status findings expected completed unresolved) ++ "\n"
   IO.println s!"diagnostic span: ResultProtocol.write encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded
@@ -293,12 +297,15 @@ private def declarationKeyJson (key : RegulaPolicy.DeclarationKey) : Json :=
 
 private def localSubjectJson : RegulaPolicy.LocalJobSubject → Json
   | .scope => Json.mkObj [("kind", .str "scope")]
-  | .module key => Json.mkObj [("kind", .str "module"), ("module", RegistryCodec.nameJson key.name.name)]
-  | .declaration key => Json.mkObj [("kind", .str "declaration"), ("declaration", declarationKeyJson key)]
+  | .module key =>
+      Json.mkObj [("kind", .str "module"), ("module", RegistryCodec.nameJson key.name.name)]
+  | .declaration key =>
+      Json.mkObj [("kind", .str "declaration"), ("declaration", declarationKeyJson key)]
   | .root key => Json.mkObj [("kind", .str "root"), ("root", declarationKeyJson key)]
   | .boundary key => Json.mkObj [("kind", .str "boundary"), ("root", declarationKeyJson key.root),
       ("reached", declarationKeyJson key.reached), ("boundary", .str key.kind.spelling),
-      ("occurrence", toJson key.occurrence), ("replacement", key.replacement.map declarationKeyJson |>.getD .null)]
+      ("occurrence", toJson key.occurrence),
+      ("replacement", key.replacement.map declarationKeyJson |>.getD .null)]
 
 private def subjectJson : RegulaPolicy.JobSubject → Json
   | .scope => Json.mkObj [("kind", .str "scope")]
@@ -306,7 +313,8 @@ private def subjectJson : RegulaPolicy.JobSubject → Json
       ("environment", toJson key.index), ("subject", localSubjectJson subject)]
   | .fence key => Json.mkObj [("kind", .str "fence"), ("document", toJson key.document.uri),
       ("opening", toJson (key.opening.start, key.opening.stop)),
-      ("body", toJson (key.body.start, key.body.stop)), ("closing", toJson (key.closing.start, key.closing.stop)),
+      ("body", toJson (key.body.start, key.body.stop)),
+      ("closing", toJson (key.closing.start, key.closing.stop)),
       ("expectation", toJson (reprStr key.expectation))]
 
 /-- Machine rendering of the report account (an unproved adapter): coverage, the acceptance
@@ -319,7 +327,8 @@ def accountJson (account : Regula.Checker.Account) : Json :=
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
   Json.mkObj [
     ("coverage", toJson a.coverage.spelling),
-    ("checked", Json.mkObj [("theorem", RegistryCodec.nameJson Regula.Checker.Account.acceptanceTheorem),
+    ("checked", Json.mkObj
+        [("theorem", RegistryCodec.nameJson Regula.Checker.Account.acceptanceTheorem),
       ("jobs", toJson a.jobs)]),
     ("contracts", toJson (a.contracts.map fun contract => Json.mkObj [
       ("rule", toJson Regula.RuleId.executableContract.spelling),
@@ -373,14 +382,18 @@ and its file binding. Merely imported modules (`importedModules`, `origins`,
 def environmentJson (environment : RegulaPolicy.EnvironmentCensus) : Json :=
   Json.mkObj [
     ("index", toJson environment.request.key.index),
-    ("modules", toJson (environment.request.modules.map fun key => RegistryCodec.nameJson key.name.name)),
-    ("infrastructureModules", toJson (environment.infrastructureModules.map fun key => RegistryCodec.nameJson key.name.name)),
-    ("admissionModules", toJson (environment.admissionModules.map fun key => RegistryCodec.nameJson key.name.name)),
+    ("modules", toJson
+        (environment.request.modules.map fun key => RegistryCodec.nameJson key.name.name)),
+    ("infrastructureModules", toJson
+        (environment.infrastructureModules.map fun key => RegistryCodec.nameJson key.name.name)),
+    ("admissionModules", toJson
+        (environment.admissionModules.map fun key => RegistryCodec.nameJson key.name.name)),
     ("admissionDeclarations", toJson (environment.admissionDeclarations.map declarationKeyJson)),
     ("declarations", toJson (environment.declarations.map declarationKeyJson)),
     ("roots", toJson (environment.roots.map declarationKeyJson)),
     ("fileSource", environment.fileSource.map (fun binding => Json.mkObj [
-      ("requested", sourceJson binding.requested), ("compiled", sourceJson binding.compiled)]) |>.getD .null)]
+      ("requested", sourceJson binding.requested), ("compiled", sourceJson binding.compiled)])
+          |>.getD .null)]
 
 /-- The rendering is independent of the import closure (kernel-checked by `rfl`). -/
 theorem environmentJson_imports_independent (environment : RegulaPolicy.EnvironmentCensus)
@@ -401,16 +414,23 @@ def acceptedJson {claim : RegulaPolicy.Claim} (accepted : RegulaPolicy.AcceptedR
     ("mode", toJson report.claim.val.mode.spelling),
     ("scope", toJson (reprStr report.claim.val.scope)),
     ("surfaces", toJson (report.claim.val.surfaces.map fun surface => Json.mkObj [
-      ("target", toJson surface.target), ("modules", toJson (surface.modules.map fun n => RegistryCodec.nameJson n.name)),
-      ("profile", toJson surface.profile.spelling), ("execution", toJson surface.execution.spelling)])),
+      ("target", toJson surface.target),
+      ("modules", toJson (surface.modules.map fun n => RegistryCodec.nameJson n.name)),
+      ("profile", toJson surface.profile.spelling),
+      ("execution", toJson surface.execution.spelling)])),
     ("snapshot", snapshotJson snapshot),
     ("modules", toJson (report.census.modules.map fun key => RegistryCodec.nameJson key.name.name)),
     ("environments", toJson (report.census.environments.map environmentJson)),
-    ("graphRoots", toJson (report.census.graphRoots.map fun key => RegistryCodec.nameJson key.name.name)),
+    ("graphRoots", toJson
+        (report.census.graphRoots.map fun key => RegistryCodec.nameJson key.name.name)),
     ("graphCoverage", toJson (report.census.graphCoverage.map fun (key, modules) => Json.mkObj [
-      ("root", RegistryCodec.nameJson key.name.name), ("modules", toJson (modules.map fun (moduleKey : RegulaPolicy.ModuleKey) => RegistryCodec.nameJson moduleKey.name.name))])),
+      ("root", RegistryCodec.nameJson key.name.name),
+      ("modules", toJson
+          (modules.map fun (moduleKey : RegulaPolicy.ModuleKey) =>
+              RegistryCodec.nameJson moduleKey.name.name))])),
     ("jobs", toJson (report.jobs.mapIdx fun slot key => Json.mkObj [
-      ("slot", toJson slot), ("stage", toJson (reprStr key.stage)), ("subject", subjectJson key.subject)])),
+      ("slot", toJson slot), ("stage", toJson (reprStr key.stage)),
+      ("subject", subjectJson key.subject)])),
     ("account", accountJson (Regula.Checker.Account.account accepted))]
 
 /-- The wrapper's composed-publication decision: a composed success is
@@ -595,7 +615,8 @@ def legacyJson (value : Json) (sourceRoot targetRoot : String := "") : Json :=
   | .arr values => .arr (values.map fun v => legacyJson v sourceRoot targetRoot)
   | .obj fields => Json.mkObj <| fields.toList.attach.filterMap fun ⟨(k, v), _⟩ =>
       if ["structuralName", "occurrence", "nativeOrigin", "sourceContent",
-          "census", "admission", "documentation", "histories", "closure", "sourceBindings"].contains k then none
+          "census", "admission", "documentation", "histories", "closure", "sourceBindings"].contains
+              k then none
       else
         let value := if ["name", "module", "root", "replacement", "implementedBy", "unsafeRecBase",
             "elaborator", "kind", "commandElaborator", "commandKind"].contains k then legacyName v

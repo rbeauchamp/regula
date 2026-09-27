@@ -251,7 +251,8 @@ def Environment.validateHistory (r : Environment) : Name × HistoryOutcome → E
       unless path == source.path && before == source.content do
         throw "producer-source: history differs from owned source snapshot"
   | (mod, .unavailable detail) =>
-    unless !detail.isEmpty && r.census.historyRequests.all (fun (root, requested) => requested != mod ||
+    unless !detail.isEmpty && r.census.historyRequests.all
+        (fun (root, requested) => requested != mod ||
         r.execution.any (fun e => e.name == root && !e.unresolved.isEmpty)) do
       throw "producer-history: unavailable history without unresolved execution"
 
@@ -417,7 +418,8 @@ def Environment.HistoryRequestsSound (r : Environment) : Prop :=
   r.histories.map (·.1) = canonicalNames (r.census.historyRequests.map (·.2))
 
 /-- A completed history is located, source-stable, has named edge endpoints and is bound
-to the owned snapshot when its module has one; an unavailable one is explained and leaves every root requested
+to the owned snapshot when its module has one; an unavailable one is explained and leaves every root
+requested
 from its module with unresolved execution evidence. -/
 def Environment.HistoriesSound (r : Environment) : Prop :=
   (∀ mod path before after edges, (mod, .completed path before after edges) ∈ r.histories →
@@ -529,7 +531,8 @@ private theorem mem_of_foldl_insert {l : List (Name × Name)} {s : Std.HashSet (
 
 /-- The executed hash-set membership test decides membership in the required keys. -/
 private theorem mem_of_requiredSet_contains {required : Array (Name × Name)} {k : Name × Name}
-    (h : (required.foldl (fun s k => s.insert k) ({} : Std.HashSet (Name × Name))).contains k = true) :
+    (h : (required.foldl (fun s k => s.insert k) ({} : Std.HashSet (Name × Name))).contains
+        k = true) :
     k ∈ required := by
   rw [← Array.foldl_toList] at h
   rcases mem_of_foldl_insert h with h | h
@@ -570,7 +573,8 @@ theorem historyRequestsSound_of (r : Environment) (h : r.historyRequestsOK = tru
   exact ⟨⟨e, he, hn⟩, hm⟩
 
 
-theorem historiesSound_of (r : Environment) (h : ∀ entry ∈ r.histories, r.validateHistory entry = .ok ()) :
+theorem historiesSound_of (r : Environment)
+    (h : ∀ entry ∈ r.histories, r.validateHistory entry = .ok ()) :
     r.HistoriesSound := by
   constructor
   · intro mod path before after edges hmem
@@ -598,7 +602,8 @@ theorem historiesSound_of (r : Environment) (h : ∀ entry ∈ r.histories, r.va
     obtain ⟨e, he, hn, hu⟩ := (h.2 root mod hreq).resolve_left (by simp)
     exact ⟨e, he, hn, hu⟩
 
-theorem validateRoot_eq_ok (r : Environment) (root : ExecutionRoot) (h : r.validateRoot root = .ok ()) :
+theorem validateRoot_eq_ok (r : Environment) (root : ExecutionRoot)
+    (h : r.validateRoot root = .ok ()) :
     (∀ b ∈ root.boundaries, r.validateReplacementBoundary root b = .ok ()) ∧
     r.attributionOK root = true ∧ boundaryChannelsOK root = true ∧
     ∃ expected, root.closure.currentReplacementEdges.foldlM
@@ -730,13 +735,15 @@ reduction: the soundness theorem is not satisfied by an always-refusing validato
 theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
   let r : Environment := {
     toolchain := "", modules := #[`A], moduleOrigins := #[], declarations := #[], execution := #[]
-    census := { modules := #[`A], declarations := #[], executionRoots := none, historyRequests := #[] }
+    census :=
+        { modules := #[`A], declarations := #[], executionRoots := none, historyRequests := #[] }
     admission := some { modules := #[`A], required := #[], admitted := #[] }
     documentation := some {
       modules := #[(`A, ⟨true, true, []⟩)], materialDeclarations := #[], declarations := #[] }
     sourceBindings := #[{ moduleName := `A, path := "A.lean", content := "" }] }
   refine ⟨r, (validate_eq_ok r).mpr ⟨by decide +kernel, by decide +kernel, rfl,
-    ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩, ⟨_, rfl, by decide +kernel⟩,
+    ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩,
+        ⟨_, rfl, by decide +kernel⟩,
     by decide +kernel, by simp [r], by simp [r]⟩⟩
   change (unless r.sourceEvidenceOK do throw _ : Except AdmissionFailure Unit) = .ok ()
   rw [unless_eq_ok]
@@ -849,10 +856,12 @@ def Outcome.ofExcept : Except AdmissionFailure Environment → Outcome
 
 instance : ToJson Outcome := ⟨fun
   | .reported report => Json.mkObj [("kind", toJson "reported"), ("report", toJson report)]
-  | .admissionFailed failure => Json.mkObj [("kind", toJson "admissionFailed"), ("failure", toJson failure)]⟩
+  | .admissionFailed failure =>
+      Json.mkObj [("kind", toJson "admissionFailed"), ("failure", toJson failure)]⟩
 
 /-- One outcome grammar for every report decoder `ρ`. -/
-def decodeOutcome (ρ : Type) [FromJson ρ] (j : Json) : Except String (Except AdmissionFailure ρ) := do
+def decodeOutcome (ρ : Type) [FromJson ρ] (j : Json) : Except String
+    (Except AdmissionFailure ρ) := do
   match ← j.getObjValAs? String "kind" with
   | "reported" =>
     exactFields j ["kind", "report"]

@@ -29,7 +29,8 @@ def nativeParent? : Name → Option Name
 the extra fresh frontend transcript. This core works over primitive fields so
 a batched harness can apply the identical predicate to raw environment
 constant records before paying any environment load. -/
-def declarationNeedsTranscript (isUnsafe isPartial : Bool) (kind : DeclarationKind) (name : Name) : Bool :=
+def declarationNeedsTranscript (isUnsafe isPartial : Bool) (kind : DeclarationKind)
+    (name : Name) : Bool :=
   isUnsafe || isPartial || (kind == .«axiom» && (nativeParent? name).isSome)
 
 /-- Only declaration kinds that could receive a generated-role exception need
@@ -103,7 +104,8 @@ def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (parent :
     (cmd.addedDeclarations.filter (fun d => nativeParent? d.name == some parent &&
       d.kind == .«axiom» && d.type == a.type)).size == 1) = #[c]
 instance (ts : Array Transcript) (a : Declaration) (p : Name) (c : Command) :
-    Decidable (NativeIntroducingCommand ts a p c) := by unfold NativeIntroducingCommand; infer_instance
+    Decidable (NativeIntroducingCommand ts a p c) := by
+        unfold NativeIntroducingCommand; infer_instance
 
 /-- Literal declaration origin, including the exact built-in dotted-name expansion. -/
 def LiteralDeclaration (c : Command) (r : SyntaxRange) : Prop :=
@@ -120,7 +122,8 @@ instance (c : Command) (r : SyntaxRange) : Decidable (LiteralDeclaration c r) :=
 def PinnedEvaluator (e : Evaluator) : Prop :=
   e.pinned = true ∧ e.elaborator ≠ `Lean.Elab.Tactic.evalRunTac ∧
     e.elaborator ≠ `Lean.Elab.Term.elabRunElab
-instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by unfold PinnedEvaluator; infer_instance
+instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by
+    unfold PinnedEvaluator; infer_instance
 
 /-- Nested binders require exact selection attribution as well as source containment. -/
 def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop :=
@@ -130,7 +133,8 @@ def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop
       ∃ b ∈ c.bindings, b.name = base.name ∧
         b.range = some ⟨ranges.selectionRange.start, ranges.selectionRange.end⟩) ∧
   ∀ e ∈ c.evaluators, PinnedEvaluator e
-instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable (RecursiveCommand c b r) := by
+instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
+    (RecursiveCommand c b r) := by
   unfold RecursiveCommand; infer_instance
 
 /-- Native teaching permits exactly the pinned complete non-term evaluator sequence. -/
@@ -146,14 +150,16 @@ def NativeAxiomShape (a : Declaration) : Prop :=
   a.isUnsafe = false ∧ a.isPartial = false ∧ a.implementedBy = none ∧ a.extern = false ∧
   a.nativeBoolShape = true ∧ a.nativeReplay = some true ∧ a.name ∈ a.axioms ∧
   ∀ n ∈ a.axioms, n = a.name ∨ Permitted .standardLogical n
-instance (a : Declaration) : Decidable (NativeAxiomShape a) := by unfold NativeAxiomShape; infer_instance
+instance (a : Declaration) : Decidable (NativeAxiomShape a) := by
+    unfold NativeAxiomShape; infer_instance
 
 /-- Exact supported parent and recorded use shape, with no safety/runtime escape. -/
 def NativeParentShape (a p : Declaration) : Prop :=
   p.isProp = true ∧ p.kind ∈ #[DeclarationKind.theorem, .opaque, .definition] ∧
   p.module = a.module ∧ a.name ∈ p.axioms ∧ a.nativeUseParents = #[p.name] ∧
   p.isUnsafe = false ∧ p.isPartial = false ∧ p.implementedBy = none ∧ p.extern = false
-instance (a p : Declaration) : Decidable (NativeParentShape a p) := by unfold NativeParentShape; infer_instance
+instance (a p : Declaration) : Decidable (NativeParentShape a p) := by
+    unfold NativeParentShape; infer_instance
 
 /-- All native teaching requirements jointly hold, including unique use and introduction.
 Names locate a candidate; the remaining relations supply the required data-level evidence. -/
@@ -178,7 +184,8 @@ def RecursiveHelperShape (h : Declaration) : Prop :=
   h.unsafeRecValueOrigin.isSome = true ∧ h.unsafeRecValueExact = some true ∧
   h.unsafeRecValueDefeq = some true ∧ h.unsafeRecEquationExact = some true ∧
   h.unsafeRecEquationDefeq = some true
-instance (h : Declaration) : Decidable (RecursiveHelperShape h) := by unfold RecursiveHelperShape; infer_instance
+instance (h : Declaration) : Decidable (RecursiveHelperShape h) := by
+    unfold RecursiveHelperShape; infer_instance
 
 /-- Safe recursive base, exact type/universes, and bounded helper/equation dependencies. -/
 def RecursiveBaseShape (h b : Declaration) : Prop :=
@@ -187,13 +194,15 @@ def RecursiveBaseShape (h b : Declaration) : Prop :=
   h.type = b.type ∧ h.levelParams = b.levelParams ∧ (∀ n ∈ h.axioms, n ∈ b.axioms) ∧
   ∃ eqAxioms ∈ h.unsafeRecEquationAxioms,
     ∀ n ∈ eqAxioms, Permitted .standardLogical n ∨ n ∈ b.axioms
-instance (h b : Declaration) : Decidable (RecursiveBaseShape h b) := by unfold RecursiveBaseShape; infer_instance
+instance (h b : Declaration) : Decidable (RecursiveBaseShape h b) := by
+    unfold RecursiveBaseShape; infer_instance
 
 /-- Mutual-group order is preserved, with exact helper transformation and self-reference. -/
 def RecursiveGroup (h b : Declaration) : Prop :=
   b.all ≠ #[] ∧ h.all = b.all.map (fun n => Name.str n "_unsafe_rec") ∧
   h.name ∈ b.all.map (fun n => Name.str n "_unsafe_rec") ∧ h.name ∈ h.valueConstants
-instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by unfold RecursiveGroup; infer_instance
+instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by
+    unfold RecursiveGroup; infer_instance
 
 /-- Every recursive-helper guard is required for one base and the same unique command. -/
 def RecursiveHelperOK (ds : Array Declaration) (ts : Array Transcript) (h : Declaration) : Prop :=

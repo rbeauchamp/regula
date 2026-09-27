@@ -102,7 +102,8 @@ def title : Clause → String
 /-- The chapter's route below `standard/`, which is also its Verso part's `file`. Exhaustive, so
 a new clause cannot fall into another chapter by default. -/
 def chapter : Clause → String
-  | .inlineDocumentation | .faithfulExplanation | .moduleDocumentation => "5-documentation-standards"
+  | .inlineDocumentation | .faithfulExplanation | .moduleDocumentation =>
+                                                   "5-documentation-standards"
   | .linterDiscipline | .importDiscipline | .communityConventions => "6-code-organization"
   | .elaborationEnvironment | .lakeSurfaces | .cleanElaboration | .declarationInventory
   | .proofCompleteness | .computationMechanisms | .documentationChecks

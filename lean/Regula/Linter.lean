@@ -26,7 +26,8 @@ default), `kernel-only`, `choice-free` or `standard-logical`. It configures only
 feedback, never a project claim. -/
 register_option regula.localFoundation : String := {
   defValue := "classification-only"
-  descr := "Local feedback request: classification-only, kernel-only, choice-free or standard-logical." }
+  descr :=
+      "Local feedback request: classification-only, kernel-only, choice-free or standard-logical." }
 
 /-- Whether import-time options carry `auditBuildOption` set to true: typed by Lake's module
 setup and the audit's in-process frontend, or the unparsed string a `-D` argument leaves. -/
@@ -67,7 +68,8 @@ without fabricating a declaration or a source span. -/
 private def emit (finding : Finding) (host? : Option Syntax := none) : CommandElabM Unit := do
   let ⟨id, diagnostic⟩ := finding
   let data := ((MessageData.tagged Lean.Linter.linterMessageTag
-    (toMessageData diagnostic.text)).tagWithErrorName (Name.str `Regula id.spelling)).composePreservingKind
+    (toMessageData diagnostic.text)).tagWithErrorName
+        (Name.str `Regula id.spelling)).composePreservingKind
     (helpWidget id)
   let severity : MessageSeverity := if warningAsError.get (← getOptions) then .error else .warning
   match diagnostic.location with
@@ -116,7 +118,8 @@ initialize addLinter {
       let result ← IO.ofExcept <| Rules.declarations ds source request
       for finding in result.findings do emit finding
       if !result.pending.isEmpty then
-        unavailable s!"fresh generated-role evidence remains required for {result.pending}; run `lake lint` for the project check"
+        unavailable s!"fresh generated-role evidence remains required for {result.pending}; run \
+          `lake lint` for the project check"
     catch ex =>
       if ex.isInterrupt then throw ex
       unavailable s!"local declaration analysis unavailable: {← ex.toMessageData.toString}" }
@@ -145,10 +148,12 @@ initialize addModuleLinter {
       let ds ← Collect.currentModule
       let source : SourceSnapshot := ⟨(← read).fileName, (← read).fileMap.source⟩
       for decl in ds do
-        if let some finding ← Documentation.declarationFinding env decl (some source) .editorSnapshot then
+        if let some finding ← Documentation.declarationFinding env decl
+            (some source) .editorSnapshot then
           emit finding
     catch ex =>
       if ex.isInterrupt then throw ex
-      unavailable s!"completed-module documentation analysis unavailable: {← ex.toMessageData.toString}" }
+      unavailable
+          s!"completed-module documentation analysis unavailable: {← ex.toMessageData.toString}" }
 
 end Regula.Linter

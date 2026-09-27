@@ -48,13 +48,15 @@ theorem observedSources_congr (a b : Json) (bound : Regula.Website.ExampleBindin
   simp only [observedSources, h "scope" (by decide) (by decide),
     h "sourceAccount" (by decide) (by decide)]
 
-theorem sourceAccount_congr (a b : Json) (bound : Regula.Website.ExampleBinding) (displayed : String)
+theorem sourceAccount_congr (a b : Json) (bound : Regula.Website.ExampleBinding)
+    (displayed : String)
     (h : ResultRel a b) : sourceAccount a bound displayed = sourceAccount b bound displayed := by
   simp only [sourceAccount, observedSources_congr a b bound h]
 
 theorem effectiveAccount_congr (a b : Json) (admitted : Regula.Website.ExampleRequest)
     (h : ResultRel a b) : effectiveAccount a admitted = effectiveAccount b admitted := by
-  simp only [effectiveAccount, h "effective" (by decide) (by decide), h "scope" (by decide) (by decide)]
+  simp only [effectiveAccount, h "effective" (by decide) (by decide), h "scope" (by decide)
+      (by decide)]
 
 theorem requestAccount_congr (a b : Json) (bound : Regula.Website.ExampleBinding)
     (h : ResultRel a b) : requestAccount a bound = requestAccount b bound := by
@@ -89,7 +91,8 @@ def ObjectWF : Json → Prop
   | .obj t => t.WF
   | _ => False
 
-theorem record_wf (fields : List (String × Json)) (result : Json) : ObjectWF (record fields result) :=
+theorem record_wf (fields : List (String × Json)) (result : Json) : ObjectWF
+    (record fields result) :=
   Std.TreeMap.Raw.WF.insert Std.TreeMap.Raw.WF.ofList
 
 theorem field_set (j : Json) (h : ObjectWF j) (key : String) (value : Json) (query : String) :
@@ -97,7 +100,10 @@ theorem field_set (j : Json) (h : ObjectWF j) (key : String) (value : Json) (que
   cases j <;> try contradiction
   rename_i t
   simp only [field, Json.setObjVal!, Json.getObjVal?]
-  change (match (t.insert key value)[query]? with | some v => Except.ok v | none => Except.error s!"property not found: {query}") = _
+  change
+      (match (t.insert key value)[query]? with | some v => Except.ok v | none =>
+                                                                          Except.error s!"property \
+                                                                            not found: {query}") = _
   rw [Std.TreeMap.Raw.getElem?_insert h]
   by_cases heq : key = query
   · subst query; simp
@@ -110,15 +116,18 @@ theorem wf_set (j : Json) (h : ObjectWF j) (key : String) (value : Json) :
 
 theorem field_record (fields : List (String × Json)) (result : Json) :
     field (record fields result) "result" = .ok result := by
-  exact (field_set (Json.mkObj fields) Std.TreeMap.Raw.WF.ofList "result" result "result").trans (ite_eq_left rfl)
+  exact (field_set (Json.mkObj fields) Std.TreeMap.Raw.WF.ofList "result" result "result").trans
+      (ite_eq_left rfl)
 
-theorem record_rel (fields : List (String × Json)) (a b : Json) : RecordRel (record fields a) (record fields b) := by
+theorem record_rel (fields : List (String × Json)) (a b : Json) : RecordRel (record fields a)
+    (record fields b) := by
   intro key hkey
   simp only [record, field_set (Json.mkObj fields) Std.TreeMap.Raw.WF.ofList]
   simp [Ne.symm hkey]
 
 theorem recordRel_set (a b : Json) (ha : ObjectWF a) (hb : ObjectWF b) (h : RecordRel a b)
-    (key : String) (value : Json) : RecordRel (a.setObjVal! key value) (b.setObjVal! key value) := by
+    (key : String) (value : Json) : RecordRel (a.setObjVal! key value)
+    (b.setObjVal! key value) := by
   intro query hquery
   simp only [field_set a ha, field_set b hb, h query hquery]
 
@@ -183,7 +192,8 @@ theorem qualify_record_checkerSources (fields : List (String × Json))
 
 theorem map_insertMany (f : String → Json → Json) (tree : Std.TreeMap.Raw String Json compare)
     (fields : List (String × Json)) :
-    (tree.insertMany fields).map f = (tree.map f).insertMany (fields.map fun p => (p.1, f p.1 p.2)) := by
+    (tree.insertMany fields).map f = (tree.map f).insertMany
+    (fields.map fun p => (p.1, f p.1 p.2)) := by
   induction fields generalizing tree with
   | nil => rfl
   | cons head tail ih =>

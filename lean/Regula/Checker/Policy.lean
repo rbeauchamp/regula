@@ -20,10 +20,12 @@ open RegulaPolicy (FoundationClass)
 (`RegulaPolicy.ExecutionClaim`). -/
 abbrev ExecutionClaim := RegulaPolicy.ExecutionClaim
 /-- The execution claim `s` spells, if any (`RegulaPolicy.ExecutionClaim.parse?`). -/
-abbrev ExecutionClaim.parse? (s : String) : Option ExecutionClaim := RegulaPolicy.ExecutionClaim.parse? s
+abbrev ExecutionClaim.parse? (s : String) : Option ExecutionClaim :=
+    RegulaPolicy.ExecutionClaim.parse? s
 /-- The text of an execution claim, `report` or `checked`
 (`RegulaPolicy.ExecutionClaim.spelling`). -/
-abbrev ExecutionClaim.toString (x : ExecutionClaim) : String := RegulaPolicy.ExecutionClaim.spelling x
+abbrev ExecutionClaim.toString (x : ExecutionClaim) : String :=
+    RegulaPolicy.ExecutionClaim.spelling x
 
 /-- Admit the scope through `checked_scope` with the frontend's coordinate check, itself
 `checked_coordinates.run`. `ScopeContract`, instantiated at `Frontend.validateCoordinates`,

@@ -23,7 +23,8 @@ def authorizedNativeAxioms (ds : Array Declaration) (ts : Array Transcript := #[
   (ds.filter (fun a => decide (NativeTeachingOK ds ts a))).map (·.name)
 
 /-- Execute the finite independent recursive-helper relation; no caller whitelist. -/
-def authorizedUnsafeRecHelpers (ds : Array Declaration) (ts : Array Transcript := #[]) : Array Name :=
+def authorizedUnsafeRecHelpers (ds : Array Declaration) (ts : Array Transcript := #[]) :
+    Array Name :=
   (ds.filter (fun h => decide (RecursiveHelperOK ds ts h))).map (·.name)
 
 /-- Authorization is equivalent to existence of the complete native relation at this name. -/
@@ -71,7 +72,8 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
   else if decl.executableContract.any (·.failure.isSome) then some .executableContract
   else match claim with
     | .conforming profile =>
-        if decl.axioms.all fun name => compilerAxiom native name || ConformingProfile.permits profile name
+        if decl.axioms.all fun name => compilerAxiom native name ||
+                                        ConformingProfile.permits profile name
         then none else some .profileExceeded
     | .classification | .teaching => none
 
@@ -170,7 +172,8 @@ private theorem conditional_none {α : Type u} (p : Prop) [Decidable p] (a b : O
   by_cases h : p <;> simp [h]
 
 /-- Exact success relation for the executable declaration decision, for every observation,
-request and supplied role set. `policyFor` additionally requires inventory-bound Roles. Raw computational helpers
+request and supplied role set. `policyFor` additionally requires inventory-bound Roles. Raw
+computational helpers
 do not establish that receipt or any whole-project acceptance claim. -/
 theorem declarationFailure_none_iff (d : Declaration) (r : InspectionRequest)
     (native helpers : Array Name) :
@@ -227,7 +230,8 @@ theorem labelOf_logical (i : Inventory) (roles : Roles i) (a : Array Name)
     intro h
     have := ha _ h
     simp [Permitted] at this
-  have known : (a.any fun n => !standardLogicalAxiom n && !compilerAxiom roles.native n) = false := by
+  have known : (a.any fun n => !standardLogicalAxiom n && !compilerAxiom roles.native n) =
+      false := by
     rw [Array.any_eq_false']
     intro n hn
     have hp := (permits_iff .standardLogical n).mpr (ha n hn)
@@ -243,7 +247,9 @@ theorem labelOf_logical (i : Inventory) (roles : Roles i) (a : Array Name)
   split
   · rfl
   · simp only [Array.all_eq_true', permits_iff]
-    change (if ContainsFoundation .choiceFree a then FoundationClass.choiceFree else .standardLogical) = _
+    change
+        (if ContainsFoundation .choiceFree a then FoundationClass.choiceFree else
+                                                   .standardLogical) = _
     split <;> rfl
 
 /-- Foundation output is both the least containing profile and bound to the supplied record. -/
@@ -323,14 +329,18 @@ theorem labelOf_iff (axioms native : Array Name) (label : FoundationClass) :
 
 /-- Public foundation output retains exact classification and inventory membership for all
 six outcomes, not only the three permitted logical profiles. -/
-theorem foundationFor_iff (i : Inventory) (roles : Roles i) (d : Declaration) (label : FoundationClass) :
-    foundationFor i roles d = .ok label ↔ d ∈ i.declarations ∧ ClassificationOK d.axioms roles.native label := by
+theorem foundationFor_iff (i : Inventory) (roles : Roles i) (d : Declaration)
+    (label : FoundationClass) :
+    foundationFor i roles d = .ok label ↔ d ∈ i.declarations ∧
+        ClassificationOK d.axioms roles.native label := by
   by_cases hd : d ∈ i.declarations <;> simp [foundationFor, hd, labelOf_iff]
 
 /-- The actual declaration diagnostic is the first failed independent requirement. All
 success and refusal outputs, including their precedence, follow this same relation. -/
-theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
-    OrderedDecision (declarationRequirements d r native helpers) (declarationFailure d r native helpers) := by
+theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest)
+    (native helpers : Array Name) :
+    OrderedDecision (declarationRequirements d r native helpers)
+        (declarationFailure d r native helpers) := by
   by_cases hd : d.kind = .«axiom» <;> cases r <;>
     simp only [declarationRequirements, hd, ↓reduceIte, reduceCtorEq, declarationFailure,
       BEq.rfl, Array.contains_eq_mem, decide_eq_true_eq, beq_iff_eq, orderedDecision_cons,
@@ -347,7 +357,8 @@ theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest) (na
     (repeat' split) <;> (try simp_all) <;> grind
 
 /-- Exact outcome equivalence follows from existence and uniqueness of the first failure. -/
-theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest) (native helpers : Array Name)
+theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest)
+    (native helpers : Array Name)
     (result : Option DeclarationFailure) :
     declarationFailure d r native helpers = result ↔
       OrderedDecision (declarationRequirements d r native helpers) result := by
@@ -356,12 +367,14 @@ theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest) (native
   · intro h; exact (declarationFailure_ordered d r native helpers).unique h
 
 /-- Invalid inventory membership precedes all declaration-policy diagnostics. -/
-theorem policyFor_ordered (i : Inventory) (roles : Roles i) (d : Declaration) (r : InspectionRequest) :
+theorem policyFor_ordered (i : Inventory) (roles : Roles i) (d : Declaration)
+    (r : InspectionRequest) :
     (d ∉ i.declarations ∧ policyFor i roles d r = some .invalidInventory) ∨
     (d ∈ i.declarations ∧ OrderedDecision (declarationRequirements d r roles.native roles.helpers)
       (policyFor i roles d r)) := by
   by_cases hd : d ∈ i.declarations
-  · exact Or.inr ⟨hd, by simpa [policyFor, hd] using declarationFailure_ordered d r roles.native roles.helpers⟩
+  · exact Or.inr
+      ⟨hd, by simpa [policyFor, hd] using declarationFailure_ordered d r roles.native roles.helpers⟩
   · exact Or.inl ⟨hd, by simp [policyFor, hd]⟩
 
 end RegulaPolicy

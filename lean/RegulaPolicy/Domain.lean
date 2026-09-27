@@ -284,7 +284,8 @@ def ConformingProfile.parse? : String → Option ConformingProfile
 instance : ToString ConformingProfile := ⟨ConformingProfile.spelling⟩
 
 /-- Every value survives its actual spelling parser. -/
-@[simp] theorem ConformingProfile.roundtrip (x : ConformingProfile) : parse? x.spelling = some x := by
+@[simp] theorem ConformingProfile.roundtrip (x : ConformingProfile) : parse? x.spelling =
+    some x := by
   cases x <;> rfl
 
 /-- The parser accepts only the canonical spelling of its result. -/
@@ -508,7 +509,8 @@ instance (edges : Array (Lean.Name × Lean.Name)) : Decidable (canonicalEdges ed
   exact decidable_of_iff ((CanonicalSet.normalize edges.toList).toList = edges.toList)
     (by simp only [canonicalEdges, ← Array.toList_inj])
 
-@[simp] theorem mem_canonicalEdges (edges : Array (Lean.Name × Lean.Name)) (e : Lean.Name × Lean.Name) :
+@[simp] theorem mem_canonicalEdges (edges : Array (Lean.Name × Lean.Name))
+    (e : Lean.Name × Lean.Name) :
     e ∈ canonicalEdges edges ↔ e ∈ edges := by
   let : Ord (Lean.Name × Lean.Name) := lexOrd
   simp [canonicalEdges, Std.ExtTreeSet.mem_toList]
@@ -560,7 +562,8 @@ structure ExecutableContract where
 structure Declaration where
   /-- The constant's name. -/
   name : Lean.Name
-  /-- Structural original Name for new diagnostic transport; absent legacy records are unsupported. -/
+  /-- Structural original Name for new diagnostic transport; absent legacy records are
+  unsupported. -/
   «module» : Lean.Name
   /-- The kind of its `ConstantInfo`. -/
   kind : DeclarationKind
@@ -681,8 +684,10 @@ def TrustedEvidence : BoundaryKind → Type
   | .nativeRuntime => NativeOrigin
   | _ => Unit
 
-instance (k : BoundaryKind) : Repr (TrustedEvidence k) := by cases k <;> dsimp [TrustedEvidence] <;> infer_instance
-instance (k : BoundaryKind) : DecidableEq (TrustedEvidence k) := by cases k <;> dsimp [TrustedEvidence] <;> infer_instance
+instance (k : BoundaryKind) : Repr (TrustedEvidence k) := by cases k <;> dsimp
+    [TrustedEvidence] <;> infer_instance
+instance (k : BoundaryKind) : DecidableEq (TrustedEvidence k) := by cases k <;> dsimp
+    [TrustedEvidence] <;> infer_instance
 
 /-- Invalid combinations such as checked external code are unrepresentable. -/
 inductive BoundaryEvidence (kind : BoundaryKind) where
@@ -706,7 +711,8 @@ def BoundaryEvidence.detail {k : BoundaryKind} : BoundaryEvidence k → Option S
   | .trusted s _ | .unresolved s => s
 
 /-- The admitted origin of a trusted native-runtime boundary; `none` for any other evidence. -/
-def BoundaryEvidence.nativeOrigin? {k : BoundaryKind} (e : BoundaryEvidence k) : Option NativeOrigin :=
+def BoundaryEvidence.nativeOrigin? {k : BoundaryKind} (e : BoundaryEvidence k) :
+    Option NativeOrigin :=
   match k, e with
   | .nativeRuntime, .trusted _ origin => some origin
   | _, _ => none
@@ -715,7 +721,8 @@ def BoundaryEvidence.nativeOrigin? {k : BoundaryKind} (e : BoundaryEvidence k) :
 Operational/wire callers requiring field preservation must use `admitBoundaryEvidence`.
 A candidate is an indexed value, not a receipt for the supplied raw fields. -/
 def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option NativeOrigin) : Except String (BoundaryEvidence kind) :=
+    (detail : Option String) (origin : Option NativeOrigin) : Except String
+    (BoundaryEvidence kind) :=
   match state with
   | .unresolved => .ok (.unresolved detail)
   | .trusted => match kind with
@@ -732,14 +739,16 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
 
 /-- Admission retains every supplied evidence field or refuses the observation. -/
 def admitBoundaryEvidence (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option NativeOrigin) : Except String (BoundaryEvidence kind) :=
+    (detail : Option String) (origin : Option NativeOrigin) : Except String
+    (BoundaryEvidence kind) :=
   match boundaryEvidenceCandidate kind state detail origin with
   | .error error => .error error
   | .ok e =>
     if e.correspondence = state ∧ e.detail = detail ∧ e.nativeOrigin? = origin then .ok e
     else .error "boundary evidence contains incompatible fields"
 
-private theorem boundaryEvidenceCandidate_roundtrip {kind : BoundaryKind} (e : BoundaryEvidence kind) :
+private theorem boundaryEvidenceCandidate_roundtrip {kind : BoundaryKind}
+    (e : BoundaryEvidence kind) :
     boundaryEvidenceCandidate kind e.correspondence e.detail e.nativeOrigin? = .ok e := by
   cases e with
   | checked evidence => cases evidence <;> rfl
@@ -775,7 +784,8 @@ theorem nativeOrigin_roundtrip (o : NativeOrigin) :
     simp [admitNativeOrigin, hm, hn]
 
 /-- One boundary in the conservative compiler/source closure of an
-executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`, `native-runtime`,
+executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
+`native-runtime`,
 `external`, `unsafe-computation`, `partial-computation`, `opaque-computation`,
 or `compiler-trusted-proof`; `correspondence` is `checked`, `trusted`, or
 `unresolved`. -/
@@ -801,7 +811,8 @@ structure ExecutionBoundary where
 /-- Execution coverage for one owned executable root: every boundary its
 conservative compiler/source closure reaches, plus every dependency path the
 analysis could not resolve. -/
-def ExecutionBoundary.correspondence (b : ExecutionBoundary) : Correspondence := b.account.correspondence
+def ExecutionBoundary.correspondence (b : ExecutionBoundary) : Correspondence :=
+    b.account.correspondence
 
 /-- The detail text of the boundary's evidence. -/
 def ExecutionBoundary.evidence (b : ExecutionBoundary) : Option String := b.account.detail

@@ -230,7 +230,8 @@ theorem render_length (l : List Entry) : (render l).length = l.length := by
 /-- Marking after a prefix `a` continues from the rules `a` introduced: the mark of a finding
 depends exactly on whether `seen` or an earlier finding has its rule. -/
 theorem tagFirst_append (seen : List RuleId) (a b : List Entry) :
-    tagFirst seen (a ++ b) = tagFirst seen a ++ tagFirst ((a.map Entry.rule).reverse ++ seen) b := by
+    tagFirst seen (a ++ b) = tagFirst seen a ++ tagFirst
+        ((a.map Entry.rule).reverse ++ seen) b := by
   induction a generalizing seen with
   | nil => rfl
   | cons e es ih => simp [tagFirst, ih]

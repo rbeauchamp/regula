@@ -44,7 +44,8 @@ package's search path is removed so the two workspaces never mix. The standard's
 blocks import root-package modules that Lake does not trace for the standard's modules (their
 `needs` only orders the build), so the standard's build outputs are removed first and every
 example is elaborated again. Repository links of the standard name `revision`. -/
-def render (root : FilePath) (destination : FilePath) (revision : String) : IO (List (String × ByteArray)) := do
+def render (root : FilePath) (destination : FilePath) (revision : String) : IO
+    (List (String × ByteArray)) := do
   let website := root / "website"
   if ← destination.pathExists then IO.FS.removeDirAll destination
   for dir in [website / ".lake/build/lib/lean", website / ".lake/build/ir"] do
@@ -60,15 +61,19 @@ def render (root : FilePath) (destination : FilePath) (revision : String) : IO (
   snapshotTree (destination / "html-multi")
 
 private def page (title body : String) : String :=
-  "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" ++
+  "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" \
+    content=\"width=device-width, initial-scale=1\">" ++
   "<title>" ++ escape title ++ "</title><style>" ++ plainPageCss ++ "</style></head><body><main>" ++
   body ++ "</main></body></html>\n"
 
 /-- The project-site root: a link (and immediate refresh) to the development edition. -/
 def landing : String :=
-  "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" ++
-  "<title>Regula rule reference</title><meta http-equiv=\"refresh\" content=\"0; url=dev/\"><link rel=\"canonical\" href=\"" ++
-  siteBase ++ "dev/\"></head><body><main><h1>Regula rule reference</h1><p><a href=\"dev/\">Open the rule reference</a>.</p></main></body></html>\n"
+  "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" \
+    content=\"width=device-width, initial-scale=1\">" ++
+  "<title>Regula rule reference</title><meta http-equiv=\"refresh\" content=\"0; url=dev/\"><link \
+    rel=\"canonical\" href=\"" ++
+  siteBase ++ "dev/\"></head><body><main><h1>Regula rule reference</h1><p><a href=\"dev/\">Open \
+    the rule reference</a>.</p></main></body></html>\n"
 
 /-- The page GitHub Pages serves for every unpublished path. Links are root-relative because
 it is served at arbitrary paths. -/
@@ -76,23 +81,32 @@ def notFound (ident : Identity) : String :=
   page "Page not available — Regula" (
     "<h1>This page is not published</h1>" ++
     "<p>The address does not name a published page of the Regula rule reference.</p>" ++
-    "<p>Released-version pages (<code>" ++ basePath ++ "v/…</code>) are not published because no package has been released, and revision snapshots (<code>" ++ basePath ++
-    "rev/…</code>) exist only for commits whose site was published. An unavailable page is never redirected to the latest rules, whose meaning may differ from the version you linked.</p>" ++
-    "<p>The explanations and checked examples of any revision are in its source on GitHub: <code>" ++ escape repository ++
-    "/tree/&lt;commit&gt;/examples/rules/&lt;ID&gt;/</code> and <code>" ++ escape repository ++ "/blob/&lt;commit&gt;/lean/RegulaCore/Guide.lean</code>.</p>" ++
-    "<p><a href=\"" ++ basePath ++ "dev/rules/\">Current development rule index</a>, built from commit <a href=\"" ++ escape (treeUrl ident) ++
+    "<p>Released-version pages (<code>" ++ basePath ++ "v/…</code>) are not published because no \
+      package has been released, and revision snapshots (<code>" ++ basePath ++
+    "rev/…</code>) exist only for commits whose site was published. An unavailable page is never \
+      redirected to the latest rules, whose meaning may differ from the version you linked.</p>" ++
+    "<p>The explanations and checked examples of any revision are in its source on GitHub: \
+      <code>" ++ escape repository ++
+    "/tree/&lt;commit&gt;/examples/rules/&lt;ID&gt;/</code> and <code>" ++ escape repository ++
+        "/blob/&lt;commit&gt;/lean/RegulaCore/Guide.lean</code>.</p>" ++
+    "<p><a href=\"" ++ basePath ++
+        "dev/rules/\">Current development rule index</a>, built from commit <a href=\"" ++ escape
+            (treeUrl ident) ++
     "\"><code>" ++ escape (shortRevision ident.revision) ++ "</code></a>.</p>")
 
 private def shardField (j : Json) (k : String) : Json := (j.getObjVal? k).toOption.getD .null
 
 /-- The identity of one build. -/
 def identityFields (g : Generated) : List (String × Json) := [
-    ("schemaVersion", toJson (1 : Nat)), ("site", .str siteBase), ("revision", .str g.ident.revision.val),
+    ("schemaVersion", toJson (1 : Nat)), ("site", .str siteBase),
+    ("revision", .str g.ident.revision.val),
     ("dirty", .bool g.ident.dirty), ("toolchain", .str g.ident.toolchain),
-    ("producerVersion", .str g.ident.producerVersion), ("versoRevision", .str g.ident.versoRevision),
+    ("producerVersion", .str g.ident.producerVersion),
+    ("versoRevision", .str g.ident.versoRevision),
     ("rules", toJson (g.summaries.map fun s => Json.mkObj [
       ("id", .str s.rule.spelling), ("route", .str s.rule.route), ("helpUrl", .str (devUrl s.rule)),
-      ("example", .str s.kind), ("violationStatus", .str s.violationStatus), ("fixedStatus", .str s.fixedStatus),
+      ("example", .str s.kind), ("violationStatus", .str s.violationStatus),
+      ("fixedStatus", .str s.fixedStatus),
       ("emitted", toJson (s.emitted.map RuleId.spelling)), ("corpusShard", .str s.shard)])),
     ("evidence", toJson (g.shards.map fun s => Json.mkObj [
       ("shard", shardField s "shard"), ("attempt", shardField s "attempt"),
@@ -106,15 +120,18 @@ def currentSnapshot (g : Generated) : Option Commit :=
   if g.ident.dirty then none else some g.ident.revision
 
 /-- The machine-readable identity of an artifact: the build's identity, its editions and the
-archived snapshots it retains. The deployment check compares the live copy with these exact bytes. -/
+archived snapshots it retains. The deployment check compares the live copy with these exact
+bytes. -/
 def buildJson (g : Generated) : Json :=
   Json.mkObj (identityFields g ++ [
-    ("editions", toJson (["dev/"] ++ (currentSnapshot g).toList.map (fun c => Edition.root (.rev c)))),
+    ("editions", toJson
+        (["dev/"] ++ (currentSnapshot g).toList.map (fun c => Edition.root (.rev c)))),
     ("archived", toJson (g.archived.map (·.val)))])
 
 /-- Write the artifact tree: the rendered edition as `dev/`, every archived snapshot copied
 verbatim from the archive, and the current clean build's snapshot unless it is archived. -/
-def assemble (out : FilePath) (g : Generated) (edition : List (String × ByteArray)) (archive : FilePath) : IO Unit := do
+def assemble (out : FilePath) (g : Generated) (edition : List (String × ByteArray))
+    (archive : FilePath) : IO Unit := do
   if ← out.pathExists then IO.FS.removeDirAll out
   IO.FS.createDirAll out
   writeTree (out / "dev") edition
@@ -137,7 +154,9 @@ private def utf8 (path : String) (bytes : ByteArray) : IO String :=
 def checkArtifact (root out : FilePath) (g : Generated) (archive : FilePath) : IO Unit := do
   let files ← snapshotTree out
   let size := files.foldl (fun n f => n + f.2.size) 0
-  requireChecks [⟨s!"artifact size {size} bytes is within the budget of {artifactBudget} bytes", size ≤ artifactBudget⟩]
+  requireChecks
+      [⟨s!"artifact size {size} bytes is within the budget of {artifactBudget} bytes", size ≤
+          artifactBudget⟩]
   let revisions := artifactRevisions g.archived (currentSnapshot g)
   let revisionSet : Std.HashSet String := revisions.foldl (fun s c => s.insert c.val) {}
   let snapshotOf (p : String) : Option (String × String) := match p.splitOn "/" with
@@ -146,10 +165,14 @@ def checkArtifact (root out : FilePath) (g : Generated) (archive : FilePath) : I
   let allowed (p : String) := p == "index.html" || p == "404.html" || p == "build.json" ||
     p.startsWith "dev/" || (snapshotOf p).any (revisionSet.contains ·.1)
   let unexpected := files.filter (fun f => !allowed f.1) |>.map (·.1)
-  requireChecks [⟨s!"artifact has only the published layout and the snapshots {revisions.map (·.val)}; unexpected: {unexpected.take 5}", unexpected.isEmpty⟩]
+  requireChecks
+      [⟨s!"artifact has only the published layout and the snapshots {revisions.map (·.val)}; \
+        unexpected: {unexpected.take 5}", unexpected.isEmpty⟩]
   -- The Pages upload drops hidden files, so the checked tree must not contain any.
   let hidden := files.filter (fun f => (f.1.splitOn "/").any (·.startsWith ".")) |>.map (·.1)
-  requireChecks [⟨s!"artifact has no hidden files (the Pages upload would drop them): {hidden.take 5}", hidden.isEmpty⟩]
+  requireChecks
+      [⟨s!"artifact has no hidden files (the Pages upload would drop them): {hidden.take 5}",
+          hidden.isEmpty⟩]
   let dev := files.filterMap fun (p, b) => (p.dropPrefix? "dev/").map fun r => (r.toString, b)
   let mut snapshots : Std.HashMap String (Array (String × ByteArray)) := {}
   for (p, b) in files do
@@ -162,8 +185,10 @@ def checkArtifact (root out : FilePath) (g : Generated) (archive : FilePath) : I
     unless g.archived.contains c do
       let snapshot := (snapshots.getD c.val #[]).toList
       requireChecks [
-        ⟨"development and revision editions are byte-identical", snapshot.filter (·.1 != "build.json") == dev⟩,
-        ⟨"revision snapshot records this build", snapshot.lookup "build.json" == some ((snapshotJson g).pretty ++ "\n").toUTF8⟩]
+        ⟨"development and revision editions are byte-identical", snapshot.filter
+            (·.1 != "build.json") == dev⟩,
+        ⟨"revision snapshot records this build", snapshot.lookup "build.json" == some
+            ((snapshotJson g).pretty ++ "\n").toUTF8⟩]
   let spellings := RuleId.all.map RuleId.spelling
   let ruleDirs := (dev.filterMap fun (p, _) => match p.splitOn "/" with
     | "rules" :: d :: _ :: _ => some d | _ => none).eraseDups
@@ -175,17 +200,22 @@ def checkArtifact (root out : FilePath) (g : Generated) (archive : FilePath) : I
       requireChecks [⟨s!"rule page exists: {file}", files.any (·.1 == file)⟩]
   let mut checkedPages : List RuleId := []
   for (id, ex) in g.examples do
-    let some (_, bytes) := files.find? (·.1 == Edition.dev.pageFile id) | throw <| IO.userError s!"missing page {id.spelling}"
+    let some (_, bytes) := files.find? (·.1 == Edition.dev.pageFile id) | throw <|
+                                                                           IO.userError s!"missing \
+                                                                             page {id.spelling}"
     let html ← utf8 id.spelling bytes
     let title := id.spelling ++ ": " ++ (descriptor id).title
     let texts := ex.context.map (·.text) ++ ex.changed.flatMap (fun c =>
-        (c.violation.filter (·.fixture.isSome)).toList.map (·.text) ++ (c.fixed.filter (·.fixture.isSome)).toList.map (·.text)) ++
+        (c.violation.filter (·.fixture.isSome)).toList.map (·.text) ++
+        (c.fixed.filter (·.fixture.isSome)).toList.map (·.text)) ++
       ex.findings.map (·.detail)
     requireChecks [
       ⟨s!"{id.spelling}: page title", html.contains title⟩,
       ⟨s!"{id.spelling}: page states its commit", html.contains g.ident.revision.val⟩,
-      ⟨s!"{id.spelling}: page shows every admitted example text exactly", texts.all fun t => html.contains (escape t)⟩,
-      ⟨s!"{id.spelling}: page states every required section", requiredHeadings.all (fun h => html.contains h)⟩]
+      ⟨s!"{id.spelling}: page shows every admitted example text exactly", texts.all fun t =>
+          html.contains (escape t)⟩,
+      ⟨s!"{id.spelling}: page states every required section", requiredHeadings.all
+          (fun h => html.contains h)⟩]
     checkedPages := id :: checkedPages
   let pages ← files.mapM fun (p, bytes) => do
     if p.endsWith ".html" then return Page.ofHtml p (← utf8 p bytes) else return Page.ofOther p
@@ -195,7 +225,8 @@ def checkArtifact (root out : FilePath) (g : Generated) (archive : FilePath) : I
   -- checked above, each rule's advertised availability and every emitted rule ID.
   let registry := out.parent.getD root / "site-registry.json"
   let artifact := out.parent.getD root / "site-artifact.json"
-  let exported ← run root (root / ".lake/build/bin/axiomGate").toString #["--registry-out", registry.toString]
+  let exported ← run root (root / ".lake/build/bin/axiomGate").toString
+      #["--registry-out", registry.toString]
   requireChecks [⟨s!"registry export\n{exported.stdout}{exported.stderr}", exported.exitCode == 0⟩]
   let emitted := (g.examples.flatMap fun (_, ex) => ex.findings.map (·.rule)).eraseDups
   writeJson artifact (Json.mkObj [
@@ -205,8 +236,11 @@ def checkArtifact (root out : FilePath) (g : Generated) (archive : FilePath) : I
       ("id", RegistryCodec.ruleJson id), ("route", toJson id.route),
       ("checkedExample", toJson (checkedPages.contains id)),
       ("advertisedEnforced", toJson ((descriptor id).availability == .existingChecker))]))])
-  let validated ← run root (root / ".lake/build/bin/axiomGate").toString #["--validate-site", registry.toString, artifact.toString]
-  requireChecks [⟨s!"registry site validation\n{validated.stdout}{validated.stderr}", validated.exitCode == 0⟩]
+  let validated ← run root (root / ".lake/build/bin/axiomGate").toString
+      #["--validate-site", registry.toString, artifact.toString]
+  requireChecks
+      [⟨s!"registry site validation\n{validated.stdout}{validated.stderr}",
+          validated.exitCode == 0⟩]
   IO.FS.removeFile registry
   IO.FS.removeFile artifact
   let recorded ← IO.FS.readFile (out / "build.json")
@@ -232,7 +266,11 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
     throw error
   IO.FS.removeDirAll (root / "tmp/site-render")
   IO.FS.removeDirAll (archiveDirectory root)
-  IO.println s!"site: PASS ({RuleId.all.length} rule pages per edition, {archived.length} archived snapshot(s) retained, {(← snapshotTree out).length} files, commit {ident.revision.val}{if ident.dirty then " with uncommitted changes" else ""}); artifact {out}"
-  IO.println "The artifact check observes local files only; publication is verified against the deployed site."
+  IO.println s!"site: PASS ({RuleId.all.length} rule pages per edition, {archived.length} archived \
+    snapshot(s) retained, {(← snapshotTree out).length} files, \
+    commit {ident.revision.val}{if ident.dirty then " with uncommitted changes" else ""}); \
+    artifact {out}"
+  IO.println "The artifact check observes local files only; publication is verified against the \
+    deployed site."
 
 end Regula.Site.Build

@@ -101,7 +101,8 @@ def add (a b : Decimal) : Decimal :=
 def render (d : Decimal) : String :=
   let whole := d.mantissa / 10 ^ d.exponent
   let digits := toString (d.mantissa % 10 ^ d.exponent)
-  let fraction := (("".pushn '0' (d.exponent - digits.length) ++ digits).toList.reverse.dropWhile (· == '0')).reverse
+  let fraction := (("".pushn '0' (d.exponent - digits.length) ++ digits).toList.reverse.dropWhile
+      (· == '0')).reverse
   if fraction.isEmpty then toString whole else s!"{whole}.{String.ofList fraction}"
 
 /-- Instances of the exact order and of rescaling invariance. -/
@@ -120,7 +121,8 @@ abbrev Probability := { p : Decimal // p ≤ Decimal.one }
 stores it) as a probability. Negative or greater-than-one values are refused. -/
 def probability? (mantissa : Int) (exponent : Nat) : Option Probability :=
   match mantissa with
-  | .ofNat m => if h : (⟨m, exponent⟩ : Decimal) ≤ Decimal.one then some ⟨⟨m, exponent⟩, h⟩ else none
+  | .ofNat m => if h : (⟨m, exponent⟩ : Decimal) ≤ Decimal.one then some
+                                                                     ⟨⟨m, exponent⟩, h⟩ else none
   | .negSucc _ => none
 
 /-- Admission is exact: a value is admitted exactly when it is nonnegative and at most one,
@@ -434,7 +436,9 @@ theorem checked_clauses : Regula.ExecutableContract intentClausesImpl ClausesCon
 def intentClauses : String → List String := checked_clauses.run
 
 theorem clauses_examples :
-    intentClauses "Claim.\n\n# Intent\n- Sorted output.\n- Same elements,\n  with multiplicity.\n\n# Notes\nx" =
+    intentClauses
+        "Claim.\n\n# Intent\n- Sorted output.\n- Same elements,\n  with multiplicity.\n\n# \
+          Notes\nx" =
       ["Sorted output.", "Same elements, with multiplicity."] ∧
     intentClauses "Claim.\n\n# Intent\nOne requirement\nover two lines." =
       ["One requirement over two lines."] ∧
@@ -450,7 +454,8 @@ def explanationLines : List (List Char) → List (List Char)
   | line :: rest =>
     match headingLevel? line with
     | some level =>
-      if isIntentHeading line && sectionHasContent level rest then [] else line :: explanationLines rest
+      if isIntentHeading line && sectionHasContent level rest then [] else line ::
+                                                                            explanationLines rest
     | none => line :: explanationLines rest
 
 /-- The explanation text of a docstring, trimmed. -/
@@ -502,7 +507,8 @@ def discharge? (clause : String) : Option (String × String) := do
   else none
 
 theorem discharge_examples :
-    discharge? "Same elements. (discharged by `Demo.sort_perm`)" = some ("Same elements.", "Demo.sort_perm") ∧
+    discharge? "Same elements. (discharged by `Demo.sort_perm`)" = some
+        ("Same elements.", "Demo.sort_perm") ∧
     discharge? "Same elements." = none ∧
     discharge? "Same elements. (discharged by `a b`)" = none ∧
     discharge? "(discharged by `x`) trailing" = none := by

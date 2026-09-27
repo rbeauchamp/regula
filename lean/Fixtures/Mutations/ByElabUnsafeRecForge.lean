@@ -1,5 +1,6 @@
 /-
-Mutation: The built-in by_elab runner executes audited-source code and cannot authorize forged recursive-helper metadata.
+Mutation: The built-in by_elab runner executes audited-source code and cannot authorize forged
+recursive-helper metadata.
 -/
 import Lean
 import Lean.Elab.PreDefinition.Structural.Eqns

@@ -35,14 +35,17 @@ def create (legacy : Bool := false) : IO State :=
   return ⟨← IO.mkRef #[], ← IO.mkRef #[], ← IO.mkRef #[], ← IO.mkRef 0, legacy⟩
 
 /-- Capture via argv, not shell syntax; validate before using any variable. -/
-def environment (root : FilePath) (state : State) (overrides : Array (String × Option String)) : IO Captured := do
+def environment (root : FilePath) (state : State) (overrides : Array (String × Option String)) :
+    IO Captured := do
   let start ← IO.monoMsNow
-  let result ← if let some (_, capture) := (← state.cache.get).find? (·.1 == overrides) then pure capture else do
+  let result ← if let some (_, capture) := (← state.cache.get).find? (·.1 == overrides) then
+      pure capture else do
     let output ← run root "lake" #["env", "/usr/bin/env", "-0"] overrides
     requireChecks [⟨"Lake environment capture", output.exitCode == 0⟩]
     let env ← IO.ofExcept (admit output.stdout)
     let resolved ← run root "/usr/bin/which" #["lean"] (env.val.map fun (k, v) => (k, some v))
-    requireChecks [⟨"Lean executable resolution", resolved.exitCode == 0 && resolved.stderr.isEmpty &&
+    requireChecks
+        [⟨"Lean executable resolution", resolved.exitCode == 0 && resolved.stderr.isEmpty &&
       (resolved.stdout.trimAscii.toString.splitOn "\n").length == 1⟩]
     let executable := (root / resolved.stdout.trimAscii.toString).toString
     let captured : Captured := ⟨env, executable⟩

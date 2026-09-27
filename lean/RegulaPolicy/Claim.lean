@@ -59,7 +59,8 @@ def Snapshot.Valid (s : Snapshot) : Prop :=
   s.dependencies.toList.Pairwise (fun a b => a.package ≠ b.package) ∧
   (∀ d ∈ s.dependencies, d.package ≠ "" ∧
     d.files.toList.Pairwise (fun a b => a.uri ≠ b.uri) ∧ ∀ f ∈ d.files, f.uri ≠ "")
-instance instDecidableSnapshotValid (s : Snapshot) : Decidable s.Valid := by unfold Snapshot.Valid; infer_instance
+instance instDecidableSnapshotValid (s : Snapshot) : Decidable s.Valid := by
+    unfold Snapshot.Valid; infer_instance
 
 /-- A snapshot that satisfies `Snapshot.Valid`. -/
 abbrev AdmittedSnapshot := { s : Snapshot // s.Valid }
@@ -166,7 +167,8 @@ structure FenceKey where
   ordered : opening.start ≤ opening.stop ∧ opening.stop ≤ body.start ∧
     body.start ≤ body.stop ∧ body.stop ≤ closing.start ∧ closing.start ≤ closing.stop
   /-- Every range boundary is a valid UTF-8 position of the document's text. -/
-  validPositions : ∀ n ∈ [opening.start, opening.stop, body.start, body.stop, closing.start, closing.stop],
+  validPositions : ∀ n ∈
+      [opening.start, opening.stop, body.start, body.stop, closing.start, closing.stop],
     (String.Pos.Raw.isValid document.source ⟨n⟩) = true
   deriving Repr, DecidableEq
 
@@ -262,7 +264,8 @@ def ClaimCandidate.Valid (c : ClaimCandidate) : Prop :=
   c.surfaces.toList.Pairwise (fun a b => a.target ≠ b.target) ∧
   (match c.scope with
    | .project => c.surfaces.size > 0 ∧ ∀ s ∈ c.surfaces, s.modules.size > 0
-   | .file source .. | .editor _ source .. => source ∈ c.snapshot.sources ∧ c.surfaces.isEmpty = true
+   | .file source .. | .editor _ source .. =>
+                        source ∈ c.snapshot.sources ∧ c.surfaces.isEmpty = true
    | .documentation documents =>
        documents.size > 0 ∧ documents.toList.Pairwise (fun a b => a.uri ≠ b.uri) ∧
        (∀ d ∈ documents, d ∈ c.snapshot.sources) ∧ c.surfaces.isEmpty = true)
@@ -356,7 +359,8 @@ def LocalSubjectSnapshotOK (claim : Claim) : LocalJobSubject → Prop
   | .module k => k.snapshot.val = claim.val.snapshot
   | .declaration k | .root k => k.moduleKey.snapshot.val = claim.val.snapshot
   | .boundary k => k.root.moduleKey.snapshot.val = claim.val.snapshot
-instance (claim : Claim) (subject : LocalJobSubject) : Decidable (LocalSubjectSnapshotOK claim subject) := by
+instance (claim : Claim) (subject : LocalJobSubject) : Decidable
+    (LocalSubjectSnapshotOK claim subject) := by
   cases subject <;> unfold LocalSubjectSnapshotOK <;> infer_instance
 
 /-- A job subject belongs to the claim's snapshot: an environment subject's environment and
@@ -364,7 +368,8 @@ local subject use it (`LocalSubjectSnapshotOK`), a fence's document is one of it
 the whole request always does. -/
 def SubjectSnapshotOK (claim : Claim) : JobSubject → Prop
   | .scope => True
-  | .environment key subject => key.snapshot.val = claim.val.snapshot ∧ LocalSubjectSnapshotOK claim subject
+  | .environment key subject => key.snapshot.val = claim.val.snapshot ∧
+                                 LocalSubjectSnapshotOK claim subject
   | .fence k => k.document ∈ claim.val.snapshot.sources
 instance (claim : Claim) (subject : JobSubject) : Decidable (SubjectSnapshotOK claim subject) := by
   cases subject <;> unfold SubjectSnapshotOK <;> infer_instance
@@ -398,6 +403,7 @@ def admitJobKey (claim : Claim) (stage : Stage) (subject : JobSubject) : Except 
 theorem admitJobKey_exact (key : JobKey) :
     admitJobKey key.claim key.stage key.subject = .ok key := by
   unfold admitJobKey
-  rw [dite_eq_left key.requiredStage, dite_eq_left key.compatibleSubject, dite_eq_left key.subjectSnapshot]
+  rw [dite_eq_left key.requiredStage, dite_eq_left key.compatibleSubject,
+      dite_eq_left key.subjectSnapshot]
 
 end RegulaPolicy

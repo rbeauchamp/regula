@@ -277,7 +277,8 @@ private theorem admitIdentities_ok (names : List Name) (identities : List Identi
 
 private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : Manifest.Surface)
     (assigned : SurfaceAssignment) :
-    assignSurface inventory surface = .ok assigned ↔ SurfaceAssigned inventory surface assigned := by
+    assignSurface inventory surface = .ok assigned ↔
+        SurfaceAssigned inventory surface assigned := by
   have rootsOk : ∀ roots : List Name,
       surface.executables.toList.mapM (executableRoot inventory) = .ok roots ↔
         roots.length = surface.executables.size ∧
@@ -402,7 +403,8 @@ def discoveredTargets (inventory : Lake.SurfaceInventory) : Array DiscoveredTarg
 snapshots before and after, and replacement edges. None is recorded as unsupported: the
 operational history worker refuses a module with unsupported evaluators, so its outcome
 is unavailable and refused. -/
-def HistoryCopied (entry : Name × ProducerReport.HistoryOutcome) (observation : HistoryObservation) :
+def HistoryCopied (entry : Name × ProducerReport.HistoryOutcome)
+    (observation : HistoryObservation) :
     Prop :=
   ∃ path before after replacements,
     entry.2 = .completed path before after replacements ∧
@@ -557,15 +559,18 @@ private def environmentEvidenceImpl (frozen : FrozenEnvironment) (stage : Stage)
             (fun r => r.module == k.moduleKey.name.name && r.name == k.name.name)
           pure <| .execution root
       | .transcript, .module k => do
-          pure <| JobEvidence.transcript (← requireOne "transcript" <| frozen.census.policy.transcripts.filter
+          pure <| JobEvidence.transcript
+              (← requireOne "transcript" <| frozen.census.policy.transcripts.filter
             (·.module == k.name.name))
       | .history, .module k => do
-          pure <| JobEvidence.history (← requireOne "history" <| frozen.histories.filter (·.moduleName == k.name.name))
+          pure <| JobEvidence.history
+              (← requireOne "history" <| frozen.histories.filter (·.moduleName == k.name.name))
       | .origin, .module k => do
           let origins := frozen.census.execution.roots.flatMap fun r => r.boundaries.filterMap
             fun b => if b.module == k.name.name then b.account.nativeOrigin? else none
           let some origin := origins[0]? | throw "missing native-runtime origin observation"
-          unless origins.all (fun other => decide (other = origin)) do throw "conflicting native-runtime origins"
+          unless origins.all (fun other => decide (other = origin)) do
+              throw "conflicting native-runtime origins"
           pure <| .origin origin
       | .documentationPresence, .module k => do
           let observation ← requireOne "module documentation" <|
@@ -597,7 +602,8 @@ private theorem filter_single {α : Type u} {p : α → Bool} {values : Array α
 docstring (presence for a module; for a registered declaration, a nonempty Intent section via
 `MaterialDocumentationOK`), not which record supplied it, so this binding is not decided again
 there. A success reports the presence of the only record with the job's module name, or
-with its module and declaration names; a refusal fails closed. Every other stage's record is bound to its subject by
+with its module and declaration names; a refusal fails closed. Every other stage's record is bound
+to its subject by
 `LocalStageOK`. -/
 def DocumentationEvidenceContract
     (evidence : FrozenEnvironment → Stage → LocalJobSubject → Except String JobEvidence) :
@@ -695,13 +701,17 @@ def observations {claim : Claim} (frozen : Frozen claim) (build : BuildObservati
   let values : Array (Nat × JobObservation) ← frozen.plan.jobs.mapIdxM fun slot key => do
     let evidence ← match key.stage, key.subject with
       | .configuration, .scope =>
-          pure (JobEvidence.configuration frozen.census.configuredTargets frozen.census.discoveredTargets)
+          pure
+              (JobEvidence.configuration frozen.census.configuredTargets
+                  frozen.census.discoveredTargets)
       | .discovery, .scope => pure <| .discovery frozen.census
       | .build, .scope => pure <| .build build
       | stage, .environment request subject =>
           checked_environmentJob.run frozen.environments request stage subject
       | _, _ => throw "unsupported observation stage for project/file collector"
-    return (slot, ({ key, snapshot := claim.val.snapshot, completion := .completed, evidence } : JobObservation))
+    return (slot,
+        ({ key, snapshot := claim.val.snapshot, completion := .completed, evidence } :
+            JobObservation))
   return values.toList
 
 end Regula.Checker.Acceptance

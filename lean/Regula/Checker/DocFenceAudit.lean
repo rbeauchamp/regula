@@ -75,7 +75,8 @@ private def sharedPinMismatch (root package : FilePath) : IO (Option String) := 
     packages.filterMapM fun p => do
       let name ← IO.ofExcept (p.getObjValAs? String "name")
       if (p.getObjValAs? String "type").toOption != some "git" then return none
-      return some (name, (p.getObjVal? "url").toOption.getD .null, (p.getObjVal? "rev").toOption.getD .null)
+      return some
+          (name, (p.getObjVal? "url").toOption.getD .null, (p.getObjVal? "rev").toOption.getD .null)
   let rootPins ← pins root
   for (name, url, rev) in ← pins package do
     if let some (_, url', rev') := rootPins.find? (·.1 == name) then
@@ -112,18 +113,21 @@ private def buildVerso (repo docsRoot copy scratch : FilePath) (verso : VersoPac
   if let some mismatch ← sharedPinMismatch copy package then
     return some s!"the Verso package pins {mismatch} differently from the root package"
   let library ← captureVerso { verso with dir := versoDir }
-  let copied := (← captureVerso { verso with dir := package }) ++ (← captureVersoPackage { verso with dir := package })
+  let copied := (← captureVerso { verso with dir := package }) ++
+      (← captureVersoPackage { verso with dir := package })
   let original := library ++ (← captureVersoPackage { verso with dir := versoDir })
   let relative (root : FilePath) (d : RegulaPolicy.SourceSnapshot) :=
     ((d.uri.dropPrefix (root.toString ++ "/")).toString, d.source)
-  unless copied.map (relative package) == original.map (relative versoDir) && original.all linked.contains do
+  unless copied.map (relative package) == original.map (relative versoDir) &&
+      original.all linked.contains do
     return some "the isolated copy's Verso sources and package inputs are not the audited ones"
   let (_, failure) ← timedPhase "Verso documentation build" <|
     Lake.buildCheckedObservation package #[verso.library.toString, verso.render] "fresh"
   if let some lines := failure then return some ("\n".intercalate lines.toList)
   let output := scratch / "verso-render"
   let rendered ← timedPhase "Verso documentation rendering" <|
-    runProcess package "lake" #["exe", verso.render, "--output", output.toString] scrubbedLeanPathEnv
+    runProcess package "lake" #["exe", verso.render, "--output", output.toString]
+        scrubbedLeanPathEnv
   unless rendered.succeeded do
     return some s!"Verso rendering failed ({rendered.exitCode}): {rendered.output}"
   let html := output / "html-multi"
@@ -132,17 +136,24 @@ private def buildVerso (repo docsRoot copy scratch : FilePath) (verso : VersoPac
   unless missing.isEmpty do
     return some s!"the rendered standard does not define anchors the rule registry links: {missing}"
   let markdown := linked.filter fun d => (FilePath.mk d.uri).extension == some "md"
-  let missing := Regula.Site.missingAnchors pages (Regula.Site.documentAnchors (markdown.map (·.source)).toList)
+  let missing := Regula.Site.missingAnchors pages
+      (Regula.Site.documentAnchors (markdown.map (·.source)).toList)
   unless missing.isEmpty do
     return some s!"the rendered standard does not define anchors the documentation links: {missing}"
   let some coverage := markdown.find? (·.uri == (docsRoot / coverageMap).toString)
     | return some s!"the coverage map {coverageMap} is not a linked document below {docsRoot}"
-  let rows := Regula.Site.renderedRows (← IO.FS.readFile (html / Regula.checklistChapter / "index.html"))
-  if let some mismatch := Regula.Site.rowMapMismatch (Regula.Site.linkedRows coverage.source) rows then
-    return some s!"the coverage map {coverageMap} does not link exactly the {rows.length} checklist rows: {mismatch}"
-  let unknown := Regula.Clause.all.filter fun c => !library.any (·.uri == (repo / c.source).toString)
+  let rows := Regula.Site.renderedRows
+      (← IO.FS.readFile (html / Regula.checklistChapter / "index.html"))
+  if let some mismatch := Regula.Site.rowMapMismatch
+      (Regula.Site.linkedRows coverage.source) rows then
+    return some s!"the coverage map {coverageMap} does not link exactly the {rows.length} \
+      checklist rows: {mismatch}"
+  let unknown := Regula.Clause.all.filter fun c => !library.any
+                                                    (·.uri == (repo / c.source).toString)
   unless unknown.isEmpty do
-    return some s!"cited sections whose source is not a module of {verso.library}: {unknown.map (·.heading)}"
+    return some
+        s!"cited sections whose source is not a module \
+          of {verso.library}: {unknown.map (·.heading)}"
   return none
 
 /-- Run one documentation fence audit and return its exit code. In an isolated copy of the
@@ -175,12 +186,15 @@ unsafe def run (args : List String) : IO UInt32 := do
       let dependencies ← Snapshot.dependencies inventory
       -- A linked run audits only the inputs ordinary acceptance already accepted.
       if let some link := options.acceptanceLink.map (resolve repo) then
-        let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration dependencies linked
+        let digest ← AcceptanceLink.identity scratch copy docsRoot sources configuration
+            dependencies linked
         AcceptanceLink.require link digest
-        IO.println s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
+        IO.println
+            s!"acceptance link: documentation inputs equal the accepted ordinary inputs ({digest})"
       SourceBinding.withUnchanged sources configuration do
         SourceBinding.configurationUnchanged configuration
-        let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy (Manifest.positiveTargets manifest) "fresh"
+        let (buildProcess, buildResult) ← Lake.buildCheckedObservation copy
+            (Manifest.positiveTargets manifest) "fresh"
         SourceBinding.unchanged sources
         SourceBinding.configurationUnchanged configuration
         if let some lines := buildResult then
@@ -188,7 +202,9 @@ unsafe def run (args : List String) : IO UInt32 := do
           return 1
         IO.println "claimed surface built fresh; compiling fences"
         (← IO.getStdout).flush
-        let result ← Documentation.auditBuiltProject copy docsRoot inventory sources configuration dependencies documents (Acceptance.buildObservation buildProcess) options.jobs options.verbose (verso := verso)
+        let result ← Documentation.auditBuiltProject copy docsRoot inventory sources configuration
+            dependencies documents (Acceptance.buildObservation buildProcess) options.jobs
+                options.verbose (verso := verso)
         if result != 0 then return result
         let some requested := options.verso | return result
         if let some failure ← buildVerso repo docsRoot copy scratch requested linked then
@@ -196,7 +212,10 @@ unsafe def run (args : List String) : IO UInt32 := do
           return 1
         Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ linked
         SourceBinding.unchanged sources
-        IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block elaborated where it is written), rendered, defines every anchor the rule registry and the documentation link, and the coverage map links exactly its checklist rows, each labelled with its row"
+        IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block \
+          elaborated where it is written), rendered, defines every anchor the rule registry and \
+          the documentation link, and the coverage map links exactly its checklist rows, each \
+          labelled with its row"
         return 0
     let outcome := outcome.bind id
     match outcome with

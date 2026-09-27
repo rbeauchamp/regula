@@ -61,7 +61,8 @@ structure Identity where
 instance : Repr Identity := ⟨fun x _ => repr x.name⟩
 instance : ToString Identity := ⟨fun x => x.name.toString⟩
 instance : Ord Identity := ⟨compareOn (fun x => nameComponents x.name)⟩
-instance : TransOrd Identity := inferInstanceAs (TransCmp (compareOn (fun x : Identity => nameComponents x.name)))
+instance : TransOrd Identity := inferInstanceAs
+    (TransCmp (compareOn (fun x : Identity => nameComponents x.name)))
 instance : LawfulEqOrd Identity where
   eq_of_compare {a b} h := by
     have e : nameComponents a.name = nameComponents b.name := LawfulEqOrd.eq_of_compare h

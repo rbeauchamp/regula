@@ -111,7 +111,8 @@ structure FileSourceBinding where
 
 /-- Bind the requested file to its compiled copy when their source texts are equal, and
 refuse otherwise. -/
-def admitFileSourceBinding (requested compiled : SourceSnapshot) : Except String FileSourceBinding :=
+def admitFileSourceBinding (requested compiled : SourceSnapshot) :
+    Except String FileSourceBinding :=
   if h : requested.source = compiled.source then .ok ⟨requested, compiled, h⟩
   else .error "standalone source copy differs from requested file"
 
@@ -161,14 +162,16 @@ structure EnvironmentCensus where
   deriving DecidableEq
 
 /-- The module keys of the environment's infrastructure receipts. -/
-def EnvironmentCensus.infrastructureModules (i : EnvironmentCensus) : Array ModuleKey := i.infrastructure.map (·.moduleKey)
+def EnvironmentCensus.infrastructureModules (i : EnvironmentCensus) : Array ModuleKey :=
+    i.infrastructure.map (·.moduleKey)
 
 /-- Every module of the environment: owned, then imported, then infrastructure. -/
 def EnvironmentCensus.allModules (i : EnvironmentCensus) : Array ModuleKey :=
   i.modules ++ i.importedModules ++ i.infrastructureModules
 
 /-- Every captured source of the environment: owned, then imported, then infrastructure. -/
-def EnvironmentCensus.allModuleSources (i : EnvironmentCensus) : Array (ModuleKey × SourceSnapshot) :=
+def EnvironmentCensus.allModuleSources (i : EnvironmentCensus) : Array
+    (ModuleKey × SourceSnapshot) :=
   i.moduleSources ++ i.importedSources ++ i.infrastructureSources
 
 /-- One complete original request with separately admitted Lean environments. -/
@@ -197,7 +200,8 @@ structure Census where
 def Census.allModules (i : Census) : Array ModuleKey := i.environments.flatMap (·.allModules)
 
 /-- A generated-role receipt (`Roles`) for the policy inventory of every environment. -/
-abbrev CensusRoles (i : Census) := (slot : Fin i.environments.size) → Roles i.environments[slot].policy
+abbrev CensusRoles (i : Census) := (slot : Fin i.environments.size) →
+    Roles i.environments[slot].policy
 
 /-- The claim's source snapshots: its own sources, then every dependency's files. -/
 def snapshotSources (c : Claim) : Array SourceSnapshot :=
@@ -251,7 +255,8 @@ def TargetPartitionOK (c : Claim) (i : Census) : Prop :=
     (∃ a ∈ i.configuredTargets, a.kind = .library ∧ a.name = s.target ∧ a.surface = some s.target) ∧
     canonicalNames (s.modules.map (·.name)) = canonicalNames
       ((i.discoveredTargets.filter (fun t => i.configuredTargets.any (fun a =>
-        a.kind == t.kind && a.name == t.name && a.surface == some s.target))).flatMap (·.modules))) ∧
+        a.kind == t.kind && a.name == t.name && a.surface == some s.target))).flatMap (·.modules)))
+            ∧
   (∀ a ∈ i.configuredTargets, a.kind = .library → ∀ owner ∈ a.surface, a.name = owner) ∧
   (∀ a ∈ i.configuredTargets, a.kind = .executable →
     ∀ t ∈ i.discoveredTargets, t.kind = .executable → t.name = a.name →
@@ -280,7 +285,8 @@ equality, including the admitted snapshot, so membership still compares every fi
 instance : Hashable ModuleKey := ⟨fun k => hash k.name.name⟩
 instance : LawfulHashable ModuleKey where
   hash_eq _ _ h := eq_of_beq h ▸ rfl
-instance : Hashable DeclarationKey := ⟨fun k => mixHash (hash k.moduleKey.name.name) (hash k.name.name)⟩
+instance : Hashable DeclarationKey :=
+    ⟨fun k => mixHash (hash k.moduleKey.name.name) (hash k.name.name)⟩
 instance : LawfulHashable DeclarationKey where
   hash_eq _ _ h := eq_of_beq h ▸ rfl
 
@@ -316,12 +322,14 @@ def EnvironmentCensusOK (c : Claim) (global : Census) (i : EnvironmentCensus) : 
   (match c.val.scope with
    | .project => True
    | .file source .. => i.modules.size = 1 ∧
-       ∃ binding ∈ i.fileSource, binding.requested = source ∧ i.moduleSources.map (·.2) = #[binding.compiled]
+       ∃ binding ∈ i.fileSource, binding.requested = source ∧ i.moduleSources.map (·.2) =
+           #[binding.compiled]
    | .editor n source .. => moduleNames i.modules = #[n.name] ∧
        i.moduleSources.map (·.2) = #[source]
    | .documentation _ => False)
 set_option synthInstance.maxSize 1024 in
-instance (c : Claim) (global : Census) (i : EnvironmentCensus) : Decidable (EnvironmentCensusOK c global i) := by
+instance (c : Claim) (global : Census) (i : EnvironmentCensus) : Decidable
+    (EnvironmentCensusOK c global i) := by
   unfold EnvironmentCensusOK
   -- Index each repeatedly queried array once; membership and distinctness equivalences
   -- supply decisions for the unchanged predicate, without a second validity definition.
@@ -349,7 +357,8 @@ instance (c : Claim) (global : Census) (i : EnvironmentCensus) : Decidable (Envi
 
 set_option synthInstance.maxSize 1024 in
 /-- The indexed implementation decides the same proposition as the prior finite scan. -/
-theorem environmentCensusOK_decide_eq_previous (c : Claim) (global : Census) (i : EnvironmentCensus) :
+theorem environmentCensusOK_decide_eq_previous (c : Claim) (global : Census)
+    (i : EnvironmentCensus) :
     decide (EnvironmentCensusOK c global i) = @decide (EnvironmentCensusOK c global i)
       (by unfold EnvironmentCensusOK; cases c.val.scope <;> infer_instance) := by
   congr
@@ -371,7 +380,8 @@ def CensusOK (c : Claim) (i : Census) : Prop :=
        canonicalNames (moduleNames i.modules) = canonicalNames
          (c.val.surfaces.flatMap (fun s => s.modules.map (·.name))) ∧ i.fences = #[] ∧
        (if c.val.mode = .serializedGraph then i.requests.size = 1 else
-         i.requests.map (fun r => moduleNames r.modules) = c.val.surfaces.map (fun s => s.modules.map (·.name)))
+         i.requests.map (fun r => moduleNames r.modules) = c.val.surfaces.map
+             (fun s => s.modules.map (·.name)))
    | .file .. | .editor .. => i.requests.size = 1 ∧ i.fences = #[]
    | .documentation docs => i.requests = #[] ∧ ∀ f ∈ i.fences, f.document ∈ docs)
 set_option synthInstance.maxSize 1024 in
@@ -400,7 +410,8 @@ theorem census_environment_index (c : Claim) (i : Census) (h : CensusOK c i)
 /-- Two distinct response occurrences cannot be normalized into one request identity. -/
 theorem census_environment_unique (c : Claim) (i : Census) (h : CensusOK c i)
     (left right : Fin i.environments.size)
-    (same : i.environments[left].request.key = i.environments[right].request.key) : left = right := by
+    (same : i.environments[left].request.key = i.environments[right].request.key) : left =
+        right := by
   apply Fin.ext
   rw [← census_environment_index c i h left, ← census_environment_index c i h right]
   exact congrArg (·.index) same
@@ -425,7 +436,8 @@ theorem census_project_partition (c : Claim) (i : Census) (h : CensusOK c i)
 /-- A module's profile is derived from its positive assignment, never a result payload. -/
 def profileForModule (c : Claim) (m : Name) : Option ConformingProfile :=
   match c.val.scope with
-  | .project => (c.val.surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map (·.profile)
+  | .project => (c.val.surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map
+                 (·.profile)
   | .file _ p _ | .editor _ _ p _ => some p
   | .documentation _ => some .standardLogical
 
@@ -434,7 +446,8 @@ owning the module (none when no surface does); in a file or editor audit, the re
 none for documentation. -/
 def executionForModule (c : Claim) (m : Name) : Option ExecutionClaim :=
   match c.val.scope with
-  | .project => (c.val.surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map (·.execution)
+  | .project => (c.val.surfaces.find? (fun s => s.modules.any (fun n => n.name == m))).map
+                 (·.execution)
   | .file _ _ e | .editor _ _ _ e => some e
   | .documentation _ => none
 
@@ -452,7 +465,8 @@ def localStageSubjects (i : EnvironmentCensus) : Stage → Array LocalJobSubject
   | .declarationPolicy => i.declarations.map .declaration
   | .execution => i.roots.map .root
   | .transcript => (i.modules.filter (fun m => i.policy.declarations.any (fun d =>
-      d.module == m.name.name && declarationNeedsTranscript d.isUnsafe d.isPartial d.kind d.name))).map .module
+      d.module == m.name.name && declarationNeedsTranscript d.isUnsafe d.isPartial d.kind
+          d.name))).map .module
   | .history => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
       (fun b => b.module == m.name.name && b.boundary == .runtimeReplacement)))).map .module
   | .origin => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
@@ -531,7 +545,8 @@ def PlanOK (c : Claim) (i : Census) : Prop :=
   c.val.snapshot.toolchain.compilerCommit = "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b" ∧
   CensusOK c i ∧ (requiredJobs c i).toList.Pairwise (· ≠ ·) ∧
   (∀ job ∈ requiredJobs c i, stageSubjectCompatible job.1 job.2 = true) ∧
-  (∀ e ∈ i.environments, ∀ d ∈ e.declarations, (profileForModule c d.moduleKey.name.name).isSome = true) ∧
+  (∀ e ∈ i.environments, ∀ d ∈ e.declarations,
+      (profileForModule c d.moduleKey.name.name).isSome = true) ∧
   (∀ e ∈ i.environments, ∀ r ∈ e.roots, rootRequests c e r.name.name ≠ #[]) ∧
   (.execution ∈ requiredStages c → ∀ e ∈ i.environments, ∀ d ∈ e.policy.declarations,
     ∀ contract ∈ d.executableContract, contract.failure = none →

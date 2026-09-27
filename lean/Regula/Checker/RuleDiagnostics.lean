@@ -20,7 +20,8 @@ abbrev declarationLocation := Regula.Findings.declarationLocation
 /-- The diagnostic of one execution failure kind, typed by `Policy.executionRule` of that
 kind, so its rule is the registry bridge's by construction. -/
 def executionDiagnostic : (kind : RegulaPolicy.ExecutionFailureKind) → ExecutionArguments →
-    Location → EvidenceMode → Policy.ExecutionClaim → Except String (Diagnostic (Policy.executionRule kind))
+    Location → EvidenceMode → Policy.ExecutionClaim → Except String
+        (Diagnostic (Policy.executionRule kind))
   | .executionUnresolved, a, location, mode, claim =>
       makeDiagnostic .executionUnresolved a location mode (some claim.toString) .incomplete
   | .executionBoundary, a, location, mode, claim =>

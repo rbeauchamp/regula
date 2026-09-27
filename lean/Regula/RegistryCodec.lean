@@ -72,7 +72,8 @@ def examplesJson (id : RuleId) : Json :=
   Json.mkObj [
     ("language", toJson (languageText e.language)), ("audience", audienceJson e.audience),
     ("compliant", Json.mkObj [("path", toJson (e.compliantPath id)), ("text", toJson e.compliant)]),
-    ("noncompliant", Json.mkObj [("path", toJson (e.noncompliantPath id)), ("text", toJson e.noncompliant)]),
+    ("noncompliant", Json.mkObj
+        [("path", toJson (e.noncompliantPath id)), ("text", toJson e.noncompliant)]),
     ("correction", toJson e.correction)]
 
 /-- A rule's registry record: its guidance, checked examples, category, scope, evidence kind,
@@ -140,7 +141,9 @@ def registrySchemaVersion : Nat := 3
 /-- The registry JSON: the identity fields at `registrySchemaVersion` and every rule's
 `descriptorJson`, in `RuleId.all` order. -/
 def registryJson (p : ProducerIdentity) : Json :=
-  Json.mkObj (identityFields p registrySchemaVersion ++ [("rules", toJson (RuleId.all.map descriptorJson))])
+  Json.mkObj
+      (identityFields p registrySchemaVersion ++
+          [("rules", toJson (RuleId.all.map descriptorJson))])
 
 /-- A manifest is accepted only if it is exactly the current closed registry and identity.
 Array ordering is canonical; duplicate, omitted, extra and stale records all fail. -/
@@ -186,7 +189,8 @@ def diagnosticJson (f : Finding) : Json :=
     ("mode", toJson (modeText d.mode)), ("claim", toJson d.claim),
     ("impact", .str (if d.impact == .violation then "violation" else "incomplete")),
     ("severity", toJson d.severity.spelling),
-    ("text", toJson d.text), ("remedy", toJson (descriptor id).remedy), ("helpUrl", toJson (helpUrl id))]
+    ("text", toJson d.text), ("remedy", toJson (descriptor id).remedy),
+    ("helpUrl", toJson (helpUrl id))]
 
 /-- The guidance of one rule that fired in a run: what a consumer needs to comply without the
 website. `compliantExample` is null where the checked files are qualification inputs, and
@@ -215,7 +219,8 @@ theorem firedRules_nodup (ids : List RuleId) : (firedRules ids).Nodup :=
 /-- The `rules` member of a result: the guidance of every rule that fired, once each. -/
 def rulesJson (ids : List RuleId) : Json := toJson ((firedRules ids).map guidanceJson)
 
-/-- Website artifact admission uses actual produced pages, not descriptors pretending to be pages. -/
+/-- Website artifact admission uses actual produced pages, not descriptors pretending to be
+pages. -/
 structure Page where
   /-- The rule the page documents. -/
   rule : RuleId

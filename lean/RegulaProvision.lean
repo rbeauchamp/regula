@@ -89,7 +89,8 @@ toolchain and records no package the copy pins at a different revision. -/
 def admits (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin) : Bool :=
   receipt.schemaVersion == receiptSchema && receipt.mathlibRev == mathlibRev &&
     receipt.leanGithash == githash &&
-    pins.all fun pin => receipt.packages.all fun held => held.name != pin.name || held.rev == pin.rev
+    pins.all fun pin => receipt.packages.all fun held => held.name != pin.name ||
+                                                          held.rev == pin.rev
 
 /-- Admission is sound: when it admits, the revision and toolchain match, and no admitted pin
 names a package that the receipt records at another revision. -/
@@ -299,7 +300,9 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String) : IO Un
     cmd, args, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
-    throw <| IO.userError s!"provisioning: `{cmd} {" ".intercalate args.toList}` in {cwd} failed ({exit})"
+    throw <|
+        IO.userError
+            s!"provisioning: `{cmd} {" ".intercalate args.toList}` in {cwd} failed ({exit})"
 
 private def say (line : String) : IO Unit := IO.println s!"provisioning: {line}"
 
@@ -324,7 +327,8 @@ private def observe (path : FilePath) : IO Observed := do
     let reports ← [#["status", "--porcelain"], #["stash", "list"],
       #["rev-list", "-n", "1", "HEAD", "--branches", "--not", "--remotes"]].mapM (run path "git")
     let head := if head.exitCode == 0 then some head.stdout.trimAscii.toString else none
-    return .directory head (reports.all fun ran => ran.exitCode == 0 && ran.stdout.trimAscii.isEmpty)
+    return .directory head
+        (reports.all fun ran => ran.exitCode == 0 && ran.stdout.trimAscii.isEmpty)
   | some _ => return .other
 
 /-- Remove what `observe` classified, never following a link into its target. -/
@@ -402,7 +406,9 @@ private def readPins (repo : FilePath) : IO (Option (Json × Pins)) := do
   let decoded ← IO.ofExcept (entries.filterMapM gitPin)
   let some (_, mathlibPin, url) := decoded.find? (·.2.1.name == "mathlib") | return none
   unless isObjectName mathlibPin.rev do
-    throw <| IO.userError s!"provisioning: the pinned Mathlib revision '{mathlibPin.rev}' is not a commit"
+    throw <|
+        IO.userError
+            s!"provisioning: the pinned Mathlib revision '{mathlibPin.rev}' is not a commit"
   unless url.all (fun c => c != '"' && c != '\\' && c != '\n') do
     throw <| IO.userError s!"provisioning: the pinned Mathlib URL '{url}' is not a plain URL"
   for (_, pin, _) in decoded do
@@ -479,7 +485,9 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
       |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n"
     let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do
-      throw <| IO.userError s!"provisioning: the staged toolchain is {githash}, not the running {Lean.githash}"
+      throw <|
+          IO.userError
+              s!"provisioning: the staged toolchain is {githash}, not the running {Lean.githash}"
     -- `cache get` unpacks into the workspace's default `.lake/packages` and ignores a custom
     -- packages directory, so the staging workspace keeps the default.
     stream staging "lake" #["exe", "cache", "get"]
@@ -494,7 +502,10 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
       let head := (← require entry.path "git" #["rev-parse", "HEAD"]).trimAscii.toString
       if let some (_, pin) := pins.git.find? (·.2.name == entry.fileName) then
         unless pin.rev == head do
-          throw <| IO.userError s!"provisioning: {entry.fileName} materialized at {head}, not the pinned {pin.rev}"
+          throw <|
+              IO.userError
+                  s!"provisioning: {entry.fileName} materialized at {head}, not the \
+                    pinned {pin.rev}"
       held := held.push ⟨entry.fileName, head⟩
       dirs := dirs.push entry.path
     let receipt : Receipt := {
@@ -649,7 +660,8 @@ private def linkExamples (repo : FilePath) (packagesDir : FilePath) : IO Unit :=
   unless ← examples.isDir do return
   let rootPackages := (← IO.FS.realPath (repo / packagesDir)).toString
   for entry in ← examples.readDir do
-    unless ← (entry.path / "lakefile.lean").pathExists <||> (entry.path / "lakefile.toml").pathExists do
+    unless ← (entry.path / "lakefile.lean").pathExists <||>
+        (entry.path / "lakefile.toml").pathExists do
       continue
     let path := entry.path / ".lake" / "packages"
     let observed ← observe path
@@ -662,7 +674,8 @@ private def linkExamples (repo : FilePath) (packagesDir : FilePath) : IO Unit :=
         IO.FS.removeFile path
         installLink path ("../../.." / packagesDir).toString
         say s!"relinked {path} to the root packages"
-    | _ => say s!"left {path} as it is: it is not a link to the root packages; remove it to share them"
+    | _ =>
+        say s!"left {path} as it is: it is not a link to the root packages; remove it to share them"
 
 /-- Provision this copy. -/
 def provision (repo : FilePath) : IO Unit := do
@@ -695,7 +708,8 @@ end RegulaProvision
 /-- Standalone entrypoint, run by `scripts/provision.sh` in the repository root. -/
 def main : IO Unit := do
   if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
-    IO.println "provisioning: skipped on GitHub Actions (CI provisions .lake/packages with `lake exe cache get`)"
+    IO.println "provisioning: skipped on GitHub Actions (CI provisions .lake/packages with `lake \
+      exe cache get`)"
     return
   if System.Platform.isWindows then
     IO.println "provisioning: not supported on Windows; provision with `lake exe cache get`"

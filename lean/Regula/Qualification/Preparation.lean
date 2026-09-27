@@ -38,7 +38,8 @@ def check : IO Unit := do
         pure (root / name, ← IO.FS.readBinFile (root / name)))
       let rootSources ← modulePaths.mapM (fun path => do
         pure (path, ← IO.FS.readBinFile path))
-      IO.println s!"prep phase: input capture: root sources={rootSources.size} configs={rootConfigs.size} deps={deps.size}"
+      IO.println s!"prep phase: input capture: root sources={rootSources.size} \
+        configs={rootConfigs.size} deps={deps.size}"
       let totalStart ← IO.monoMsNow
       let slot : Slot.ProducerSlot := ⟨scratch / "slot"⟩
       IO.FS.createDirAll slot.root

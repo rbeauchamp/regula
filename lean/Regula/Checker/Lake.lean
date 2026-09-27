@@ -123,9 +123,12 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
         sources := sources.push { «module» := exe.root.name, source }
       let root ← IO.FS.realPath package.dir
       let configurationPaths := #[package.configFile, package.manifestFile,
-        package.dir / "lean-toolchain", package.dir / "lakefile.lean", package.dir / "lakefile.toml"]
+        package.dir / "lean-toolchain", package.dir / "lakefile.lean",
+            package.dir / "lakefile.toml"]
         |>.toList.eraseDups.toArray
-      pure ({ package := package.baseName.toString, root, sources, configurationPaths } : DependencyInventory)
+      pure
+          ({ package := package.baseName.toString, root, sources, configurationPaths } :
+              DependencyInventory)
     let root ← IO.FS.realPath repo
     return { root, leanLibDir, leanPath, leanSrcPath, libraries, executables, dependencies }
 
@@ -185,7 +188,8 @@ def buildCheckedObservation (repo : FilePath) (targets : Array String)
     -- that context so public-gate qualification can identify the obligation.
     else if !(errorLines build.output).isEmpty then outputLines build.output
     else takeLast 20 (outputLines build.output)
-  return (build, some (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
+  return (build, some
+      (#[s!"FAIL[build-failed]: positive surface did not build {mode} and warning-free"]
     ++ diagnostics))
 
 /-- Compatibility diagnostic projection. Acceptance callers retain the process observation. -/

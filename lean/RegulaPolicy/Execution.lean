@@ -4,7 +4,8 @@ import Regula.Contract
 /-! # Execution decisions
 
 Executable execution decisions and their exact finite-observation specification.
-Neither policy equivalence nor admitted origin data proves extraction or native runtime correctness. -/
+Neither policy equivalence nor admitted origin data proves extraction or native runtime
+correctness. -/
 namespace RegulaPolicy
 /-- Which execution rule a failure belongs to. -/
 inductive ExecutionFailureKind where
@@ -38,7 +39,8 @@ instance (claim : ExecutionClaim) (b : ExecutionBoundary) : Decidable (BoundaryO
 Completeness of actual execution-root/closure extraction is a separate operational obligation. -/
 def ExecutionOK (inventory : ExecutionInventory) (claim : ExecutionClaim) : Prop :=
   ∀ r ∈ inventory.roots, r.unresolved = #[] ∧ ∀ b ∈ r.boundaries, BoundaryOK claim b
-instance (inventory : ExecutionInventory) (claim : ExecutionClaim) : Decidable (ExecutionOK inventory claim) := by
+instance (inventory : ExecutionInventory) (claim : ExecutionClaim) : Decidable
+    (ExecutionOK inventory claim) := by
   unfold ExecutionOK; infer_instance
 
 /-- One boundary's deterministic diagnostic, retaining unresolved-before-trusted precedence. -/
@@ -64,7 +66,8 @@ def executionFailureRecords (inventory : ExecutionInventory)
   inventory.roots.flatMap (fun root => rootFailures root claim)
 
 /-- All and only boundary-policy violations produce a failure. -/
-theorem boundaryFailures_empty_iff (r : ExecutionRoot) (c : ExecutionClaim) (b : ExecutionBoundary) :
+theorem boundaryFailures_empty_iff (r : ExecutionRoot) (c : ExecutionClaim)
+    (b : ExecutionBoundary) :
     boundaryFailures r c b = #[] ↔ BoundaryOK c b := by
   unfold boundaryFailures BoundaryOK
   cases c <;> cases hb : b.correspondence <;> simp

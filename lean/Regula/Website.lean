@@ -34,7 +34,8 @@ inductive ExampleOutcome where
 
 /-- Succeeds when `outcome` meets `expected` as each `ExampleExpectation` constructor states;
 otherwise fails with the mismatch, including for any incomplete outcome. -/
-def validateExample (expected : ExampleExpectation) (outcome : ExampleOutcome) : Except String Unit := do
+def validateExample (expected : ExampleExpectation) (outcome : ExampleOutcome) :
+    Except String Unit := do
   match expected, outcome with
   | .positive, .checked findings false =>
       unless findings.isEmpty do throw "unexpected diagnostics in positive example"
@@ -43,7 +44,8 @@ def validateExample (expected : ExampleExpectation) (outcome : ExampleOutcome) :
   | .compilerRejection text, .compilerRejected messages =>
       unless messages.any (RegulaPolicy.matchesPattern text) do throw "wrong compiler rejection"
   | .policyRejection rule subreason, .checked findings false =>
-      unless !subreason.isEmpty && subreason == (descriptor rule).applicability && findings.size == 1 do
+      unless !subreason.isEmpty && subreason == (descriptor rule).applicability &&
+          findings.size == 1 do
         throw "wrong policy diagnostic expectation"
       let some finding := findings[0]? | throw "missing policy diagnostic"
       unless finding.1 == rule && finding.2.impact == .violation do throw "wrong policy rejection"
@@ -156,7 +158,8 @@ def FindingBound (binding : ExampleBinding) (finding : Finding) : Prop :=
   | .source source => source.val.snapshot ∈ binding.snapshot.val.sources
   | .module name => name ≠ .anonymous
   | .project identity => identity ≠ ""
-instance (binding : ExampleBinding) (finding : Finding) : Decidable (FindingBound binding finding) := by
+instance (binding : ExampleBinding) (finding : Finding) : Decidable
+    (FindingBound binding finding) := by
   unfold FindingBound
   cases finding.2.location <;> infer_instance
 
@@ -260,7 +263,8 @@ theorem demonstration_not_accepted (request : DemonstrationRequest)
     (observed : BoundObservation) (h : DemonstrationOK request observed)
     (expected : ExampleExpectation) (findings : Array Finding) :
     validateBoundExample request.binding expected findings observed ≠ .ok () := by
-  obtain ⟨actual, outcome, f, member, impact⟩ := demonstration_observed_incomplete request observed h
+  obtain ⟨actual, outcome, f, member, impact⟩ := demonstration_observed_incomplete request
+      observed h
   have incomplete : actual.any (fun f => f.2.impact == .incomplete) = true := by
     rw [Array.any_eq_true']
     exact ⟨f, member, by rw [impact]; rfl⟩
@@ -287,6 +291,7 @@ def validateArtifact (p : ProducerIdentity) (manifest artifact : Json) : Except 
   unless artifact == Json.mkObj [("required", toJson (required.map ruleJson)),
     ("emitted", toJson (emitted.map ruleJson)), ("pages", toJson rawPages)] do
     throw "unknown artifact fields"
-  unless emitted.all (fun id => required.contains id) do throw "emitted diagnostic has no required page"
+  unless emitted.all (fun id => required.contains id) do
+      throw "emitted diagnostic has no required page"
   validatePages p manifest required pages
 end Regula.Website

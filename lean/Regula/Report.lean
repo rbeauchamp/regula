@@ -144,7 +144,13 @@ exact-field JSON codec. -/
 abbrev Declaration := RegulaPolicy.Declaration
 deriving instance ToJson for RegulaPolicy.Declaration
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
-  exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial", "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private", "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints", "valueConstants", "unsafeRecValueOrigin", "unsafeRecValueExact", "unsafeRecValueDefeq", "unsafeRecEquationExact", "unsafeRecEquationDefeq", "unsafeRecEquationAxioms", "nativeBoolShape", "nativeReplay", "nativeUseParents", "ranges", "axioms", "executableContract"]
+  exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
+      "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
+          "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
+              "valueConstants", "unsafeRecValueOrigin", "unsafeRecValueExact",
+                  "unsafeRecValueDefeq", "unsafeRecEquationExact", "unsafeRecEquationDefeq",
+                      "unsafeRecEquationAxioms", "nativeBoolShape", "nativeReplay",
+                          "nativeUseParents", "ranges", "axioms", "executableContract"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -201,7 +207,9 @@ instance : ToJson ExecutionBoundary := ⟨fun b => Json.mkObj [
   ("evidence", toJson b.evidence), ("compilerCallers", toJson b.compilerCallers),
   ("nativeOrigin", toJson b.account.nativeOrigin?)]⟩
 instance : FromJson ExecutionBoundary := ⟨fun j => do
-  exactFields j ["occurrence", "name", "module", "boundary", "correspondence", "owned", "replacement", "evidence", "compilerCallers", "nativeOrigin"]
+  exactFields j
+      ["occurrence", "name", "module", "boundary", "correspondence", "owned", "replacement",
+          "evidence", "compilerCallers", "nativeOrigin"]
   let boundary ← j.getObjValAs? BoundaryKind "boundary"
   let state ← j.getObjValAs? Correspondence "correspondence"
   let detail ← j.getObjValAs? (Option String) "evidence"
@@ -228,7 +236,8 @@ instance : FromJson RegulaPolicy.ExecutionVisit := ⟨fun j => do
 deriving instance ToJson for RegulaPolicy.ExecutionClosure
 instance : FromJson RegulaPolicy.ExecutionClosure := ⟨fun j => do
   exactFields j ["nodes", "visits", "logicalEdges", "candidateEdges", "historyEdges",
-    "currentReplacementEdges", "activeSimplificationEdges", "helperEdges", "requiredCode", "unavailableCode"]
+    "currentReplacementEdges", "activeSimplificationEdges", "helperEdges", "requiredCode",
+        "unavailableCode"]
   return {
     nodes := ← j.getObjValAs? _ "nodes"
     visits := ← j.getObjValAs? _ "visits"

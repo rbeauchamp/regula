@@ -71,7 +71,8 @@ theorem mapM_eq_ok {α β ε : Type} (g : α → Except ε β) :
         cases out with
         | nil => simp at hl
         | cons c cs =>
-          have := (ih cs).mpr ⟨by simpa using hl, fun i h h' => hi (i+1) (Nat.succ_lt_succ h) (Nat.succ_lt_succ h')⟩
+          have := (ih cs).mpr
+              ⟨by simpa using hl, fun i h h' => hi (i+1) (Nat.succ_lt_succ h) (Nat.succ_lt_succ h')⟩
           rw [hr] at this; cases this
       | ok bs =>
         have hbs := (ih bs).mp hr
@@ -88,7 +89,9 @@ theorem mapM_eq_ok {α β ε : Type} (g : α → Except ε β) :
           | cons c cs =>
             have h0 := hi 0 (by simp) (by simp)
             simp [ha] at h0
-            have := (ih cs).mpr ⟨by simpa using hl, fun i h h' => hi (i+1) (Nat.succ_lt_succ h) (Nat.succ_lt_succ h')⟩
+            have := (ih cs).mpr
+                ⟨by simpa using hl, fun i h h' => hi (i+1) (Nat.succ_lt_succ h)
+                                                   (Nat.succ_lt_succ h')⟩
             rw [hr] at this
             cases this
             simp [h0]
