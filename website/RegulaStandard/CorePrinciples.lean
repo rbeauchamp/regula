@@ -50,9 +50,10 @@ Prefer raw boundary data, then proof-producing admission, then immutable domain 
 import Mathlib.Basic.NNReal.Defs
 
 /-- A resource whose capacity is non-negative. The proof of the invariant is
-    carried by Mathlib's canonical `NNReal` subtype. The outer structure keeps
-    the domain concept nominally distinct. -/
+carried by Mathlib's canonical `NNReal` subtype. The outer structure keeps
+the domain concept nominally distinct. -/
 structure Resource where
+  /-- The non-negative capacity. -/
   capacity : NNReal
 
 /-- Smart constructor: callers cannot build a `Resource` without the proof. -/
@@ -67,9 +68,12 @@ A direct construction cannot bypass the obligation. The anonymous-constructor fo
 ```lean (fails := "Insufficient number of fields|failed to synthesize")
 import Mathlib.Basic.NNReal.Defs
 
+/-- A resource with a non-negative capacity. -/
 structure Resource where
+  /-- The resource's capacity. -/
   capacity : NNReal
 
+/-- Attempt to build a resource from a negative real capacity. -/
 def bad : Resource := ⟨⟨(-1 : ℝ)⟩⟩
 ```
 
@@ -80,9 +84,9 @@ import Audit.Server
 open Glossary
 
 /-- On success, downstream code receives the bound as an ordinary Lean proof. -/
-example (served cap : Nat) :
-    ∀ s, Server.validate served cap = some s → s.served ≤ s.cap :=
-  fun s _ => s.bounded
+example (served cap : Nat) (s : Server) (_h : Server.validate served cap = some s) :
+    s.served ≤ s.cap :=
+  s.bounded
 
 /-- The validator rejects exactly invalid inputs; it cannot silently reject valid ones. -/
 example (served cap : Nat) :
@@ -120,25 +124,27 @@ number := false
 import Mathlib.Analysis.SpecialFunctions.Exp  -- `Real.exp`
 import Mathlib.Order.Monotone.Basic
 
-/-- Specification: a function that is monotone and non-negative -/
+/-- Specification: a function that is monotone and non-negative. -/
 structure GrowthFunction where
+  /-- The underlying real function. -/
   func : ℝ → ℝ
+  /-- The function is monotone and non-negative. -/
   property : Monotone func ∧ ∀ t, 0 ≤ func t
 
 /-- State the theorem that the intended implementation has the property.
-    This can be a private lemma used to construct the final object. -/
-private theorem exponentialGrowth_has_property (rate : ℝ) (h : 0 < rate) :
-    Monotone (fun t => Real.exp (rate * t)) ∧ ∀ t, 0 ≤ Real.exp (rate * t) := by
+This can be a private lemma used to construct the final object. -/
+private theorem exp_mul_monotone_and_nonneg (rate : ℝ) (h : 0 < rate) :
+    Monotone (fun t ↦ Real.exp (rate * t)) ∧ ∀ t, 0 ≤ Real.exp (rate * t) := by
   constructor
   · intro t₁ t₂ ht
     exact Real.exp_le_exp.mpr (mul_le_mul_of_nonneg_left ht (le_of_lt h))
   · intro t
     exact le_of_lt (Real.exp_pos _)
 
-/-- Implement a function that RETURNS the function AND its proof, bundled.
-    The return type `GrowthFunction` guarantees the properties. -/
-noncomputable def makeGrowingResource (rate : ℝ) (h : 0 < rate) : GrowthFunction :=
-  ⟨fun t => Real.exp (rate * t), exponentialGrowth_has_property rate h⟩
+/-- A function that RETURNS the function AND its proof, bundled.
+The return type `GrowthFunction` guarantees the properties. -/
+noncomputable def exponentialGrowth (rate : ℝ) (h : 0 < rate) : GrowthFunction :=
+  ⟨fun t ↦ Real.exp (rate * t), exp_mul_monotone_and_nonneg rate h⟩
 ```
 
 If this definition claims to return a monotone, non-negative function, omitting the proof-bearing field or an equivalent theorem leaves the claim unverified. The bundled form encodes monotonicity and non-negativity in the return type.
@@ -192,6 +198,7 @@ An abstraction boundary is a separate claim: an opaque package can hide a concre
 -- definition computes a Float fold whose result depends on evaluation order and
 -- rounding. The defect is the unproved identification, not the use of Float.
 -- A claim about this function must state Float semantics (module 4 §4.1).
+/-- The `Float` sum of `resources`, accumulated from left to right with rounding. -/
 def efficientResourceSum (resources : Array Float) : Float := Id.run do
   let mut sum := 0.0
   for r in resources do
@@ -229,14 +236,19 @@ import Mathlib.Algebra.Order.Monoid.Defs
 import Mathlib.Basic.NNReal.Defs
 
 /-- Pure composition reuses Mathlib's lawful `Monoid` interface and `List.prod`;
-    there is no duplicate hand-written associativity/identity structure. -/
+there is no duplicate hand-written associativity/identity structure. -/
 def totalResources {R : Type*} [Monoid R] (resources : List R) : R :=
   resources.prod
 
-/-- A domain operation requires Mathlib's lawful interface directly; no
-    one-field wrapper class duplicates the hierarchy. -/
-def combineResources {R : Type*} [AddCommMonoid R] [Preorder R]
-    [IsOrderedAddMonoid R] (a b : R) : R := a + b
+/-- A domain operation over Mathlib's lawful additive interface; no one-field
+wrapper class duplicates the hierarchy. -/
+def combineResources {R : Type*} [AddCommMonoid R] (a b : R) : R := a + b
+
+/-- Its order law requires Mathlib's `IsOrderedAddMonoid` mixin directly. -/
+theorem combineResources_le_combineResources {R : Type*} [AddCommMonoid R] [Preorder R]
+    [IsOrderedAddMonoid R] {a b : R} (h : a ≤ b) (c : R) :
+    combineResources a c ≤ combineResources b c :=
+  add_le_add_left h c
 
 /-- Mathlib already supplies the ordered-additive laws for NNReal. -/
 example : IsOrderedAddMonoid NNReal := inferInstance
@@ -248,9 +260,13 @@ example (a b c : NNReal) (h : a ≤ b) : a + c ≤ b + c := add_le_add_left h c
 *Anti-Pattern - An Inadequate Group Interface*: This structure declares a binary operation and an identity candidate, but no inverse operation or group laws. It does not specify a group. Use Mathlib’s `Group` interface when a group is intended; even a complete custom group definition would require justification for duplicating that interface.
 
 ```lean
+/-- A carrier with a binary operation and a designated element: not a group. -/
 structure MyGroup where
+  /-- The underlying type. -/
   carrier : Type
+  /-- A binary operation on the carrier. -/
   op : carrier → carrier → carrier
+  /-- A designated element; nothing states that it is an identity for `op`. -/
   id : carrier
   -- The inverse operation and proofs of the group laws are missing.
 ```
@@ -277,8 +293,8 @@ number := false
 import Mathlib.Tactic.NormNum
 
 /-- A quorum ratio: the type excludes 0, 1, and every value outside the unit
-    interval, by proof. Changing the value is a one-line change; silently
-    changing it to an invalid one is an elaboration error. -/
+interval, by proof. Changing the value is a one-line change; silently
+changing it to an invalid one is an elaboration error. -/
 def minimumQuorum : {q : ℚ // 0 < q ∧ q < 1} := ⟨2/3, by norm_num⟩
 
 /-- The parameter is usable as an ordinary rational everywhere. -/
@@ -305,8 +321,8 @@ number := false
 ```text
 Given:  structure SystemState with invariant field  inv : activeProposals ≤ participants
 Lean theorem:
-  compose_preserves_safety (f g : SystemState → SystemState) :
-      ∀ s, ((f ∘ g) s).activeProposals ≤ ((f ∘ g) s).participants
+  comp_activeProposals_le_participants (f g : SystemState → SystemState)
+      (s : SystemState) : ((f ∘ g) s).activeProposals ≤ ((f ∘ g) s).participants
 Exactly what it says: values of SystemState satisfy the invariant; composition of any
 functions on them preserves it.
 What it does NOT say: that any external system's states satisfy anything, that the model

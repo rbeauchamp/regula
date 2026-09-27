@@ -26,7 +26,9 @@ tag := "51-inline-documentation-requirements"
 number := false
 %%%
 
-*Requirement*: Every public declaration used as evidence for a material normative claim MUST have a docstring identifying its formal purpose and accurately stating the claim it supports. Describe the relevant domain, hypotheses, result, and invariant boundary. Claims must follow from the elaborated type, the definition, or a proved contract about that definition. Docstrings on private helpers and trivial implementation details are recommended when useful but are not required for conformance.
+*Requirement*: Every public declaration used as evidence for a material normative claim MUST have a docstring identifying its formal purpose and accurately stating the claim it supports. Describe the relevant domain, hypotheses, result, and invariant boundary. Claims must follow from the elaborated type, the definition, or a proved contract about that definition.
+
+*Community baseline*: Every public definition in a claimed library MUST also have a docstring, as the Lean community requires. {ref "67-community-conventions-and-linters"}[Section 6.7] makes every claimed library enable Lean's `linter.missingDocs`, which reports each public definition, structure, class, inductive type, constructor, and field without one, and the warning-free elaboration of §8.3 (RG2003) rejects each report. Documenting every major theorem, which Mathlib's [documentation requirements](https://leanprover-community.github.io/contribute/doc.html) also ask for and no enabled linter checks, is RECOMMENDED. The material requirement above is stricter than this baseline: RG5002 checks that each registered material declaration has a docstring and RG5003 that it has an Intent section, whatever linter options are set. One community allowance does not apply to those docstrings: Mathlib's guide lets a docstring "lie slightly" about the actual implementation, while a docstring supporting a material claim states the claim exactly (§5.2).
 
 A function's type may constrain its inputs and outputs without specifying their relationship. For example, `Probability → Probability` ensures the output is a probability but does not specify which probability is returned. Document the defining operation or cite the theorem that establishes the promised relationship.
 
@@ -45,12 +47,12 @@ Use these components as prompts, with detail proportionate to the claim. A short
 import Mathlib.Topology.UnitInterval
 
 /-- A real value in `[0, 1]`, reusing Mathlib's closed unit interval.
-    This type represents a scalar probability, not a probability distribution. -/
+This type represents a scalar probability, not a probability distribution. -/
 abbrev Probability : Type := unitInterval
 
 /-- Unit-interval complement: the underlying value is `1 - p.val`.
-    Mathlib's `unitInterval.symm` constructs the result with its bound proof.
-    This wrapper preserves the example's vocabulary for that operation. -/
+Mathlib's `unitInterval.symm` constructs the result with its bound proof.
+This wrapper preserves the example's vocabulary for that operation. -/
 def Probability.complement (p : Probability) : Probability :=
   unitInterval.symm p
 
@@ -99,27 +101,42 @@ number := false
 
 *Requirement*: Every module in a claimed surface MUST have a module docstring identifying the material declarations and assumptions relevant to that surface. Explain the module's role and any dependencies needed to understand those claims. Hierarchical grouping is a navigation recommendation. Actual module dependencies come from imports, with Lake defining build targets and discovered surfaces.
 
-Use `/-- ... -/` for a declaration docstring and `/-! ... -/` for module documentation. Adapt the following template to the actual module. Keep the sections that help readers understand it, and replace the placeholders with its declarations and claims.
+Use `/-- ... -/` for a declaration docstring and `/-! ... -/` for module documentation. The module docstring MUST come directly after the imports, as the Lean community requires (in a file with a `module` header, before any `public section`; §6.7 states which check covers this). Follow the form of Mathlib's [documentation requirements](https://leanprover-community.github.io/contribute/doc.html): start it with a first-level `#` title followed by a summary, and use the community's section names. Regula adds one section, *Assumptions and dependencies*, which carries the assumptions this requirement asks for. Adapt the following template to the actual module. Keep the sections that help readers understand it, and replace the placeholders with its declarations and claims.
 
 ```lean
 /-!
 # Module title
 
-Purpose and scope of this module.
+Summary: the purpose and scope of this module.
 
-## Main declarations
+## Main definitions
 
 - `definitionName`: the object or operation defined.
-- `theoremName`: its exact result and material hypotheses.
+
+## Main statements
+
+- `theorem_name`: its exact result and material hypotheses.
 
 ## Assumptions and dependencies
 
 Definitions or interfaces needed to interpret the results, and any relevant
 foundation or execution boundary. Link to the declarations that supply them.
 
-## Design notes and references
+## Notation
 
-Reasons for non-obvious choices and sources needed to understand the mathematics.
+Notation the module introduces, if any.
+
+## Implementation notes
+
+Reasons for non-obvious choices.
+
+## References
+
+Sources needed to understand the mathematics.
+
+## Tags
+
+Search keywords.
 -/
 ```
 
@@ -145,32 +162,25 @@ The helper below states that union folding preserves membership in its initial a
 import Mathlib.Data.Set.Basic
 
 /-- Union folding preserves every member of the initial accumulator. -/
-lemma mem_foldl_union_acc {α : Type}
-    (l : List (Set α)) (acc : Set α) (x : α) :
-    x ∈ acc → x ∈ l.foldl (· ∪ ·) acc := by
-  intro h_acc
+theorem mem_foldl_union_of_mem {α : Type} {x : α} (l : List (Set α)) (acc : Set α)
+    (hx : x ∈ acc) : x ∈ l.foldl (· ∪ ·) acc := by
   -- The next step uses acc ∪ hd, so induction must allow a new accumulator.
   induction l generalizing acc with
-  | nil =>
-    exact h_acc
+  | nil => exact hx
   | cons hd tl ih =>
-    show x ∈ tl.foldl (· ∪ ·) (acc ∪ hd)
-    exact ih (acc ∪ hd) (Set.mem_union_left hd h_acc)
+    rw [List.foldl_cons]
+    exact ih (acc ∪ hd) (Set.mem_union_left hd hx)
 
 /-- Every member of every input set belongs to the union-fold result,
-    for any initial accumulator. -/
-theorem fold_union_preserves_all {α : Type}
-    (l : List (Set α)) (init : Set α) :
-    ∀ s ∈ l, ∀ x ∈ s, x ∈ l.foldl (· ∪ ·) init := by
+for any initial accumulator. -/
+theorem mem_foldl_union_of_mem_of_mem {α : Type} {x : α} {s : Set α} {l : List (Set α)}
+    (init : Set α) (hs : s ∈ l) (hx : x ∈ s) : x ∈ l.foldl (· ∪ ·) init := by
   induction l generalizing init with
-  | nil =>
-    simp
+  | nil => simp at hs
   | cons hd tl ih =>
-    intro s hs x hx
-    rcases List.mem_cons.mp hs with h_eq | h_tail
-    · subst s
-      exact mem_foldl_union_acc tl (init ∪ hd) x (Set.mem_union_right init hx)
-    · exact ih (init ∪ hd) s h_tail x hx
+    rcases List.mem_cons.mp hs with rfl | h_tail
+    · exact mem_foldl_union_of_mem tl _ (Set.mem_union_right init hx)
+    · exact ih (init ∪ hd) h_tail
 ```
 
 The theorems establish membership preservation for arbitrary initial sets. Exact contents additionally requires the converse: every result member belongs to the initial accumulator or an input set. Establish that direction from the actual fold definition or a suitable checked theorem.
@@ -183,10 +193,10 @@ Core's `String.append_eq_left_iff` states that appending a suffix leaves a strin
 import Init.Data.String.Lemmas.Basic
 
 /-- Appending a nonempty suffix changes every string. -/
-theorem string_append_ne_self (s : String) (suffix : String)
-    (h_suffix_ne : suffix ≠ "") : s ≠ s ++ suffix := by
+theorem String.self_ne_append_of_ne_empty (s suffix : String) (h : suffix ≠ "") :
+    s ≠ s ++ suffix := by
   intro h_eq
-  exact h_suffix_ne (String.append_eq_left_iff.mp h_eq.symm)
+  exact h (String.append_eq_left_iff.mp h_eq.symm)
 ```
 
 Use comments to explain a mathematical choice, a strengthened induction hypothesis, or a necessary case distinction. Prefer names and proof structure when they convey the point. Remove comments that only repeat the adjacent tactic.

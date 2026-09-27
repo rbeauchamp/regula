@@ -1,7 +1,5 @@
 module
 
-@[expose] public section
-
 /-! # Sections of the standard that rules cite
 
 The standard's only source is the Verso library `RegulaStandard` of the package in `website/`;
@@ -27,6 +25,8 @@ requires the coverage map to link exactly the rendered checklist rows, the eleme
 chapter is written in that module is by inspection. The published site's links are the site
 build's link check. Nothing here reads the standard.
 -/
+
+@[expose] public section
 
 namespace Regula
 

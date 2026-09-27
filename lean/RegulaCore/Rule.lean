@@ -5,8 +5,6 @@ public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
 
-@[expose] public section
-
 /-! Shared metadata. See RuleId for con-leche attribution and docs/guides/rule-registry.md
 for the boundary between existing checker detection and planned product adapters.
 
@@ -16,6 +14,9 @@ The registry is the one source of each rule's agent-facing guidance: its one-lin
 Findings (`RegulaCore.Feedback`), the `regula` command and agent briefing
 (`RegulaCore.Guidance`), the registry and result exports and the website are generated from
 them. -/
+
+@[expose] public section
+
 namespace Regula
 
 abbrev EvidenceMode := RegulaPolicy.EvidenceMode
@@ -453,13 +454,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "source-build"
       availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
-      requirement := "Every claimed module elaborates from source without errors or warnings, with no warning or linter disabled."
+      requirement := "Every claimed module elaborates from source without errors or warnings; Lean's default warnings stay enabled, and disabling a linter never discharges what it checks."
       rationale := "Warnings often mark real defects (unused hypotheses, deprecated semantics, unreachable cases). Treating them as failures keeps the elaborated statements exactly those the author intended, and prevents a local option from changing what conformance means."
-      remedy := "Fix the compiler diagnostic at its source. Do not disable the warning or linter that reported it."
+      remedy := "Fix the compiler diagnostic at its source. Never disable a Lean default warning; disable a community linter only for one declaration, where its guidance allows, with the reason."
       rewrites := [
         "Read the preserved compiler message, fix the cause and rebuild.",
         "Remove dead bindings or rename intentionally unused ones only when the name was genuinely unused; do not rename a variable that should have been used.",
-        "Do not add `set_option linter.… false`: disabling a linter hides its warning but does not discharge the property it checks."]
+        "Do not add `set_option linter.… false` for a Lean default warning such as `linter.unusedVariables`. A declaration-scoped `set_option linter.NAME false in` or `@[nolint NAME]` is only for a community linter, enabled by a dependency or the project, where its guidance allows, and establishes nothing the linter checks."]
       examples := {
         language := .lean
         audience := .adopter

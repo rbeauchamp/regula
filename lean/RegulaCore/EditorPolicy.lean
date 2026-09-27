@@ -3,8 +3,6 @@ module
 public import RegulaCore.Rule
 public import RegulaPolicy.Decision
 
-@[expose] public section
-
 /-! Pure decisions of the native editor linter (`Regula.Linter.Rules`): the request selected
 by the `regula.localFoundation` option and the per-declaration outcome. Each is a named `Prop`
 with a closed `ExecutableContract` registration that the linter runs. `RegulaCore.Policy`
@@ -15,6 +13,8 @@ registers the switch that gates every local finding: an audit build's import-tim
 (`auditBuildOption`) turns it off whatever the source's `linter.regula` value
 (`liveFeedback_auditBuild`). Collection, snapshots and message emission stay in the
 operational linter. -/
+
+@[expose] public section
 
 namespace Regula.Linter
 

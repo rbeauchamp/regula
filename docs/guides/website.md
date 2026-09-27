@@ -70,8 +70,13 @@ fails and removes `_site/`:
 - **The standard.** Every build removes the standard's earlier build outputs and elaborates it
   again, because Lake does not trace the root-package modules its examples import. Each `lean`
   block must elaborate as its kind requires (no error or warning, or an error matching its
-  pattern) in a fresh process whose environment is exactly the block's own imports, and
-  rendering resolves every cross-reference and checklist-row anchor. Classifying the same
+  pattern and no warning) in a fresh process whose environment is exactly the block's own
+  imports, with automatic implicits off and `linter.missingDocs` on, and
+  rendering resolves every cross-reference and checklist-row anchor. Every line of every code
+  block is at most 100 characters, the Lean community's limit, or the build fails; the
+  stylesheet wraps a line that does not fit the column instead of scrolling sideways. An
+  expected rejection is shown under the rule pages' verdict, *Rejected by Lean, as intended*,
+  with the error message that matched its pattern as the evidence. Classifying the same
   blocks' declarations and axioms is the documentation step of acceptance, not the site build.
 - **Links and base path.** Every `href` and `src` attribute the tokenizer finds in each
   HTML file of the artifact, archived snapshots included, is resolved against its page and `<base href>`, following RFC 3986 for

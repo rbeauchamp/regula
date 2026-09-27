@@ -55,8 +55,9 @@ your training data. Before writing or changing Lean, run `lake exe regula agent-
 follow it. `lake lint` enforces the rules and exits 0 accepted, 1 violation, 2 invalid
 configuration, 3 incomplete. Each finding states what is wrong, where, and the fix; for any
 rule ID, `lake exe regula explain <ID>` prints the full rule offline. For machine-readable
-findings run `lake lint -- --json-out tmp/regula.json`. Never disable a warning or linter,
-weaken a statement or remove a registration to make a check pass.
+findings run `lake lint -- --json-out tmp/regula.json`. Never disable a Lean warning, weaken a
+statement or remove a registration to make a check pass; disable a community linter only for
+one declaration, where its guidance allows, with the reason.
 ```
 
 This repository dogfoods the skill in
@@ -202,7 +203,9 @@ RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:2:6]: reflexi
   - If the statement is provable, prove it: replace `axiom name : P` by `theorem name : P := proof`.
   …
   compliant example (examples/rules/RG1001/Fixed.lean):
-    /-! Reflexivity for every natural number. -/
+    /-! # Reflexivity
+
+    Reflexivity for every natural number. -/
     theorem reflexive (n : Nat) : n = n := rfl
 RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:3:6]: symmetric: …
   fix: Turn the assumption into a hypothesis (…) (full guidance: first RG1001 finding above)
@@ -375,6 +378,74 @@ Use `lake lint -- --fresh` where the CI claim is fresh-source conformance. Incre
 evidence trusts Lake's build cache. Upload `tmp/regula.json` if another step consumes
 the machine result. Its `status` is `completed` only when the accepted result was
 constructed.
+
+### Community conventions and linters
+
+Regula's rules are Lean correctness rules.
+[Standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
+also requires the Lean community's baseline for style, naming and documentation form, as the
+community's own linters enforce it. The conventions are Mathlib's [style](https://leanprover-community.github.io/contribute/style.html),
+[naming](https://leanprover-community.github.io/contribute/naming.html) and
+[documentation](https://leanprover-community.github.io/contribute/doc.html) guides for code that
+depends on Mathlib, and Lean's
+[standard library style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md)
+and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md) for
+core-only code.
+
+- **Required linters.** Every claimed library enables Lean's `linter.missingDocs`, which
+  reports every public definition without a docstring, and, in a project that depends on
+  Mathlib, the syntax linters Mathlib builds with, except the three that enforce policies of
+  the Mathlib repository itself. Also turn off automatic implicits
+  ([standard §8.1](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#81-declare-the-elaboration-environment)):
+
+  ```toml
+  [leanOptions]
+  linter.missingDocs = true
+  autoImplicit = false
+  relaxedAutoImplicit = false
+  # With Mathlib: its standard set, without its Mathlib-repository linters.
+  weak.linter.mathlibStandardSet = true
+  weak.linter.style.header = false
+  weak.linter.hashCommand = false
+  weak.linter.style.longFile = 0
+  ```
+
+  Omit the last four lines in a project without Mathlib. The three excluded linters enforce
+  Mathlib's contribution header (copyright, Apache 2.0 license and authors), its ban on
+  `#` commands such as a passing `#guard`, and its file-length limit; standard §6.7 gives the
+  reasons. Turning off the header linter also turns off its checks that the module docstring is
+  the first command after the imports and that no import is repeated. Both remain requirements
+  (standard §5.3 and §6.4), which no linter or Regula rule then checks, so review does.
+  `lake new NAME math` already writes `weak.linter.mathlibStandardSet` and
+  `relaxedAutoImplicit`; add the rest. In `lakefile.lean` the same options are
+  ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
+  The linters report through build warnings, so `lake lint` reports each finding as RG2003
+  (`INCOMPLETE`, exit 3) with the linter's message. Regula does not check that the options are
+  set; review does. Where the community's guidance accepts an exception, such as a long URL,
+  disable that linter for the one declaration (`set_option linter.style.longLine false in`)
+  with a comment giving the reason. The same holds for every community linter, including those
+  Mathlib turns on for every importer, such as `linter.unusedTactic`. Never disable Lean's
+  default warnings, such as `linter.unusedVariables` or `warn.sorry`. Regula sees only emitted
+  warnings, so it cannot tell these cases apart; review checks every disable.
+- **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
+  recommended. They report through their own command, not build warnings. Run `lake build`
+  first: `runLinter` reads the built modules and does not rebuild them. Lake has one
+  `lintDriver` per package, so keep one driver and run the other as its own command:
+
+  ```sh
+  # lintDriver = "regula/lint"
+  lake lint && lake build && lake exe runLinter
+  # lintDriver = "batteries/runLinter"
+  lake build && lake lint && lake exe lint
+  ```
+
+  Each command's exit status covers only its own checks, so CI requires both.
+
+A community linter's pass establishes only what that linter checks. It discharges no other
+Regula requirement, and a Regula pass says nothing about style that no enabled linter checks.
+The configuration above was exercised on a Mathlib adopter in the `lake new` layout, and the
+Batteries routes on an earlier small adopter
+([product qualification](product-qualification.md#community-linters-beside-regula)).
 
 ## 7. Receive diagnostics while editing
 

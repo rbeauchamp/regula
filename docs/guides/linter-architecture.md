@@ -112,8 +112,11 @@ All initial rules are strict errors when applicable. Source-local options can co
 editor work but cannot authorize an exception in strict project mode. Keep only the technical
 exceptions already in §§8.4–8.6 (authenticated generated helpers, separately classified teaching
 native proofs, and origin-checked native-runtime boundaries). Excluded targets classify coverage;
-imports from a positive surface do not disappear because their target was excluded. There is no
-waiver or suppression policy added to the normative standard.
+imports from a positive surface do not disappear because their target was excluded. The
+normative standard adds no waiver or suppression policy for a rule; the declaration-scoped
+community-linter disable of
+[standard §6.2](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#62-module-purpose-and-linter-discipline)
+removes only that linter's warning and discharges no requirement.
 
 Proof obligations for #4/#5/#6/#7/#12: total rule metadata; injective external ID spelling;
 route uniqueness; faithful decoding; exact profile set membership and least-label classification;
@@ -153,7 +156,11 @@ transitive package resolution does not require compiling its mathematical module
   declarations supporting material normative claims. #13 must use explicit claim registration
   plus `findDocString?` and module-doc metadata for the scoped presence checks. Text adequacy
   remains review. Reuse Batteries/Mathlib linter tests only after demonstrating their predicate
-  and scope match; do not turn upstream optional style rules into universal strict rules.
+  and scope match; do not re-implement upstream style rules as Regula rules.
+  [Standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
+  instead requires claimed libraries to enable `linter.missingDocs` and, with Mathlib, Mathlib's
+  standard linter set, whose build warnings RG2003 rejects; no Regula detector checks those
+  options.
 - Lake [PackageConfig.lintDriver][lake-config] accepts `"regula/lint"` in either
   lakefile format. The `lint` executable is qualified end to end by the `lint-driver`
   campaign in both formats. The driver builds only explicit manifest-derived targets, never

@@ -4,11 +4,12 @@ public import Std.Data.ExtTreeSet
 public import Std.Data.ExtTreeMap
 public import Init.Data.List.Perm
 
-@[expose] public section
-
 /-! Canonical finite sets reuse Std's extensional ordered trees. Tree balancing is
 not observable equality. Sorted serialization, membership, normalization and equality
 are consequences of Std's laws, not a second hand-written set implementation. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open Std
 

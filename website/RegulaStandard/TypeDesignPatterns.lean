@@ -46,34 +46,41 @@ open Glossary
 
 /-- Closed vocabulary for the permission policy below. -/
 inductive EntityRole
+  /-- Submits proposals. -/
   | proposer
+  /-- Reviews proposals. -/
   | reviewer
+  /-- Observes without acting. -/
   | observer
+  /-- Administers the system. -/
   | administrator
   deriving Repr, DecidableEq
 
-/-- Permissions are derived from roles, not string parsing -/
+/-- Permissions are derived from roles, not string parsing. -/
 def EntityRole.canPropose : EntityRole → Bool
   | .proposer => true
   | .administrator => true
   | _ => false
 
+/-- Whether the role permits reviewing. -/
 def EntityRole.canReview : EntityRole → Bool
   | .reviewer => true
   | .proposer => true
   | .administrator => true
   | .observer => false
 
-/-- Type-safe role assignment with no string parsing.
-    (`Id`: wrap identifiers in a phantom-typed key per §2.3.) -/
+/-- Type-safe role assignment with no string parsing
+(`Id`: wrap identifiers in a phantom-typed key per §2.3). -/
 structure Entity where
+  /-- The entity's tagged identifier. -/
   id : Glossary.Id Glossary.EntityTag
-  roles : List EntityRole  -- Multiple roles; `Finset EntityRole` once dedup matters,
-                           -- via Mathlib.Data.Finset.Basic's richer API
+  /-- The assigned roles; use `Finset EntityRole` (from `Mathlib.Data.Finset.Basic`,
+  with its richer API) once duplicates matter. -/
+  roles : List EntityRole
 
 /-- Compute whether any assigned role permits proposing. -/
 def Entity.canPropose (e : Entity) : Bool :=
-  e.roles.any (fun r => r.canPropose)
+  e.roles.any (fun r ↦ r.canPropose)
 ```
 
 All four constructors have type `EntityRole`. The type restricts role values to that vocabulary; the functions compute permission decisions. An operation requiring permission must either enforce that decision or require corresponding proof evidence. The enumeration alone does not prevent an unauthorized operation.
@@ -83,10 +90,14 @@ All four constructors have type `EntityRole`. The type restricts role values to 
 ```lean
 import Init.Data.String.Search
 
+/-- An entity whose role is an unconstrained string. -/
 structure BadEntity where
+  /-- An untyped identifier. -/
   id : String
-  roleString : String  -- "proposer", "reviewer", etc.
+  /-- The role as free text, such as `"proposer"` or `"reviewer"`. -/
+  roleString : String
 
+/-- Whether the role text contains the substring `"proposer"`. -/
 def BadEntity.canPropose (e : BadEntity) : Bool :=
   e.roleString.contains "proposer"   -- substring search over an unconstrained value
 ```
@@ -120,36 +131,39 @@ open Glossary
 /-- A probability reuses Mathlib's canonical closed unit interval. -/
 abbrev Probability : Type := unitInterval
 
-/-- Smart constructor for probabilities -/
+/-- Smart constructor for probabilities. -/
 def mkProbability (p : ℝ) (h : 0 ≤ p ∧ p ≤ 1) : Probability := ⟨p, h⟩
 
 /-- Non-vacuity: at least one probability exists. This proves inhabitance,
-    nothing stronger. -/
+nothing stronger. -/
 example : Nonempty Probability := ⟨mkProbability 0 ⟨le_rfl, zero_le_one⟩⟩
 
 /-- Mathlib's interval symmetry proves complement closure once. -/
 def Probability.complement (p : Probability) : Probability :=
   unitInterval.symm p
 
-/-- Valid identifier: non-empty, alphanumeric with underscores -/
-def ValidIdentifier := {s : String // s.length > 0 ∧ s.all (fun c => c.isAlphanum || c = '_')}
+/-- Valid identifier: non-empty, alphanumeric with underscores. -/
+def ValidIdentifier := {s : String // 0 < s.length ∧ s.all (fun c ↦ c.isAlphanum || c = '_')}
 
-/-- Time intervals with proven ordering (`Time`: `import Audit.DocPrelude`) -/
+/-- Time intervals with proven ordering (`Time`: `import Audit.DocPrelude`). -/
 structure TimeInterval where
+  /-- The start time. -/
   start : Time
+  /-- The finish time. -/
   finish : Time
-  valid : start ≤ finish  -- Proof field ensures validity
+  /-- Proof field: the interval is ordered. -/
+  valid : start ≤ finish
 
-/-- Duration of an interval is provably non-negative -/
+/-- Duration of an interval is provably non-negative. -/
 def TimeInterval.duration (ti : TimeInterval) : {d : ℝ // 0 ≤ d} :=
   ⟨ti.finish.val - ti.start.val, by
     have hv : (ti.start.val : ℝ) ≤ ti.finish.val := NNReal.coe_le_coe.mpr ti.valid
     linarith⟩
 
-/-- Bounded collections with size guarantees -/
+/-- Bounded collections with size guarantees. -/
 def BoundedList (α : Type) (n : ℕ) := {l : List α // l.length ≤ n}
 
-/-- Adding requires proof we won't exceed bound -/
+/-- Adding requires proof we won't exceed bound. -/
 def BoundedList.cons {α : Type} {n : ℕ} (x : α) (bl : BoundedList α n)
     (h : bl.val.length < n) : BoundedList α n :=
   ⟨x :: bl.val, by
@@ -162,8 +176,10 @@ The shared glossary deliberately makes `Time` nominal while `ResourceAmount` reu
 ```lean (fails := "Type mismatch|is expected to have type")
 import Audit.DocPrelude
 
+/-- Consume a resource amount. -/
 def consume (_amount : Glossary.ResourceAmount) : Unit := ()
 
+/-- Attempt to consume a time as a resource amount. -/
 def wrongDomain (t : Glossary.Time) : Unit := consume t
 ```
 
@@ -190,52 +206,66 @@ number := false
 import Mathlib.Basic.Real.Basic
 
 namespace PhantomIds
+/-- An identifier tagged with the phantom type `entity`, which it does not store. -/
 structure TaggedId (entity : Type) where
+  /-- The identifier text. -/
   value : String
-  deriving Repr
 end PhantomIds
 open PhantomIds
 
-/-- Phantom tags - these types are never instantiated -/
+/-- Phantom tag for users: an empty type, used only as a type index. -/
 inductive UserTag
+/-- Phantom tag for proposals. -/
 inductive ProposalTag
+/-- Phantom tag for entities. -/
 inductive EntityTag
+/-- Phantom tag for content. -/
 inductive ContentTag
 
-/-- Type-safe ID aliases -/
+/-- User identifiers. -/
 def UserId := TaggedId UserTag
+/-- Proposal identifiers. -/
 def ProposalId := TaggedId ProposalTag
+/-- Entity identifiers. -/
 def EntityId := TaggedId EntityTag
+/-- Content identifiers. -/
 def ContentId := TaggedId ContentTag
 
+/-- A user record. -/
 structure User where
+  /-- The user's name. -/
   name : String
 
 /-- These function parameters specify argument types only; this example makes
-    no claim about lookup results or proposal submission behavior. -/
-def example_type_safety
-    (getUser : UserId → Option User)
-    (submitProposal : UserId → ProposalId → Bool)
+no claim about lookup results or proposal submission behavior. -/
+example (getUser : UserId → Option User) (submitProposal : UserId → ProposalId → Bool)
     (uid : UserId) (pid : ProposalId) : Unit :=
   let _ := getUser uid
   let _ := submitProposal uid pid
   ()
 
-/-- Phantom types for units of measure -/
+/-- A real quantity tagged with its phantom unit of measure. -/
 structure Quantity (unit : Type) where
+  /-- The magnitude, in the tagged unit. -/
   value : ℝ
 
+/-- Phantom unit tag: metres. -/
 inductive Meters
+/-- Phantom unit tag: seconds. -/
 inductive Seconds
+/-- Phantom unit tag: metres per second. -/
 inductive MetersPerSecond
 
+/-- A distance in metres. -/
 def Distance := Quantity Meters
+/-- A duration in seconds. -/
 def Duration := Quantity Seconds
+/-- A velocity in metres per second. -/
 def Velocity := Quantity MetersPerSecond
 
-/-- Type-safe operations. `noncomputable` because ℝ division is a
-    noncomputable field operation — the lesson here is the *type* safety,
-    not executable arithmetic. -/
+/-- The velocity `d / t`. `noncomputable` because ℝ division is a
+noncomputable field operation — the lesson here is the *type* safety,
+not executable arithmetic. -/
 noncomputable def velocity (d : Distance) (t : Duration) : Velocity :=
   ⟨d.value / t.value⟩
 
@@ -247,18 +277,24 @@ noncomputable def velocity (d : Distance) (t : Duration) : Velocity :=
 ```lean (fails := "Application type mismatch|is expected to have type")
 import Mathlib.Basic.Real.Basic
 
+/-- The unit tag for meters. -/
 inductive Meters
+/-- The unit tag for seconds. -/
 inductive Seconds
+/-- A real quantity tagged with its unit. -/
 structure Qty (unit : Type) where
+  /-- The quantity's magnitude. -/
   value : ℝ
 
+/-- A distance in meters. -/
 abbrev Distance := Qty Meters
+/-- A duration in seconds. -/
 abbrev Duration := Qty Seconds
 
 /-- Argument order is enforced by the distinct tags. -/
 noncomputable def ratio (d : Distance) (t : Duration) : ℝ := d.value / t.value
 
--- Swapped arguments are a type error at elaboration:
+/-- Swapped arguments are a type error at elaboration. -/
 def bad : ℝ := ratio (⟨1.0⟩ : Duration) (⟨1.0⟩ : Distance)
 ```
 
@@ -286,26 +322,26 @@ number := false
 import Mathlib.Data.Set.Basic
 
 /-- Abstract storage, parameterized over the content type. No representation
-    chosen, no logical assumption introduced: `Content` is a bound parameter. -/
+chosen, no logical assumption introduced: `Content` is a bound parameter. -/
 structure ContentStore (Content : Type) where
-  /-- The set of stored content -/
+  /-- The set of stored content. -/
   contents : Set Content
-  /-- Retrieval relation (mathematical, not algorithmic) -/
-  retrieve : Content → Prop
-  /-- Consistency: can only retrieve what's stored -/
-  retrieve_subset : ∀ c, retrieve c → c ∈ contents
+  /-- Retrieval relation (mathematical, not algorithmic). -/
+  Retrievable : Content → Prop
+  /-- Consistency: can only retrieve what's stored. -/
+  mem_contents_of_retrievable : ∀ c, Retrievable c → c ∈ contents
 
 /-- A verification scheme specified by its relation and the law every
-    instance must prove. No commitment to binary trees, hash functions, or
-    byte arrays — `Content` and `Id` are parameters. -/
+instance must prove. No commitment to binary trees, hash functions, or
+byte arrays — `Content` and `Id` are parameters. -/
 structure VerificationScheme (Content Id : Type) where
-  /-- Verification is a mathematical relation, not an algorithm -/
-  verifies : Content → Id → Prop
-  /-- Soundness: one identifier verifies at most one content -/
-  sound : ∀ c₁ c₂ : Content, ∀ h : Id, verifies c₁ h → verifies c₂ h → c₁ = c₂
+  /-- Verification is a mathematical relation, not an algorithm. -/
+  Verifies : Content → Id → Prop
+  /-- Soundness: one identifier verifies at most one content. -/
+  eq_of_verifies : ∀ c₁ c₂ : Content, ∀ i : Id, Verifies c₁ i → Verifies c₂ i → c₁ = c₂
 ```
 
-The `retrieve_subset` field proves that retrieved content belongs to `contents`; it does not require retrieving any content. The `sound` field proves content uniqueness for each verifying identifier; it does not require any identifier to verify anything. An always-false relation satisfies either condition. Existence, retrieval completeness, or a decision procedure requires separate evidence when claimed.
+The `mem_contents_of_retrievable` field proves that retrieved content belongs to `contents`; it does not require retrieving any content. The `eq_of_verifies` field proves content uniqueness for each verifying identifier; it does not require any identifier to verify anything. An always-false relation satisfies either condition. Existence, retrieval completeness, or a decision procedure requires separate evidence when claimed.
 
 *Example - A Checked Refinement Relation*:
 
@@ -321,16 +357,16 @@ def modelAdd (a b : ℕ) : ℕ := a + b
 def implAdd (a b : UInt32) : UInt32 := a + b
 
 /-- The refinement theorem: under the no-overflow hypothesis the machine
-    semantics needs, the executable result is the model result. -/
-theorem implAdd_refines_modelAdd (a b : UInt32) (h : a.toNat + b.toNat < 2 ^ 32) :
+semantics needs, the executable result is the model result. -/
+theorem toNat_implAdd_of_lt (a b : UInt32) (h : a.toNat + b.toNat < 2 ^ 32) :
     (implAdd a b).toNat = modelAdd a.toNat b.toNat := by
-  show (a + b).toNat = a.toNat + b.toNat
+  unfold implAdd modelAdd
   rw [UInt32.toNat_add, Nat.mod_eq_of_lt h]
 
 /-- The hypothesis is load-bearing: at the word boundary the machine result
-    wraps to 0 while the model sum is 2^32. -/
-example : ((0xffffffff : UInt32) + 1).toNat = 0
-    ∧ modelAdd (0xffffffff : UInt32).toNat 1 = 2 ^ 32 := by
+wraps to 0 while the model sum is 2^32. -/
+example : ((0xffffffff : UInt32) + 1).toNat = 0 ∧
+    modelAdd (0xffffffff : UInt32).toNat 1 = 2 ^ 32 := by
   decide
 ```
 

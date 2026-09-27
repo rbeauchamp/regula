@@ -311,6 +311,18 @@ main :not(pre) > code { font-size: 0.875em; background: var(--rg-surface); borde
   border-radius: 5px; padding: 0.05em 0.3em; overflow-wrap: anywhere; }
 main :is(p, li, dd, a) { overflow-wrap: break-word; }
 
+/* The standard's code blocks: a Lean example is a block-level `code`, any other block a plain
+`pre`. Their lines are at most 100 characters (checked when the standard is built); at this
+size nearly all fit the column, and a longer line wraps instead of scrolling sideways. */
+main code.hl.lean.block, main pre:not([class]) { font-size: 0.8rem; line-height: 1.55; padding: 0.7rem 0.85rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
+/* An expected rejection: the rule pages' verdict, the example, then the error that is its evidence. */
+.regula-rejected > code.hl.lean.block { margin: 0; border: 0; border-radius: 0; background: var(--rg-surface); }
+.regula-rejected > .regula-evidence { margin: 0; padding: 0.45rem 0.85rem 0; font-size: 0.8rem; color: var(--rg-muted);
+  border-top: 1px solid var(--rg-border); background: var(--rg-bg); }
+.regula-rejected > pre.regula-code { background: var(--rg-bg); padding: 0.3rem 0.85rem 0.7rem; font-size: 0.8rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; }
+
 /* Header: title, search, theme control */
 header { background: var(--rg-bg); box-shadow: none; border-bottom: 1px solid var(--rg-border); gap: 0.75rem; padding-right: 1rem; }
 .header-title { color: var(--rg-heading); font-size: 1.05rem; font-weight: 650; letter-spacing: -0.01em; }

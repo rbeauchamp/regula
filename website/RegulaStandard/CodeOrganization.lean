@@ -18,7 +18,7 @@ tag := "6-overview"
 number := false
 %%%
 
-Lean code organization determines import dependencies, name resolution, and client-accessible information. This module separates these language features from guidance on layering, naming, and file structure. The rules enforce documented Lean boundaries. Design guidelines clarify those boundaries for readers.
+Lean code organization determines import dependencies, name resolution, and client-accessible information. This module separates these language features from guidance on layering, naming, and file structure. The rules enforce documented Lean boundaries. Design guidelines clarify those boundaries for readers. For style, naming, and documentation form, the standard adopts the Lean community's conventions and requires the community's own linters to enforce them (§6.7).
 
 # 6.1 Dependency Structure
 %%%
@@ -72,30 +72,38 @@ number := false
 
 *Linter discipline*: Every warning emitted while elaborating a conforming surface is an error under {ref "83-clean-elaboration-and-diagnostics"}[module 8 §8.3]. Setting `warningAsError := false` does not bypass audit checks. Turning off a linter can prevent its diagnostic but does not establish the underlying property. Applicable semantic matrix rows still require their own evidence.
 
+Lean's default warnings, those Lean emits under its default options (including the core linters enabled by default, such as `linter.unusedVariables`), MUST NOT be disabled in a claimed module. Every other linter is a community linter here, however it came to run: a Lean core linter that is off by default and that the project enables (such as `linter.missingDocs`, §6.7), a linter that a dependency turns on for every importer (such as Mathlib's `linter.unusedTactic`), or one that the project enables from a dependency (such as Mathlib's standard set, §6.7). The Mathlib-repository linters that §6.7 turns off are outside the required baseline, so the project-wide setting §6.7 gives them is not a disable in this sense. A community linter MAY be disabled for a single declaration where the community's own guidance allows that, with `set_option linter.NAME false in` before the declaration or `@[nolint NAME]` on it and a comment stating why. Such a disable removes that linter's finding for that declaration only. It establishes nothing about the property the linter checks and never discharges a requirement of this standard. The audit sees only emitted warnings, so review checks which linters a module disables.
+
 # 6.3 Naming Conventions
 %%%
 tag := "63-naming-conventions"
 number := false
 %%%
 
-*Recommendation*: Use descriptive names consistent with the surrounding Lean library. Common Mathlib conventions include:
+*Recommendation*: Name declarations by the Lean community's naming conventions: Mathlib's [naming conventions](https://leanprover-community.github.io/contribute/naming.html) for code that depends on Mathlib, and Lean's [standard library naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md) for code that depends only on Lean core. Both use the same case rules:
 
 :::table +header
 *
   * Declaration
-  * Example naming style
+  * Case
+  * Example
 *
-  * Type or class
-  * `ProposalVote`, `ConsentState`
+  * Proof: a theorem, or any term whose type is a proposition
+  * `snake_case`
+  * `quorum_of_consensus`, `successor_contract`
 *
-  * Function or value
-  * `calculateScore`, `votingPower`
+  * Proposition or type: a structure, class, inductive type, or `Prop`- or `Type`-valued definition
+  * `UpperCamelCase`
+  * `ProposalVote`, `HasQuorum`
 *
-  * Theorem
-  * `vote_count_bounded`, `consensus_implies_quorum`
+  * Other term, such as a function or value
+  * `lowerCamelCase`
+  * `score`, `votingPower`
 :::
 
-These styles are readability conventions. Capitalization is not a proof obligation. Existing library names do not need to be changed to match a single convention.
+A theorem's name describes its conclusion, and hypotheses follow `_of_`: `quorum_of_consensus : Consensus v → Quorum v`. Symbols take the dictionary spellings the Mathlib guide lists, such as `le`, `lt`, `mem`, `eq`, and `ne`. Name a function after the value it returns (`score`, not `calculateScore`). A contract registration such as `ExecutableContract` evidence is a proof, so its name is `snake_case`.
+
+Naming is a readability convention, not a proof obligation, and no rule of this standard checks it. When extending an existing library, follow its conventions; renaming its public declarations is a separate compatibility decision.
 
 Namespace placement affects name resolution. A file named `Project/Core/Entity.lean` does not automatically place its declarations in `Project.Core.Entity`. Use an explicit `namespace` when that prefix is intended. One namespace may span several files, and one file may contribute to several namespaces. Opening a namespace makes eligible names available without their prefix but does not grant access to hidden declarations. The `protected` keyword excludes a visible declaration from blanket `open Namespace`; explicit `open Namespace (name)` or renaming can still introduce an unqualified name. Its qualified name remains available.
 
@@ -107,7 +115,7 @@ number := false
 
 *Requirement*: Every claimed module MUST elaborate in the environment supplied by its imports and language settings on the declared toolchain. The audit MUST discover it through the claimed Lake targets, including any claimed standalone executable roots, as specified in {ref "82-define-surfaces-through-lake-semantics"}[module 8 §8.2].
 
-Use imports to make significant dependencies explicit. Import minimality, direct versus transitive spelling, sorting, and grouping are recommendations, not requirements. Choose a consistent arrangement that fits the project. Mathlib and project imports do not require a particular order.
+Use imports to make significant dependencies explicit. Import minimality, direct versus transitive spelling, sorting, and grouping are recommendations, not requirements. The one exception is the community convention that a claimed module MUST NOT repeat an import with the same modifiers (§6.7). Choose a consistent arrangement that fits the project. Mathlib and project imports do not require a particular order.
 
 Imports supply declarations, instances, syntax, and elaboration extensions. Changing imports can change how the same source text elaborates. An unused import does not add an axiom to every declaration by itself. Each declaration's elaborated logical dependencies determine the exact transitive axiom set ({ref "85-proof-completeness-and-foundation-strength"}[module 8 §8.5]).
 
@@ -130,21 +138,25 @@ import Mathlib.Data.Rat.Defs
 
 namespace Project.Core
 
+/-- A participant with a reputation, a stake, and an activity flag. -/
 structure Entity where
+  /-- The participant's reputation score. -/
   reputation : Rat
+  /-- The amount the participant has staked. -/
   stake : Rat
+  /-- Whether the participant is active. -/
   isActive : Bool
 
 /- This implementation detail is declared `private`; an external module cannot
-   resolve the source-level name `Project.Core.calculateWeight`. The body can
-   still participate in reduction through the public definition. Representation
-   abstraction is a separate boundary. -/
-private def calculateWeight (e : Entity) : Rat :=
+resolve the source-level name `Project.Core.weight`. The body can still
+participate in reduction through the public definition. Representation
+abstraction is a separate boundary. -/
+private def weight (e : Entity) : Rat :=
   (e.reputation * e.stake) / 100
 
 /-- Public API: visible outside the namespace. -/
 def votingPower (e : Entity) : Rat :=
-  if e.isActive then calculateWeight e else calculateWeight e / 2
+  if e.isActive then weight e else weight e / 2
 
 end Project.Core
 ```
@@ -156,8 +168,10 @@ In files with a `module` header, declarations are private by default. Use `publi
 An isolated opaque carrier hides its defining type even from subsequent declarations in the same file. Its declaration alone supplies no conversion from the defining type:
 
 ```lean (fails := "(?s)Type mismatch.*String.*HiddenString")
+/-- A carrier whose defining type is hidden. -/
 opaque HiddenString : Type := String
 
+/-- Attempt to convert a string to the hidden carrier. -/
 def hide (s : String) : HiddenString := s
 ```
 
@@ -175,12 +189,14 @@ The following pattern is mirrored in {repo "lean/Audit/DocPrelude.lean"}[`Audit.
 
 ```lean
 /- This fence restates `Audit.DocPrelude` under a local namespace so it
-   elaborates standalone. -/
+elaborates standalone. -/
 namespace AbstractData
 
 /-- The public package exposes a carrier and a construction operation. -/
 structure OpaqueDataPackage where
+  /-- The abstract carrier type. -/
   Carrier : Type
+  /-- Construct a carrier value from a string. -/
   wrap : String → Carrier
 
 private def implementation : OpaqueDataPackage where
@@ -188,7 +204,7 @@ private def implementation : OpaqueDataPackage where
   wrap := id
 
 /-- This is an implemented definition, not a logical axiom. Its body is not
-    kernel-reducible by clients. -/
+kernel-reducible by clients. -/
 opaque opaqueDataPackage : OpaqueDataPackage := implementation
 
 /-- Clients see a type, not its implementation representation. -/
@@ -215,14 +231,14 @@ Direct construction and direct payload recovery also fail because the abstract c
 ```lean (fails := "Type mismatch")
 import Audit.DocPrelude
 
--- Attack 1: direct construction contrary to the documented package operation.
+/-- Attack 1: direct construction contrary to the documented package operation. -/
 def forged : Glossary.OpaqueData := "attacker"
 ```
 
 ```lean (fails := "Type mismatch")
 import Audit.DocPrelude
 
--- Attack 2: direct payload recovery contrary to the documented API.
+/-- Attack 2: direct payload recovery contrary to the documented API. -/
 def steal (x : Glossary.OpaqueData) : String := x
 ```
 
@@ -234,9 +250,11 @@ Construction through the exported operation succeeds:
 import Audit.DocPrelude
 
 /-- Example: a message with abstract content for which this model has no
-    observer (`Glossary.OpaqueData`, pattern shown above). -/
+observer (`Glossary.OpaqueData`, pattern shown above). -/
 structure Message where
+  /-- When the message was sent. -/
   timestamp : Glossary.Time
+  /-- The message content, as an abstract carrier value. -/
   content : Glossary.OpaqueData
 
 /-- Construct a message through the exported abstract-data operation. -/
@@ -258,6 +276,55 @@ number := false
 
 A `section … end` scopes variables, options, and other scoped commands. It does not create a namespace or hide the declarations inside it. Definitions remain available after the section ends, with the parameters Lean included during elaboration. A section variable that is not used or otherwise included need not become a parameter of every declaration.
 
+# 6.7 Community Conventions and Linters
+%%%
+tag := "67-community-conventions-and-linters"
+number := false
+%%%
+
+*Requirement*: A claimed surface MUST follow the Lean community's conventions for style, formatting, naming, and documentation form as the community's own linters enforce them. Every claimed library MUST enable these linters in its Lake `leanOptions`:
+
+* *Lean's `linter.missingDocs`*, with value `true`. It reports every public definition, structure, class, inductive type, constructor, field, and syntax extension that has no docstring, the community's rule that every definition is documented.
+* *Mathlib's standard linter set*, for a library that imports Mathlib: `weak.linter.mathlibStandardSet` with value `true`, the syntax linters Mathlib itself builds with (line length, tactic style, whitespace, and others).
+
+A few linters of that set enforce policies of the Mathlib repository itself. A library that enables the set MUST turn them off in the same `leanOptions`; at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
+
+:::table +header
+*
+  * Option
+  * Value
+  * Why it is excluded
+*
+  * `weak.linter.style.header`
+  * `false`
+  * It requires Mathlib's contribution header, a copyright line, the Apache 2.0 license statement, and an authors line, in every module that the library root imports: the Mathlib repository's licensing and attribution policy.
+*
+  * `weak.linter.hashCommand`
+  * `false`
+  * It reports every `#` command that prints nothing, such as a passing `#guard`, as "not allowed in 'Mathlib'"; outside Mathlib a `#guard` is a checked build-time assertion.
+*
+  * `weak.linter.style.longFile`
+  * `0`
+  * Its 1500-line file limit is the Mathlib repository's file-size policy, and Mathlib documents no limit for downstream projects; `0` keeps it off.
+:::
+
+Turning off `linter.style.header` also turns off two community checks that the same linter makes: that the module docstring is the first command after the imports, on every module, and that no import is repeated with the same modifiers, on the modules that the library root imports. Both remain requirements ({ref "53-module-documentation"}[module 5 §5.3], {ref "64-import-discipline"}[§6.4]). Under this configuration no community linter and no Regula rule checks them (RG5001 checks only that a module docstring exists), so review confirms them (`DOC-01`, `DECL-01`).
+
+Two linters of the set whose messages mention Mathlib stay in the baseline. `linter.style.native` reports `native_decide` and `decide +native`, which conforming proof surfaces already exclude as compiler-trusting ({ref "34-foundation-strength-axioms-are-reported-never-assumed"}[module 3 §3.4], {ref "85-proof-completeness-and-foundation-strength"}[module 8 §8.5]). `linter.style.setOption` reports the development-only `debug`, `pp`, `profiler`, and `trace` options and an unscoped `maxHeartbeats` setting; a deliberate use takes the declaration-scoped disable of §6.2.
+
+Their findings are ordinary build warnings, so the warning-free elaboration of {ref "83-clean-elaboration-and-diagnostics"}[§8.3] (RG2003) rejects every one of them. The standard enforces this community baseline by composing the community's linters with that rule; it restates none of their checks. Its own universal rules stay technical Lean rules (`SCOPE-04` in {ref "9-compliance-and-quality-audit"}[module 9]), and they are stricter where they apply: a registered material declaration needs a docstring that states its claim exactly ({ref "51-inline-documentation-requirements"}[module 5 §5.1–§5.2]; RG5002, RG5003). The checker does not detect whether these options are set, so review confirms them (`DECL-01`).
+
+The conventions are written in these guides:
+
+* For code that depends on Mathlib, Mathlib's [library style guidelines](https://leanprover-community.github.io/contribute/style.html), [naming conventions](https://leanprover-community.github.io/contribute/naming.html), and [documentation requirements](https://leanprover-community.github.io/contribute/doc.html). The [contribution guide](https://leanprover-community.github.io/contribute/index.html) links them all.
+* For code that depends only on Lean core, Lean's [standard library style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md) and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md).
+
+Where the two differ, for example `fun x ↦` against `fun x =>` or the capitalization of acronyms, follow the convention of the library the code builds on and apply it consistently. Following the guides where no enabled linter checks them, such as naming (§6.3), is RECOMMENDED.
+
+Running *Batteries' environment linters* (`docBlame`, `simpNF`, `synTaut`, and others) is RECOMMENDED. They report through their own command (`#lint` or `lake exe runLinter`), not through build warnings, so RG2003 does not see them; run them as a separate check beside `lake lint` ({ref "811-adopting-the-checker-in-another-project"}[§8.11]).
+
+The community applies its linters with judgment. Where its guidance allows an exception, disable the linter for that one declaration as §6.2 describes; Lean's default warnings are never disabled. A community linter's pass establishes only what that linter checks: no property that another requirement of this standard needs, and a Regula rule never replaces the community's review of style.
+
 # Summary of Code Organization
 %%%
 tag := "summary-of-code-organization"
@@ -268,3 +335,4 @@ number := false
 * Claimed Lake targets determine audit coverage, including declared executable roots.
 * Module documentation explains material declarations and assumptions; naming and layout conventions aid navigation.
 * Namespaces, private names, body exposure, and opaque representations provide different boundaries. State and check the boundary actually claimed.
+* Style, naming, and documentation form follow the Lean community's conventions. Every claimed library enables Lean's `linter.missingDocs` and, when it imports Mathlib, Mathlib's standard linter set without its Mathlib-repository linters, whose warnings RG2003 rejects; a declaration-scoped disable of a community linter never discharges a requirement.

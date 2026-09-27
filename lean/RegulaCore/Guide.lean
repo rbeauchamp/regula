@@ -288,14 +288,16 @@ def guide : RuleId → Guide
       established := [
         "Every claimed module elaborated from source without errors or warnings under the audit's build."]
       notEstablished := [
-        "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is incremental and trusts Lake's build cache."]
+        "Fresh source elaboration unless the run is fresh: `lake lint` without `--fresh` is incremental and trusts Lake's build cache.",
+        "That no linter was disabled: a disabled linter emits nothing for this rule to reject."]
       configuration := [
-        "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a linter (for example `set_option linter.unusedVariables false`) can stop it from emitting, which makes this rule pass without discharging the property the linter checks; do not do it.",
+        "`warningAsError := false` in the source cannot hide a warning from the audit. Disabling a linter stops it from emitting, which makes this rule pass without establishing the property the linter checks. Never disable Lean's default warnings, such as `linter.unusedVariables` (for example with `set_option linter.unusedVariables false`).",
+        "A community linter reports through build warnings, so this rule rejects its findings, whether a dependency turns it on for every importer (such as Mathlib's `linter.unusedTactic`) or the project enables it (such as `linter.missingDocs` and Mathlib's `weak.linter.mathlibStandardSet`, which standard §6.7 requires). Where the community's guidance allows an exception, disable that linter for one declaration (`set_option linter.NAME false in` or `@[nolint NAME]`) with a comment giving the reason (standard §6.2). The detector sees only emitted warnings, so it cannot tell such a disable from a forbidden one; review checks them.",
         projectCommands]
       limitations := [
         "`lake lint` builds with Regula's audit-build marker, which turns the local linter off whatever the source sets `linter.regula` to, so Regula's own local findings are not build warnings there and its policy stages report those rules. `axiomGate` and the build-lint `policy` target keep ordinary options, so in a module that imports `Regula.Linter` a local Regula finding is a build warning and makes the result INCOMPLETE under this rule."]
       residuals := [.qualify]
-      checklist := ["DECL-01", "BUILD-01"]
+      checklist := ["DECL-01", "BUILD-01", "DOC-01"]
       sources := ["lean/Regula/Checker/Lake.lean", "lean/Regula/Checker/Diagnostics.lean", "lean/Regula/Checker/ResultProtocol.lean"] }
   | .coverage => {
       problem := "The exact module and declaration inventory from Lake does not match the owned coverage: a claimed library imports an excluded or checker-probe module, a module is outside every manifested library, or ownership cannot be determined."
@@ -487,13 +489,13 @@ def guide : RuleId → Guide
         "Every registered public material declaration has a docstring."]
       notEstablished := [
         "That every material declaration is registered, or that the docstring is faithful and adequate (R-DOC); registration completeness is semantic review.",
-        "Docstrings of unregistered, private or trivial declarations, which the standard recommends but does not require."]
+        "Docstrings of unregistered declarations. Standard §6.7 requires claimed libraries to enable `linter.missingDocs`, whose reports RG2003 rejects; this rule does not check that option."]
       configuration := [
         noLocalOption,
         "Registration is `@[regula_material]` from `Regula.MaterialClaim`. Removing a registration from a material declaration changes the reviewed claim, not only this rule's result.",
         projectCommands]
       limitations := [
-        "Lean's broader `linter.missingDocs` checks all public declarations; this rule deliberately covers only registered material evidence.",
+        "Lean's broader `linter.missingDocs` reports public declarations without a docstring only where it is enabled; this rule covers registered material evidence whatever the options.",
         "The editor reports this rule only when the module has finished elaborating without errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
       residuals := [.doc]
       checklist := ["DOC-01"]

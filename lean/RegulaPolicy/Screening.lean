@@ -3,8 +3,6 @@ module
 public import RegulaPolicy.Intent
 public import Regula.Contract
 
-@[expose] public section
-
 /-! Pure decisions of the opt-in probabilistic intent screen (`intentScreen`,
 `docs/guides/intent-screening.md`).
 
@@ -28,6 +26,9 @@ R-INTENT review as completed: a screened result is its own evidence class
 (`RegulaCore.Screening`). The operational adapter in `Regula.Screen` runs these definitions
 through their `ExecutableContract` registrations; network, process and service behavior stay
 outside these proofs. -/
+
+@[expose] public section
+
 namespace RegulaPolicy.Screening
 open RegulaPolicy.Intent
 

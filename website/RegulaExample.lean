@@ -9,16 +9,22 @@ printed exactly as it is elaborated. Where the block is written, while the docum
 elaborated, the `regula-example` helper (`RegulaExampleMain`) elaborates it in a fresh process
 whose environment is exactly the block's own `import` header: nothing of the document, of
 another example or of this extension is visible to it, and the document never imports the
-example's modules (so the site executable never links them).
+example's modules (so the site executable never links them). The helper elaborates every
+block with automatic implicits off and `linter.missingDocs` on (`exampleOptions`).
 
 - `lean`: a positive example; elaboration must report no error and no warning.
-- `lean (fails := "PATTERN")`: an expected rejection; elaboration must report an error, and one
-  error message must match `PATTERN` in the restricted diagnostic language of standard §8.7,
-  decided by the proved `RegulaPolicy.matchesPattern` (`matchesPattern_iff`).
+- `lean (fails := "PATTERN")`: an expected rejection; elaboration must report an error and no
+  warning, and one error message must match `PATTERN` in the restricted diagnostic language of
+  standard §8.7, decided by the proved `RegulaPolicy.matchesPattern` (`matchesPattern_iff`).
 - `lean +trustedCompiler`: a teaching example of a compiler-trusting mechanism; elaboration
   must report no error and no warning.
 - `leanSketch`: Lean-like text displayed with a notice that it is not elaborated, for
   multi-file or placeholder sketches; `sh`, `text` and `toml` display non-Lean text.
+
+Every line of every block is at most `maxLineLength` characters, the Lean community's line
+limit, so no example needs horizontal scrolling; a longer line fails the build. An expected
+rejection is rendered with the rule pages' verdict, *Rejected by Lean, as intended*, and the
+error message that matched its pattern as the checked evidence (`Block.rejected`).
 
 This extension decides elaboration outcomes and renders the helper's highlighting. The
 declaration, kernel-admission and axiom classification of every `lean` block is the
@@ -89,9 +95,42 @@ def runHelper (text : String) : IO (Array Reported × Json) := do
     let json ← IO.ofExcept (Json.parse out.stdout)
     return (← IO.ofExcept (json.getObjValAs? (Array Reported) "messages"), ← IO.ofExcept (json.getObjVal? "code"))
 
+/-- The Lean community's line limit (Mathlib's `linter.style.longLine`), in characters. -/
+def maxLineLength : Nat := 100
+
+/-- Refuse a code block with a line longer than `maxLineLength` characters. -/
+def checkLineLength (str : StrLit) : DocElabM Unit := do
+  let mut number : Nat := 0
+  for line in str.getString.splitOn "\n" do
+    number := number + 1
+    if line.length > maxLineLength then
+      throwErrorAt str "line {number} of this code block has {line.length} characters; \
+        the limit is {maxLineLength}"
+
+/- An expected rejection: the verdict, the example as Lean highlights it, and the error message
+that matched the block's pattern, with its line in the example, as the checked evidence. The
+classes are the rule pages' verdict and file styles (`RegulaCore.SiteTheme`). -/
+block_extension Block.rejected (line : Nat) (message : String) where
+  data := Json.arr #[toJson line, .str message]
+  traverse _ _ _ := pure none
+  toTeX := none
+  toHtml :=
+    open Verso.Output.Html in
+    some <| fun _ goB _ data contents => do
+      let .arr #[.num line, .str message] := data
+        | Verso.reportError s!"Expected rejected-example data, got {data}"; contents.mapM goB
+      return {{
+        <figure class="regula-file is-bad regula-rejected">
+          <figcaption><span class="regula-verdict is-bad">"✗ Rejected by Lean, as intended"</span></figcaption>
+          {{← contents.mapM goB}}
+          <p class="regula-evidence">{{s!"Lean's error at line {line}, the checked evidence:"}}</p>
+          <pre class="regula-code">{{message}}</pre>
+        </figure>}}
+
 /-- Elaborate one example where it is written (see `runHelper`), check the outcome against
 `expectation`, and render the helper's highlighting. -/
 def elabExample (expectation : Expectation) (str : StrLit) : DocElabM Term := do
+  checkLineLength str
   let text := str.getString
   let (messages, code) ← runHelper text
   let some start := str.raw.getPos? | throwErrorAt str "example has no source position"
@@ -101,19 +140,27 @@ def elabExample (expectation : Expectation) (str : StrLit) : DocElabM Term := do
       s!"line {firstLine + m.line - 1}, column {m.column}: {m.severity}: {m.text}")
   let errors := messages.filter (·.severity == "error")
   let warnings := messages.filter (·.severity == "warning")
-  match expectation with
-  | .positive | .trustedCompiler =>
-    unless errors.isEmpty && warnings.isEmpty do
-      throwErrorAt str "example did not elaborate cleanly:\n{describe (errors ++ warnings)}"
-  | .rejected pattern =>
-    if errors.isEmpty then
-      throwErrorAt str "expected a rejection matching {repr pattern}, but the example elaborated"
-    unless errors.any (RegulaPolicy.matchesPattern pattern ·.text) do
-      throwErrorAt str "no error message matches {repr pattern}:\n{describe errors}"
+  -- The error message that matched a rejection's pattern: the evidence the page shows.
+  let evidence : Option Reported ← match expectation with
+    | .positive | .trustedCompiler => do
+      unless errors.isEmpty && warnings.isEmpty do
+        throwErrorAt str "example did not elaborate cleanly:\n{describe (errors ++ warnings)}"
+      pure none
+    | .rejected pattern => do
+      if errors.isEmpty then
+        throwErrorAt str "expected a rejection matching {repr pattern}, but the example elaborated"
+      unless warnings.isEmpty do
+        throwErrorAt str "an expected rejection must emit no warning:\n{describe warnings}"
+      let some matched := errors.find? (RegulaPolicy.matchesPattern pattern ·.text)
+        | throwErrorAt str "no error message matches {repr pattern}:\n{describe errors}"
+      pure (some matched)
   let range := Syntax.getRange? str |>.map (← getFileMap).utf8RangeToLspRange
-  ``(Verso.Doc.Block.other
+  let block ← ``(Verso.Doc.Block.other
       (Verso.Genre.Manual.InlineLean.Block.lean (hlFromExport! $(quote code.compress)) (some $(quote (← getFileName))) $(quote range))
       #[Verso.Doc.Block.code $(quote text)])
+  match evidence with
+  | none => pure block
+  | some m => ``(Verso.Doc.Block.other (Block.rejected $(quote m.line) $(quote m.text)) #[$block])
 
 /-- A checked Lean example of the standard; see the module documentation. -/
 @[code_block]
@@ -124,24 +171,26 @@ def lean : CodeBlockExpanderOf Config
 block says so. -/
 @[code_block]
 def leanSketch : CodeBlockExpanderOf Unit
-  | (), str => ``(Verso.Doc.Block.concat #[
+  | (), str => do
+    checkLineLength str
+    ``(Verso.Doc.Block.concat #[
       Verso.Doc.Block.para #[Verso.Doc.Inline.emph #[Verso.Doc.Inline.text "Sketch, not elaborated as Lean:"]],
       Verso.Doc.Block.code $(quote str.getString)])
 
 /-- Shell commands (not Lean). -/
 @[code_block]
 def sh : CodeBlockExpanderOf Unit
-  | (), str => ``(Verso.Doc.Block.code $(quote str.getString))
+  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getString))
 
 /-- Plain text (not Lean). -/
 @[code_block]
 def text : CodeBlockExpanderOf Unit
-  | (), str => ``(Verso.Doc.Block.code $(quote str.getString))
+  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getString))
 
 /-- Lake TOML configuration (not Lean). -/
 @[code_block]
 def toml : CodeBlockExpanderOf Unit
-  | (), str => ``(Verso.Doc.Block.code $(quote str.getString))
+  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getString))
 
 end RegulaExample
 

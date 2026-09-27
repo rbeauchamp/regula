@@ -47,20 +47,20 @@ import Audit.DocClaims
 open Glossary
 
 /- `Time` is a nominal wrapper around `NNReal`; `ResourceAmount` reuses
-   `NNReal` directly. The wrapper has the complete lawful order claimed here. -/
+`NNReal` directly. The wrapper has the complete lawful order claimed here. -/
 noncomputable example : LinearOrder Time := inferInstance
 example (t : Time) : 0 ≤ t.val := t.val.property
 
-/- This alias exposes the exact theorem checked in `Audit.DocClaims`: for every
-   curve with a negative rate and every ordered pair of nominal times, the
-   later reference value is no greater than the earlier reference value. -/
-theorem documented_decay_monotone (v : DecayingValue) (h : v.decayRate < 0) :
-    ∀ t₁ t₂ : Time, t₁ ≤ t₂ → v.valueAt t₂ ≤ v.valueAt t₁ := by
-  exact decay_monotone v h
+/-- This alias exposes the exact theorem checked in `Audit.DocClaims`: for every
+curve with a negative rate and every ordered pair of nominal times, the
+later reference value is no greater than the earlier reference value. -/
+theorem valueAt_antitone_of_decayRate_neg (v : DecayingValue) (h : v.decayRate < 0)
+    (t₁ t₂ : Time) (h₁₂ : t₁ ≤ t₂) : v.valueAt t₂ ≤ v.valueAt t₁ :=
+  decay_monotone v h t₁ t₂ h₁₂
 
-/- The displayed hypotheses are jointly satisfiable; this is not a claim of
-   reachability in an external system. -/
-theorem documented_decay_nonvacuous :
+/-- The displayed hypotheses are jointly satisfiable; this is not a claim of
+reachability in an external system. -/
+theorem exists_decayRate_neg_and_le :
     ∃ (v : DecayingValue) (t₁ t₂ : Time), v.decayRate < 0 ∧ t₁ ≤ t₂ :=
   decay_monotone_nonvacuous
 ```
@@ -70,11 +70,14 @@ An `LE` instance supplies a relation used by `≤`. It provides no proofs of ref
 ```lean (fails := "(?s)failed to synthesize.*LinearOrder")
 import Mathlib.Basic.Real.Basic
 
+/-- A non-negative real number. -/
 structure T where
+  /-- The underlying real number. -/
   val : Real
+  /-- The number is non-negative. -/
   nonneg : 0 ≤ val
 
-instance : LE T := ⟨fun x y => x.val ≤ y.val⟩
+instance : LE T := ⟨fun x y ↦ x.val ≤ y.val⟩
 
 -- A bare relation does not synthesize the lawful bundled structure:
 #synth LinearOrder T
@@ -88,20 +91,20 @@ When the claim is about the machine arithmetic itself, the specification uses th
 
 ```lean
 /-- Admission of a machine-float sensor reading. The exact semantics are in
-    the result: the accepted branch carries proofs excluding the exceptional
-    values `NaN` and ±∞, and the rejected branches are named. -/
+the result: the accepted branch carries proofs excluding the exceptional
+values `NaN` and ±∞, and the rejected branches are named. -/
 def admitReading (x : Float) : Except String {v : Float // ¬v.isNaN ∧ ¬v.isInf} :=
   if h : x.isNaN then .error "NaN is not a reading"
   else if h₂ : x.isInf then .error "an infinite value is not a reading"
   else .ok ⟨x, h, h₂⟩
 
 /-- Every non-exceptional input is accepted unchanged. -/
-theorem admitReading_accepts (x : Float) (h : ¬x.isNaN ∧ ¬x.isInf) :
+theorem admitReading_eq_ok (x : Float) (h : ¬x.isNaN ∧ ¬x.isInf) :
     admitReading x = .ok ⟨x, h⟩ := by
   simp [admitReading, h.1, h.2]
 ```
 
-The specification uses `Float` because the claim concerns binary64 values. Its return type excludes `NaN` and infinities. `admitReading_accepts` additionally establishes acceptance and preservation of every input satisfying those conditions. These properties do not establish sensor accuracy or a permitted measurement range.
+The specification uses `Float` because the claim concerns binary64 values. Its return type excludes `NaN` and infinities. `admitReading_eq_ok` additionally establishes acceptance and preservation of every input satisfying those conditions. These properties do not establish sensor accuracy or a permitted measurement range.
 
 On the pinned toolchain, `Float` wraps a logical `Float.Model`. `isNaN` and `isInf` have definitions over that model. Compiled calls use native implementations through `@[extern]`. The proof does not verify those external implementations. A real-valued interpretation of accepted readings requires the stated correspondence ({ref "24-abstract-mathematical-models"}[module 2 §2.4]).
 
@@ -129,9 +132,18 @@ import Mathlib.Order.Basic
 import Mathlib.Order.Lattice.Nat
 
 /-- Named levels obtain an order by an injective rank into `ℕ`.
-    `LinearOrder.lift'` transports the existing order and its laws. -/
+`LinearOrder.lift'` transports the existing order and its laws. -/
 inductive ConsensusLevel
-  | none | weak | moderate | strong | unanimous
+  /-- No consensus. -/
+  | none
+  /-- Weak consensus. -/
+  | weak
+  /-- Moderate consensus. -/
+  | moderate
+  /-- Strong consensus. -/
+  | strong
+  /-- Every participant agrees. -/
+  | unanimous
   deriving DecidableEq
 
 /-- Index each level into the canonical natural order. -/
@@ -146,7 +158,7 @@ instance : LinearOrder ConsensusLevel :=
 example : LinearOrder ConsensusLevel := inferInstance
 
 /-- When named constructors aren't needed at all, an abbreviation inherits
-    everything outright — no new structure, zero proofs. -/
+everything outright — no new structure, zero proofs. -/
 abbrev Priority := Fin 5
 example : LinearOrder Priority := inferInstance
 ```
@@ -157,8 +169,12 @@ The rank function chooses the intended ordering. The injection proof shows that 
 import Mathlib.Order.Basic
 import Mathlib.Order.Lattice.Nat
 
+/-- Two named levels. -/
 inductive Level
-  | low | high
+  /-- The lower level. -/
+  | low
+  /-- The higher level. -/
+  | high
   deriving LinearOrder
 ```
 
@@ -178,53 +194,62 @@ import Audit.DocPrelude
 open Glossary
 
 /- This fence uses the shared `Time` type (§4.1): non-negative reals
-   with its lawful `LinearOrder`, shipped by the glossary. -/
+with its lawful `LinearOrder`, shipped by the glossary. -/
 
-/-- Events in the system (`Id`: §2.3, `Time`: §4.1, `OpaqueData`: module 6 §6.5.1) -/
+/-- Events in the system (`Id`: §2.3, `Time`: §4.1, `OpaqueData`: module 6 §6.5.1). -/
 structure Event where
+  /-- The event's identifier, tagged as an event identifier. -/
   id : Glossary.Id EventTag
+  /-- When the event occurred. -/
   timestamp : Time
+  /-- The event's payload, which this model does not observe. -/
   content : OpaqueData
 
 /-- Temporal ordering of events, lifted from timestamps.
-    (`Preorder.lift` needs a `Preorder` on the target; Time's `LinearOrder`
-    supplies that weaker instance.) -/
+(`Preorder.lift` needs a `Preorder` on the target; Time's `LinearOrder`
+supplies that weaker instance.) -/
 noncomputable instance : Preorder Event :=
-  Preorder.lift (fun e : Event => e.timestamp)
+  Preorder.lift (fun e : Event ↦ e.timestamp)
 
 noncomputable example : Preorder Event := inferInstance
 
-/-- A time window with validity proof -/
+/-- A time window with validity proof. -/
 structure TimeWindow where
+  /-- The first time in the window. -/
   start : Time
+  /-- The last time in the window. -/
   finish : Time
+  /-- The window does not end before it starts. -/
   valid : start ≤ finish
 
-/-- Check if a time is within the window -/
-def TimeWindow.contains (w : TimeWindow) (t : Time) : Prop :=
+/-- A time lies within the window, both ends included. -/
+def TimeWindow.Contains (w : TimeWindow) (t : Time) : Prop :=
   w.start ≤ t ∧ t ≤ w.finish
 
 /-- Filter using a supplied decision procedure for window membership.
-    `decide` converts each `Decidable` result to the `Bool` expected by
-    `List.filter`. Execution requires a computable producer of that decision
-    data (§3.2.4); the predicate alone does not supply one. -/
+`decide` converts each `Decidable` result to the `Bool` expected by
+`List.filter`. Execution requires a computable producer of that decision
+data (§3.2.4); the predicate alone does not supply one. -/
 def eventsInWindow (events : List Event) (w : TimeWindow)
-    [DecidablePred (fun (e : Event) => w.contains e.timestamp)] :=
-  events.filter (fun e => decide (w.contains e.timestamp))
+    [DecidablePred (fun (e : Event) ↦ w.Contains e.timestamp)] : List Event :=
+  events.filter (fun e ↦ decide (w.Contains e.timestamp))
 
 /-- Exact membership theorem for the filter: no event is added, and every
-    retained event satisfies precisely the window predicate. -/
+retained event satisfies precisely the window predicate. -/
 theorem mem_eventsInWindow (events : List Event) (w : TimeWindow)
-    [DecidablePred (fun (e : Event) => w.contains e.timestamp)] (e : Event) :
-    e ∈ eventsInWindow events w ↔ e ∈ events ∧ w.contains e.timestamp := by
+    [DecidablePred (fun (e : Event) ↦ w.Contains e.timestamp)] (e : Event) :
+    e ∈ eventsInWindow events w ↔ e ∈ events ∧ w.Contains e.timestamp := by
   simp [eventsInWindow]
 
 /-- A strict causal relation on the declared event set. `IsStrictOrder`
-    supplies exactly irreflexivity and transitivity; this is not a reflexive
-    `PartialOrder`. -/
+supplies exactly irreflexivity and transitivity; this is not a reflexive
+`PartialOrder`. -/
 structure CausalOrder where
+  /-- The declared event set. -/
   events : Set Event
+  /-- The causal relation between declared events. -/
   precedes : {e : Event // e ∈ events} → {e : Event // e ∈ events} → Prop
+  /-- `precedes` is irreflexive and transitive. -/
   laws : IsStrictOrder {e : Event // e ∈ events} precedes
 
 -- A concrete causal relation supplies `precedes` and discharges the two law
@@ -246,8 +271,11 @@ open Glossary
 example : LinearOrder Tick := inferInstance
 example (a b : Tick) : a ≤ b ↔ a.val ≤ b.val := Tick.le_iff a b
 
+/-- One protocol step: a clock tick and a phase number, kept as distinct types. -/
 structure ProtocolStep where
+  /-- The clock tick at which the step occurs. -/
   tick : Tick
+  /-- The protocol phase number. -/
   phase : Nat
 
 example (n : Nat) : ProtocolStep := ⟨Tick.mk n, n⟩
@@ -258,6 +286,7 @@ A phase number cannot be used directly as a tick:
 ```lean (fails := "Application type mismatch")
 import Audit.DocClaims
 
+/-- The natural number underlying a tick. -/
 def atTick (t : Glossary.Tick) : Nat := t.val
 example (phase : Nat) : Nat := atTick phase
 ```
@@ -267,6 +296,7 @@ If a model intentionally needs only another name for natural numbers, `abbrev Ti
 ```lean (fails := "(?s)failed to synthesize.*LinearOrder")
 import Mathlib.Order.Basic
 
+/-- Another name for natural numbers, as an ordinary `def`. -/
 def Tick := Nat
 #synth LinearOrder Tick
 ```
@@ -289,31 +319,34 @@ import Audit.DocPrelude
 open Glossary
 
 /-- One-dimensional locations reuse the real line's canonical Mathlib metric.
-    A higher-dimensional model can replace this alias with `EuclideanSpace`; the
-    law-reuse point is the same. -/
+A higher-dimensional model can replace this alias with `EuclideanSpace`; the
+law-reuse point is the same. -/
 abbrev Location := ℝ
 
+/-- A network node: an identifier and a location. -/
 structure NetworkNode where
+  /-- The node's identifier, tagged as a network-node identifier. -/
   id : Glossary.Id NetworkNodeTag
+  /-- Where the node is. -/
   location : Location
 
 /-- Coordinate distance is Mathlib's lawful real metric, not a hand-written
-    distance relation. -/
+distance relation. -/
 noncomputable example : MetricSpace Location := inferInstance
 
 /-- Nodes within communication range, measured through their locations'
-    inherited metric. The identifier field does not itself supply a metric;
-    route distance through the location field. -/
-def inRange (n₁ n₂ : NetworkNode) (range : ℝ) : Prop :=
+inherited metric. The identifier field does not itself supply a metric;
+route distance through the location field. -/
+def InRange (n₁ n₂ : NetworkNode) (range : ℝ) : Prop :=
   dist n₁.location n₂.location ≤ range
 
 /-- Admissible directed edge sets: each edge connects in-range listed nodes. -/
-def networkTopology (nodes : Set NetworkNode) (range : ℝ) :=
+def NetworkTopology (nodes : Set NetworkNode) (range : ℝ) : Type :=
   {edges : Set (NetworkNode × NetworkNode) //
-    ∀ e ∈ edges, e.1 ∈ nodes ∧ e.2 ∈ nodes ∧ inRange e.1 e.2 range}
+    ∀ e ∈ edges, e.1 ∈ nodes ∧ e.2 ∈ nodes ∧ InRange e.1 e.2 range}
 ```
 
-This subtype constrains which edges may be present. It does not require every in-range pair to be an edge. The empty edge set always satisfies it. It also requires neither symmetry nor absence of self-loops. A claim of a complete range graph or a simple undirected graph needs the corresponding definition and laws. Here `networkTopology` names a type of constrained edge sets, not a topological-space instance or a verified communication network.
+This subtype constrains which edges may be present. It does not require every in-range pair to be an edge. The empty edge set always satisfies it. It also requires neither symmetry nor absence of self-loops. A claim of a complete range graph or a simple undirected graph needs the corresponding definition and laws. Here `NetworkTopology` names a type of constrained edge sets, not a topological-space instance or a verified communication network.
 
 # 4.5 Foundation Strength: Kernel-Only, Choice-Free, Standard-Logical
 %%%
@@ -366,7 +399,7 @@ A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conformin
   * `{}`
   * Kernel-only; `1 + 1 = 2` proved by `rfl` in `Audit.Basic`
 *
-  * `reverse_append_correct`
+  * `reverse_append_eq`
   * `{propext}`
   * Choice-Free; delegates to Core's `List.reverse_append` in the example of {ref "322-property-based-testing-as-refutation-aid"}[§3.2.2]
 *
@@ -375,7 +408,7 @@ A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conformin
   * Standard-Logical; the conditional real-valued antitonicity theorem in §4.1
 :::
 
-These assertions import the actual declarations from {repo "lean/Audit/Basic.lean"}[Basic] and {repo "lean/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_correct` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
+These assertions import the actual declarations from {repo "lean/Audit/Basic.lean"}[Basic] and {repo "lean/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_eq` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
 
 ```lean
 import Audit.Basic

@@ -3,8 +3,6 @@ module
 public import RegulaPolicy.Decision
 public import Regula.Contract
 
-@[expose] public section
-
 /-! Declaration policy for the operational self-audit of the excluded checker library.
 
 Operational code is not a conforming proof surface: it holds the IO adapters that observe
@@ -26,6 +24,9 @@ declaration gets exactly the conforming decision, and `operationalFailure_eq_con
 shows the whole decision is the conforming one on every declaration without a reported fact.
 The observations themselves, and whether a name belongs to the toolchain, are established by
 the operational adapter, not by these theorems. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open Lean (Name)
 

@@ -2,8 +2,6 @@ module
 
 public import RegulaCore.Rule
 
-@[expose] public section
-
 /-! # Agent-first finding text
 
 Every finding a Regula run prints is rendered here from the rule registry (`descriptor`), so
@@ -39,6 +37,8 @@ the checker supplies every finding it established, and that the process writes t
 its output, are properties of the operational checker (`Regula.Checker.RunFeedback`), not of
 these definitions. The text's adequacy as guidance is review of the registry prose.
 -/
+
+@[expose] public section
 
 namespace Regula.Feedback
 

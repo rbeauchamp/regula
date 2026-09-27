@@ -5,15 +5,25 @@ import SubVerso.Highlighting
 
 `regula-example FILE` elaborates the Lean module in `FILE` exactly as written: its own header
 selects the imported environment, which contains nothing else, and its commands are elaborated
-there in this fresh process. It prints one JSON object with every message (severity, one-based
-line and zero-based column within `FILE`, text) and the SubVerso highlighting of the whole
-module. The standard's `lean` code blocks (`RegulaExample`) run it where each block is written,
-so a document never imports an example's modules and the site executable never links them.
+there in this fresh process under `exampleOptions`. It prints one JSON object with every message
+(severity, one-based line and zero-based column within `FILE`, text) and the SubVerso
+highlighting of the whole module. The standard's `lean` code blocks (`RegulaExample`) run it
+where each block is written, so a document never imports an example's modules and the site
+executable never links them.
 Process, filesystem and search-path effects are trusted; the caller decides what the reported
 outcome must be. -/
 
 open Lean Elab Frontend
 open SubVerso Highlighting
+
+/-- The options every example elaborates under: automatic implicits off, as standard §8.1
+recommends, and Lean's `linter.missingDocs` on, as standard §6.7 requires of a claimed library;
+`pp.tagAppFns` only tags the highlighting. -/
+def exampleOptions (opts : Options) : Options :=
+  opts.setBool `autoImplicit false
+    |>.setBool `relaxedAutoImplicit false
+    |>.setBool `linter.missingDocs true
+    |>.setBool `pp.tagAppFns true
 
 private def severity : MessageSeverity → String
   | .error => "error"
@@ -30,7 +40,7 @@ unsafe def run (path : System.FilePath) : IO UInt32 := do
   let env := env.setMainModule `RegulaExample
   let commandState : Command.State := { env, maxRecDepth := defaultMaxRecDepth, messages := headerMessages }
   let commandState := { commandState with scopes := match commandState.scopes with
-    | sc :: rest => { sc with opts := sc.opts.setBool `pp.tagAppFns true } :: rest
+    | sc :: rest => { sc with opts := exampleOptions sc.opts } :: rest
     | [] => [] }
   let pctx : Frontend.Context := { inputCtx := ictx }
   let state ← IO.mkRef { commandState, parserState, cmdPos := parserState.pos }

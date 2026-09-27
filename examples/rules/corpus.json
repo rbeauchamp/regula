@@ -12,30 +12,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 51,
-            "endByte": 60
+            "startByte": 66,
+            "endByte": 75
           },
           "range": {
-            "startByte": 45,
-            "endByte": 78
+            "startByte": 60,
+            "endByte": 93
           },
           "lspSelectionRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 6
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 15
             }
           },
           "lspRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 0
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 33
             }
           },
@@ -68,30 +68,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "range": {
-            "startByte": 45,
-            "endByte": 92
+            "startByte": 60,
+            "endByte": 107
           },
           "selectionRange": {
-            "startByte": 53,
-            "endByte": 62
+            "startByte": 68,
+            "endByte": 77
           },
           "lspRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 0
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 47
             }
           },
           "lspSelectionRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 8
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 17
             }
           }
@@ -124,30 +124,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "range": {
-            "startByte": 68,
-            "endByte": 129
+            "startByte": 93,
+            "endByte": 154
           },
           "selectionRange": {
-            "startByte": 76,
-            "endByte": 85
+            "startByte": 101,
+            "endByte": 110
           },
           "lspRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 0
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 61
             }
           },
           "lspSelectionRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 8
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 17
             }
           }
@@ -179,30 +179,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 79,
-            "endByte": 84
+            "startByte": 100,
+            "endByte": 105
           },
           "range": {
-            "startByte": 71,
-            "endByte": 120
+            "startByte": 92,
+            "endByte": 141
           },
           "lspSelectionRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 8
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 13
             }
           },
           "lspRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 0
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 49
             }
           },
@@ -227,30 +227,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 107,
-            "endByte": 120
+            "startByte": 128,
+            "endByte": 141
           },
           "range": {
-            "startByte": 107,
-            "endByte": 120
+            "startByte": 128,
+            "endByte": 141
           },
           "lspSelectionRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 36
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 49
             }
           },
           "lspRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 36
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 49
             }
           },
@@ -294,30 +294,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 72,
-            "endByte": 81
+            "startByte": 87,
+            "endByte": 96
           },
           "range": {
-            "startByte": 64,
-            "endByte": 154
+            "startByte": 79,
+            "endByte": 169
           },
           "lspSelectionRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 8
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 17
             }
           },
           "lspRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 0
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 88
             }
           },
@@ -349,30 +349,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 47,
-            "endByte": 55
+            "startByte": 108,
+            "endByte": 116
           },
           "range": {
-            "startByte": 36,
-            "endByte": 76
+            "startByte": 48,
+            "endByte": 137
           },
           "lspSelectionRange": {
             "start": {
-              "line": 1,
+              "line": 4,
               "character": 11
             },
             "end": {
-              "line": 1,
+              "line": 4,
               "character": 19
             }
           },
           "lspRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 0
             },
             "end": {
-              "line": 1,
+              "line": 4,
               "character": 40
             }
           },
@@ -404,31 +404,31 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 132,
-            "endByte": 140
+            "startByte": 193,
+            "endByte": 201
           },
           "range": {
-            "startByte": 124,
-            "endByte": 229
+            "startByte": 185,
+            "endByte": 294
           },
           "lspSelectionRange": {
             "start": {
-              "line": 3,
+              "line": 6,
               "character": 8
             },
             "end": {
-              "line": 3,
+              "line": 6,
               "character": 16
             }
           },
           "lspRange": {
             "start": {
-              "line": 3,
+              "line": 6,
               "character": 0
             },
             "end": {
-              "line": 3,
-              "character": 101
+              "line": 7,
+              "character": 76
             }
           },
           "kind": "source"
@@ -572,30 +572,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 144,
-            "endByte": 152
+            "startByte": 303,
+            "endByte": 311
           },
           "range": {
-            "startByte": 110,
-            "endByte": 173
+            "startByte": 187,
+            "endByte": 332
           },
           "lspSelectionRange": {
             "start": {
-              "line": 3,
+              "line": 7,
               "character": 34
             },
             "end": {
-              "line": 3,
+              "line": 7,
               "character": 42
             }
           },
           "lspRange": {
             "start": {
-              "line": 3,
+              "line": 6,
               "character": 0
             },
             "end": {
-              "line": 3,
+              "line": 7,
               "character": 63
             }
           },
@@ -627,30 +627,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "selectionRange": {
-            "startByte": 152,
-            "endByte": 160
+            "startByte": 311,
+            "endByte": 319
           },
           "range": {
-            "startByte": 118,
-            "endByte": 181
+            "startByte": 195,
+            "endByte": 340
           },
           "lspSelectionRange": {
             "start": {
-              "line": 2,
+              "line": 6,
               "character": 34
             },
             "end": {
-              "line": 2,
+              "line": 6,
               "character": 42
             }
           },
           "lspRange": {
             "start": {
-              "line": 2,
+              "line": 5,
               "character": 0
             },
             "end": {
-              "line": 2,
+              "line": 6,
               "character": 63
             }
           },
@@ -718,30 +718,30 @@
           "uri": "$SNIPPET_URI",
           "source": "$SNIPPET_TEXT",
           "selectionRange": {
-            "startByte": 51,
-            "endByte": 60
+            "startByte": 66,
+            "endByte": 75
           },
           "range": {
-            "startByte": 45,
-            "endByte": 78
+            "startByte": 60,
+            "endByte": 93
           },
           "lspSelectionRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 6
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 15
             }
           },
           "lspRange": {
             "start": {
-              "line": 1,
+              "line": 3,
               "character": 0
             },
             "end": {
-              "line": 1,
+              "line": 3,
               "character": 33
             }
           },
@@ -762,7 +762,7 @@
     "source": "{case}.md",
     "snippet": [
       8,
-      86,
+      101,
       "Example.md:1"
     ]
   },
@@ -850,30 +850,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "range": {
-            "startByte": 108,
-            "endByte": 169
+            "startByte": 123,
+            "endByte": 184
           },
           "selectionRange": {
-            "startByte": 135,
-            "endByte": 144
+            "startByte": 150,
+            "endByte": 159
           },
           "lspRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 0
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 61
             }
           },
           "lspSelectionRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 27
             },
             "end": {
-              "line": 2,
+              "line": 4,
               "character": 36
             }
           }
@@ -905,30 +905,30 @@
           "uri": "$SOURCE",
           "source": "$SOURCE_TEXT",
           "range": {
-            "startByte": 108,
-            "endByte": 243
+            "startByte": 123,
+            "endByte": 258
           },
           "selectionRange": {
-            "startByte": 209,
-            "endByte": 218
+            "startByte": 224,
+            "endByte": 233
           },
           "lspRange": {
             "start": {
-              "line": 2,
+              "line": 4,
               "character": 0
             },
             "end": {
-              "line": 3,
+              "line": 5,
               "character": 61
             }
           },
           "lspSelectionRange": {
             "start": {
-              "line": 3,
+              "line": 5,
               "character": 27
             },
             "end": {
-              "line": 3,
+              "line": 5,
               "character": 36
             }
           }

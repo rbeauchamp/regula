@@ -15,11 +15,11 @@ def SuccessorSpec (f : Nat → Nat) : Prop :=
   ∀ n, f n = n + 1
 
 /-- A contract is evidence of the exact predicate applied to `successor`. -/
-theorem successorContract :
+theorem successor_contract :
     Regula.ExecutableContract successor SuccessorSpec :=
   ⟨fun _ => rfl⟩
 
 /-- The public API consumes the requirement's evidence. -/
-def next (n : Nat) : Nat := successorContract.run n
+def next (n : Nat) : Nat := successor_contract.run n
 
 end Widget

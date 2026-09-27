@@ -74,7 +74,8 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   let originals := #[(additional, ← IO.FS.readFile additional),
     (manifest, ← IO.FS.readFile manifest), (widget, ← IO.FS.readFile widget)]
   -- An unimported glob module; the second run has every module cached.
-  mutate additional "namespace Widget.Additional" "axiom lintAssumption : True\nnamespace Widget.Additional"
+  mutate additional "namespace Widget.Additional"
+    "/-- A control assumption. -/\naxiom lintAssumption : True\nnamespace Widget.Additional"
   let violation : Expectation := {
     label := "lean/violation", exitCode := 1,
     contains := #["RG1001", "lintAssumption", "regula lint: VIOLATION (exit 1)"] }
@@ -96,7 +97,7 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
       label := "lean/invocation", exitCode := 2,
       contains := #["unknown or incomplete argument: --bogus"] } #["--", "--bogus"])
   restore adopter originals
-  mutate widget "namespace Widget" "def lintBroken : Nat := \"text\"\nnamespace Widget"
+  mutate widget "namespace Widget" "/-- A control that does not elaborate. -/\ndef lintBroken : Nat := \"text\"\nnamespace Widget"
   failures := failures ++ (← expect adopter {
       label := "lean/incomplete", exitCode := 3,
       contains := #["build-failed", "regula lint: INCOMPLETE (exit 3)"] })

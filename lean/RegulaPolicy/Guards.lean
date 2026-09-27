@@ -2,11 +2,12 @@ module
 
 public import RegulaPolicy.Domain
 
-@[expose] public section
-
 /-! Reusable facts for proving what a successful `Except` validator establishes.
 They let theorems be stated about the executed guard sequences directly, instead of
 sampling refusals of mutated inputs. They concern pure `Except` values only. -/
+
+@[expose] public section
+
 namespace RegulaPolicy.Guards
 
 /-- A sequenced computation succeeds exactly when each step succeeds in turn. -/

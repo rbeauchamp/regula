@@ -2,11 +2,12 @@ module
 
 public import RegulaPolicy.Foundation
 
-@[expose] public section
-
 /-! Generated-role relations over the complete observation inventory. Each component
 states exact metadata, value/equation observations, ordered attribution, and uniqueness.
 These finite decidable relations do not attest that a compiler observation is truthful. -/
+
+@[expose] public section
+
 namespace RegulaPolicy
 open Lean (Name)
 open Frontend

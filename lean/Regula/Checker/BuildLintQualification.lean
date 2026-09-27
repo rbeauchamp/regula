@@ -27,12 +27,13 @@ private def classicalProof := "Classical.choice (show Nonempty True from ⟨True
 
 private def witnessSource : String :=
   "import Regula.Contract\n" ++
+  "/-- A control witness. -/\n" ++
   "def witness : {n : Nat // n = 1} := ⟨1, rfl⟩\n" ++
   "theorem witnessContract : Regula.ExecutableContract witness " ++
   "(fun n => n.val = 1) := ⟨witness.property⟩\n"
 
 private def identitySource (beforeDefinition : String := "") : String :=
-  "import Regula.Contract\n" ++ beforeDefinition ++
+  "import Regula.Contract\n" ++ "/-- A control definition. -/\n" ++ beforeDefinition ++
   "def identity (n : Nat) := n\n" ++
   "theorem identityContract : Regula.ExecutableContract identity " ++
   "(fun f => ∀ n, f n = n) := ⟨fun _ => rfl⟩\n"
@@ -79,7 +80,7 @@ private def cases : Array Case := #[
     expected := #["project-axiom", "unusedAssumption"] },
   { name := "unimported-configured-module"
     path := "Widget/Additional.lean"
-    before := "namespace Widget.Additional", after := "axiom unimported : True\nnamespace Widget.Additional"
+    before := "namespace Widget.Additional", after := "/-- A control assumption. -/\naxiom unimported : True\nnamespace Widget.Additional"
     expected := #["project-axiom", "unimported"] },
   { name := "missing-evidence"
     before := ":=\n  ⟨fun _ => rfl⟩", after := "where"
@@ -92,7 +93,7 @@ private def cases : Array Case := #[
     expected := #["build-failed", "Application type mismatch", "True", "SuccessorSpec"] },
   { name := "deleted-evidence"
     before := "theorem identityContract", after := "theorem discardedContract"
-    files := #[("Widget.lean", identitySource ++ "def use := identityContract.run\n")]
+    files := #[("Widget.lean", identitySource ++ "/-- A control use of the contract. -/\ndef use := identityContract.run\n")]
     expected := #["build-failed", "Unknown identifier"] },
   { name := "existence-is-not-witness-evidence"
     before := "⟨fun _ => rfl⟩"
@@ -119,15 +120,15 @@ private def cases : Array Case := #[
     expected := #["executable-contract", "named constant"] },
   { name := "type-producing-root-alias"
     files := #[("Widget.lean", "import Regula.Contract\n" ++
-      "@[irreducible] def ResultAlias := Nat\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact 0\n" ++
+      "/-- A control alias. -/\n@[irreducible] def ResultAlias := Nat\n/-- A control root. -/\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact 0\n" ++
       "theorem contract : Regula.ExecutableContract root (fun _ => True) := ⟨True.intro⟩\n")]
-    before := "@[irreducible] def ResultAlias := Nat\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact 0"
-    after := "@[irreducible] def ResultAlias := Type\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact Nat"
+    before := "@[irreducible] def ResultAlias := Nat\n/-- A control root. -/\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact 0"
+    after := "@[irreducible] def ResultAlias := Type\n/-- A control root. -/\n@[macro_inline] def root : ResultAlias := by unfold ResultAlias; exact Nat"
     expected := #["executable-contract", "contract", "returns a type"] },
   { name := "aliased-contract-registration"
     files := #[("Widget.lean", "import Regula.Contract\n" ++
-      "def root (n : Nat) := n\n" ++
-      "@[irreducible] def Required : Prop := Regula.ExecutableContract root (fun _ => True)\n" ++
+      "/-- A control root. -/\ndef root (n : Nat) := n\n" ++
+      "/-- A control requirement. -/\n@[irreducible] def Required : Prop := Regula.ExecutableContract root (fun _ => True)\n" ++
       "theorem contract : Required := by unfold Required; exact ⟨True.intro⟩\n")]
     before := "def root", after := "noncomputable def root"
     expected := #["executable-contract", "contract", "noncomputable"] },
@@ -136,7 +137,7 @@ private def cases : Array Case := #[
     before := "private def identity", after := "@[extern \"lps_private_external\"] private def identity"
     expected := #["execution-trusted-boundary", "identity", "external"] },
   { name := "replacement-boundary"
-    files := #[("Widget.lean", identitySource "def replacement (n : Nat) := n\n@[implemented_by replacement] ")]
+    files := #[("Widget.lean", identitySource "def replacement (n : Nat) := n\n/-- A control definition. -/\n@[implemented_by replacement] ")]
     before := "def replacement (n : Nat) := n", after := "def replacement (n : Nat) := n + 1"
     expected := #["execution-trusted-boundary", "identity", "runtime-replacement"] },
   { name := "cached-execution-policy"
@@ -279,7 +280,7 @@ private def disabledControl (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.writeFile path disabled
   let source := adopter / "Widget.lean"
   let original ← IO.FS.readFile source
-  IO.FS.writeFile source "/-! Cached axiom used to qualify disabling and reenabling policy. -/\naxiom disabledAssumption : True\n"
+  IO.FS.writeFile source "/-! Cached axiom used to qualify disabling and reenabling policy. -/\n/-- A control assumption. -/\naxiom disabledAssumption : True\n"
   let result ← build adopter
   let mut failures := if result.succeeded && !result.output.contains "build policy linter:" then #[]
     else #[s!"build-lint/disabled: ordinary build did not remain disabled:\n{result.output}"]
