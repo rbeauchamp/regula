@@ -198,8 +198,12 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
       | some _ => return (p, table))
   let places := places.1
   let lines := entries.map (Lakefile.toml.entry ·)
-  let top := places.topEnd.getD 0
-  let driverText := if driver then [(top, "\nlintDriver = \"" ++ lintDriver ++ "\"")] else []
+  -- After the last top-level key's line; with none, at the start of the file.
+  let (top, before, after) := match places.topEnd with
+    | some pos => (pos, "\n", "")
+    | none => (0, "", "\n")
+  let driverText :=
+    if driver then [(top, before ++ "lintDriver = \"" ++ lintDriver ++ "\"" ++ after)] else []
   let optionText ← if entries.isEmpty then pure [] else
     if places.unsupported then
       throw <| IO.userError s!"lakefile.toml writes leanOptions as dotted keys or sub-tables; add \
@@ -208,7 +212,9 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
       | some pos, _ => pure [(pos, String.join (lines.map ("\n" ++ ·)))]
       | none, some (pos, true) => pure [(pos, String.join (lines.map (", " ++ ·)))]
       | none, some (pos, false) => pure [(pos, " " ++ ", ".intercalate lines ++ " ")]
-      | none, none => pure [(top, "\n\n[leanOptions]" ++ String.join (lines.map ("\n" ++ ·)))]
+      | none, none =>
+        let table := "[leanOptions]" ++ String.join (lines.map ("\n" ++ ·))
+        pure [(top, if places.topEnd.isSome then "\n\n" ++ table else table ++ "\n\n")]
   IO.ofExcept <| splice input (driverText ++ optionText)
 
 /-- The `package` command of a `lakefile.lean`, located by Lean's parser as Lake elaborates the
