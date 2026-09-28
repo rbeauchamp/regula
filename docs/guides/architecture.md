@@ -183,9 +183,8 @@ metadata, not authenticated binary identity.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
-- **Scope:** In `axiomGate` and `ruleExamples` results, `scope` keeps the project
-  configuration files in full (`scope.configuration`). Canonical file and project results retain
-  `scope.configuration` as path/optional-text pairs, with `null` for an absent file. The
+- **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
+  configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,
   and no consumer reads it there. File `scope.report` and project `scope.surfaces[*].report`
   keep the complete observed declaration and execution inventories, including trusted boundaries

@@ -336,12 +336,12 @@ The [website guide](website.md) specifies the pinned Verso setup, `./scripts/ver
 
 The acceptance transport groups are maintained, capability-triggered diagnostics. Run
 all affected groups when worker dispatch, codecs, joins, request reconstruction or
-terminal output ownership changes. A changed worker protocol requires public-entrypoint controls
-for omitted, duplicate and substituted keys, wrong modes and snapshots, worker crash and
-malformed versions; changed library or overlay coverage requires a fresh imported-client control
-and exact Lake inventory checks. Their positive/refusal/restoration observations
+terminal output ownership changes. Their positive/refusal/restoration observations
 qualify those IO boundaries; `collect_success_iff` and `finalize_iff` already quantify
-universally over supplied finite observations. Do not add the multi-minute groups to
-every ordinary acceptance run. Existing CI builds transitively check all proof and
+universally over supplied finite observations. A changed worker protocol requires
+public-entrypoint controls for omitted, duplicate and substituted keys, wrong modes and
+snapshots, worker crash and malformed versions; changed library or overlay coverage requires a
+fresh imported-client control and exact Lake inventory checks. Do not add the multi-minute
+groups to every ordinary acceptance run. Existing CI builds transitively check all proof and
 adapter modules; the required CI diagnostics and budgets are described above.
 After fixes, reuse a diagnostic only with an explicit unchanged-relevant-input argument.

@@ -81,7 +81,7 @@ proved sound and complete against it:
 | `ContractOK` (§7.5, §7.11) | Every registered contract targets the exact supported implementation and predicate, with completed admission. Registration adequacy is review. |
 | `ExecutionOK` (§7.6) | Every root's closure accounted for, no unresolved path; report mode permits reported trust, checked mode only checked evidence or origin-checked native runtime. |
 | `DocumentOK` (§7.7) | Complete structural scan; warning-free, admitted Standard-Logical positives; one effective-error match per negative; classified teaching that is never positive conformance. |
-| `DocumentationPresenceOK`, `MaterialDocumentationOK` (§5.1–§5.3) | A module docstring is present (`docstring ≠ none`); each registered material declaration's docstring has a nonempty Intent section. The predicate itself states docstring presence; for a module's `documentationPresence` job the adapter supplies the proved RG5001 header decision (`RegulaPolicy.ModuleHeader.failures_eq_nil_iff`: presence, placement first after the imports and no repeated import) as that evidence (`checked_environmentEvidence`). Registration completeness and fidelity remain R-DOC, intent adequacy R-INTENT. |
+| `DocumentationPresenceOK`, `MaterialDocumentationOK` (§5.1–§5.3) | A module docstring is present (`docstring ≠ none`); each registered material declaration's docstring has a nonempty Intent section. For a module's `documentationPresence` job the unproved adapter computes the RG5001 header decision (`RegulaPolicy.ModuleHeader.failures`, characterized by `failures_eq_nil_iff`: presence, placement first after the imports and no repeated import) as that evidence, and `checked_environmentEvidence` proves only the selection of that frozen record. Registration completeness and fidelity remain R-DOC, intent adequacy R-INTENT. |
 | `ExampleExpectationOK` | Exactly the configured positive, compiler-rejection, policy-rejection or trusted-teaching expectation for the exact source snapshot. Elaborated observations bind group modules and role transcripts to the fixed fences' original bytes, and policy assessment selects the current example unit. Expected policy diagnostics keep stable identity tokens, optional subreason, and exact primary and related locations; matching requires the configured ordered list with no additional diagnostics. The sole registry adapter validates the identity vocabulary and authentic locations, and a completed rejection observation is not itself proof that the external producer did that work. |
 | `StageOK` (§7.2–§7.3, §7.8–§7.11) | `StageOK` checks the appropriate relation for the stage and subject; an unrelated payload constructor cannot pass. Every required producer completed for this mode; absence, crash, unknown or unsupported state is incomplete. |
 
@@ -103,18 +103,17 @@ when it is excluded.
 
 **The report account.** Every verdict line and every `completed` status is rendered from
 `Account.account run` (claimed `RegulaCore.Account`). `Account` is the subtype of projections of
-some `AcceptedRun`, and `Status.completed` takes one, so `Status.completed_accepted` proves a
-`completed` status has an accepted, complete, policy-satisfying run behind it.
-`AccountContract` (`checked_account`) states its meaning: mode, scope, surfaces, toolchain and job
-count are the run's own; coverage is `coverageOf` the mode, whole-project exactly for a fresh
-project claim (`coverage_fresh_iff`); the listed contracts are exactly the accepted inventory's;
-execution counts are `executionSummary` of each environment; fence counts partition the accepted
-fences; the residual identifiers stay unresolved. That the run is the current request's is each
-caller's binding, checked by inspection, as is the use of `Account.pass` for project, file,
-build-lint, combined and graph verdict lines. Only `Status.completed` carries an `Account`; the
-refusal statuses carry none. The documentation audit prints no PASS verdict, and its per-fence
-labels come from task results once an `AcceptedRun` exists. Rendered text and `acceptance` JSON
-are unproved adapter output; JSON is never decoded into acceptance.
+some `AcceptedRun`; `Status.completed` takes one and the refusal statuses carry none, so
+`Status.completed_accepted` proves a `completed` status has an accepted, complete, policy-satisfying
+run behind it.  `AccountContract` (`checked_account`) states its meaning: mode, scope, surfaces,
+toolchain and job count are the run's own; coverage is `coverageOf` the mode, whole-project exactly
+for a fresh project claim (`coverage_fresh_iff`); the listed contracts are exactly the accepted
+inventory's; execution counts are `executionSummary` of each environment; fence counts partition the
+accepted fences; the residual identifiers stay unresolved. That the run is the current request's is
+each caller's binding, checked by inspection, as is the use of `Account.pass` for project, file,
+build-lint, combined and graph verdict lines. The documentation audit prints no PASS verdict, and
+its per-fence labels come from task results once an `AcceptedRun` exists. Rendered text and
+`acceptance` JSON are unproved adapter output; JSON is never decoded into acceptance.
 
 **Success owners.** Only these routes construct acceptance; help, planning, internal workers,
 editor hooks, registry and site validation, self-tests and qualifiers have no audit certificate,
@@ -126,7 +125,7 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | `AxiomGate.auditSurfaceAt` (fresh, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
 | `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. |
-| `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | For fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` refuses unless its own fresh capture has an equal identity. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
+| `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
 | `AxiomGate.auditFile` with a conforming profile | A `freshFile` plan and `AcceptedRun`; dependencies stay incremental. No profile or a compiler-trusting file is `CLASSIFIED`. |
 | `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. `Documentation.Sources.check` compares the documentation inventory and bytes before fence work and before `finishDocuments`; with `--verso`, `Sources.checkLinked` rechecks the linked inputs after the Verso build. |
 | `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified; failed and incomplete checks retain their own outcomes, and the receipt retains each actual fence classification. The qualifier separately applies `PositiveClassifications` to require a nonempty list with every fence positive, passing and complete before admitting a positive correction. The adapter verifies the original requested documents before emitting accepted metadata. |
@@ -188,7 +187,10 @@ and `frozenEnvironmentRoles_eq` prove the role receipt frozen per environment eq
 recomputation, so roles are not re-authorized per job and no worker flag is trusted.
 `Common.mapWorkQueue`, `admitIndexedWorkerResults` and the documentation collector run
 `ResultState.collect` through `checked_indexedResults`: success returns exactly the array whose
-indexed pairs are a permutation of the responses over every requested slot.
+indexed pairs are a permutation of the responses over every requested slot. Group reconciliation
+preserves each requested environment separately and never deduplicates job responses, replay
+occurrences or positive owned declarations; the full admission module, required and admitted
+inventories survive the infrastructure partition.
 
 **Admission by construction** (`RegulaPolicy.Domain`, `Admission`): declaration kinds, boundary
 kinds, correspondence, foundation classes, profiles, modes, safety and evaluator roles are closed
@@ -209,10 +211,9 @@ unsupported tags and numeric overflow; the parent waits for the child's exit and
 response against its own request.
 
 **Trusted:** these relations concern supplied observations. `InfrastructureOK` binds the exact
-reporter, codec and collector artifacts the IO adapter compares with the running checker's;
-`InfrastructureOK` binds these receipts, ownership disjoint from owned and imported modules, and
-all observed incoming imports, and the full admission module, required and admitted inventories
-survive the infrastructure partition; the public `Contract`, `Diagnostic` and `StructuralName`
+reporter, codec and collector artifacts the IO adapter compares with the running checker's, their
+receipts, ownership disjoint from owned and imported modules, and all observed incoming imports;
+the public `Contract`, `Diagnostic` and `StructuralName`
 interfaces do not imply a library-wide exemption.
 
 ## Declarations, foundations and roles
@@ -254,9 +255,9 @@ their meaning, which gives these helpers public bodies; `policyFor`, `foundation
 member forms require an inventory-bound `Roles` receipt, and the member forms
 `memberFailure`/`memberFoundation` also require a proof that the declaration belongs to that
 inventory, with registrations stating agreement on every member (`checked_memberRule` equals
-`ruleFor` for every inventory member); `admitBoundaryEvidence` preserves every observation field.
-`boundaryEvidenceCandidate` may discard incompatible fields, so use `admitBoundaryEvidence` when
-every supplied observation field must be preserved. Generated-role validators execute the
+`ruleFor` for every inventory member). `boundaryEvidenceCandidate` may discard incompatible fields,
+while `admitBoundaryEvidence` preserves every supplied observation field, so use it when that
+preservation is required. Generated-role validators execute the
 decidable component propositions, so there is no unconnected reference evaluator; `ExactlyOne`
 has a proved decision procedure that considers only the possible first witness and still
 requires equality to the complete singleton sequence (no wall-clock improvement is claimed).
@@ -283,31 +284,31 @@ RG2006 checks the Lake options with a proved decision over Lake's resolved confi
 **Correspondence resource bound.** `checkCorrespondenceProof` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
 checker-added obligation costs no more than one the adopter could write, and runs under Lean's
-runtime memory limit. The limit is fixed once per process, at its first correspondence check, to
-the process's peak resident size then plus 1 GiB; it is set only while a check runs, never
-exceeds a `max_memory` the shell set, and is restored afterward. Argued from the Lean runtime
-source, not observed: the kernel throws only when current resident memory reaches the limit, so
-the first check never fires on memory already held, and because the limit never re-reads the
-peak, an exhausted check cannot raise the next one's limit. The 1 GiB is shared by every later
-check and other growth in the worker, so after one exhaustion later checks may exhaust at once;
-they fail closed as unresolved. At most three report workers run, each running its checks
-sequentially, so checks add at most 3 GiB above those workers' first-check peaks; that increment
-does not by itself bound the audit's total memory. Supplied and then discovered theorem candidates
-are tried before the kernel-defeq check, so a kernel-exhausting unfolding cannot consume the
-headroom a supplied proof needs and a replacement with both reports `proved:` evidence, and kernel
-resource exhaustion is never conflated with rejection; a theorem candidate whose admission
-exhausts the kernel supplies no evidence, like any candidate the deliberately incomplete search
-cannot use. The correspondence cache in `Probe.environmentReport` stores checked results by name
-pair within one fixed environment, and replacement-history worker output is shared within one
-audit only under identical inputs (standard §7.6); no cache crosses environments. A
-cross-environment cache would need equality of all relevant inputs, revalidated evidence and a
-proof that varying candidate data cannot weaken acceptance. Generated-role and canonical runtime
-recognition determine policy authority and are not untrusted acceleration hints; profiles, scope
-and pins are normative configuration, not freely variable candidate data. An incomplete
-comparison is unresolved with the reason that the kernel ran out of resources before deciding
-definitional correspondence; mapping the kernel result to the outcome (`kernelExhausted` for an
-incomplete comparison, a rejection or a proof beyond Standard-Logical for a completed negative
-one) is checked by inspection, and the kernel decision itself is trusted.
+runtime memory limit. The limit is fixed once per process, at its first correspondence check, to the
+process's peak resident size then plus 1 GiB; it is set only while a check runs, never exceeds a
+`max_memory` the shell set, and is restored afterward. Argued from the Lean runtime source, not
+observed: the kernel throws only when current resident memory reaches the limit, so the first check
+never fires on memory already held, and because the limit never re-reads the peak, an exhausted
+check cannot raise the next one's limit. The 1 GiB is shared by every later check and other growth
+in the worker, so after one exhaustion later checks may exhaust at once; they fail closed as
+unresolved. At most three report workers run, each running its checks sequentially, so checks add at
+most 3 GiB above those workers' first-check peaks; that increment does not by itself bound the
+audit's total memory. Supplied and then discovered theorem candidates are tried before the
+kernel-defeq check, to keep a kernel-exhausting unfolding within one comparison from consuming the
+headroom a supplied proof needs, so a replacement with both reports `proved:` evidence; kernel
+resource exhaustion is never conflated with rejection; a theorem candidate whose admission exhausts
+the kernel supplies no evidence, like any candidate the deliberately incomplete search cannot use.
+The correspondence cache in `Probe.environmentReport` stores checked results by name pair within one
+fixed environment, and replacement-history worker output is shared within one audit only under
+identical inputs (standard §7.6); no cache crosses environments. A cross-environment cache would
+need equality of all relevant inputs, revalidated evidence and a proof that varying candidate data
+cannot weaken acceptance. Generated-role and canonical runtime recognition determine policy
+authority and are not untrusted acceleration hints; profiles, scope and pins are normative
+configuration, not freely variable candidate data. An incomplete comparison is unresolved with the
+reason that the kernel ran out of resources before deciding definitional correspondence; mapping the
+kernel result to the outcome (`kernelExhausted` for an incomplete comparison, a rejection or a proof
+beyond Standard-Logical for a completed negative one) is checked by inspection, and the kernel
+decision itself is trusted.
 
 ## Producers
 
@@ -381,42 +382,40 @@ inferred from any pure proof.
   requests or history receipts.
 - **Closure.** `ExecutionRoot.closure` records the actual `Probe.executionWalk`: each first visit
   with its owning module and the earlier visit that queued it, and separate edge channels
-  (`compilerEdges` from retained IR; `logicalEdges`; `candidateEdges`, every constant-equality
-  candidate; `historyEdges`; `currentReplacementEdges`; `activeSimplificationEdges`;
-  `helperEdges`; `requiredCode` and `unavailableCode`, where a nonempty unavailable subset requires
-  unresolved execution). Their union is a conservative traversal, not a selected or minimal call
-  graph; a missing closure never yields an empty boundary set. `compilerEdges` belongs to
-  `ExecutionRoot` and records retained IR calls, closures and initialization dependencies; in the
-  `closure` account, `logicalEdges` are constants used by the logical bodies the walk follows,
-  `historyEdges` are replacement choices from completed, source-bound module histories,
-  `currentReplacementEdges` are current `implemented_by` choices retained even when history is
-  unavailable, `activeSimplificationEdges` are active simplifications used by the replacement-only
-  cycle check (each is also a candidate), and `helperEdges` are explicit opaque-to-partial-helper
-  traversal. Every enqueue site records its edge and parent visit together, and visited-name
-  suppression stops recursion without deleting self edges. Retained IR edges use the declaration
-  step of Lean's pinned `IR.CollectUsedDecls.collectDecl`, because `collectUsedDecls` also inserts
-  the declaration itself and filtering its result would discard genuine recursive calls; this
-  specialized API is requalified on a toolchain upgrade. `Environment.validate` calls
+  (`logicalEdges`, constants used by the logical bodies the walk follows; `candidateEdges`, every
+  inspected constant-equality candidate; `historyEdges`, replacement choices from completed,
+  source-bound module histories; `currentReplacementEdges`, current `implemented_by` choices
+  retained even when history is unavailable; `activeSimplificationEdges`, active simplifications
+  used by the replacement-only cycle check, each also a candidate; `helperEdges`, explicit
+  opaque-to-partial-helper traversal; `requiredCode` and `unavailableCode`, where a nonempty
+  unavailable subset requires unresolved execution). `ExecutionRoot` itself carries
+  `compilerEdges`, the retained IR calls, closures and initialization dependencies. Their union is
+  a conservative traversal, not a selected or minimal call graph; a missing closure never yields an
+  empty boundary set. Every enqueue site records its edge and parent visit together, and
+  visited-name suppression stops recursion without deleting self edges. Retained IR edges use the
+  declaration step of Lean's pinned `IR.CollectUsedDecls.collectDecl`, because `collectUsedDecls`
+  also inserts the declaration itself and filtering its result would discard genuine recursive
+  calls; this specialized API is requalified on a toolchain upgrade. `Environment.validate` calls
   `admitExecution` at producer and decoder boundaries, reconciles visits with available module
   attribution, requires exact candidate/replacement boundary coverage and binds each historical
-  edge set to its actual module receipt; missing or inconsistent observations refuse inspection,
-  so no omitted record becomes a clean result. The initial visit is the root, and the sorted
-  `nodes` census is exactly the set of these visits, with no duplicate visits.
+  edge set to its actual module receipt; missing or inconsistent observations refuse inspection, so
+  no omitted record becomes a clean result. The initial visit is the root, and the sorted `nodes`
+  census is exactly the set of these visits, with no duplicate visits.
   `RegulaPolicy.ExecutionClosure.Valid` checks the supplied census, discovery witnesses, canonical
   edge channels, endpoints, code obligations and unresolved requirement; `ExecutionRoot.Valid`
   additionally reconciles boundary names, replacement targets and compiler callers, and the
   induction uses the strictly earlier parent index, not another graph search. **Proved:**
   `ExecutionClosure.discovery_induction`, `nodes_induction` and `admitExecution_preserves` (over
   the executed admission, not a separate graph model): for a closure satisfying `DiscoveryOK`
-  (respectively `Valid`), a predicate true at the root and preserved by each recorded edge holds
-  at every visit (respectively every admitted node), and a successful admission retains exactly
-  its roots and proves `ExecutionValid`. They establish connectedness and structural admission,
-  not completeness or authenticity of IR extraction, that a candidate edge executes, machine-code
+  (respectively `Valid`), a predicate true at the root and preserved by each recorded edge holds at
+  every visit (respectively every admitted node), and a successful admission retains exactly its
+  roots and proves `ExecutionValid`. They establish connectedness and structural admission, not
+  completeness or authenticity of IR extraction, that a candidate edge executes, machine-code
   correspondence or intended-specification adequacy. An active `csimp` self-edge stays an
-  unresolved replacement-only cycle (RG3001). Reflexive constant equalities remain in the
-  candidate set, so that self-edge satisfies the active-edge subset invariant; an inactive
-  reflexive candidate does not create an active cycle, and ordinary recursive IR self-edges remain
-  a separate channel.
+  unresolved replacement-only cycle (RG3001). Reflexive constant equalities remain in the candidate
+  set, so that self-edge satisfies the active-edge subset invariant; an inactive reflexive
+  candidate does not create an active cycle, and ordinary recursive IR self-edges remain a separate
+  channel.
 - **Source binding.** `ProducerReport.SourceBinding` keeps module, path and exact text. Project
   checks capture Lake's source map and configuration before building; the loader checks source
   before import and after inspection, and transcripts, histories and every declaration range must
@@ -598,71 +597,66 @@ identity are trusted.
 `admitExampleSources` admits exactly when every observed source is in the frozen snapshot and the
 displayed text is in it (soundness and completeness), and file requests additionally require that
 text at the requested path; `admitDemonstration_sound` and `_complete`, `demonstration_completed`,
-`demonstration_observed_incomplete`, `demonstration_selected_rule` and
-`demonstration_not_accepted` (an admitted demonstration fails every accepted-example kind);
-`RegulaPolicy.incomplete_example_refused` (an incomplete outcome satisfies no fence
-expectation); `positiveClassifications_sound`. `admitDemonstration` returns the unchanged
-observation with a proof of `DemonstrationOK`: completed production, nonempty expected findings,
-a selected-rule incomplete finding, exact mode and canonical diagnostic equality; the observed
-list itself must contain an incomplete finding for the selected rule, without assuming
-injectivity of JSON rendering, and `demonstration_not_accepted` holds for any expected finding
-list. `Checker.RuleExampleQualification.qualify_sound`: every record `qualify` admits is
+`demonstration_observed_incomplete`, `demonstration_selected_rule` and `demonstration_not_accepted`
+(an admitted demonstration fails every accepted-example kind, for any expected finding list);
+`RegulaPolicy.incomplete_example_refused` (an incomplete outcome satisfies no fence expectation);
+`positiveClassifications_sound`. `admitDemonstration` returns the unchanged observation with a proof
+of `DemonstrationOK`: completed production, nonempty expected findings, a selected-rule incomplete
+finding, exact mode and canonical diagnostic equality; the observed list itself must contain an
+incomplete finding for the selected rule, without assuming injectivity of JSON rendering.
+`Checker.RuleExampleQualification.qualify_sound`: every record `qualify` admits is
 `RecordAdmissible` (current producer identity, parsed mode, equal before/after snapshots, the
-observed request decoding to the frozen one, exit at most 1, sources in the bound snapshot with
-one having the displayed text, for a file or diagnostic-only request one being the requested
-subject with the displayed text, a result source account unless the request is diagnostic-only
-or documentation, findings equal to the parsed diagnostics, one of three kinds, and
-`DemonstrationOK` for a demonstration); it proves nothing about the producer that wrote the
-record. `RuleExampleProjection.qualify_record` and `qualifyCorpus_records` give exact equality at
-the adapter's canonical record constructor and over the full corpus, including ordered scans,
+observed request decoding to the frozen one, exit at most 1, sources in the bound snapshot with one
+having the displayed text, for a file or diagnostic-only request one being the requested subject
+with the displayed text, a result source account unless the request is diagnostic-only or
+documentation, findings equal to the parsed diagnostics, one of three kinds, and `DemonstrationOK`
+for a demonstration); it proves nothing about the producer that wrote the record.
+`RuleExampleProjection.qualify_record` and `qualifyCorpus_records` give exact equality at the
+adapter's canonical record constructor and over the full corpus, including ordered scans,
 completeness and first refusals; their structural raw-tree laws avoid assuming parser
 well-formedness, and they do not authenticate parsing, duplicate-key handling, serialization,
 hashes, filesystem custody or subprocesses.
 
 The runner's schedule is the pure `RegulaQualification.CorpusWindow`: `launched_le` (launched but
 unconsumed tasks within the width), `launch_order` (every job launched once, in order),
-`launched_eq_total` (under the window invariant, `s.consumed = s.total` gives
-`s.launched = s.total`: no task is launched but never awaited) and
-`productions_nodup` (for a duplicate-free `selected` rule list, distinct `(rule, phase)`
-workspaces). Task scheduling, `IO.asTask`/`IO.wait` and process reaping are trusted. The
-runner shares one private copy of the root package and the captured dependency roots with every
-producer and records a content identity of every entry (path, `lstat` kind, length, 64-bit native
-hash) before any producer and after all are joined, and a difference refuses the run; equality
-shows the end state equals the start, not that no write occurred. Producers must not write the
-shared copy or dependency roots; no permission enforces this, and nothing prevents a write, so
-`Slot.sharedIdentity` checks it only by content identity, recording symlinks by resolution and
-never following them. The runner never changes shared dependency permissions, so a deadline kill
-cannot leave the dependency trees read-only. Git facts are captured once and injected into
-producers by exact request (`ruleExamples --injected-git-facts`; results carry
-`"gitFacts": "injected"`, and `axiomGate` rejects the flag): `Snapshot.assemble_facts_eq` and
-`stateOfCore_congruence` show equal facts give identical captures and bytes, and the campaign
-rechecks the shared trees once at the end. Before any producer starts, the runner makes one
-complete `Snapshot.dependenciesCaptures` and exports only its Git facts (revision and dirty bit),
-each keyed by the exact capture request (package, canonical root, and ordered source and
-configuration paths), as `injected-git-facts.json` retained with the attempt's raw evidence and
-named by every producer registration. A producer reads every source and configuration byte
-itself and uses an injected pair only for an exactly matching request, so the private `regula`
-copy and fixture dependencies are always observed fresh; the flag is an internal corpus-producer
-entry only. Producers do not recheck an injected dependency at their own end (at run end
-`Snapshot.inputsUnchanged` rechecks the once-captured value with fresh reads and fresh Git),
-every producer still rechecks each non-injected dependency and its own inputs, and admission
-ignores the `gitFacts` field. Root processes, concurrent external writers, other file owners,
-filesystem honesty, hash collisions and writes restored before the terminal check are trusted.
-Records use a qualification-only view (top-level `acceptance` and `documentationAcceptance`
-payloads null, every key and raw-tree shape kept), with the exact detector bytes in
-`PATH.raw/ATTEMPT/RULE/PHASE/result.json`. Beside it are the registered
+`launched_eq_total` (under the window invariant, `s.consumed = s.total` gives `s.launched =
+s.total`: no task is launched but never awaited) and `productions_nodup` (for a duplicate-free
+`selected` rule list, distinct `(rule, phase)` workspaces). Task scheduling, `IO.asTask`/`IO.wait`
+and process reaping are trusted. The runner shares one private copy of the root package and the
+captured dependency roots with every producer and records a content identity of every entry (path,
+`lstat` kind, length, 64-bit native hash) before any producer and after all are joined, and a
+difference refuses the run; equality shows the end state equals the start, not that no write
+occurred. Producers must not write the shared copy or dependency roots; no permission enforces this,
+and nothing prevents a write, so `Slot.sharedIdentity` checks it only by content identity, recording
+symlinks by resolution and never following them. The runner never changes shared dependency
+permissions, so a deadline kill cannot leave the dependency trees read-only. Before any producer
+starts, the runner makes one complete `Snapshot.dependenciesCaptures` and exports only its Git facts
+(revision and dirty bit), injected into producers through the internal `ruleExamples
+--injected-git-facts` entry, which `axiomGate` rejects, and each keyed by the exact capture request
+(package, canonical root, and ordered source and configuration paths), as `injected-git-facts.json`
+retained with the attempt's raw evidence and named by every producer registration. A producer reads
+every source and configuration byte itself and uses an injected pair only for an exactly matching
+request, so the private `regula` copy and fixture dependencies are always observed fresh.
+`Snapshot.assemble_facts_eq` and `stateOfCore_congruence` show equal facts give identical captures
+and bytes. Producers do not recheck an injected dependency at their own end; the campaign rechecks
+the shared trees once, at run end, where `Snapshot.inputsUnchanged` rechecks the once-captured value
+with fresh reads and fresh Git. Every producer still rechecks each non-injected dependency and its
+own inputs; results carry `"gitFacts": "injected"`, which admission ignores. Root processes,
+concurrent external writers, other file owners, filesystem honesty, hash collisions and writes
+restored before the terminal check are trusted.  Records use a qualification-only view (top-level
+`acceptance` and `documentationAcceptance` payloads null, every key and raw-tree shape kept), with
+the exact detector bytes in `PATH.raw/ATTEMPT/RULE/PHASE/result.json`. Beside it are the registered
 command/request/snapshots, stream files, terminal metadata and the compact original record; during
-production the `INCOMPLETE` receipt points to these sidecars, and the full aggregate is written
-once all records and controls are ready. The runner consumes records in fixed order and drains
-every launched task before ordinary or exceptional scratch cleanup. Partial exports remain
-`INCOMPLETE`. The runner does not re-read its own sidecars and requires unchanged terminal
-checker sources before the final export, whose only writer, `saveCompleted`, requires the
-`Cleaned` witness that `withScratchCleaned` constructs after scratch removal. `COMPLETED` attests
-what finished; the run's verdict is its exit status: a deadline kill before the final save leaves
-`INCOMPLETE` and partial files, a kill after it still fails the run, and every write inside the
-killed process group is followed by an exit tail, so no such file is itself a verdict. Stream
-retention on kill covers completed lines already read; only terminal observations claim complete
-streams.
+production the `INCOMPLETE` receipt points to these sidecars, and the full aggregate is written once
+all records and controls are ready. The runner consumes records in fixed order and drains every
+launched task before ordinary or exceptional scratch cleanup. Partial exports remain `INCOMPLETE`.
+The runner does not re-read its own sidecars and requires unchanged terminal checker sources before
+the final export, whose only writer, `saveCompleted`, requires the `Cleaned` witness that
+`withScratchCleaned` constructs after scratch removal. `COMPLETED` attests what finished; the run's
+verdict is its exit status: a deadline kill before the final save leaves `INCOMPLETE` and partial
+files, a kill after it still fails the run, and every write inside the killed process group is
+followed by an exit tail, so no such file is itself a verdict. Stream retention on kill covers
+completed lines already read; only terminal observations claim complete streams.
 
 ## Qualification ledger
 

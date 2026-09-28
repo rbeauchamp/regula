@@ -36,9 +36,9 @@ section's anchor on its chapter page and each linked row's anchor on module 8
 (`Regula.Site.standardAnchors`), each page and anchor the `docs/` Markdown links in the
 development standard (`Regula.Site.documentAnchors`), and the rendered checklist's rows to be
 exactly `Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`; a row is the `id` of an
-element of class `Regula.checklistRowClass`). It also requires each cited section's source to
-be a module of the library. Every row a rule lists is one of them
-(`guide_checklist_listed`). Which rows a rule lists is reviewed with the rule; the artifact's
+element of class `Regula.checklistRowClass`). Every row a rule lists is one of them
+(`guide_checklist_listed`). It also requires each cited section's source to be a module of the
+library. Which rows a rule lists is reviewed with the rule; the artifact's
 link check requires every anchor in the rendered site. The generator refuses a cited repository
 path that does not exist.
 

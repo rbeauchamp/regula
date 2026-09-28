@@ -65,7 +65,8 @@ name = "perfExample"
 root = "Main"
 ```
 
-This minimal execution example is not an adoption of the standard's surface manifest or audit.
+This minimal execution example is not a complete adoption of the standard's surface manifest or
+audit.
 Its `Main.lean` deliberately adds modulo `2^64`; it does not promise an unbounded sum:
 
 ```lean

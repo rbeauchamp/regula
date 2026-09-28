@@ -59,10 +59,10 @@ compiler-integrated semantic analysis (Rust's [Clippy][clippy] and Microsoft's
 [Roslyn analyzers][roslyn]), extensible rule infrastructure ([ESLint][eslint]), cohesive rule
 discovery and fixes (Astral's [Ruff][ruff]), editor and project scope with incremental analysis
 (the [Pyrefly][pyrefly] team), and hints beside compiler feedback (Neil Mitchell's
-[HLint][hlint] and the [Haskell Language Server][hls]). Lean's command, module and environment
-linters, Batteries' linter driver and Mathlib's linter configuration are the Lean facilities it
-builds beside. No code of these projects is copied. None of these examples prescribes an exact
-UX or supplies Lean policy semantics or suppression permission.
+[HLint][hlint] and the [Haskell Language Server][hls]). None of these examples prescribes an exact
+UX or supplies Lean policy semantics or suppression permission. Lean's command, module and
+environment linters, Batteries' linter driver and Mathlib's linter configuration are the Lean
+facilities it builds beside. No code of these projects is copied.
 
 ## Website
 
