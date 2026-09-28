@@ -18,7 +18,8 @@ Regula checks every declaration of the libraries you claim, on every run of `lak
 
 Every finding states what is wrong, where and how to fix it, in the terminal, the editor and
 versioned JSON, and `lake lint` adds, once per fired rule, why it matters and a checked
-example of the fix. The same guidance is a briefing for the coding agents that increasingly
+example of the fix (or, where the checked files are qualification inputs, the correction they
+demonstrate). The same guidance is a briefing for the coding agents that increasingly
 write Lean, installed with the package and read before they write a line. A pass is
 mechanical: whether each theorem states what you meant is still your review, and Regula says
 so.
@@ -44,7 +45,7 @@ Mathlib and Batteries linters, which it requires or recommends rather than repla
 | `partial` or `unsafe` declarations you write (RG1006); unresolved `extern`/`implemented_by` paths (RG3001) and, in `checked` mode, unproved boundaries (RG3002) | Lean's kernel, compiler and runtime; Lake; the operating system |
 | Build warnings (RG2003), modules outside the manifest (RG2004), automatic implicits or a missing `linter.missingDocs` (RG2006), modules without a module docstring (RG5001) | |
 
-The [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) lists all 22 rules, each
+The [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) lists every rule, each
 with a checked violating and corrected example.
 
 ## Try it
@@ -107,7 +108,8 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
 - `lake exe regula agent-guide` prints a compact briefing of every rule, ordered for writing
   code, to place in `AGENTS.md`; `lake exe regula skill` prints it as an agent skill.
 - The first finding of each rule in a run adds why it matters, the common compliant rewrites
-  and a checked example of the fix; `lake exe regula explain <RULE-ID>` prints the full rule
+  and a checked example of the fix (or, where the checked files are qualification inputs, the
+  correction they demonstrate); `lake exe regula explain <RULE-ID>` prints the full rule
   offline.
 - `lake lint -- --json-out PATH` writes one versioned JSON document with every finding, its
   remedy and each fired rule's guidance; exit codes are documented and stable.

@@ -26,7 +26,6 @@ def main := manualMain (%doc Generated) (config := {
   extraHead := #[
     Html.tag "meta" #[("name", "color-scheme"), ("content", "light dark")] .empty,
     Html.tag "meta" #[("name", "description"), ("content", description)] .empty,
-    Html.tag "meta" #[("property", "og:site_name"), ("content", "Regula for Lean")] .empty,
     Html.tag "meta" #[("property", "og:description"), ("content", description)] .empty,
     Html.tag "link" #[("rel", "stylesheet"), ("href", "regula.css")] .empty],
   sourceLink := some "https://github.com/rbeauchamp/regula",
