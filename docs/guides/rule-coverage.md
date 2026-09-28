@@ -91,25 +91,30 @@ The review obligations that no mechanical result discharges are the checker's `R
 in [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean), each with its one description
 (`Residual.description`): `R-INTENT`, `R-INVARIANT`, `R-LAWS`, `R-BOUNDARY`, `R-NONVACUITY`,
 `R-DOC`, `R-COST`, `R-QUALIFY` and `R-GRAPH`. The site's
-[enforcement page](https://rbeauchamp.github.io/regula/dev/enforcement/) lists them all, each
-rule page and `lake exe regula explain` the ones its rule leaves open. Every accepted result
-lists them as unresolved where applicable (`R-GRAPH` only for a serialized-graph claim), and each
-RG1007 contract it reports carries `R-INTENT` and `R-INVARIANT` for the adequacy of its
-requirement and its caller coverage. A listed identifier is an open obligation, not a completed
-review. They are required where applicable, never waived: no heuristic detector replaces one,
-and automation would first need a precise claim language, adequate registration and checked
-implementation linkage.
+[enforcement page](https://rbeauchamp.github.io/regula/dev/enforcement/) defines them all; each
+rule page links the ones its rule leaves open to those definitions, and `lake exe regula explain`
+prints them in full. Each obligation also carries the checklist rows whose review it covers
+(`Residual.rows`). Every accepted result lists them as unresolved where applicable (`R-GRAPH`
+only for a serialized-graph claim), and each RG1007 contract it reports carries `R-INTENT` and
+`R-INVARIANT` for the adequacy of its requirement and its caller coverage. A listed identifier is
+an open obligation, not a completed review. They are required where applicable, never waived: no
+heuristic detector replaces one, and automation would first need a precise claim language,
+adequate registration and checked implementation linkage.
 
 ## Checklist rows
 
 The site's [checklist coverage](https://rbeauchamp.github.io/regula/dev/coverage/) page lists
-every module 9 row with the rules whose explanation lists it and the obligations those rules
-leave open. It is generated from each rule's `checklist` and `residuals` in
-[`RegulaCore.Guide`](../../lean/RegulaCore/Guide.lean), inverted by construction
-(`Regula.Site.mem_rulesOfRow`), so it cannot disagree with the rule pages; a row no rule lists
-is semantic review only. `./scripts/verify.sh docs` renders the standard and requires its
+every module 9 row with the rules whose explanation lists it and the review obligations it carries.
+It is generated from each rule's `checklist` in
+[`RegulaCore.Guide`](../../lean/RegulaCore/Guide.lean) and each obligation's `Residual.rows`,
+inverted by construction (`Regula.Site.mem_rulesOfRow`, `mem_residualsOfRow`), so it cannot
+disagree with the rule pages or the obligations; a row no rule lists is semantic review only.
+Every obligation carries at least one row, each a checklist row (`residual_rows_listed`), and
+every checklist row carries at least one obligation (`residualsOfRow_ne_nil`), both
+kernel-checked. `./scripts/verify.sh docs` renders the standard and requires its
 checklist rows to be exactly `Regula.checklistRows`, each once and in order
 (`Regula.Site.rowsMismatch_eq_none_iff`), and every row a rule lists is one of them
-(`guide_checklist_listed`). Which rows a rule lists is reviewed with the rule, against each
-row's required verification on the checklist; no row passes on a presence check or a checker
+(`guide_checklist_listed`). Which rows a rule lists and which an obligation carries are reviewed
+with the rule or obligation, against each row's required verification on the checklist; the
+kernel checks cover only membership and coverage. No row passes on a presence check or a checker
 PASS alone.

@@ -262,6 +262,13 @@ options, where rules run, the diagnostic form, the open obligations and trusted 
 how examples are produced. -/
 def enforcementRoute : String := "enforcement/"
 
+/-- The one definition of obligation `r`, on the enforcement page. -/
+def residualRoute (r : Residual) : String := enforcementRoute ++ "#" ++ r.spelling
+
+/-- The obligations `rs`, each linked to its definition on the enforcement page. -/
+def residualLinks (rs : List Residual) : String :=
+  joinComma (rs.map fun r => link (residualRoute r) (code r.spelling))
+
 /-- The facts shown under the lead: the rule's one-line requirement, where it is reported, and a
 link to what every rule shares. -/
 def leadFactsHtml (id : RuleId) : String :=
@@ -439,10 +446,6 @@ def sectionHead (id : RuleId) (suffix heading : String) : String :=
   "# " ++ heading ++ "\n%%%\ntag := \"" ++ id.spelling ++ "-" ++ suffix ++
       "\"\nnumber := false\n%%%\n\n"
 
-/-- The review obligations as a Verso list: each identifier with its one description. -/
-def residualItems (rs : List Residual) : String :=
-  String.join (rs.map fun r => "* `" ++ r.spelling ++ "`: " ++ r.description ++ ".\n") ++ "\n"
-
 /-- The headings of a rule page's sections, in page order. -/
 def sectionOrder : List String :=
   ["Checked example", "How to fix it", "Why it matters", "What triggers it", "Required proof shape",
@@ -456,9 +459,10 @@ def requiredHeadings : List String :=
     "What a passing result establishes", "Limitations and unsupported cases", "Sources"]
 
 /-- Every section of a rule page, in order, with its heading, stable tag suffix and Verso body,
-before optional sections without content are dropped. `ex` is the checked-example body and
-`facts` the sources, each already admitted as raw HTML. -/
-def allRuleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts : String) :
+before optional sections without content are dropped. `ex` is the checked-example body, `facts`
+the sources and `obligations` the linked open review obligations, each already admitted as raw
+HTML. -/
+def allRuleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts obligations : String) :
     List (String × String × String) := [
   ("Checked example", "example", ex),
   ("How to fix it", "fix", numbered ident (descriptor id).rewrites),
@@ -469,26 +473,28 @@ def allRuleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts : Str
   ("What a passing result establishes", "established",
     paragraphs ident g.established ++ "It does not establish:\n\n" ++
         bullets ident g.notEstablished ++
-    "It leaves these review obligations open:\n\n" ++ residualItems g.residuals),
+    obligations ++ "\n"),
   ("Configuration and exceptions", "configuration", paragraphs ident g.configuration),
   ("Limitations and unsupported cases", "limitations", paragraphs ident g.limitations),
   ("Sources", "sources", facts ++ "\n")]
 
 /-- The sections of a rule page: every required section, and each optional one that has
 content. -/
-def ruleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts : String) :
+def ruleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts obligations : String) :
     List (String × String × String) :=
-  (allRuleSections ident id g ex facts).filter fun s => s.1 ∈ requiredHeadings || !s.2.2.isEmpty
+  (allRuleSections ident id g ex facts obligations).filter fun s =>
+    s.1 ∈ requiredHeadings || !s.2.2.isEmpty
 
 /-- A rule page's sections follow the fixed page order. -/
-theorem ruleSections_sublist (ident : Identity) (id : RuleId) (g : Guide) (ex facts : String) :
-    List.Sublist ((ruleSections ident id g ex facts).map (·.1)) sectionOrder :=
+theorem ruleSections_sublist (ident : Identity) (id : RuleId) (g : Guide)
+    (ex facts obligations : String) :
+    List.Sublist ((ruleSections ident id g ex facts obligations).map (·.1)) sectionOrder :=
   List.filter_sublist.map _
 
 /-- Every rule page has every required section. -/
-theorem required_mem_ruleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts : String)
-    {heading : String} (h : heading ∈ requiredHeadings) :
-    heading ∈ (ruleSections ident id g ex facts).map (·.1) := by
+theorem required_mem_ruleSections (ident : Identity) (id : RuleId) (g : Guide)
+    (ex facts obligations : String) {heading : String} (h : heading ∈ requiredHeadings) :
+    heading ∈ (ruleSections ident id g ex facts obligations).map (·.1) := by
   simp only [requiredHeadings, List.mem_cons, List.not_mem_nil, or_false] at h
   rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
     simp [ruleSections, allRuleSections, requiredHeadings]
@@ -511,9 +517,11 @@ def rulePage (ident : Identity) (id : RuleId) (clauses : List Clause) (ex : Exam
   let exampleBlock ← htmlBlock (← exampleHtml ident ex)
   let runBlock ← htmlBlock (exampleRunHtml ex)
   let facts ← htmlBlock (sourceFactsHtml ident clauses g.checklist g.sources g.linkage)
+  let obligations ← htmlBlock ("<p>It leaves these review obligations open: " ++
+      residualLinks g.residuals ++ ".</p>")
   let exampleBody := exampleBlock ++ "\n" ++ resolveProse ident d.examples.caption ++ "\n\n" ++
       runBlock ++ "\n"
-  let sections := ruleSections ident id g exampleBody facts
+  let sections := ruleSections ident id g exampleBody facts obligations
   return "import VersoManual\nimport RegulaSite\nopen Verso.Genre Manual RegulaSite\n\n#doc \
     (Manual) \"" ++ title ++
     "\" =>\n%%%\ntag := \"" ++ id.spelling ++ "\"\nfile := \"" ++ id.spelling ++

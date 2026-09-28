@@ -37,8 +37,9 @@ about that data is a function here. The editions and the route policy are
   page, which must be exactly `checklistRows`; `guide_checklist_listed`: every row a rule
   explanation lists is one of them.
 - `rulesOfRow`, `mem_rulesOfRow`, `residualsOfRow`, `mem_residualsOfRow`: the checklist coverage
-  page's rules and open obligations of each row, the inverse of the explanations' `checklist` by
-  construction.
+  page's rules and review obligations of each row, the inverses of the explanations' `checklist`
+  and of `Residual.rows` by construction; `residual_rows_listed`, `residualsOfRow_ne_nil`: every
+  obligation carries checklist rows, and every checklist row carries an obligation.
 
 ## Assumptions and boundaries
 
@@ -822,14 +823,25 @@ theorem mem_rulesOfRow (row : String) (id : RuleId) :
     id ∈ rulesOfRow row ↔ row ∈ (guide id).checklist := by
   simp [rulesOfRow, RuleId.mem_all]
 
-/-- The review obligations that the rules of `row` leave open, in `Residual.all` order. -/
+/-- The review obligations that carry checklist row `row`, in `Residual.all` order. -/
 def residualsOfRow (row : String) : List Residual :=
-  Residual.all.filter fun r => (rulesOfRow row).any fun id => r ∈ (guide id).residuals
+  Residual.all.filter fun r => row ∈ r.rows
 
-/-- An obligation is listed for a row exactly when some rule of that row leaves it open. -/
+/-- The coverage page lists an obligation under a row exactly when the obligation carries that
+row: the page is the inverse of `Residual.rows`. -/
 theorem mem_residualsOfRow (row : String) (r : Residual) :
-    r ∈ residualsOfRow row ↔ ∃ id, row ∈ (guide id).checklist ∧ r ∈ (guide id).residuals := by
-  simp [residualsOfRow, Residual.mem_all, mem_rulesOfRow]
+    r ∈ residualsOfRow row ↔ row ∈ r.rows := by
+  simp [residualsOfRow, Residual.mem_all]
+
+/-- Every obligation carries a row, and every row it carries is a checklist row. -/
+theorem residual_rows_listed (r : Residual) :
+    r.rows ≠ [] ∧ ∀ row ∈ r.rows, row ∈ checklistRows := by
+  cases r <;> decide
+
+/-- Every checklist row carries a review obligation, so no row passes on a checker result alone,
+whether or not a rule lists it. -/
+theorem residualsOfRow_ne_nil : ∀ row ∈ checklistRows, residualsOfRow row ≠ [] := by
+  decide
 
 /-! Evaluated controls (observations of the compiled scanners, not proofs): a route ends at a
 Markdown delimiter or a sentence's closing `.`, an autolink and a code span count, a page route

@@ -13,7 +13,9 @@ rule shares, the checklist coverage page, the versions page and the credits page
   one per registry entry.
 - `homePage`, `indexPage`, `enforcementPage`, `coveragePage`, `versionsPage`, `creditsPage`: the
   remaining generated modules. The coverage page lists each checklist row with `rulesOfRow` and
-  `residualsOfRow`, the inverse of the rule explanations' `checklist` (`mem_rulesOfRow`).
+  `residualsOfRow`, the inverses of the rule explanations' `checklist` and of `Residual.rows`
+  (`mem_rulesOfRow`, `mem_residualsOfRow`). The enforcement page defines each obligation once,
+  under the element id its identifier names (`residualRoute`).
 - `EvidenceSummary`: one rule's checked-example evidence, as `build.json` records it.
 
 ## Boundaries
@@ -74,7 +76,8 @@ def homePage (ident : Identity) : Except String String := do
       incomplete, which makes it INCOMPLETE because required evidence is missing; neither is \
       accepted. A pass is mechanical: each rule page states what the check establishes and which \
       review obligations stay with you, and [checklist coverage](coverage/) maps every row of \
-      the compliance checklist to the rules that report on it.\n" ++
+      the compliance checklist to the rules that report on it and the review obligations it \
+      carries.\n" ++
     "3. **Decide whether to adopt.** The [rule index](rules/) lists all " ++
         toString RuleId.all.length ++ " rules, and [how rules are enforced](enforcement/) \
           states what they share: a violation fails the result, and missing evidence never \
@@ -110,6 +113,9 @@ def enforcementPage (ident : Identity) : Except String String := do
   let notice ← htmlBlock (pageAnchor "enforcement" ++ editionHtml ident)
   let trusted ← htmlBlock ("<ul>" ++ String.join (Trusted.all.map fun t =>
       "<li><code>" ++ escape t.spelling ++ "</code>: " ++ escape t.detail ++ "</li>") ++ "</ul>")
+  let obligations ← htmlBlock ("<ul>" ++ String.join (Residual.all.map fun r =>
+      "<li id=\"" ++ escape r.spelling ++ "\"><code>" ++ escape r.spelling ++ "</code>: " ++
+        inlineHtml r.description ++ ".</li>") ++ "</ul>")
   return header [] "How rules are enforced" "enforcement" (some "enforcement") (split := false) ++
       notice ++ "\n" ++
     "Every rule of the [rule index](rules/) is enforced the same way. This page states once what \
@@ -148,8 +154,9 @@ def enforcementPage (ident : Identity) : Except String String := do
     "Every accepted result lists every review obligation below as open, whatever rules it checked \
       (`R-GRAPH` only for a serialized-graph claim). A listed identifier is an open obligation, \
       never a completed review. Each rule page names the obligations its own result leaves \
-      open.\n\n" ++
-    residualItems Residual.all ++
+      open, and [checklist coverage](coverage/) the checklist rows whose review each \
+      carries.\n\n" ++
+    obligations ++ "\n" ++
     subsection "enforcement-trusted" "Trusted mechanisms" ++
     "Every accepted result also relies on these trusted mechanisms (the checker's `Trusted` \
       account), which no rule verifies:\n\n" ++ trusted ++ "\n" ++
@@ -170,27 +177,28 @@ private def coverageRow (row : String) : String :=
       "</code></a></th><td>" ++
   (if rules.isEmpty then "Review only" else ", ".intercalate (rules.map fun id =>
       "<a href=\"" ++ id.route ++ "\"><code>" ++ id.spelling ++ "</code></a>")) ++ "</td><td>" ++
-  ", ".intercalate ((residualsOfRow row).map fun r => "<code>" ++ r.spelling ++ "</code>") ++
-      "</td></tr>"
+  residualLinks (residualsOfRow row) ++ "</td></tr>"
 
 /-- The checklist coverage page: every row of the compliance checklist with the rules whose
-explanation lists it and the review obligations those rules leave open, derived from the rule
-explanations (`mem_rulesOfRow`, `mem_residualsOfRow`). -/
+explanation lists it (`mem_rulesOfRow`) and the review obligations that carry it
+(`mem_residualsOfRow`), each of which carries at least one row (`residualsOfRow_ne_nil`). -/
 def coveragePage (ident : Identity) : Except String String := do
   let notice ← htmlBlock (pageAnchor "coverage" ++ editionHtml ident)
   let table ← htmlBlock ("<div class=\"regula-scroll\" role=\"region\" aria-label=\"Checklist \
-      coverage\" tabindex=\"0\"><table class=\"regula-rules\"><caption>Every checklist row and \
-      the rules that report on it</caption><thead><tr><th scope=\"col\">Row</th><th \
-      scope=\"col\">Rules</th><th scope=\"col\">Obligations the rules leave open</th></tr>\
-      </thead><tbody>" ++ String.join (checklistRows.map coverageRow) ++ "</tbody></table></div>")
+      coverage\" tabindex=\"0\"><table class=\"regula-rules\"><caption>Every checklist row, the \
+      rules that report on it and its review obligations</caption><thead><tr><th \
+      scope=\"col\">Row</th><th scope=\"col\">Rules</th><th scope=\"col\">Review \
+      obligations</th></tr></thead><tbody>" ++ String.join (checklistRows.map coverageRow) ++
+      "</tbody></table></div>")
   return header [] "Checklist coverage" "coverage" (some "coverage") (split := false) ++
       notice ++ "\n" ++
     "Each row of the [compliance checklist](standard/9-compliance-audit/) with the rules whose \
-      page lists it and the review obligations those rules leave open. The table is derived from \
-      the rule explanations, so it and the rule pages cannot disagree. A row that no rule lists is \
-      semantic review only. No row passes on a checker result alone: the checklist states each \
-      row's required result and verification, and [how rules are enforced](enforcement/) what \
-      each obligation requires.\n\n" ++ table ++ "\n"
+      page lists it and the review obligations it carries. The rules are derived from the rule \
+      explanations, so they and the rule pages cannot disagree; the obligations are derived from \
+      the checklist rows each obligation carries, as defined on [how rules are \
+      enforced](enforcement/). A row that no rule lists is semantic review only. Every row carries \
+      at least one obligation, so no row passes on a checker result alone: the checklist states \
+      each row's required result and verification.\n\n" ++ table ++ "\n"
 
 /-- One rule's checked-example evidence, as the artifact's `build.json` records it. -/
 structure EvidenceSummary where

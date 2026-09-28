@@ -682,7 +682,7 @@ def guide : RuleId → Guide
           is neither proved nor observed.",
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
-      checklist := ["DECL-01", "DOC-01"]
+      checklist := ["DECL-01", "DOC-01", "DOGFOOD-01"]
       linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
         `conforming_missingDocs`, `leanArgument_mem_failures_iff` and \
         `missingDocs_unset_fails`. Reading Lake's target configuration is operational."

@@ -31,7 +31,8 @@ namespace Regula.Checker.Account
 open RegulaPolicy
 
 /-- The semantic-review obligations a mechanical result never discharges. Each is stated once,
-by `Residual.description`, which the rule reference and `regula explain` show. -/
+by `Residual.description`, which the rule reference and `regula explain` show, and carries the
+checklist rows `Residual.rows`. -/
 inductive Residual where
   /-- `R-INTENT` (`Residual.description`). -/
   | intent
@@ -85,6 +86,26 @@ def Residual.description : Residual → String
       evidence"
   | .graph => "a claimed serialized graph (`freshChecker`, standard §8.9) covers every selected \
       root"
+
+/-- The compliance-checklist rows (standard module 9) whose review each obligation carries, in the
+checklist's order. Every obligation carries a row, each a checklist row, and every checklist row
+carries an obligation (`Regula.Site.residual_rows_listed`, `Regula.Site.residualsOfRow_ne_nil`). -/
+def Residual.rows : Residual → List String
+  | .intent => ["SCOPE-01", "SCOPE-02", "SCOPE-03", "SCOPE-04", "SCOPE-05", "TYPE-02", "TYPE-03",
+      "TYPE-04", "THEOREM-01", "THEOREM-05", "THEOREM-06", "THEOREM-08", "THEOREM-09", "FOUND-01",
+      "COMP-01", "COMP-04", "DOC-02", "DOC-04", "DOGFOOD-01", "DOGFOOD-03"]
+  | .invariant => ["SCOPE-03", "SCOPE-05", "TYPE-01", "THEOREM-01", "THEOREM-03", "THEOREM-07",
+      "THEOREM-08", "COMP-03", "BUILD-03", "DOGFOOD-01", "DOGFOOD-05"]
+  | .laws => ["TYPE-05", "THEOREM-02", "DOGFOOD-01", "DOGFOOD-04"]
+  | .boundary => ["TYPE-06", "DOGFOOD-01"]
+  | .nonvacuity => ["THEOREM-04", "THEOREM-09"]
+  | .doc => ["DOC-01", "DOC-02", "DOGFOOD-01", "DOGFOOD-03"]
+  | .cost => ["THEOREM-05", "THEOREM-10", "DOGFOOD-04"]
+  | .qualify => ["THEOREM-06", "FOUND-02", "FOUND-03", "FOUND-04", "FOUND-05", "DECL-01", "DECL-02",
+      "DECL-03", "DECL-04", "COMP-02", "COMP-03", "BUILD-01", "BUILD-02", "BUILD-03", "BUILD-04",
+      "DOC-03", "DOC-04", "DOC-05", "MUT-01", "MUT-02", "MUT-03", "MUT-04", "DOGFOOD-02",
+      "DOGFOOD-05"]
+  | .graph => ["MUT-05"]
 
 /-- Every obligation once (`Residual.mem_all`). -/
 def Residual.all : List Residual :=
