@@ -10,8 +10,8 @@ Markdown below the documentation root and, with `--verso DIR:LIBRARY:RENDER`, ev
 block of that Verso library, the standard, whose build and rendering are also required (with
 `--verso`, every fence elaborates in the freshly built Verso package's workspace, which requires
 the project and the other packages the standard's examples import), and whose rendered pages
-must define every anchor the rule registry and the Markdown link, with
-the coverage map linking exactly the checklist's rows, each labelled with its row. -/
+must define every anchor the rule registry and the Markdown link, with the checklist's rows
+exactly `Regula.checklistRows`. -/
 
 namespace Regula.Checker.DocFenceAudit
 
@@ -238,8 +238,7 @@ unsafe def run (args : List String) : IO UInt32 := do
         SourceBinding.unchanged sources
         IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block \
           elaborated where it is written), rendered, defines every anchor the rule registry and \
-          the documentation link, and the coverage map links exactly its checklist rows, each \
-          labelled with its row"
+          the documentation link, and its checklist rows are exactly Regula.checklistRows"
         return 0
     let outcome := outcome.bind id
     match outcome with
