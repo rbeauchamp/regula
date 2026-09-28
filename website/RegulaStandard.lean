@@ -24,6 +24,8 @@ number := false
 
 This standard specifies requirements for mathematical proofs and verified functional programs in Lean.
 
+*Public review draft; not affiliated with the Lean FRO or Mathlib.*
+
 # Introduction
 %%%
 tag := "standard-introduction"

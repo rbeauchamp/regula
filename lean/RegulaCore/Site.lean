@@ -62,6 +62,11 @@ open Regula.Checker.Account (Residual)
 /-- The repository whose sources the site documents. -/
 def repository : String := "https://github.com/rbeauchamp/regula"
 
+/-- The one-line description of Regula that link previews show. -/
+def tagline : String :=
+  "A strict linter for Lean: no holes, no hidden axioms, no unstated trust, and a fix for every \
+    finding."
+
 /-- The URL path of the project site. Absolute links in the output must start with it. -/
 def basePath : String := "/regula/"
 

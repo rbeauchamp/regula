@@ -56,8 +56,8 @@ private def header (imports : List String) (title tag : String) (file : Option S
 private def subsection (tag heading : String) : String :=
   "# " ++ heading ++ "\n%%%\ntag := \"" ++ tag ++ "\"\nnumber := false\n%%%\n\n"
 
-/-- The site's home page (the edition root): its purpose in one line, then the four things a
-reader comes to do, in order. -/
+/-- The site's home page (the edition root): what Regula rejects and where a newcomer starts,
+then the four things a reader comes to do, in order. -/
 def homePage (ident : Identity) : Except String String := do
   let notice ← htmlBlock (pageAnchor "regula" ++ editionHtml ident)
   let doc (path text : String) := "[" ++ text ++ "](" ++ blobUrl ident path ++ ")"
@@ -65,20 +65,13 @@ def homePage (ident : Identity) : Except String String := do
       "RegulaStandard", "Generated.Versions", "Generated.Credits"]
       "Regula rule reference" "regula" none ++
     notice ++ "\n" ++
-    "Regula is a strict linter for Lean 4. This reference shows exactly what each of its rules \
-      holds your agents' code to.\n\n" ++
-    "1. **Look up a rule.** Every finding names a rule ID such as `RG1002` (editor code \
-      `Regula.RG1002`) and ends with the URL of its page in the reference of the installed \
-      Regula version; the editor's *View explanation* link opens the same page. A rule page \
-      starts with what is wrong, what to do and a checked example. Open the \
-      [rule index](rules/), or press `/` to search.\n" ++
-    "2. **Review a Regula pass.** A finding is a violation, which makes the result FAIL, or \
-      incomplete, which makes it INCOMPLETE because required evidence is missing; neither is \
-      accepted. A pass is mechanical: each rule page states what the check establishes and which \
-      review obligations stay with you, and [checklist coverage](coverage/) maps every row of \
-      the compliance checklist to the rules that report on it and the review obligations it \
-      carries.\n" ++
-    "3. **Decide whether to adopt.** The [rule index](rules/) lists all " ++
+    "**Regula for Lean** is a strict linter: `lake lint` does not accept a project with a \
+      `sorry`, a project axiom, a compiler-trusting proof such as `native_decide`, or an axiom \
+      beyond the foundation you chose, and names every `extern` and `implemented_by` boundary \
+      your executables reach. Every rule below has a checked failing example, its fix, and what \
+      a pass does and does not establish. **New here?** Start with " ++
+        doc "README.md" "what it checks and how to try it" ++ ".\n\n" ++
+    "1. **Decide whether to adopt.** The [rule index](rules/) lists all " ++
         toString RuleId.all.length ++ " rules, and [how rules are enforced](enforcement/) \
           states what they share: a violation fails the result, and missing evidence never \
           passes. The " ++ doc "docs/guides/adoption.md" "adoption guide" ++
@@ -86,6 +79,17 @@ def homePage (ident : Identity) : Except String String := do
       "[the standard](standard/) and its [compliance checklist](standard/8-compliance-audit/) \
         define what the rules enforce; every Lean example of the standard is elaborated when this \
         site is built.\n" ++
+    "2. **Look up a rule.** Every finding names a rule ID such as `RG1002` (editor code \
+      `Regula.RG1002`) and ends with the URL of its page in the reference of the installed \
+      Regula version; the editor's *View explanation* link opens the same page. A rule page \
+      starts with what is wrong, what to do and a checked example. Open the \
+      [rule index](rules/), or press `/` to search.\n" ++
+    "3. **Review a Regula pass.** A finding is a violation, which makes the result FAIL, or \
+      incomplete, which makes it INCOMPLETE because required evidence is missing; neither is \
+      accepted. A pass is mechanical: each rule page states what the check establishes and which \
+      review obligations stay with you, and [checklist coverage](coverage/) maps every row of \
+      the compliance checklist to the rules that report on it and the review obligations it \
+      carries.\n" ++
     "4. **Challenge a rule.** Each rule page gives the rule's rationale, its normative clauses and \
       its detector sources at the commit the page was built from. To dispute a rule or report a \
       wrong result, [open an issue](" ++ repository ++ "/issues).\n\n" ++
