@@ -53,8 +53,7 @@ with a checked violating and corrected example.
 
 Regula is a Lake package, and each release is tagged with the one Lean release it supports:
 `v4.34.0` is for `leanprover/lean4:v4.34.0`. Use the
-[release](https://github.com/rbeauchamp/regula/releases) tag that matches your `lean-toolchain`
-(before the first release, an exact commit of `main`).
+[release](https://github.com/rbeauchamp/regula/releases) tag that matches your `lean-toolchain`.
 
 1. **Require it** in `lakefile.toml`
    (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v4.34.0"`):
