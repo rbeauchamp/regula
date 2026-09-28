@@ -93,10 +93,10 @@ def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := 
   return (manifest, inventory)
 
 /-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
-`leanOptions`, and the root targets the manifest does not exclude with their own `leanOptions`),
-whether the workspace contains Mathlib, the required Regula's `lean-toolchain`, the manifest and
-agent-guidance files, and the modules below a library root that no library includes, split by
-whether a claimed module imports them. -/
+`leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
+their own `leanOptions`), whether the workspace contains Mathlib, the required Regula's
+`lean-toolchain`, the manifest and agent-guidance files, and the modules below a library root that
+no library includes, split by whether a claimed module imports them. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
@@ -110,8 +110,8 @@ def observe (root : FilePath) : IO Project := do
     else pure false
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
-  let (lakefile, configFile, driver, options, targets, allClaimed, mathlib, regulaDir, uncovered,
-      unimported) ← Workspace.withRootWorkspace root fun ws => do
+  let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib, regulaDir,
+      uncovered, unimported) ← Workspace.withRootWorkspace root fun ws => do
       let pkg := ws.root
       -- The source of every module a root library includes and of every executable root, and
       -- the claimed ones among them.
@@ -165,6 +165,7 @@ def observe (root : FilePath) : IO Project := do
       return (kind, pkg.configFile, pkg.lintDriver,
         (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
+        !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered, unimported)
   let agents := root / "AGENTS.md"
   let agentsSection ← if ← agents.pathExists then pure (hasAgentsHeading (← IO.FS.readFile agents))
@@ -177,7 +178,7 @@ def observe (root : FilePath) : IO Project := do
   return {
     root, lakefile, configFile
     observation := {
-      driver, options, targets, allClaimed, mathlib
+      driver, options, targets, allClaimed, libraries, mathlib
       manifest := ← (Manifest.defaultPath root).pathExists
       agentsSection, skills
       toolchain := ← readTrimmed (root / "lean-toolchain")

@@ -620,7 +620,9 @@ required option; `run_options_unclaimed`, when a root target is excluded the pac
 are unchanged, the options going into each claimed target's own configuration
 (`run_plan_targets`), so none reaches an excluded target; and `run_options_prefix` and
 `withAdded_prefix`, the options the package and each claimed target already give are kept. An
-edit adds a missing piece and has no form that replaces a lint driver or an option value.
+edit adds a missing piece and has no form that replaces a lint driver or an option value. The
+starter manifest is planned exactly when there is no manifest and the package has a `lean_lib`
+for it to claim (`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
 
 **Checked when it runs:** `init` observes the project again after writing and restores every
 file it wrote unless the new plan is empty, and it writes the starter manifest only after
@@ -643,9 +645,9 @@ which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_l
 `lean_exe` declarations, and the filesystem. Runs of `init` and `doctor` on scratch projects in
 both formats (fresh, template, inline-table, structure-instance, bare-`package` and
 computed-`leanOptions` shapes, another driver, a contradicting option, a stale skill, a library
-without globs, left-out modules that a claimed module does and does not import, and a library the
-manifest excludes, with options written into bare and configured claimed targets) are bounded
-observations.
+without globs, left-out modules that a claimed module does and does not import, a library the
+manifest excludes, with options written into bare and configured claimed targets, and a package
+with no `lean_lib`) are bounded observations.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: the tag step's decision `tagAction`

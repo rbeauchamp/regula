@@ -18,6 +18,8 @@ commands execute over what they observe of a project.
 - `Settled`, `plan_eq_nil_iff_settled`, `issues_unfixable_iff_settled`, `plan_eq_nil_iff`: the plan
   is empty exactly when no fixable issue remains.
 - `issues_run`: applying the plan removes exactly the fixable issues and adds none.
+- `Observation.starter`, `plan_manifest_mem`: the starter manifest is planned only when the package
+  has a `lean_lib` for it to claim; a package with none has an issue `init` does not fix.
 - `Target`, `Observation.targets`, `Observation.allClaimed`: the option check covers exactly the
   claimed targets, as RG2006 does.
 - `Observation.lacks`, `missing`, `targetMissing`, `optionEdits`: the options `init` adds. When
@@ -38,7 +40,8 @@ commands execute over what they observe of a project.
 The observation is supplied by the operational `regula` command: Lake's loaded root package
 (its `lintDriver`, package-level `leanOptions` and the own `leanOptions` of each root target the
 manifest does not exclude), whether the workspace contains Mathlib, whether
-`foundation_manifest.json` and the agent guidance exist, whether each skill file equals the
+`foundation_manifest.json` and the agent guidance exist, whether the root package has a
+`lean_lib` for a starter manifest to claim, whether each skill file equals the
 installed skill, the project's and the required Regula's `lean-toolchain`, and the modules below
 a library root that no library includes, split by whether a claimed module imports them as Lean's
 import-header parser reads the package's sources (not a build). The command writes each edit into
@@ -122,6 +125,9 @@ structure Observation where
   mathlib : Bool
   /-- `foundation_manifest.json` exists at the project root. -/
   manifest : Bool
+  /-- The root package has a `lean_lib`. A manifest claims each surface per library, an executable
+  belonging to a library's surface, so without one there is nothing for the starter to claim. -/
+  libraries : Bool
   /-- `AGENTS.md` contains the `agentsHeading` line. -/
   agentsSection : Bool
   /-- Each recognized skill file that exists, and whether it equals the installed skill. -/
@@ -181,6 +187,8 @@ inductive Issue where
   | targetOptionsMissing (exe : Bool) (name : String) (entries : List (Name × OptionValue))
   /-- There is no `foundation_manifest.json`. -/
   | manifestMissing
+  /-- The root package has no `lean_lib`, so no surface can be claimed. -/
+  | noLibrary
   /-- There is neither an `AGENTS.md` section nor a skill file. -/
   | guidanceMissing
   /-- The skill file at `path` differs from the installed Regula's skill. -/
@@ -198,10 +206,15 @@ def Issue.fixable : Issue → Bool
   | .optionsMissing _ => true
   | .targetOptionsMissing _ _ _ => true
   | .manifestMissing => true
+  | .noLibrary => false
   | .guidanceMissing => true
   | .skillStale _ => true
   | .toolchain _ _ => false
   | .uncovered _ _ _ => false
+
+/-- `init` writes the starter manifest: there is none, and the package has a library for it to
+claim. -/
+def Observation.starter (o : Observation) : Bool := !o.manifest && o.libraries
 
 /-- The skill files that differ from the installed skill. -/
 def staleSkills (o : Observation) : List String := (o.skills.filter (!·.2)).map (·.1)
@@ -230,7 +243,8 @@ def optionIssues (o : Observation) : List Issue :=
 def issues (o : Observation) : List Issue :=
   driverIssues o ++
   optionIssues o ++
-  (if o.manifest then [] else [.manifestMissing]) ++
+  (if o.starter then [.manifestMissing] else []) ++
+  (if o.libraries then [] else [.noLibrary]) ++
   (if o.guided then [] else [.guidanceMissing]) ++
   (staleSkills o).map .skillStale ++
   (if o.toolchain = o.supported then [] else [.toolchain o.toolchain o.supported]) ++
@@ -271,7 +285,7 @@ def optionEdits (o : Observation) : List Edit :=
 def plan (g : Guidance) (o : Observation) : List Edit :=
   (if o.driver = "" then [.driver] else []) ++
   optionEdits o ++
-  (if o.manifest then [] else [.manifest]) ++
+  (if o.starter then [.manifest] else []) ++
   guidanceEdits g o ++
   (staleSkills o).map .skill
 
@@ -336,6 +350,15 @@ theorem run_options (o : Observation) (es : List Edit) :
     cases e <;> simp [apply, Edit.entries]
 
 theorem run_mathlib (o : Observation) (es : List Edit) : (run o es).mathlib = o.mathlib := by
+  induction es generalizing o with
+  | nil => rfl
+  | cons e es ih =>
+    simp only [run, List.foldl_cons] at ih ⊢
+    rw [ih]
+    cases e <;> rfl
+
+theorem run_libraries (o : Observation) (es : List Edit) :
+    (run o es).libraries = o.libraries := by
   induction es generalizing o with
   | nil => rfl
   | cons e es ih =>
@@ -589,21 +612,21 @@ otherwise. -/
 theorem plan_entries (g : Guidance) (o : Observation) :
     (plan g o).flatMap Edit.entries = if o.allClaimed then missing o else [] := by
   simp only [plan, List.flatMap_append, guidanceEdits_entries, optionEdits_entries]
-  by_cases hd : o.driver = "" <;> cases hf : o.manifest <;>
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.entries, List.flatMap_map]
 
 theorem plan_driver_mem (g : Guidance) (o : Observation) :
     Edit.driver ∈ plan g o ↔ o.driver = "" := by
   have h1 := driver_not_mem_guidanceEdits g o
   have h2 := driver_not_mem_optionEdits o
-  by_cases hd : o.driver = "" <;> cases hf : o.manifest <;>
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [plan, hd, hf, h1, h2]
 
 theorem plan_manifest_mem (g : Guidance) (o : Observation) :
-    Edit.manifest ∈ plan g o ↔ o.manifest = false := by
+    Edit.manifest ∈ plan g o ↔ o.starter = true := by
   have h1 := manifest_not_mem_guidanceEdits g o
   have h2 := manifest_not_mem_optionEdits o
-  by_cases hd : o.driver = "" <;> cases hf : o.manifest <;>
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [plan, hd, hf, h1, h2]
 
 theorem plan_skillFiles (g : Guidance) (o : Observation) :
@@ -612,13 +635,13 @@ theorem plan_skillFiles (g : Guidance) (o : Observation) :
         staleSkills o := by
   simp only [plan, List.filterMap_append, guidanceEdits_skillFiles, optionEdits_skillFiles,
     List.filterMap_map]
-  by_cases hd : o.driver = "" <;> cases hf : o.manifest <;>
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.skillFile?, Function.comp_def, List.filterMap_cons]
 
 theorem plan_added (g : Guidance) (o : Observation) :
     (plan g o).filterMap Edit.added? = (optionEdits o).filterMap Edit.added? := by
   simp only [plan, List.filterMap_append, guidanceEdits_added, skills_added]
-  by_cases hd : o.driver = "" <;> cases hf : o.manifest <;>
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.added?, List.filterMap_cons]
 
 /-! ## Main theorems -/
@@ -848,20 +871,25 @@ theorem driver_run (g : Guidance) (o : Observation) : (run o (plan g o)).driver 
   · simp [lintDriver]
   · assumption
 
-/-- The manifest exists after the plan. -/
-theorem manifest_run (g : Guidance) (o : Observation) : (run o (plan g o)).manifest = true := by
-  rw [run_manifest]
-  cases hm : o.manifest
-  · have h : Edit.manifest ∈ plan g o := (plan_manifest_mem g o).mpr hm
+/-- After the plan, no starter manifest is left to write: the manifest exists, or the package has
+no library for it to claim. -/
+theorem starter_run (g : Guidance) (o : Observation) : (run o (plan g o)).starter = false := by
+  unfold Observation.starter
+  rw [run_manifest, run_libraries]
+  cases hs : o.starter
+  · have h : Edit.manifest ∉ plan g o := fun h => by
+      rw [(plan_manifest_mem g o).mp h] at hs
+      exact Bool.noConfusion hs
+    simpa [h, Observation.starter] using hs
+  · have h : Edit.manifest ∈ plan g o := (plan_manifest_mem g o).mpr hs
     simp [h]
-  · rfl
 
 /-- After `init` applies its plan, the plan of the result is empty: a second run writes
 nothing. -/
 theorem plan_idempotent (g : Guidance) (o : Observation) : plan g (run o (plan g o)) = [] := by
   have h1 := driver_run g o
   have h2 := optionEdits_run g o
-  have h3 := manifest_run g o
+  have h3 := starter_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
   generalize run o (plan g o) = r at h1 h2 h3 h4 h5
@@ -874,7 +902,7 @@ theorem guidanceEdits_eq_nil_iff (g : Guidance) (o : Observation) :
 
 /-- The conditions under which nothing is left for `init` to write. -/
 def Settled (o : Observation) : Prop :=
-  o.driver ≠ "" ∧ optionEdits o = [] ∧ o.manifest = true ∧ o.guided = true ∧
+  o.driver ≠ "" ∧ optionEdits o = [] ∧ o.starter = false ∧ o.guided = true ∧
     staleSkills o = []
 
 /-- The plan is empty exactly when the observation is settled. -/
@@ -882,7 +910,7 @@ theorem plan_eq_nil_iff_settled (g : Guidance) (o : Observation) :
     plan g o = [] ↔ Settled o := by
   unfold plan Settled
   rw [← guidanceEdits_eq_nil_iff g o]
-  by_cases hd : o.driver = "" <;> cases hf : o.manifest <;> simp_all
+  by_cases hd : o.driver = "" <;> cases hf : o.starter <;> simp_all
 
 /-- Every option issue is one `init` writes a fix for. -/
 theorem optionIssues_fixable (o : Observation) : ∀ i ∈ optionIssues o, i.fixable = true := by
@@ -927,10 +955,10 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       have h1 := h i (by simp [issues, hi])
       rw [optionIssues_fixable o i hi] at h1
       exact Bool.noConfusion h1
-    · cases hm : o.manifest
+    · cases hm : o.starter
+      · rfl
       · have := h .manifestMissing (by simp [issues, hm])
         exact Bool.noConfusion this
-      · rfl
     · cases hg : o.guided
       · have := h .guidanceMissing (by simp [issues, hg])
         exact Bool.noConfusion this
@@ -950,6 +978,13 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       · rw [List.mem_singleton] at hj
         rw [hj]
         rfl
+    have hlib : ∀ j ∈ (if o.libraries then [] else [Issue.noLibrary]), j.fixable = false := by
+      intro j hj
+      split at hj
+      · simp at hj
+      · rw [List.mem_singleton] at hj
+        rw [hj]
+        rfl
     have htc : ∀ j ∈ (if o.toolchain = o.supported then []
         else [Issue.toolchain o.toolchain o.supported]), j.fixable = false := by
       intro j hj
@@ -962,10 +997,11 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       intro j hj
       obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
       rfl
-    simp only [issues, hopt, hf, hg, hs, ↓reduceIte, List.map_nil, List.append_nil,
-      List.mem_append] at hi
-    rcases hi with (hi | hi) | hi
+    simp only [issues, hopt, hf, hg, hs, Bool.false_eq_true, ↓reduceIte, List.map_nil,
+      List.append_nil, List.mem_append] at hi
+    rcases hi with ((hi | hi) | hi) | hi
     · exact hdrv i hi
+    · exact hlib i hi
     · exact htc i hi
     · exact hun i hi
 
@@ -980,10 +1016,11 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have h1 := run_plan_driver g o
   have h2 : optionIssues (run o (plan g o)) = [] :=
     (optionIssues_eq_nil_iff _).mpr (optionEdits_run g o)
-  have h3 := manifest_run g o
+  have h3 := starter_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
   have ⟨h6, h7, h8⟩ := run_toolchain o (plan g o)
+  have h9 := run_libraries o (plan g o)
   have hu : (o.uncovered.map uncoveredIssue).filter (!·.fixable) =
       o.uncovered.map uncoveredIssue := by
     rw [List.filter_eq_self]
@@ -1000,10 +1037,13 @@ theorem issues_run (g : Guidance) (o : Observation) :
     rw [List.filter_eq_nil_iff]
     intro i hi
     simp [optionIssues_fixable o i hi]
-  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8
-  simp only [issues, h2, h3, h4, h5, h6, h7, h8, ↓reduceIte, List.map_nil, List.append_nil,
-    List.filter_append, hs, ht, hu, hopt]
-  have hf : (if o.manifest = true then [] else [Issue.manifestMissing]).filter
+  have hl : (if o.libraries = true then [] else [Issue.noLibrary]).filter (!·.fixable) =
+      if o.libraries = true then [] else [Issue.noLibrary] := by
+    split <;> rfl
+  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8 h9
+  simp only [issues, h2, h3, h4, h5, h6, h7, h8, h9, Bool.false_eq_true, ↓reduceIte, List.map_nil,
+    List.append_nil, List.filter_append, hs, ht, hu, hl, hopt]
+  have hf : (if o.starter = true then [Issue.manifestMissing] else []).filter
       (!·.fixable) = [] := by split <;> rfl
   have hg : (if o.guided = true then [] else [Issue.guidanceMissing]).filter
       (!·.fixable) = [] := by split <;> rfl
@@ -1083,6 +1123,11 @@ def Lakefile.target (f : Lakefile) (exe : Bool) (name : String) : String :=
   | .toml => "the `[[" ++ kind ++ "]]` table named \"" ++ tomlName name ++ "\""
   | .lean => "`" ++ kind ++ " " ++ name ++ "`"
 
+/-- A library as each format declares it. -/
+def Lakefile.library : Lakefile → String
+  | .lean => "`lean_lib` declaration"
+  | .toml => "`[[lean_lib]]` table"
+
 /-- `it` for one module, `them` for several. -/
 private def pronoun (modules : List String) : String :=
   if modules.length == 1 then "it" else "them"
@@ -1102,6 +1147,9 @@ def Issue.message (f : Lakefile) : Issue → String
       ", which neither the package's nor its own `leanOptions` set"
   | .manifestMissing => "setup [foundation_manifest.json]: the file does not exist, so `lake lint` \
       has no claimed surface"
+  | .noLibrary => "setup [" ++ f.name ++ "]: the package has no `lean_lib`, so a foundation \
+      manifest has no surface to claim: Regula claims each surface per library, an executable \
+      belonging to a library's surface"
   | .guidanceMissing => "setup [AGENTS.md]: no agent guidance: AGENTS.md has no `" ++
       agentsHeading ++ "` section and there is no " ++ skillPath
   | .skillStale p => "setup [" ++ p ++ "]: the skill is not the installed Regula's briefing"
@@ -1126,6 +1174,9 @@ def Issue.fix (f : Lakefile) : Issue → String
       or run `lake exe regula init`"
   | .manifestMissing => "  fix: run `lake exe regula init`, which writes a starter claiming every \
       `lean_lib` as `standard-logical`; then review each claim and rationale"
+  | .noLibrary => "  fix: add a " ++ f.library ++ " for the modules your executables import, \
+      then run `lake exe regula init`, which writes a starter manifest claiming it with every \
+      `lean_exe`"
   | .guidanceMissing => "  fix: run `lake exe regula init` (adds the AGENTS.md section) or \
       `lake exe regula init --skill` (writes the skill)"
   | .skillStale _ => "  fix: run `lake exe regula init`, which replaces it with the installed \
