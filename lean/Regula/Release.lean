@@ -2,40 +2,44 @@ import Lean
 
 /-! # Release automation
 
-The steps of a Regula release, run by the `Release` workflow (`.github/workflows/release.yml`)
-with the pinned toolchain alone, so they need no build:
+The steps of a Regula release, run with the pinned toolchain alone, so they need no build. The
+`Release` workflow (`.github/workflows/release.yml`) runs the first; `ci.yml` runs the others on
+`main`:
 
 ```text
-lean --run lean/Regula/Release.lean prepare   # derive the version, create and tag the commit
-lean --run lean/Regula/Release.lean publish   # attach the site edition and publish the release
-lean --run lean/Regula/Release.lean record    # open the pull request that lists the release
+lean --run lean/Regula/Release.lean open       # open the release pull request
+lean --run lean/Regula/Release.lean installed  # the release this commit installs, if any
+lean --run lean/Regula/Release.lean tag        # tag the release commit v<version>
+lean --run lean/Regula/Release.lean publish    # attach the site edition and publish the release
+lean --run lean/Regula/Release.lean reset      # open the pull request that ends the release
 ```
 
 A release's version is the Lean release in `lean-toolchain`, the Lean ecosystem's tag convention
 (`v4.34.0` for `leanprover/lean4:v4.34.0`), so there is at most one release per supported
-toolchain. `prepare` creates the release commit as a child of the `main` commit the workflow runs
+toolchain. `open` creates the release commit as a child of the `main` commit the workflow runs
 on: that commit with `Regula.installed` set to the release and the release appended to
-`Regula.releases` (`RegulaCore/Edition.lean`). GitHub creates and signs it, and `prepare` refuses
-unless GitHub reports its signature verified; it then creates the tag `v<version>` naming it.
-`main` itself never carries the release label. The workflow runs the checks of `ci.yml` on the
-tagged commit, whose site build renders the release's edition as the release asset. `publish`
-creates the GitHub release with the notes and that asset, published only once the asset is
-attached (immutable releases then freeze both). `record` opens the pull request that appends the
-release to `Regula.releases` on `main`, whose site build takes the edition from the asset, and
-starts its checks.
+`Regula.releases` (`RegulaCore/Edition.lean`). GitHub creates and signs it, and `open` refuses
+unless GitHub reports its signature verified; it then opens its pull request, which merges
+through normal review. On `main`, once acceptance and the rule-example shards pass on the merged
+commit, `tag` names it `v<version>`, so its site build renders the release's edition, deploys it
+and keeps it as the release asset. Once the deployment is verified, `publish` creates the GitHub
+release with the notes and that asset, published only once the asset is attached (immutable
+releases then freeze both), and `reset` opens the pull request that sets `Regula.installed` back
+to `.unreleased`. Until it merges, the site build refuses every other commit that carries the
+release label.
 
-Every step resumes: `prepare` reuses a tag without a published release and reports `record` once
-the release is published, and `record` updates its branch to the current `main`. It refuses a
-toolchain that is not a stable release, a version already listed on `main`, and a tag whose
-commit does not carry the release label.
+Every step resumes: `open` and `reset` update their branch and keep an open pull request, `tag`
+accepts a tag that already names the commit, and `publish` replaces an unpublished draft and
+skips a published release. They refuse a toolchain that is not a stable release, a version
+already listed or tagged, and a tag that names another commit.
 
 ## Boundaries
 
 GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions) is trusted and
-observed, not proved. The edit of `RegulaCore/Edition.lean` is text: `prepare` and `record` read
+observed, not proved. The edit of `RegulaCore/Edition.lean` is text: `open` and `reset` read
 their own output back and refuse unless it names the intended build and releases, and the
-kernel checks the edited module's theorems (`releases_ascending`, `installed_listed`) when the
-workflow builds the release commit and when the record pull request's checks build it.
+kernel checks the edited module's theorems (`releases_ascending`, `installed_listed`) when each
+pull request's checks build it.
 -/
 
 namespace Regula.Release
@@ -222,8 +226,38 @@ def editionCommit (repo parent edition message : String) : IO String := do
   let sha ← str commit "sha"
   let verified := (commit.getObjValD "verification").getObjValD "verified"
   unless verified == .bool true do
-    fail s!"GitHub did not verify the signature of the release commit {sha}"
+    fail s!"GitHub did not verify the signature of the commit {sha}"
   return sha
+
+/-- The commit `main` names now. -/
+private def mainHead (repo : String) : IO String := do
+  str (← IO.ofExcept ((← ghGet s!"repos/{repo}/git/ref/heads/main").getObjVal? "object")) "sha"
+
+/-- Point `branch` at `commit`, start `ci.yml` on it, and open its pull request with `title` and
+`body` unless one is open. A pull request opened with a workflow's token starts no workflow,
+hence the dispatch. GitHub opens it only when the repository lets GitHub Actions create pull
+requests; otherwise this fails with the link that opens it. -/
+private def proposeBranch (repo branch commit title body : String) : IO Unit := do
+  let existing ← ghGet s!"repos/{repo}/git/matching-refs/heads/{branch}"
+  let exists_ := (← IO.ofExcept existing.getArr?).any fun r =>
+    r.getObjValD "ref" == .str s!"refs/heads/{branch}"
+  if exists_ then
+    discard <| ghPost "PATCH" s!"repos/{repo}/git/refs/heads/{branch}"
+      (Json.mkObj [("sha", commit), ("force", true)])
+  else
+    discard <| ghPost "POST" s!"repos/{repo}/git/refs"
+      (Json.mkObj [("ref", s!"refs/heads/{branch}"), ("sha", commit)])
+  discard <| gh #["workflow", "run", "ci.yml", "--repo", repo, "--ref", branch]
+  let owner := (repo.splitOn "/").head!
+  let open_ ← ghGet s!"repos/{repo}/pulls?state=open&head={owner}:{branch}"
+  if (← IO.ofExcept open_.getArr?).isEmpty then
+    let created ← IO.Process.output { cmd := "gh", args := #["pr", "create", "--repo", repo,
+      "--base", "main", "--head", branch, "--title", title, "--body", body] }
+    unless created.exitCode == 0 do
+      fail s!"could not open the pull request ({created.stderr.trimAscii}). Open it from \
+        https://github.com/{repo}/compare/main...{branch}?expand=1, or turn on the repository \
+        setting that lets GitHub Actions create pull requests and re-run this job"
+  IO.println s!"branch {branch} names {commit}; its pull request awaits review"
 
 /-- Append `key=value` to the step outputs file `GITHUB_OUTPUT`. -/
 private def output (key value : String) : IO Unit := do
@@ -233,45 +267,73 @@ private def output (key value : String) : IO Unit := do
 
 /-! ## Steps -/
 
-/-- Derive the version, then create and tag the release commit, or resume: writes the outputs
-`version`, `commit` (the tagged commit) and `stage` (`build`, or `record` once the release is
-published). -/
-def prepare : IO Unit := do
+/-- `RegulaCore/Edition.lean` in the checkout. -/
+private def editionFile : FilePath := "lean/RegulaCore/Edition.lean"
+
+/-- The release the checked-out commit installs; `none` when it is unreleased. -/
+private def installedHere : IO (Option Version) := do
+  IO.ofExcept (installedOf (← IO.FS.readFile editionFile))
+
+/-- Open the release pull request: a commit on the `main` commit the workflow runs on that sets
+`Regula.installed` to the release of `lean-toolchain` and appends it to `Regula.releases`.
+Refuses a version already tagged or listed, and a `main` that still installs a release. -/
+def openRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
   let toolchain ← IO.FS.readFile "lean-toolchain"
   let some v := toolchainVersion toolchain
     | fail s!"lean-toolchain is {toolchain.trimAscii}; a release needs a stable Lean release"
   let tag := v.tag
-  output "version" v.spelling
-  if let some release ← releaseOf repo tag then
-    if !(release.getObjValD "draft" == .bool true) then
-      IO.println s!"release {tag} is published; recording it on main"
-      output "commit" ((← taggedCommit repo tag).getD "")
-      output "stage" "record"
-      return
   if let some commit ← taggedCommit repo tag then
-    let installed ← IO.ofExcept (installedOf (← editionAt repo commit))
-    unless installed == some v do
-      fail s!"tag {tag} names {commit}, whose RegulaCore/Edition.lean does not install {tag}"
-    IO.println s!"tag {tag} names the release commit {commit}; resuming"
-    output "commit" commit
-    output "stage" "build"
-    return
-  let edition ← IO.FS.readFile "lean/RegulaCore/Edition.lean"
+    fail s!"tag {tag} already names {commit}; the next release needs the next Lean release"
+  let edition ← IO.FS.readFile editionFile
   unless (← IO.ofExcept (installedOf edition)) == none do
-    fail "main's RegulaCore/Edition.lean is not unreleased"
+    fail "main's Regula.installed is a release: merge that release's reset pull request first"
   let listed ← IO.ofExcept (releasesOf edition)
   if listed.contains v then fail s!"{tag} is already listed in main's Regula.releases"
   let released ← IO.ofExcept (withEdition edition (some v) (listed ++ [v]))
   let commit ← editionCommit repo head released
     s!"release: Regula {tag} for Lean {tag}\n\nSets Regula.installed to the release and appends \
-      it to Regula.releases; the tag {tag} names this commit, a child of {head} on main."
-  discard <| ghPost "POST" s!"repos/{repo}/git/refs"
-    (Json.mkObj [("ref", s!"refs/tags/{tag}"), ("sha", commit)])
-  IO.println s!"created the release commit {commit} and tagged it {tag}"
-  output "commit" commit
-  output "stage" "build"
+      it to Regula.releases. Once this is on main, CI tags it {tag}, deploys its edition, \
+      publishes the release and opens the pull request that sets Regula.installed back to \
+      .unreleased."
+  proposeBranch repo s!"release/{tag}" commit s!"release: Regula {tag}"
+    s!"Releases Regula {tag} for Lean {tag}: sets `Regula.installed` to the release and appends \
+      it to `Regula.releases`.\n\n\
+      Once this merges, CI on `main` tags the merged commit {tag} after acceptance and the \
+      rule-example shards pass, deploys https://rbeauchamp.github.io/regula/v/{v.spelling}/, \
+      publishes the GitHub release with that edition as its asset once the deployment is \
+      verified, and opens the pull request that sets `Regula.installed` back to `.unreleased`. \
+      Until that one merges, the site build refuses every other commit that carries the release \
+      label.\n\n\
+      Opened by the Release workflow, which also started this branch's checks (checks do not \
+      start on their own for a pull request a workflow opens)."
+
+/-- Write the step output `release`: the version the checked-out commit installs, empty when it
+is unreleased. -/
+def reportInstalled : IO Unit := do
+  let release := ((← installedHere).map (·.spelling)).getD ""
+  output "release" release
+  IO.println (if release.isEmpty then "this commit is unreleased"
+    else s!"this commit installs release {release}")
+
+/-- Tag the checked-out release commit `v<version>`, or accept the tag when it already names the
+commit. Refuses an unreleased commit and a tag that names another commit. -/
+def tagRelease : IO Unit := do
+  let repo ← repository
+  let head ← env "GITHUB_SHA"
+  let some v ← installedHere | fail "this commit is unreleased; there is nothing to tag"
+  let tag := v.tag
+  match ← taggedCommit repo tag with
+  | some commit =>
+    unless commit == head do
+      fail s!"tag {tag} names {commit}, not {head}; every other commit that carries the release \
+        label is refused until the reset pull request sets Regula.installed back to .unreleased"
+    IO.println s!"tag {tag} already names {head}"
+  | none =>
+    discard <| ghPost "POST" s!"repos/{repo}/git/refs"
+      (Json.mkObj [("ref", s!"refs/tags/{tag}"), ("sha", head)])
+    IO.println s!"tagged {head} {tag}"
 
 /-- The release notes written above GitHub's generated list of changes. -/
 def notes (v : Version) (repo : String) : String :=
@@ -288,15 +350,14 @@ def notes (v : Version) (repo : String) : String :=
     The rule reference of this release is https://rbeauchamp.github.io/regula/v/{v.spelling}/; \
     `regula-site-{v.spelling}.tar.gz` is its permanent copy.\n"
 
-/-- Attach the release edition the checks wrote and publish the release of the tagged commit. -/
+/-- Attach the release edition the site build wrote and publish the release of the checked-out
+commit, which its tag must name; a published release is left as it is. -/
 def publish : IO Unit := do
   let repo ← repository
-  let some v := parseVersion (← env "RELEASE_VERSION") | fail "RELEASE_VERSION is not a version"
-  let commit ← env "RELEASE_COMMIT"
+  let head ← env "GITHUB_SHA"
+  let some v ← installedHere | fail "this commit is unreleased; there is nothing to publish"
   let tag := v.tag
-  unless (← taggedCommit repo tag) == some commit do fail s!"tag {tag} does not name {commit}"
-  let asset : FilePath := s!"tmp/site-release/regula-site-{v.spelling}.tar.gz"
-  unless ← asset.pathExists do fail s!"the checks wrote no release edition {asset}"
+  unless (← taggedCommit repo tag) == some head do fail s!"tag {tag} does not name {head}"
   if let some release ← releaseOf repo tag then
     unless release.getObjValD "draft" == .bool true do
       IO.println s!"release {tag} is already published"
@@ -304,6 +365,8 @@ def publish : IO Unit := do
     -- An unpublished draft of an earlier attempt; publishing starts again from the notes.
     let id ← IO.ofExcept (release.getObjValAs? Nat "id")
     discard <| gh #["api", "--method", "DELETE", s!"repos/{repo}/releases/{id}"]
+  let asset : FilePath := s!"tmp/site-release/regula-site-{v.spelling}.tar.gz"
+  unless ← asset.pathExists do fail s!"the site build wrote no release edition {asset}"
   IO.FS.createDirAll "tmp"
   IO.FS.writeFile "tmp/release-notes.md" (notes v repo)
   -- `gh` creates the release as a draft, uploads the asset, then publishes it.
@@ -317,65 +380,48 @@ def publish : IO Unit := do
     fail s!"release {tag} is not published with its site asset"
   IO.println s!"published release {tag} with regula-site-{v.spelling}.tar.gz"
 
-/-- Open (or update) the pull request that appends the release to `Regula.releases` on `main`,
-and start its checks. -/
-def record : IO Unit := do
+/-- Once the release of the checked-out commit is published, open the pull request that sets
+`Regula.installed` on `main` back to `.unreleased`, keeping `Regula.releases`. Nothing is left to
+do once `main` is unreleased. -/
+def reset : IO Unit := do
   let repo ← repository
-  let some v := parseVersion (← env "RELEASE_VERSION") | fail "RELEASE_VERSION is not a version"
+  let some v ← installedHere | fail "this commit is unreleased; there is no release to end"
   let tag := v.tag
-  let main ← str (← IO.ofExcept ((← ghGet s!"repos/{repo}/git/ref/heads/main").getObjVal?
-    "object")) "sha"
+  let some release ← releaseOf repo tag | fail s!"release {tag} is not published"
+  if release.getObjValD "draft" == .bool true then fail s!"release {tag} is not published"
+  let main ← mainHead repo
   let edition ← editionAt repo main
-  unless (← IO.ofExcept (installedOf edition)) == none do
-    fail "main's RegulaCore/Edition.lean is not unreleased"
-  let listed ← IO.ofExcept (releasesOf edition)
-  if listed.contains v then
-    IO.println s!"{tag} is already listed in main's Regula.releases; nothing to record"
+  match ← IO.ofExcept (installedOf edition) with
+  | none =>
+    IO.println "main's Regula.installed is already unreleased; nothing to reset"
     return
-  let recorded ← IO.ofExcept (withEdition edition none (listed ++ [v]))
-  let commit ← editionCommit repo main recorded
-    s!"release: record Regula {tag}\n\nAppends {tag} to Regula.releases, so every deployment \
-      publishes its permanent edition from the release asset; Regula.installed stays unreleased."
-  let branch := s!"release/{tag}"
-  let existing ← ghGet s!"repos/{repo}/git/matching-refs/heads/{branch}"
-  let exists_ := (← IO.ofExcept existing.getArr?).any fun r =>
-    r.getObjValD "ref" == .str s!"refs/heads/{branch}"
-  if exists_ then
-    discard <| ghPost "PATCH" s!"repos/{repo}/git/refs/heads/{branch}"
-      (Json.mkObj [("sha", commit), ("force", true)])
-  else
-    discard <| ghPost "POST" s!"repos/{repo}/git/refs"
-      (Json.mkObj [("ref", s!"refs/heads/{branch}"), ("sha", commit)])
-  -- A pull request opened with the workflow's token starts no workflow; dispatch the checks.
-  discard <| gh #["workflow", "run", "ci.yml", "--repo", repo, "--ref", branch]
-  let owner := (repo.splitOn "/").head!
-  let open_ ← ghGet s!"repos/{repo}/pulls?state=open&head={owner}:{branch}"
-  if (← IO.ofExcept open_.getArr?).isEmpty then
-    let created ← IO.Process.output { cmd := "gh", args := #["pr", "create", "--repo", repo,
-      "--base", "main", "--head", branch,
-      "--title", s!"release: record Regula {tag}",
-      "--body", s!"Appends {tag} to `Regula.releases`. The release {tag} is published with its \
-        site edition as a release asset; once this merges, every deployment serves \
-        https://rbeauchamp.github.io/regula/v/{v.spelling}/ from that asset. \
-        `Regula.installed` stays unreleased on main.\n\nOpened by the Release workflow, which \
-        also started this branch's checks (checks do not start on their own for a pull request \
-        the workflow opens)."] }
-    unless created.exitCode == 0 do
-      -- The repository setting "Allow GitHub Actions to create and approve pull requests" is
-      -- off: the release is published and its branch checked, but the pull request is not open.
-      fail s!"could not open the pull request ({created.stderr.trimAscii}). Open it from \
-        https://github.com/{repo}/compare/main...{branch}?expand=1, or turn on the repository \
-        setting that lets GitHub Actions create pull requests and re-run this workflow"
-  IO.println s!"recorded {tag} on branch {branch} ({commit}); its pull request awaits review"
+  | some w => unless w == v do fail s!"main installs {w.tag}, not {tag}"
+  let listed ← IO.ofExcept (releasesOf edition)
+  let unreleased ← IO.ofExcept (withEdition edition none listed)
+  let commit ← editionCommit repo main unreleased
+    s!"release: end Regula {tag}\n\nSets Regula.installed back to .unreleased now that the release \
+      {tag} is published; Regula.releases keeps it, so every deployment serves its edition from \
+      the release asset."
+  proposeBranch repo s!"release/{tag}-reset" commit s!"release: end Regula {tag}"
+    s!"Sets `Regula.installed` back to `.unreleased` after the release {tag}, published with its \
+      site edition as a release asset. `Regula.releases` keeps {tag}, so every deployment serves \
+      https://rbeauchamp.github.io/regula/v/{v.spelling}/ from that asset. Until this merges, \
+      the site build refuses every other commit that carries the release label.\n\n\
+      Opened by CI once the release was published, which also started this branch's checks \
+      (checks do not start on their own for a pull request a workflow opens)."
 
 end Regula.Release
 
-/-- Command line of `lean --run lean/Regula/Release.lean`: `prepare`, `publish` or `record`;
-returns 2 on a usage error. -/
+/-- Command line of `lean --run lean/Regula/Release.lean`: `open`, `installed`, `tag`, `publish`
+or `reset`; returns 2 on a usage error. -/
 def main (args : List String) : IO UInt32 := do
   match args with
-  | ["prepare"] => Regula.Release.prepare; return 0
+  | ["open"] => Regula.Release.openRelease; return 0
+  | ["installed"] => Regula.Release.reportInstalled; return 0
+  | ["tag"] => Regula.Release.tagRelease; return 0
   | ["publish"] => Regula.Release.publish; return 0
-  | ["record"] => Regula.Release.record; return 0
-  | _ => IO.eprintln "usage: lean --run lean/Regula/Release.lean (prepare | publish | record)"
-         return 2
+  | ["reset"] => Regula.Release.reset; return 0
+  | _ =>
+    IO.eprintln
+      "usage: lean --run lean/Regula/Release.lean (open | installed | tag | publish | reset)"
+    return 2

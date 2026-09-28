@@ -147,27 +147,35 @@ server works if `_site/` is mounted at that path (for example a directory contai
 
 CI runs on every pull request and on `main`:
 
-1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps.
+1. `verify`: the two [acceptance](contributing.md#develop-and-verify) steps. It also names the
+   release the commit installs (`Regula.installed`), if any.
 2. `rule-examples` (two shards): the corpus campaign; each uploads its export. The diagnostics
    workflow also runs both shards nightly on `main`.
-3. `site`: builds the site tooling, then `./scripts/verify.sh site` over this run's exports, and
-   uploads the checked `_site/` as `site-<commit>` (preview) and, from a clean build of a release
-   whose commit its tag names, that release's edition as `site-release-<commit>`. On `main` only,
-   `Deployment gate` refuses an artifact built from uncommitted changes, from another commit than
-   `GITHUB_SHA`, or with a release edition rendered from source by a build whose commit that
-   release's tag does not name (the build's recorded value of `Regula.publishable`), and the
-   checked `_site/` is then uploaded as the Pages artifact. Pull requests never publish.
-4. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
+3. `tag` (`main` only, and only for a commit whose `Regula.installed` is a release, after
+   `verify` and `rule-examples`): tags the commit `v<version>`, or accepts a tag that already
+   names it, and refuses a tag that names another commit ([release](contributing.md#release)).
+4. `site` (after `rule-examples` and after `tag` passed or was skipped): builds the site tooling,
+   then `./scripts/verify.sh site` over this run's exports, and uploads the checked `_site/` as
+   `site-<commit>` (preview) and, from a clean build of a release whose commit its tag names,
+   that release's edition as `site-release-<commit>`. On `main` only, `Deployment gate` refuses
+   an artifact built from uncommitted changes, from another commit than `GITHUB_SHA`, or with a
+   release edition rendered from source by a build whose commit that release's tag does not name
+   (the build's recorded value of `Regula.publishable`), and the checked `_site/` is then
+   uploaded as the Pages artifact. Pull requests never publish.
+5. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
    (default token, `contents: read`) whether this commit is still the head of `main` and refuses
    otherwise; then `actions/deploy-pages` publishes exactly the validated artifact to the
    `github-pages` environment (which allows `main` only). Only this job has `pages: write` and
    `id-token: write`; it runs no checkout, provisioning or project code, so nothing it could
    fetch and execute can use its OIDC token.
-5. `verify-deployment`: `Deployment verify` fetches the live `build.json` with a per-attempt
+6. `verify-deployment`: `Deployment verify` fetches the live `build.json` with a per-attempt
    query string until it equals the artifact's bytes, then requires the home page of every
    edition, every development rule page and every release edition's `build.json` to be served
    with the artifact's exact bytes, and an unpublished route to return the artifact's `404.html`
    with HTTP 404. It compares only those files.
+7. `release` (only after `tag` passed and `verify-deployment` observed the release's pages live):
+   publishes the GitHub release with the `site-release-<commit>` edition as its asset, then opens
+   the reset pull request ([release](contributing.md#release)).
 
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
@@ -214,23 +222,23 @@ names), `Deployment gate` refuses an artifact that is not, and only such a clean
 release asset. That the asset stays the one attached at release rests on GitHub: immutable
 releases, a repository setting that is on, forbid changing a published release's tag or assets.
 
-The [Release workflow](contributing.md#release) takes a release's steps in order, and none is
-manual except merging its last pull request:
+A release takes these steps, in order ([release procedure](contributing.md#release)):
 
-1. It creates the release commit, a child of the `main` commit it runs on that sets
-   `Regula.installed` to the release and appends it to `Regula.releases`
-   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)), and tags it `v<version>`. `main`
-   never carries the release label, so `dev/` always describes an unreleased build.
-2. It runs the checks of `ci.yml` on that commit. Its tag names the commit and no asset exists,
-   so its site build renders the release's edition and writes
-   `tmp/site-release/regula-site-<version>.tar.gz`, kept as the `site-release-<commit>` artifact
-   of that run; the run publishes nothing.
-3. It attaches that file to the GitHub release `v<version>` as its permanent asset and publishes
-   the release.
-4. It opens the pull request that appends the release to `Regula.releases` on `main`. That pull
-   request's site build and every later one take the release's edition from the asset, and a
-   build of `main` refuses a listed release without one, so the pull request cannot pass before
-   the asset exists.
+1. The Release workflow opens the release pull request, whose commit sets `Regula.installed` to
+   the release and appends it to `Regula.releases`
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). Before the tag exists, its site
+   build renders the release's edition as a preview, which pull requests never publish.
+2. When it merges, CI on `main` tags the merged commit `v<version>` once acceptance and the
+   rule-example shards pass. That commit's site build then renders the release's edition, so it
+   is publishable, and writes `tmp/site-release/regula-site-<version>.tar.gz`, kept as the
+   `site-release-<commit>` artifact of that run. The deployment publishes `/v/<version>/`, with
+   `dev/` carrying the release's label at that commit.
+3. Once `verify-deployment` observes those pages live, CI attaches that file to the GitHub
+   release `v<version>` as its permanent asset and publishes the release.
+4. CI then opens the reset pull request, which sets `Regula.installed` back to `.unreleased` and
+   restores the development label of `dev/`. Its site build and every later one take the
+   release's edition from the asset. Until it merges, every build of another commit that still
+   carries the release label is refused, because the tag names another commit.
 
 Rule IDs are never reused for a changed rule. A retired rule keeps a page (its lifecycle chip
 says so).

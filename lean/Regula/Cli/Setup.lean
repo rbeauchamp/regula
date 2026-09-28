@@ -13,21 +13,24 @@ RG2002 manifest validation and RG2006 option decision, in the linter's finding t
 
 ## Main declarations
 
-- `observe`: the `Regula.Setup.Observation` of a project, from Lake's loaded package and the files.
+- `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
+  package, the files and the import headers of the root package's modules.
 - `lakefileText`: the lakefile with the planned `lintDriver` and `leanOptions` edits written into
   it, located with Lake's own TOML grammar or Lean's parser over the `package` declaration.
 - `starterManifest`: every root `lean_lib` claimed `standard-logical`, as a `Manifest` value that
   `Manifest.parse` admits before it is written.
 - `init`: apply the plan, observe again and restore every written file unless the new plan is
   empty; then run `doctor`.
-- `doctor`: print the findings and the edits `init` would write; exit 0 only when there is none.
+- `doctor`: print the findings and the edits `init` would write, exiting 0 only when there is
+  none, and a note, which does not count, for each module outside every library that no claimed
+  module imports.
 
 ## Boundaries
 
-Lake's loader, the parsers, the filesystem and the Lean frontend that locates the `package`
-declaration are trusted. That a text edit realizes `Regula.Setup.apply` is not proved: `init`
-observes the project again after writing and refuses, restoring the files it wrote, unless the
-plan of the new observation is empty. `init` never changes a value the project already gives: it
+Lake's loader, the parsers (including Lean's import-header parser), the filesystem and the Lean
+frontend that locates the `package` declaration are trusted. That a text edit realizes
+`Regula.Setup.apply` is not proved: `init` observes the project again after writing and refuses,
+restoring the files it wrote, unless the plan of the new observation is empty. `init` never changes a value the project already gives: it
 inserts text only. RG2006 in `doctor` applies Mathlib's options when the workspace contains
 Mathlib, where the linter applies them to a target whose modules import Mathlib; by
 `RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
@@ -59,19 +62,50 @@ private def readTrimmed (path : FilePath) : IO String := do
   if ← path.pathExists then return (← IO.FS.readFile path).trimAscii.toString
   return ""
 
+/-- The modules reachable by import from `starts`, the starts included, among the modules whose
+source files `sources` names. Imports are read with Lean's header parser, without building; an
+import of another package or of the toolchain ends its path. -/
+def importClosure (sources : NameMap FilePath) (starts : List Name) : IO NameSet := do
+  let mut reached : NameSet := {}
+  let mut pending := starts
+  repeat
+    let m :: rest := pending | break
+    pending := rest
+    if reached.contains m then continue
+    reached := reached.insert m
+    let some file := sources.find? m | continue
+    let header ← Lean.parseImports' (← IO.FS.readFile file) file.toString
+    for i in header.imports do
+      if sources.contains i.module then pending := i.module :: pending
+  return reached
+
 /-- Observe the project at `root`: Lake's loaded root package (its `lintDriver` and package-level
 `leanOptions`), whether the workspace contains Mathlib, the required Regula's `lean-toolchain`,
-and the manifest and agent-guidance files. -/
+the manifest and agent-guidance files, and the modules below a library root that no library
+includes, split by whether a claimed module imports them. -/
 def observe (root : FilePath) : IO Project := do
-  let (lakefile, configFile, driver, options, targets, mathlib, regulaDir, uncovered) ←
-    Workspace.withRootWorkspace root fun ws => do
+  -- A target the manifest excludes is not claimed; without a readable manifest every root target
+  -- is, as in the starter.
+  let manifest ← try some <$> Manifest.load (Manifest.defaultPath root) catch _ => pure none
+  let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
+  let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
+  let (lakefile, configFile, driver, options, targets, mathlib, regulaDir, uncovered,
+      unimported) ← Workspace.withRootWorkspace root fun ws => do
       let pkg := ws.root
-      -- The modules below each library root that no root library includes.
-      let mut included : NameSet := {}
+      -- The source of every module a root library includes and of every executable root, and
+      -- the claimed ones among them.
+      let mut sources : NameMap FilePath := {}
+      let mut claimed : List Name := []
       for lib in pkg.leanLibs do
-        for m in ← lib.getModuleArray do included := included.insert m.name
-      for exe in pkg.leanExes do included := included.insert exe.root.name
-      let mut uncovered := []
+        for m in ← lib.getModuleArray do
+          sources := sources.insert m.name m.leanFile
+          unless excludedLibraries.contains lib.name.toString do claimed := m.name :: claimed
+      for exe in pkg.leanExes do
+        sources := sources.insert exe.root.name exe.root.leanFile
+        unless excludedExecutables.contains exe.name.toString do claimed := exe.root.name :: claimed
+      let included := sources
+      -- The modules below each library root that no root library includes.
+      let mut missedBy : Array (String × List String × Array Name) := #[]
       for lib in pkg.leanLibs do
         let mut missed : Array Name := #[]
         for r in lib.roots do
@@ -81,10 +115,19 @@ def observe (root : FilePath) : IO Project := do
             if path.extension != some "lean" || (← path.isDir) then continue
             let parts := (path.withExtension "").components.drop dir.components.length
             let name := parts.foldl Name.str r
-            unless included.contains name do missed := missed.push name
+            unless included.contains name do
+              missed := missed.push name
+              sources := sources.insert name path
         unless missed.isEmpty do
-          let sorted := (missed.qsort Name.quickLt).toList.map toString
-          uncovered := uncovered ++ [(lib.name.toString, lib.roots.toList.map toString, sorted)]
+          missedBy := missedBy.push (lib.name.toString, lib.roots.toList.map toString, missed)
+      let imported ← importClosure sources claimed
+      let sorted (names : Array Name) := (names.qsort Name.quickLt).toList.map toString
+      let mut uncovered := []
+      let mut unimported := []
+      for (library, roots, missed) in missedBy do
+        let (hit, rest) := missed.partition imported.contains
+        unless hit.isEmpty do uncovered := uncovered ++ [(library, roots, sorted hit)]
+        unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
       let own (options : Array Lean.LeanOption) :=
         (Lake.buildOptions (.ofArray options) #[] #[]).options
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
@@ -95,7 +138,7 @@ def observe (root : FilePath) : IO Project := do
         (Lake.buildOptions pkg.leanOptions #[] #[]).options,
         (pkg.leanLibs.map (own ·.config.leanOptions) ++
           pkg.leanExes.map (own ·.config.leanOptions)).toList,
-        ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered)
+        ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered, unimported)
   let agents := root / "AGENTS.md"
   let agentsSection ← if ← agents.pathExists then pure (hasAgentsHeading (← IO.FS.readFile agents))
     else pure false
@@ -112,7 +155,7 @@ def observe (root : FilePath) : IO Project := do
       agentsSection, skills
       toolchain := ← readTrimmed (root / "lean-toolchain")
       supported := ← readTrimmed (regulaDir / "lean-toolchain")
-      uncovered } }
+      uncovered, unimported } }
 
 /-! ## Text edits -/
 
@@ -410,8 +453,9 @@ def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
       (if configuration then .violation else .incomplete)
     return #[finding]
 
-/-- Print every setup finding of the project at `root`, then the edits `init` would write.
-Returns 0 when there is nothing to fix and 1 otherwise. -/
+/-- Print every setup finding of the project at `root`, then the edits `init` would write, and a
+note for each module left out of every library that no claimed module imports. Returns 0 when
+there is nothing to fix and 1 otherwise; notes do not count. -/
 def doctor (root : FilePath) : IO UInt32 := do
   RunFeedback.reset
   let project ← observe root
@@ -422,6 +466,7 @@ def doctor (root : FilePath) : IO UInt32 := do
     IO.println (issue.message project.lakefile ++ "\n" ++ issue.fix project.lakefile)
   let findings ← if o.manifest then configurationFindings project else pure #[]
   RunFeedback.emitAll IO.println findings
+  for entry in o.unimported do IO.println (unimportedNote project.lakefile entry)
   let count := setup.length + findings.size
   if count == 0 then
     IO.println "regula doctor: the setup is complete; run `lake lint`"
@@ -499,7 +544,14 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
     catch error =>
       restore (← written.get)
       throw <| IO.userError s!"{error}; every file init wrote is restored"
-    for edit in edits do IO.println s!"regula init: wrote {edit.summary project.lakefile}"
+    for edit in edits do
+      match edit with
+      | .skill p =>
+        if project.observation.skills.any (·.1 == p) then
+          IO.println s!"regula init: replaced {p} with the installed Regula's skill (init owns \
+            this file; local edits are not kept)"
+        else IO.println s!"regula init: wrote {edit.summary project.lakefile}"
+      | _ => IO.println s!"regula init: wrote {edit.summary project.lakefile}"
   doctor root
 
 end Regula.Cli.Setup

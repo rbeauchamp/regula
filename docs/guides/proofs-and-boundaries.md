@@ -626,19 +626,25 @@ decision (`Community.failures`) over Lake's resolved options of each claimed tar
 Mathlib's options when the workspace contains Mathlib, where the audit applies them to a target
 whose modules import Mathlib: by `conforming_of_mathlib` a target `doctor` accepts also passes the
 audit, while `doctor` may ask a target that imports no Mathlib for Mathlib's options, which
-`init` writes under `weak.` so they are then ignored.
+`init` writes under `weak.` so they are then ignored. A module below a library root that no
+library includes is a failing setup issue only when a claimed module (of a library or executable
+the manifest does not exclude) reaches it by import through the package's modules, which the
+audit rejects as outside every library; any other such module is a `note` that does not count
+toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
+from a build.
 
-**Trusted:** Lake's loader, its TOML grammar and Lean's frontend, which elaborates a
-`lakefile.lean` as Lake does to locate the `package` declaration, and the filesystem. Runs of
-`init` and `doctor` on scratch projects in both formats (fresh, template, inline-table,
-structure-instance, bare-`package` and computed-`leanOptions` shapes, another driver, a
-contradicting option, a stale skill, a library without globs) are bounded observations.
+**Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
+which elaborates a `lakefile.lean` as Lake does to locate the `package` declaration, and the
+filesystem. Runs of `init` and `doctor` on scratch projects in both formats (fresh, template,
+inline-table, structure-instance, bare-`package` and computed-`leanOptions` shapes, another
+driver, a contradicting option, a stale skill, a library without globs, left-out modules that a
+claimed module does and does not import) are bounded observations.
 
 **Releases** ([procedure](contributing.md#release)): `lean/Regula/Release.lean` is operational.
 Its edit of `RegulaCore/Edition.lean` is read back before use, and the kernel checks the edited
-module's theorems (`releases_ascending`, `installed_listed`) when the workflow builds the release
-commit and when the record pull request is checked. GitHub's signature verification, tags,
-immutable releases and pull requests are trusted.
+module's theorems (`releases_ascending`, `installed_listed`) when the checks of the release and
+reset pull requests build it. GitHub's signature verification, tags, immutable releases, pull
+requests and workflow ordering are trusted.
 
 ## Rule examples and the corpus runner
 

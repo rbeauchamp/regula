@@ -24,16 +24,20 @@ commands execute over what they observe of a project.
   with its required value (`RegulaPolicy.Community.sets`, the RG2006 decision), and every root
   target has a value for every required option.
 - `run_options_prefix`: the plan never changes or removes an option the package already sets.
-- `Issue.message`, `Issue.fix`, `Edit.summary`: the text `doctor` and `init` print.
+- `Issue.message`, `Issue.fix`, `unimportedNote`, `Edit.summary`: the text `doctor` and `init`
+  print; a note is not an issue and does not fail `doctor`.
 
 ## Boundaries
 
 The observation is supplied by the operational `regula` command: Lake's loaded root package
 (its `lintDriver` and package-level `leanOptions`), whether the workspace contains Mathlib,
 whether `foundation_manifest.json` and the agent guidance exist, whether each skill file equals
-the installed skill, and the project's and the required Regula's `lean-toolchain`. The command writes each edit into the lakefile, the manifest and the
-guidance files, then observes the project again and refuses unless the new plan is empty; that
-the file edits realize `apply` is that runtime check, not a theorem. RG2006 itself is decided per
+the installed skill, the project's and the required Regula's `lean-toolchain`, and the modules
+below a library root that no library includes, split by whether a claimed module imports them as
+Lean's import-header parser reads the package's sources (not a build). The command writes each
+edit into the lakefile, the manifest and the guidance files, then observes the project again and
+refuses unless the new plan is empty; that the file edits realize `apply` is that runtime check,
+not a theorem. RG2006 itself is decided per
 claimed target over Lake's resolved options by `RegulaPolicy.Community.failures`; `init` writes
 package-level options only and never changes a value the package or a target already gives. -/
 
@@ -59,7 +63,9 @@ inductive Guidance where
 /-- The skill file `init --skill` writes. -/
 def skillPath : String := ".agents/skills/regula/SKILL.md"
 
-/-- The skill files `init` and `doctor` recognize, relative to the project root. -/
+/-- The skill files `init` and `doctor` recognize, relative to the project root: `skillPath`, and
+the path where Claude Code discovers project skills. `init` owns both and replaces one that
+differs from the installed skill, local edits included. -/
 def skillPaths : List String := [skillPath, ".claude/skills/regula/SKILL.md"]
 
 /-- The heading of the `AGENTS.md` section; its presence as a line marks the section. -/
@@ -102,8 +108,12 @@ structure Observation where
   /-- The `lean-toolchain` of the required Regula, the only release it supports. -/
   supported : String
   /-- Each root `lean_lib` with its roots and the modules below a root, such as `Foo.Basic` for
-  root `Foo`, that no root library includes, so the audit cannot classify them. -/
+  root `Foo`, that no root library includes and that a claimed module imports, directly or
+  through other modules of the package: the audit finds them outside every library. -/
   uncovered : List (String × List String × List String)
+  /-- The same for the modules below a root that no root library includes and no claimed module
+  imports: the audit neither inspects them nor fails, so `doctor` only notes them. -/
+  unimported : List (String × List String × List String)
   deriving DecidableEq, Repr
 
 /-- The package-level options of an observation, as the RG2006 decision reads options. -/
@@ -781,6 +791,10 @@ def Lakefile.optionsPlace : Lakefile → String
   | .lean => "the `package` declaration's `leanOptions`"
   | .toml => "the `[leanOptions]` table"
 
+/-- `it` for one module, `them` for several. -/
+private def pronoun (modules : List String) : String :=
+  if modules.length == 1 then "it" else "them"
+
 /-- The first line of an issue's finding: `setup [FILE]: what is wrong`. -/
 def Issue.message (f : Lakefile) : Issue → String
   | .driverUnset => "setup [" ++ f.name ++ "]: `lintDriver` is not set, so `lake lint` does \
@@ -798,8 +812,8 @@ def Issue.message (f : Lakefile) : Issue → String
   | .toolchain p s => "setup [lean-toolchain]: the project uses " ++ p ++
       ", but this Regula supports only " ++ s
   | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
-      ", ".intercalate ms ++ " below its roots; a claimed module that imports one is outside every \
-      library and cannot be audited"
+      ", ".intercalate ms ++ " below its roots, but a claimed module imports " ++ pronoun ms ++
+      ", so `lake lint` finds " ++ pronoun ms ++ " outside every library and fails"
 
 /-- The fix line of an issue's finding. -/
 def Issue.fix (f : Lakefile) : Issue → String
@@ -814,11 +828,23 @@ def Issue.fix (f : Lakefile) : Issue → String
       `lean_lib` as `standard-logical`; then review each claim and rationale"
   | .guidanceMissing => "  fix: run `lake exe regula init` (adds the AGENTS.md section) or \
       `lake exe regula init --skill` (writes the skill)"
-  | .skillStale _ => "  fix: run `lake exe regula init`, which rewrites it (for example after \
-      `lake update regula`)"
+  | .skillStale _ => "  fix: run `lake exe regula init`, which replaces it with the installed \
+      briefing (for example after `lake update regula`); init owns this file and keeps no local \
+      edits"
   | .toolchain _ s => "  fix: set lean-toolchain to " ++ s ++ " and run `lake update`, or require \
       the Regula release tagged for your toolchain"
-  | .uncovered l rs _ => "  fix: " ++ f.globs l rs ++ " (`init` never changes a library's modules)"
+  | .uncovered l rs _ => "  fix: " ++ f.globs l rs ++ ", or remove the import (`init` never \
+      changes a library's modules)"
+
+/-- The note `doctor` prints, without failing, for one library entry of
+`Observation.unimported`: what the library leaves out, then both remedies. -/
+def unimportedNote (f : Lakefile) (entry : String × List String × List String) : String :=
+  let p := pronoun entry.2.2
+  "note [" ++ f.name ++ "]: lean_lib `" ++ entry.1 ++ "` does not include " ++
+    ", ".intercalate entry.2.2 ++ " below its roots and no claimed module imports " ++ p ++
+    ", so `lake lint` does not audit " ++ p ++ "\n" ++
+  "  either " ++ f.globs entry.1 entry.2.1 ++ " to audit " ++ p ++ ", or leave " ++ p ++
+    " out deliberately"
 
 /-- What an edit writes, as a phrase `init` and `doctor` print after "wrote" or "would write". -/
 def Edit.summary (f : Lakefile) : Edit → String

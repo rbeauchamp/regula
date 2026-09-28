@@ -11,7 +11,7 @@ package «regula» where
     fix for every finding."
   keywords := #["linter", "devtool", "cli", "formal-verification", "software-verification"]
   homepage := "https://rbeauchamp.github.io/regula/"
-  license := "MIT"
+  license := "MIT AND Apache-2.0"
   licenseFiles := #["LICENSE", "LICENSES/Apache-2.0.txt"]
   lintDriver := "regula/lint"
   srcDir := "lean"

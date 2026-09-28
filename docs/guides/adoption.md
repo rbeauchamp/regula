@@ -61,7 +61,7 @@ lake exe regula init            # or: lake exe regula init --skill
 | Lint driver | `lintDriver = "regula/lint"` (`lakefile.toml`, top level) or `lintDriver := "regula/lint"` (`lakefile.lean`, in the `package` declaration), so `lake lint` runs Regula. |
 | Options | The package `leanOptions` the rules require, each only if the package gives it no value: `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
 | Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library ([step 3](#3-review-the-claimed-surface)). |
-| Agent guidance | A short `## Lean standard: Regula` section in `AGENTS.md` (created if needed), or with `--skill` the briefing as `.agents/skills/regula/SKILL.md`; an existing skill file there or in `.claude/skills/regula/` is rewritten whenever it differs from the installed release's. |
+| Agent guidance | A short `## Lean standard: Regula` section in `AGENTS.md` (created if needed), or with `--skill` the briefing as `.agents/skills/regula/SKILL.md`. `init` generates and owns the skill there and at `.claude/skills/regula/SKILL.md`, where Claude Code discovers project skills: it replaces either file whenever it differs from the installed release's briefing, local edits included, and prints each file it replaced. |
 
 It never changes a value you set: a lint driver of your own, an option with another value and an
 existing manifest stay as they are, and `lake exe regula doctor` reports each with its fix. It
@@ -73,10 +73,12 @@ setup, and that runtime check confirms the files as written match it. `init` end
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
-guidance, toolchain and any module below a library root that no library includes, and, once a
-manifest exists, the linter's own manifest validation
-(RG2002) and option decision (RG2006) for every claimed target. It exits 0 when the setup is
-complete and 1 otherwise, and lists what `init` would write.
+guidance, toolchain and any module below a library root that no library includes but a claimed
+module imports (which `lake lint` rejects), and, once a manifest exists, the linter's own
+manifest validation (RG2002) and option decision (RG2006) for every claimed target. It exits 0
+when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out
+of every library that no claimed module imports is only a `note`, which does not affect the exit
+status: include it to audit it, or leave it out deliberately.
 
 ### Agent guidance
 
@@ -195,9 +197,14 @@ incremental evidence trusts Lake's build cache:
 
 Lake details that affect what ran:
 
-- Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`.
-- `lake lint --builtin-only` skips the driver and is **not** Regula enforcement. `lake check-lint`
-  only reports whether a lint command is configured.
+- Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`. Positional module
+  arguments before `--` affect only Lake's builtin linters.
+- `lake lint --builtin-only` skips the driver and is **not** Regula enforcement: it exits 0 with
+  a Regula violation present. `lake lint --builtin-lint` runs the builtin linters and then the
+  driver, and a failing driver determines the exit code; builtin linting needs module arguments
+  (for example `lake lint --builtin-lint Widget`) when the default target is not a library, such
+  as the build-lint `policy` target. `lake check-lint` only reports whether a lint command is
+  configured.
 - Lake has one `lintDriver` per package. A project that keeps another driver (for example
   `batteries/runLinter`) runs Regula as its own step with `lake exe lint`; see
   [community linters](#community-conventions-and-linters).
@@ -206,7 +213,9 @@ Lake details that affect what ran:
   ([standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter));
   `lakefile.toml` has no custom targets. Direct `lean`, editor elaboration and an explicit
   build of another target never run the strict gate.
-- `lake exe axiomGate` runs the same audit body directly (fresh by default);
+- `lake exe axiomGate` runs the same audit body directly: fresh by default, over the incremental
+  build with `--incremental`, and as the build-lint `policy` target runs it with `--build-lint`
+  (`lake exe axiomGate -- --help` lists every option);
   `lake exe axiomGate --file F.lean --claim standard-logical` audits one file, which is never
   project coverage. `lake exe docFenceAudit` checks Lean examples you keep in Markdown under
   `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).
