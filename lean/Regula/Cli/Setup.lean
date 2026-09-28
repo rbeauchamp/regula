@@ -99,13 +99,15 @@ agent-guidance files, and the modules below a library root that no library inclu
 whether a claimed module imports them. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
-  -- manifest excludes is not. A manifest that does not load or classify every root target claims
-  -- none for the option edits until it does (`doctor` reports it as RG2002).
+  -- manifest that loads excludes is not. A manifest that does not load or classify every root
+  -- target claims none for the option edits until it does (`doctor` reports it as RG2002).
   let manifestExists ← (Manifest.defaultPath root).pathExists
   let manifest ← if manifestExists then
-      try some <$> (·.1) <$> validManifest root catch _ => pure none
+      try some <$> Manifest.load (Manifest.defaultPath root) catch _ => pure none
     else pure none
-  let invalid := manifestExists && manifest.isNone
+  let invalid ← if manifestExists then
+      try validManifest root *> pure false catch _ => pure true
+    else pure false
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, mathlib, regulaDir, uncovered,
