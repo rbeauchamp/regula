@@ -20,12 +20,14 @@ pages, and `dev/` only for an unreleased build.
 - `Edition.url`, `Edition.url_dev_iff`, `helpUrl`, `helpUrl_pagePath`, `helpUrl_release`,
   `helpUrl_unreleased`, `helpUrl_dev_iff`: the help link of a rule targets the installed
   release's page, and `dev/` exactly for an unreleased build.
-- `TagState`, `labelAdmitted`, `labelAdmitted_release_iff`, `releaseSource`,
-  `releaseSource_render_iff`, `releaseSource_asset_iff`, `publishable`, `publishable_iff`: a
-  build carries a release label only while the release's tag is absent or names its commit, and
-  renders that release's edition from source only then and before its release asset exists; once
-  the asset exists every build takes the edition from it; only a build whose commit the tag names
-  may publish a rendered release edition or write its asset.
+- `TagState`, `labelAdmitted`, `labelAdmitted_release_iff`, `labelAdmitted_release_refused`,
+  `labelAdmitted_unreleased`, `releaseSource`, `releaseSource_render_iff`,
+  `releaseSource_asset_iff`, `publishable`, `publishable_iff`: a build carries a release label
+  only when the release's tag names its commit, which CI tags only for a release commit it
+  creates beside `main`; only that build renders the release's edition from source, and only
+  before its release asset exists; once the asset exists every build takes the edition from it;
+  only a build whose commit the tag names may publish a rendered release edition or write its
+  asset.
 - `sitePath`, `sitePath_iff`: the route policy of the published artifact: its root files and
   the files of the published editions, nothing else.
 
@@ -87,26 +89,26 @@ def Build.listedIn (b : Build) (rs : List ReleaseVersion) : Prop :=
 instance (b : Build) (rs : List ReleaseVersion) : Decidable (b.listedIn rs) := by
   cases b <;> unfold Build.listedIn <;> infer_instance
 
-/-- This build of Regula. It is `.release v` from the release's pull request until the reset pull
-request, which the release steps open once the release is published, sets it back to
-`.unreleased`; every commit on `main` in between carries the label. Tag `v<version>` names one of
-them: until the release is published, the tag step creates the tag at the head of `main` or moves
-it there, and once it is published the tag never changes (`Regula.Release.tagAction` in
-`lean/Regula/Release.lean`, with its theorems). The site build refuses a build labelled
-`.release v` whose tag names another commit (`labelAdmitted_release_iff`), so after publication no
-other labelled commit passes until the reset merges; it renders `v<version>`'s edition from
-source only in a build the tag names or before the tag exists, and only before the release asset
-exists, and otherwise takes the frozen asset (`releaseSource`); and only a build whose commit the
-tag names may publish a rendered release edition or write the asset (`publishable`). -/
+/-- This build of Regula: always `.unreleased` on `main` and in every pull request. The only
+build labelled `.release v` is the release commit that CI on `main` creates once `main` lists `v`
+unpublished: a child of the head of `main`, not on `main`, whose only change sets this label, and
+which tag `v<version>` names. Until the release is published, CI creates a fresh release commit
+on the head of `main` and moves the tag to it; once it is published the tag never changes
+(`Regula.Release.tagAction` in `lean/Regula/Release.lean`, with its theorems). The site build
+refuses a build labelled `.release v` unless the tag names its commit (`labelAdmitted`); only that
+build renders `v<version>`'s edition from source, and only before the release asset exists, and
+every other build takes the frozen asset (`releaseSource`); and only a build whose commit the tag
+names may publish a rendered release edition or write the asset (`publishable`). -/
 def installed : Build := .unreleased
 
-/-- Every published release, oldest first. The release's pull request appends it. -/
+/-- Every release, oldest first. The release pull request appends it; CI on `main` then publishes
+it. -/
 def releases : List ReleaseVersion := [⟨4, 34, 0⟩]
 
 /-- Releases are listed oldest first, each once. -/
 theorem releases_ascending : releases.Pairwise (· < ·) := by decide
 
-/-- A released build is a published release. -/
+/-- A released build is a listed release. -/
 theorem installed_listed : installed.listedIn releases := by decide
 
 /-- The latest release, if any. -/
@@ -174,15 +176,20 @@ inductive TagState where
 
 /-- Whether build `b` may carry its label, given the state `tag` of its release's tag. -/
 def labelAdmitted : Build → TagState → Bool
-  | .release _, .other => false
-  | _, _ => true
+  | .release _, tag => tag == .head
+  | .unreleased, _ => true
 
-/-- A release label is admitted exactly while its tag is absent (the release's own pull request
-and a labelled commit before tagging) or names this commit; while the tag names another commit,
-every build that carries the label is refused. -/
+/-- A release label is admitted exactly when its tag names this commit: the release commit CI on
+`main` creates and tags. -/
 theorem labelAdmitted_release_iff {v : ReleaseVersion} {tag : TagState} :
-    labelAdmitted (.release v) tag = true ↔ tag = .absent ∨ tag = .head := by
+    labelAdmitted (.release v) tag = true ↔ tag = .head := by
   cases tag <;> simp [labelAdmitted]
+
+/-- A build labelled a release whose tag is absent or names another commit is refused: CI on
+`main` tags only the release commits it creates, never a commit of `main` or of a pull request. -/
+theorem labelAdmitted_release_refused {v : ReleaseVersion} {tag : TagState} (h : tag ≠ .head) :
+    labelAdmitted (.release v) tag = false := by
+  cases tag <;> simp_all [labelAdmitted]
 
 /-- An unreleased build is always admitted. -/
 theorem labelAdmitted_unreleased (tag : TagState) : labelAdmitted .unreleased tag = true := by
@@ -203,19 +210,19 @@ def ReleaseSource.spelling : ReleaseSource → String
 
 /-- The source of release `v`'s edition in a site build of `b`, given whether `v`'s release asset
 exists and the state `tag` of `b`'s release tag: the asset whenever it exists, the rendered
-edition only in a build of `v` whose tag is absent or names its commit before the asset exists,
-and otherwise `none`, which the build refuses. -/
+edition only in a build of `v` whose commit its tag names before the asset exists, and otherwise
+`none`, which the build refuses. -/
 def releaseSource (b : Build) (v : ReleaseVersion) (assetExists : Bool) (tag : TagState) :
     Option ReleaseSource :=
   if assetExists then some .asset
-  else if b = .release v ∧ tag ≠ .other then some .render
+  else if b = .release v ∧ tag = .head then some .render
   else none
 
-/-- A release's edition is rendered from source only by a build of that release before its asset
-exists, while its tag is absent or names the build's commit. -/
+/-- A release's edition is rendered from source only by a build of that release whose commit its
+tag names, before its asset exists. -/
 theorem releaseSource_render_iff (b : Build) (v : ReleaseVersion) (assetExists : Bool)
     (tag : TagState) : releaseSource b v assetExists tag = some .render ↔
-      assetExists = false ∧ b = .release v ∧ (tag = .absent ∨ tag = .head) := by
+      assetExists = false ∧ b = .release v ∧ tag = .head := by
   unfold releaseSource
   cases assetExists <;> cases tag <;> by_cases h : b = .release v <;> simp_all
 

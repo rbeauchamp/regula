@@ -651,13 +651,18 @@ with no `lean_lib`) are bounded observations.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: the tag step's decision `tagAction`
-creates or moves tag `v<version>` only for the head of `main` while the release is unpublished
-(`tagAction_create_iff`, `tagAction_move_iff`), never writes it once the release is published
-(`tagAction_published`), and never refuses the head of `main` of an unpublished release
-(`tagAction_converges`); `tagAction_keep_iff` and `tagAction_refuse_iff` give the other cases.
-The rest of the file is operational. Its edit of `RegulaCore/Edition.lean` is read back before
-use; its stamp of `RegulaCore/Rule.lean` is not. The kernel checks the edited modules' theorems
-when the checks of the release and reset pull requests build them: `releases_ascending`,
+creates or moves tag `v<version>`, at a fresh release commit on this commit, only for the head of
+`main` while the release is unpublished (`tagAction_create_iff`, `tagAction_move_iff`), never
+writes it once the release is published (`tagAction_published`, `tagAction_skip_iff`), and always
+tags the head of `main` of an unpublished release (`tagAction_converges`); `tagAction_refuse_iff`
+gives the remaining case. **Proved** in `RegulaCore.Edition`: a build labelled a release is
+admitted exactly when its tag names its commit (`labelAdmitted_release_iff`,
+`labelAdmitted_release_refused`); that the tag step only ever tags a release commit it created,
+never a commit of `main` or of a pull request, is operational. The rest of `Release.lean` is
+operational too, including its check that a commit of `main` or of a pull request is unreleased.
+Its edits of `RegulaCore/Edition.lean` are read back before use; its stamp of
+`RegulaCore/Rule.lean` is not. The kernel checks the edited modules' theorems when the release
+pull request's checks and CI's jobs on the release commit build them: `releases_ascending`,
 `installed_listed`, `release_attributes_rules` (when `installed` is a release, no lifecycle
 position of any rule is `.unreleased`) and `lifecycle_listed` (every release a rule's lifecycle
 names is in `releases`). What the tag step observes (whether the release is published, the head

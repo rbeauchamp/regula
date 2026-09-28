@@ -12,9 +12,9 @@ be uploaded.
 - `render`: run the website package's Verso executable (trusted process boundary).
 - `releaseSources`, `releaseCopies`: each release's edition before banners, from
   `releaseSource`: the frozen copy whenever its release asset exists, and this build's rendered
-  edition only in a build of the installed release before that asset exists, while its tag is
-  absent or names this commit. `buildJson` records each source, whether the tag names this
-  commit and the value of `publishable` for them, which `Deployment gate` requires.
+  edition only in a build of the installed release whose commit its tag names, before that asset
+  exists. `buildJson` records each source, whether the tag names this commit and the value of
+  `publishable` for them, which `Deployment gate` requires.
 - `publishedCopy`: a release's published edition: its copy, with the latest-release banner
   (`outdatedBanner`, `bannerTarget`) inserted into every HTML page (`insertBanner`) when a later
   release exists.
@@ -32,7 +32,7 @@ be uploaded.
 The check observes files this process wrote and read back; it does not observe GitHub Pages.
 That a release's copy is the one made at its release rests on the release asset, which GitHub
 stores; the build refuses a copy that does not record a clean build of that release for this
-site, and a build labelled as a release whose tag names another commit (`labelAdmitted`).
+site, and a build labelled as a release whose tag does not name its commit (`labelAdmitted`).
 Deployment is verified separately against the live site (`Regula.Site.Deployment`).
 -/
 
@@ -137,15 +137,15 @@ private def byPath (files : List (String × ByteArray)) : List (String × ByteAr
 
 /-- The source of each release's edition, oldest first (`releaseSource`), from whether its release
 asset exists and the state `tag` of the installed release's tag. Refuses a release without an
-asset unless this build is that release's and its tag is absent or names this commit. -/
+asset unless this build is that release's and its tag names this commit. -/
 def releaseSources (root : FilePath) (tag : TagState) :
     IO (List (ReleaseVersion × ReleaseSource)) :=
   releases.mapM fun v => do
     match releaseSource installed v (← downloadRelease root v) tag with
     | some source => return (v, source)
-    | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist, \
-        and this build is not a build of that release whose tag v{v.spelling} is absent or names \
-        its commit"
+    | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist \
+        yet, and only the release commit that tag v{v.spelling} names renders its edition; CI on \
+        main publishes the asset once main lists the release"
 
 /-- Each release's edition before banners, oldest first, from its source: the frozen copy, or the
 rendered edition with its `build.json`. -/
@@ -288,10 +288,10 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
   root / "tmp/site-release" / releaseAsset v
 
-/-- Complete build: refuse a release label whose tag names another commit, decide each release
-edition's source, admit evidence, generate, render, collect the release editions, assemble and
-check. A clean build whose commit the release's tag names and that rendered its release's edition
-also writes it as that release's asset. -/
+/-- Complete build: refuse a release label whose tag does not name this commit, decide each
+release edition's source, admit evidence, generate, render, collect the release editions,
+assemble and check. A clean build whose commit the release's tag names and that rendered its
+release's edition also writes it as that release's asset. -/
 def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
   if ← out.pathExists then IO.FS.removeDirAll out
@@ -300,9 +300,10 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   let tag ← match installed with
     | .release v => tagState root v ident.revision
     | .unreleased => pure .absent
-  requireChecks [⟨s!"a build labelled {installed.spelling} is refused once tag \
-    v{installed.spelling} names another commit (merge the release's reset pull request, which \
-    sets Regula.installed back to .unreleased)", labelAdmitted installed tag⟩]
+  requireChecks [⟨s!"a build labelled {installed.spelling} is refused unless tag \
+    v{installed.spelling} names its commit: only the release commit that CI on main creates and \
+    tags carries a release label, and main and pull requests keep Regula.installed \
+    .unreleased", labelAdmitted installed tag⟩]
   let sources ← releaseSources root tag
   let g ← evidence root ident evidencePaths
   generate root g

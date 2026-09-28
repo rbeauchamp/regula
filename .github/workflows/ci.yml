@@ -21,9 +21,6 @@ jobs:
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; each verify.sh step enforces exactly 420 seconds.
     timeout-minutes: 45
-    outputs:
-      # The release this commit installs (Regula.installed), empty when it is unreleased.
-      release: ${{ steps.edition.outputs.release }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,9 +31,9 @@ jobs:
           # The documentation step builds the Verso standard, which needs pinned Verso.
           verso: 'true'
 
-      - name: Name the release this commit installs
-        id: edition
-        run: lean --run lean/Regula/Release.lean installed
+      # Only the release commit, which is not on main, carries a release label.
+      - name: Refuse a release label on main or a pull request
+        run: lean --run lean/Regula/Release.lean unreleased
 
       # Includes RegulaPolicy collection/finalization proofs and all acceptance
       # adapters through the existing executable and diagnostic-owner build targets.
@@ -83,22 +80,22 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # On main, a commit that carries the release label (Regula.installed is a release): once
-  # acceptance and the corpus shards pass, tag it v<version>, so the site build below renders the
-  # release's edition as publishable and writes its asset (docs/guides/contributing.md#release).
-  # Until the release is published the tag is created at, or moved to, the head of main; once it
-  # is published the tag never changes and this job refuses every other labelled commit, after
-  # pushing the reset branch (Regula.Release.tagAction).
+  # On main, once acceptance and the corpus shards pass: when main lists a release that is not
+  # yet published, create the release commit (a signed child of this commit, not on main, whose
+  # only change sets Regula.installed to the release) and tag it v<version>; the jobs below build
+  # its site edition and publish the release. Until the release is published each run on the head
+  # of main tags a fresh release commit; once it is published the tag never changes and this job
+  # releases nothing (Regula.Release.tagAction, docs/guides/contributing.md#release).
   tag:
     needs: [verify, rule-examples]
-    if: >-
-      github.ref == 'refs/heads/main' && github.event_name != 'pull_request' &&
-      needs.verify.outputs.release != ''
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
-      pull-requests: read
+    outputs:
+      # The release commit, empty when there is nothing to release.
+      commit: ${{ steps.tag.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,20 +103,95 @@ jobs:
 
       - uses: ./.github/actions/provision
 
-      - name: Tag the release commit
+      - name: Create and tag the release commit
+        id: tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: lean --run lean/Regula/Release.lean tag
 
+  # The release commit's corpus shards and site build. Tag v<version> names that commit, so its
+  # site build renders the release's edition from source and writes it as the release asset
+  # (Regula.releaseSource, Regula.publishable).
+  release-site:
+    needs: tag
+    if: needs.tag.outputs.commit != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.tag.outputs.commit }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+        with:
+          verso: 'true'
+
+      - name: Qualify shard 1/2 (same command and seven-minute limit as local)
+        run: ./scripts/verify.sh diagnostics rule-examples 1/2
+
+      - name: Qualify shard 2/2 (same command and seven-minute limit as local)
+        run: ./scripts/verify.sh diagnostics rule-examples 2/2
+
+      - name: Build site tooling
+        timeout-minutes: 20
+        run: lake build axiomGate ruleExampleQualification site AuditApp
+
+      - name: Build the Mathlib package's library the standard's examples import
+        timeout-minutes: 20
+        working-directory: audit
+        run: lake build Audit
+
+      - name: Build and check the site (seven-minute limit)
+        run: ./scripts/verify.sh site
+
+      - name: Keep the release edition
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site-release-${{ needs.tag.outputs.commit }}
+          path: tmp/site-release
+          if-no-files-found: error
+          retention-days: 30
+
+  # Publish the GitHub release with the release commit's edition as its permanent asset, before
+  # the site build of main, which then takes that edition from the asset.
+  publish:
+    needs: [tag, release-site]
+    if: needs.tag.outputs.commit != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+
+      - name: Receive the release edition
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site-release-${{ needs.tag.outputs.commit }}
+          path: tmp/site-release
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.tag.outputs.commit }}
+        run: lean --run lean/Regula/Release.lean publish
+
   # Rule-reference website (docs/guides/website.md): generated from the registry, the rule
   # explanations and this run's admitted corpus exports, rendered with pinned Verso and
-  # checked. Separate from, and never a partition of, 420-second acceptance. It runs after
-  # `tag`, which is skipped except on a release commit on main.
+  # checked. Separate from, and never a partition of, 420-second acceptance. On main it runs after
+  # `publish`, so it takes a release's edition from the asset published in this run; `tag` and
+  # `publish` are skipped on pull requests, and `publish` whenever there is nothing to release.
   site:
-    needs: [rule-examples, tag]
+    needs: [rule-examples, tag, publish]
     if: >-
       !cancelled() && needs.rule-examples.result == 'success' &&
-      (needs.tag.result == 'success' || needs.tag.result == 'skipped')
+      (needs.tag.result == 'success' || needs.tag.result == 'skipped') &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -160,16 +232,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Only a clean build of a release whose commit its tag v<version> names writes it: that
-      # release's edition, for the release's asset.
-      - name: Keep the release edition
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: site-release-${{ github.sha }}
-          path: tmp/site-release
-          if-no-files-found: ignore
-          retention-days: 30
-
       - name: Refuse to publish a dirty, other-commit or untagged-release artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: lean --run lean/Regula/Site/Deployment.lean gate _site
@@ -184,7 +246,7 @@ jobs:
   # revision's acceptance and site jobs passed. This job holds the deployment token, so it runs
   # no checkout, provisioning or project code: only a dependency-free re-check (re-run with this
   # job) that main is still at this revision, then deploy-pages.
-  # Like `site`, it tolerates a skipped `tag` (every unreleased commit).
+  # Like `site`, it tolerates skipped release jobs (pull requests and runs with nothing to release).
   deploy:
     needs: [verify, site]
     if: >-
@@ -241,36 +303,3 @@ jobs:
         env:
           REGULA_PAGE_URL: ${{ needs.deploy.outputs.page_url }}
         run: lean --run lean/Regula/Site/Deployment.lean verify _site
-
-  # Once a release commit's edition is live, publish the GitHub release with that edition as its
-  # permanent asset, then push the branch that sets Regula.installed back to .unreleased; a
-# maintainer opens its pull request from the link in the job summary.
-  release:
-    needs: [tag, verify-deployment]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: write
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/provision
-
-      - name: Receive the release edition
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: site-release-${{ github.sha }}
-          path: tmp/site-release
-
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: lean --run lean/Regula/Release.lean publish
-
-      - name: Push the branch that ends the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: lean --run lean/Regula/Release.lean reset
