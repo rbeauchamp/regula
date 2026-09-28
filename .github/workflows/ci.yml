@@ -88,7 +88,7 @@ jobs:
   # release's edition as publishable and writes its asset (docs/guides/contributing.md#release).
   # Until the release is published the tag is created at, or moved to, the head of main; once it
   # is published the tag never changes and this job refuses every other labelled commit, after
-  # making sure the reset pull request is open (Regula.Release.tagAction).
+  # pushing the reset branch (Regula.Release.tagAction).
   tag:
     needs: [verify, rule-examples]
     if: >-
@@ -98,8 +98,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
-      pull-requests: write
-      actions: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -244,15 +243,15 @@ jobs:
         run: lean --run lean/Regula/Site/Deployment.lean verify _site
 
   # Once a release commit's edition is live, publish the GitHub release with that edition as its
-  # permanent asset, then open the pull request that sets Regula.installed back to .unreleased.
+  # permanent asset, then push the branch that sets Regula.installed back to .unreleased; a
+# maintainer opens its pull request from the link in the job summary.
   release:
     needs: [tag, verify-deployment]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
-      pull-requests: write
-      actions: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -271,7 +270,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: lean --run lean/Regula/Release.lean publish
 
-      - name: Open the pull request that ends the release
+      - name: Push the branch that ends the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: lean --run lean/Regula/Release.lean reset

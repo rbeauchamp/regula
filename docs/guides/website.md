@@ -226,7 +226,8 @@ releases, a repository setting that is on, forbid changing a published release's
 
 A release takes these steps, in order ([release procedure](contributing.md#release)):
 
-1. The Release workflow opens the release pull request, whose commit sets `Regula.installed` to
+1. The Release workflow pushes the release branch, whose pull request a maintainer opens from the
+   link in the job summary. Its commit sets `Regula.installed` to
    the release, appends it to `Regula.releases`
    ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) and stamps it into every rule
    lifecycle position still `.unreleased`. Before the tag exists, its site build renders the
@@ -242,7 +243,8 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
 3. Once `verify-deployment` observes those pages live, CI attaches that file, from the commit the
    tag names, to the GitHub release `v<version>` as its permanent asset and publishes the release.
    The tag then never changes.
-4. CI then opens the reset pull request, which sets `Regula.installed` back to `.unreleased` and
+4. CI then pushes the reset branch, whose pull request a maintainer opens from the link in the
+   job summary. It sets `Regula.installed` back to `.unreleased` and
    restores the development label of `dev/`. Its site build and every later one take the
    release's edition from the asset. Until it merges, CI on `main` refuses every other commit
    that still carries the release label, because the tag names another commit.

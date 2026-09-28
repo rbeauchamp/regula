@@ -7,11 +7,11 @@ The steps of a Regula release, run with the pinned toolchain alone, so they need
 `main`:
 
 ```text
-lean --run lean/Regula/Release.lean open       # open the release pull request
+lean --run lean/Regula/Release.lean open       # push the branch of the release pull request
 lean --run lean/Regula/Release.lean installed  # the release this commit installs, if any
 lean --run lean/Regula/Release.lean tag        # tag the release commit v<version>
 lean --run lean/Regula/Release.lean publish    # attach the site edition and publish the release
-lean --run lean/Regula/Release.lean reset      # open the pull request that ends the release
+lean --run lean/Regula/Release.lean reset      # push the branch that ends the release
 ```
 
 A release's version is the Lean release in `lean-toolchain`, the Lean ecosystem's tag convention
@@ -20,21 +20,24 @@ toolchain. `open` creates the release commit as a child of the `main` commit the
 on: that commit with `Regula.installed` set to the release, the release appended to
 `Regula.releases` (`RegulaCore/Edition.lean`), and the release stamped into every rule lifecycle
 position still `.unreleased` (`RegulaCore/Rule.lean`, `stampRules`). GitHub creates and
-signs it, and `open` refuses unless GitHub reports its signature verified; it then opens its pull
-request, which merges through normal review. On `main`, once acceptance and the rule-example
+signs it, and `open` refuses unless GitHub reports its signature verified; it then pushes it as the
+branch `release/v<version>`, whose pull request a maintainer opens from the link the job writes
+to its summary and merges through normal review. On `main`, once acceptance and the rule-example
 shards pass on a commit that carries the release label, `tag` names it `v<version>`
 (`tagAction`), so its site build renders the release's edition, deploys it and keeps it as the
 release asset. Once the deployment is verified, `publish` creates the GitHub release with the
 notes and that asset of the commit the tag names, published only once the asset is attached
-(immutable releases then freeze both), and `reset` opens the pull request that sets
-`Regula.installed` back to `.unreleased`.
+(immutable releases then freeze both), and `reset` pushes the branch that sets
+`Regula.installed` back to `.unreleased`, whose pull request a maintainer opens the same way. No
+step creates a pull request: the repository does not let GitHub Actions create one, and a pull
+request a person opens starts its own checks.
 
 Other pull requests still merge during a release. A release is cut from whichever labelled head
 of `main` first completes the whole chain: until the release is published, `tag` creates the tag
 at the head of `main` or moves it there (`tagAction_converges`), so a re-run of CI on `main`
 recovers from a run that a later merge cancelled. Once it is published, `tag` never changes the
 tag (`tagAction_published`) and refuses every other commit that still carries the label, after
-making sure the reset pull request is open; the site build refuses them too. If a pull request
+making sure the reset branch is pushed; the site build refuses them too. If a pull request
 that adds or retires a rule merges while the release pull request is open, the Release workflow
 runs on `main` again as a new run, so that `open` rebuilds and stamps the release commit on the
 new head: a re-run reuses the original run's commit, and GitHub's Update branch merges the rule's
@@ -342,32 +345,6 @@ def editionCommit (repo parent edition message : String) : IO String :=
 private def mainHead (repo : String) : IO String := do
   str (← IO.ofExcept ((← ghGet s!"repos/{repo}/git/ref/heads/main").getObjVal? "object")) "sha"
 
-/-- Point `branch` at `commit`, start `ci.yml` on it, and open its pull request with `title` and
-`body` unless one is open. A pull request opened with a workflow's token starts no workflow,
-hence the dispatch. GitHub opens it only when the repository lets GitHub Actions create pull
-requests; otherwise this fails with the link that opens it. -/
-private def proposeBranch (repo branch commit title body : String) : IO Unit := do
-  let existing ← ghGet s!"repos/{repo}/git/matching-refs/heads/{branch}"
-  let exists_ := (← IO.ofExcept existing.getArr?).any fun r =>
-    r.getObjValD "ref" == .str s!"refs/heads/{branch}"
-  if exists_ then
-    discard <| ghPost "PATCH" s!"repos/{repo}/git/refs/heads/{branch}"
-      (Json.mkObj [("sha", commit), ("force", true)])
-  else
-    discard <| ghPost "POST" s!"repos/{repo}/git/refs"
-      (Json.mkObj [("ref", s!"refs/heads/{branch}"), ("sha", commit)])
-  discard <| gh #["workflow", "run", "ci.yml", "--repo", repo, "--ref", branch]
-  let owner := (repo.splitOn "/").head!
-  let open_ ← ghGet s!"repos/{repo}/pulls?state=open&head={owner}:{branch}"
-  if (← IO.ofExcept open_.getArr?).isEmpty then
-    let created ← IO.Process.output { cmd := "gh", args := #["pr", "create", "--repo", repo,
-      "--base", "main", "--head", branch, "--title", title, "--body", body] }
-    unless created.exitCode == 0 do
-      fail s!"could not open the pull request ({created.stderr.trimAscii}). Open it from \
-        https://github.com/{repo}/compare/main...{branch}?expand=1, or turn on the repository \
-        setting that lets GitHub Actions create pull requests and re-run this job"
-  IO.println s!"branch {branch} names {commit}; its pull request awaits review"
-
 /-- The open pull request from `branch`, with the details GitHub computes for one pull request
 (such as `mergeable`, which is `null` until GitHub has computed it), if there is one. -/
 private def openPull (repo branch : String) : IO (Option Json) := do
@@ -377,6 +354,42 @@ private def openPull (repo branch : String) : IO (Option Json) := do
   let some pull := pulls[0]? | return none
   let number ← IO.ofExcept (pull.getObjValAs? Nat "number")
   return some (← ghGet s!"repos/{repo}/pulls/{number}")
+
+/-- `s` percent-encoded for a URL query value: every byte outside RFC 3986's unreserved set. -/
+def percentEncode (s : String) : String :=
+  let hex (n : Nat) : Char := "0123456789ABCDEF".toList[n]!
+  String.join (s.toUTF8.toList.map fun b =>
+    let c := Char.ofNat b.toNat
+    if b.toNat < 128 && (c.isAlphanum || c == '-' || c == '.' || c == '_' || c == '~') then
+      c.toString
+    else "%" ++ (hex (b.toNat / 16)).toString ++ (hex (b.toNat % 16)).toString)
+
+/-- Point `branch` at `commit` and hand its pull request to a person: unless one is already open,
+write the link that opens it, with `title` and `body` filled in, to the job summary
+(`GITHUB_STEP_SUMMARY`) and the log. The workflow never creates a pull request: the repository
+does not let GitHub Actions create one, and the person who opens it starts its checks. -/
+private def pushBranch (repo branch commit title body : String) : IO Unit := do
+  let existing ← ghGet s!"repos/{repo}/git/matching-refs/heads/{branch}"
+  let exists_ := (← IO.ofExcept existing.getArr?).any fun r =>
+    r.getObjValD "ref" == .str s!"refs/heads/{branch}"
+  if exists_ then
+    discard <| ghPost "PATCH" s!"repos/{repo}/git/refs/heads/{branch}"
+      (Json.mkObj [("sha", commit), ("force", true)])
+  else
+    discard <| ghPost "POST" s!"repos/{repo}/git/refs"
+      (Json.mkObj [("ref", s!"refs/heads/{branch}"), ("sha", commit)])
+  if let some pull ← openPull repo branch then
+    let url := (pull.getObjValD "html_url").getStr?.toOption.getD branch
+    IO.println s!"branch {branch} names {commit}; its pull request {url} is open"
+    return
+  let link := s!"https://github.com/{repo}/compare/main...{branch}?expand=1&title=\
+    {percentEncode title}&body={percentEncode body}"
+  let summary := s!"### Open the pull request `{title}`\n\nThe signed branch `{branch}` names \
+    `{commit}`. Open its pull request from [this link]({link}); opening it starts its checks.\n"
+  if let some path ← IO.getEnv "GITHUB_STEP_SUMMARY" then
+    let handle ← IO.FS.Handle.mk path .append
+    handle.putStr summary
+  IO.println s!"branch {branch} names {commit}; open its pull request from {link}"
 
 /-- Append `key=value` to the step outputs file `GITHUB_OUTPUT`. -/
 private def output (key value : String) : IO Unit := do
@@ -421,24 +434,24 @@ def openRelease : IO Unit := do
     s!"release: Regula {tag} for Lean {tag}\n\nSets Regula.installed to the release, appends \
       it to Regula.releases and stamps it into every rule lifecycle position still \
       unreleased. Once this is on main, CI tags it {tag}, deploys its edition, \
-      publishes the release and opens the pull request that sets Regula.installed back to \
+      publishes the release and pushes the branch that sets Regula.installed back to \
       .unreleased."
-  proposeBranch repo s!"release/{tag}" commit s!"release: Regula {tag}"
+  pushBranch repo s!"release/{tag}" commit s!"release: Regula {tag}"
     s!"Releases Regula {tag} for Lean {tag}: sets `Regula.installed` to the release, appends \
       it to `Regula.releases` and stamps it into every rule lifecycle position still \
       `.unreleased`.\n\n\
       Once this merges, CI on `main` tags the head of `main` {tag} after acceptance and the \
       rule-example shards pass, deploys https://rbeauchamp.github.io/regula/v/{v.spelling}/, \
       publishes the GitHub release with that edition as its asset once the deployment is \
-      verified, and opens the pull request that sets `Regula.installed` back to `.unreleased`. \
+      verified, and pushes the branch that sets `Regula.installed` back to `.unreleased`. \
       Other pull requests still merge meanwhile; until the release is published the tag follows \
       the head of `main`, and afterwards CI refuses every other commit that still carries the \
       release label until that reset pull request merges.\n\n\
       If a pull request that adds or retires a rule merges before this one, run the Release \
       workflow on `main` again as a new run, not a re-run and not Update branch: its `open` \
       step rebuilds and stamps this commit on the new head of `main`.\n\n\
-      Opened by the Release workflow, which also started this branch's checks (checks do not \
-      start on their own for a pull request a workflow opens)."
+      The Release workflow pushed this signed branch; a maintainer opened this pull request, \
+      which started its checks."
 
 /-- Write the step output `release`: the version the checked-out commit installs, empty when it
 is unreleased. -/
@@ -524,17 +537,17 @@ def reset : IO Unit := do
     s!"release: end Regula {tag}\n\nSets Regula.installed back to .unreleased now that the release \
       {tag} is published; Regula.releases keeps it, so every deployment serves its edition from \
       the release asset."
-  proposeBranch repo branch commit s!"release: end Regula {tag}"
+  pushBranch repo branch commit s!"release: end Regula {tag}"
     s!"Sets `Regula.installed` back to `.unreleased` after the release {tag}, published with its \
       site edition as a release asset. `Regula.releases` keeps {tag}, so every deployment serves \
       https://rbeauchamp.github.io/regula/v/{v.spelling}/ from that asset. Until this merges, \
       the site build refuses every other commit that carries the release label.\n\n\
-      Opened by CI once the release was published, which also started this branch's checks \
-      (checks do not start on their own for a pull request a workflow opens)."
+      CI pushed this signed branch once the release was published; a maintainer opened this \
+      pull request, which started its checks."
 
 /-- Execute `tagAction` for the checked-out release commit: create tag `v<version>` here, move it
-here or keep it, and otherwise fail. Refusing a published release first makes sure its reset pull
-request is open, so a re-run of CI on `main` always ends the release. -/
+here or keep it, and otherwise fail. Refusing a published release first pushes its reset
+branch, so a re-run of CI on `main` always offers the pull request that ends the release. -/
 def tagRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
