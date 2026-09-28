@@ -4,15 +4,12 @@ The POLICY-01 design is implemented by the pure `RegulaPolicy` contracts and
 operational adapters described below. The [domain guide](policy-domain.md) identifies
 admitted data; the [proof guide](policy-proofs.md) gives theorem hypotheses and caller
 linkage. The [architecture](linter-architecture.md) owns the product and the
-[coverage map](rule-coverage.md) owns the twenty-two rules and nine residual accounts.
+[coverage map](rule-coverage.md) accounts for the twenty-two rules and nine residual obligations.
 Normative meaning remains [chapter 8](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/)
 and the [chapter 9 checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/).
 
-Con-leche and its authors/contributors, maintained by Joachim Breitner at Lean FRO,
-are credited for [complete indexed result assembly][installed] and
-[canonical representations with semantic equality][propwhen]. These are design
-influences, not imported proofs or copied code. The Regula guarantee
-is conditional on observations; it is not con-leche's kernel/model theorem.
+The Regula guarantee is conditional on observations; its design influences are credited in
+[design influences](design-influences.md).
 
 ## 1. Observed call flow and every success boundary
 
@@ -29,7 +26,7 @@ operational bridge, re-exporting the pure API without duplicating policy decisio
 | `Lint.run`: `--explain-config`, `--help` | Read-only manifest/Lake-scope validation with the audit's own functions (`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`), and help; no audit certificate. Both return the non-success configuration class (exit 2), refuse `--json-out`/`--verbose`, and invalidate any recognisable `--json-out` destination first (`AxiomGate.invalidateResults`). An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface`: `--with-docs` | One process: `auditSurfaceAt` accepts the project plan over a snapshot that includes the copied Markdown, then `auditBuiltProject` accepts the documentation plan over that same snapshot and build, and `combineAccepted` joins them. No evidence crosses a process boundary between the two stages. `CombinedAccepted` is required before combined success. |
 | `AxiomGate.auditSurface`: `--acceptance-link PATH` | Fresh project success only (no `--with-docs`). After `AcceptedRun`, computes the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso DIR:LIBRARY:RENDER`, the Verso library's sources and the package inputs its check reads (`Documentation.Sources.captureLinked`: the Lake configuration and lock files and the package's own modules imported from the library, its needed executables and the render executable); records it in PATH only after `run`'s outer configuration recheck passed with exit code 0. The path is invalidated before the audit starts, so any refusal leaves it `incomplete`. |
-| `DocFenceAudit.run`: `--acceptance-link PATH` | Before building, computes the same identity from its own fresh captures and refuses unless PATH records an accepted ordinary result with an equal identity. With `--verso`, after the fence audit it builds the Verso library fresh in the isolated copy (elaborating every `lean` block where it is written), renders it with the render executable (which first requires each cited section as a part of the elaborated standard with its tag and exact heading in its chapter, `website/StandardMain.lean`), requires the rendered pages to define every anchor the rule registry links (`Regula.Site.standardAnchors`) and every page and anchor that the linked `docs/` Markdown links in the development standard (`Regula.Site.documentAnchors`; both `missingAnchors_nil_iff`), requires the coverage map's links into the checklist page to be exactly the rendered checklist rows in order, each labelled with its row (`Regula.Site.linkedRows`, `renderedRows`, `rowMapMismatch_eq_none_iff`) and each cited section's source to be a module of the library, and rechecks the linked inputs. Equality establishes identical captured inputs; `shasum` and the filesystem remain trusted. |
+| `DocFenceAudit.run`: `--acceptance-link PATH` | Before building, computes the same identity from its own fresh captures and refuses unless PATH records an accepted ordinary result with an equal identity. With `--verso`, after the fence audit it builds the Verso library fresh in the isolated copy (elaborating every `lean` block where it is written), renders it with the render executable (which first requires each cited section as a part of the elaborated standard with its tag and exact heading in its chapter, `website/StandardMain.lean`), requires the rendered pages to define every anchor the rule registry links (`Regula.Site.standardAnchors`) and every page and anchor that the linked `docs/` Markdown links in the development standard (`Regula.Site.documentAnchors`; both `missingAnchors_nil_iff`), requires the rendered checklist's rows to be exactly `Regula.checklistRows`, in order (`Regula.Site.renderedRows`, `rowsMismatch`, `rowsMismatch_eq_none_iff`) and each cited section's source to be a module of the library, and rechecks the linked inputs. Equality establishes identical captured inputs; `shasum` and the filesystem remain trusted. |
 | `AxiomGate.auditFile`: explicit conforming profile | Actual compilation and full source/replay/execution observations yield a `freshFile` plan and `AcceptedRun`. `FileSourceBinding` retains both the requested URI and the temporary compiled URI with exact byte equality. Producer/transcript paths are not rewritten. Dependencies remain incremental; this is no whole-project claim. |
 | Same function: no profile / compiler-trusting | `CLASSIFIED`, with no conforming `Claim` or accepted-positive receipt. Teaching does not supply logical conformance. |
 | `Documentation.auditBuiltProject` and `DocFenceAudit.run` | Freeze all Markdown bytes (with `--verso`, also the Verso library's module bytes), original fence spans and task identities before compiling. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. `finishDocuments` calls `finalize`; zero-fence documents still need discovery/build/scan jobs. Terminal inventory/source/configuration/dependency checks remain. |
@@ -546,14 +543,10 @@ Reject duplicate JSON object fields before map construction (ordinary parsed map
 lose duplicates), unknown fields, duplicate identities and out-of-range machine values.
 Use Nat for semantic indices; checked conversion for UInt32 exit codes and byte offsets.
 Wire results carry observations, never serialized Lean proofs or an authoritative accepted
-flag. Revalidate and rerun the pure decision after decoding. Bind path remapping to display
-fields, replacing `writeRemappedJson`'s text-wide replacement; immutable identity stays intact.
+flag. Revalidate and rerun the pure decision after decoding. Immutable identity stays intact.
 
-Preserve legacy text subreasons on supported inputs. Introduce the versioned result format
-explicitly, not as a silent reinterpretation of old optional `--json-out`; retain old output through `--legacy-json-out PATH`, mutually exclusive with the new
-`--json-out PATH`, with no certificate import. #12/#7 document the transition and update
-consumers together before removing any legacy output option.
-No promise of exact legacy JSON bytes, broader supported inputs or improved runtime is made.
+Preserve text subreasons on supported inputs. The result format is versioned (`--json-out PATH`),
+with no certificate import. No promise of broader supported inputs or improved runtime is made.
 
 ## 6. Cache/pin decision, evidence and remaining obligations
 
@@ -604,4 +597,3 @@ ambiguous role origin and unresolved execution are refusals. Any failed proof or
 capability blocks its specific guarantee and must be reported.
 
 [installed]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean
-[propwhen]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean

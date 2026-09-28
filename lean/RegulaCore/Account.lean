@@ -14,9 +14,9 @@ success must not blur:
   requirement;
 * the trusted mechanisms and execution boundaries that relation assumes (`Trusted`, and
   the per-environment execution counts, whose trusted boundaries are reported, not verified);
-* the semantic-review obligations it leaves open (`Residual`, the identifiers of
-  `docs/guides/rule-coverage.md`). Emitting an identifier is not a completed review, and this
-  module has no way to record one.
+* the semantic-review obligations it leaves open (`Residual`, each with its one
+  `Residual.description`). Emitting an identifier is not a completed review, and this module has
+  no way to record one.
 
 `Status.completed` requires an `Account`, and every `Account` is the projection of some
 accepted run (`Account.accepted`). So no rendered status reads `completed` without an
@@ -30,37 +30,84 @@ namespace Regula.Checker.Account
 
 open RegulaPolicy
 
-/-- The residual semantic-review accounts of `docs/guides/rule-coverage.md`, exactly. A
-mechanical result never discharges one. -/
+/-- The semantic-review obligations a mechanical result never discharges. Each is stated once,
+by `Residual.description`, which the rule reference and `regula explain` show, and carries the
+checklist rows `Residual.rows`. -/
 inductive Residual where
-  /-- R-INTENT: each material proposition and its explanation read back against its written
-  intent. -/
+  /-- `R-INTENT` (`Residual.description`). -/
   | intent
-  /-- R-INVARIANT: the intended invariants and every admission, write and caller path. -/
+  /-- `R-INVARIANT` (`Residual.description`). -/
   | invariant
-  /-- R-LAWS: chosen structures and instances against the intended algebra or order. -/
+  /-- `R-LAWS` (`Residual.description`). -/
   | laws
-  /-- R-BOUNDARY: module modes, exported constructors, projections and actual callers. -/
+  /-- `R-BOUNDARY` (`Residual.description`). -/
   | boundary
-  /-- R-NONVACUITY: a witness at the strength actually claimed. -/
+  /-- `R-NONVACUITY` (`Residual.description`). -/
   | nonvacuity
-  /-- R-DOC: completeness of material-claim registration and fidelity of documentation. -/
+  /-- `R-DOC` (`Residual.description`). -/
   | doc
-  /-- R-COST: the cost domain and its mathematical argument or bounded observation. -/
+  /-- `R-COST` (`Residual.description`). -/
   | cost
-  /-- R-QUALIFY: claim-scoped qualification controls and exact invocation evidence. -/
+  /-- `R-QUALIFY` (`Residual.description`). -/
   | qualify
-  /-- R-GRAPH: the optional serialized-graph claim. -/
+  /-- `R-GRAPH` (`Residual.description`). -/
   | graph
   deriving Repr, DecidableEq
 
-/-- The identifier of each obligation in `docs/guides/rule-coverage.md`, such as `R-INTENT`. -/
+/-- The identifier of each obligation, such as `R-INTENT`. -/
 def Residual.spelling : Residual → String
   | .intent => "R-INTENT" | .invariant => "R-INVARIANT" | .laws => "R-LAWS"
   | .boundary => "R-BOUNDARY" | .nonvacuity => "R-NONVACUITY" | .doc => "R-DOC"
   | .cost => "R-COST" | .qualify => "R-QUALIFY" | .graph => "R-GRAPH"
 
-/-- Every obligation once (`Residual.mem_all`), in the guide's order. -/
+/-- What each obligation requires a reviewer to establish: the one statement of it. -/
+def Residual.description : Residual → String
+  | .intent => "each material proposition and its explanation match the written intent in its \
+      declaration's Intent section: quantifiers and their order, hypotheses, domains, existence \
+      or construction, conditional or open status, and limits. No proof or presence check \
+      discharges it, and the requirement owner confirms that the intent states what is needed"
+  | .invariant => "the intended invariants (admitted values, transitions, frames, reachability and \
+      composition) are stated, and every admission, write and caller path is covered by a \
+      proof-bearing interface or theorem"
+  | .laws => "the chosen structures and instances carry the intended algebra or order, and custom \
+      definitions are justified"
+  | .boundary => "the enforced abstraction boundary is the intended one: module modes, exported \
+      constructors, recursors and projections, coercions, equations and actual callers"
+  | .nonvacuity => "the claim is non-vacuous at the strength claimed (inhabitance, joint \
+      satisfiability or reachability); a conditional or deliberately empty claim needs no \
+      unrelated witness"
+  | .doc => "material-claim registration is complete, and module documentation and docstrings are \
+      faithful to the declarations and requirements; presence or length alone is not enough"
+  | .cost => "a cost claim names its domain and rests on a mathematical argument or a bounded \
+      observation that preserves semantic and effect order; no timing or sample is universal \
+      evidence"
+  | .qualify => "the checker's detection is qualified for this invocation, toolchain and \
+      capability: claim-scoped positive controls, intended-reason mutations and exact invocation \
+      evidence"
+  | .graph => "a claimed serialized graph (`freshChecker`, standard §8.9) covers every selected \
+      root"
+
+/-- The compliance-checklist rows (standard module 9) whose review each obligation carries, in the
+checklist's order. Every obligation carries a row, each a checklist row, and every checklist row
+carries an obligation (`Regula.Site.residual_rows_listed`, `Regula.Site.residualsOfRow_ne_nil`). -/
+def Residual.rows : Residual → List String
+  | .intent => ["SCOPE-01", "SCOPE-02", "SCOPE-03", "SCOPE-04", "SCOPE-05", "TYPE-02", "TYPE-03",
+      "TYPE-04", "THEOREM-01", "THEOREM-05", "THEOREM-06", "THEOREM-08", "THEOREM-09", "FOUND-01",
+      "COMP-01", "COMP-04", "DOC-02", "DOC-04", "DOGFOOD-01", "DOGFOOD-03"]
+  | .invariant => ["SCOPE-03", "SCOPE-05", "TYPE-01", "THEOREM-01", "THEOREM-03", "THEOREM-07",
+      "THEOREM-08", "COMP-03", "BUILD-03", "DOGFOOD-01", "DOGFOOD-05"]
+  | .laws => ["TYPE-05", "THEOREM-02", "DOGFOOD-01", "DOGFOOD-04"]
+  | .boundary => ["TYPE-06", "DOGFOOD-01"]
+  | .nonvacuity => ["THEOREM-04", "THEOREM-09"]
+  | .doc => ["DOC-01", "DOC-02", "DOGFOOD-01", "DOGFOOD-03"]
+  | .cost => ["THEOREM-05", "THEOREM-10", "DOGFOOD-04"]
+  | .qualify => ["THEOREM-06", "FOUND-02", "FOUND-03", "FOUND-04", "FOUND-05", "DECL-01", "DECL-02",
+      "DECL-03", "DECL-04", "COMP-02", "COMP-03", "BUILD-01", "BUILD-02", "BUILD-03", "BUILD-04",
+      "DOC-03", "DOC-04", "DOC-05", "MUT-01", "MUT-02", "MUT-03", "MUT-04", "DOGFOOD-02",
+      "DOGFOOD-05"]
+  | .graph => ["MUT-05"]
+
+/-- Every obligation once (`Residual.mem_all`). -/
 def Residual.all : List Residual :=
   [.intent, .invariant, .laws, .boundary, .nonvacuity, .doc, .cost, .qualify, .graph]
 

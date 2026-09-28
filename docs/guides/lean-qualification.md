@@ -27,7 +27,7 @@ the external process, compiler or filesystem boundary they observe.
 
 | Former entrypoint | Lean replacement | Retained purpose |
 | --- | --- | --- |
-| `registry_cli_checks.py` | `lake exe qualify registry` | Seven malformed CLI invocations must invalidate seeded stale output. |
+| `registry_cli_checks.py` | `lake exe qualify registry` | Six malformed CLI invocations must invalidate seeded stale output; the real `--validate-registry` and `--validate-site` accept the exported registry and a complete page inventory and refuse each removed field, the previous schema version and a missing page. |
 | `native_linter_checks.py` | `lake exe qualify native` | 42 real compiler controls: identity, multiplicity, severity, source ranges, documentation, Intent-section and metadata ownership. |
 | `producer_checks.py` | `lake exe qualify producers` | Twelve source-owned documentation controls: for incremental and build-lint and each of RG5001/RG5002, one workspace runs Fixed, then Violation over that Fixed build (stale-artifact detection), then Fixed again from a cleared build. Also two standalone-executable controls, each in its own fresh workspace. The fresh-project RG5001/RG5002 observations are the rule-example corpus records, validated there by the same producer oracle. |
 | `history_checks.py` | `lake exe qualify history` | Ten project/file invocations, each in its own fresh workspace: private/imported roots, reached-closure/source accounts, unsupported-evaluator refusal and source-snapshot changes. |
@@ -150,7 +150,7 @@ evidence (standard §0 "The Role of Testing").
 | checkerSelftest structural | real manifest, missing file; public CLI missing, malformed, incomplete, wrong-version, unknown-key, bad-execution and unknown-library cases | file IO, the `axiomGate` CLI rendering of each refusal class, Lake inventory | External | kept |
 | checkerSelftest structural | Lake discovery, unlisted modules, executable classification, fresh-checker coverage | Lake inventory and build behaviour | External | kept |
 | checkerSelftest cli, environments, build-policy | CLI sweep, adopters, clean checkout, ordinary build | packaging, Lake and build integration | External | kept |
-| ordinary | `qualify registry`, `qualify native` | CLI argv/output invalidation; compiler messages and ranges | External | kept |
+| ordinary | `qualify registry`, `qualify native` | CLI argv/output invalidation and the registry and site validators; compiler messages and ranges | External | kept |
 | ordinary | `RegistryChecks.lean` codec and source cases | registry, diagnostic and source codecs | Proved in part (roundtrip theorems) | follow-up: state the remaining refusal cases as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation (`finalize_iff`); instance membership sampled | follow-up |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport; admission proved by #50 (`checked_indexedResults`) | kept |
@@ -302,8 +302,9 @@ acceptance.
   ([contributing guide](contributing.md#share-one-mathlib-across-local-copies));
   provisioning is not verification.
 - `lean/Regula/Site/`: the rule-reference site builder (`lake exe site`) and the
-  toolchain-only deployment check. Their pure decisions are proved in the claimed
-  `RegulaCore.Site*` modules; see the [website guide](website.md).
+  toolchain-only deployment gate and check. The builder's pure decisions are proved in the
+  claimed `RegulaCore.Edition` and `RegulaCore.Site*` modules; the gate and check compare the
+  artifact's recorded and observed files and are not proved; see the [website guide](website.md).
 
 This uses normal Lean module factoring and Lake targets. It does not impose a universal
 `tests/` directory convention or rename scripts while hiding another interpreter inside Lean.

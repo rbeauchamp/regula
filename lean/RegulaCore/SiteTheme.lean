@@ -466,7 +466,8 @@ main h2 { font-size: 1.3rem; line-height: 1.35; font-weight: 650; margin: 2.75re
 main h3 { font-size: 1.02rem; line-height: 1.4; font-weight: 650; margin: 1.5rem 0 0.5rem; }
 section > p, section > ul, section > ol { margin: 0.85rem 0; }
 .permalink-widget > a { text-shadow: 0 0 0 var(--rg-muted); }
-.content-wrapper > .prev-next-buttons:first-child { display: none; }
+.content-wrapper > .prev-next-buttons:first-child, .content-wrapper > .regula-outdated:first-child \
++ .prev-next-buttons { display: none; }
 .prev-next-buttons { gap: 0.75rem; margin-top: 3.5rem; font-weight: 500; }
 .prev-next-buttons > * { flex: 1 1 14rem; color: var(--rg-text); border: 1px solid \
 var(--rg-border); border-radius: var(--rg-radius);
@@ -483,6 +484,13 @@ var(--rg-muted); }
 .regula-pill { font-weight: 600; color: var(--rg-accent); background: var(--rg-accent-bg); \
 border-radius: 999px; padding: 0.05rem 0.55rem; }
 
+/* Note on every page of an earlier release, naming the latest release */
+.regula-outdated { margin: 0 0 1.25rem; padding: 0.75rem 1rem; background: var(--rg-accent-bg); \
+color: var(--rg-text); border: 1px solid var(--rg-border); \
+border-left: 3px solid var(--rg-accent); border-radius: var(--rg-radius); font-size: 0.95rem; }
+.regula-outdated p { margin: 0; }
+.regula-outdated a { color: var(--rg-accent); font-weight: 600; }
+
 /* Rule header: chips, then the problem as the lead and \"What to do\" (styled by adjacency) */
 main section .regula-chips > li { margin: 0; }
 .regula-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 1.1rem; padding: 0; \
@@ -491,9 +499,6 @@ list-style: none; }
 border-radius: 999px; padding: 0.05rem 0.6rem; color: var(--rg-muted); background: var(--rg-bg); }
 .regula-chip strong { color: var(--rg-text); font-weight: 600; }
 .regula-chip code { font-size: 0.95em; }
-.regula-chip.is-error { color: var(--rg-bad); border-color: var(--rg-bad-line); background: \
-var(--rg-bad-bg); font-weight: 600; }
-.regula-chip.is-error strong { color: var(--rg-bad); }
 .regula-chips + p { font-size: 1.1rem; line-height: 1.6; margin: 0 0 1rem; }
 .regula-chips + p + p { border: 1px solid var(--rg-border); border-left: 3px solid \
 var(--rg-accent); background: var(--rg-accent-bg);
@@ -550,11 +555,7 @@ padding: 0 0.5rem; font-size: 0.75rem; line-height: 1.55; color: var(--rg-text);
 var(--rg-bg); }
 .regula-badge.is-error { border-color: var(--rg-bad-line); color: var(--rg-bad); font-weight: 600; }
 .regula-impact-incomplete { border-style: dashed; }
-details.regula-more { margin: 0.75rem 0 1rem; border: 1px solid var(--rg-border); border-radius: \
-var(--rg-radius); padding: 0.55rem 0.9rem; font-size: 0.9rem; }
-details.regula-more > summary { cursor: pointer; color: var(--rg-muted); font-weight: 550; }
-details.regula-more[open] > summary { margin-bottom: 0.4rem; }
-details.regula-more p { margin: 0.4rem 0; }
+.regula-run { font-size: 0.85rem; color: var(--rg-muted); }
 
 /* Tables and the rule index */
 .regula-scroll { overflow-x: auto; max-width: 100%; }
@@ -568,6 +569,7 @@ table.regula-rules thead th { font-size: 0.72rem; text-transform: uppercase; let
 table.regula-rules td, table.regula-rules th[scope=row] { padding: 0.65rem 0.75rem; border-bottom: \
 1px solid var(--rg-border); vertical-align: top; text-align: left; }
 table.regula-rules tbody tr:hover { background: var(--rg-bg-subtle); }
+table.regula-rules td code { white-space: nowrap; }
 table.regula-rules th[scope=row] a { font-family: var(--rg-mono); font-size: 0.85rem; font-weight: \
 600; text-decoration: none; white-space: nowrap; }
 table.regula-rules th[scope=row] a code { background: none; border: 0; padding: 0; font-size: 1em; }

@@ -28,8 +28,8 @@ follows the
 
 - [Adopt the standard](guides/adoption.md): package setup, surfaces, profiles, `lake lint`,
   editor diagnostics, limits, and the semantic obligations commands cannot establish.
-- [Rule-reference website](guides/website.md): sources, guarantees, build and publication of the
-  generated rule reference, and the rule-change workflow.
+- [Rule-reference website](guides/website.md): sources, guarantees, build, publication and
+  versions of the generated rule reference, and the rule-change workflow.
 
 ## Work on Regula
 
@@ -42,8 +42,8 @@ Product contract and design:
 
 - [Linter and website architecture](guides/linter-architecture.md): interfaces, pins and
   versioned help links.
-- [Complete rule coverage](guides/rule-coverage.md): the twenty-two diagnostics and every
-  residual checklist obligation.
+- [Rule coverage](guides/rule-coverage.md): the twenty-two diagnostics, how the standard's clauses
+  map to checklist rows, and the review obligations no rule discharges.
 - [Rule registry and diagnostics](guides/rule-registry.md): typed interfaces, output schemas,
   source conventions and qualification.
 - [Source-owned rule examples](guides/rule-examples.md): fixture inputs, exact expectations and

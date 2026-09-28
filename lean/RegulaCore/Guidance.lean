@@ -17,7 +17,9 @@ build, so it matches that build by construction.
 - `writingSections`, `writingSections_perm`: every rule exactly once, ordered for writing code
   rather than for auditing.
 - `agentGuide`, `skill`: the agent briefing (`lake exe regula agent-guide`) and the same text
-  as an Agent Skills `SKILL.md` (`lake exe regula skill`), within `agentGuideBudget` bytes.
+  as an Agent Skills `SKILL.md` (`lake exe regula skill`), within `agentGuideBudget` bytes. It
+  prints each distinct compliant example once; a later rule with the same one names the rule
+  that shows it (`sameExampleAs`, `sameExampleAs_spec`).
 - `Command`, `parseCommand`, `parseCommand_arguments`, `parseCommand_sound`: the command line.
 
 ## Checks at build time
@@ -75,7 +77,9 @@ def examples (id : RuleId) : String :=
       "The checked pair (`" ++ e.noncompliantPath id ++ "`, `" ++ e.compliantPath id ++
       "`) consists of qualification inputs, not project files. " ++ e.caption ++ "\n\n"
 
-/-- The full rule as Markdown. -/
+/-- The full rule as Markdown. For a rule of registered material declarations, which the
+`@[regula_material]` attribute selects, only source options and flags are said not to change the
+result. -/
 def explain (id : RuleId) : String :=
   let d := descriptor id
   let g := guide id
@@ -94,8 +98,14 @@ def explain (id : RuleId) : String :=
       numbered d.rewrites ++ "\n" ++
   "## Examples\n\n" ++ examples id ++
   "## What triggers it\n\n" ++ paragraphs g.trigger ++
-  "## Configuration and exceptions\n\n" ++ paragraphs g.configuration ++
+  "## Configuration and exceptions\n\n" ++ "No source option" ++
+    (if d.scope == .materialDeclaration then "" else ", attribute") ++ " or command-line flag \
+    makes this rule pass on a claimed surface (" ++ installed.edition.url "enforcement/" ++
+    ").\n\n" ++ paragraphs g.configuration ++
   "## Limitations\n\n" ++ paragraphs g.limitations ++
+  "## Open review obligations\n\n" ++ "A passing result leaves these for review:\n\n" ++
+    String.join (g.residuals.map fun r => "- `" ++ r.spelling ++ "`: " ++ r.description ++ ".\n") ++
+    "\n" ++
   "Paths are relative to the Regula package root (in an adopting project, " ++
   "`.lake/packages/regula/`). The examples are the checked rule-example corpus.\n"
 
@@ -130,15 +140,38 @@ def writingSections : List (String × String × List RuleId) := [
 theorem writingSections_perm : List.Perm (writingSections.flatMap (·.2.2)) RuleId.all := by
   decide
 
-/-- One rule of the briefing: identity, requirement, remedy and the compliant example, or the
-correction where the checked files are qualification inputs. -/
+/-- Every rule in the briefing's order. -/
+def briefingOrder : List RuleId := writingSections.flatMap (·.2.2)
+
+/-- The earlier rule of the briefing whose compliant example has exactly the bytes of `id`'s, if
+any: the briefing prints each distinct compliant example once. -/
+def sameExampleAs (id : RuleId) : Option RuleId :=
+  (briefingOrder.takeWhile (· != id)).find? fun other =>
+    (descriptor other).examples.adopterExample.isSome &&
+      (descriptor other).examples.adopterExample == (descriptor id).examples.adopterExample
+
+/-- A rule that refers to another's example refers to an earlier rule with the same compliant
+example. -/
+theorem sameExampleAs_spec {id other : RuleId} (h : sameExampleAs id = some other) :
+    (descriptor other).examples.adopterExample = (descriptor id).examples.adopterExample ∧
+      other ∈ briefingOrder.takeWhile (· != id) := by
+  unfold sameExampleAs at h
+  refine ⟨?_, List.mem_of_find?_eq_some h⟩
+  have := List.find?_some h
+  simp only [Bool.and_eq_true, beq_iff_eq] at this
+  exact this.2
+
+/-- One rule of the briefing: identity, requirement, remedy and the compliant example (named by
+the earlier rule that shows the same one), or the correction where the checked files are
+qualification inputs. -/
 def briefRule (id : RuleId) : String :=
   let d := descriptor id
   "### " ++ id.spelling ++ " " ++ d.title ++ "\n\n" ++ d.requirement ++ "\nFix: " ++
       d.remedy ++ "\n\n" ++
-  match d.examples.adopterExample with
-  | some compliant => fenced d.examples.language.fence compliant
-  | none => "Compliant form: " ++ d.examples.correction ++ "\n"
+  match d.examples.adopterExample, sameExampleAs id with
+  | some _, some other => "Compliant example: as " ++ other.spelling ++ ".\n"
+  | some compliant, none => fenced d.examples.language.fence compliant
+  | none, _ => "Compliant form: " ++ d.examples.correction ++ "\n"
 
 /-- The agent briefing: how to check, how findings read, and every rule for writing code. -/
 def agentGuide : String :=

@@ -149,6 +149,5 @@ differ from the checkout, a missing phase, another commit or toolchain), and sho
 inputs and findings as text. The actual linter/examples use Lean 4.34.0 and the root pinned
 dependencies. Verso's separate workspace uses the same Lean 4.34.0 toolchain and renders them as text.
 
-Detectors, ranges and elaboration reuse Lean/Lake facilities. The registry's canonical/indexed
-representation retains its specific [design attribution](design-influences.md); no con-leche
-code or theorem is imported, and these fixtures do not claim its checker proof.
+Detectors, ranges and elaboration reuse Lean/Lake facilities; design influences are credited in
+[design influences](design-influences.md).

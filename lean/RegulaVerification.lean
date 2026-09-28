@@ -131,7 +131,7 @@ def linkPath : String := "tmp/acceptance-link.json"
 Both acceptance steps capture its sources and the package inputs its check reads, including the
 sources of the Mathlib package that its library needs, in the linked identity; the documentation step also builds (elaborating every `lean` block where it is
 written) and renders it, requires every anchor the rule registry and the documentation link, and
-requires the coverage map to link exactly the checklist's rows, each labelled with its row. -/
+requires the checklist's rows to be exactly `Regula.checklistRows`. -/
 def versoStandard : String := "website:RegulaStandard:regula-standard"
 
 /-- Evidence receipt of one rule-example shard. -/

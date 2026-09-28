@@ -493,9 +493,10 @@ it exits `VIOLATION` (1), not `INCOMPLETE`, while one remains. Lean's own warnin
 unaffected: by default a `sorry` also makes Lean warn `declaration uses 'sorry'`, so under
 `lake lint` an owned hole stops the audit at its warning-free build check (RG2003, `INCOMPLETE`, exit 3) before
 the RG1002 stage; the editor shows both messages.
-Rule links point to the development route
-`https://rbeauchamp.github.io/regula/dev/rules/<ID>/` of the [rule reference](#rule-reference-website),
-which describes the latest deployed revision of `main`.
+Rule links point to the rule's page in the [rule reference](#rule-reference-website) of the
+installed version: `https://rbeauchamp.github.io/regula/v/<version>/rules/<ID>/` for a release,
+and the development route `…/regula/dev/rules/<ID>/`, which follows `main`, for an unreleased
+build.
 
 ## 8. Complete semantic review
 
@@ -522,12 +523,11 @@ not the gate alone.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter or other-editor claim. These are
   bounded observations of real runs, not theorems about the tools.
-- There are no released versions yet. Diagnostic help links target the moving `/dev/` route, so
-  a project pinned at an older revision reads the latest deployed explanation there; the
-  unchanged text of every published revision stays at `/rev/<commit>/rules/<ID>/`.
-- The nine residual review obligations of the
-  [coverage map](rule-coverage.md#residual-semantic-and-research-accounts) stay open; every
-  accepted account lists them.
+- There are no released versions yet. Until the first release, diagnostic help links target the
+  development pages under `/dev/`, which change with `main`; a released version's links target
+  its own permanent pages under `/v/<version>/` ([versions](website.md#versions-and-routes)).
+- The nine [residual review obligations](rule-coverage.md#residual-review-obligations) stay
+  open; every accepted account lists them.
 
 ## What you are not asked to do
 
@@ -540,14 +540,14 @@ not the gate alone.
 
 ## Rule reference website
 
-Every diagnostic's help URL opens its page in the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/),
+Every diagnostic's help URL opens its page in the
+[rule reference](https://rbeauchamp.github.io/regula/dev/rules/) of the installed Regula version,
 a human view of the same registry that `lake exe regula explain` prints offline:
 what triggers the rule, why it matters, how to fix it, a checked violating and corrected
 example produced by the real checker, the exact configuration and exception boundaries, and
 what a passing result does and does not establish. The site is generated from the
 [registry](rule-registry.md) and the checked [rule examples](rule-examples.md) and published
 from `main` by CI; see the [website guide](website.md) for its guarantees and version routes.
-Canonical metadata and accepted-result design credit con-leche as detailed in the architecture.
 
 ## Accepted results and modes
 
@@ -565,7 +565,6 @@ report `CLASSIFIED`, not conforming success. Documentation accepts each configur
 positive, rejection or teaching expectation without promoting negatives/teaching to
 positive conformance. Help, worker and optional graph planning exits have no audit certificate.
 
-This boundary is informed by con-leche's complete indexed result assembly, without
-importing its code or asserting its kernel/model guarantees for Lean/Lake, the filesystem,
-JSON parsing, process completion or compiled machine code. Semantic adequacy and the
-standard's residual review accounts remain separate obligations.
+The result is no guarantee for Lean/Lake, the filesystem, JSON parsing, process completion or
+compiled machine code. Semantic adequacy and the standard's residual review obligations remain
+separate.

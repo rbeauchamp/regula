@@ -1,5 +1,7 @@
 module
 
+public import RegulaCore.Edition
+
 /-! # Sections of the standard that rules cite
 
 The standard's only source is the Verso library `RegulaStandard` of the package in `website/`;
@@ -11,7 +13,8 @@ section a registry entry cites, with its number, heading, chapter and source fil
 - `Clause`, `Clause.all`, `Clause.mem_all`: the closed set of cited sections.
 - `Clause.anchor`: the section's stable anchor, the heading's GitHub-style slug, which the
   Verso source gives the section as its tag.
-- `Clause.route`, `Clause.url`: its path below an edition root and its development URL.
+- `Clause.route`, `Clause.url`: its path below an edition root and its URL in the
+  installed build's edition.
 
 ## Boundaries
 
@@ -20,8 +23,8 @@ the standard: its render executable (`website/StandardMain.lean`) requires a par
 elaborated standard with the clause's tag and exactly its heading inside the chapter whose
 `file` is the clause's chapter; the rendered chapter page must define the anchor
 (`Regula.Site.standardAnchors`); and the source must be a module of the standard. The same step
-requires the coverage map to link exactly the rendered checklist rows, the elements of class
-`checklistRowClass`, each labelled with its row (`Regula.Site.rowMapMismatch`). That the
+requires `checklistRows` to be exactly the rendered checklist rows, the `id`s of the elements of
+class `checklistRowClass`, in order (`Regula.Site.rowsMismatch`). That the
 chapter is written in that module is by inspection. The published site's links are the site
 build's link check. Nothing here reads the standard.
 -/
@@ -134,9 +137,9 @@ def anchor (c : Clause) : String := slug c.heading
 /-- The section's path below an edition root of the rule reference. -/
 def route (c : Clause) : String := "standard/" ++ c.chapter ++ "/#" ++ c.anchor
 
-/-- The section in the development edition. Development routes are explicit; this does not
-claim that a page is deployed. -/
-def url (c : Clause) : String := "https://rbeauchamp.github.io/regula/dev/" ++ c.route
+/-- The section in the installed build's edition (`Regula.helpUrl` names that edition's rule
+pages). -/
+def url (c : Clause) : String := installed.edition.url c.route
 
 /-- The citation shown with a rule. -/
 def label (c : Clause) : String := "standard §" ++ c.heading
@@ -158,5 +161,21 @@ def checklistRoute (row : String) : String := "standard/" ++ checklistChapter ++
 page. The standard's `checklistRow` role (`website/RegulaExample.lean`) gives it to each row
 identifier, and nothing else in the standard carries it. -/
 def checklistRowClass : String := "checklist-row"
+
+/-- The groups of checklist rows, in the checklist's order: each group's identifier prefix and its
+number of rows. -/
+def checklistGroups : List (String × Nat) :=
+  [("SCOPE", 5), ("TYPE", 6), ("THEOREM", 10), ("FOUND", 5), ("DECL", 4), ("COMP", 4),
+    ("BUILD", 4), ("DOC", 5), ("MUT", 5), ("DOGFOOD", 5)]
+
+/-- A row number as the checklist writes it, with at least two digits. -/
+def rowNumber (n : Nat) : String := if n < 10 then "0" ++ toString n else toString n
+
+/-- Every checklist row identifier, such as `SCOPE-01`, in the checklist's order. The
+documentation acceptance step requires them to be exactly the rows of the rendered checklist
+(`Regula.Site.rowsMismatch`). -/
+def checklistRows : List String :=
+  checklistGroups.flatMap fun (group, count) =>
+    (List.range count).map fun i => group ++ "-" ++ rowNumber (i + 1)
 
 end Regula

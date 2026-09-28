@@ -10,9 +10,8 @@ permissions:
   contents: read
 
 # One run per ref: a newer push to main cancels an older run, including its deployment.
-# The deploy-gate job and the deploy job's dependency-free re-check additionally refuse a
-# re-run of an older revision (docs/guides/website.md). Published revision snapshots are kept
-# in the append-only site-archive-regula branch (docs/guides/website.md#retention).
+# The deploy job's dependency-free re-check additionally refuses a re-run of an older revision
+# (docs/guides/website.md#publication).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -122,83 +121,33 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Only a clean build of a release whose commit its tag v<version> names writes it: that
+      # release's edition, for the release's asset.
+      - name: Keep the release edition
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site-release-${{ github.sha }}
+          path: tmp/site-release
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Refuse to publish a dirty, other-commit or untagged-release artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: lean --run lean/Regula/Site/Deployment.lean gate _site
+
       - name: Upload the validated artifact for GitHub Pages
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site
 
-  # Unprivileged gate: only a clean artifact of the current head of main, after the same
-  # revision's acceptance and site jobs passed, whose revision snapshots are exactly the site
-  # archive's plus its own, may proceed. It writes the next archive commit as a bundle.
-  deploy-gate:
+  # Privileged publication of exactly the artifact validated above, on main only, after the same
+  # revision's acceptance and site jobs passed. This job holds the deployment token, so it runs
+  # no checkout, provisioning or project code: only a dependency-free re-check (re-run with this
+  # job) that main is still at this revision, then deploy-pages.
+  deploy:
     needs: [verify, site]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    outputs:
-      archive-parent: ${{ steps.gate.outputs.archive-parent }}
-      archive-commit: ${{ steps.gate.outputs.archive-commit }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/provision
-
-      - name: Receive the validated artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: site-${{ github.sha }}
-          path: _site
-
-      - name: Refuse a dirty artifact, a revision that is no longer the head of main, or changed archived snapshots
-        id: gate
-        run: lean --run lean/Regula/Site/Deployment.lean gate _site
-
-      - name: Keep the next archive commit
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: site-archive-${{ github.sha }}
-          path: tmp/site-archive.bundle
-          if-no-files-found: error
-          retention-days: 30
-
-  # Append this revision's snapshot to the site archive before it can be published. This job
-  # can write repository contents, so it runs no provisioning or project code: it fetches the
-  # gate's bundle and pushes it without force, so a concurrent writer fails the push instead of
-  # losing a snapshot.
-  archive:
-    needs: deploy-gate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Receive the next archive commit
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: site-archive-${{ github.sha }}
-          path: tmp
-
-      - name: Fetch the archive head the bundle extends
-        if: needs.deploy-gate.outputs.archive-parent != ''
-        run: git fetch --depth=1 --no-tags origin refs/heads/site-archive-regula:refs/heads/site-archive-regula
-
-      - name: Apply the bundle (a fast-forward of the fetched head)
-        run: git fetch --no-tags tmp/site-archive.bundle refs/heads/site-archive-regula:refs/heads/site-archive-regula
-
-      - name: Push the archive without force
-        run: git push origin refs/heads/site-archive-regula:refs/heads/site-archive-regula
-
-  # Privileged publication of exactly the artifact validated above. This job holds the
-  # deployment token, so it runs no checkout, provisioning or project code: only
-  # dependency-free re-checks (re-run with this job) that the archive head is the commit this
-  # run archived and that main is still at this revision, then deploy-pages.
-  deploy:
-    needs: [deploy-gate, archive]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -214,13 +163,6 @@ jobs:
     outputs:
       page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Refuse unless the site archive is exactly this artifact's snapshots
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          ARCHIVED: ${{ needs.deploy-gate.outputs.archive-commit }}
-        run: gh api "repos/{owner}/{repo}/git/ref/heads/site-archive-regula" --jq 'if .object.sha == env.ARCHIVED then "site-archive-regula is at \(env.ARCHIVED)" else error("site-archive-regula moved to \(.object.sha); this artifact retains \(env.ARCHIVED)") end'
-
       - name: Refuse a revision that is no longer the head of main
         env:
           GH_TOKEN: ${{ github.token }}
@@ -232,9 +174,9 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
-  # Observe that the live site serves this run's artifact: build.json, every rule page of
-  # every edition, the build.json of every revision snapshot and the not-available page (the
-  # files Deployment.lean compares).
+  # Observe that the live site serves this run's artifact: build.json, the home page of every
+  # edition, every development rule page, the build.json of every release edition and the
+  # not-available page (the files Deployment.lean compares).
   verify-deployment:
     needs: deploy
     runs-on: ubuntu-24.04

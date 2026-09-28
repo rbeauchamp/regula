@@ -13,11 +13,13 @@ clause links; it writes exactly the strings returned here.
 - `Example`, `FindingView`, `ChangedFile`, `ShownFile`: the display form of one rule's
   admitted rule-example records; `RunStatus` is the recorded run status, whose verdict label
   (`RunStatus.verdict`) is an exhaustive match.
-- `ruleSections`, `ruleSections_headings`: every rule page has exactly the required sections,
-  in order, by construction.
+- `ruleSections`, `ruleSections_sublist`, `required_mem_ruleSections`: every rule page has
+  every required section and only sections of the fixed page order, in that order, by
+  construction; the proof-shape and configuration sections appear when the rule has them.
 - `rulePage`: the Verso module of one rule page: status chips, the problem, *What to do* and
-  the checked example first. Data enters raw HTML only through `escape` (`escape_safe`) and raw
-  HTML enters Verso only through `htmlBlock` (`htmlBlock_ok`).
+  the checked example first. What every rule shares is stated once, on the enforcement page
+  (`enforcementRoute`), which each rule page links. Data enters raw HTML only through `escape`
+  (`escape_safe`) and raw HTML enters Verso only through `htmlBlock` (`htmlBlock_ok`).
 - `indexHtml`: the no-JavaScript rule catalogue with CSS-only select filters whose no-match
   notice is emitted for exactly `emptySelections` (`mem_emptySelections`).
 - `surfaceLabel`, `projectModes_coincide`: the index's one "Project" label loses no information,
@@ -186,24 +188,26 @@ def inlineHtml (text : String) : String :=
   String.join ((List.range parts.length).zip parts |>.map fun (i, part) =>
     if i % 2 == 1 then code part else escape part)
 
-/-- The version line every generated page carries. Absolute links remain valid in both
-byte-identical copies (`dev/` and `rev/<commit>/`). -/
-def editionHtml (ident : Identity) (route : String) : String :=
-  let rev := ident.revision.val
+/-- The label of the edition line: `development` for an unreleased build, otherwise the release. -/
+def buildLabel : Build → String
+  | .unreleased => "development"
+  | .release v => "Regula " ++ v.spelling
+
+/-- The version line every generated page carries: the installed build's label, the commit and
+toolchain it was built from, and the versions page of its edition. Links are relative to the
+edition root, so the same pages serve any edition. -/
+def editionHtml (ident : Identity) : String :=
   let sep := " · "
   "<aside class=\"regula-edition\" aria-label=\"Documentation version\"><p><span \
-    class=\"regula-pill\">development</span> built from " ++
+    class=\"regula-pill\">" ++ escape (buildLabel installed) ++ "</span> built from " ++
   (if ident.dirty then "uncommitted changes on " else "") ++ link (treeUrl ident)
-  (code (shortRevision ident.revision)) ++ sep ++
-  "Lean " ++ escape ident.toolchain ++ sep ++ "linter " ++ code ident.producerVersion ++ sep ++
-  (if ident.dirty then "local preview, no snapshot" else link
-                                                          (basePath ++ "rev/" ++ rev ++ "/" ++
-                                                              route) "snapshot of this commit") ++
-  sep ++ link (basePath ++ "dev/versions/") "versions" ++ "</p></aside>"
+  (code (shortRevision ident.revision)) ++ sep ++ "Lean " ++ escape ident.toolchain ++ sep ++
+  (if ident.dirty then "local preview" ++ sep else "") ++ link "versions/" "versions" ++
+      "</p></aside>"
 
 private def joinComma (xs : List String) : String := String.intercalate ", " xs
 
-/-- The lifecycle sentence of a rule page: active since a version, or retired with its
+/-- The lifecycle sentence of a retired rule's chip: the release that retired it and its
 replacement. -/
 def lifecycleText {id : RuleId} : Lifecycle id → String
   | .active introduced => "Active since " ++ introduced
@@ -225,69 +229,64 @@ theorem projectModes_coincide (id : RuleId) :
       (.freshProject : EvidenceMode) ∈ (descriptor id).evidenceModes := by
   cases id <;> decide
 
+/-- Every rule's findings are errors under a strict claim, as the enforcement page states once
+for all of them. -/
+theorem descriptor_severity_error (id : RuleId) :
+    (descriptor id).defaultStrictSeverity = .error := by
+  cases id <;> rfl
+
 /-- The rule's reporting surfaces as tags, in evidence-mode order without repetition. -/
 def surfaceTags (id : RuleId) : String :=
   "<span class=\"regula-tags\">" ++ String.join
       (((descriptor id).evidenceModes.map surfaceLabel).eraseDups.map fun s =>
     "<span class=\"regula-tag\">" ++ escape s ++ "</span>") ++ "</span>"
 
-private def chip (cls body : String) : String := "<li class=\"regula-chip" ++ cls ++ "\">" ++
-    body ++ "</li>"
+private def chip (body : String) : String := "<li class=\"regula-chip\">" ++ body ++ "</li>"
 
-/-- The rule's status chips: severity, category, scope, subreason, availability and, when
-retired, its lifecycle. -/
+/-- The rule's status chips: category, scope, subreason and, when retired, its lifecycle. -/
 def chipsHtml (id : RuleId) : String :=
   let d := descriptor id
-  let severity := d.defaultStrictSeverity.spelling
   "<ul class=\"regula-chips\" aria-label=\"Rule status\">" ++
-  chip (if d.defaultStrictSeverity == .error then " is-error" else "")
-      ("Severity <strong>" ++ escape severity ++ "</strong>") ++
-  chip "" ("Category <strong>" ++ escape d.category.label ++ "</strong>") ++
-  chip "" ("Scope <strong>" ++ escape d.scope.label ++ "</strong>") ++
-  chip "" ("Subreason " ++ code d.applicability) ++
-  chip "" ("<strong>" ++ escape d.availability.label ++ "</strong>") ++
+  chip ("Category <strong>" ++ escape d.category.label ++ "</strong>") ++
+  chip ("Scope <strong>" ++ escape d.scope.label ++ "</strong>") ++
+  chip ("Subreason " ++ code d.applicability) ++
   (match d.lifecycle with
     | .active _ => ""
-    | .retired .. => chip "" ("<strong>" ++ escape (lifecycleText d.lifecycle) ++ "</strong>"))
+    | .retired .. => chip ("<strong>" ++ escape (lifecycleText d.lifecycle) ++ "</strong>"))
         ++ "</ul>"
 
 private def fact (term value : String) : String := "<dt>" ++ term ++ "</dt><dd>" ++ value ++ "</dd>"
 
-/-- The facts shown under the lead: the rule's one-line requirement, where it is reported and
-the diagnostic's message form. -/
+/-- The route of the page that states once what every rule page shares: strict impact, local
+options, where rules run, the diagnostic form, the open obligations and trusted mechanisms, and
+how examples are produced. -/
+def enforcementRoute : String := "enforcement/"
+
+/-- The one definition of obligation `r`, on the enforcement page. -/
+def residualRoute (r : Residual) : String := enforcementRoute ++ "#" ++ r.spelling
+
+/-- The obligations `rs`, each linked to its definition on the enforcement page. -/
+def residualLinks (rs : List Residual) : String :=
+  joinComma (rs.map fun r => link (residualRoute r) (code r.spelling))
+
+/-- The facts shown under the lead: the rule's one-line requirement, where it is reported, and a
+link to what every rule shares. -/
 def leadFactsHtml (id : RuleId) : String :=
   let d := descriptor id
   "<dl class=\"regula-facts\">" ++
   fact "Requirement" (inlineHtml d.requirement) ++
   fact "Reported in" (surfaceTags id) ++
-  fact "Diagnostic" (code d.messageTemplate) ++ "</dl>"
+  fact "Enforcement" ("Strict, like every rule: see " ++ link enforcementRoute
+      "how rules are enforced" ++ ".") ++ "</dl>"
 
-/-- The remaining registry facts, under *Sources and credit*: the strict-impact statement shared
-by every rule, the exact evidence modes, lifecycle, resolved clause links, the checklist rows of
-the explanation, the help URL, the detector sources at the build revision and which steps of the
-rule's decision are proved. -/
-def sourceFactsHtml (ident : Identity) (id : RuleId) (clauses : List Clause)
+/-- The rule's sources, under *Sources*: its resolved clause links, the checklist rows of its
+explanation, its detector sources at the build revision and which steps of its decision are
+proved. -/
+def sourceFactsHtml (ident : Identity) (clauses : List Clause)
     (checklist sources : List String) (linkage : String) : String :=
-  let d := descriptor id
   "<dl class=\"regula-facts\">" ++
-  fact "Strict impact"
-      ("Error in every project and documentation audit where the rule applies. An established \
-        violation makes the result FAIL; missing or unsupported evidence makes it INCOMPLETE. \
-        Neither is accepted." ++
-    (if .documentationExample ∈ d.evidenceModes && d.evidenceModes.length == 1 then "" else
-      " Under " ++ code "lake lint" ++ " a FAIL exits 1 and an INCOMPLETE exits 3" ++
-      (if id == .configuration then
-          "; a FAIL whose findings are all this rule exits 2 (INVALID CONFIGURATION)" else "")
-              ++ ".") ++
-    (if .editorSnapshot ∈ d.evidenceModes then
-        " The editor shows its local findings as warnings (errors under " ++
-            code "warningAsError" ++ "); they are not project results." else
-                " The editor does not report this rule.")) ++
-  fact "Evidence modes" (escape (joinComma (d.evidenceModes.map modeLabel))) ++
-  fact "Lifecycle" (escape (lifecycleText d.lifecycle)) ++
   fact "Normative clauses" (joinComma (clauses.map fun c => link c.url (escape c.label))) ++
   fact "Checklist rows" (joinComma (checklist.map fun r => link (checklistRoute r) (code r))) ++
-  fact "Help URL" (code (devUrl id)) ++
   fact "Detector, policy and proof sources"
       (joinComma (sources.map fun p => link (blobUrl ident p) (code p))) ++
   fact "Proved linkage" (inlineHtml linkage) ++ "</dl>"
@@ -422,13 +421,12 @@ def exampleHtml (ident : Identity) (ex : Example) : Except String String := do
     "<h3>Findings of the violating run</h3>" ++ String.join (ex.findings.map findingHtml) ++
     "<h3>Correction</h3>" ++ String.join fixes ++ "</div>"
 
-/-- How the example was produced: its kind, the exact invocation and both recorded run statuses. -/
+/-- How the example was produced, in one line: the audit that ran it and both recorded run
+statuses. -/
 def exampleRunHtml (ex : Example) : String :=
-  "<details class=\"regula-more\"><summary>How this example was run</summary><p>" ++ escape
-      (exampleKindText ex.kind) ++ "</p>" ++
-  "<p>Invocation: " ++ escape ex.request ++ ". Violating run status: " ++
-      code ex.violationStatus.spelling ++
-  "; corrected run status: " ++ code ex.fixedStatus.spelling ++ ".</p></details>"
+  "<p class=\"regula-run\">Checked by " ++ inlineHtml ex.request ++ ": violating run " ++
+    code ex.violationStatus.spelling ++ ", corrected run " ++ code ex.fixedStatus.spelling ++
+    ".</p>"
 
 /-! ## Verso text -/
 
@@ -448,40 +446,23 @@ def sectionHead (id : RuleId) (suffix heading : String) : String :=
   "# " ++ heading ++ "\n%%%\ntag := \"" ++ id.spelling ++ "-" ++ suffix ++
       "\"\nnumber := false\n%%%\n\n"
 
-/-- What the review obligation `Residual` requires, as a rule page states it. -/
-def residualText : Residual → String
-  | .intent => "the proposition expresses the intended requirement, with its quantifiers, \
-    hypotheses and limits"
-  | .invariant =>
-      "the intended invariants, write paths and callers are all covered by proof-bearing interfaces"
-  | .laws => "the chosen structures and instances carry the intended laws"
-  | .boundary => "the enforced abstraction boundary is the intended one"
-  | .nonvacuity => "the claim is non-vacuous at the strength claimed"
-  | .doc => "documentation is complete and faithful to the declarations and requirements"
-  | .cost => "cost claims name their domain and rest on an argument or bounded observation"
-  | .qualify => "the checker's detection is qualified for this invocation, toolchain and capability"
-  | .graph => "a claimed serialized graph covers every selected root"
+/-- The headings of a rule page's sections, in page order. -/
+def sectionOrder : List String :=
+  ["Checked example", "How to fix it", "Why it matters", "What triggers it", "Required proof shape",
+    "What a passing result establishes", "Configuration and exceptions",
+    "Limitations and unsupported cases", "Sources"]
 
-/-- The obligations and trusted mechanisms every accepted result carries. They are identical on
-every rule page, so the page shows them collapsed. -/
-def sharedObligationsHtml : String :=
-  "<details class=\"regula-more\"><summary>Obligations and trusted mechanisms shared by every \
-    rule</summary>" ++
-  "<p>Every accepted result lists all residual obligations as open, whatever rules it checked: " ++
-  joinComma ((Residual.all.filter (· != .graph)).map fun r => code r.spelling) ++ " (and " ++
-      code Residual.graph.spelling ++
-  " for a serialized-graph claim). A listed identifier is an open obligation, never a completed \
-    review.</p>" ++
-  "<p>Every accepted result also relies on these trusted mechanisms (the checker's " ++
-      code "Trusted" ++
-  " account), which no rule verifies:</p><ul>" ++
-  String.join (Trusted.all.map fun t => "<li>" ++ code t.spelling ++ ": " ++ escape t.detail ++
-                                         "</li>") ++ "</ul></details>"
+/-- The headings every rule page has. The proof shape and configuration sections appear only
+when the rule's explanation has them. -/
+def requiredHeadings : List String :=
+  ["Checked example", "How to fix it", "Why it matters", "What triggers it",
+    "What a passing result establishes", "Limitations and unsupported cases", "Sources"]
 
-/-- The sections of a rule page, in order: heading, stable tag suffix and Verso body. `ex` is
-the checked-example body, `shared` the collapsed shared obligations and `facts` the registry facts
-of *Sources and credit*, each already admitted as raw HTML. -/
-def ruleSections (ident : Identity) (id : RuleId) (g : Guide) (ex shared facts : String) :
+/-- Every section of a rule page, in order, with its heading, stable tag suffix and Verso body,
+before optional sections without content are dropped. `ex` is the checked-example body, `facts`
+the sources and `obligations` the linked open review obligations, each already admitted as raw
+HTML. -/
+def allRuleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts obligations : String) :
     List (String × String × String) := [
   ("Checked example", "example", ex),
   ("How to fix it", "fix", numbered ident (descriptor id).rewrites),
@@ -492,33 +473,31 @@ def ruleSections (ident : Identity) (id : RuleId) (g : Guide) (ex shared facts :
   ("What a passing result establishes", "established",
     paragraphs ident g.established ++ "It does not establish:\n\n" ++
         bullets ident g.notEstablished ++
-    "Review obligations the rule-coverage map associates with this rule (identifiers of the \
-      checker's `Residual` account):\n\n" ++
-    String.join (g.residuals.map fun r => "* `" ++ r.spelling ++ "`: " ++ residualText r ++ "\n") ++
-        "\n" ++ shared),
+    obligations ++ "\n"),
   ("Configuration and exceptions", "configuration", paragraphs ident g.configuration),
   ("Limitations and unsupported cases", "limitations", paragraphs ident g.limitations),
-  ("Sources and credit", "sources", facts ++ "\n" ++
-    "The rule's typed identity and canonical metadata follow the canonical-representation design \
-      of [con-leche](" ++
-      (descriptor id).attribution.url ++ ") (" ++ (descriptor id).attribution.authors ++
-          ", revision `" ++
-      (descriptor id).attribution.revision ++ "`); no con-leche code or proof is used. The \
-        explanation is original; its structure follows [Microsoft's CA1416 rule \
-        page](https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/quality-rules/ca1\
-        416) as one illustrative reference. See [credits](credits/).\n\n")]
+  ("Sources", "sources", facts ++ "\n")]
 
-/-- The required headings of every rule page, in order: the checked example first, then the
-fix, the reasons, the detector semantics and what a pass establishes. -/
-def requiredHeadings : List String :=
-  ["Checked example", "How to fix it", "Why it matters", "What triggers it", "Required proof shape",
-    "What a passing result establishes", "Configuration and exceptions",
-    "Limitations and unsupported cases", "Sources and credit"]
+/-- The sections of a rule page: every required section, and each optional one that has
+content. -/
+def ruleSections (ident : Identity) (id : RuleId) (g : Guide) (ex facts obligations : String) :
+    List (String × String × String) :=
+  (allRuleSections ident id g ex facts obligations).filter fun s =>
+    s.1 ∈ requiredHeadings || !s.2.2.isEmpty
 
-/-- Every rule page has exactly the required sections in order, for every input. -/
-theorem ruleSections_headings (ident : Identity) (id : RuleId) (g : Guide)
-    (ex shared facts : String) :
-    (ruleSections ident id g ex shared facts).map (·.1) = requiredHeadings := rfl
+/-- A rule page's sections follow the fixed page order. -/
+theorem ruleSections_sublist (ident : Identity) (id : RuleId) (g : Guide)
+    (ex facts obligations : String) :
+    List.Sublist ((ruleSections ident id g ex facts obligations).map (·.1)) sectionOrder :=
+  List.filter_sublist.map _
+
+/-- Every rule page has every required section. -/
+theorem required_mem_ruleSections (ident : Identity) (id : RuleId) (g : Guide)
+    (ex facts obligations : String) {heading : String} (h : heading ∈ requiredHeadings) :
+    heading ∈ (ruleSections ident id g ex facts obligations).map (·.1) := by
+  simp only [requiredHeadings, List.mem_cons, List.not_mem_nil, or_false] at h
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    simp [ruleSections, allRuleSections, requiredHeadings]
 
 /-- A title usable in a Lean string literal and a Verso heading without escaping. -/
 def plainTitle (s : String) : Bool :=
@@ -526,22 +505,23 @@ def plainTitle (s : String) : Bool :=
 
 /-- Complete Verso module of one rule page. It opens with the status chips, the problem as the
 lead paragraph and *What to do* (styled by adjacency to the chips), then the requirement, where
-the rule is reported and the diagnostic form, and then the sections, checked example first. -/
+the rule is reported and the enforcement link, and then the sections, checked example first. -/
 def rulePage (ident : Identity) (id : RuleId) (clauses : List Clause) (ex : Example) :
     Except String String := do
   let d := descriptor id
   let g := guide id
   let title := id.spelling ++ ": " ++ d.title
   unless plainTitle title do throw s!"{id.spelling}: title needs escaping"
-  let notice ← htmlBlock (pageAnchor id.spelling ++ editionHtml ident id.route ++ chipsHtml id)
+  let notice ← htmlBlock (pageAnchor id.spelling ++ editionHtml ident ++ chipsHtml id)
   let leadFacts ← htmlBlock (leadFactsHtml id)
   let exampleBlock ← htmlBlock (← exampleHtml ident ex)
   let runBlock ← htmlBlock (exampleRunHtml ex)
-  let shared ← htmlBlock sharedObligationsHtml
-  let facts ← htmlBlock (sourceFactsHtml ident id clauses g.checklist g.sources g.linkage)
+  let facts ← htmlBlock (sourceFactsHtml ident clauses g.checklist g.sources g.linkage)
+  let obligations ← htmlBlock ("<p>It leaves these review obligations open: " ++
+      residualLinks g.residuals ++ ".</p>")
   let exampleBody := exampleBlock ++ "\n" ++ resolveProse ident d.examples.caption ++ "\n\n" ++
       runBlock ++ "\n"
-  let sections := ruleSections ident id g exampleBody shared facts
+  let sections := ruleSections ident id g exampleBody facts obligations
   return "import VersoManual\nimport RegulaSite\nopen Verso.Genre Manual RegulaSite\n\n#doc \
     (Manual) \"" ++ title ++
     "\" =>\n%%%\ntag := \"" ++ id.spelling ++ "\"\nfile := \"" ++ id.spelling ++
@@ -574,8 +554,7 @@ private def chosen (dimension value : String) : String :=
 
 private def selectionSelector (s : Selection) : String :=
   ".regula-index" ++ chosen "category" (optionSlug RuleCategory.slug s.category) ++
-  chosen "mode" (optionSlug EvidenceMode.spelling s.mode) ++
-  chosen "availability" (optionSlug Availability.slug s.availability)
+  chosen "mode" (optionSlug EvidenceMode.spelling s.mode)
 
 /-- Filter CSS: one hiding rule per restricted value, and the no-match notice for exactly the
 selections in `emptySelections`. -/
@@ -584,8 +563,6 @@ def filterCss : String :=
     " tr.regula-rule:not(.category-" ++ c.slug ++ "){display:none}\n") ++
   String.join (modes.map fun m => ".regula-index" ++ chosen "mode" m.spelling ++
     " tr.regula-rule:not(.mode-" ++ m.spelling ++ "){display:none}\n") ++
-  String.join (availabilities.map fun a => ".regula-index" ++ chosen "availability" a.slug ++
-    " tr.regula-rule:not(.availability-" ++ a.slug ++ "){display:none}\n") ++
   String.join
       (emptySelections.map fun s => selectionSelector s ++
                                      " tr.regula-no-match{display:table-row}\n")
@@ -593,12 +570,10 @@ def filterCss : String :=
 private def ruleRow (id : RuleId) : String :=
   let d := descriptor id
   let tag (text : String) := " <span class=\"regula-tag\">" ++ escape text ++ "</span>"
-  "<tr class=\"regula-rule category-" ++ d.category.slug ++ " availability-" ++
-      d.availability.slug ++
+  "<tr class=\"regula-rule category-" ++ d.category.slug ++
   String.join (d.evidenceModes.map fun m => " mode-" ++ m.spelling) ++ "\">" ++
   "<th scope=\"row\"><a href=\"" ++ id.route ++ "\">" ++ code id.spelling ++ "</a></th>" ++
   "<td><a class=\"regula-title\" href=\"" ++ id.route ++ "\">" ++ escape d.title ++ "</a>" ++
-  (if d.availability == .plannedEngine then tag d.availability.label else "") ++
   (match d.lifecycle with | .active _ => "" | .retired .. => tag "Retired") ++
   "<span class=\"regula-sub\">subreason " ++ code d.applicability ++ "</span></td>" ++
   "<td>" ++ escape d.category.label ++ "<span class=\"regula-sub\">" ++ escape d.scope.label ++
@@ -606,13 +581,12 @@ private def ruleRow (id : RuleId) : String :=
   "<td>" ++ surfaceTags id ++ "</td></tr>"
 
 /-- The complete catalogue, derived from the registry, with CSS-only filters over the exact
-category, evidence mode and availability. -/
+category and evidence mode. -/
 def indexHtml : String :=
   "<div class=\"regula-index\"><form class=\"regula-filters\" aria-label=\"Filter rules\" \
     action=\"#\">" ++
   select "category" "Category" (categories.map fun c => (c.slug, c.label)) ++
   select "mode" "Reported in" (modes.map fun m => (m.spelling, modeLabel m |>.capitalize)) ++
-  select "availability" "Availability" (availabilities.map fun a => (a.slug, a.label)) ++
   "<input type=\"reset\" value=\"Reset\"></form>" ++
   "<div class=\"regula-scroll\" role=\"region\" aria-label=\"Rule catalogue\" \
     tabindex=\"0\"><table class=\"regula-rules\"><caption>All " ++ toString RuleId.all.length ++

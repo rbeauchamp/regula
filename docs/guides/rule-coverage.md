@@ -1,12 +1,10 @@
-# Initial rule coverage and residual obligations
+# Rule coverage and residual obligations
 
-This is the complete PRODUCT-01 delivery inventory, not a claim that every rule is already
-implemented or every checklist row passes. It accompanies [the architecture](linter-architecture.md).
-Normative meaning remains in the standard (Verso source in `website/RegulaStandard/`); chapter 9
-is the checklist source of truth.
-The map was read against all numbered chapters, the standard README and critical-violations list
-at baseline `f943f41c50876b25c8c5c2285e6ae4315645521e`. Changes to those requirements must update
-this map and affected typed descriptors together, with semantic review.
+How the rules and the review obligations cover the standard; not a claim that every checklist
+row passes. It accompanies [the architecture](linter-architecture.md). Normative meaning remains
+in the standard (Verso source in `website/RegulaStandard/`); chapter 9 is the checklist source of
+truth. A change to a requirement updates the affected rule descriptors and explanations together,
+with semantic review.
 
 See [native-linter.md](native-linter.md) for the delivered partial command feedback and complete module metadata observers.
 The [project producer integration](engine-producers.md) also enforces RG5001–RG5003 on completed
@@ -87,134 +85,36 @@ This accounts for normative requirements and recommendations beyond a superficia
 | 8.10–8.12 | DOGFOOD-01–05, BUILD-01–04, DECL-01–04. Adoption mode and actual enabled invocation determine supported enforcement. |
 | 9 and critical-violations | Checklist/result rule and triage, no independent relaxed compliance level. |
 
-## Residual semantic and research accounts
+## Residual review obligations
 
-These obligations are required where applicable; they are not waived or declared impossible.
-The initial engine does not claim to infer arbitrary natural-language intent. Future automation
-must supply a precise claim language, adequate registration and checked implementation linkage
-before it can replace the corresponding review. Responsible final reconciliation is #10, with
-mechanical selectors/adapters in #13 and accepted-evidence construction in #7.
+The review obligations that no mechanical result discharges are the checker's `Residual` type
+in [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean), each with its one description
+(`Residual.description`): `R-INTENT`, `R-INVARIANT`, `R-LAWS`, `R-BOUNDARY`, `R-NONVACUITY`,
+`R-DOC`, `R-COST`, `R-QUALIFY` and `R-GRAPH`. The site's
+[enforcement page](https://rbeauchamp.github.io/regula/dev/enforcement/) defines them all; each
+rule page links the ones its rule leaves open to those definitions, and `lake exe regula explain`
+prints them in full. Each obligation also carries the checklist rows whose review it covers
+(`Residual.rows`). Every accepted result lists them as unresolved where applicable (`R-GRAPH`
+only for a serialized-graph claim), and each RG1007 contract it reports carries `R-INTENT` and
+`R-INVARIANT` for the adequacy of its requirement and its caller coverage. A listed identifier is
+an open obligation, not a completed review. They are required where applicable, never waived: no
+heuristic detector replaces one, and automation would first need a precise claim language,
+adequate registration and checked implementation linkage.
 
-- **R-INTENT:** read back each material elaborated proposition, and its §5.2 explanation, against
-  the written intent statement in the declaration's Intent section (RG5003 checks its presence);
-  preserve quantifier order, hypotheses, totalized domain, existence/construction,
-  conditional/open status and external limits. The requirement owner still confirms that the
-  intent states what is needed; no proof or presence check discharges that validation. No closed
-  syntactic detector for arbitrary prose is selected. A future claim DSL needs adequacy research,
-  not a regex heuristic, and no heuristic intent detector becomes a diagnostic. Reviewing
-  whether a statement matches its intent is the reviewer's job, done by a person or the
-  reviewer's own agent.
-- **R-INVARIANT:** identify intended admitted-value, transition, frame, reachability and composition
-  relations, inspect all admission/write/caller paths, then require exact proof-bearing interfaces
-  or theorems. Existing Lean checks evidence once the obligation is explicit; they cannot infer
-  that no intended write path/specification was omitted. #4/#7 encode the actual checker contracts.
-- **R-LAWS:** compare selected canonical structures and actual instances/lawful mixins with the
-  intended algebra/order and justify custom definitions. Missing required fields fail Lean;
-  intentionally choosing an operations-only interface is not itself a detectable semantic defect.
-- **R-BOUNDARY:** inspect producer/client module modes, exported constructors/recursors/projections,
-  coercions, equations and actual callers. Positive/negative importing clients qualify exact
-  exclusions, not universal privacy or external confidentiality.
-- **R-NONVACUITY:** require a witness only at the strength actually claimed (inhabitance, joint
-  satisfiability, reachability); conditional or deliberately empty claims need no unrelated witness.
-  Detecting arbitrary inconsistency/adequacy is not a selected general linter capability.
-- **R-DOC:** verify semantic completeness of material-claim registration and fidelity of module
-  docs/docstrings to the actual definitions and requirements; existence/length is insufficient.
-- **R-COST:** identify cost domain and exact mathematical argument or bounded observation, preserve
-  semantic/effect order. No timing, proof count or sample is universal correctness evidence.
-- **R-QUALIFY:** maintain claim-scoped positive controls, intended-reason mutations, isolated restored
-  controls and exact invocation/toolchain evidence. Unrun campaigns remain unrun; universal pure
-  policy proofs in #6 complement rather than replace collector/integration qualification.
-- **R-GRAPH:** the optional serialized-graph claim is `freshChecker` (§8.9). The con-leche export
-  route from #8/#9 ended in a no-go ([#9](https://github.com/rbeauchamp/regula/issues/9)).
-  Absence of either claim does
-  not block core delivery. A claimed graph still requires every exact selected root covered.
+## Checklist rows
 
-The report account's `Residual` type in
-[`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) has exactly these nine
-identifiers. Every accepted result lists them as unresolved where applicable (R-GRAPH only
-for a serialized-graph claim), and each RG1007 contract it reports carries R-INTENT and
-R-INVARIANT for the adequacy of its requirement and its caller coverage. A listed identifier
-is an open obligation, not a completed review. Change this list and that type together.
-
-## Complete chapter 9 row map
-
-Each row links its requirement on the published checklist, the only source of its required result
-and verification; the clause table above supplies its normative domain. This map adds only each
-row's mechanical contribution and residual account. No row can be discharged solely by a
-presence check or a checker PASS.
-
-| Row | Mechanical contribution | Residual obligation |
-| --- | --- | --- |
-| [`SCOPE-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-01) | None; technical scope review | R-INTENT |
-| [`SCOPE-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-02) | RG1007/2005 for named formal evidence only | R-INTENT |
-| [`SCOPE-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-03) | RG1007/3001/3002 for registered correspondence | R-INVARIANT, R-INTENT |
-| [`SCOPE-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-04) | None; rationale review | R-INTENT |
-| [`SCOPE-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#SCOPE-05) | RG2002/2004/3001/3002 | R-INTENT, R-INVARIANT |
-| [`TYPE-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-01) | Lean type/contract checking, RG1007/2005 | R-INVARIANT |
-| [`TYPE-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-02) | Lean type/constructor checking | R-INTENT |
-| [`TYPE-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-03) | Lean domain/proof checking | R-INTENT |
-| [`TYPE-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-04) | RG1001/1002/1003 | R-INTENT |
-| [`TYPE-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-05) | Lean law fields and instance synthesis | R-LAWS |
-| [`TYPE-06`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#TYPE-06) | Lean separate importing-client checks | R-BOUNDARY |
-| [`THEOREM-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-01) | RG1001–1007/2005 and exact Lean evidence | R-INTENT, R-INVARIANT |
-| [`THEOREM-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-02) | Lean required law fields/mixin synthesis | R-LAWS |
-| [`THEOREM-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-03) | RG1007/2005 and actual boundary proofs | R-INVARIANT |
-| [`THEOREM-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-04) | Lean exact witness/refutation proofs | R-NONVACUITY |
-| [`THEOREM-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-05) | RG1006/3001/3002; Lean recursion checking | R-COST, R-INTENT |
-| [`THEOREM-06`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-06) | RG1002/1004 reject holes/native proofs | R-INTENT, R-QUALIFY |
-| [`THEOREM-07`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-07) | RG1007/2005 exact registered predicates | R-INVARIANT |
-| [`THEOREM-08`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-08) | Lean checked simulation/transfer proofs | R-INVARIANT, R-INTENT |
-| [`THEOREM-09`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-09) | RG1001–1003; Lean statement/proof distinction | R-INTENT, R-NONVACUITY |
-| [`THEOREM-10`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#THEOREM-10) | RG1004/1005 actual dependencies | R-COST |
-| [`FOUND-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-01) | RG1001 | R-INTENT only for assumption presentation |
-| [`FOUND-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-02) | RG1002 | R-QUALIFY |
-| [`FOUND-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-03) | RG1003/1004/1005 | R-QUALIFY |
-| [`FOUND-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-04) | RG1005 | R-QUALIFY |
-| [`FOUND-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#FOUND-05) | RG1004/2005 | R-QUALIFY |
-| [`DECL-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-01) | RG2001–2006; RG5001 repeated imports (§6.4) | R-QUALIFY; source/dependency identity boundary; review of source `set_option` commands and of every source-local linter disable (§6.2), which the audit cannot see |
-| [`DECL-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-02) | RG2004/2005 | R-QUALIFY |
-| [`DECL-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-03) | RG2004/2005 plus RG1001/1004/1006 | R-QUALIFY |
-| [`DECL-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DECL-04) | RG2001/2002/2004/2005 | R-QUALIFY |
-| [`COMP-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-01) | RG1004/1007 and metadata reporting | R-INTENT |
-| [`COMP-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-02) | RG1006/2005 | R-QUALIFY |
-| [`COMP-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-03) | RG3001/3002 | R-QUALIFY, R-INVARIANT for intended roots |
-| [`COMP-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#COMP-04) | RG3002/2005 | R-INTENT; external execution remains trusted |
-| [`BUILD-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-01) | RG1001–1007/2002–2005/3001/3002 through the actual enabled build or lint driver | R-QUALIFY (build-policy and lint-driver campaigns) |
-| [`BUILD-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-02) | RG1005/1007 | R-QUALIFY |
-| [`BUILD-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-03) | RG1007/2004/3001/3002 | R-INVARIANT, R-QUALIFY |
-| [`BUILD-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#BUILD-04) | RG2002/2004/2005; uncached policy job | R-QUALIFY |
-| [`DOC-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-01) | RG5001 module-docstring presence and placement (§5.3), RG5002 presence for explicit selection; RG2006 checks that `linter.missingDocs` is enabled, whose reports RG2003 rejects | R-DOC |
-| [`DOC-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-02) | RG5003 Intent-section presence for explicit selection; no general prose-equivalence detector | R-DOC, R-INTENT |
-| [`DOC-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-03) | RG4001 | R-QUALIFY |
-| [`DOC-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-04) | RG4002 and underlying declaration/admission rules | R-INTENT, R-QUALIFY |
-| [`DOC-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOC-05) | RG4003/4004 | R-QUALIFY |
-| [`MUT-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-01) | Focused actual profile controls | R-QUALIFY |
-| [`MUT-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-02) | Intended-reason mutation harness | R-QUALIFY |
-| [`MUT-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-03) | Unique disposable roots and restoration | R-QUALIFY |
-| [`MUT-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-04) | Warning-free isolated baseline | R-QUALIFY |
-| [`MUT-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#MUT-05) | Existing freshChecker, optional new adapter only on go | R-GRAPH |
-| [`DOGFOOD-01`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-01) | All applicable selected rules over Audit/AuditApp/Main | R-INTENT, R-INVARIANT, R-LAWS, R-BOUNDARY, R-DOC |
-| [`DOGFOOD-02`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-02) | RG2002/2004 | R-QUALIFY |
-| [`DOGFOOD-03`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-03) | Generated registry/example agreement plus checks | R-INTENT, R-DOC |
-| [`DOGFOOD-04`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-04) | Lean canonical definitions/proofs | R-LAWS, R-COST |
-| [`DOGFOOD-05`](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#DOGFOOD-05) | RG1007/2004/2005 plus actual application contracts | R-INVARIANT, R-QUALIFY |
-
-`./scripts/verify.sh docs` renders the standard and requires this map's links into the checklist
-page to be exactly the rendered checklist rows, each once and in the checklist's order, each
-labelled with exactly its row identifier as one code span
-(`Regula.Site.rowMapMismatch`, `rowMapMismatch_eq_none_iff`), so a row added, removed or renamed
-in the standard fails acceptance until this map follows. The equality covers row identifiers,
-not whether a row's contribution and residual account fit its current requirement: a changed
-requirement updates this map with semantic review, and independent review confirms the mapping.
-Semantic-review rows remain required after all twenty-two rules ship.
-
-## Attribution
-
-The normative predicates and existing implementation are Regula's. Canonical typed
-metadata and complete accepted-result design credit [con-leche's Installed.lean](https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean)
-and [PropWhen.lean](https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean),
-not an imported proof of these rules. Lean/Std and applicable Mathlib authors supply language
-semantics, lawful definitions and linter APIs. Generated pages identify actual rule/metadata
-influences and adapted code/licenses at the appropriate component boundary; the
-[attribution account](design-influences.md) records them with the Lean/Verso and cross-language
-presentation influences, of which CA1416 is one illustrative example.
+The site's [checklist coverage](https://rbeauchamp.github.io/regula/dev/coverage/) page lists
+every module 9 row with the rules whose explanation lists it and the review obligations it carries.
+It is generated from each rule's `checklist` in
+[`RegulaCore.Guide`](../../lean/RegulaCore/Guide.lean) and each obligation's `Residual.rows`,
+inverted by construction (`Regula.Site.mem_rulesOfRow`, `mem_residualsOfRow`), so it cannot
+disagree with the rule pages or the obligations; a row no rule lists is semantic review only.
+Every obligation carries at least one row, each a checklist row (`residual_rows_listed`), and
+every checklist row carries at least one obligation (`residualsOfRow_ne_nil`), both
+kernel-checked. `./scripts/verify.sh docs` renders the standard and requires its
+checklist rows to be exactly `Regula.checklistRows`, each once and in order
+(`Regula.Site.rowsMismatch_eq_none_iff`), and every row a rule lists is one of them
+(`guide_checklist_listed`). Which rows a rule lists and which an obligation carries are reviewed
+with the rule or obligation, against each row's required verification on the checklist; the
+kernel checks cover only membership and coverage. No row passes on a presence check or a checker
+PASS alone.

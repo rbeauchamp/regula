@@ -35,12 +35,7 @@ theorem reflexive (n : Nat) : n = n := rfl
 A claimed module declares no logical `axiom`: every assumption is a hypothesis or a proof-bearing field.
 Fix: Turn the assumption into a hypothesis (a binder or a proof-bearing structure field) of the results that need it, or replace the axiom with a proof.
 
-```lean
-/-! # Reflexivity
-
-Reflexivity for every natural number. -/
-theorem reflexive (n : Nat) : n = n := rfl
-```
+Compliant example: as RG1002.
 
 ### RG1004 Compiler-trusting proofs require separate classification
 
@@ -94,25 +89,14 @@ Compliant form: The dependency proves the same reflexivity statement instead of 
 Every claimed module elaborates from source without errors or warnings; Lean's default warnings stay enabled, and disabling a linter never discharges what it checks.
 Fix: Fix the compiler diagnostic at its source. Never disable a Lean default warning; disable a community linter only for one declaration, where its guidance allows, with the reason.
 
-```lean
-/-! # Identity
-
-Identity on natural numbers. -/
-/-- The identity function on natural numbers. -/
-def identity (n : Nat) : Nat := n
-```
+Compliant example: as RG1006.
 
 ### RG2005 Required admission and source evidence must be complete
 
 Owned declarations pass kernel replay from the exact frozen sources; no metaprogram adds unchecked declarations.
 Fix: Remove the construction that bypasses kernel checking (or the source change during the run), then run the project command that collects the missing evidence.
 
-```lean
-/-! # Reflexivity
-
-Reflexivity for every natural number. -/
-theorem reflexive (n : Nat) : n = n := rfl
-```
+Compliant example: as RG1002.
 
 ## Documentation in Lean sources
 
@@ -265,12 +249,7 @@ lean_lib Example
 Every owned module belongs to exactly one manifested library, and no claimed module imports an excluded or checker-probe module.
 Fix: Remove the forbidden import, or add the module to the intended claimed library's globs, so every owned module belongs to exactly one classified target.
 
-```lean
-/-! # Reflexivity
-
-Reflexivity for every natural number. -/
-theorem reflexive (n : Nat) : n = n := rfl
-```
+Compliant example: as RG1002.
 
 ### RG2001 The declared Lean environment must be available
 
@@ -302,40 +281,19 @@ theorem reflexive (n : Nat) : n = n := rfl
 A `lean-fail` fence fails to elaborate with one error message that matches its whole pattern.
 Fix: Make the example fail for exactly the documented reason, adjust the pattern to match one real error message, or remove the marker if the example is valid.
 
-````markdown
-```lean
-/-! # Reflexivity
-
-Reflexivity for every natural number. -/
-theorem reflexive (n : Nat) : n = n := rfl
-```
-````
+Compliant example: as RG4002.
 
 ### RG4004 Teaching examples require authenticated compiler classification
 
 A `lean-trusted-compiler` fence elaborates warning-free and contains an authenticated compiler-trusting declaration.
 Fix: Use the marker only for an example that demonstrates `native_decide`, `decide +native` or `bv_decide` (or another authenticated compiler-trusting mechanism); otherwise remove it.
 
-````markdown
-```lean
-/-! # Reflexivity
-
-Reflexivity for every natural number. -/
-theorem reflexive (n : Nat) : n = n := rfl
-```
-````
+Compliant example: as RG4002.
 
 ### RG4001 Documentation fences must have a valid classification
 
 Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before the `lean` fence it classifies, and every fence is closed.
 Fix: Put each `lean-fail` or `lean-trusted-compiler` marker immediately before the `lean` fence it classifies, with a valid pattern, and close every fence.
 
-````markdown
-```lean
-/-! # Reflexivity
-
-Reflexivity for every natural number. -/
-theorem reflexive (n : Nat) : n = n := rfl
-```
-````
+Compliant example: as RG4002.
 

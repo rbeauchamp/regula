@@ -17,7 +17,8 @@ diagnostic and the `regula` command also print. This module holds only the longe
 - `guide`: the explanation of each registered rule.
 - `Guide.WellFormed`, `guide_wellFormed`: every required field of every rule is a nonempty
   string or list, and each rule names at least one residual obligation, one source and its
-  proved linkage. Content adequacy is review.
+  proved linkage. The proof shape and configuration may be empty, and the page then omits them.
+  Content adequacy is review.
 
 ## Boundaries
 
@@ -35,10 +36,9 @@ namespace Regula.Site
 
 open Regula.Checker.Account (Residual)
 
-/-- The explanation sections of one rule page, in page order. `residuals` are the
-`rule-coverage.md` obligations a result of this rule never discharges; `checklist` names the
-chapter 9 rows the rule contributes to; `sources` are repository paths of its detector,
-policy and proof modules. -/
+/-- The explanation sections of one rule page, in page order. `residuals` are the review
+obligations a result of this rule never discharges; `checklist` names the chapter 9 rows the rule
+contributes to; `sources` are repository paths of its detector, policy and proof modules. -/
 structure Guide where
   /-- What goes wrong in a violating project: the page's lead paragraph and the *Problem*
   section of `regula explain`. -/
@@ -47,18 +47,19 @@ structure Guide where
   trigger : List String
   /-- Rationale beyond the registry's short `rationale` (`descriptor id`); may be empty. -/
   rationaleDetail : List String
-  /-- The proof a checked project supplies, or that none is required (*Required proof shape*). -/
+  /-- The proof or statement a corrected project supplies (*Required proof shape*); empty when the
+  rule asks for none. -/
   proofShape : List String
   /-- What a passing result of this rule establishes. -/
   established : List String
   /-- What a passing result does not establish, listed under *It does not establish*. -/
   notEstablished : List String
-  /-- Which options, commands and flags affect the rule, and that none waives it
-  (*Configuration and exceptions*). -/
+  /-- The options, commands and flags that affect this rule (*Configuration and exceptions*);
+  empty when only those shared by every rule do. -/
   configuration : List String
   /-- Unsupported cases and limits of the detector (*Limitations and unsupported cases*). -/
   limitations : List String
-  /-- The review obligations of `rule-coverage.md` that a result of this rule leaves open. -/
+  /-- The review obligations that a result of this rule leaves open. -/
   residuals : List Residual
   /-- The module 9 checklist row IDs the rule contributes to, such as `DECL-01`. -/
   checklist : List String
@@ -71,40 +72,11 @@ structure Guide where
 /-- Every required section has content and the page names its open obligations, sources and
 proved linkage. -/
 def Guide.WellFormed (g : Guide) : Prop :=
-  g.problem ≠ "" ∧ g.trigger ≠ [] ∧ g.proofShape ≠ [] ∧ g.established ≠ [] ∧
-  g.notEstablished ≠ [] ∧ g.configuration ≠ [] ∧ g.limitations ≠ [] ∧ g.residuals ≠ [] ∧
-  g.checklist ≠ [] ∧ g.sources ≠ [] ∧ g.linkage ≠ ""
+  g.problem ≠ "" ∧ g.trigger ≠ [] ∧ g.established ≠ [] ∧ g.notEstablished ≠ [] ∧
+  g.limitations ≠ [] ∧ g.residuals ≠ [] ∧ g.checklist ≠ [] ∧ g.sources ≠ [] ∧ g.linkage ≠ ""
 
 instance (g : Guide) : Decidable g.WellFormed := by
   unfold Guide.WellFormed; infer_instance
-
-/-- Shared statement: what Regula's local linter options change in project runs. -/
-private def localOptions : String :=
-  "`set_option linter.regula false` and `regula.localFoundation` never waive it: `lake lint`, the \
-    build-lint `policy` target and `axiomGate` still apply the rule. Where Regula's local linter \
-    reports a finding during a project build (`axiomGate` and the `policy` target keep it on by \
-    default; `lake lint` builds with it off, whatever the source sets `linter.regula` to), that \
-    finding is a build warning, so the result is INCOMPLETE under RG2003 instead of carrying this \
-    rule's finding. Switching the local linter off changes which finding is reported, never \
-    whether the result is accepted. Hiding the diagnostic does not establish the property it \
-    checks."
-
-/-- Shared statement: local options never create a strict exception. -/
-private def noLocalException : String :=
-  "No source option, attribute or command-line flag makes this rule pass on a claimed surface. " ++
-      localOptions
-
-/-- Shared statement for the rules scoped by `@[regula_material]`, where the registration
-attribute selects the checked declarations. -/
-private def noLocalOption : String :=
-  "No source option or command-line flag makes this rule pass on a claimed surface. " ++
-      localOptions
-
-/-- Shared statement: where the rule runs. -/
-private def projectCommands : String :=
-  "Project enforcement runs through `lake lint` (incremental), `lake lint -- --fresh` and `lake \
-    exe axiomGate` (fresh whole-project audits from empty build output), and the build-lint \
-    `policy` target. See the [adoption guide](@repo/docs/guides/adoption.md)."
 
 /-- Shared statement: the proved linkage of the rules that the declaration decision decides. -/
 private def declarationLinkage : String :=
@@ -159,11 +131,9 @@ def guide : RuleId → Guide
         "Anything about axioms of imported, unowned dependencies; those are reported through the \
           transitive axiom sets of RG1003 and RG1005."]
       configuration := [
-        noLocalException,
         "Authenticated native-proof axioms generated by `native_decide`, `decide +native`, \
           `bv_decide`, `bv_decide?` or `bv_check` are not project axioms: they are classified as \
-          compiler-trusting and rejected by RG1004 instead.",
-        projectCommands]
+          compiler-trusting and rejected by RG1004 instead."]
       limitations := [
         "The editor linter reports this rule for completed declarations of the current file \
           (`editorSnapshot`); a clean editor buffer is not a project result.",
@@ -209,7 +179,7 @@ def guide : RuleId → Guide
           reviewed against its intent.",
         "Lean's own warning for `sorry` is a separate compiler diagnostic (RG2003); this rule does \
           not depend on it, and disabling that warning does not waive this rule."]
-      configuration := [noLocalException, projectCommands]
+      configuration := []
       limitations := [
         "In the editor the rule is reported for completed declarations of the current snapshot. A \
           cancelled collection reports nothing for that declaration; a failed one is reported as \
@@ -246,7 +216,7 @@ def guide : RuleId → Guide
       notEstablished := [
         "Anything about the unowned dependency beyond its axioms; imported declarations are a \
           declared trust boundary, identified by the exact dependency state (RG2001)."]
-      configuration := [noLocalException, projectCommands]
+      configuration := []
       limitations := [
         "Classification uses exact constant names and authenticated compiler evidence, not name \
           patterns; a lookalike name gets no special treatment."]
@@ -293,10 +263,8 @@ def guide : RuleId → Guide
       notEstablished := [
         "Performance of the kernel replacement proof; cost claims are separate (R-COST)."]
       configuration := [
-        noLocalException,
         "Authenticated native proofs are reported separately in documentation teaching mode \
-          (`lean-trusted-compiler` fences) and remain excluded from conforming positives.",
-        projectCommands]
+          (`lean-trusted-compiler` fences) and remain excluded from conforming positives."]
       limitations := [
         "The editor may defer authentication and report a pending result; the project command \
           completes it.",
@@ -359,11 +327,9 @@ def guide : RuleId → Guide
         "Which label a declaration should have: the claim is a project decision, reviewed with its \
           rationale."]
       configuration := [
-        noLocalException,
         "The surface maximum is the `claim` of its entry in `foundation_manifest.json`; `axiomGate \
           --file F --claim PROFILE` audits one file under an explicit profile. In the editor, \
-          `regula.localFoundation` selects local feedback only.",
-        projectCommands]
+          `regula.localFoundation` selects local feedback only."]
       limitations := [
         "The label is computed from the exact transitive set; a proof that merely could avoid an \
           axiom still carries it until rewritten."]
@@ -396,9 +362,7 @@ def guide : RuleId → Guide
           not a claim that such code is wrong.",
         "Termination proofs' adequacy for cost claims."]
       configuration := [
-        noLocalException,
-        "`partial_fixpoint` helpers are not covered by the recursive-helper exception.",
-        projectCommands]
+        "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
       limitations := [
         "The helper exception is conservative: elaborators defined in the audited module, \
           `run_tac` or `by_elab` in the recursion's proofs make the checker reject a definition \
@@ -437,7 +401,7 @@ def guide : RuleId → Guide
           each reported contract.",
         "Behavior of compiled code beyond the Lean definition; execution boundaries are RG3001 and \
           RG3002."]
-      configuration := [noLocalException, projectCommands]
+      configuration := []
       limitations := [
         "Term-parameterized and partial-application registrations are unsupported shapes, not \
           proofs of incorrectness; restate them as closed full-domain contracts."]
@@ -461,9 +425,7 @@ def guide : RuleId → Guide
           specific rule classifies it (for example a malformed Lake query result). Read the \
           detail: it names the failing step. Such an error is INCOMPLETE, never a pass."]
       rationaleDetail := []
-      proofShape := [
-        "No proof obligation: the rule concerns the availability of the environment. The corrected \
-          run must then pass the applicable declaration and project rules."]
+      proofShape := []
       established := [
         "A passing result was produced in the declared environment: Lake loaded the workspace with \
           the exact toolchain and resolved dependency state the result reports. An unavailable or \
@@ -473,8 +435,7 @@ def guide : RuleId → Guide
           acquisition is a trusted mechanism.",
         "Anything about the source; no declaration was inspected."]
       configuration := [
-        "There is no configuration that turns an incomplete setup into a pass.",
-        projectCommands]
+        "There is no configuration that turns an incomplete setup into a pass."]
       limitations := [
         "This page's example is a diagnostic demonstration: the violating run is INCOMPLETE by \
           design and is not accepted negative evidence. Its corrected counterpart passed a \
@@ -498,9 +459,7 @@ def guide : RuleId → Guide
         "In the editor, an invalid local request (for example an unknown `regula.localFoundation` \
           value) is reported under this rule for the current file only."]
       rationaleDetail := []
-      proofShape := [
-        "No proof obligation: the rule concerns configuration. At least one nonempty library \
-          surface is required by the schema."]
+      proofShape := []
       established := [
         "The manifest has the exact schema and classifies every root-package library and \
           executable exactly once."]
@@ -509,7 +468,8 @@ def guide : RuleId → Guide
           with each rationale.",
         "Exclusions do not permit a claimed module to import an excluded one (RG2004)."]
       configuration := [
-        "The manifest is the configuration; there is no flag that accepts an invalid manifest. \
+        "The manifest is the configuration; there is no flag that accepts an invalid manifest, and \
+          the schema requires at least one nonempty library surface. \
           `--manifest PATH` and `--project DIR` select which files are audited, not how strictly.",
         "`lake lint` exits 2 (INVALID CONFIGURATION) when only this rule rejects."]
       limitations := [
@@ -563,8 +523,7 @@ def guide : RuleId → Guide
           community's guidance allows an exception, disable that linter for one declaration \
           (`set_option linter.NAME false in` or `@[nolint NAME]`) with a comment giving the reason \
           (standard §6.2). The detector sees only emitted warnings, so it cannot tell such a \
-          disable from a forbidden one; review checks them.",
-        projectCommands]
+          disable from a forbidden one; review checks them."]
       limitations := [
         "`lake lint` builds with Regula's audit-build marker, which turns the local linter off \
           whatever the source sets `linter.regula` to, so Regula's own local findings are not \
@@ -596,8 +555,7 @@ def guide : RuleId → Guide
           is incomplete evidence (INCOMPLETE, `lake lint` exit 3)."]
       rationaleDetail := []
       proofShape := [
-        "No proof obligation: the rule concerns the declaration inventory. The removed import must \
-          not have supplied evidence the claim still relies on."]
+        "The removed import must not have supplied evidence the claim still relies on."]
       established := [
         "The claimed modules are exactly Lake's configured modules for the claimed targets, and \
           every owned constant is attributed to one of them."]
@@ -605,10 +563,8 @@ def guide : RuleId → Guide
         "That the chosen library boundaries are the ones the project intends to claim; that is \
           reviewed with the manifest rationale."]
       configuration := [
-        "No source option, attribute or command-line flag makes this rule pass on a claimed \
-          surface; an exclusion in the manifest never permits a claimed module to import the \
-          excluded one.",
-        projectCommands]
+        "An exclusion in the manifest never permits a claimed module to import the excluded \
+          one."]
       limitations := [
         "Whole-project scope only: the editor is explicitly partial and does not report this rule, \
           and a single-file audit does not either."]
@@ -648,8 +604,7 @@ def guide : RuleId → Guide
         "Incremental admission does not establish fresh source elaboration."]
       configuration := [
         "No option waives admission. A failed generated-role authentication cannot waive RG1001 or \
-          RG1006.",
-        projectCommands]
+          RG1006."]
       limitations := [
         "This page's example is a diagnostic demonstration: the violating run is INCOMPLETE by \
           design and is not accepted negative evidence. Its corrected counterpart passed a \
@@ -699,20 +654,7 @@ def guide : RuleId → Guide
           elaborated type has. Standard §6.7 adopts the community's linters as its conventions \
           baseline, and a linter enforces its convention only where it is on: RG2003 rejects \
           warnings, not a missing linter."]
-      proofShape := [
-        "No proof obligation on the checked project. The decision is proved: \
-          `RegulaPolicy.Community.failures_eq_nil_iff` shows that it reports nothing exactly when \
-          the target meets `Conforming`, the declarative statement of its conditions, and \
-          `conforming_of_mathlib` that the Mathlib requirement includes the core-only one; \
-          `conforming_missingDocs` states what a conforming target gives `linter.missingDocs`, \
-          and `missingDocs_unset_fails` that a core-only target (`mathlib = false`) with only \
-          the automatic-implicit options and no extra `lean` arguments fails with exactly that \
-          option. `leanArgument_mem_failures_iff` shows that it reports a `-D` argument exactly \
-          when some `-D` form, stated over the characters of the arguments (`Defines`), sets a \
-          checked option to a contradicting value; `autoImplicit_argument_fails`, \
-          `maxHeartbeats_argument_passes`, `linter_argument_fails`, \
-          `excluded_linter_argument_passes` and `plugin_argument_passes` fix five argument \
-          lists, taking as a hypothesis the name `lean` reads (`String.toName` is `partial`)."]
+      proofShape := []
       established := [
         "Every claimed library and executable is built through Lake with automatic implicits \
           off and `linter.missingDocs` on, turns off no linter target-wide beyond the §6.7 \
@@ -727,8 +669,7 @@ def guide : RuleId → Guide
           options unchanged."]
       configuration := [
         "The Lake configuration is the input; no manifest field, source option or command-line \
-          flag exempts a claimed target.",
-        projectCommands]
+          flag exempts a claimed target."]
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake \
           resolves for the workspace the audit loads.",
@@ -740,7 +681,7 @@ def guide : RuleId → Guide
           is neither proved nor observed.",
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
-      checklist := ["DECL-01", "SCOPE-04", "DOGFOOD-01"]
+      checklist := ["DECL-01", "DOC-01", "DOGFOOD-01"]
       linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
         `conforming_missingDocs`, `leanArgument_mem_failures_iff` and \
         `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
@@ -759,9 +700,7 @@ def guide : RuleId → Guide
         "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
           such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable."]
       rationaleDetail := []
-      proofShape := [
-        "No proof obligation for this rule; once resolved, checked execution may require \
-          correspondence proofs (RG3002)."]
+      proofShape := []
       established := [
         "Every path in each owned executable root's conservative closure was resolved and \
           classified; an unresolved path is incomplete and never accepted."]
@@ -769,8 +708,7 @@ def guide : RuleId → Guide
         "That the conservative closure is the program's actual runtime call graph: candidates and \
           historical choices overapproximate it, and a safe program can be rejected."]
       configuration := [
-        "No execution mode waives an unresolved path.",
-        projectCommands]
+        "No execution mode waives an unresolved path."]
       limitations := [
         "This page's example is a diagnostic demonstration: the violating run is INCOMPLETE by \
           design and is not accepted negative evidence. Its corrected counterpart passed a \
@@ -813,8 +751,7 @@ def guide : RuleId → Guide
       configuration := [
         "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \
           a single-file audit, selects the mode. `report` mode reports trusted boundaries without \
-          failing them; it is not a fix for a checked claim.",
-        projectCommands]
+          failing them; it is not a fix for a checked claim."]
       limitations := [
         "Proof search is deliberately incomplete: a candidate whose remaining premises cannot be \
           instantiated supplies no evidence, and the boundary stays trusted."]
@@ -842,9 +779,7 @@ def guide : RuleId → Guide
           fragments, and an optional leading `(?s)` is accepted for compatibility; other regex \
           syntax is rejected."]
       rationaleDetail := []
-      proofShape := [
-        "No proof obligation: the rule concerns document structure. Each classified fence is then \
-          checked by RG4002, RG4003 or RG4004."]
+      proofShape := []
       established := [
         "Every Lean fence in the checked tree has exactly one valid classification."]
       notEstablished := [
@@ -887,7 +822,7 @@ def guide : RuleId → Guide
       configuration := [
         "No marker makes a failing positive example acceptable; changing it to `lean-fail` changes \
           what the documentation claims.",
-        "Run `lake exe docFenceAudit` (or `./scripts/verify.sh docs` in this repository)."]
+        "Run `lake exe docFenceAudit`."]
       limitations := [
         "Examples are checked under the declared toolchain only."]
       residuals := [.intent, .qualify]
@@ -908,8 +843,7 @@ def guide : RuleId → Guide
           violation; a worker that crashed, timed out or did not complete is INCOMPLETE."]
       rationaleDetail := []
       proofShape := [
-        "No proof obligation: the example demonstrates a rejection. Its pattern is part of the \
-          claim and is reviewed with the prose."]
+        "The pattern is part of the documented claim and is reviewed with the prose."]
       established := [
         "The negative fence completed with a source rejection whose single error message matches \
           the whole pattern."]
@@ -941,9 +875,7 @@ def guide : RuleId → Guide
           the declaration rules under the teaching request (for example RG1001 for an axiom or \
           RG1006 for an unsafe or partial declaration)."]
       rationaleDetail := []
-      proofShape := [
-        "No proof obligation: the example demonstrates a compiler-trusting mechanism and is \
-          excluded from conforming evidence."]
+      proofShape := []
       established := [
         "The teaching fence elaborated warning-free and contains an authenticated \
           compiler-trusting declaration."]
@@ -977,11 +909,7 @@ def guide : RuleId → Guide
           through); and each import that occurs twice with the same `public`, `meta` and `all` \
           modifiers. Empty modules are included."]
       rationaleDetail := []
-      proofShape := [
-        "No proof obligation on the checked project. \
-          `RegulaPolicy.ModuleHeader.failures_eq_nil_iff` proves that the decision reports \
-          nothing exactly when the module is documented, its docstring comes first and its \
-          imports are pairwise different."]
+      proofShape := []
       established := [
         "Every claimed module has module documentation, its first command after the imports is \
           a module docstring, and its header repeats no import."]
@@ -991,7 +919,7 @@ def guide : RuleId → Guide
           section layout is imposed.",
         "Import minimality: an unused or transitively redundant import that is not repeated is \
           not reported."]
-      configuration := [noLocalException, projectCommands]
+      configuration := []
       limitations := [
         "The editor reports this rule only when the module has finished elaborating without \
           errors; a module with elaboration errors gets RG2005 (incomplete) instead."]
@@ -1014,8 +942,7 @@ def guide : RuleId → Guide
         "Unregistered declarations are not selected; there is no name heuristic."]
       rationaleDetail := []
       proofShape := [
-        "No proof obligation: the rule checks presence. The docstring must describe the elaborated \
-          statement faithfully."]
+        "The docstring describes the elaborated statement faithfully."]
       established := [
         "Every registered public material declaration has a docstring."]
       notEstablished := [
@@ -1025,10 +952,8 @@ def guide : RuleId → Guide
           enable `linter.missingDocs`, whose reports RG2003 rejects; RG2006, not this rule, checks \
           that option."]
       configuration := [
-        noLocalOption,
         "Registration is `@[regula_material]` from `Regula.MaterialClaim`. Removing a registration \
-          from a material declaration changes the reviewed claim, not only this rule's result.",
-        projectCommands]
+          from a material declaration changes the reviewed claim, not only this rule's result."]
       limitations := [
         "Lean's broader `linter.missingDocs` reports public declarations without a docstring only \
           where it is enabled; this rule covers registered material evidence whatever the options.",
@@ -1055,8 +980,8 @@ def guide : RuleId → Guide
           failures."]
       rationaleDetail := []
       proofShape := [
-        "No proof obligation: the rule checks presence. The Intent text is compared with the \
-          declaration in review."]
+        "The Intent section states the requirement the declaration must meet; review compares \
+          the two."]
       established := [
         "Every registered public material declaration's docstring has a nonempty labelled Intent \
           section, decided by the proved classifier `RegulaPolicy.materialDocumentationFailure`."]
@@ -1066,11 +991,9 @@ def guide : RuleId → Guide
         "Code fences in the docstring are not tracked: a `# Intent` line inside a fenced block \
           counts as an Intent heading."]
       configuration := [
-        noLocalOption,
         "The rule checks only declarations registered with `@[regula_material]` from \
           `Regula.MaterialClaim`. Removing a registration from a material declaration changes the \
-          reviewed claim, not only this rule's result.",
-        projectCommands]
+          reviewed claim, not only this rule's result."]
       limitations := [
         "Setext headings and closing sequences such as `# Intent #` are not recognized as Intent \
           headings.",

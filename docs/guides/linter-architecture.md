@@ -39,7 +39,7 @@ imports no Mathlib module:
 | Path | Owner and contract |
 | --- | --- |
 | `lean/RegulaCore/RuleId.lean` | Closed inductive `RuleId`, stable external spelling, exhaustive descriptor dispatch. |
-| `lean/RegulaCore/Rule.lean` | `RuleDescriptor`, applicability, strict defaults, normative references, evidence modes, attribution, lifecycle, and the agent-facing requirement, rationale, remedy, rewrites and checked example pair every output renders. |
+| `lean/RegulaCore/Rule.lean` | `RuleDescriptor`, applicability, strict defaults, normative references, evidence modes, lifecycle, and the agent-facing requirement, rationale, remedy, rewrites and checked example pair every output renders. |
 | `lean/RegulaCore/Feedback.lean` | Finding text generated from the registry and the proved run order and once-per-rule guidance of a command-line run. |
 | `lean/RegulaCore/Guidance.lean`, `lean/Regula/Cli/Main.lean` | The offline `regula` command: rule explanation, rule index, agent briefing and Agent Skills file, with a proved command parser and a byte budget. |
 | `lean/Regula/Diagnostic.lean` | Indexed diagnostic payloads, source/related locations, message rendering through `Feedback`, and run order of findings. |
@@ -63,9 +63,7 @@ one-to-one diagnostic IDs.
 
 Descriptor fields: `id`, title, category, normative clause references, applicability predicate
 identifier, default strict severity, supported evidence modes, message form (derived from `messageLine`),
-help route, requirement, rationale, remedy, compliant rewrites, checked example pair, introduced version, optional retired version/replacement, attribution records.
-Attribution records identify source URL, exact revision, credited authors/project, borrowed idea
-or adapted code, and applicable license notice. Derive route and ID text from `RuleId`, rather
+help route, requirement, rationale, remedy, compliant rewrites, checked example pair, introduced version and optional retired version/replacement. Derive route and ID text from `RuleId`, rather
 than accepting independent arbitrary strings in each descriptor. Reject duplicate external IDs,
 missing clauses/pages/examples, unknown JSON fields/versions, and invalid lifecycle references.
 
@@ -87,7 +85,7 @@ Cancelled/stale/unsupported/unknown results cannot construct accepted evidence. 
 never construct a fresh whole-project result.
 
 The implemented output schemas are versioned independently from manifest schema 2: registry
-export is at schema 3 and result envelopes are at schema 3 (see [rule registry](rule-registry.md)).
+export and result envelopes each carry their own version ([rule registry](rule-registry.md)).
 Both have top-level schemaVersion, producerVersion, toolchain and sourceRevision, plus rules
 (registry export) or scope/mode/status/stages/stagesCompleted/complete/stagesNotRun/diagnostics/rules/unresolved
 (result export).
@@ -120,8 +118,8 @@ Proof obligations for #4/#5/#6/#7/#12: total rule metadata; injective external I
 route uniqueness; faithful decoding; exact profile set membership and least-label classification;
 acceptance iff all required observations satisfy policy with complete exact scope; and extraction
 of a complete accepted report preserving its original identity. Prove properties of the actual
-executed policy definitions. Collection optimizations need checked correspondence, following the
-con-leche pattern below. Do not claim a proof about decoded observations verifies their collection,
+executed policy definitions. Collection optimizations need checked correspondence with their reference
+definitions. Do not claim a proof about decoded observations verifies their collection,
 Lean's implementation, process integrity, source identity, or external execution. Preserve
 `Admission.validate`, fresh source attribution, and conservative execution closure as explicit
 boundaries while strengthening the pure core.
@@ -232,41 +230,38 @@ under `standard/`; rule pages link its sections and checklist rows in the same e
 Each page contains identity/category/default behavior, applicability and exact cause, normative
 clauses, violation and fixed examples, the checked findings and their real locations, rationale,
 fix guidance, permitted technical exceptions/configuration, limitations/false-positive conditions,
-version availability, and credits. It does not imply that every violating Lean file fails
+and the version it documents. It does not imply that every violating Lean file fails
 elaboration: the RG1001 axiom fixture elaborates and is then rejected by the actual policy.
 
-Canonical public base: `https://rbeauchamp.github.io/regula/`.
-Paths: `/regula/dev/rules/<ID>/` for latest successfully deployed development documentation;
-`/regula/v/<package-version>/rules/<ID>/` for immutable released-package help (none exists);
-`/regula/rev/<commit>/rules/<ID>/` for each published commit's snapshot. Every page states its
-commit; a local preview with uncommitted changes says so and has no snapshot route. Publishing a
-release is a separate authorized action. Each GitHub Pages deployment replaces the whole site, so
-published `rev/` snapshots are retained in the append-only `site-archive-regula` branch and copied
-verbatim into every later artifact ([website guide](website.md#routes-and-versions));
-released-version pages will need the same kind of retention when releases exist. Retire IDs with explanatory tombstones; never redirect an old ID to
-changed semantics. Unpublished routes get the not-available page, which names the GitHub source of
-every revision and never falls back to the latest rules.
+Canonical public base: `https://rbeauchamp.github.io/regula/`. Paths: `/regula/dev/rules/<ID>/`
+for the development version, rebuilt from `main` by every deployment, and
+`/regula/v/<version>/rules/<ID>/` for the permanent copy of each release, made at the release
+([website guide](website.md#versions-and-routes)). A finding's help link names the installed
+release's pages, and `dev/` only for an unreleased build (`helpUrl_dev_iff`). Every page states
+its commit; a local preview with uncommitted changes says so. Publishing a release is a separate
+authorized action. Retire IDs with explanatory tombstones; never redirect an old ID to changed
+semantics. Unpublished routes get the not-available page, which never falls back to other
+rules.
 
-The builder admits the evidence, generates and renders the manual, assembles byte-identical
-`dev/` and `rev/<commit>/` editions and every archived snapshot with `index.html`, `404.html` and
-`build.json`, and checks the tree: size budget, exact layout, archived snapshots unchanged, one page per registered rule, admitted example text in each page, every
+The builder admits the evidence, generates and renders the manual, assembles the `dev/` edition
+and each release's edition (its permanent copy, with a banner naming the latest release once a
+later one exists) with `index.html`, `404.html` and `build.json`, and checks the tree: size
+budget, only the published routes, one page per registered rule, admitted example text in each page, every
 scanned link resolving under the base path, and the registry's `--validate-site`. Pinned
 dependencies are cached by toolchain and lock digest; no accepted verdict is cached. Assets are
 relative to each edition (Verso's `<base href>`).
 
 CI runs [acceptance](contributing.md#develop-and-verify), the two rule-example shards and the site
-build/check on every PR and `main`, saving the validated artifact as `site-<commit>`. On `main`,
-after the same revision's acceptance and site jobs pass, it uploads that artifact with
-`actions/upload-pages-artifact` and deploys it with `actions/deploy-pages` in the `github-pages`
-environment, after an unprivileged gate has checked the artifact against the site archive and a
-provisioning-free `archive` job has pushed its snapshot there; only the deploy job has `pages:
-write` and `id-token: write`, and only the `archive` job has `contents: write`. Action SHAs are pinned
-to the current official releases. One run per ref (a newer `main` run cancels an older one), an
-unprivileged gate and a dependency-free re-check in the deploy job that refuse a revision no
-longer at the head of `main`, and a serialized deployment group keep an
-older run from overwriting a newer one; a final job compares the live site with the artifact. A site lagging pending or failed CI is expected: the invariant
+build/check on every PR and `main`, saving the validated artifact as `site-<commit>`. On `main`, a gate
+refuses an unpublishable artifact ([website guide](website.md#publication)), and after the same
+revision's acceptance and site jobs pass the artifact is uploaded with
+`actions/upload-pages-artifact` and deployed with `actions/deploy-pages` in the `github-pages`
+environment; only the deploy job has `pages: write` and `id-token: write`. Action SHAs are pinned
+to the current official releases. One run per ref (a newer `main` run cancels an older one), a
+dependency-free re-check in the deploy job that refuses a revision no longer at the head of
+`main`, and a serialized deployment group keep an older run from overwriting a newer one; a final job compares the live site with the artifact. A site lagging pending or failed CI is expected: the invariant
 is same-revision consistency, not instantaneous agreement with latest main. No custom domain,
-paid hosting, release or visibility change is involved.
+paid hosting or visibility change is involved.
 
 ## Delivery sequence and remaining decisions
 
@@ -290,22 +285,12 @@ prove natural-language adequacy, or report unexecuted checks as PASS.
 
 ## Sources and credit
 
-Canonical semantics, accepted values carrying evidence, and proved equality between an executed
-form and its reference definition are informed by **Lean FRO's con-leche** at `c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0`:
-[Installed.lean][installed] (`CheckedRecord`, `FullyChecked`),
-[PropWhen.lean][propwhen] and [scanner equivalence][equiv]. These are design precedents, not a
-proof of Regula or an adoption of con-leche's kernel/model. The
-[attribution account](design-influences.md) distinguishes these specific precedents from actual
-code dependencies and optional exports. Cite influences at the relevant component boundary;
-copied code preserves its actual license notices. Lean authors supply the linter, elaboration and message APIs; Verso authors
-supply rendering and the template. [Microsoft CA1416][ca1416], Ruff and Pyrefly are illustrative
-references, not exclusive templates. The attribution account's
-[other linters](design-influences.md#other-linters) records the Clippy, ESLint and HLint/HLS
-influences; no external tool defines Lean policy or permits suppressing mandatory requirements.
+Lean authors supply the linter, elaboration and message APIs; Verso authors supply rendering
+and the template. The design influences, including con-leche, Microsoft CA1416 and other
+linters, and the license notices of adapted code are credited in
+[design influences](design-influences.md); no external tool defines Lean policy or permits
+suppressing mandatory requirements.
 
-[installed]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean
-[propwhen]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean
-[equiv]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Frontend/Scan/Equiv.lean
 [command]: https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Elab/Command.lean
 [env-lint]: https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Linter/EnvLinter/Basic.lean
 [lake-config]: https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/lake/Lake/Config/PackageConfig.lean
@@ -313,7 +298,6 @@ influences; no external tool defines Lean policy or permits suppressing mandator
 [log]: https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Log.lean
 [interactive]: https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Widget/InteractiveDiagnostic.lean
 [template]: https://github.com/leanprover/verso-templates/tree/76c9edf5a70f14d272af0f0f354ec833ac22c350/package-docs
-[ca1416]: https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/quality-rules/ca1416
 
 The CATALOG-01 implementation and schema migration are documented in
 [Rule registry and diagnostics](rule-registry.md). Its scoped `completed` observations
