@@ -17,8 +17,8 @@ repository is required. The normative definitions behind them are in
 Regula is a Lake package named `regula`, like any other Lean tool. Its releases are tagged with
 the Lean release they support, the Lean ecosystem's convention: `v4.34.0` supports
 `leanprover/lean4:v4.34.0` and no other toolchain. The
-[releases page](https://github.com/rbeauchamp/regula/releases) lists them; before the first
-release, pin an exact commit of `main` instead. Set your `lean-toolchain` to the release's Lean
+[releases page](https://github.com/rbeauchamp/regula/releases) lists them. Set your
+`lean-toolchain` to the release's Lean
 version, then require the tag.
 
 `lakefile.toml`:
