@@ -27,8 +27,9 @@ so.
 **Use it when** Lean code you rely on is written or changed by someone you don't review line by
 line (a coding agent, a new contributor, you in six months), or when you publish results as
 proved and want others to see exactly what they rest on.
-**Don't use it** as a Mathlib PR check (Mathlib's CI is the authority) or while exploring a
-proof. It complements [comparator](https://github.com/leanprover/comparator): comparator checks
+**Don't use it** as a Mathlib PR check (Mathlib's CI is the authority), to judge an untrusted
+proof against a fixed statement (comparator does that), or while exploring a proof. It
+complements [comparator](https://github.com/leanprover/comparator): comparator checks
 a proof against the statement its challenge fixes, and Regula gates the whole project. In the
 terms of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/),
 Regula runs the `#print axioms` step over every declaration you claim; run `lean4checker` or
@@ -75,7 +76,8 @@ Regula has no release yet. Pin an exact commit, and use the Lean release in its
    A project that uses Mathlib also enables
    [Mathlib's standard linters](docs/guides/adoption.md#community-conventions-and-linters).
 2. **Classify the library** in `foundation_manifest.json` at the project root.
-   `standard-logical` admits ordinary classical proofs:
+   `standard-logical` admits ordinary classical proofs. List each `lean_exe` under the
+   surface's `executables` or in `excluded-executables`:
    ```json
    {
      "schema-version": 2,
