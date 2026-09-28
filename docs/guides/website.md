@@ -97,8 +97,9 @@ fails and removes `_site/`:
   else. `dev/` is the rendered edition, byte for byte. Each release edition is its copy
   ([versions](#versions-and-routes)) with the latest-release banner on every HTML page when a
   later release exists. The artifact contains no hidden files (the Pages upload drops them);
-  `build.json` records the commit, toolchain, linter version, Verso revision, per-rule evidence
-  and the published editions.
+  `build.json` records the commit, toolchain, linter version, Verso revision, per-rule evidence,
+  the published editions, how each release edition was obtained (its asset or rendered from
+  source) and whether the build's commit is the one the installed release's tag names.
 - **Size.** The artifact is at most `artifactBudget` (900 MB) of file bytes, below GitHub Pages'
   1 GB limit on a published site. Each release adds one edition of a few megabytes.
 
@@ -132,9 +133,10 @@ exports stale; the site build refuses them, so rerun both shards. The checker em
 when `lean/Regula/Checker/Producer.lean` is compiled, and Lake reuses that build after a new
 commit; the site build then refuses the evidence as another commit's. Delete
 `.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh. A
-worktree with uncommitted changes produces a labelled local preview. A build fetches the copy of
-every release it does not build itself ([versions](#versions-and-routes)), so it needs network
-access once a release exists. The artifact expects to be served at `/regula/`; any static file
+worktree with uncommitted changes produces a labelled local preview. Every build requests the
+release asset of every release, and a build whose `installed` is a release also reads its tag
+with `git ls-remote` ([versions](#versions-and-routes)), so a build needs network access once a
+release exists. The artifact expects to be served at `/regula/`; any static file
 server works if `_site/` is mounted at that path (for example a directory containing only a
 `regula` link to `_site`).
 
@@ -148,8 +150,9 @@ CI runs on every pull request and on `main`:
 3. `site`: builds the site tooling, then `./scripts/verify.sh site` over this run's exports, and
    uploads the checked `_site/` as `site-<commit>` (preview) and a release build's edition as
    `site-release-<commit>`. On `main` only, `Deployment gate` refuses an artifact built from
-   uncommitted changes or from another commit than `GITHUB_SHA`, and the checked `_site/` is then
-   uploaded as the Pages artifact. Pull requests never publish.
+   uncommitted changes, from another commit than `GITHUB_SHA`, or with a release edition rendered
+   from source by a build whose commit that release's tag does not name (`Regula.publishable`),
+   and the checked `_site/` is then uploaded as the Pages artifact. Pull requests never publish.
 4. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
    (default token, `contents: read`) whether this commit is still the head of `main` and refuses
    otherwise; then `actions/deploy-pages` publishes exactly the validated artifact to the
@@ -195,27 +198,32 @@ relative to the edition root. Every build requests the asset of each release (HT
 absent; any other failure refuses) and, when it exists, takes that release's edition from it and
 never renders it again (`Regula.releaseSource`, `releaseSource_asset_iff`). It refuses an
 unreadable archive, a symbolic link, a copy without a home page, and a copy whose `build.json`
-does not record a clean build of that release for this site. Only the build of a release in the
-commit its tag names renders that edition from source, and only while no asset exists
-(`releaseSource_render_iff`); any other build refuses a release without an asset, so a release
-edition cannot silently drop out of a deployment or be replaced. A build whose `installed` is a
-release refuses unless its commit is the one tag `v<version>` names (`labelAdmitted`), read with
-`git ls-remote` because CI checkouts have no tags. That the asset stays the one attached at
-release rests on GitHub; immutable releases, a repository setting, would enforce it.
+does not record a clean build of that release for this site. A build renders a release's edition
+from source only while no asset exists, only as a build of that release, and only while its tag
+`v<version>` is absent or names the build's commit (`releaseSource_render_iff`); any other build
+refuses a release without an asset, so a release edition cannot silently drop out of a deployment
+or be replaced. A build whose `installed` is a release refuses once that tag names another commit
+(`labelAdmitted_release_iff`); the tag is read with `git ls-remote` because CI checkouts have no
+tags. Publication needs the tagged build: `Deployment gate` refuses an artifact with a release
+edition rendered from source unless its commit is the one the tag names (`publishable`), and only
+such a clean build writes the release asset. That the asset stays the one attached at release
+rests on GitHub; immutable releases, a repository setting, would enforce it.
 
 A release takes these steps, in order:
 
 1. A commit sets `Regula.installed` to the release and appends it to `Regula.releases`
-   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). Its site builds, including its
-   pull request's, refuse until step 2.
-2. Tag that commit on `main` `v<version>`, push the tag, then run (or re-run) its site build.
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). Its pull request passes CI like
+   any other: before the tag exists, its site build renders the release's edition as a preview,
+   which pull requests never publish.
+2. Once it is on `main`, tag that commit `v<version>` and push the tag, then run (or re-run) its
+   site build on `main`. Until the tag names that commit, `Deployment gate` refuses its artifact.
 3. That build renders the release's edition and writes
    `tmp/site-release/regula-site-<version>.tar.gz`, which CI keeps for only 30 days as the
    `site-release-<commit>` artifact. Attach that file to the GitHub release `v<version>` as its
    permanent asset.
 4. The next commit sets `Regula.installed` back to `.unreleased`. Its site build refuses until
-   step 3 is done, and every later build refuses a release label that its commit does not carry
-   as a tag.
+   step 3 is done, and every build of another commit that still carries the release label is
+   refused once the tag exists.
 
 Rule IDs are never reused for a changed rule. A retired rule keeps a page (its lifecycle chip
 says so).

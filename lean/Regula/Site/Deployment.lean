@@ -11,7 +11,9 @@ lean --run lean/Regula/Site/Deployment.lean verify ARTIFACT_DIR  # after deployi
 ```
 
 `gate` requires the artifact to be a clean build of `GITHUB_SHA`, so a build from uncommitted
-changes or of another commit is never published. The privileged deploy job separately refuses
+changes or of another commit is never published, and refuses an artifact with a release edition
+rendered from source unless its commit is the one that release's tag names (`Regula.publishable`
+over the sources and tag state `build.json` records). The privileged deploy job separately refuses
 unless `main` is still at `GITHUB_SHA`, so a re-run of an older run cannot publish over a newer
 revision.
 
@@ -49,7 +51,9 @@ private def env (name : String) : IO String := do
   | some v => if v.isEmpty then fail s!"{name} is empty" else pure v
   | none => fail s!"{name} is not set"
 
-/-- Refuse to publish unless the artifact is a clean build of `GITHUB_SHA`. -/
+/-- Refuse to publish unless the artifact is a clean build of `GITHUB_SHA` and, when it has a
+release edition rendered from source, its commit is the one that release's tag names: the
+artifact's recorded `releaseSources` and `headTagged` satisfy `Regula.publishable`. -/
 def gate (artifact : FilePath) : IO Unit := do
   let build ← IO.ofExcept (Json.parse (← IO.FS.readFile (artifact / "build.json")))
   let sha ← env "GITHUB_SHA"
@@ -57,6 +61,11 @@ def gate (artifact : FilePath) : IO Unit := do
       fail "the artifact was built from uncommitted changes"
   unless (← str build "revision") == sha do
       fail s!"the artifact is for {← str build "revision"}, not {sha}"
+  let sources ← IO.ofExcept ((← field build "releaseSources").getArr?)
+  let rendered ← sources.toList.anyM fun s => return (← str s "source") == "render"
+  unless !rendered || (← field build "headTagged") == .bool true do
+      fail "a release edition was rendered from source by a build whose commit its release tag \
+        does not name"
   IO.println s!"deployment gate: PASS (clean artifact of {sha})"
 
 /-- Post-deployment observation of the site at `pageUrl`: the artifact must be a clean build
