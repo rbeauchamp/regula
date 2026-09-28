@@ -46,10 +46,21 @@ lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, and refuses unless its own freshly captured inputs have the same identity. Each command has its own hard seven-minute
+requires both packages), builds and renders the standard fresh, and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+declaration gate performs Lake-semantic discovery and a clean, warning-free build before
+inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
+development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. Provisioning happens before
 that limit, under its own 30-minute limit. CI runs both commands, in that order in one job, after restoring or
 provisioning pinned dependency caches.
+
+The applicable command evidence is required but does not complete the standard's checklist:
+theorem, type and prose rows still require semantic review. A conformance record for this
+repository states the Lean version, the exact dependency source state (including Mathlib when
+present), the claimed Lake modules, declaration coverage and exact axiom results, execution
+boundaries, the applicable fence and checker-qualification results, and any failures or missing
+evidence. A required check that was skipped leaves its affected row or optional claim
+`INCOMPLETE`; it cannot support conformance.
 
 ### Share one Mathlib across local copies
 
@@ -90,8 +101,8 @@ so copies wait while another copy creates a new pin.
 - Scratch directories live in `tmp/.regula-scratch/`, each beside an ownership marker
   `<name>.owner`. Those of killed runs (for example at the seven-minute limit) are reclaimed
   by the next run that creates one while no other run in the copy holds scratch; only marked
-  directories there are removed. Scratch left directly under `tmp/` by earlier versions is
-  never reclaimed; remove it by hand.
+  directories there are removed. Scratch outside `tmp/.regula-scratch/` is never reclaimed;
+  remove it by hand.
 - GitHub Actions keeps `lake -d audit exe cache get` and its dependency cache; provisioning does
   nothing there. A shared directory is never modified, only removed whole.
 
@@ -137,8 +148,10 @@ invocation paths (standard
 the complete `checkerSelftest --build-bound` campaign is for broad qualification, not a per-change
 gate. A selected diagnostic that fails remains a defect, and an unrun campaign is never reported
 as passed. Run `./scripts/verify.sh serialized-graph` (`lake exe freshChecker --verbose`) only for
-the separate serialized-graph claim, when that graph, claim or driver changes. Diagnostics do not
-replace a failed acceptance run.
+the separate serialized-graph claim: that claim needs fresh checker-state evidence for the exact
+claimed graph, so run the driver when that graph, claim or driver changes, and reuse equivalent
+coverage already obtained for the same inputs rather than repeating the same roots in a raw
+invocation. Diagnostics do not replace a failed acceptance run.
 
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers`,
 `history` and `lint-driver` as parallel jobs, each with its own hard 420-second limit, when the
@@ -173,26 +186,37 @@ audits both freshly, with every target built under the options of
 
 - `Audit` uses an all-submodules glob, so Lake's elaborated inventory owns its module set. It is
   the claimed surface of the Mathlib-dependent `audit/` package, which requires the checker by
-  relative path exactly as a Mathlib adopter does, so the checker package requires no Mathlib.
-  `audit/Audit/` holds mathematical models, proofs and executable examples, not the checker, and
-  contains no project axioms, holes, compiler-trusting proofs, authored partial or unsafe
-  declarations, runtime replacements or external declarations.
+  relative path exactly as a Mathlib adopter does and is audited against its own surface
+  manifest, so the checker package requires no Mathlib. `audit/Audit/` is one positive surface
+  holding mathematical models, proofs and executable examples, not the checker, and contains no
+  project axioms, holes, compiler-trusting proofs, authored partial or unsafe declarations,
+  runtime replacements or external declarations; generated partial helpers for safe recursion are
+  separately authenticated under standard
+  [§7.4](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#74-inventory-every-owned-declaration).
 - `AuditApp` and its claimed `auditApp` executable apply the complete-program contracts of
   standard [§3.7](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#37-a-compositional-method-for-complete-program-contracts)
   to their actual definitions: `RequiredContracts` states the required propositions and
   `required_contracts` supplies their proofs; `executeChecked` requires that evidence, admits
-  capacity and runs the strict state/error script; `checked_executable` registers the exact
-  admission/runner relation through `ExecutableContract`, and `Main` invokes its `run` with
+  capacity and runs the strict state/error script. Its success, first-refusal and append theorems
+  describe the retained successful prefix; the intrinsic `Limiter` bound supplies the state
+  invariant. `checked_executable` registers the exact admission/runner relation through
+  `ExecutableContract`, reusing `executeChecked_exact`, and `Main` invokes its `run` with
   `required_contracts`. The total `run` and `execute` remain available, so review inspects the
   actual caller. The `IO` shell and reached native mechanisms are reported execution boundaries;
   the pure contracts prove nothing about terminal effects or the compiler. `AuditApp` registers its
   material claims with `@[regula_material]`, so acceptance checks their docstrings and Intent
   sections.
 - `lean/Fixtures/` holds isolated positive controls and independent mutations, imported by no
-  positive surface. The checker executables are recorded in `excluded-executables` and qualified
-  by the diagnostic campaigns rather than claimed.
+  positive surface. The checker executables are discovered as root-package `lean_exe` targets and
+  recorded in `excluded-executables`: they are operational tooling whose root modules belong to
+  the excluded `Regula` library, qualified by the diagnostic campaigns rather than claimed.
 - Every Lean block of the Verso standard and every `lean` fence of the Markdown below `docs/`
-  (the guides, which scanning does not make normative) is checked by `./scripts/verify.sh docs`.
+  (the guides, which scanning does not make normative) is checked verbatim, before environment
+  inspection, by `./scripts/verify.sh docs`.
+- Checker changes receive focused qualification for affected capabilities under standard §7.8;
+  unchanged capability evidence is reused. When this repository claims separate serialized-graph
+  checking, it runs a fresh `leanchecker` pass over every declared root needed for complete module
+  coverage.
 
 Two diagnostics apply Regula to the rest of its own code base; neither is part of acceptance.
 `./scripts/verify.sh diagnostics self-lint` runs `lake lint` through the `regula/lint` driver in
@@ -218,16 +242,17 @@ paths, the worker processes and their JSON transport are trusted.
 
 The repository's own checklist rows, which apply to this repository only:
 
-| ID | Required result | Verification |
-| --- | --- | --- |
-| DOGFOOD-01 | The claimed surfaces above satisfy every applicable row of the standard's checklist. | Audit each as an ordinary claimed surface with no exemption; `AuditApp`'s contracts are proved about the definitions its executable runs, and its `IO` boundary is reported. |
-| DOGFOOD-02 | Intentionally invalid fixtures are isolated from the positive elaborated environment. | Reconcile exact imported project modules; qualification includes a contamination mutation. |
-| DOGFOOD-03 | Normative prose, representative fixtures, checker diagnostics and status text claim no more than the verified property. | Compare advertised capabilities with the implementation and applicable qualification evidence. |
-| DOGFOOD-04 | Examples and fixtures reuse or extend matching Lean and Mathlib definitions; custom mathematical definitions state their meaning and why existing ones do not fit. | Compare custom structures with the pinned libraries; review proof reuse where it simplifies the argument. |
-| DOGFOOD-05 | The complete application enforces its explicit required propositions. | Inspect `RequiredContracts` and `Main`'s call through `checked_executable.run`; the diagnostic campaign's `app-omitted-exe`, `app-unproved-update`, `app-trivial-update`, `app-weakened-update`, `app-missing-contract-field` and `app-weakened-admission` mutations each fail for their intended reason, with a fresh restored control. |
+| ID | Required result | Normative source | Required Lean-specific verification |
+| --- | --- | --- | --- |
+| DOGFOOD-01 | The repository's own claimed Lean surfaces (above) satisfy every applicable row of the standard's checklist. | [Repository conformance](#repository-conformance) | Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. |
+| DOGFOOD-02 | Intentionally invalid fixtures are isolated from the positive elaborated environment. | [§7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics), [Repository conformance](#repository-conformance) | Reconcile exact imported project modules. Qualification includes a contamination mutation. |
+| DOGFOOD-03 | Normative prose, representative Lean fixtures, checker diagnostics, and status text make no stronger claim than the same verified property. | [§1.6](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#16-claim-boundaries-and-automated-checking), [Repository conformance](#repository-conformance) | Compare advertised capabilities with the checked implementation and applicable qualification evidence. Diagnostic qualification does not prove the checker is universally correct. |
+| DOGFOOD-04 | Examples and fixtures reuse or extend matching Lean/Mathlib mathematical definitions. Custom mathematical definitions state their meaning and why existing definitions do not fit; proofs follow the economy guidance in §3.2.5. | [§1.4](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#14-principled-mathematical-modeling), [§3.2.5](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#325-proof-economy-four-cost-domains-and-one-trust-question) | Compare custom mathematical structures, classes, and aliases with the pinned libraries and inspect required justifications. Review proof reuse where it simplifies the argument. A domain definition or teaching proof does not need a claim that no library theorem exists. |
+| DOGFOOD-05 | The complete application enforces its explicit required propositions: omitting executable classification, removing or weakening required evidence while its proposition remains, or weakening admission fails the gate. Semantic review rejects a narrowed requirement set or bypassed application linkage. | [§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations), [Repository conformance](#repository-conformance) | Inspect `RequiredContracts`, its evidence, and `Main`'s call through `checked_executable.run` to `executeChecked` for adequacy and completeness. The diagnostic campaign includes `app-omitted-exe`, `app-unproved-update`, `app-trivial-update`, `app-weakened-update`, `app-missing-contract-field`, and `app-weakened-admission`, each with its intended diagnostic and a fresh restored control. |
 
-A repository conformance claim also records what the standard's result rule requires and states
-which rows it covers; a scoped review does not establish full conformance.
+A repository conformance claim records what [Develop and verify](#develop-and-verify) lists and
+follows the standard's [result rule](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/#result-rule), stating which rows it
+covers; a scoped review does not establish full conformance.
 
 ## Follow the Lean community's conventions
 

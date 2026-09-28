@@ -414,8 +414,6 @@ A conformance conclusion MUST identify the audited surfaces, cite this matrix by
 * *FAIL*: at least one row is violated; or
 * *INCOMPLETE*: no violation has been established, but required evidence is missing, unknown, skipped, unsupported, timed out, or still running.
 
-The conclusion MUST also record the Lean version, the exact dependency source state (including Mathlib when present), the claimed Lake modules, declaration coverage and exact axiom results, execution boundaries, the applicable fence and checker-qualification results, and any failures or missing evidence. Command evidence does not complete the matrix: theorem, type, and prose rows still require semantic review, and a skipped required check leaves its affected row or optional claim `INCOMPLETE`.
-
 When a violation and missing evidence coexist, report `FAIL` and identify both. A scoped review may report findings and evidence for selected rows, but it MUST state that scope and MUST NOT present those results as full conformance.
 
 Applicability is determined only by the Lean-specific condition stated in the row, not by project preference. `INCOMPLETE` is not partial compliance and cannot support a conformance claim.

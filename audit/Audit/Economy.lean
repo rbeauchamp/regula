@@ -36,8 +36,9 @@ elaborate, replay, and compile, not about the arithmetic identity.
 
 **Performance interface.** `closedSumWithProof` returns `closedSum n` with the exact
 Gauss relation as an erased proof, reusing `sumTo_eq_closedSum` and
-`two_mul_sumTo`. It connects the performance chapter to executable evidence
-without duplicating the chapter's teaching functions.
+`two_mul_sumTo`. It connects the performance-notes guide
+(`docs/guides/performance-notes.md`) to executable evidence without duplicating
+the guide's teaching functions.
 
 **Lawful mixin.** `Flourishable` holds operations only; `LawfulFlourishable`
 is a `Prop`-valued mixin that holds every law. A generic claim that uses a

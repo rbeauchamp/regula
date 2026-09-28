@@ -13,7 +13,7 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaPolicy` | Pure policy: domain types, admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
+| `RegulaPolicy` | Pure policy: domain types, admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
 | `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
 | `RegulaQualification` | Pure observation oracles for qualification campaigns. | Claimed |
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and local provisioning. | Claimed |
@@ -115,11 +115,15 @@ lake exe axiomGate --file Example.lean --claim standard-logical --json-out tmp/r
 lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
-Each export is versioned on its own; the surface manifest is schema 2. Registry and result
-envelopes carry `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision`.
-`producerVersion` is captured when `ResultProtocol` is elaborated, with Git anchored to the
-checker package's own directory; unreleased builds are marked. It is build metadata, not
-authenticated binary identity.
+Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
+result schema 3, the worker packet schema 1, the rule-example corpus export schema 1, the
+acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
+`schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
+`Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
+(`unreleased` for an unreleased build), and `sourceRevision` is the checker source's Git revision,
+captured when `Regula.Checker.Producer` is elaborated with Git anchored to the checker package's
+own directory and suffixed `:unreleased-worktree` when that worktree had changes. Both are build
+metadata, not authenticated binary identity.
 
 - **Registry, schema 4:** the canonical `rules`, whose `normativeClauses` are
   `{section, title, source, url}` objects. `parseDescriptor` compares input with canonical
@@ -184,21 +188,55 @@ or an unchanged `Example.lean` with a changed dependency (RG1003) or configurati
 RG2002, RG2006) pair; RG2006's pair is the package's `lakefile.lean`, to which the run appends the
 `require` line of its producer slot. [`corpus.json`](../../examples/rules/corpus.json) fixes each
 phase's invocation, evidence mode, expected IDs, subreasons, message patterns, subjects and full
-primary locations before execution. Keep a pair's `correction` sentence and its fixtures in the
+primary locations before execution; its [README](../../examples/rules/README.md) gives the
+authoring rules and placeholders. Keep a pair's `correction` sentence and its fixtures in the
 same change.
 
 `Website.ExampleExpectation` has exactly four accepted kinds: positive, compiler rejection (one
 effective error matching the restricted pattern), policy rejection (the expected findings, none
 extra; RG1001's source elaborates and is then rejected) and trusted teaching. RG2001, RG2005 and
 RG3001 instead have **diagnostic demonstrations** of unavailable analysis: completed, authentic
-production of the expected INCOMPLETE finding, outside the four kinds, never accepted evidence.
+production of the expected INCOMPLETE finding with the exact source, configuration, mode, rule,
+reason and locations, outside the four kinds, never accepted evidence. A crash, missing response,
+stale source or unrelated error is not a demonstration, and no rule can become conforming by
+expecting its own unavailability; each corrected counterpart runs its applicable completed
+positive checks. If the initial configuration read fails, the result keeps the original IO
+diagnostic as RG2001, incomplete, with an empty source account and a null effective
+configuration; it cannot qualify as an example or a demonstration. After that read succeeds,
+early terminal failures keep the producer's request and any configuration captured before the
+failure.
 
 The runner (`Regula.Qualification.RuleExamples`) copies each phase byte for byte into its own
-fresh Core-only adopter workspace (standard §7.8's fresh-workspace form), runs at most five
-detector invocations concurrently and consumes evidence in registry and phase order;
-`Checker.RuleExampleQualification` admits every record. The full corpus is 47 productions (44
-Fixed/Violation phases plus 3 refusal controls), 3 individual control admissions and one corpus
-admission of every record.
+fresh Core-only adopter workspace (standard §7.8's fresh-workspace form) with empty root build
+output and unique result paths, checks source and configuration readback, runs at most five
+detector invocations concurrently and consumes evidence in registry and phase order. File
+fixtures are separate from the warning-free positive library used to prepare dependencies. The
+adapters reuse `SourceBinding.withUnchanged`, typed `SourceAudit` outcomes and the documentation
+driver's frozen snapshots and serialize only after snapshot checks complete, so a typed refusal
+or process exception cannot become a qualifying example. The producer captures its own parsed
+invocation and effective configuration, including absent files and Lake package overrides;
+copied configuration paths are compared relative to their recorded roots without rewriting
+source or diagnostic identities, a changed effective package override is refused, and neither
+configuration relocation nor a combined `--with-docs` request is authorized. The campaign applies
+`ResultProtocol.admitGuidance` to every result it admits.
+
+An export (corpus schema 1) records the exact sources, commands, original compiler output,
+canonical results, expected locations, mode and checker build identity, the exact checker source
+bytes before and after the campaign, the admission controls and whether the selection is the
+complete corpus; unrun selected rules are never a complete-corpus pass. The qualifier
+(`Checker.RuleExampleQualification`) checks the selection against the closed registry, requires
+both phases of each selected rule once, and is the single admission of every canonical record;
+by `qualify_sound` it refuses, among others, a demonstration relabelled to another rule while
+keeping its findings, and a record whose observed sources are not in its bound snapshot, whose
+displayed source is stale or whose required source account was dropped. Three refusal controls are admitted individually and must be refused:
+`RG1005/WrongClaim`, authentic Standard-Logical output of RG1005's violation refused against its
+frozen Kernel-only request; and `RG4004/TrustedControl` and `RG4004/NegativeControl`, a
+trusted-teaching fence and a compiler-rejection fence that complete as `classified` and are
+refused as a positive documentation correction. The full corpus is 47 productions (44
+Fixed/Violation phases plus these 3 controls), 3 individual control admissions and one corpus
+admission of every record. These controls qualify the adapters; the universal data predicates
+and their proofs remain distinct from observed process behavior. Version fields alone do not
+authenticate whole binaries; the producer and filesystem remain trusted.
 
 ```sh
 lake build axiomGate ruleExamples ruleExampleQualification qualify
@@ -206,10 +244,15 @@ lake exe qualify rule-examples --evidence tmp/rule-examples.json
 ```
 
 `--rules RG1001 RG1002` after the evidence path scopes a development run; `--shard K/N` selects
-every rule at corpus position K − 1 modulo N, keeping RG5002 with RG5001. CI runs the two shards
-through `./scripts/verify.sh diagnostics rule-examples 1/2` and `2/2`, and the site build admits
-both exports again. The corpus is qualification, not acceptance, and no website, editor or
-full-project claim follows from it alone.
+every rule at corpus position K − 1 modulo N, keeping RG5002 with RG5001 so their shared
+fresh-project theorem-type check still runs (`mem_selectRules_shard`,
+`mem_selectRules_some_shard`, `rg5001_rg5002_same_shard`). CI runs the two shards through
+`./scripts/verify.sh diagnostics rule-examples 1/2` and `2/2`, and the site build admits both
+exports again. The `ruleExamples` and `ruleExampleQualification` executables are excluded in the
+root manifest solely as operational qualification tooling of the excluded `Regula` library; no
+product module or detector is exempted from its applicable qualification. The corpus is
+qualification, not acceptance, and no website, editor, serialized-graph or full-project claim
+follows from it alone.
 
 ## Rule reference site
 
@@ -231,7 +274,7 @@ the rows whose review or mechanical check the clauses feed, not that those rows 
 | 1.3–1.6 | SCOPE-02–05, TYPE-02/05, THEOREM-01/07/08, DOC-01/02, DECL-01–04, COMP-01–04. Explicit constrained parameters fall under TYPE-01/02 and THEOREM-01/03. |
 | 2.1–2.4 | TYPE-01–06, SCOPE-03, THEOREM-03/07/08. Tags, totalized domains, assumptions, reuse and refinement have distinct obligations. |
 | 3.1–3.5 | THEOREM-01–06/10, TYPE-03/05, FOUND-01–05, DOC-01/02. Proof readability and economy recommendations are review guidance, not mandatory tactic or size rules. |
-| 3.6–3.8 | COMP-01–04, SCOPE-03/05, THEOREM-01/03/05/07, BUILD-02/03. Metaprogram output validity is not producer correctness; an optimization must preserve the contract ([performance notes](performance-notes.md) are guidance). |
+| 3.6–3.8 | COMP-01–04, SCOPE-03/05, THEOREM-01/03/05/07, BUILD-02/03. Metaprogram output validity is not producer correctness; §3.6 requires an optimization to preserve the contract it optimizes ([performance notes](performance-notes.md) are guidance). |
 | 3.9–3.10 | THEOREM-04/08/09, SCOPE-02/03, DOC-02, FOUND-01/02. Conditional and open claims are not rejected for lacking an antecedent witness. |
 | 4.1–4.4 | TYPE-01–05, THEOREM-01/02/07/08, SCOPE-02/03. Numeric and mathematical-interface adequacy are specified-domain obligations. |
 | 4.5 | FOUND-01–05, BUILD-02, COMP-01. The exact least label is reported separately from the selected maximum and from executable witnesses. |

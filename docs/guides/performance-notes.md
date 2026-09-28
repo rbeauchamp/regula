@@ -1,11 +1,13 @@
 # Performance notes
 
-Practical guidance for efficient Lean code. These notes add no conformance rules: the
-standard's normative requirement is that an optimization preserves the contract it optimizes
-([§3.6](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#36-contracts-for-executable-and-effectful-mechanisms),
-[§3.2.5](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#325-proof-economy-four-cost-domains-and-one-trust-question)).
-A faster implementation of a different specification is not an optimization of the original:
-keep the intended result, input domain, error behavior and relevant ordering of effects.
+Practical guidance for efficient Lean code. These notes add no conformance rules. The
+standard's normative requirement is in
+[§3.6](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#36-contracts-for-executable-and-effectful-mechanisms):
+an optimization preserves the intended result, input domain, error behavior and relevant
+ordering of effects, and a faster implementation of a different specification is not an
+optimization of the original contract. These notes complement
+[§3.2.5 on proof economy](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#325-proof-economy-four-cost-domains-and-one-trust-question)
+and do not replace the correctness, foundation or execution-boundary rules of §3.6.
 
 Efficient Lean code usually comes from choosing an appropriate representation and algorithm,
 letting the runtime reuse storage, and avoiding work the result does not need. Start with the
