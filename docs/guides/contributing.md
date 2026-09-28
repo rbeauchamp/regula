@@ -360,38 +360,52 @@ Regula release. Every step is a command of
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of
 `main` and of a pull request, which the first step of the required `verify` check enforces
 (`lean --run lean/Regula/Release.lean unreleased`). The only build labelled a release is the
-release commit that CI creates beside `main` and tags, and the site build refuses a release label
-on any commit its tag does not name (`labelAdmitted_release_iff`):
+release commit that CI creates beside `main`, and the site build refuses a release label once
+the release's tag names another commit (`labelAdmitted_release_iff`). Nothing public exists
+until the release commit has passed the same checks as `main`:
 
 1. **open** ([`release.yml`](../../.github/workflows/release.yml)) creates the commit of the
    release pull request, a child of the `main` commit the workflow runs on that appends the
-   release to `Regula.releases` and stamps it into every rule lifecycle position still
-   `.unreleased` ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a
-   line that starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new
-   rule states `lifecycle := .active .unreleased`, and a rule retired since the last release
-   states `lifecycle := .retired (.release ⟨X, Y, Z⟩) .unreleased replacement` on one line.
-   `Regula.installed` stays `.unreleased`. GitHub creates and signs the commit, and the step
-   refuses unless GitHub verified the signature. It pushes the commit as `release/v<version>` and
-   writes to its job summary the link that opens the pull request `release: Regula v<version>`,
-   title and description filled in. A maintainer opens the pull request from that link, which
-   starts its checks, and merging it through normal review is the decision to release. Until the
-   release is published, the `site` check of this pull request, like the site build of every
-   commit that lists the release, refuses: the release's edition exists only once CI builds it
-   from the release commit. Only `verify` is a required check.
-2. **tag** (`ci.yml`, the `tag` job on `main`): once acceptance and both rule-example shards pass
-   on a commit of `main` that lists a release not yet published, it creates the release commit, a
-   signed child of that commit that is not on `main` and whose only change sets
-   `Regula.installed` to the release, and names it `v<version>`. `release_attributes_rules` is
-   the check on it: when `Regula.installed` is a release, no lifecycle position of any rule is
-   `.unreleased`, so a release commit that misses one does not build, and the step refuses such a
-   `main` before creating one. The `release-site` job then runs both rule-example shards and the
-   site build on the release commit, which renders the release's edition and writes it as
+   release to `Regula.releases` and stamps it into rule lifecycle positions still `.unreleased`
+   ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a line that
+   starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new rule states
+   `lifecycle := .active .unreleased`, and a rule retired since the last release states
+   `lifecycle := .retired (.release ⟨X, Y, Z⟩) .unreleased replacement` on one line. The stamp is
+   a convenience that reads text; the guarantee is the kernel's check of
+   `release_attributes_rules` on the release commit (step 2). `Regula.installed` stays
+   `.unreleased`. GitHub creates and signs the commit, and the step refuses unless GitHub verified
+   the signature. It pushes the commit as `release/v<version>` and writes to its job summary the
+   link that opens the pull request `release: Regula v<version>`, title and description filled
+   in. A maintainer opens the pull request from that link, which starts its checks, and merging
+   it through normal review is the decision to release. Until the release is published, the
+   `site` check of this pull request, like the site build of every commit that lists the release,
+   refuses: the release's edition exists only once CI builds it from the release commit. Only
+   `verify` is a required check.
+2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
+   shards pass on a commit of `main` that lists a release not yet published, it creates the
+   release commit, a signed child of that commit that is not on `main` and whose only change sets
+   `Regula.installed` to the release, and points the branch `release/v<version>-candidate` at it,
+   from which the next jobs check it out. They run on it, with its release label, the checks of
+   `main`: `release-verify` both acceptance steps, and `release-site` both rule-example shards and
+   the site build, which renders the release's edition and writes it as
    `regula-site-<version>.tar.gz` ([versions](website.md#versions-and-routes)).
-3. **publish** (`ci.yml`, the `publish` job) creates the GitHub release with its notes (how to
-   require, set up and update, then GitHub's generated list of changes) and that edition as its
-   asset, published only once the asset is attached. Immutable releases, a repository setting
-   that is on, then freeze the tag and the asset. The site build of `main` runs after it and takes
-   the release's edition from the asset, and `deploy` publishes `/dev/` and `/v/<version>/`.
+   `release_attributes_rules` is the gate: when `Regula.installed` is a release, no lifecycle
+   position of any rule is `.unreleased`, so a release commit that misses one, however it is
+   written, fails to build.
+3. **publish** (`ci.yml`, the `publish` job), only once all of those checks pass, creates the
+   GitHub release with its notes (how to require, set up and update, then GitHub's generated list
+   of changes) and that edition as its asset, published only once the asset is attached.
+   Publishing creates the tag `v<version>` at the release commit; no step writes the tag
+   otherwise, so a failed check leaves no tag and no release. Immutable releases, a repository
+   setting that is on, then freeze the tag and the asset. The site build of `main` runs after it
+   and takes the release's edition from the asset, and `deploy` publishes `/dev/` and
+   `/v/<version>/`.
+
+Each job keeps the budget of the job on `main` it repeats: `candidate` and `publish` 30 minutes
+each; `release-verify` 45 minutes, like `verify`, with each `verify.sh` step under its own
+420-second deadline; and `release-site` 90 minutes, which covers the two 30-minute
+`rule-examples` shards and the 45-minute `site` build run one after another, each `verify.sh`
+step again under its own deadline.
 
 Nothing follows the release: `main` stays unreleased, so there is no reset to merge. Adopters
 require the tag, and Lake fetches a dependency's tags with the repository, so a tag whose commit
@@ -399,24 +413,25 @@ is not on `main` resolves like any other.
 
 Other pull requests still merge during a release. The release is cut from whichever head of
 `main` that lists it first completes the whole chain: until the release is published, each run
-of **tag** on the head of `main` creates a fresh release commit on it and creates the tag there
-or moves it there, so a run that a later merge cancelled needs no repair, and a re-run of CI on
-`main` finishes the release. Once the release is published, the tag never changes and **tag**
-releases nothing. The decision is `Regula.Release.tagAction`, whose theorems the kernel checks
-each time the step runs (`tagAction_converges`, `tagAction_published` and the exact cases of each
-action). If a pull request that adds or retires a rule merges to `main` before the release is
-published, **tag** refuses, because its `.unreleased` lifecycle position would make the release
-commit fail `release_attributes_rules`: run the Release workflow on `main` again as a new run,
-whose **open** stamps that rule too, rebuilding the release branch while its pull request is
-open, or preparing a new pull request from it once the first has merged. A re-run of the Release
-workflow reuses its original commit, so it stamps nothing new.
+of **candidate** on the head of `main` creates a fresh release commit on it, so a run that a
+later merge cancelled needs no repair, and a re-run of CI on `main` finishes the release. Once
+the release is published, nothing changes. The decision of **candidate** and **publish** is
+`Regula.Release.tagAction`, whose theorems the kernel checks each time a step runs
+(`tagAction_converges`, `tagAction_published` and the exact cases of each action). If a pull
+request that adds or retires a rule merges to `main` before the release is published, its
+`.unreleased` lifecycle position makes the release commit fail `release_attributes_rules` in
+`release-verify` and `release-site`, and nothing is published: run the Release workflow on
+`main` again as a new run, whose **open** stamps that rule too, rebuilding the release branch
+while its pull request is open, or preparing a new pull request from it once the first has
+merged. A re-run of the Release workflow reuses its original commit, so it stamps nothing new.
 
 Each step resumes when its job is re-run: **open** rebuilds its branch on the commit its run
-started from; **tag** creates a fresh release commit, refuses a stale run whose commit is no
-longer the head of `main` while the release is unpublished, and refuses a `lean-toolchain` that
-is not the release's; and **publish** replaces an unpublished draft and skips a published
-release. **open** refuses a published release, an earlier listed release not yet published, and
-a `main` that already lists the release with nothing left to stamp.
+started from; **candidate** creates a fresh release commit and refuses a `lean-toolchain` that is
+not the release's; and **publish** replaces an unpublished draft and skips a published release.
+While the release is unpublished, **candidate** and **publish** refuse a stale run whose commit
+is no longer the head of `main` and a tag that names another commit. **open** refuses a
+published release, an earlier listed release not yet published, and a `main` that already lists
+the release with nothing left to stamp.
 
 Who opens the pull request, and when its checks start: a maintainer opens it from the link in the
 job summary of **open**, and opening it starts its checks. No workflow creates a pull request,

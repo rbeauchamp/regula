@@ -152,31 +152,35 @@ CI runs on every pull request and on `main`:
    on `main`, carries a release label.
 2. `rule-examples` (two shards): the corpus campaign; each uploads its export. The diagnostics
    workflow also runs both shards nightly on `main`.
-3. `tag` (`main` only, after `verify` and `rule-examples`): when `main` lists a release that is
-   not yet published and this commit is still the head of `main`, creates the release commit (a
-   signed child of this commit whose only change sets `Regula.installed` to the release), creates
-   tag `v<version>` there or moves it there, and outputs it; once the release is published it
-   releases nothing ([release](contributing.md#release)).
-4. `release-site` (only when `tag` output a release commit): both rule-example shards and
-   `./scripts/verify.sh site` on the release commit, whose tag names it, so its site build renders
-   the release's edition and writes it; it is uploaded as `site-release-<release commit>`.
-5. `publish` (after `release-site`): publishes the GitHub release `v<version>` with that edition
-   as its permanent asset. The tag then never changes.
-6. `site` (after `rule-examples`, and after `tag` and `publish` passed or were skipped): builds
-   the site tooling, then `./scripts/verify.sh site` over this run's exports, and uploads the
-   checked `_site/` as `site-<commit>` (preview). Running after `publish`, it takes a release's
+3. `candidate` (`main` only, after `verify` and `rule-examples`): when `main` lists a release that
+   is not yet published and this commit is still the head of `main`, creates the release commit (a
+   signed child of this commit whose only change sets `Regula.installed` to the release), points
+   `release/v<version>-candidate` at it and outputs it; once the release is published it releases
+   nothing ([release](contributing.md#release)). No tag exists yet.
+4. `release-verify` (only when `candidate` output a release commit): both acceptance steps on the
+   release commit, with its release label.
+5. `release-site` (only when `candidate` output a release commit): both rule-example shards and
+   `./scripts/verify.sh site` on the release commit, whose tag does not exist yet, so its site
+   build renders the release's edition and writes it; it is uploaded as
+   `site-release-<release commit>`.
+6. `publish` (only after `release-verify` and `release-site` passed): publishes the GitHub
+   release `v<version>` with that edition as its permanent asset, which creates the tag at the
+   release commit. The tag then never changes.
+7. `site` (after `rule-examples`, and after `candidate` and `publish` passed or were skipped):
+   builds the site tooling, then `./scripts/verify.sh site` over this run's exports, and uploads
+   the checked `_site/` as `site-<commit>` (preview). Running after `publish`, it takes a release's
    edition from the asset published in the same run. On `main` only, `Deployment gate` refuses an
    artifact built from uncommitted changes, from another commit than `GITHUB_SHA`, or with a
-   release edition rendered from source by a build whose commit that release's tag does not name
-   (the build's recorded value of `Regula.publishable`), and the checked `_site/` is then
-   uploaded as the Pages artifact. Pull requests never publish.
-7. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
+   release edition rendered from source instead of taken from its asset (the build's recorded
+   value of `Regula.publishable`), and the checked `_site/` is then uploaded as the Pages
+   artifact. Pull requests never publish.
+8. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
    (default token, `contents: read`) whether this commit is still the head of `main` and refuses
    otherwise; then `actions/deploy-pages` publishes exactly the validated artifact to the
    `github-pages` environment (which allows `main` only). Only this job has `pages: write` and
    `id-token: write`; it runs no checkout, provisioning or project code, so nothing it could
    fetch and execute can use its OIDC token.
-8. `verify-deployment`: `Deployment verify` fetches the live `build.json` with a per-attempt
+9. `verify-deployment`: `Deployment verify` fetches the live `build.json` with a per-attempt
    query string until it equals the artifact's bytes, then requires the home page of every
    edition, every development rule page and every release edition's `build.json` to be served
    with the artifact's exact bytes, and an unpublished route to return the artifact's `404.html`
@@ -216,35 +220,37 @@ absent; any other failure refuses) and, when it exists, takes that release's edi
 never renders it again (`Regula.releaseSource`, `releaseSource_asset_iff`). It refuses an
 unreadable archive, a symbolic link, a copy without a home page, and a copy whose `build.json`
 does not record a clean build of that release for this site. A build renders a release's edition
-from source only while no asset exists, and only as a build of that release whose commit its tag
-`v<version>` names (`releaseSource_render_iff`): the release commit. Any other build refuses a
-release without an asset, so a release edition cannot silently drop out of a deployment or be
-replaced; until a release is published, that includes the site build of the release pull request
-and of every commit that lists the release. A build whose `installed` is a release refuses unless
-that tag names its commit (`labelAdmitted_release_iff`), so no commit of `main` or of a pull
-request can carry a release label; the tag is read with `git ls-remote` because CI checkouts have
-no tags. Publication needs the tagged build: the build records in `build.json` whether its
-artifact is `publishable` (no release edition rendered from source unless its commit is the one
-the tag names), `Deployment gate` refuses an artifact that is not, and only such a clean build
-writes the release asset. That the asset stays the one attached at release rests on GitHub:
-immutable releases, a repository setting that is on, forbid changing a published release's tag or
-assets.
+from source only while no asset exists, only as a build of that release, and only while its tag
+`v<version>` is absent or names the build's commit (`releaseSource_render_iff`): in CI, the
+release commit before publication. Any other build refuses a release without an asset, so a
+release edition cannot silently drop out of a deployment or be replaced; until a release is
+published, that includes the site build of the release pull request and of every commit that
+lists the release. A build whose `installed` is a release refuses once that tag names another
+commit (`labelAdmitted_release_iff`); the tag is read with `git ls-remote` because CI checkouts
+have no tags. That no commit of `main` or of a pull request carries a release label is the first
+step of `verify`. A deployment serves every release edition from its asset: the build records in
+`build.json` whether its artifact is `publishable` (no release edition rendered from source), and
+`Deployment gate` refuses an artifact that is not. Only a clean build that rendered its release's
+edition writes it as the release asset, and CI attaches it only once every check of that release
+commit has passed. That the asset stays the one attached at release rests on GitHub: immutable
+releases, a repository setting that is on, forbid changing a published release's tag or assets.
 
 A release takes these steps, in order ([release procedure](contributing.md#release)):
 
 1. The Release workflow pushes the branch of the release pull request, which a maintainer opens
    from the link in the job summary. Its commit appends the release to `Regula.releases`
-   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) and stamps it into every rule
-   lifecycle position still `.unreleased`; `Regula.installed` stays `.unreleased`.
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) and stamps it into rule lifecycle
+   positions still `.unreleased`; `Regula.installed` stays `.unreleased`.
 2. When it merges, CI on `main`, once acceptance and the rule-example shards pass, creates the
    release commit, a child of the head of `main` that is not on `main` and whose only change sets
-   `Regula.installed` to the release, and tags it `v<version>`. That commit's site build renders
-   the release's edition, so it is publishable, and writes
+   `Regula.installed` to the release, and runs both acceptance steps, both rule-example shards
+   and the site build on it. Its site build renders the release's edition and writes
    `tmp/site-release/regula-site-<version>.tar.gz`, kept as the `site-release-<release commit>`
    artifact of that run. Other pull requests still merge meanwhile; until the release is
-   published, each run on the head of `main` tags a fresh release commit on it.
-3. CI attaches that file to the GitHub release `v<version>` as its permanent asset and publishes
-   the release. The tag then never changes.
+   published, each run on the head of `main` creates a fresh release commit on it.
+3. Once all of those checks pass, CI attaches that file to the GitHub release `v<version>` as its
+   permanent asset and publishes the release, which creates the tag at the release commit. The
+   tag then never changes.
 4. The site build of `main` then takes the release's edition from the asset, and the deployment
    publishes `/v/<version>/`; `dev/` keeps the development label. Every later build takes the
    release's edition from the asset.

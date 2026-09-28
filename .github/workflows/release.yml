@@ -4,8 +4,9 @@ name: Release
 # Its version is the Lean release in lean-toolchain, the Lean ecosystem's tag convention. It pushes
 # the branch of the release pull request, which lists the release and stamps it into the rules; a
 # maintainer opens that pull request from the link in the job summary. Once it merges, ci.yml on
-# main creates the release commit, tags it, builds its site edition and publishes the release. No
-# workflow creates a pull request. Every step is lean/Regula/Release.lean.
+# main creates the release commit, runs main's checks on it and, once they pass, publishes the
+# release, which creates its tag. No workflow creates a pull request. Every step is
+# lean/Regula/Release.lean.
 on:
   workflow_dispatch:
 
@@ -18,7 +19,7 @@ concurrency:
 
 jobs:
   # Create the commit of the release pull request (main's commit with the release appended to
-  # Regula.releases and stamped into every rule lifecycle position still .unreleased;
+  # Regula.releases and stamped into each .unreleased on a `lifecycle :=` line;
   # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, push it as
   # release/v<version> and write the link that opens its pull request to the job summary. When that
   # pull request is already open, dispatch ci.yml on the rebuilt branch, whose push with this

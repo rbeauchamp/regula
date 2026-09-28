@@ -13,8 +13,8 @@ lean --run lean/Regula/Site/Deployment.lean verify ARTIFACT_DIR  # after deployi
 `gate` requires the artifact to be a clean build of `GITHUB_SHA`, so a build from uncommitted
 changes or of another commit is never published, and requires the recorded `publishable` to be
 `true`: the site build computes it with the proved `Regula.publishable` from how it obtained each
-release edition and whether its commit is the one the release's tag names, and its artifact check
-requires `build.json` to be exactly that record. The privileged deploy job separately refuses
+release edition (every one from its release asset, none rendered from source), and its artifact
+check requires `build.json` to be exactly that record. The privileged deploy job separately refuses
 unless `main` is still at `GITHUB_SHA`, so a re-run of an older run cannot publish over a newer
 revision.
 
@@ -62,8 +62,7 @@ def gate (artifact : FilePath) : IO Unit := do
   unless (← str build "revision") == sha do
       fail s!"the artifact is for {← str build "revision"}, not {sha}"
   unless (← field build "publishable") == .bool true do
-      fail "a release edition was rendered from source by a build whose commit its release tag \
-        does not name"
+      fail "a release edition was rendered from source instead of taken from its release asset"
   IO.println s!"deployment gate: PASS (clean artifact of {sha})"
 
 /-- Post-deployment observation of the site at `pageUrl`: the artifact must be a clean build
