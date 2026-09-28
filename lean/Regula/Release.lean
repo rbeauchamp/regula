@@ -9,6 +9,7 @@ The steps of a Regula release, run with the pinned toolchain alone, so they need
 lean --run lean/Regula/Release.lean open        # push the branch of the release pull request
 lean --run lean/Regula/Release.lean unreleased  # refuse a release label on main or a pull request
 lean --run lean/Regula/Release.lean candidate   # create the release commit for CI to check
+lean --run lean/Regula/Release.lean adopt       # derive it on main's commit, prove it, adopt it
 lean --run lean/Regula/Release.lean publish     # publish the checked release, creating its tag
 ```
 
@@ -34,7 +35,10 @@ yet published, `candidate` creates the release commit, a signed child of that co
 on `main` and whose only change sets `Regula.installed` to the release, and points the branch
 `release/v<version>-candidate` at it. CI then runs on the release commit, with its release label,
 the same checks as on `main`: both acceptance steps, both rule-example shards and the site build,
-which renders the release's edition and writes it as the release asset. The kernel's check of
+which renders the release's edition and writes it as the release asset. The jobs that run them
+check out the commit of `main` itself, derive the release commit's content there with `main`'s
+own code, and adopt the release commit's name only once they have shown that it is exactly that
+content (`adopt`). The kernel's check of
 `release_attributes_rules` there is what guarantees that no rule lifecycle position is still
 `.unreleased`. Only once all of them pass does `publish` create the GitHub release with the notes
 and that asset, published only once the asset is attached; publishing creates tag `v<version>`
@@ -60,9 +64,10 @@ longer the head of `main` and a tag that names another commit.
 
 ## Boundaries
 
-GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions) is trusted and
-observed, not proved. `tagAction` is the decision the candidate and publish steps execute, and its
-theorems are checked by the kernel each time `lean --run` elaborates this file; what the steps
+GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions) and `git` (the
+tree it writes, the objects it fetches and its resets) are trusted and observed, not proved.
+`tagAction` is the decision the candidate and publish steps execute, and its theorems are
+checked by the kernel each time `lean --run` elaborates this file; what the steps
 observe (whether the release is published, the head of `main`, the tag), that publishing a release
 creates its tag at the given commit, and the order of CI's jobs are GitHub's. The edits of
 `RegulaCore/Edition.lean` and `RegulaCore/Rule.lean` are text: `open` and `candidate` read their
@@ -189,6 +194,17 @@ def withEdition (edition : String) (build : Option Version) (versions : List Ver
   unless (← installedOf result) == build && (← releasesOf result) == versions do
     throw "the edited RegulaCore/Edition.lean does not read back as intended"
   return result
+
+/-- The `RegulaCore/Edition.lean` of the release commit of release `v` on a commit of `main` whose
+`RegulaCore/Edition.lean` is `edition`, listing `listed`, and whose `lean-toolchain` is
+`toolchain`: `edition` with `installed` set to `v`. Refuses a release whose Lean release is not
+`toolchain`'s. `candidate` commits it (`releaseCommit`) and `adopt` derives it in its workspace,
+both through this one function. -/
+def releaseEdition (edition toolchain : String) (listed : List Version) (v : Version) :
+    Except String String := do
+  unless toolchainVersion toolchain == some v do
+    throw s!"lean-toolchain is {toolchain.trimAscii}, not the Lean release of {v.tag}"
+  withEdition edition (some v) listed
 
 /-! ## The release decision
 
@@ -317,6 +333,10 @@ def releaseOf (repo tag : String) : IO (Option Json) := do
 def published (repo tag : String) : IO Bool := do
   return (← releaseOf repo tag).any fun r => r.getObjValD "draft" != .bool true
 
+/-- The tree of commit `sha`, as GitHub reads it back. -/
+def commitTree (repo sha : String) : IO String := do
+  str (← IO.ofExcept ((← ghGet s!"repos/{repo}/git/commits/{sha}").getObjVal? "tree")) "sha"
+
 /-- `RegulaCore/Edition.lean` at commit `sha`. -/
 def editionAt (repo sha : String) : IO String :=
   gh #["api", "-H", "Accept: application/vnd.github.raw",
@@ -342,6 +362,8 @@ def filesCommit (repo parent : String) (files : List (String × String)) (messag
   let verified := (commit.getObjValD "verification").getObjValD "verified"
   unless verified == .bool true do
     fail s!"GitHub did not verify the signature of the commit {sha}"
+  unless (← commitTree repo sha) == (← str tree "sha") do
+    fail s!"the commit {sha} does not have the tree it was created with"
   return sha
 
 /-- A signed commit on `parent` that replaces `RegulaCore/Edition.lean` with `edition`. -/
@@ -509,11 +531,18 @@ def notes (v : Version) (repo : String) : String :=
 
 /-- Publish release `v<version>` of the release commit `RELEASE_COMMIT` once CI has checked it:
 attach the release edition its site build wrote and publish the release, which creates tag
-`v<version>` at that commit, as `tagAction` decides; a published release is left as it is. -/
+`v<version>` at that commit, as `tagAction` decides; a published release is left as it is.
+Refuses unless `VERIFIED_COMMIT` and `SITE_COMMIT`, the commits `adopt` adopted in
+`release-verify` and `release-site`, are `RELEASE_COMMIT`, so the tag names the commit the
+checked edition records. -/
 def publish : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
   let commit ← env "RELEASE_COMMIT"
+  for name in ["VERIFIED_COMMIT", "SITE_COMMIT"] do
+    let adopted ← env name
+    unless adopted == commit do
+      fail s!"{name} is {adopted}: the checks adopted another commit than {commit}"
   let some v ← IO.ofExcept (installedOf (← editionAt repo commit))
     | fail s!"{commit} is unreleased; there is nothing to publish"
   let tag := v.tag
@@ -557,33 +586,33 @@ rule lifecycle position is still `.unreleased` is not checked here: the kernel c
 def releaseCommit (repo head edition : String) (listed : List Version) (v : Version) :
     IO String := do
   let tag := v.tag
-  let toolchain ← IO.FS.readFile "lean-toolchain"
-  unless toolchainVersion toolchain == some v do
-    fail s!"lean-toolchain is {toolchain.trimAscii}, not the Lean release of {tag}"
-  editionCommit repo head (← IO.ofExcept (withEdition edition (some v) listed))
+  editionCommit repo head
+    (← IO.ofExcept (releaseEdition edition (← IO.FS.readFile "lean-toolchain") listed v))
     s!"release: Regula {tag} for Lean {tag}\n\nSets Regula.installed to the release. CI created \
       this release commit on {head}, the head of main; it is not on main, and publishing the \
       release {tag} after CI has checked it creates the tag here."
 
 /-- The candidate step, on the checked-out commit of `main` for its latest listed release: when
 `tagAction` proceeds, create a fresh release commit on it (`releaseCommit`) and point the branch
-`release/v<version>-candidate` at it, from which CI checks it out; leave a published release
-alone, and otherwise fail. Neither the tag nor the release exists yet. Writes the step output
-`release`: the release commit, empty when there is nothing to release. -/
+`release/v<version>-candidate` at it, whose commit `adopt` fetches; leave a published release
+alone, and otherwise fail. Neither the tag nor the release exists yet. Writes the step outputs
+`commit`, the release commit, and `tree`, its tree, both empty when there is nothing to
+release. -/
 def candidate : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
   let edition ← IO.FS.readFile editionFile
   let listed ← IO.ofExcept (releasesOf edition)
-  let some v := listed.getLast?
-    | output "release" ""; IO.println "main lists no release; there is nothing to release"
+  let nothing (reason : String) : IO Unit := do
+    output "commit" ""
+    output "tree" ""
+    IO.println reason
+  let some v := listed.getLast? | nothing "main lists no release; there is nothing to release"
   let tag := v.tag
   let tagged ← taggedCommit repo tag
   match tagAction (← published repo tag) ((← mainHead repo) == head)
       (if tagged.isSome then .other else .absent) with
-  | .skip =>
-    output "release" ""
-    IO.println s!"release {tag} is published; there is nothing to release"
+  | .skip => nothing s!"release {tag} is published; there is nothing to release"
   | .refuse =>
     if let some named := tagged then
       fail s!"tag {tag} names {named}, but release {tag} is not published; only publication \
@@ -591,23 +620,92 @@ def candidate : IO Unit := do
     fail s!"{head} is no longer the head of main; the run on main's head releases {tag}"
   | .release =>
     let commit ← releaseCommit repo head edition listed v
+    let tree ← commitTree repo commit
     let branch := s!"release/{tag}-candidate"
     pointBranch repo branch commit
-    output "release" commit
-    IO.println s!"created the release commit {commit} on {head} as branch {branch}; CI checks it \
-      before publishing {tag}"
+    output "commit" commit
+    output "tree" tree
+    IO.println s!"created the release commit {commit} (tree {tree}) on {head} as branch \
+      {branch}; CI checks it before publishing {tag}"
+
+/-- Run `git` with `args` in the checkout; its standard output without surrounding whitespace, or
+a failure with its standard error. -/
+private def git (args : Array String) : IO String := do
+  let out ← IO.Process.output { cmd := "git", args }
+  unless out.exitCode == 0 do fail s!"git {args}: {out.stderr}"
+  return out.stdout.trimAscii.toString
+
+/-- The values of the header fields `name` of the raw commit object `raw` (`git cat-file commit`),
+in order; the header ends at the first empty line, and a signature's continuation lines start
+with a space, so they never match. -/
+def commitFields (raw name : String) : List String :=
+  ((raw.splitOn "\n").takeWhile (!·.isEmpty)).filterMap fun line =>
+    (line.dropPrefix? (name ++ " ")).map (·.toString)
+
+/-- The adopt step of `release-verify` and `release-site`, which check out `main`'s commit
+`GITHUB_SHA` itself (no job output names what they check out) and are given `RELEASE_TREE`, the
+tree of the release commit `candidate` created on that commit. In order, refusing at the first
+mismatch:
+
+1. Derive the release commit's `RegulaCore/Edition.lean` in the workspace with
+   `releaseEdition`, from the workspace's own `Edition.lean` and `lean-toolchain`: the function
+   and inputs `candidate` committed (`releaseCommit`).
+2. Stage it; `git write-tree` must be `RELEASE_TREE`.
+3. Fetch only the commit that `release/v<version>-candidate` names, with the version from the
+   workspace's own `Edition.lean`; its tree must be `RELEASE_TREE` and its parents exactly
+   `[GITHUB_SHA]`.
+4. `git reset --soft` to it, which writes no file; the worktree must then be clean at it. Write
+   it as the step output `commit`.
+
+The correspondence: the content every later step builds and runs is `main`'s commit with the edit
+`main`'s own code derived. That tree is the release commit's tree, and the release commit's only
+parent is that same commit of `main`, so the release commit is exactly the content these jobs
+check. Its name is adopted only after that is shown, and no file comes from it, so every identity
+the checks record (the checker's compiled source revision, the site's revision and repository
+links, the release asset's `build.json`) names the release commit without any override. A mismatch
+fails the job, so `publish` does not run and no tag is written. -/
+def adopt : IO Unit := do
+  let head ← env "GITHUB_SHA"
+  let expected ← env "RELEASE_TREE"
+  let edition ← IO.FS.readFile editionFile
+  let listed ← IO.ofExcept (releasesOf edition)
+  let some v := listed.getLast? | fail "main lists no release; there is no release commit"
+  IO.FS.writeFile editionFile
+    (← IO.ofExcept (releaseEdition edition (← IO.FS.readFile "lean-toolchain") listed v))
+  discard <| git #["add", "--", editionFile.toString]
+  let derived ← git #["write-tree"]
+  unless derived == expected do
+    fail s!"the release edit of {head} has tree {derived}, not the release commit's tree \
+      {expected}"
+  let branch := s!"release/{v.tag}-candidate"
+  discard <| git #["fetch", "--no-tags", "--depth=1", "origin", s!"refs/heads/{branch}"]
+  let commit ← git #["rev-parse", "--verify", "FETCH_HEAD^{commit}"]
+  let raw ← git #["cat-file", "commit", commit]
+  let trees := commitFields raw "tree"
+  let parents := commitFields raw "parent"
+  unless trees == [expected] && parents == [head] do
+    fail s!"{branch} names {commit}, whose tree is {trees} and parents {parents}, not tree \
+      {expected} with the one parent {head}"
+  discard <| git #["reset", "--soft", commit]
+  let status ← git #["status", "--porcelain", "--untracked-files=normal"]
+  unless status.isEmpty && (← git #["rev-parse", "HEAD"]) == commit do
+    fail s!"the workspace is not clean at {commit}:\n{status}"
+  output "commit" commit
+  IO.println s!"adopted the release commit {commit}: its tree {expected} is {head} with the \
+    release edit main's code derives, and its only parent is {head}"
 
 end Regula.Release
 
-/-- Command line of `lean --run lean/Regula/Release.lean`: `open`, `unreleased`, `candidate` or
-`publish`; returns 2 on a usage error. -/
+/-- Command line of `lean --run lean/Regula/Release.lean`: `open`, `unreleased`, `candidate`,
+`adopt` or `publish`; returns 2 on a usage error. -/
 def main (args : List String) : IO UInt32 := do
   match args with
   | ["open"] => Regula.Release.openRelease; return 0
   | ["unreleased"] => Regula.Release.requireUnreleased; return 0
   | ["candidate"] => Regula.Release.candidate; return 0
+  | ["adopt"] => Regula.Release.adopt; return 0
   | ["publish"] => Regula.Release.publish; return 0
   | _ =>
-    IO.eprintln
-      "usage: lean --run lean/Regula/Release.lean (open | unreleased | candidate | publish)"
+    IO.eprintln "usage: lean --run lean/Regula/Release.lean \
+      (open | unreleased | candidate | adopt | publish)"
     return 2

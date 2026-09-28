@@ -158,12 +158,15 @@ CI runs on every pull request and on `main`:
    `release/v<version>-candidate` at it and outputs it; once the release is published it releases
    nothing ([release](contributing.md#release)). No tag exists yet.
 4. `release-verify` (only when `candidate` output a release commit): both acceptance steps on the
-   release commit, with its release label.
-5. `release-site` (only when `candidate` output a release commit): both rule-example shards and
-   `./scripts/verify.sh site` on the release commit, whose tag does not exist yet, so its site
-   build renders the release's edition and writes it; it is uploaded as
-   `site-release-<release commit>`.
-6. `publish` (only after `release-verify` and `release-site` passed): publishes the GitHub
+   release commit, with its release label. It checks out this commit of `main`, not the release
+   commit, and `adopt` derives the release commit there and adopts its name once it has shown it
+   is exactly that content (`Regula.Release.adopt`).
+5. `release-site` (only when `candidate` output a release commit): adopts the release commit the
+   same way, then both rule-example shards and `./scripts/verify.sh site` on it, whose tag does
+   not exist yet, so its site build renders the release's edition and writes it; it is uploaded
+   as `site-release-<release commit>`.
+6. `publish` (only after `release-verify` and `release-site` passed, refusing unless both adopted
+   the release commit): publishes the GitHub
    release `v<version>` with that edition as its permanent asset, which creates the tag at the
    release commit. The tag then never changes.
 7. `site` (after `rule-examples`, and after `candidate` and `publish` passed or were skipped):

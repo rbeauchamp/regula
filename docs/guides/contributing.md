@@ -384,15 +384,21 @@ until the release commit has passed the same checks as `main`:
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
    shards pass on a commit of `main` that lists a release not yet published, it creates the
    release commit, a signed child of that commit that is not on `main` and whose only change sets
-   `Regula.installed` to the release, and points the branch `release/v<version>-candidate` at it,
-   from which the next jobs check it out. They run on it, with its release label, the checks of
-   `main`: `release-verify` both acceptance steps, and `release-site` both rule-example shards and
-   the site build, which renders the release's edition and writes it as
-   `regula-site-<version>.tar.gz` ([versions](website.md#versions-and-routes)).
+   `Regula.installed` to the release, and points the branch `release/v<version>-candidate` at it.
+   The next jobs run on it, with its release label, the checks of `main`: `release-verify` both
+   acceptance steps, and `release-site` both rule-example shards and the site build, which
+   renders the release's edition and writes it as `regula-site-<version>.tar.gz`
+   ([versions](website.md#versions-and-routes)). They check out the commit of `main` itself, not
+   the release commit: their **adopt** step derives the release commit's content there with
+   `main`'s own code, requires that it is the release commit's tree and that the commit of
+   `main` is the release commit's only parent, and only then adopts the release commit's name,
+   writing no file from it. `Regula.Release.adopt` states why the checked content, and every
+   identity the checks record, is then exactly the release commit's.
    `release_attributes_rules` is the gate: when `Regula.installed` is a release, no lifecycle
    position of any rule is `.unreleased`, so a release commit that misses one, however it is
    written, fails to build.
-3. **publish** (`ci.yml`, the `publish` job), only once all of those checks pass, creates the
+3. **publish** (`ci.yml`, the `publish` job), only once all of those checks pass and both
+   adopted the release commit, creates the
    GitHub release with its notes (how to require, set up and update, then GitHub's generated list
    of changes) and that edition as its asset, published only once the asset is attached.
    Publishing creates the tag `v<version>` at the release commit; no step writes the tag

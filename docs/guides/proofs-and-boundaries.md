@@ -660,7 +660,9 @@ an unpublished release that no tag names elsewhere (`tagAction_converges`), and
 labelled a release is admitted exactly while its tag is absent or names its commit
 (`labelAdmitted_release_iff`), and an artifact is deployable exactly when no release edition in
 it was rendered from source (`publishable_iff`). The rest of `Release.lean` is operational,
-including its check that a commit of `main` or of a pull request is unreleased. Its edits of
+including its check that a commit of `main` or of a pull request is unreleased and `adopt`, which
+checks, with `git` trusted, that the release commit is the content CI derived from `main`'s
+commit before CI records it as that commit. Its edits of
 `RegulaCore/Edition.lean` are read back before use; its stamp of `RegulaCore/Rule.lean` is a
 convenience that reads text. The kernel checks the edited modules' theorems when the release pull
 request's checks and CI's checks of the release commit build them: `releases_ascending`,
