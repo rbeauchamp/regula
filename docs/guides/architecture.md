@@ -14,11 +14,11 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 | Library | Role | Claim |
 | --- | --- | --- |
 | `RegulaPolicy` | Pure policy: domain types, admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
-| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
+| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and local provisioning. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
-| `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI, linter hooks, qualification drivers and the site builder. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
+| `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI and project setup, linter hooks, qualification drivers, the site builder and the release steps. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
 | `Fixtures` | Isolated positive controls and intended-failure mutations. | Excluded; never imported by a claimed surface |
 
 The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds everything that
@@ -28,7 +28,7 @@ renders the standard and the rule reference; it requires both packages only so t
 examples can import their modules, each in its own helper process.
 
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
-`lake lint` driver), `regula` (offline guidance), `docFenceAudit`, `freshChecker` (optional
+`lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`, `freshChecker` (optional
 serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples` and
 `ruleExampleQualification` (qualification), `site` (the rule reference) and `auditApp`.
 

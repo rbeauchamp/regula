@@ -1,33 +1,90 @@
-# Adopt the standard
+# Adopt Regula
 
-To adopt the [standard](https://rbeauchamp.github.io/regula/dev/standard/), identify the correctness claims your
-project presents as established, express them precisely in types or propositions, and
-supply kernel-checked evidence. Review whether those statements capture the intended
-claims, including their assumptions and execution boundaries. Conformance requires every
-applicable row of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/); the
-checker supports that review by checking the mechanical requirements.
+Regula checks the mechanical requirements of the
+[standard](https://rbeauchamp.github.io/regula/dev/standard/) in your own Lean project: `lake lint`
+rejects holes, project axioms, compiler-trusting proofs and axioms beyond the foundation you
+claim, and names every compiled boundary your executables reach. Conformance additionally needs
+the semantic review of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/),
+which a passing run does not replace ([semantic review](#complete-semantic-review)).
 
-The steps below cover checker setup and the semantic review needed for a conformance
-claim. Use the [supported toolchain](../../README.md#supported-toolchain).
+The first four steps take a project from `require` to its first `lake lint`. They use your own
+layout, module names and lakefile format; nothing named `Audit`, `Fixtures` or `tmp` from this
+repository is required. The normative definitions behind them are in
+[standard §7.10](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#710-adopting-the-checker-in-another-project).
 
-This is the ordinary path from an existing Lean project to a conformance claim. It uses
-your project's own layout, module names, and lakefile format; nothing named `Audit`,
-`Fixtures`, or `tmp` from this repository is required. The normative definitions behind
-each step are in [standard §7.10](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#710-adopting-the-checker-in-another-project).
+## 1. Require Regula
 
-## 0. Brief your agent
+Regula is a Lake package named `regula`, like any other Lean tool. Its releases are tagged with
+the Lean release they support, the Lean ecosystem's convention: `v4.34.0` supports
+`leanprover/lean4:v4.34.0` and no other toolchain. The
+[releases page](https://github.com/rbeauchamp/regula/releases) lists them; before the first
+release, pin an exact commit of `main` instead. Set your `lean-toolchain` to the release's Lean
+version, then require the tag.
 
-Regula is designed first for agents. Adopting it tells your agent that your Lean code and
-proofs must meet a strict standard that may not be in its training data. Each mechanically
-checked rule is one typed registry definition stating what it requires, why it matters, how
-to comply (with the common compliant rewrites) and a checked compliant and noncompliant
-example pair. The checker's findings, the offline rule reference and agent briefing below,
-the machine-readable report and the rule-reference website are all generated from that
-definition, so an agent can apply a rule before writing code and act on a finding without
-consulting another source. Where a rule's checked files are qualification inputs rather than
-project files (RG1003's stand-in dependency and RG2001's runner requests), agent-facing output
-states the correction instead of showing them. Once the package is required (step 1), give
-the agent the standard before it writes Lean:
+`lakefile.toml`:
+
+```toml
+[[require]]
+name = "regula"
+git = "https://github.com/rbeauchamp/regula"
+rev = "v4.34.0"
+```
+
+`lakefile.lean`:
+
+```text
+require regula from git
+  "https://github.com/rbeauchamp/regula" @ "v4.34.0"
+```
+
+Then fetch it:
+
+```sh
+lake update regula
+```
+
+Requiring `regula` adds exactly one package to your `lake-manifest.json`: `regula` itself. It
+requires nothing beyond the Lean toolchain (no Mathlib, no Batteries) and imports only Lean's
+core libraries, so it never pins a package your project also uses, and a project with Mathlib
+keeps the Mathlib revision it pins.
+
+## 2. Run `lake exe regula init`
+
+```sh
+lake exe regula init            # or: lake exe regula init --skill
+```
+
+`init` reads your project through Lake, then writes only what is missing:
+
+| Piece | What `init` writes when it is missing |
+| --- | --- |
+| Lint driver | `lintDriver = "regula/lint"` (`lakefile.toml`, top level) or `lintDriver := "regula/lint"` (`lakefile.lean`, in the `package` declaration), so `lake lint` runs Regula. |
+| Options | The package `leanOptions` the rules require, each only if the package gives it no value: `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
+| Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library ([step 3](#3-review-the-claimed-surface)). |
+| Agent guidance | A short `## Lean standard: Regula` section in `AGENTS.md` (created if needed), or with `--skill` the briefing as `.agents/skills/regula/SKILL.md`; an existing skill file there or in `.claude/skills/regula/` is rewritten whenever it differs from the installed release's. |
+
+It never changes a value you set: a lint driver of your own, an option with another value and an
+existing manifest stay as they are, and `lake exe regula doctor` reports each with its fix. It
+edits the lakefile in place, in its own format, then reads the project again and restores every
+file it wrote unless nothing is left to write. A second run therefore writes nothing:
+`Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
+setup, and that runtime check confirms the files as written match it. `init` ends by running
+`doctor`.
+
+`lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
+finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
+guidance and toolchain, and, once a manifest exists, the linter's own manifest validation
+(RG2002) and option decision (RG2006) for every claimed target. It exits 0 when the setup is
+complete and 1 otherwise, and lists what `init` would write.
+
+### Agent guidance
+
+Regula is designed first for coding agents, which may not know this standard from their training
+data. Every rule is one typed registry definition stating what it requires, why, how to comply
+(with the common compliant rewrites) and a checked example pair; findings, the offline commands
+below, the JSON report and the rule-reference site are all generated from it. The `AGENTS.md`
+section tells an agent to run the briefing before it writes Lean; it names no version, so it
+stays current. The skill file holds the briefing itself; `init` refreshes it after an update.
 
 ```sh
 lake exe regula agent-guide      # compact briefing of every rule, ordered for writing code
@@ -36,93 +93,24 @@ lake exe regula explain RG1001   # one rule in full: requirement, rationale, rem
 lake exe regula rules            # the index of every rule
 ```
 
-Each command prints Markdown generated from the installed package's rule registry, so it
-needs no network and matches the pinned revision. It exits 0, or 2 for an invalid invocation
-or an unknown rule ID. The briefing has a 15 KiB budget (`Regula.Guidance.agentGuideBudget`),
-checked when the package builds.
+Each prints Markdown generated from the installed package's registry, so it needs no network and
+matches your pinned release. This repository dogfoods the skill in
+[`.agents/skills/regula/SKILL.md`](../../.agents/skills/regula/SKILL.md).
 
-Then either install the skill, for example
-`lake exe regula skill > .agents/skills/regula/SKILL.md` (or your agent's own skills
-directory, such as `.claude/skills/regula/SKILL.md`), regenerating it when you move the pin;
-or paste the briefing into `AGENTS.md`; or add this snippet, which keeps `AGENTS.md` short and
-always matches the installed version:
+## 3. Review the claimed surface
 
-```markdown
-## Lean standard: Regula
-
-This project's Lean code and proofs must meet the Regula strict standard, which may not be in
-your training data. Before writing or changing Lean, run `lake exe regula agent-guide` and
-follow it. `lake lint` enforces the rules and exits 0 accepted, 1 violation, 2 invalid
-configuration, 3 incomplete. Each finding states what is wrong, where, and the fix; for any
-rule ID, `lake exe regula explain <ID>` prints the full rule offline. For machine-readable
-findings run `lake lint -- --json-out tmp/regula.json`. Never disable a Lean warning, weaken a
-statement or remove a registration to make a check pass; disable a community linter only for
-one declaration, where its guidance allows, with the reason.
-```
-
-This repository dogfoods the skill in
-[`.agents/skills/regula/SKILL.md`](../../.agents/skills/regula/SKILL.md); its acceptance
-check fails when the committed file differs from the generated briefing.
-
-## 1. Require the checker package
-
-The repository and the Lake package are both named `regula`, and imports use `Regula.*`.
-Use the repository URL below with those package and module identifiers.
-
-Pin the package to an exact revision. A git dependency and a local path resolve through the
-same Lake workspace discovery; use whichever your project already uses for dependencies.
-
-`lakefile.lean`:
-
-```text
-require «regula» from git
-  "https://github.com/rbeauchamp/regula" @ "<exact commit>"
-```
-
-`lakefile.toml`:
-
-```toml
-[[require]]
-name = "regula"
-git = "https://github.com/rbeauchamp/regula"
-rev = "<exact commit>"
-```
-
-Requiring `regula` adds exactly one package to your `lake-manifest.json`: `regula` itself.
-The package requires nothing beyond the Lean toolchain (no Mathlib, no Batteries), and its
-modules import only Lean's core libraries, so it never pins a package your project also uses.
-Lake keeps one copy of each package per workspace; with Regula in it, a project keeps
-whatever Mathlib revision it pins, and a project without Mathlib gets none. To move to a newer
-Regula, change the revision above and run `lake update regula`, which updates only `regula`.
-Only the checker repository's own Mathlib-dependent package (`audit/`, the standard's Mathlib
-examples) requires Mathlib, and it is not part of the `regula` package.
-
-Use the Lean release of the checker's [`lean-toolchain`](../../lean-toolchain) at that revision
-for your own `lean-toolchain`. Lake builds every package of a workspace with one
-toolchain, as with any Lean dependency, and the checker is qualified only on its pinned
-release (see the [supported toolchain](../../README.md#supported-toolchain)).
-
-## 2. Declare the claimed surface
-
-Conformance is claimed per Lake library or executable, and the checker discovers modules
-through Lake's elaborated inventory, not through your umbrella import or a file list
+Conformance is claimed per Lake library or executable, and the checker discovers modules through
+Lake's elaborated inventory, not through your umbrella import or a file list
 ([standard §7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics)).
-Give every claimed library a glob that covers its intended modules:
+Give every claimed library a glob that covers its modules, so a module your umbrella does not
+import is still inspected:
 
 - `lakefile.lean`: ``globs := #[.andSubmodules `Widget]``
-- `lakefile.toml`: `globs = ["Widget", "Widget.+"]` (`"Widget.+"` alone omits `Widget`
-  itself)
+- `lakefile.toml`: `globs = ["Widget", "Widget.+"]` (`"Widget.+"` alone omits `Widget` itself)
 
-A module inside the glob that your umbrella does not import is still part of the surface
-and is still inspected. A `lakefile.toml` also needs `defaultTargets` for a bare
-`lake build` to build anything; the gate builds the claimed surface explicitly either way.
-For a runnable Core-only project using the enforcing ordinary-build integration, see
-[`examples/build-lint/`](../../examples/build-lint/).
-
-## 3. Choose foundation profiles and execution mode
-
-Write `foundation_manifest.json` at your project root classifying every root-package
-`lean_lib` and `lean_exe`. Empty exclusion arrays are valid when nothing is excluded:
+`foundation_manifest.json` classifies every root `lean_lib` and `lean_exe`, claimed or excluded
+with a rationale. Review the starter: strengthen each `claim` where the library allows, write
+the real rationale, and exclude what you do not claim.
 
 ```json
 {
@@ -145,11 +133,9 @@ Write `foundation_manifest.json` at your project root classifying every root-pac
 | `choice-free` | `propext`, `Quot.sound` |
 | `standard-logical` | `propext`, `Quot.sound`, `Classical.choice` |
 
-Every declaration is labeled from its own exact axiom set and must fit the claim. Label
-from the report, not from the kind of surface. For example, `def main : IO Unit := pure ()`
-depends on no axiom. Neither an `IO` type nor recursion alone determines a declaration's
-foundation profile; inspect its actual transitive dependencies. Compiler-trusting axioms
-(for example from `native_decide`, `decide +native` or `bv_decide`) never fit any profile and are reported separately.
+Every declaration is labelled from its own exact transitive axiom set and must fit the claim;
+neither an `IO` type nor recursion determines it. Compiler-trusting axioms (from `native_decide`,
+`decide +native` or `bv_decide`) fit no profile and are reported separately.
 
 `execution` states what you claim about compiled code
 ([standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly)):
@@ -159,49 +145,88 @@ foundation profile; inspect its actual transitive dependencies. Compiler-trustin
 | `report` (default) | Every execution boundary reached from an owned executable root is reported with its kind and correspondence state; trusted boundaries are recorded, not failed. |
 | `checked` | Additionally fails on any trusted boundary other than the toolchain's own native-runtime primitives. |
 
-In both modes an unresolved path blocks the execution claim. Native arithmetic and the
-Lean runtime remain trusted in every mode; the checker verifies Lean source, not the
-compiler or the machine.
+In both modes an unresolved path blocks the execution claim. Native arithmetic and the Lean
+runtime remain trusted in every mode; the checker verifies Lean source, not the compiler or the
+machine.
 
-## 4. Run the ordinary conformance check
+## 4. Run `lake lint`
 
-From your project root, or with `--project DIR`:
-
-```sh
-lake exe axiomGate --json-out tmp/axiom-report.json
-```
-
-The gate copies your project into an isolated temporary directory under your
-`tmp/.regula-scratch/`, which Regula owns,
-shares your pinned dependency checkouts, builds the claimed surface from empty output with
-warnings as errors, inspects the elaborated environment, and removes the copy. The JSON
-report holds every owned declaration with its exact transitive axiom set and every
-execution root with its boundaries. The verdict is the printed transcript and the exit
-status: each declaration failure is printed with its reason and that declaration's label,
-the run ends with `axiom gate: PASS` (exit 0) or `FAIL: N violation(s)` (exit 1), and
-`--verbose` prints every declaration's label. A PASS names what it covers (only a fresh
-run is whole-project acceptance) and is preceded by its account: the relation Lean checked,
-each registered `ExecutableContract` with its implementation and requirement, execution
-counts, the trusted mechanisms, and the semantic-review obligations (`R-INTENT` and so on)
-that remain open. A PASS is mechanical; it does not complete that review.
-
-Two narrower commands are useful before a full run:
+From the project root:
 
 ```sh
-lake exe axiomGate --file F.lean --claim standard-logical   # audit one file under this profile
-lake exe docFenceAudit --jobs 4                            # elaborate every docs/ Lean fence
+lake lint                                  # incremental elaboration + current policy
+lake lint -- --fresh                       # isolated copy built from empty output
+lake lint -- --json-out tmp/regula.json    # also write the JSON report
+lake lint -- --explain-config              # read-only: manifest, scope, profiles, stages
 ```
 
-`docFenceAudit` applies when your project keeps Lean teaching examples in Markdown under
-`docs/` using the [Markdown fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim)
-(`<!-- lean-fail: PATTERN -->` and `<!-- lean-trusted-compiler -->` markers).
+The driver builds every manifested library and executable by its explicit Lake target, with
+warnings as failures, and inspects the completed environment; it re-evaluates current policy
+even when every module is cached. Run it from the project root without `-d`: it refuses a working
+directory that is not the workspace that dispatched it. Its exit status separates the outcome:
 
-## 5. Read a failure
+| Exit | Outcome |
+| --- | --- |
+| 0 | `ACCEPTED`: the audit constructed its accepted result for the selected mode. |
+| 1 | `VIOLATION`: completed policy rejections, for example RG1001–RG1007 or RG3002. |
+| 2 | `INVALID CONFIGURATION`: only RG2002 manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
+| 3 | `INCOMPLETE`: an incomplete finding, for example RG2001, RG2003, RG2005 or RG3001, a failed audit-worker build, a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
 
-Every finding is printed with everything needed to fix it. A project or file audit prints its
-findings in a deterministic order (project and configuration findings, then module findings,
-then source findings by file and position); a documentation audit prints each fence's findings
-with that fence, in fence order:
+The success line names its coverage: an incremental run is "incremental project acceptance over
+existing build state, not a fresh-source audit"; only `--fresh` is fresh whole-project
+acceptance.
+
+**A first run usually stops at build warnings.** Rules are inspected only after a build without
+warnings (RG2003), so a warning, such as a missing docstring, makes the run `INCOMPLETE` (exit 3)
+with the compiler's message before any foundation rule is checked. The same holds for your first
+`sorry`: Lean warns `declaration uses 'sorry'`, so it is reported as RG2003, not RG1002; silencing
+the warning does not help, because the hole is then reported as RG1002.
+
+For CI, provision the toolchain and dependencies, then run the driver as its own step so its
+exit status fails the job; use `--fresh` where the claim is fresh-source conformance, since
+incremental evidence trusts Lake's build cache:
+
+```yaml
+- name: Regula
+  run: lake lint -- --json-out tmp/regula.json
+```
+
+Lake details that affect what ran:
+
+- Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`.
+- `lake lint --builtin-only` skips the driver and is **not** Regula enforcement. `lake check-lint`
+  only reports whether a lint command is configured.
+- Lake has one `lintDriver` per package. A project that keeps another driver (for example
+  `batteries/runLinter`) runs Regula as its own step with `lake exe lint`; see
+  [community linters](#community-conventions-and-linters).
+- A `lakefile.lean` project can also enforce during plain `lake build` with the
+  [build-lint example](../../examples/build-lint/)'s sole-default `policy` target
+  ([standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter));
+  `lakefile.toml` has no custom targets. Direct `lean`, editor elaboration and an explicit
+  build of another target never run the strict gate.
+- `lake exe axiomGate` runs the same audit body directly (fresh by default);
+  `lake exe axiomGate --file F.lean --claim standard-logical` audits one file, which is never
+  project coverage. `lake exe docFenceAudit` checks Lean examples you keep in Markdown under
+  `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).
+
+## Update Regula
+
+To move to a new release, change the tag and your `lean-toolchain` together, then:
+
+```sh
+lake update regula
+lake exe regula init
+lake lint
+```
+
+`lake update regula` updates only `regula`. Running `init` again rewrites a skill file that
+differs from the new release's briefing and adds any option the new release requires; it changes
+nothing else. A project that also uses Mathlib moves Mathlib to the same Lean release the usual
+way. Each finding's rule link then targets the new release's pages.
+
+## Read a finding
+
+Every finding carries what it needs to be fixed, in the terminal, the editor and the JSON report:
 
 ```text
 RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:2:6]: reflexive: …
@@ -221,180 +246,54 @@ RG1001 [violation; freshFile; claim=kernel-only; Widget/Basic.lean:3:6]: symmetr
   fix: Turn the assumption into a hypothesis (…) (full guidance: first RG1001 finding above)
 ```
 
-The first line states what is wrong and where (`FILE:LINE:COLUMN` in Lean's own coordinates).
-The first finding of each rule in a run adds the rule's requirement, rationale, common
-rewrites and checked compliant example (or, for a rule whose checked files are qualification
-inputs, the correction they demonstrate); later findings of that rule keep their own message and
-fix and point back to it, so a run with hundreds of findings prints each rule's guidance once.
-The rule page is a pointer for humans, never the only source of the fix.
+The first line states what is wrong and where (`FILE:LINE:COLUMN` in Lean's own coordinates). The
+first finding of each rule in a run adds its requirement, rationale, rewrites and checked
+compliant example; later findings of that rule point back to it. The rule link opens the rule's
+page in the [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) of your installed
+release (`…/regula/v/<version>/rules/<ID>/`; an unreleased build links the development pages
+under `/dev/`), where the [rule index](https://rbeauchamp.github.io/regula/dev/rules/) shows each
+rule's scope, reason and a violating and corrected example produced by the real checker.
 
-Each failing declaration or root carries one reason. The reason names the Lean fact, not a
-style preference:
+## Machine-readable report
 
-| Reason | Meaning | Where the rule lives |
-| --- | --- | --- |
-| `project-axiom` | An owned `axiom` declaration outside Lean's foundation. Make the assumption a binder or proof-bearing field. | [standard §3.4](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#34-foundation-strength-axioms-are-reported-never-assumed) |
-| `hole` | The declaration depends on `sorryAx` (`sorry`, `admit`, or an unfinished tactic). | [standard §3.4](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#34-foundation-strength-axioms-are-reported-never-assumed) |
-| `unknown-axiom` | A transitive axiom outside `propext`, `Quot.sound`, `Classical.choice` other than `sorryAx` and the compiler-trusting axioms, which have their own reasons. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
-| `label-exceeds-claim` | The declaration's exact label is stronger than the surface's `claim`. Prove the same statement using fewer axioms, or explicitly revise the permitted foundation profile and its rationale. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
-| `compiler-trusting` | A native-evaluation proof axiom (from `native_decide`, `decide +native` or `bv_decide`) on a positive surface. | [standard §7.5](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#75-proof-completeness-and-foundation-strength) |
-| `escape-hatch` | An authored `partial` or `unsafe` declaration on a positive surface. | [standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly) |
-| `executable-contract` | An `ExecutableContract` registration is not closed, does not name a complete implementation constant, or names an ineligible implementation: missing, noncomputable, unsafe, partial, proposition-valued, type-producing, or not an executable definition. The Lean type checker separately checks the supplied proof against the registered predicate. | [standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter) |
-| `execution-unresolved` | A compiled path whose replacement, `extern`, or unsafe target cannot be classified. Blocks the execution claim in every mode. | [standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly) |
-| `execution-trusted-boundary` | A runtime replacement or `extern` boundary without kernel-checked correspondence on a surface claiming `checked` execution. | [standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly) |
-
-Surface-level failures name the Lake fact. `build-failed` means the claimed surface did not
-elaborate warning-free from empty output (a zero exit with a warning still fails);
-`manifest-incomplete` means a root library or executable is neither claimed nor excluded,
-an excluded name is not a root target, or a required name or rationale is missing or
-malformed; a claimed surface library or executable that Lake does not discover fails
-earlier with `manifest surface missing from Lake discovery` or `manifest executable missing
-from Lake discovery`; `manifest-schema` means a manifest key, value, or schema version is invalid; `unexpected-project-module` means a claimed library imports an
-excluded module or owns a module outside every manifested library.
-
-## 6. Enforce with `lake lint`, `lake build` and CI
-
-Configure the Regula lint driver in your package. Both lakefile formats are qualified:
-
-- `lakefile.lean`: `package «my_project» where lintDriver := "regula/lint"`
-- `lakefile.toml`: `lintDriver = "regula/lint"` at the top level
-
-Then, from the project root:
-
-```sh
-lake lint                                  # incremental elaboration + current policy
-lake lint -- --fresh                       # isolated copy built from empty output
-lake lint -- --json-out tmp/regula.json     # also write the schema-3 JSON report
-lake lint -- --explain-config              # read-only: manifest, scope, profiles, stages
-```
-
-The driver builds every manifested library and executable by its explicit Lake target and
-inspects the completed environment. It re-evaluates current policy even when every module
-is cached, and it never invokes your default target. It runs the same audit body as
-`axiomGate`; it adds no second policy. Lake's lint dispatch builds only the driver, so the
-driver first builds the `regula/axiomGate` executable that the audit runs as its worker, in
-the workspace where you ran `lake lint` (never the `--project` directory). That workspace
-built the driver itself, whether Regula is a git dependency under `.lake/packages`, a path
-dependency or a custom `packagesDir`, so the worker uses the same dependencies and toolchain
-and needs no second dependency download. If that build fails, the run is `INCOMPLETE`.
-Run `lake lint` from the project root, without `-d`/`--dir`: Lake does not change the
-driver's working directory, so the driver refuses with exit 2 when the workspace there is
-positively identified as not the one that dispatched it, and stops with exit 3 when the
-working directory is outside any Lean project or its workspace fails to load. Lake v4.34.0
-passes the dispatching workspace's package library directories, then its own
-`LEAN_SYSROOT/lib/lean`, then any inherited `LEAN_PATH`, as the driver's `LEAN_PATH`; the
-driver requires the working-directory workspace's library directories and that directory to
-begin it (`Regula.Checker.Lint.dispatchedFrom_iff`). A driver started outside Lake, or by a
-Lake not collocated with the toolchain, is refused.
-Its exit status separates the outcome:
-
-| Exit | Outcome |
-| --- | --- |
-| 0 | `ACCEPTED`: the audit constructed its accepted result for the selected mode. |
-| 1 | `VIOLATION`: completed policy rejections, for example RG1001–RG1007 or RG3002. |
-| 2 | `INVALID CONFIGURATION`: only RG2002 manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
-| 3 | `INCOMPLETE`: an incomplete finding, for example RG2001, RG2003, RG2005 or RG3001, a failed audit-worker build, a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
-
-Exit 0 requires a zero audit exit and the audit's recorded `completed` status, which carries
-the accepted account of the requested mode (`Regula.Checker.Lint.accepted_sound`: an accepted
-run complete for its plan that meets every stage policy); any disagreement is `INCOMPLETE`.
-The success line is the account's `regula lint: PASS — …` text, and it names the coverage: an
-incremental run reads "incremental project acceptance over existing build state, not a
-fresh-source audit"; only `--fresh` reads as fresh whole-project acceptance.
-`lake lint` builds the claimed targets with Regula's audit-build marker
-(`weak.regula.auditBuild`), which turns the local linter off whatever your sources set
-`linter.regula` to, `set_option linter.regula true` included, so a live Regula finding is not a
-build warning there: the audit's own policy stages report it, as a `VIOLATION`. Any other
-warning or build failure stops the audit before policy inspection and is `INCOMPLETE`, with
-the original compiler message printed as evidence. That includes Lean's default
-`declaration uses 'sorry'` warning: an owned `sorry` is reported as RG2003, not RG1002 (with
-`set_option warn.sorry false` it reaches the RG1002 stage instead). The marker is part of
-Lake's module trace, and Lake scopes it to the whole package rather than to the modules that
-import `Regula.Linter` (elsewhere it changes nothing; no source command can name or change
-it), so modules last built with ordinary options (for example by `lake build` or the editor)
-are rebuilt for the audit, and their replayed logs never enter its warning check.
-`axiomGate` and the build-lint `policy` target keep ordinary options, so there a live finding
-stops the build check as `INCOMPLETE`. `--json-out` carries the same status and diagnostics
-for machines. `--help` and `--explain-config` run no audit, establish nothing and exit 2, so
-putting either in `lintDriverArgs` cannot make `lake lint` succeed; neither accepts
-`--json-out` or `--verbose`.
-
-### Machine-readable report
-
-`lake lint -- --json-out PATH` (and `axiomGate --json-out PATH`) writes one JSON document,
-result schema 3, whatever the outcome. The path is written before the audit starts, as an
-incomplete result, so a stale report is never mistaken for this run's. Its top-level members
-include:
+`lake lint -- --json-out PATH` writes one JSON document, result schema 3, whatever the outcome;
+the path is first written as an incomplete result, so a stale report is never mistaken for this
+run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
 | `schemaVersion` | `3`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). |
-| `stages` | The run's required stages, in run order: those its mode requires, plus the documentation stages of a `--with-docs` run. |
-| `stagesCompleted` | The required stages that completed. A stage a finding stops (an incomplete finding, or an RG2002 or RG2003 refusal) is never among them, nor is any later stage. In a `--with-docs` run, a finding from the project stages leaves the documentation stages out, because they start only after the project stages pass. |
-| `complete` | `true` exactly when every stage of the run completed. `false` when the run stopped early (for example at an RG2002 configuration refusal or a failed build) or an incomplete finding left a stage unfinished (for example an unelaborated module, RG2004): fixing the reported findings can then reveal more. An incomplete RG3001 does not, because its stage completed. |
-| `stagesNotRun` | The required stages missing from `stagesCompleted`, in run order (for example `build`, `admission`, `declarationPolicy`); empty exactly when `complete` is `true`. |
-| `diagnostics` | Every finding; for a project or file audit, in the printed run order. Each has `id` (rule ID), `impact` (`violation` or `incomplete`), `severity`, `mode`, `claim`, `location` (for source: `uri`, byte `range` and `selectionRange`, and zero-based LSP `lspRange` and `lspSelectionRange`; otherwise a module or project scope), `related` locations, `arguments` (subject and detail), `text` (the printed finding without the once-per-run guidance), `remedy` and `helpUrl`. |
-| `rules` | Once per rule that fired, in registry order: `id`, `title`, `requirement`, `rationale`, `remedy`, `rewrites`, `compliantExample` (`path`, `language`, `text`; `null` where the checked files are qualification inputs), `correction`, `helpUrl` and `explain` (the offline command). |
-| `unresolved` | Unresolved evidence, when the run is incomplete. |
+| `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
+| `diagnostics` | Every finding in printed order, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges), `arguments`, `text`, `remedy` and `helpUrl`. |
+| `rules` | Once per fired rule: `requirement`, `rationale`, `remedy`, `rewrites`, `compliantExample`, `correction`, `helpUrl` and the offline `explain` command. |
 
-The exit status is the stable contract for pass or fail (table above); the `status` and
-`complete` members say why. Regula checks the report form the way it checks registry exports:
-every diagnostic must decode to the canonical indexed finding (unknown fields, stale text or
-remedies are refused), a result with a `mode` must record its `request` (with no configuration
-when the configuration could not be read), `stages` must be the required stages of that `mode`
-and `request`,
-`stagesCompleted`, `complete`, `stagesNotRun` and `rules` must equal their derivation from the
-status, `stages`, `stagesCompleted` and the diagnostics by the same function the writer uses
-(so a `completed` result lists every stage as completed and no stopped stage is listed), and an
-`incomplete` result without an incomplete finding must list a stage not run
-(`Regula.Checker.ResultProtocol.admitGuidance`). These checks catch writer regressions and
-omissions, not forgeries: a report edited by hand to be self-consistent, for example with its
-`request.kind` rewritten, passes them. Treat the report as observations, never as a Lean proof.
+The exit status is the stable pass/fail contract; `status` and `complete` say why. Treat the
+report as observations, never as a Lean proof: its consistency checks catch writer regressions,
+not a report edited by hand.
 
-Lake details that affect what ran:
+## Receive diagnostics while editing
 
-- Arguments for the driver follow `--`; Lake prepends `lintDriverArgs`. Positional module
-  arguments before `--` affect only Lake's builtin linters.
-- `lake lint --builtin-only` skips the driver and is **not** Regula enforcement: it
-  exits 0 with a Regula violation present. `lake lint --builtin-lint` runs builtin
-  linters and then the driver; a failing driver determines the exit code. Builtin linting
-  needs module arguments (for example `lake lint --builtin-lint Widget`) when the default
-  target is not a library, such as the `policy` target below. `lake check-lint` only reports whether a lint command is configured.
-- Lake has one `lintDriver` per package. A project that already uses another driver (for
-  example Mathlib's `runLinter`) keeps it and runs `lake exe lint` as a separate
-  command, or a composing script that succeeds only when both drivers succeed. Do not
-  overwrite the other driver silently or call `lake lint` from within a driver.
+Import `Regula.Linter` from a module your project already imports widely (the
+[TOML example](../../examples/lake-lint-toml/) imports it in `Gadget/Double.lean`). The
+supported editor is VS Code with the Lean 4 extension. Completed commands and modules then show
+warnings with codes `Regula.RG1001`–`RG1007`, `RG2002` and `RG2005` at the declaration, plus
+`RG5001`–`RG5003` once the module elaborates without errors, each with its fix, rule link and
+offline `explain` command; the infoview adds a **View explanation** link. `RG2005` means a
+finding needs evidence only `lake lint` collects.
 
-`lake exe lint` runs the same driver without Lake's lint dispatch. The
-`axiomGate --file` single-file audit remains a `freshFile` result, never project coverage.
+Execution closure (RG3001/RG3002), coverage (RG2004), build and warning checks (RG2003) and fresh
+admission run only in `lake lint`, the build-lint `policy` target or `axiomGate`. A clean editor
+buffer means no current local findings, not a project result, and `set_option linter.regula
+false` changes only local feedback. `lake lint` turns the local linter off for its own build
+and reports the same rules itself, as `VIOLATION`.
 
-A `lakefile.lean` project can also enforce during plain `lake build` with the
-[build-lint example](../../examples/build-lint/)'s sole-default `policy` target; see
-[standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter)
-for its scope and cache semantics. `lakefile.toml` has no custom targets, so TOML projects
-use `lake lint`. Direct `lean`, editor elaboration, an explicit build of another target and
-`--builtin-only` do not run the strict gate and are never reported as enforced.
-
-For CI, provision the pinned toolchain and dependencies, then run the driver as its own
-step so its exit status fails the job:
-
-```yaml
-- name: Regula
-  run: lake lint -- --json-out tmp/regula.json
-```
-
-Use `lake lint -- --fresh` where the CI claim is fresh-source conformance. Incremental
-evidence trusts Lake's build cache. Upload `tmp/regula.json` if another step consumes
-the machine result. Its `status` is `completed` only when the accepted result was
-constructed.
-
-### Community conventions and linters
+## Community conventions and linters
 
 Regula's rules are Lean correctness rules.
 [Standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
 also requires the Lean community's baseline for style, naming and documentation form, as the
-community's own linters enforce it. The conventions are Mathlib's [style](https://leanprover-community.github.io/contribute/style.html),
+community's own linters enforce it: Mathlib's [style](https://leanprover-community.github.io/contribute/style.html),
 [naming](https://leanprover-community.github.io/contribute/naming.html) and
 [documentation](https://leanprover-community.github.io/contribute/doc.html) guides for code that
 depends on Mathlib, and Lean's
@@ -402,11 +301,11 @@ depends on Mathlib, and Lean's
 and [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md) for
 core-only code.
 
-- **Required options.** Every claimed library and executable enables Lean's `linter.missingDocs`, which
-  reports every public definition without a docstring, and, in a project that depends on
-  Mathlib, the syntax linters Mathlib builds with, except the three that enforce policies of
-  the Mathlib repository itself. It also turns off automatic implicits
-  ([standard §7.1](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#71-declare-the-elaboration-environment)):
+- **Required options.** Every claimed library and executable enables `linter.missingDocs`, turns
+  off automatic implicits
+  ([standard §7.1](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#71-declare-the-elaboration-environment))
+  and, in a project that depends on Mathlib, enables the syntax linters Mathlib builds with,
+  except the three that enforce policies of the Mathlib repository itself. `init` writes these:
 
   ```toml
   [leanOptions]
@@ -420,33 +319,23 @@ core-only code.
   weak.linter.style.longFile = 0
   ```
 
-  Omit the last four lines in a project without Mathlib. The three excluded linters enforce
-  Mathlib's contribution header (copyright, Apache 2.0 license and authors), its ban on
-  `#` commands such as a passing `#guard`, and its file-length limit; standard §6.7 gives the
-  reasons. Turning off the header linter also turns off its checks that the module docstring is
-  the first command after the imports and that no import is repeated. Both remain requirements
-  (standard §5.3 and §6.4), and RG5001 checks both on every claimed module.
-  `lake new NAME math` already writes `weak.linter.mathlibStandardSet` and
-  `relaxedAutoImplicit`; add the rest. In `lakefile.lean` the same options are
+  The last four lines apply only with Mathlib. The excluded linters enforce Mathlib's
+  contribution header, its ban on `#` commands such as a passing `#guard`, and its file-length
+  limit; turning off the header linter also turns off its checks that the module docstring comes
+  first and that no import repeats, which RG5001 checks instead (standard §5.3 and §6.4). In
+  `lakefile.lean` the same options are
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
-  The linters report through build warnings, so `lake lint` reports each finding as RG2003
-  (`INCOMPLETE`, exit 3) with the linter's message. RG2006 checks, in Lake's resolved configuration
-  of every claimed library and executable, every option above, and rejects a target-wide
-  `false` for any other linter and any
-  `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these options another
-  value or turns such a linter off (set options in `leanOptions`, where it reads them); a
-  violation is `VIOLATION`, exit 1. Other extra `lean` arguments are allowed. It does not read
-  `set_option` in source, which review checks. Where the community's guidance accepts an
-  exception, such as a long URL, disable that linter for the one declaration
-  (`set_option linter.style.longLine false in`) with a comment giving the reason. The same
-  holds for every community linter, including those Mathlib turns on for every importer, such
-  as `linter.unusedTactic`. Never disable Lean's default warnings, such as
-  `linter.unusedVariables` or `warn.sorry`. Regula sees only emitted warnings of a source-level
-  disable, so it cannot tell these cases apart; review checks every such disable.
+  The linters report through build warnings, so `lake lint` reports each as RG2003 (`INCOMPLETE`,
+  exit 3). RG2006 checks every option above in Lake's resolved configuration of each claimed
+  target, and rejects a target-wide `false` for any other linter and any `-D` in `moreLeanArgs`
+  or `weakLeanArgs` that overrides them (`VIOLATION`, exit 1); it does not read `set_option` in
+  source, which review checks. Where the community's guidance accepts an exception, disable that
+  linter for the one declaration (`set_option linter.style.longLine false in`) with a comment
+  giving the reason. Never disable Lean's default warnings, such as `linter.unusedVariables` or
+  `warn.sorry`.
 - **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
-  recommended. They report through their own command, not build warnings. Run `lake build`
-  first: `runLinter` reads the built modules and does not rebuild them. Lake has one
-  `lintDriver` per package, so keep one driver and run the other as its own command:
+  recommended. They report through their own command and lint the built modules, so run
+  `lake build` first. Keep one lint driver and run the other as its own command:
 
   ```sh
   # lintDriver = "regula/lint"
@@ -457,77 +346,38 @@ core-only code.
 
   Each command's exit status covers only its own checks, so CI requires both.
 
-A community linter's pass establishes only what that linter checks. It discharges no other
-Regula requirement, and a Regula pass says nothing about style that no enabled linter checks.
-The configuration above was observed on a small Mathlib adopter in the `lake new` layout, and
-the Batteries routes on another small adopter, with the `lakefile.toml` spelling; these are
-bounded observations of real runs, not proofs.
+A community linter's pass establishes only what that linter checks, and a Regula pass says
+nothing about style no enabled linter checks. This configuration was observed on small Mathlib and
+Batteries adopters in the `lakefile.toml` spelling; these are bounded observations, not proofs.
 
-## 7. Receive diagnostics while editing
+## Complete semantic review
 
-Import `Regula.Linter` from a module your project already imports widely. The
-[TOML example](../../examples/lake-lint-toml/) imports it in `Gadget/Double.lean`. The
-supported editor is VS Code with the Lean 4 extension on the
-[supported toolchain](../../README.md#supported-toolchain). While you edit, completed
-commands and modules show:
-
-- Warnings with codes `Regula.RG1001`–`RG1007`, `RG2002` and `RG2005`, at the actual declaration
-  range, plus `RG5001`–`RG5003` when the module finishes elaborating without errors (with errors,
-  `RG2005`).
-- Message text that states the finding and its fix, then the same rule page URL and the
-  offline `lake exe regula explain <ID>` command. Each editor message stands alone (the
-  once-per-run guidance applies to command-line runs). In the infoview, Lean's own error-code
-  widget adds a **View explanation** link to the rule page.
-- `RG2005` when a finding needs fresh evidence that only the project command collects.
-  The message says to run `lake lint`.
-
-Execution closure (RG3001/RG3002), coverage (RG2004), build and warning checks (RG2003),
-fresh admission and complete result assembly run only in `lake lint`, `lake build` with the
-policy target, or `axiomGate`. A clean editor buffer means no current local findings, not a
-project result. `set_option linter.regula false` and `regula.localFoundation`
-change only local feedback. `lake lint` still rejects the same declaration.
-
-Local findings are ordinary compiler warnings in the editor and in a plain `lake build`.
-`lake lint` turns the linter off for its own build and reports the same rules itself, so
-it exits `VIOLATION` (1), not `INCOMPLETE`, while one remains. Lean's own warnings are
-unaffected: by default a `sorry` also makes Lean warn `declaration uses 'sorry'`, so under
-`lake lint` an owned hole stops the audit at its warning-free build check (RG2003, `INCOMPLETE`, exit 3) before
-the RG1002 stage; the editor shows both messages.
-Rule links point to the rule's page in the [rule reference](#rule-reference-website) of the
-installed version: `https://rbeauchamp.github.io/regula/v/<version>/rules/<ID>/` for a release,
-and the development route `…/regula/dev/rules/<ID>/`, which follows `main`, for an unreleased
-build.
-
-## 8. Complete semantic review
-
-A green gate establishes hole-freedom, exact axiom sets, module coverage, and boundary
-classification. The current checker does not establish that your theorems say what your prose says, that your
-required contracts are complete, or that your types encode the invariant you advertise.
-Those are the semantic-review rows of [standard module 8](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/), including
-`SCOPE-*`, `TYPE-*`, `THEOREM-*`, `COMP-01`, `COMP-04`, `DOC-01`, and `DOC-02`.
-Conformance is the whole matrix with one terminal result (`PASS`, `FAIL`, or `INCOMPLETE`),
-not the gate alone.
+A green `lake lint` establishes hole-freedom, exact axiom sets, module coverage and boundary
+classification. It does not establish that your theorems say what your prose says, that your
+contracts are complete, or that your types encode the invariant you advertise. Those are the
+semantic-review rows of [standard module 8](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/),
+including `SCOPE-*`, `TYPE-*`, `THEOREM-*`, `COMP-01`, `COMP-04`, `DOC-01` and `DOC-02`.
+Conformance is the whole checklist with one terminal result (`PASS`, `FAIL` or `INCOMPLETE`),
+not the linter alone.
 
 ## Limits
 
 - `lake lint` exits 0 only for an accepted run: `Regula.Checker.Lint.accepted_sound` and
-  `RegulaPolicy.accept_iff` prove the success direction. Which rule a failure receives is
-  proved only where a rule page's *Proved linkage* says so.
+  `RegulaPolicy.accept_iff` prove the success direction. Which rule a failure receives is proved
+  only where a rule page's *Proved linkage* says so.
 - Some adapters are operational code, not proved: RG2001/RG2002 routing of escaped errors by
   message prefix, RG1007 contract extraction, RG2004 inventory checks, the documentation fence
-  scanner and the RG5001 header observation. The acceptance theorems cover their observations,
-  not their extraction.
+  scanner and the RG5001 header observation. `init`'s lakefile edits are text edits confirmed by
+  reading the project again, not proved to realize the model.
 - The command-line transcript names a finding's file and declaration; exact source ranges are in
   `--json-out` and the editor.
 - The only supported editor is VS Code with the Lean 4 extension, and there is no latency claim.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
-  incrementally and fresh; there is no Mathlib-scale adopter or other-editor claim. These are
-  bounded observations of real runs, not theorems about the tools.
-- There are no released versions yet. Until the first release, diagnostic help links target the
-  development pages under `/dev/`, which change with `main`; a released version's links target
-  its own permanent pages under `/v/<version>/` ([versions](website.md#versions-and-routes)).
-- The nine [residual review obligations](architecture.md#coverage-of-the-standard) stay
-  open; every accepted account lists them.
+  incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded
+  observations, not theorems about the tools.
+- Each release supports exactly one Lean release. The nine
+  [residual review obligations](architecture.md#coverage-of-the-standard) stay open; every
+  accepted account lists them.
 
 ## What you are not asked to do
 
@@ -536,34 +386,3 @@ not the gate alone.
   checker unchanged does not rerun them.
 - **`freshChecker`** (fresh `leanchecker` over the serialized module graph) is optional
   defense in depth for the separate `MUT-05` claim, not part of the ordinary loop.
-
-## Rule reference website
-
-Every diagnostic's help URL opens its page in the
-[rule reference](https://rbeauchamp.github.io/regula/dev/rules/) of the installed Regula version,
-a human view of the same registry that `lake exe regula explain` prints offline:
-what triggers the rule, why it matters, how to fix it, a checked violating and corrected
-example produced by the real checker, the exact configuration and exception boundaries, and
-what a passing result does and does not establish. The site is generated from the
-[registry](architecture.md#the-rule-registry) and the checked [rule examples](architecture.md#rule-examples) and published
-from `main` by CI; see the [website guide](website.md) for its guarantees and version routes.
-
-## Accepted results and modes
-
-Audit success is finalized against the exact requested claim and independently frozen
-inventory. Project, explicit conforming-file and documentation drivers retain a
-proof-bearing `AcceptedRun`; combined project/docs also checks the shared snapshot.
-`--json-out` renders acceptance metadata from that value. Treat it as a report of
-observations, never as a deserializable Lean proof or an authenticated external attestation.
-See the [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary).
-
-`--build-lint`/`--incremental` still mean current policy inspection over an incremental
-build. A fresh file claim covers the original file's bytes and its isolated compilation,
-with incrementally built dependencies. No-profile and compiler-trusting file requests
-report `CLASSIFIED`, not conforming success. Documentation accepts each configured
-positive, rejection or teaching expectation without promoting negatives/teaching to
-positive conformance. Help, worker and optional graph planning exits have no audit certificate.
-
-The result is no guarantee for Lean/Lake, the filesystem, JSON parsing, process completion or
-compiled machine code. Semantic adequacy and the standard's residual review obligations remain
-separate.

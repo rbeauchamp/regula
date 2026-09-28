@@ -90,7 +90,7 @@
     },
     {
       "executable": "regula",
-      "rationale": "Offline rule guidance printer (explain, rules, agent-guide, skill); its root module belongs to the excluded Regula library. Every text it prints, its command parser and their proofs are the claimed RegulaCore.Guidance and RegulaCore.Feedback definitions; the root only prints them and sets the exit code."
+      "rationale": "Project setup (init, doctor) and offline rule guidance (explain, rules, agent-guide, skill); its root module belongs to the excluded Regula library. Its command parser, every text it prints and the setup decision it executes, with their proofs, are the claimed RegulaCore.Guidance, RegulaCore.Feedback and RegulaCore.Setup definitions; the operational Regula.Cli.Setup observes the project through Lake, writes the planned edits and confirms them by observing again. Lake loading, the parsers that locate the edits, and the filesystem are trusted."
     }
   ]
 }

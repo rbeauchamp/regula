@@ -344,3 +344,50 @@ fresh imported-client control and exact Lake inventory checks. Do not add the mu
 groups to every ordinary acceptance run. Existing CI builds transitively check all proof and
 adapter modules; the required CI diagnostics and budgets are described above.
 After fixes, reuse a diagnostic only with an explicit unchanged-relevant-input argument.
+
+## Release
+
+A release is one action: run the **Release** workflow on `main` (**Actions → Release → Run
+workflow**, or `gh workflow run release.yml --ref main`). Its version is the Lean release in
+[`lean-toolchain`](../../lean-toolchain), the Lean ecosystem's tag convention (Batteries, Aesop,
+Plausible, import-graph and doc-gen4 tag `v4.34.0` for Lean 4.34.0; ProofWidgets numbers its own
+versions because each ships a compiled JavaScript bundle). There is therefore one release per
+supported toolchain: move to the next Lean release before the next Regula release. The workflow
+([`release.yml`](../../.github/workflows/release.yml)) runs the steps of
+[`lean/Regula/Release.lean`](../../lean/Regula/Release.lean) and the checks of `ci.yml`:
+
+1. **prepare** creates the release commit, a child of the `main` commit the workflow runs on
+   that sets `Regula.installed` to the release and appends it to `Regula.releases`
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). GitHub creates and signs it,
+   and the step refuses unless GitHub verified the signature; it then tags the commit
+   `v<version>`. `main` itself never carries the release label.
+2. **checks** runs `ci.yml` on the tagged commit: both acceptance steps, both rule-example shards
+   and the site build, which renders the release's edition because the tag names its commit
+   ([versions](website.md#versions-and-routes)). This run publishes nothing.
+3. **publish** creates the GitHub release with its notes (how to require, set up and update,
+   then GitHub's generated list of changes) and the edition as the asset
+   `regula-site-<version>.tar.gz`, published only once the asset is attached. Immutable releases,
+   a repository setting that is on, then freeze the tag and the asset.
+4. **record** opens the pull request `release: record Regula v<version>`, which appends the
+   release to `Regula.releases` on `main`, and starts its checks. Merging it is the release's
+   one review step; every later deployment then serves `/v/<version>/` from the asset.
+
+A failed run is re-run from the start: **prepare** resumes from an existing tag, or skips to
+**record** once the release is published; **publish** replaces an unpublished draft; **record**
+updates its branch to the current `main`. To start again from a newer `main` before the release
+is published, delete the tag first. **record** opens its pull request only when the repository
+setting *Allow GitHub Actions to create and approve pull requests* is on; otherwise it fails
+after pushing the branch and dispatching its checks, and prints the link that opens the pull
+request.
+
+Adopters update by changing the tag and `lean-toolchain`, then running `lake update regula` and
+`lake exe regula init` ([adoption guide](adoption.md#update-regula)).
+
+### Reservoir
+
+[Reservoir](https://reservoir.lean-lang.org), the Lean package index, lists a public, non-fork
+GitHub repository with a root `lake-manifest.json` and an OSI-approved license that GitHub
+recognizes once the repository has at least two stars, or when Reservoir's maintainers register
+it. It reads the package's versions from its `v`-prefixed tags and its description, keywords,
+homepage and license from the package configuration (`lake reservoir-config` prints them), and
+refreshes about daily.

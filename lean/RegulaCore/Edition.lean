@@ -31,7 +31,7 @@ pages, and `dev/` only for an unreleased build.
 
 ## Boundaries
 
-`installed` and `releases` are data that the release process sets. Whether a release asset
+`installed` and `releases` are data that the Release workflow sets (`lean/Regula/Release.lean`). Whether a release asset
 exists and which commit a tag names are the site build's observations, which these decisions take
 as inputs; that the asset stays the copy attached at the release rests on GitHub. That a
 published release's edition is served is the deployment's observation, not a consequence of these
@@ -87,16 +87,17 @@ def Build.listedIn (b : Build) (rs : List ReleaseVersion) : Prop :=
 instance (b : Build) (rs : List ReleaseVersion) : Decidable (b.listedIn rs) := by
   cases b <;> unfold Build.listedIn <;> infer_instance
 
-/-- This build of Regula. It is `.release v` only in the commit that tag `v<version>` names (and,
-before that tag exists, in the release's own pull request); every later commit is unreleased. The
-site build enforces this: it refuses a build labelled `.release v` once the tag names another
-commit (`labelAdmitted_release_iff`); it renders `v<version>`'s edition from source only in such
-a build and only before the release asset exists, and otherwise takes the frozen asset
-(`releaseSource`); and only a build whose commit the tag names may publish a rendered release
-edition or write the asset (`publishable`). -/
+/-- This build of Regula. It is `.release v` only in the commit that tag `v<version>` names, which
+the Release workflow creates as a child of a `main` commit; `main` and every other commit are
+unreleased. The site build enforces this: it refuses a build labelled `.release v` once the tag
+names another commit (`labelAdmitted_release_iff`); it renders `v<version>`'s edition from source
+only in such a build and only before the release asset exists, and otherwise takes the frozen
+asset (`releaseSource`); and only a build whose commit the tag names may publish a rendered
+release edition or write the asset (`publishable`). -/
 def installed : Build := .unreleased
 
-/-- Every published release, oldest first. The release process appends each release. -/
+/-- Every published release, oldest first. The Release workflow appends each release, in its
+release commit and then on `main` through its record pull request. -/
 def releases : List ReleaseVersion := []
 
 /-- Releases are listed oldest first, each once. -/

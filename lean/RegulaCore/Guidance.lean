@@ -2,6 +2,7 @@ import RegulaCore.Feedback
 import RegulaCore.Guide
 import RegulaCore.Lint
 import RegulaCore.Site
+import RegulaCore.Setup
 
 /-! # Offline rule guidance for agents
 
@@ -20,7 +21,10 @@ build, so it matches that build by construction.
   as an Agent Skills `SKILL.md` (`lake exe regula skill`), within `agentGuideBudget` bytes. It
   prints each distinct compliant example once; a later rule with the same one names the rule
   that shows it (`sameExampleAs`, `sameExampleAs_spec`).
-- `Command`, `parseCommand`, `parseCommand_arguments`, `parseCommand_sound`: the command line.
+- `Command`, `parseCommand`, `parseCommand_arguments`, `parseCommand_sound`: the printing
+  commands.
+- `Invocation`, `parseInvocation`, `parseInvocation_arguments`, `parseInvocation_sound`: the
+  whole command line, which adds `init` and `doctor` (`Regula.Setup`) to the printing commands.
 
 ## Checks at build time
 
@@ -251,13 +255,19 @@ def Command.arguments : Command → List String
 
 /-- The usage text: every command, what it prints, and the exit codes. -/
 def usage : String :=
-  "usage: lake exe regula explain <RULE-ID> | rules | agent-guide | skill | help\n" ++
+  "usage: lake exe regula init [--skill] | doctor | explain <RULE-ID> | rules | agent-guide |\n" ++
+  "       skill | help\n" ++
+  "  init [--skill]     write the missing setup: lint driver, leanOptions, a starter\n" ++
+  "                     foundation_manifest.json and agent guidance (an AGENTS.md section,\n" ++
+  "                     or with --skill .agents/skills/regula/SKILL.md); changes nothing set\n" ++
+  "  doctor             check the setup and print each missing or wrong piece with its fix\n" ++
   "  explain <RULE-ID>  the full rule as Markdown: requirement, rationale, remedy, examples\n" ++
   "  rules              the compact index of every rule\n" ++
   "  agent-guide        the agent briefing of the standard, ordered for writing code\n" ++
   "  skill              the briefing as an Agent Skills SKILL.md\n" ++
   "Output matches this installed Regula build and needs no network.\n" ++
-  "exit codes: 0 printed, 2 invalid invocation or unknown rule ID"
+  "exit codes: 0 printed or set up, 1 a setup problem remains (init, doctor),\n" ++
+  "  2 invalid invocation or unknown rule ID"
 
 /-- Unknown commands, extra arguments and unknown rule IDs are refused. -/
 def parseCommand : List String → Except String Command
@@ -297,5 +307,61 @@ def output : Command → String
   | .agentGuide => agentGuide
   | .skill => skill
   | .help => usage
+
+/-- A `regula` invocation: a printing command, or a setup command (`Regula.Setup`). -/
+inductive Invocation where
+  /-- Print the output of `command`. -/
+  | print (command : Command)
+  /-- Write the missing setup, with guidance `guidance` when the project has none. -/
+  | init (guidance : Regula.Setup.Guidance)
+  /-- Check the setup and print each problem with its fix. -/
+  | doctor
+  deriving DecidableEq
+
+/-- The canonical arguments of each invocation. -/
+def Invocation.arguments : Invocation → List String
+  | .print command => command.arguments
+  | .init .agentsMd => ["init"]
+  | .init .skill => ["init", "--skill"]
+  | .doctor => ["doctor"]
+
+/-- The whole command line: `init`, `init --skill` and `doctor`, and otherwise `parseCommand`,
+which refuses unknown commands, extra arguments and unknown rule IDs. -/
+def parseInvocation : List String → Except String Invocation
+  | ["init"] => .ok (.init .agentsMd)
+  | ["init", "--skill"] => .ok (.init .skill)
+  | ["doctor"] => .ok .doctor
+  | args => .print <$> parseCommand args
+
+/-- Every invocation is reachable from its canonical arguments. -/
+theorem parseInvocation_arguments (i : Invocation) : parseInvocation i.arguments = .ok i := by
+  cases i with
+  | print c =>
+    cases c with
+    | explain id =>
+      simp [Invocation.arguments, Command.arguments, parseInvocation, parseCommand,
+        RuleId.parse_spelling]
+      rfl
+    | _ => rfl
+  | init g => cases g <;> rfl
+  | doctor => rfl
+
+/-- A parsed invocation is exactly what its arguments name. -/
+theorem parseInvocation_sound {args : List String} {i : Invocation}
+    (h : parseInvocation args = .ok i) :
+    args = i.arguments ∨ (i = .print .help ∧ (args = ["--help"] ∨ args = ["-h"])) := by
+  unfold parseInvocation at h
+  split at h
+  · cases h; exact .inl rfl
+  · cases h; exact .inl rfl
+  · cases h; exact .inl rfl
+  · cases hc : parseCommand args with
+    | error e => rw [hc] at h; cases h
+    | ok c =>
+      rw [hc] at h
+      cases h
+      rcases parseCommand_sound hc with h | ⟨rfl, h⟩
+      · exact .inl h
+      · exact .inr ⟨rfl, h⟩
 
 end Regula.Guidance

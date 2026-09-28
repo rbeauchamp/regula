@@ -17,7 +17,7 @@ lake lint
 ```
 
 To use it elsewhere, replace `path = "../.."` with the git form in the
-[adoption guide](../../docs/guides/adoption.md#1-require-the-checker-package).
+[adoption guide](../../docs/guides/adoption.md#1-require-regula).
 `lakefile.toml` cannot declare the custom `policy` target of
 [build-lint](../build-lint/README.md), so `lake build` here is an ordinary build, not
 enforcement. Use `lake lint` locally and in CI.

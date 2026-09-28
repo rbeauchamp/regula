@@ -211,25 +211,26 @@ or be replaced. A build whose `installed` is a release refuses once that tag nam
 tags. Publication needs the tagged build: the build records in `build.json` whether its artifact is
 `publishable` (no release edition rendered from source unless its commit is the one the tag
 names), `Deployment gate` refuses an artifact that is not, and only such a clean build writes the
-release asset. That the asset stays the one attached at release rests on GitHub; immutable
-releases, a repository setting, would enforce it.
+release asset. That the asset stays the one attached at release rests on GitHub: immutable
+releases, a repository setting that is on, forbid changing a published release's tag or assets.
 
-A release takes these steps, in order:
+The [Release workflow](contributing.md#release) takes a release's steps in order, and none is
+manual except merging its last pull request:
 
-1. A commit sets `Regula.installed` to the release and appends it to `Regula.releases`
-   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). Its pull request passes CI like
-   any other: before the tag exists, its site build renders the release's edition as a preview,
-   which pull requests never publish.
-2. Once it is on `main`, tag that commit `v<version>` and push the tag, then run (or re-run) its
-   site build on `main`. Until the tag names that commit, `Deployment gate` refuses its artifact.
-3. That build renders the release's edition and writes
-   `tmp/site-release/regula-site-<version>.tar.gz`, which CI keeps for only 30 days as the
-   `site-release-<commit>` artifact. Attach that file to the GitHub release `v<version>` as its
-   permanent asset.
-4. The next commit sets `Regula.installed` back to `.unreleased`, which restores the development
-   label of `dev/` (at the release commit `dev/` is that release and carries its label). Its site
-   build refuses until step 3 is done, and every build of another commit that still carries the
-   release label is refused once the tag exists.
+1. It creates the release commit, a child of the `main` commit it runs on that sets
+   `Regula.installed` to the release and appends it to `Regula.releases`
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)), and tags it `v<version>`. `main`
+   never carries the release label, so `dev/` always describes an unreleased build.
+2. It runs the checks of `ci.yml` on that commit. Its tag names the commit and no asset exists,
+   so its site build renders the release's edition and writes
+   `tmp/site-release/regula-site-<version>.tar.gz`, kept as the `site-release-<commit>` artifact
+   of that run; the run publishes nothing.
+3. It attaches that file to the GitHub release `v<version>` as its permanent asset and publishes
+   the release.
+4. It opens the pull request that appends the release to `Regula.releases` on `main`. That pull
+   request's site build and every later one take the release's edition from the asset, and a
+   build of `main` refuses a listed release without one, so the pull request cannot pass before
+   the asset exists.
 
 Rule IDs are never reused for a changed rule. A retired rule keeps a page (its lifecycle chip
 says so).

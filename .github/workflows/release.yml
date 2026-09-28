@@ -1,0 +1,109 @@
+name: Release
+
+# One action cuts a release: run this workflow on main (docs/guides/contributing.md#release).
+# Its version is the Lean release in lean-toolchain, the Lean ecosystem's tag convention. Every
+# step is lean/Regula/Release.lean or the checks of ci.yml; a re-run resumes where the last run
+# stopped.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Create the release commit (main's commit with Regula.installed set to the release and the
+  # release appended to Regula.releases), refuse unless GitHub verified its signature, and tag it
+  # v<version>. Resumes from an existing tag, and skips to `record` once the release is published.
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.prepare.outputs.version }}
+      commit: ${{ steps.prepare.outputs.commit }}
+      stage: ${{ steps.prepare.outputs.stage }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+
+      - name: Create and tag the release commit
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: lean --run lean/Regula/Release.lean prepare
+
+  # The checks every pull request passes, on the tagged release commit. Its site build renders the
+  # release's edition and keeps it as the `site-release-<commit>` artifact. It publishes nothing;
+  # its deployment job, skipped here, is why this call grants the Pages permissions.
+  checks:
+    needs: prepare
+    if: needs.prepare.outputs.stage == 'build'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.commit }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  # Publish the GitHub release with its notes and the release edition as its permanent asset.
+  publish:
+    needs: [prepare, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+
+      - name: Receive the release edition
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site-release-${{ needs.prepare.outputs.commit }}
+          path: tmp/site-release
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: lean --run lean/Regula/Release.lean publish
+
+  # Open the pull request that appends the release to Regula.releases on main and start its
+  # checks. Once it merges, every deployment serves /v/<version>/ from the release asset.
+  record:
+    needs: [prepare, publish]
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      (needs.prepare.outputs.stage == 'record' || needs.publish.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+
+      - name: Record the release on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: lean --run lean/Regula/Release.lean record
