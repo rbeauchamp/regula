@@ -51,8 +51,8 @@ with a checked violating and corrected example.
 
 ## Try it
 
-Regula has no release yet. Pin an exact commit, and use the Lean release in its
-[`lean-toolchain`](lean-toolchain) (v4.34.0), the only one it supports.
+Regula has no release yet. Pin an exact commit, and use the Lean release its
+[`lean-toolchain`](lean-toolchain) pins, the only one it supports.
 
 1. **Configure `lakefile.toml`:** the lint driver (a top-level key), the options Regula
    checks, Regula itself, and a glob covering every module of your library:
