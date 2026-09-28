@@ -111,6 +111,7 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
   checklist behind the linter. Conformance means satisfying every applicable row of its
   [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/),
   which includes semantic review.
+- [The roadmap](https://github.com/users/rbeauchamp/projects/8): where Regula is going, with no dates.
 - [Standalone examples](examples/README.md), the [documentation index](docs/README.md), the
   [Lean module map](lean/README.md) and the
   [contributor guide](docs/guides/contributing.md#develop-and-verify).
