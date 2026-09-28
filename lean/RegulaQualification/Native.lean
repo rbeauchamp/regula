@@ -36,6 +36,9 @@ structure Expected where
   kinds : List String
   /-- The file every Regula message must be attributed to. -/
   fileName : String
+  /-- The rule-reference prefix every Regula message's help link must contain: the rules route of
+  the installed build's edition (`dev/rules/` unreleased, `v/<version>/rules/` for a release). -/
+  helpPrefix : String
   /-- Whether the compiler must exit with a nonzero code. -/
   errors : Bool := false
   /-- The severity every Regula message must have. -/
@@ -52,14 +55,14 @@ def isNative (message : Message) : Bool := message.kind.startsWith "Regula.RG"
 def nativeMatches (expected : Expected) (message : Message) : Bool :=
   message.fileName == expected.fileName &&
   !(message.data.contains "lean-lang.org/doc/reference") &&
-  message.data.contains "https://rbeauchamp.github.io/regula/dev/rules/" &&
+  message.data.contains expected.helpPrefix &&
   message.severity == expected.severity
 
 /-- Independent relational meaning of the native message fields. -/
 def NativeMatches (expected : Expected) (message : Message) : Prop :=
   message.fileName = expected.fileName ∧
   message.data.contains "lean-lang.org/doc/reference" = false ∧
-  message.data.contains "https://rbeauchamp.github.io/regula/dev/rules/" = true ∧
+  message.data.contains expected.helpPrefix = true ∧
   message.severity = expected.severity
 
 /-- Every message is admitted exactly under the specified file, severity, and link checks. -/
@@ -150,7 +153,7 @@ theorem checked_validation : Regula.ExecutableContract validate
 
 /-- An empty successful observation with no requested diagnostics is admissible. -/
 theorem positive_control :
-    validate { kinds := [], fileName := "Control.lean" } 0 "" [] = .ok () := by
+    validate { kinds := [], fileName := "Control.lean", helpPrefix := "" } 0 "" [] = .ok () := by
   rw [validate_exact]
   simp [Matches, CompilerMatches]
 

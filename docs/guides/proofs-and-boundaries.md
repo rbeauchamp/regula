@@ -632,7 +632,7 @@ audit, while `doctor` may ask a target that imports no Mathlib for Mathlib's opt
 `lakefile.lean` as Lake does to locate the `package` declaration, and the filesystem. Runs of
 `init` and `doctor` on scratch projects in both formats (fresh, template, inline-table,
 structure-instance, bare-`package` and computed-`leanOptions` shapes, another driver, a
-contradicting option, a stale skill) are bounded observations.
+contradicting option, a stale skill, a library without globs) are bounded observations.
 
 **Releases** ([procedure](contributing.md#release)): `lean/Regula/Release.lean` is operational.
 Its edit of `RegulaCore/Edition.lean` is read back before use, and the kernel checks the edited

@@ -301,8 +301,8 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
     | .release v => tagState root v ident.revision
     | .unreleased => pure .absent
   requireChecks [⟨s!"a build labelled {installed.spelling} is refused once tag \
-    v{installed.spelling} names another commit (the commit after a release sets \
-    Regula.installed back to .unreleased)", labelAdmitted installed tag⟩]
+    v{installed.spelling} names another commit (only the release commit that tag names \
+    carries the label)", labelAdmitted installed tag⟩]
   let sources ← releaseSources root tag
   let g ← evidence root ident evidencePaths
   generate root g

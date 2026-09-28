@@ -63,9 +63,28 @@ private def readTrimmed (path : FilePath) : IO String := do
 `leanOptions`), whether the workspace contains Mathlib, the required Regula's `lean-toolchain`,
 and the manifest and agent-guidance files. -/
 def observe (root : FilePath) : IO Project := do
-  let (lakefile, configFile, driver, options, targets, mathlib, regulaDir) ←
+  let (lakefile, configFile, driver, options, targets, mathlib, regulaDir, uncovered) ←
     Workspace.withRootWorkspace root fun ws => do
       let pkg := ws.root
+      -- The modules below each library root that no root library includes.
+      let mut included : NameSet := {}
+      for lib in pkg.leanLibs do
+        for m in ← lib.getModuleArray do included := included.insert m.name
+      for exe in pkg.leanExes do included := included.insert exe.root.name
+      let mut uncovered := []
+      for lib in pkg.leanLibs do
+        let mut missed : Array Name := #[]
+        for r in lib.roots do
+          let dir := Lean.modToFilePath lib.srcDir r ""
+          unless ← dir.isDir do continue
+          for path in ← dir.walkDir do
+            if path.extension != some "lean" || (← path.isDir) then continue
+            let parts := (path.withExtension "").components.drop dir.components.length
+            let name := parts.foldl Name.str r
+            unless included.contains name do missed := missed.push name
+        unless missed.isEmpty do
+          let sorted := (missed.qsort Name.quickLt).toList.map toString
+          uncovered := uncovered ++ [(lib.name.toString, lib.roots.toList.map toString, sorted)]
       let own (options : Array Lean.LeanOption) :=
         (Lake.buildOptions (.ofArray options) #[] #[]).options
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
@@ -76,7 +95,7 @@ def observe (root : FilePath) : IO Project := do
         (Lake.buildOptions pkg.leanOptions #[] #[]).options,
         (pkg.leanLibs.map (own ·.config.leanOptions) ++
           pkg.leanExes.map (own ·.config.leanOptions)).toList,
-        ws.packages.any (·.baseName == `mathlib), regulaDir)
+        ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered)
   let agents := root / "AGENTS.md"
   let agentsSection ← if ← agents.pathExists then pure (hasAgentsHeading (← IO.FS.readFile agents))
     else pure false
@@ -92,7 +111,8 @@ def observe (root : FilePath) : IO Project := do
       manifest := ← (Manifest.defaultPath root).pathExists
       agentsSection, skills
       toolchain := ← readTrimmed (root / "lean-toolchain")
-      supported := ← readTrimmed (regulaDir / "lean-toolchain") } }
+      supported := ← readTrimmed (regulaDir / "lean-toolchain")
+      uncovered } }
 
 /-! ## Text edits -/
 

@@ -73,7 +73,8 @@ setup, and that runtime check confirms the files as written match it. `init` end
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
-guidance and toolchain, and, once a manifest exists, the linter's own manifest validation
+guidance, toolchain and any module below a library root that no library includes, and, once a
+manifest exists, the linter's own manifest validation
 (RG2002) and option decision (RG2006) for every claimed target. It exits 0 when the setup is
 complete and 1 otherwise, and lists what `init` would write.
 
@@ -103,7 +104,8 @@ Conformance is claimed per Lake library or executable, and the checker discovers
 Lake's elaborated inventory, not through your umbrella import or a file list
 ([standard §7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics)).
 Give every claimed library a glob that covers its modules, so a module your umbrella does not
-import is still inspected:
+import is still inspected; `lake new` writes none, and `doctor` names each module a library leaves
+out:
 
 - `lakefile.lean`: ``globs := #[.andSubmodules `Widget]``
 - `lakefile.toml`: `globs = ["Widget", "Widget.+"]` (`"Widget.+"` alone omits `Widget` itself)

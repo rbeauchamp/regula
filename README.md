@@ -75,7 +75,8 @@ Regula is a Lake package, and each release is tagged with the one Lean release i
    wrong with its exact fix.
 3. **Review `foundation_manifest.json`.** The starter claims every library as
    `standard-logical`, which admits ordinary classical proofs; strengthen a claim where you can,
-   and give each library a glob covering all its modules (`globs = ["MyLib", "MyLib.+"]`).
+   and give each library a glob covering all its modules (`globs = ["MyLib", "MyLib.+"]`), which
+   `doctor` reports when a module is left out.
 
 **To update**, change the tag and `lean-toolchain`, then run `lake update regula` and
 `lake exe regula init` again.

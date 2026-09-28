@@ -1,6 +1,7 @@
 import Regula.Qualification.Launcher
 import Regula.Checker.Common
 import RegulaQualification.Native
+import RegulaCore.Edition
 
 /-! # Native linter linkage qualification
 
@@ -67,6 +68,7 @@ private def check (root scratch : FilePath) (launcher : Launcher.State) (control
   let expected : RegulaQualification.Native.Expected := {
     kinds := control.ids.map (fun id => s!"Regula.{id}._namedError"),
     fileName := path.toString, errors := control.errors, compiler := control.compiler,
+    helpPrefix := Regula.installed.edition.url "rules/",
     detail := control.detail, severity := control.nativeSeverity.getD
       (if control.options.contains "-DwarningAsError=true" then "error" else "warning") }
   match RegulaQualification.Native.checked_validation.run expected result.exitCode.toNat

@@ -101,6 +101,9 @@ structure Observation where
   toolchain : String
   /-- The `lean-toolchain` of the required Regula, the only release it supports. -/
   supported : String
+  /-- Each root `lean_lib` with its roots and the modules below a root, such as `Foo.Basic` for
+  root `Foo`, that no root library includes, so the audit cannot classify them. -/
+  uncovered : List (String × List String × List String)
   deriving DecidableEq, Repr
 
 /-- The package-level options of an observation, as the RG2006 decision reads options. -/
@@ -138,6 +141,8 @@ inductive Issue where
   | skillStale (path : String)
   /-- The project uses toolchain `project`, but Regula supports only `supported`. -/
   | toolchain (project supported : String)
+  /-- `lean_lib` `library`, with roots `roots`, includes none of `modules`, which lie below them. -/
+  | uncovered (library : String) (roots modules : List String)
   deriving DecidableEq, Repr
 
 /-- Whether `init` writes the fix. It never replaces another lint driver. -/
@@ -149,6 +154,7 @@ def Issue.fixable : Issue → Bool
   | .guidanceMissing => true
   | .skillStale _ => true
   | .toolchain _ _ => false
+  | .uncovered _ _ _ => false
 
 /-- The skill files that differ from the installed skill. -/
 def staleSkills (o : Observation) : List String := (o.skills.filter (!·.2)).map (·.1)
@@ -161,6 +167,10 @@ def driverIssues (o : Observation) : List Issue :=
   if o.driver = "" then [.driverUnset] else if o.driver = lintDriver then [] else
     [.driverOther o.driver]
 
+/-- The issue of one library entry of `Observation.uncovered`. -/
+def uncoveredIssue (entry : String × List String × List String) : Issue :=
+  .uncovered entry.1 entry.2.1 entry.2.2
+
 /-- Every setup issue of an observation, in a fixed order. -/
 def issues (o : Observation) : List Issue :=
   driverIssues o ++
@@ -168,7 +178,8 @@ def issues (o : Observation) : List Issue :=
   (if o.manifest then [] else [.manifestMissing]) ++
   (if o.guided then [] else [.guidanceMissing]) ++
   (staleSkills o).map .skillStale ++
-  (if o.toolchain = o.supported then [] else [.toolchain o.toolchain o.supported])
+  (if o.toolchain = o.supported then [] else [.toolchain o.toolchain o.supported]) ++
+  o.uncovered.map uncoveredIssue
 
 /-- One edit `init` writes. -/
 inductive Edit where
@@ -266,13 +277,14 @@ theorem run_targets (o : Observation) (es : List Edit) : (run o es).targets = o.
     cases e <;> rfl
 
 theorem run_toolchain (o : Observation) (es : List Edit) :
-    (run o es).toolchain = o.toolchain ∧ (run o es).supported = o.supported := by
+    (run o es).toolchain = o.toolchain ∧ (run o es).supported = o.supported ∧
+      (run o es).uncovered = o.uncovered := by
   induction es generalizing o with
-  | nil => exact ⟨rfl, rfl⟩
+  | nil => exact ⟨rfl, rfl, rfl⟩
   | cons e es ih =>
     simp only [run, List.foldl_cons] at ih ⊢
-    rw [(ih _).1, (ih _).2]
-    cases e <;> exact ⟨rfl, rfl⟩
+    rw [(ih _).1, (ih _).2.1, (ih _).2.2]
+    cases e <;> exact ⟨rfl, rfl, rfl⟩
 
 theorem run_manifest (o : Observation) (es : List Edit) :
     (run o es).manifest = (o.manifest || decide (Edit.manifest ∈ es)) := by
@@ -644,21 +656,33 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       have := h (.skillStale p) (by simp [issues, hp])
       exact Bool.noConfusion this
   · rintro ⟨hd, hm, hf, hg, hs⟩ i hi
+    have hdrv : ∀ j ∈ driverIssues o, j.fixable = false := by
+      intro j hj
+      unfold driverIssues at hj
+      simp only [hd, ↓reduceIte] at hj
+      split at hj
+      · simp at hj
+      · rw [List.mem_singleton] at hj
+        rw [hj]
+        rfl
+    have htc : ∀ j ∈ (if o.toolchain = o.supported then []
+        else [Issue.toolchain o.toolchain o.supported]), j.fixable = false := by
+      intro j hj
+      split at hj
+      · simp at hj
+      · rw [List.mem_singleton] at hj
+        rw [hj]
+        rfl
+    have hun : ∀ j ∈ o.uncovered.map uncoveredIssue, j.fixable = false := by
+      intro j hj
+      obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
+      rfl
     simp only [issues, hm, hf, hg, hs, ↓reduceIte, List.map_nil, List.append_nil,
       List.mem_append] at hi
-    rcases hi with hi | hi
-    · unfold driverIssues at hi
-      simp only [hd, ↓reduceIte] at hi
-      split at hi
-      · simp at hi
-      · rw [List.mem_singleton] at hi
-        rw [hi]
-        rfl
-    · split at hi
-      · simp at hi
-      · rw [List.mem_singleton] at hi
-        rw [hi]
-        rfl
+    rcases hi with (hi | hi) | hi
+    · exact hdrv i hi
+    · exact htc i hi
+    · exact hun i hi
 
 /-- The plan is empty exactly when every setup issue is one `init` does not write. -/
 theorem plan_eq_nil_iff (g : Guidance) (o : Observation) :
@@ -673,16 +697,22 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have h3 := manifest_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
-  have ⟨h6, h7⟩ := run_toolchain o (plan g o)
+  have ⟨h6, h7, h8⟩ := run_toolchain o (plan g o)
+  have hu : (o.uncovered.map uncoveredIssue).filter (!·.fixable) =
+      o.uncovered.map uncoveredIssue := by
+    rw [List.filter_eq_self]
+    intro j hj
+    obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
+    rfl
   have hs : ((staleSkills o).map Issue.skillStale).filter (!·.fixable) = [] := by
     induction staleSkills o <;> simp_all [Issue.fixable]
   have ht : (if o.toolchain = o.supported then []
       else [Issue.toolchain o.toolchain o.supported]).filter (!·.fixable) =
       if o.toolchain = o.supported then [] else [Issue.toolchain o.toolchain o.supported] := by
     split <;> rfl
-  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7
-  simp only [issues, h2, h3, h4, h5, h6, h7, ↓reduceIte, List.map_nil, List.append_nil,
-    List.filter_append, hs, ht]
+  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8
+  simp only [issues, h2, h3, h4, h5, h6, h7, h8, ↓reduceIte, List.map_nil, List.append_nil,
+    List.filter_append, hs, ht, hu]
   have hm : (if missing o = [] then [] else [Issue.optionsMissing (missing o)]).filter
       (!·.fixable) = [] := by split <;> rfl
   have hf : (if o.manifest = true then [] else [Issue.manifestMissing]).filter
@@ -738,6 +768,14 @@ def Lakefile.driverSetting : Lakefile → String
   | .lean => "`lintDriver := \"" ++ lintDriver ++ "\"` in the `package` declaration"
   | .toml => "`lintDriver = \"" ++ lintDriver ++ "\"` at the top level"
 
+/-- The glob setting that makes library `l` include every module below its roots `rs`. -/
+def Lakefile.globs (f : Lakefile) (l : String) (rs : List String) : String :=
+  match f with
+  | .toml => "add `globs = [" ++ ", ".intercalate (rs.flatMap fun r => [r.quote, (r ++ ".+").quote]) ++
+      "]` to the `[[lean_lib]]` table named \"" ++ l ++ "\""
+  | .lean => "add ``globs := #[" ++ ", ".intercalate (rs.map fun r => ".andSubmodules `" ++ r) ++
+      "]`` to `lean_lib " ++ l ++ "`"
+
 /-- Where options go in each format. -/
 def Lakefile.optionsPlace : Lakefile → String
   | .lean => "the `package` declaration's `leanOptions`"
@@ -759,6 +797,9 @@ def Issue.message (f : Lakefile) : Issue → String
   | .skillStale p => "setup [" ++ p ++ "]: the skill is not the installed Regula's briefing"
   | .toolchain p s => "setup [lean-toolchain]: the project uses " ++ p ++
       ", but this Regula supports only " ++ s
+  | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
+      ", ".intercalate ms ++ " below its roots; a claimed module that imports one is outside every \
+      library and cannot be audited"
 
 /-- The fix line of an issue's finding. -/
 def Issue.fix (f : Lakefile) : Issue → String
@@ -777,6 +818,7 @@ def Issue.fix (f : Lakefile) : Issue → String
       `lake update regula`)"
   | .toolchain _ s => "  fix: set lean-toolchain to " ++ s ++ " and run `lake update`, or require \
       the Regula release tagged for your toolchain"
+  | .uncovered l rs _ => "  fix: " ++ f.globs l rs ++ " (`init` never changes a library's modules)"
 
 /-- What an edit writes, as a phrase `init` and `doctor` print after "wrote" or "would write". -/
 def Edit.summary (f : Lakefile) : Edit → String
