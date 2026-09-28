@@ -67,12 +67,14 @@ private def page (title body : String) : String :=
   "<title>" ++ escape title ++ "</title><style>" ++ plainPageCss ++ "</style></head><body><main>" ++
   body ++ "</main></body></html>\n"
 
-/-- The project-site root: a link (and immediate refresh) to the development edition. -/
+/-- The project-site root: a link (and immediate refresh) to the development edition, with the
+`tagline` for link previews. -/
 def landing : String :=
   "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" \
     content=\"width=device-width, initial-scale=1\">" ++
-  "<title>Regula rule reference</title><meta http-equiv=\"refresh\" content=\"0; url=dev/\"><link \
-    rel=\"canonical\" href=\"" ++
+  "<title>Regula rule reference</title><meta name=\"description\" content=\"" ++ escape tagline ++
+  "\"><meta property=\"og:description\" content=\"" ++ escape tagline ++
+  "\"><meta http-equiv=\"refresh\" content=\"0; url=dev/\"><link rel=\"canonical\" href=\"" ++
   siteBase ++ "dev/\"></head><body><main><h1>Regula rule reference</h1><p><a href=\"dev/\">Open \
     the rule reference</a>.</p></main></body></html>\n"
 

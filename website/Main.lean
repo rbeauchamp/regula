@@ -1,5 +1,6 @@
 import VersoManual
 import RegulaSite
+import RegulaCore.Site
 import Generated
 
 /-! Renders the generated rule reference as multi-page HTML. Run through
@@ -13,11 +14,6 @@ one-line description for link previews. -/
 open Verso.Genre Manual
 open Verso.Output (Html)
 
-/-- The one-line description of Regula that link previews show. -/
-def description : String :=
-  "A strict linter for Lean: no holes, no hidden axioms, no unstated trust, and a fix for every \
-    finding."
-
 def main := manualMain (%doc Generated) (config := {
   emitTeX := false, emitHtmlSingle := .no, emitHtmlMulti := .immediately, htmlDepth := 2,
   features := {.search},
@@ -25,8 +21,8 @@ def main := manualMain (%doc Generated) (config := {
   extraJs := {⟨RegulaSite.themeScript⟩},
   extraHead := #[
     Html.tag "meta" #[("name", "color-scheme"), ("content", "light dark")] .empty,
-    Html.tag "meta" #[("name", "description"), ("content", description)] .empty,
-    Html.tag "meta" #[("property", "og:description"), ("content", description)] .empty,
+    Html.tag "meta" #[("name", "description"), ("content", Regula.Site.tagline)] .empty,
+    Html.tag "meta" #[("property", "og:description"), ("content", Regula.Site.tagline)] .empty,
     Html.tag "link" #[("rel", "stylesheet"), ("href", "regula.css")] .empty],
   sourceLink := some "https://github.com/rbeauchamp/regula",
   issueLink := some "https://github.com/rbeauchamp/regula/issues" })
