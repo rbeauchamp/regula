@@ -302,8 +302,8 @@ acceptance.
   ([contributing guide](contributing.md#share-one-mathlib-across-local-copies));
   provisioning is not verification.
 - `lean/Regula/Site/`: the rule-reference site builder (`lake exe site`) and the
-  toolchain-only deployment check. Their pure decisions are proved in the claimed
-  `RegulaCore.Site*` modules; see the [website guide](website.md).
+  toolchain-only deployment gate and check. Their pure decisions are proved in the claimed
+  `RegulaCore.Edition` and `RegulaCore.Site*` modules; see the [website guide](website.md).
 
 This uses normal Lean module factoring and Lake targets. It does not impose a universal
 `tests/` directory convention or rename scripts while hiding another interpreter inside Lean.

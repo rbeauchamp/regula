@@ -3,22 +3,22 @@ import RegulaCore.Guide
 import Regula.Contract
 import Std.Data.HashMap
 
-/-! # Rule-reference site: identity, routes and pure output checks
+/-! # Rule-reference site: routes, editions and pure output checks
 
-This module is the pure model of the published rule reference (issue #15). The operational
-builder in `Regula.Site` reads evidence, runs Verso and walks the output tree; every
-decision it takes about that data is a function here.
+This module is the pure model of the published rule reference. The operational builder in
+`Regula.Site` reads evidence, runs Verso and walks the output tree; every decision it takes
+about that data is a function here. The editions and the route policy are
+`RegulaCore.Edition`.
 
 ## Main declarations
 
-- `Edition`, `Edition.pageFile`, `pageFiles`: the route of every rule page in a published
-  edition, derived only from the closed `RuleId`; `pageFiles_nodup` and `mem_pageFiles`
-  make the page inventory duplicate-free and total over the registry.
-- `artifactRevisions`, `mem_artifactRevisions`, `archived_subset_artifactRevisions`,
-  `artifactRevisions_mono`: the revision snapshots of an artifact are exactly the archived
-  snapshots plus the current clean build's, so an artifact never drops an archived snapshot
-  and appending to the archive never removes one from a later artifact. `artifactBudget` bounds
-  the artifact's size.
+- `pageFiles`, `pageFiles_nodup`, `mem_pageFiles`: the rule pages of an edition, derived only
+  from the closed `RuleId`: duplicate-free and total over the registry. `artifactBudget`
+  bounds the artifact's size.
+- `bannerRelease`, `bannerRelease_eq_some`, `bannerTarget`, `bannerTarget_mem`, `outdatedBanner`,
+  `bannerAnchor`, `insertBanner`, `insertBanner_ok`: the note at the top of every page of an
+  earlier release's edition, which names the latest release and links the same page there, or
+  that edition's home page when the page does not exist there.
 - `escape`, `escape_safe`: HTML text escaping; escaped text contains none of the markup
   characters `<`, `>`, `"`, `'` or the backtick that would end a Verso code fence.
 - `htmlBlock`, `htmlBlock_ok`: the only way the generator inserts raw HTML into Verso source (by
@@ -33,9 +33,12 @@ decision it takes about that data is a function here.
   anchors the registry links, checked against the rendered standard's pages.
 - `standardUrl`, `routesAfter`, `routeAnchor`, `documentAnchors`: the pages and anchors that
   documentation links in the development standard, checked by the same `missingAnchors`.
-- `renderedRows`, `codeLinkLabel`, `linkedRows`, `rowMapMismatch`, `rowMapMismatch_eq_none_iff`:
-  the checklist rows of a rendered page and the labels and rows a row map links, each of which
-  must be that list.
+- `renderedRows`, `rowsMismatch`, `rowsMismatch_eq_none_iff`: the checklist rows of a rendered
+  page, which must be exactly `checklistRows`; `guide_checklist_listed`: every row a rule
+  explanation lists is one of them.
+- `rulesOfRow`, `mem_rulesOfRow`, `residualsOfRow`, `mem_residualsOfRow`: the checklist coverage
+  page's rules and open obligations of each row, the inverse of the explanations' `checklist` by
+  construction.
 
 ## Assumptions and boundaries
 
@@ -45,18 +48,18 @@ every link a browser would follow, that GitHub Pages serves the files, or that e
 links are live. `routesAfter` finds each literal occurrence of `standardUrl`; a link into the
 standard written any other way (relative, another edition, percent-encoded) is not found.
 `renderedRows` relies on the standard's `checklistRow` role being the only producer of
-`checklistRowClass` (by inspection of `website/RegulaExample.lean`). Deployment, Verso rendering
-and browser behavior are operational observations recorded by the builder and in the website
-guide.
+`checklistRowClass` (by inspection of `website/RegulaExample.lean`). `insertBanner` relies on
+Verso writing each page's content column as `bannerAnchor`; the build refuses a page without
+exactly one. Deployment, Verso rendering and browser behavior are operational observations
+recorded by the builder and in the website guide.
 -/
 
 namespace Regula.Site
 
+open Regula.Checker.Account (Residual)
+
 /-- The repository whose sources the site documents. -/
 def repository : String := "https://github.com/rbeauchamp/regula"
-
-/-- The GitHub Pages project-site origin every published edition lives under. -/
-def siteBase : String := "https://rbeauchamp.github.io/regula/"
 
 /-- The URL path of the project site. Absolute links in the output must start with it. -/
 def basePath : String := "/regula/"
@@ -71,44 +74,12 @@ def IsCommit (s : String) : Prop := s.length = 40 ∧ s.toList.all isHexLower = 
 
 instance (s : String) : Decidable (IsCommit s) := inferInstanceAs (Decidable (_ ∧ _))
 
-/-- A validated commit identifier. Revision routes only accept this type. -/
+/-- A validated commit identifier. -/
 abbrev Commit := { s : String // IsCommit s }
 
 /-- The commit identifier `s`, when it is 40 lowercase hexadecimal digits (`IsCommit`). -/
 def Commit.parse? (s : String) : Option Commit :=
   if h : IsCommit s then some ⟨s, h⟩ else none
-
-/-- A published edition of the rule reference. `dev` is the latest successful deployment;
-`rev c` is the snapshot of commit `c`. Released-package editions (`v/<version>/`) are part
-of the route policy but none is published, so the type has no constructor for them. -/
-inductive Edition where
-  /-- The development edition: the latest successful deployment of `main`. -/
-  | dev
-  /-- The snapshot of commit `commit`. -/
-  | rev (commit : Commit)
-
-/-- Artifact directory of an edition, relative to the project site root. -/
-def Edition.root : Edition → String
-  | .dev => "dev/"
-  | .rev c => "rev/" ++ c.val ++ "/"
-
-/-- Directory route of a rule page within an edition, derived from the rule identity. -/
-def Edition.pagePath (e : Edition) (id : RuleId) : String := e.root ++ id.route
-
-/-- Artifact file of a rule page. -/
-def Edition.pageFile (e : Edition) (id : RuleId) : String := e.pagePath id ++ "index.html"
-
-/-- Distinct rules have distinct routes in every edition. -/
-theorem Edition.pagePath_injective (e : Edition) {a b : RuleId}
-    (h : e.pagePath a = e.pagePath b) : a = b :=
-  RuleId.route_injective ((String.append_right_inj _).mp h)
-
-theorem Edition.pageFile_injective (e : Edition) {a b : RuleId}
-    (h : e.pageFile a = e.pageFile b) : a = b :=
-  e.pagePath_injective ((String.append_left_inj _).mp h)
-
-/-- The canonical development URL of a rule's explanation. -/
-def devUrl (id : RuleId) : String := siteBase ++ Edition.dev.pagePath id
 
 /-- Every rule page of an edition, in registry order. -/
 def pageFiles (e : Edition) : List String := RuleId.all.map e.pageFile
@@ -121,54 +92,8 @@ theorem pageFiles_nodup (e : Edition) : (pageFiles e).Nodup :=
 theorem mem_pageFiles (e : Edition) (id : RuleId) : e.pageFile id ∈ pageFiles e :=
   List.mem_map_of_mem (RuleId.mem_all id)
 
-/-! ## Retained revision snapshots -/
-
-/-- The revision snapshots of an artifact: every snapshot of the site archive, then the
-snapshot of the current build when it is clean (`some c`) and not yet archived. -/
-def artifactRevisions (archived : List Commit) (current : Option Commit) : List Commit :=
-  match current with
-  | some c => if c ∈ archived then archived else archived ++ [c]
-  | none => archived
-
-/-- An artifact has exactly the archived snapshots and the current clean build's snapshot. -/
-theorem mem_artifactRevisions (archived : List Commit) (current : Option Commit) (c : Commit) :
-    c ∈ artifactRevisions archived current ↔ c ∈ archived ∨ current = some c := by
-  cases current with
-  | none => simp [artifactRevisions]
-  | some d =>
-    by_cases h : d ∈ archived
-    · simp only [artifactRevisions, h, ite_true, Option.some.injEq]
-      exact ⟨Or.inl, fun hc => hc.elim id (fun e => e ▸ h)⟩
-    · simp [artifactRevisions, h, eq_comm]
-
-/-- No archived snapshot is dropped from an artifact. -/
-theorem archived_subset_artifactRevisions (archived : List Commit) (current : Option Commit) :
-    archived ⊆ artifactRevisions archived current :=
-  fun _ h => (mem_artifactRevisions _ _ _).mpr (Or.inl h)
-
-/-- A larger archive yields a larger artifact: appending to the archive never removes a
-snapshot from a later artifact. -/
-theorem artifactRevisions_mono {archived archived' : List Commit} (h : archived ⊆ archived')
-    (current : Option Commit) :
-    artifactRevisions archived current ⊆ artifactRevisions archived' current := by
-  intro c hc
-  rw [mem_artifactRevisions] at hc ⊢
-  exact hc.imp (fun m => h m) id
-
-/-- A duplicate-free archive yields a duplicate-free snapshot list. -/
-theorem artifactRevisions_nodup {archived : List Commit} (h : archived.Nodup)
-    (current : Option Commit) : (artifactRevisions archived current).Nodup := by
-  cases current with
-  | none => exact h
-  | some d =>
-    by_cases hd : d ∈ archived
-    · simpa [artifactRevisions, hd] using h
-    · simp only [artifactRevisions, hd, ite_false]
-      exact List.nodup_append.mpr ⟨h, (by simp), fun a ha b hb => by
-        simp only [List.mem_singleton] at hb; subst hb; exact fun e => hd (e ▸ ha)⟩
-
-/-- Upper bound on an artifact's total file bytes. It is below GitHub Pages' 1 GB limit on a
-published site, which archived snapshots approach linearly in the number of deployments. -/
+/-- Upper bound on an artifact's total file bytes, below GitHub Pages' 1 GB limit on a published
+site. Each release adds one permanent edition. -/
 def artifactBudget : Nat := 900000000
 
 /-! ## HTML text -/
@@ -244,6 +169,79 @@ theorem escape_no_backtick (s : String) : (escape s).toList.contains '`' = false
   have hm := escape_safe s '`' (by simpa using h)
   simp [markupChar] at hm
 
+/-! ## Release banners -/
+
+/-- The path, relative to the latest release's edition root, that the banner of the page at
+`path` links: the same page when the latest edition has it (its files are `files`, relative to
+its root), otherwise that edition's home page. -/
+def bannerTarget (files : List String) (path : String) : String :=
+  if path ∈ files then path else "index.html"
+
+/-- The release that the pages of release `v`'s edition name in their banner: the latest
+release, when it is not `v` itself. -/
+def bannerRelease (v : ReleaseVersion) : Option ReleaseVersion :=
+  latest.bind fun l => if v = l then none else some l
+
+/-- An edition carries a banner exactly when a later release is the latest, and the banner names
+it (`latest_greatest`: no release is later than it). -/
+theorem bannerRelease_eq_some (v l : ReleaseVersion) :
+    bannerRelease v = some l ↔ latest = some l ∧ v ≠ l := by
+  unfold bannerRelease
+  cases latest with
+  | none => simp
+  | some m =>
+    by_cases h : v = m
+    · subst h; simp
+    · simp only [h, ite_false, Option.bind_some, Option.some.injEq]
+      exact ⟨fun e => ⟨e, e ▸ h⟩, fun ⟨e, _⟩ => e⟩
+
+/-- A banner never links a missing page of an edition that has a home page. -/
+theorem bannerTarget_mem {files : List String} (home : "index.html" ∈ files) (path : String) :
+    bannerTarget files path ∈ files := by
+  unfold bannerTarget
+  split
+  · assumption
+  · exact home
+
+/-- The note at the top of the page at `path` of release `v`'s edition while `latest` is the
+latest release: it names the latest release and links `target` in its edition, the same page
+when `target` is `path`. -/
+def outdatedBanner (v latest : ReleaseVersion) (path target : String) : String :=
+  let route := if target.endsWith "index.html" then (target.dropEnd 10).toString else target
+  "<div class=\"regula-outdated\" role=\"note\"><p>This page documents Regula " ++
+    escape v.spelling ++ ". The latest release is Regula " ++ escape latest.spelling ++
+    ": <a href=\"" ++
+    escape (basePath ++ (Edition.release latest).root ++ route) ++ "\">" ++
+    (if target == path then "this page in Regula " else "the rule reference of Regula ") ++
+    escape latest.spelling ++ "</a>.</p></div>"
+
+/-- The start tag of the content column of every Verso page, where a banner goes: the top of the
+page's content, below Verso's fixed header. -/
+def bannerAnchor : String := "<div class=\"content-wrapper\">"
+
+/-- The page `page` with `banner` inserted directly after its `bannerAnchor`. It is admitted only
+when the page has exactly one such tag and splits around it into parts that reassemble to the
+page. -/
+def insertBanner (page banner : String) : Except String String :=
+  match page.splitOn bannerAnchor with
+  | [before, after] =>
+    if before ++ bannerAnchor ++ after = page then .ok (before ++ bannerAnchor ++ banner ++ after)
+    else .error "the page does not reassemble around its content column"
+  | _ => .error "the page does not have exactly one content column"
+
+/-- An admitted insertion changes the page only by the banner, directly after `bannerAnchor`. -/
+theorem insertBanner_ok {page banner out : String} (h : insertBanner page banner = .ok out) :
+    ∃ before after, page = before ++ bannerAnchor ++ after ∧
+      out = before ++ bannerAnchor ++ banner ++ after := by
+  unfold insertBanner at h
+  split at h
+  · rename_i before after _
+    split at h
+    · rename_i hp
+      exact ⟨before, after, hp.symm, (Except.ok.inj h).symm⟩
+    · cases h
+  · cases h
+
 /-! ## Index filters -/
 
 /-- Every rule category, in the index filter's order (`mem_categories`). -/
@@ -262,12 +260,6 @@ def modes : List EvidenceMode :=
 theorem mem_modes (m : EvidenceMode) : m ∈ modes := by
   cases m <;> simp [modes]
 
-/-- Every availability, in the index filter's order (`mem_availabilities`). -/
-def availabilities : List Availability := [.existingChecker, .plannedEngine]
-
-theorem mem_availabilities (a : Availability) : a ∈ availabilities := by
-  cases a <;> simp [availabilities]
-
 /-- The category's identifier in the index filter's markup and CSS. -/
 def _root_.Regula.RuleCategory.slug : RuleCategory → String
   | .foundation => "foundation" | .declaration => "declaration" | .execution => "execution"
@@ -281,14 +273,6 @@ def _root_.Regula.RuleCategory.label : RuleCategory → String
   | .environment => "Environment" | .configuration => "Configuration"
   | .elaboration => "Elaboration" | .coverage => "Coverage" | .admission => "Admission"
   | .documentation => "Documentation"
-
-/-- The availability's identifier in the index filter's markup and CSS. -/
-def _root_.Regula.Availability.slug : Availability → String
-  | .existingChecker => "existingChecker" | .plannedEngine => "plannedEngine"
-
-/-- The availability's display text. -/
-def _root_.Regula.Availability.label : Availability → String
-  | .existingChecker => "Enforced by the checker" | .plannedEngine => "Planned"
 
 /-- The scope's display text. -/
 def _root_.Regula.RuleScope.label : RuleScope → String
@@ -308,14 +292,11 @@ structure Selection where
   category : Option RuleCategory
   /-- The selected evidence mode, or `none` for every mode. -/
   mode : Option EvidenceMode
-  /-- The selected availability, or `none` for every availability. -/
-  availability : Option Availability
 
 /-- A rule is listed under a selection when it matches every restricted dimension. -/
 def Selection.admits (s : Selection) (id : RuleId) : Bool :=
   s.category.all (fun c => decide (c = (descriptor id).category)) &&
-  s.mode.all (fun m => decide (m ∈ (descriptor id).evidenceModes)) &&
-  s.availability.all (fun a => decide (a = (descriptor id).availability))
+  s.mode.all (fun m => decide (m ∈ (descriptor id).evidenceModes))
 
 /-- Each finite dimension together with its unrestricted choice. -/
 def options {α : Type} (values : List α) : List (Option α) := none :: values.map some
@@ -328,14 +309,12 @@ theorem mem_options {α : Type} (values : List α) (h : ∀ v, v ∈ values) (o 
 
 /-- Every filter state the index form can express. -/
 def selections : List Selection :=
-  (options categories).flatMap fun c => (options modes).flatMap fun m =>
-    (options availabilities).map fun a => ⟨c, m, a⟩
+  (options categories).flatMap fun c => (options modes).map fun m => ⟨c, m⟩
 
 theorem mem_selections (s : Selection) : s ∈ selections := by
-  rcases s with ⟨c, m, a⟩
+  rcases s with ⟨c, m⟩
   simp only [selections, List.mem_flatMap, List.mem_map]
-  exact ⟨c, mem_options _ mem_categories c, m, mem_options _ mem_modes m, a,
-    mem_options _ mem_availabilities a, rfl⟩
+  exact ⟨c, mem_options _ mem_categories c, m, mem_options _ mem_modes m, rfl⟩
 
 /-- Filter states under which no registered rule is listed. -/
 def emptySelections : List Selection :=
@@ -801,7 +780,7 @@ theorem checked_missingAnchors : Regula.ExecutableContract missingAnchors (fun r
           (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
   ⟨missingAnchors_nil_iff⟩
 
-/-! ## Checklist row map -/
+/-! ## Checklist rows and coverage -/
 
 /-- The checklist rows a rendered page defines, in document order: the `id` of each element of
 class `checklistRowClass`. -/
@@ -809,63 +788,56 @@ def renderedRows (html : String) : List String :=
   (scanTags html).filterMap fun t =>
     if t.get? "class" == some checklistRowClass then t.get? "id" else none
 
-/-- The label of a link whose destination follows `before`, when that label is one code span:
-`some label` exactly when `before` ends with ``[`label`](`` and `label` has no backtick. -/
-def codeLinkLabel (before : String) : Option String :=
-  match before.toList.reverse with
-  | '(' :: ']' :: '`' :: rest =>
-    let label := rest.takeWhile (· != '`')
-    match rest.drop label.length with
-    | '`' :: '[' :: _ => some (String.ofList label.reverse)
-    | _ => none
-  | _ => none
+/-- How the rendered checklist's rows differ from `checklistRows`, or `none` when they are the
+same list. -/
+def rowsMismatch (rendered : List String) : Option String :=
+  if rendered == checklistRows then none else
+    some s!"rendered rows missing from checklistRows: {rendered.filter (· ∉ checklistRows)}; \
+      checklistRows not rendered: {checklistRows.filter (· ∉ rendered)}; otherwise a row is \
+      repeated or out of the checklist's order"
 
-/-- The checklist rows a document links, in order: for each occurrence of the checklist page's
-URL followed by `#`, the link's code-span label (`codeLinkLabel`) and the fragment after it. -/
-def linkedRows (text : String) : List (Option String × String) :=
-  let url := standardUrl ++ checklistChapter ++ "/#"
-  ((text.splitOn url).dropLast.map codeLinkLabel).zip (routesAfter url text)
-
-/-- How the rows a row map links differ from the checklist's rows, or `none` when each link is
-labelled with its fragment and the fragments are the same list. -/
-def rowMapMismatch (linked : List (Option String × String)) (rows : List String) : Option String :=
-  if linked == rows.map fun row => (some row, row) then none else
-    let fragments := linked.map (·.2)
-    some s!"rows it does not link: {rows.filter (· ∉ fragments)}; linked fragments that are not \
-      rows: {fragments.filter (· ∉ rows)}; links not labelled with their fragment as one code \
-      span: {(linked.filter fun link => link.1 != some link.2).map (·.2)}; otherwise a row is \
-      linked more than once or out of the checklist's order"
-
-/-- The executed row-map check passes exactly when the map links the checklist's rows, each
-once, in the checklist's order, each labelled with exactly its row as one code span, and links
-no other fragment of the checklist page. -/
-theorem rowMapMismatch_eq_none_iff (linked : List (Option String × String)) (rows : List String) :
-    rowMapMismatch linked rows = none ↔ linked = rows.map fun row => (some row, row) := by
-  unfold rowMapMismatch
+/-- The executed row check passes exactly when the rendered rows are `checklistRows`. -/
+theorem rowsMismatch_eq_none_iff (rendered : List String) :
+    rowsMismatch rendered = none ↔ rendered = checklistRows := by
+  unfold rowsMismatch
   split <;> simp_all
 
-/-- Registered contract of the executed row-map check. -/
-theorem checked_rowMapMismatch : Regula.ExecutableContract rowMapMismatch (fun run =>
-    ∀ linked rows, run linked rows = none ↔ linked = rows.map fun row => (some row, row)) :=
-  ⟨rowMapMismatch_eq_none_iff⟩
+/-- Registered contract of the executed row check. -/
+theorem checked_rowsMismatch : Regula.ExecutableContract rowsMismatch (fun run =>
+    ∀ rendered, run rendered = none ↔ rendered = checklistRows) :=
+  ⟨rowsMismatch_eq_none_iff⟩
+
+/-- Every row a rule explanation lists is a checklist row. -/
+theorem guide_checklist_listed (id : RuleId) :
+    ∀ row ∈ (guide id).checklist, row ∈ checklistRows := by
+  cases id <;> decide
+
+/-- The rules whose explanation lists checklist row `row`, in registry order. -/
+def rulesOfRow (row : String) : List RuleId :=
+  RuleId.all.filter fun id => row ∈ (guide id).checklist
+
+/-- The coverage page lists a rule under a row exactly when the rule's explanation lists that
+row: the page is the inverse of `Guide.checklist`. -/
+theorem mem_rulesOfRow (row : String) (id : RuleId) :
+    id ∈ rulesOfRow row ↔ row ∈ (guide id).checklist := by
+  simp [rulesOfRow, RuleId.mem_all]
+
+/-- The review obligations that the rules of `row` leave open, in `Residual.all` order. -/
+def residualsOfRow (row : String) : List Residual :=
+  Residual.all.filter fun r => (rulesOfRow row).any fun id => r ∈ (guide id).residuals
+
+/-- An obligation is listed for a row exactly when some rule of that row leaves it open. -/
+theorem mem_residualsOfRow (row : String) (r : Residual) :
+    r ∈ residualsOfRow row ↔ ∃ id, row ∈ (guide id).checklist ∧ r ∈ (guide id).residuals := by
+  simp [residualsOfRow, Residual.mem_all, mem_rulesOfRow]
 
 /-! Evaluated controls (observations of the compiled scanners, not proofs): a route ends at a
 Markdown delimiter or a sentence's closing `.`, an autolink and a code span count, a page route
-names its `index.html`, a row link's label is read only from a code span that is the whole link
-text, and only elements of the row class are rows. -/
+names its `index.html`, and only elements of the row class are rows. -/
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard documentAnchors ["[a](" ++ standardUrl ++ "9-compliance-audit/#DOC-04). <" ++ standardUrl ++
   ">; `" ++ standardUrl ++ "introduction/`."] ==
   [("9-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
--- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkedRows
-    ("| [`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-1) |\n[x](" ++ standardUrl ++
-  "9-compliance-audit/)") == [(some "A-1", "A-1")]
--- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard linkedRows ("[`A-1`](" ++ standardUrl ++ "9-compliance-audit/#A-2) [A-3](" ++ standardUrl ++
-  "9-compliance-audit/#A-3) [x `A-4`](" ++ standardUrl ++ "9-compliance-audit/#A-4)") ==
-  [(some "A-1", "A-2"), (none, "A-3"), (none, "A-4")]
-example : (rowMapMismatch [(some "A-1", "A-2")] ["A-2"] != none) = true := by decide
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard renderedRows
     "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==

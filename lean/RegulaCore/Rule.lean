@@ -7,8 +7,7 @@ public import RegulaPolicy.Intent
 
 /-! # Rule registry
 
-Shared metadata. See RuleId for con-leche attribution and docs/guides/rule-registry.md
-for the boundary between existing checker detection and planned product adapters.
+Shared metadata of every rule. See RuleId for con-leche attribution.
 
 The registry is the one source of each rule's agent-facing guidance: its one-line
 `requirement`, short `rationale`, imperative `remedy`, common compliant `rewrites` and checked
@@ -73,44 +72,6 @@ inductive Severity where
 /-- The severity names used by the registry and diagnostics. -/
 def Severity.spelling : Severity → String
   | .error => "error" | .warning => "warning" | .information => "information"
-
-/-- Availability names the detector, not completion of every future adapter. -/
-inductive Availability where
-  /-- The existing checker detects the rule. -/
-  | existingChecker
-  /-- The rule is registered for a planned detector that does not run yet. -/
-  | plannedEngine
-  deriving Repr, BEq, DecidableEq
-
-/-- Credit for an outside project whose idea a rule's design follows, as the registry export and
-rule pages state it. -/
-structure Attribution where
-  /-- The credited project's name. -/
-  project : String
-  /-- Its authors, as credited. -/
-  authors : String
-  /-- A link to the credited source file. -/
-  url : String
-  /-- The source revision the credit refers to. -/
-  revision : String
-  /-- What was taken from the project, and what was not. -/
-  idea : String
-  /-- Whether any of the project's code was copied. -/
-  copiedCode : Bool
-  deriving Repr
-
-/-- The credit every rule carries by default: the con-leche `PropWhen` design idea, with no code
-copied and no correctness theorem imported. -/
-def registryAttribution : Attribution := {
-  project := "con-leche"
-  authors := "Joachim Breitner and contributors, Lean FRO"
-  url :=
-      "https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLec\
-        he/Kernel/PropWhen.lean"
-  revision := "c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0"
-  idea := "Canonical typed representation and complete indexed metadata; no imported correctness \
-    theorem"
-  copiedCode := false }
 
 /-- What one finding of a rule is about. -/
 inductive RuleScope where
@@ -184,24 +145,25 @@ def evidenceFor : RuleId → EvidenceKind
   | .positiveExample | .negativeExample | .trustedExample => .checkedExample
   | .moduleDocumentation | .materialDocumentation | .materialIntent => .metadataPresence
 
+/-- The first line of a diagnostic whose rule ID is written `rule`: what is wrong and where. -/
+def messageShape (rule impact mode claim location subject detail : String) : String :=
+  rule ++ " [" ++ impact ++ "; " ++ mode ++ "; claim=" ++ claim ++ "; " ++ location ++ "]: " ++
+    subject ++ ": " ++ detail
+
 /-- The first line of every rendered diagnostic of `id`: what is wrong and where.
 `RegulaCore.Feedback` adds the rule's remedy and guidance below it. A detail can itself span
 several lines. -/
 def messageLine (id : RuleId) (impact mode claim location subject detail : String) : String :=
-  id.spelling ++ " [" ++ impact ++ "; " ++ mode ++ "; claim=" ++ claim ++ "; " ++
-      location ++ "]: " ++
-    subject ++ ": " ++ detail
+  messageShape id.spelling impact mode claim location subject detail
 
 /-- The published message form: `messageLine` applied to placeholder names, so the registry
 and site show the same definition the checker renders. -/
 def messageForm (id : RuleId) : String :=
   messageLine id "{impact}" "{mode}" "{claim}" "{location}" "{subject}" "{detail}"
 
-/-- The development rule-reference page of `id`: a human pointer, never the only source of
-the fix (every diagnostic carries the remedy itself). Development routes are explicit; this
-does not claim that a page is deployed. -/
-def helpUrl (id : RuleId) : String :=
-  "https://rbeauchamp.github.io/regula/dev/" ++ id.route
+/-- The message form shared by every rule, with its ID as the placeholder `{rule}`. -/
+def sharedMessageForm : String :=
+  messageShape "{rule}" "{impact}" "{mode}" "{claim}" "{location}" "{subject}" "{detail}"
 
 /-- Source language of a rule's example files. -/
 inductive ExampleLanguage where
@@ -285,8 +247,6 @@ structure RuleDescriptor (id : RuleId) where
   normativeClauses : List Clause
   /-- The subreason every finding of the rule carries, such as `project-axiom` for RG1001. -/
   applicability : String
-  /-- Whether the existing checker detects the rule or a planned detector will. -/
-  availability : Availability
   /-- The evidence modes whose runs report the rule's findings. -/
   evidenceModes : List EvidenceMode
   /-- What the rule demands, in one line. -/
@@ -307,8 +267,6 @@ structure RuleDescriptor (id : RuleId) where
   scope : RuleScope := scopeFor id
   /-- The evidence the rule's decision reads, derived from the ID by default. -/
   evidenceKind : EvidenceKind := evidenceFor id
-  /-- Credit for the design idea the rule's representation follows. -/
-  attribution : Attribution := registryAttribution
 
 namespace RuleDescriptor
 /-- The ID the descriptor is indexed by. -/
@@ -405,7 +363,7 @@ def materialDocumentationDetail : RegulaPolicy.MaterialDocumentationFailure → 
   | .missingIntent => "material-intent: add a nonempty `# Intent` section stating the requirement \
     this claim must meet"
 
-/-- Total metadata for the reserved vocabulary. Planned detectors never claim availability.
+/-- Total metadata for the rule vocabulary; every registered rule is enforced by the checker.
 Example bytes are embedded from `examples/rules/<ID>/`; the `RegulaCore` library `needs` that
 directory as a Lake input, so editing an example rebuilds this module. -/
 def descriptor : (id : RuleId) → RuleDescriptor id
@@ -413,7 +371,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Project logical axioms are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "project-axiom"
-      availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "A claimed module declares no logical `axiom`: every assumption is a \
         hypothesis or a proof-bearing field."
@@ -441,7 +398,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Proof holes are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "hole"
-      availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "No owned declaration depends on `sorryAx`: no `sorry`, `admit` or unfinished \
         proof, directly or through an import."
@@ -468,7 +424,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Unknown transitive axioms are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "unknown-axiom"
-      availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Every transitive axiom of an owned declaration, including one from an \
         import, is `propext`, `Quot.sound` or `Classical.choice`."
@@ -494,7 +449,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Compiler-trusting proofs require separate classification", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "compiler-trusting"
-      availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Claimed declarations use no compiler-trusting proof: no `native_decide`, \
         `decide +native`, `bv_decide`, `Lean.trustCompiler`, `Lean.ofReduceBool` or \
@@ -525,7 +479,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Transitive axioms must fit the selected profile", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "label-exceeds-claim"
-      availability := .existingChecker
       evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
       requirement := "Each declaration's exact transitive axiom set fits the `claim` of its \
         surface in `foundation_manifest.json`."
@@ -555,7 +508,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           .declaration
       normativeClauses := [.declarationInventory]
       applicability := "escape-hatch"
-      availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Claimed modules declare nothing `unsafe` or `partial`; recursion is \
         structural or proved terminating."
@@ -584,7 +536,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Executable contracts require supported closed evidence", category := .execution
       normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
       applicability := "executable-contract"
-      availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Each `ExecutableContract f R` is closed and names a safe, computable \
         implementation `f`, with its complete domain inside `R`."
@@ -612,7 +563,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "The declared Lean environment must be available", category := .environment
       normativeClauses := [.elaborationEnvironment]
       applicability := "environment"
-      availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "The audit runs in the declared environment: Lake loads the workspace with \
         the pinned toolchain and resolves every dependency."
@@ -642,7 +592,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Configuration must classify the complete Lake surface", category := .configuration
       normativeClauses := [.lakeSurfaces]
       applicability := "configuration"
-      availability := .existingChecker
       evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
       requirement := "`foundation_manifest.json` is valid schema 2 and classifies every root \
         `lean_lib` and `lean_exe` exactly once."
@@ -672,7 +621,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Claimed source must elaborate warning-free", category := .elaboration
       normativeClauses := [.cleanElaboration]
       applicability := "source-build"
-      availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Every claimed module elaborates from source without errors or warnings; \
         Lean's default warnings stay enabled, and disabling a linter never discharges what it \
@@ -703,7 +651,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Owned coverage must match the exact Lake inventory", category := .coverage
       normativeClauses := [.lakeSurfaces]
       applicability := "coverage"
-      availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject]
       requirement := "Every owned module belongs to exactly one manifested library, and no claimed \
         module imports an excluded or checker-probe module."
@@ -730,7 +677,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Required admission and source evidence must be complete", category := .admission
       normativeClauses := [.cleanElaboration]
       applicability := "admission"
-      availability := .existingChecker
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Owned declarations pass kernel replay from the exact frozen sources; no \
         metaprogram adds unchecked declarations."
@@ -756,7 +702,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       category := .configuration
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
-      availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject]
       requirement := "Each claimed target sets in `leanOptions`: automatic implicits off, \
         `linter.missingDocs` on, no linter off beyond the §6.7 exclusions and, with Mathlib, its \
@@ -796,7 +741,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Execution closure must have no unresolved paths", category := .execution
       normativeClauses := [.computationMechanisms]
       applicability := "execution-unresolved"
-      availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Every path in an executable root's execution closure resolves; no \
         metaprogram hides replacement history."
@@ -822,7 +766,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Checked execution requires admitted correspondence", category := .execution
       normativeClauses := [.computationMechanisms]
       applicability := "execution-trusted-boundary"
-      availability := .existingChecker
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Under `\"execution\": \"checked\"`, every reachable replacement or `extern` \
         boundary has a kernel-checked equality with its reference."
@@ -851,7 +794,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Documentation fences must have a valid classification", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "fence-structure"
-      availability := .existingChecker
       evidenceModes := [.documentationExample]
       requirement := "Each `lean-fail` or `lean-trusted-compiler` marker sits immediately before \
         the `lean` fence it classifies, and every fence is closed."
@@ -877,7 +819,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           .documentation
       normativeClauses := [.documentationChecks]
       applicability := "positive-example"
-      availability := .existingChecker
       evidenceModes := [.documentationExample]
       requirement := "An unmarked `lean` fence in the checked docs elaborates verbatim and \
         warning-free and passes the declaration and axiom rules."
@@ -902,7 +843,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Negative examples require completed intended rejection", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "negative-example"
-      availability := .existingChecker
       evidenceModes := [.documentationExample]
       requirement := "A `lean-fail` fence fails to elaborate with one error message that matches \
         its whole pattern."
@@ -928,7 +868,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           .documentation
       normativeClauses := [.documentationChecks]
       applicability := "trusted-example"
-      availability := .existingChecker
       evidenceModes := [.documentationExample]
       requirement := "A `lean-trusted-compiler` fence elaborates warning-free and contains an \
         authenticated compiler-trusting declaration."
@@ -956,7 +895,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       category := .documentation
       normativeClauses := [.moduleDocumentation, .importDiscipline]
       applicability := "module-documentation"
-      availability := .existingChecker
       evidenceModes := projectModes
       requirement := "Every claimed module has a module docstring (`/-! … -/`) as its first \
         command \
@@ -989,7 +927,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           .documentation
       normativeClauses := [.inlineDocumentation]
       applicability := "material-documentation"
-      availability := .existingChecker
       evidenceModes := projectModes
       requirement := "Every public `@[regula_material]` declaration has a docstring stating its \
         purpose, hypotheses, result and boundary."
@@ -1015,7 +952,6 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           .documentation
       normativeClauses := [.faithfulExplanation]
       applicability := "material-intent"
-      availability := .existingChecker
       evidenceModes := projectModes
       requirement := "Every public `@[regula_material]` docstring has a nonempty `# Intent` \
         section stating the requirement the claim must meet."

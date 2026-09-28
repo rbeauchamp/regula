@@ -65,8 +65,7 @@ fence consumers also compare the census's module array and execution availabilit
 original request. A direct interactive `audit_dump_json` has no trusted loader receipt and
 cannot pass this decoder. Unknown fields and missing fields are refused. These additional
 unreleased report fields live inside the existing registry/result envelope; worker binding
-and its version remain separate. `--legacy-json-out` omits the new fields and retains its
-prior record shape. Use canonical `--json-out` to consume producer evidence.
+and its version remain separate. Use `--json-out` to consume producer evidence.
 
 `AxiomGate` also retains captured source bytes in the terminal `sourceAccount`, including
 partial captures on typed failures and IO exceptions. Capture callbacks retain the growing

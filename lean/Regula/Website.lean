@@ -275,11 +275,10 @@ def parsePage (j : Json) : Except String Page := do
   let rule ← parseRule (← j.getObjVal? "id")
   let route ← (← j.getObjVal? "route").getStr?
   let checkedExample ← (← j.getObjVal? "checkedExample").getBool?
-  let advertisedEnforced ← (← j.getObjVal? "advertisedEnforced").getBool?
   unless j == Json.mkObj [("id", ruleJson rule), ("route", toJson route),
-    ("checkedExample", toJson checkedExample), ("advertisedEnforced", toJson advertisedEnforced)] do
+    ("checkedExample", toJson checkedExample)] do
     throw "unknown page fields"
-  return ⟨rule, route, checkedExample, advertisedEnforced⟩
+  return ⟨rule, route, checkedExample⟩
 
 /-- Required IDs come from the selected site scope plus every emitted example diagnostic.
 Production #15 uses its full scope; the bounded prototype explicitly selects one rule. -/

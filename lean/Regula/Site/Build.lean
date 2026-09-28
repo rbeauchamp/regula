@@ -5,25 +5,24 @@ import RegulaCore.SiteTheme
 
 /-! # Rule-reference site builder
 
-Operational builder of the published rule reference (issue #15). It admits the rule-example
-corpus evidence, generates the Verso sources from the registry (`RegulaCore.Rule`), the rule
-explanations (`RegulaCore.Guide`) and the admitted records, renders them with the pinned
-Verso package in `website/`, assembles the GitHub Pages artifact with every snapshot of the
-site archive and checks it.
+Operational builder of the published rule reference. It admits the rule-example corpus
+evidence, generates the Verso sources from the registry (`RegulaCore.Rule`), the rule
+explanations (`RegulaCore.Guide`) and the admitted records, renders them with the pinned Verso
+package in `website/`, assembles the GitHub Pages artifact with the permanent edition of every
+release and checks it.
 
 ## Main declarations
 
-- `helpUrl_dev`: every help URL the linter emits is the site's development route of its rule.
 - `admitShard`: a corpus shard export is used only when it is `COMPLETED`, admitted by the
   proved `ruleExampleQualification` executable, and its recorded checker, corpus and
   configuration bytes equal the current sources.
 - `exampleOf`: the display form of one rule's two admitted records.
-- `fetchArchive`: the snapshots of the site archive, read with the deployment gate's reader.
+- `fetchRelease`: the permanent copy of a release's edition, from the release's GitHub asset.
 - `build`: generation, Verso rendering, assembly and `checkArtifact`.
 
 ## Boundaries
 
-Process, filesystem, Git and Verso observations are trusted operational inputs. The pure
+Process, filesystem, Git, network and Verso observations are trusted operational inputs. The pure
 decisions (routes, escaping, filters, diffs, links, page structure, colour contrast) are proved in
 `RegulaCore.Site`, `RegulaCore.SitePage`, `RegulaCore.SiteDocs` and `RegulaCore.SiteTheme`.
 Workspace paths of the
@@ -34,10 +33,6 @@ exact records remain in the corpus export this build consumed.
 namespace Regula.Site.Build
 
 open Lean System Regula.Site Regula.Qualification RegulaQualification.Evidence
-
-/-- The linter's emitted help URL is exactly the development page route of the site. Kernel-checked
-when the `site` executable is built; this module is in the excluded operational `Regula` library. -/
-theorem helpUrl_dev (id : RuleId) : Regula.helpUrl id = devUrl id := rfl
 
 private def get (j : Json) (key : String) : IO Json := IO.ofExcept (field j key)
 private def str (j : Json) (key : String) : IO String := IO.ofExcept (text j key)
@@ -183,21 +178,20 @@ def fixtureOf (root : FilePath) (id : RuleId) (text : String) : IO (Option Strin
       return some s!"examples/rules/{id.spelling}/{entry.fileName}"
   return none
 
-private def requestText (request : Json) (mode : String) : IO String := do
+/-- The audit that produced a rule-example record, as its page states it. -/
+private def requestText (request : Json) : IO String := do
   let kind ← str request "kind"
   let project ← str request "project"
   let subject := displayText project (← str request "subject")
   let claim := match field request "claim" with | .ok (.str c) => c | _ => "none"
   let execution := match field request "execution" with | .ok (.str e) => e | _ => "report"
-  let entry := "; run by the qualification runner's ruleExamples entry, which executes the same \
-    detector with dependency Git facts captured once for the campaign"
-  return (· ++ entry) <| match kind with
-    | "file" => s!"fresh single-file audit (axiomGate --file) of {subject} with claim {claim} and \
-      execution {execution}; evidence mode {mode}"
-    | "policyNegative" => s!"single-file policy inspection of {subject} that keeps Lean's original \
-      compiler warning; evidence mode {mode}"
-    | "documentation" => s!"documentation fence audit of {subject}; evidence mode {mode}"
-    | _ => s!"fresh whole-project audit (axiomGate) of {subject}; evidence mode {mode}"
+  return match kind with
+    | "file" => s!"a fresh single-file audit of `{subject}` (`axiomGate --file`, claim `{claim}`, \
+      execution `{execution}`)"
+    | "policyNegative" => s!"a single-file policy inspection of `{subject}` that keeps Lean's \
+      original compiler warning"
+    | "documentation" => s!"a documentation fence audit of `{subject}`"
+    | _ => s!"a fresh whole-project audit of `{subject}` (`axiomGate`)"
 
 /-- The display form of one rule's admitted violation and fix records. -/
 def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO
@@ -222,7 +216,6 @@ def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO
   requireChecks [⟨s!"{id.spelling}: the violating and corrected inputs differ", !changed.isEmpty⟩]
   let request ← get violation "request"
   let project ← str request "project"
-  let mode ← str violation "mode"
   let result ← get violation "result"
   let findings ← (← arr result "diagnostics").toList.mapM (findingOf project)
   requireChecks
@@ -231,7 +224,7 @@ def exampleOf (root : FilePath) (id : RuleId) (violation fixed : Json) : IO
     | some st => pure st
     | none => throw <| IO.userError s!"{id.spelling}: unknown run status {s}"
   let ex : Example := {
-    kind := ← str violation "kind", request := ← requestText request mode,
+    kind := ← str violation "kind", request := ← requestText request,
     violationStatus := ← status (← str result "status"), fixedStatus := ← status
         (← str (← get fixed "result") "status"),
     changed, context, findings }
@@ -263,29 +256,52 @@ def writeTree (destination : FilePath) (files : List (String × ByteArray)) : IO
     if let some parent := path.parent then IO.FS.createDirAll parent
     IO.FS.writeBinFile path bytes
 
-/-- Scratch directory of the fetched site archive; its `tree/rev/<commit>/` holds each snapshot. -/
-def archiveDirectory (root : FilePath) : FilePath := root / "tmp/site-archive"
+/-- The name of the GitHub release asset that holds the permanent copy of release `v`'s edition:
+a gzip-compressed tar archive of that edition's files, paths relative to its root. -/
+def releaseAsset (v : ReleaseVersion) : String := "regula-site-" ++ v.spelling ++ ".tar.gz"
 
-/-- Fetch the site archive of the published repository with `Regula.Site.Deployment`, the same
-reader the deployment gate uses, and return its snapshot commits. An absent archive branch is
-the empty archive; an unreachable repository fails the build. -/
-def fetchArchive (root : FilePath) : IO (List Commit) := do
-  let dir := archiveDirectory root
-  let fetched ← run root "lean"
-      #["--run", "lean/Regula/Site/Deployment.lean", "archive", repository, dir.toString] cleanEnv
-  requireChecks [⟨s!"site archive\n{fetched.stdout}{fetched.stderr}", fetched.exitCode == 0⟩]
-  let revisions ← IO.ofExcept
-      (fromJson? (α := List String) (← get (← readJson (dir / "archive.json")) "revisions"))
-  revisions.mapM fun r => match Commit.parse? r with
-    | some c => pure c
-    | none => throw <| IO.userError s!"site archive: not a commit identifier: {r}"
+/-- The download URL of `releaseAsset v`, attached to the release tagged `v<version>`. -/
+def releaseAssetUrl (v : ReleaseVersion) : String :=
+  repository ++ "/releases/download/v" ++ v.spelling ++ "/" ++ releaseAsset v
+
+/-- Scratch directory of the fetched release copies; `<version>/` holds each extracted edition. -/
+def releaseDirectory (root : FilePath) : FilePath := root / "tmp/site-releases"
+
+/-- Fetch and extract the permanent copy of release `v`'s edition and return its files. Refuses
+an unreachable asset, a symbolic link, a copy without a home page, and a copy whose `build.json`
+does not record a clean build of `v` for this site. -/
+def fetchRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × ByteArray)) := do
+  let dir := releaseDirectory root / v.spelling
+  if ← dir.pathExists then IO.FS.removeDirAll dir
+  IO.FS.createDirAll dir
+  let archive := releaseDirectory root / releaseAsset v
+  let fetched ← run root "curl" #["--fail", "--silent", "--show-error", "--location",
+    "--max-time", "120", "--output", archive.toString, releaseAssetUrl v]
+  requireChecks [⟨s!"release {v.spelling}: {releaseAssetUrl v}\n{fetched.stderr}",
+    fetched.exitCode == 0⟩]
+  let extracted ← run root "tar" #["-xzf", archive.toString, "-C", dir.toString]
+  requireChecks [⟨s!"release {v.spelling}: extract {releaseAsset v}\n{extracted.stderr}",
+    extracted.exitCode == 0⟩]
+  for path in ← dir.walkDir do
+    requireChecks [⟨s!"release {v.spelling}: {path} is a symbolic link",
+      (← path.symlinkMetadata).type != .symlink⟩]
+  let files ← snapshotTree dir
+  let some (_, recorded) := files.find? (·.1 == "build.json")
+    | throw <| IO.userError s!"release {v.spelling}: the copy has no build.json"
+  let build ← IO.ofExcept (Json.parse (← IO.ofExcept
+    ((String.fromUTF8? recorded).elim (.error "build.json is not UTF-8") .ok)))
+  requireChecks [
+    ⟨s!"release {v.spelling}: build.json records Regula {v.spelling}",
+      has build "producerVersion" (.str v.spelling)⟩,
+    ⟨s!"release {v.spelling}: build.json records a clean build", has build "dirty" (.bool false)⟩,
+    ⟨s!"release {v.spelling}: build.json records this site", has build "site" (.str siteBase)⟩,
+    ⟨s!"release {v.spelling}: the copy has a home page", files.any (·.1 == "index.html")⟩]
+  return files
 
 /-- Everything generated for one build, retained for the artifact check. -/
 structure Generated where
   /-- The identity of the build: commit, dirtiness, toolchain and producer versions. -/
   ident : Identity
-  /-- The snapshots of the site archive, in archive order. -/
-  archived : List Commit
   /-- Each rule's checked example, derived from its corpus records, in `RuleId.all` order. -/
   examples : List (RuleId × Example)
   /-- Each rule's evidence row, with the corpus shard that ran it, in `RuleId.all` order. -/
@@ -295,8 +311,7 @@ structure Generated where
 
 /-- Admit both shards and derive every rule's example. The two shards must select disjoint
 rules whose union is the registry, and contain one fix and one violation record per rule. -/
-def evidence (root : FilePath) (ident : Identity) (archived : List Commit)
-    (shardPaths : List FilePath) : IO Generated := do
+def evidence (root : FilePath) (ident : Identity) (shardPaths : List FilePath) : IO Generated := do
   let inventory ← Regula.Checker.Lake.surfaceInventory root
   let paths ← Regula.Qualification.RuleExamples.sourcePaths root
       (inventory.moduleSources.map Prod.snd)
@@ -338,7 +353,7 @@ def evidence (root : FilePath) (ident : Identity) (archived : List Commit)
       | some i => s!"{i + 1}/{shardPaths.length}" | none => "?"
     examples := examples ++ [(id, ex)]
     summaries := summaries ++ [{ summary with shard }]
-  return { ident, archived, examples, summaries, shards }
+  return { ident, examples, summaries, shards }
 
 /-- Generate every Verso module of the manual into `website/Generated`, with the site
 stylesheet (`Regula.Site.stylesheet`) as `website/Generated/regula.css`, which the website
@@ -352,7 +367,9 @@ def generate (root : FilePath) (g : Generated) : IO Unit := do
   IO.FS.writeFile (out / "regula.css") stylesheet
   let dir := root / "website"
   writeModule dir "Generated.Rules" (← IO.ofExcept (indexPage g.ident))
-  writeModule dir "Generated.Versions" (← IO.ofExcept (versionsPage g.ident g.summaries))
+  writeModule dir "Generated.Enforcement" (← IO.ofExcept (enforcementPage g.ident))
+  writeModule dir "Generated.Coverage" (← IO.ofExcept (coveragePage g.ident))
+  writeModule dir "Generated.Versions" (← IO.ofExcept (versionsPage g.ident))
   writeModule dir "Generated.Credits" (← IO.ofExcept (creditsPage g.ident))
   for (id, ex) in g.examples do
     for p in (guide id).repositoryPaths do

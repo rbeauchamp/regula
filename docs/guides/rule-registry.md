@@ -17,9 +17,9 @@ RuleDescriptor id` is exhaustive. There is no runtime registration table whose
 missing entries silently disappear.
 
 A descriptor supplies title, category, scope, evidence kind, normative clauses, applicability
-identifier, strict default, supported evidence modes,
-implementation availability, lifecycle and attribution. The message form is not a field: it is
-`messageForm id`, the same `messageLine` the checker renders.
+identifier, strict default, supported evidence modes and lifecycle. Every registered rule is
+enforced by the checker. The message form is not a field: it is `messageForm id`, the same
+`messageLine` the checker renders.
 
 Every descriptor also carries the agent-facing guidance, with no defaults, so a rule without
 it does not compile: a one-line `requirement`, a short `rationale`, a one-line imperative
@@ -36,9 +36,7 @@ one-line requirement and remedy, distinct examples) is checked for every rule wh
 `RegulaCore.Guidance` builds, by compiled evaluation over the complete `RuleId.all`: kernel
 reduction of the long string literals costs seconds per field. Every finding
 (`RegulaCore.Feedback`), the `regula` command, the agent briefing, the registry and result
-exports and the website render these fields; none keeps its own copy. `existingChecker`
-means the named existing predicate has a checker implementation; it does not
-mean that every planned live editor adapter is complete.
+exports and the website render these fields; none keeps its own copy.
 RG5001–RG5003 now have native observers. RG1001–RG1007
 have partial command feedback; RG2002 covers invalid local foundation requests,
 and RG2005 covers unavailable or pending local analysis. Full project integration
@@ -107,8 +105,7 @@ run. No textual path substitution is applied to the new transport.
 Names use outermost-first tagged string/numeric components, preserving anonymous
 roots and names whose printed forms are ambiguous. `Probe` retains Lean's actual `Name` throughout collection and policy admission. The operational name
 codec is public `Regula.StructuralName`; `NameCodec` is a compatibility import.
-Only the legacy output adapter renders the display `name` field. Old display-only
-worker records cannot supply a new declaration diagnostic. JSON syntax parsing and the compiler's collection of
+Display-only worker records cannot supply a declaration diagnostic. JSON syntax parsing and the compiler's collection of
 names, ranges and source identity remain trusted operational boundaries.
 
 ## Versioned output and compatibility
@@ -120,7 +117,6 @@ lake exe axiomGate --registry-out tmp/registry.json
 lake exe axiomGate --validate-registry tmp/registry.json
 lake exe axiomGate --file Example.lean --claim standard-logical --json-out tmp/result.json
 lake exe axiomGate --with-docs --json-out tmp/result.json
-lake exe axiomGate --with-docs --legacy-json-out tmp/legacy-report.json
 ```
 
 `--json-out` now writes **result schema 3**; schema 3 adds each diagnostic's `remedy`, the
@@ -128,13 +124,8 @@ top-level `rules` (the guidance of every rule that fired, once each, in registry
 stage evidence `stages` (the run's required stages) and `stagesCompleted` (those that completed),
 and `complete` (every stage of the run completed) with `stagesNotRun` (the stages that did not),
 and lists a project or file audit's diagnostics in run order (`Regula.sortFindings`). The [adoption guide](adoption.md#machine-readable-report) documents the
-fields for adopters. `--legacy-json-out` preserves the
-previous file/project report format, including its path-remapping behavior. The
-two options are mutually exclusive. Internal worker transport remains separately
-versioned by its existing protocol; the new structural-name field is internal
-collection data and is removed from the legacy export. Manifest schema 2 is
-unchanged. No repository check or CI step consumes legacy output; registry CLI
-qualification exercises only its mutual exclusion with `--json-out`.
+fields for adopters. Internal worker transport is separately versioned by its own protocol.
+Manifest schema 2 is unchanged.
 
 Since schema 2, a result keeps its size proportional to the audited project rather than to
 its dependencies (schema 3's `rules` member adds at most one entry per registered rule). Schema 1 serialized, inside `acceptance.snapshot.configuration.source`,
@@ -162,10 +153,9 @@ declarations, execution inventory from its owned roots, jobs and diagnostics, pl
 constant-size record per dependency; this is an argument from construction, not a
 theorem about serialized byte counts.
 
-Registry (schema 3, whose `normativeClauses` are `{section, title, source, url}` objects, the
-cited section's number, heading, Verso source path and development URL, where schema 2 had
-`PATH §N` strings; schema 2 added each rule's guidance and example pair to schema 1) and result
-(schema 3) envelopes contain `schemaVersion`, `producerVersion`,
+Registry (schema 4, whose `normativeClauses` are `{section, title, source, url}` objects: the
+cited section's number, heading, Verso source path and URL in the installed build's edition)
+and result (schema 3) envelopes contain `schemaVersion`, `producerVersion`,
 `toolchain` and `sourceRevision`. Registry output contains the canonical `rules`.
 Result output contains `scope`, `mode`, `status`, `stages`, `stagesCompleted`, `complete`,
 `stagesNotRun`, `diagnostics`, `rules` and `unresolved`. A writer records the stages its run
@@ -247,12 +237,11 @@ of Lean's JSON parser, FileMap implementation or complete diagnostic decoder.
 
 ## Website admission and links
 
-Development help URLs are
-`https://rbeauchamp.github.io/regula/dev/rules/<ID>/`; `Regula.Site.Build.helpUrl_dev`
-proves each is the site's development page route of its rule. Released `/v/<package-version>/`
-publication awaits a release; each published commit's `/rev/<commit>/` snapshot is published
-with its deployment and kept by every later one ([website guide](website.md#retention)). This unreleased producer advertises
-development links only.
+A help URL is the rule's page in the installed build's edition (`Regula.helpUrl_pagePath`):
+`https://rbeauchamp.github.io/regula/v/<version>/rules/<ID>/` for a release
+(`helpUrl_release`), and `…/regula/dev/rules/<ID>/` exactly for an unreleased build
+(`helpUrl_dev_iff`); every deployment publishes that edition (`installed_published`,
+[website guide](website.md#versions-and-routes)).
 
 The site builder (`lake exe site build`, run by `./scripts/verify.sh site`) generates every
 page from the registry and, after assembling the artifact, invokes:
@@ -262,10 +251,9 @@ lake exe axiomGate --validate-site tmp/registry.json tmp/site-artifact.json
 ```
 
 The artifact object has `required` and `emitted` ID arrays and a `pages` array.
-Each page has `id`, `route`, `checkedExample` and `advertisedEnforced`. Admission
-requires the expected producer/registry, unique and complete required pages,
-canonical routes, checked examples, and an implementation for advertised enforced
-rules. Every emitted ID must belong to the selected page scope. Unknown fields
+Each page has `id`, `route` and `checkedExample`. Admission requires the expected
+producer/registry, unique and complete required pages, canonical routes and checked
+examples. Every emitted ID must belong to the selected page scope. Unknown fields
 fail. The builder supplies the observed artifact inventory and checked-example
 evidence; the validator does not prove filesystem or compiler observations.
 The site submits every registered rule as required, one page per rule, and every rule ID its
@@ -321,13 +309,7 @@ the universal theorems. Ordinary [acceptance](contributing.md#develop-and-verify
 includes these checks. The native-linter and lint-driver campaigns separately exercise actual native diagnostics and
 Lake dispatch; the site build checks the generated pages.
 
-## Attribution and pinned interfaces
-
-Canonical representation and complete indexed metadata credit con-leche's
-[PropWhen](https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean)
-and [Installed](https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean),
-Joachim Breitner and contributors at Lean FRO. No con-leche code or proof is copied
-or imported as a proof of Regula's predicates.
+## Pinned interfaces
 
 The source and native-message adapters use Lean 4.34.0, commit
 `293d5d0c0c3f3dded4688b3ccd6a33939ac5102b`:
@@ -341,5 +323,5 @@ broaden the comparison; none of these examples prescribes an exact UX or supplie
 semantics or suppression permission. The repository's Mathlib revision (for its `audit/` package only) is locked in the
 [`audit/` manifest](../../audit/lake-manifest.json).
 
-The shared registry attribution describes a metadata design influence, not authorship of every
-rule or a runtime dependency. See [attribution scope](design-influences.md).
+The registry's design influences, including con-leche, are credited in
+[design influences](design-influences.md).

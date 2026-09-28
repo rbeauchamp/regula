@@ -22,7 +22,7 @@ relative path and Mathlib.
 | Understand declaration and execution auditing | [AxiomGate](Regula/Checker/AxiomGate.lean) | Operational checker implementation, qualified separately from the claimed proof surfaces. |
 | Use the Lake lint driver | [Lint](Regula/Checker/Lint.lean) | `lint`: the `axiomGate` project audit behind `lake lint`, with proved exit classification. |
 | Understand documentation auditing | [DocFenceAudit](Regula/Checker/DocFenceAudit.lean) | Checks recursively discovered Markdown fences as printed and, with `--verso`, every `lean` block of the Verso standard, which it builds and renders. |
-| Inspect the rule-reference site | [RegulaCore.Site](RegulaCore/Site.lean), [Guide](RegulaCore/Guide.lean), [site builder](Regula/Site/Artifact.lean), [guide](../docs/guides/website.md) | Claimed pure routes, escaping, filters, diffs, link checks and page structure, and the typed rule explanations; the builder's evidence, Verso and filesystem steps stay operational. |
+| Inspect the rule-reference site | [RegulaCore.Edition](RegulaCore/Edition.lean), [RegulaCore.Site](RegulaCore/Site.lean), [Guide](RegulaCore/Guide.lean), [site builder](Regula/Site/Artifact.lean), [guide](../docs/guides/website.md) | Claimed pure editions, version-matched help links, route policy, escaping, filters, diffs, release banners, link checks and page structure, and the typed rule explanations; the builder's evidence, Verso and filesystem steps stay operational. |
 | Inspect cold-start verification | [RegulaVerification](RegulaVerification.lean) | Claimed argument-selection/recipe driver; process IO remains a reported boundary under the shell deadline. |
 | Provision the shared local Mathlib | [RegulaProvision](RegulaProvision.lean) | Claimed toolchain-only setup run before the shell deadline; its receipt-admission, package-step and retention proofs do not authenticate Git, Lake, `cp`, `chmod` or locking effects. |
 | Inspect proved qualification oracles | [RegulaQualification](RegulaQualification/Checks.lean), [guide](../docs/guides/lean-qualification.md) | Claimed pure observation predicates; separate Lean IO drivers do not authenticate the compiler or OS by proof. |
@@ -47,4 +47,4 @@ For runnable consumers with their own configurations, use the
 [standalone examples](../examples/README.md). For commands and review instructions,
 use the [contributor guide](../docs/guides/contributing.md).
 
-The [linter product architecture](../docs/guides/linter-architecture.md) fixes the registry, diagnostic, editor and site modules. The [coverage map](../docs/guides/rule-coverage.md) distinguishes the implemented detectors from semantic review.
+The [linter product architecture](../docs/guides/linter-architecture.md) fixes the registry, diagnostic, editor and site modules. The [rule coverage](../docs/guides/rule-coverage.md) guide distinguishes the implemented detectors from semantic review.

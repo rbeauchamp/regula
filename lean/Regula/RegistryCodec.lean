@@ -77,8 +77,8 @@ def examplesJson (id : RuleId) : Json :=
     ("correction", toJson e.correction)]
 
 /-- A rule's registry record: its guidance, checked examples, category, scope, evidence kind,
-cited clauses, modes, message template, help route and URL, lifecycle, availability and
-attribution, all read from its descriptor. -/
+cited clauses, modes, message template, help route and URL and lifecycle, all read from its
+descriptor. -/
 def descriptorJson (id : RuleId) : Json :=
   let d := descriptor id
   Json.mkObj [
@@ -101,13 +101,7 @@ def descriptorJson (id : RuleId) : Json :=
       | .active _ => Json.null | .retired _ version _ => toJson version),
     ("replacement", match d.lifecycle with
       | .active _ => Json.null
-      | .retired _ _ replacement => (replacement.map (ruleJson ∘ Subtype.val)).getD Json.null),
-    ("availability", toJson (match d.availability with
-      | .existingChecker => "existingChecker" | .plannedEngine => "plannedEngine")),
-    ("attribution", Json.mkObj [
-      ("project", toJson d.attribution.project), ("authors", toJson d.attribution.authors),
-      ("url", toJson d.attribution.url), ("revision", toJson d.attribution.revision),
-      ("idea", toJson d.attribution.idea), ("copiedCode", toJson d.attribution.copiedCode)])]
+      | .retired _ _ replacement => (replacement.map (ruleJson ∘ Subtype.val)).getD Json.null),]
 
 /-- Reject metadata drift, unknown fields, missing fields, routes and lifecycle values. -/
 def parseDescriptor (j : Json) : Except String RuleId := do
@@ -132,11 +126,10 @@ def identityFields (p : ProducerIdentity) (schemaVersion : Nat := 1) : List (Str
   ("schemaVersion", toJson schemaVersion), ("producerVersion", toJson p.producerVersion),
   ("toolchain", toJson p.toolchain), ("sourceRevision", toJson p.sourceRevision)]
 
-/-- Registry schema 3 gives each rule's `normativeClauses` as objects with the cited section's
-number (`section`), heading (`title`), Verso source path (`source`) and development URL
-(`url`), where schema 2 gave `PATH §N` strings. Schema 2 added each rule's requirement,
-rationale, remedy, rewrites and checked example pair to schema 1. -/
-def registrySchemaVersion : Nat := 3
+/-- The registry export's schema version: each rule's record is `descriptorJson`, whose
+`normativeClauses` are objects with the cited section's number (`section`), heading (`title`),
+Verso source path (`source`) and URL in the installed build's edition (`url`). -/
+def registrySchemaVersion : Nat := 4
 
 /-- The registry JSON: the identity fields at `registrySchemaVersion` and every rule's
 `descriptorJson`, in `RuleId.all` order. -/
@@ -228,13 +221,10 @@ structure Page where
   route : String
   /-- Whether the page includes the rule's checked example. -/
   checkedExample : Bool
-  /-- Whether the page advertises the rule as enforced by an existing checker. -/
-  advertisedEnforced : Bool
 
 /-- Accept a site's pages only when the manifest equals `registryJson p`, the rules and routes
-are unique, there is one page for each rule of `required` and no other, each page is at its
-rule's route with a checked example, and a page advertises enforcement only for a rule with an
-existing checker. -/
+are unique, there is one page for each rule of `required` and no other, and each page is at
+its rule's route with a checked example. -/
 def validatePages (p : ProducerIdentity) (manifest : Json) (required : List RuleId)
     (pages : List Page) : Except String Unit := do
   validateRegistry p manifest
@@ -245,6 +235,4 @@ def validatePages (p : ProducerIdentity) (manifest : Json) (required : List Rule
   for page in pages do
     unless page.route == page.rule.route && page.checkedExample do
       throw s!"missing checked example or wrong route: {page.rule}"
-    if page.advertisedEnforced && (descriptor page.rule).availability != .existingChecker then
-      throw s!"unimplemented advertised rule: {page.rule}"
 end Regula.RegistryCodec

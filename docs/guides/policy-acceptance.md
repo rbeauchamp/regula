@@ -8,11 +8,8 @@ linkage. The [architecture](linter-architecture.md) owns the product and the
 Normative meaning remains [chapter 8](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/)
 and the [chapter 9 checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/).
 
-Con-leche and its authors/contributors, maintained by Joachim Breitner at Lean FRO,
-are credited for [complete indexed result assembly][installed] and
-[canonical representations with semantic equality][propwhen]. These are design
-influences, not imported proofs or copied code. The Regula guarantee
-is conditional on observations; it is not con-leche's kernel/model theorem.
+The Regula guarantee is conditional on observations; its design influences are credited in
+[design influences](design-influences.md).
 
 ## 1. Observed call flow and every success boundary
 
@@ -546,14 +543,10 @@ Reject duplicate JSON object fields before map construction (ordinary parsed map
 lose duplicates), unknown fields, duplicate identities and out-of-range machine values.
 Use Nat for semantic indices; checked conversion for UInt32 exit codes and byte offsets.
 Wire results carry observations, never serialized Lean proofs or an authoritative accepted
-flag. Revalidate and rerun the pure decision after decoding. Bind path remapping to display
-fields, replacing `writeRemappedJson`'s text-wide replacement; immutable identity stays intact.
+flag. Revalidate and rerun the pure decision after decoding. Immutable identity stays intact.
 
-Preserve legacy text subreasons on supported inputs. Introduce the versioned result format
-explicitly, not as a silent reinterpretation of old optional `--json-out`; retain old output through `--legacy-json-out PATH`, mutually exclusive with the new
-`--json-out PATH`, with no certificate import. #12/#7 document the transition and update
-consumers together before removing any legacy output option.
-No promise of exact legacy JSON bytes, broader supported inputs or improved runtime is made.
+Preserve text subreasons on supported inputs. The result format is versioned (`--json-out PATH`),
+with no certificate import. No promise of broader supported inputs or improved runtime is made.
 
 ## 6. Cache/pin decision, evidence and remaining obligations
 
@@ -604,4 +597,3 @@ ambiguous role origin and unresolved execution are refusals. Any failed proof or
 capability blocks its specific guarantee and must be reported.
 
 [installed]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Cached/Installed.lean
-[propwhen]: https://github.com/leanprover/con-leche/blob/c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0/ConLeche/Kernel/PropWhen.lean

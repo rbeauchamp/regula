@@ -78,10 +78,7 @@ Positive `freshFile` claims reject warnings, including warnings emitted after a
 source disables `warningAsError`. No-profile inspection remains classification.
 Compiler-trusting teaching inspection cannot construct a conforming profile.
 
-Versioned diagnostics retain structural identities. `--legacy-json-out` projects
-names to display strings and retains the legacy record shape. Only identified
-legacy display-path fields are remapped; proof text, pretty types and diagnostic
-prose are unchanged. Legacy output is not accepted evidence.
+Versioned diagnostics retain structural identities.
 
 The pure library is a separate Standard-Logical manifest surface, discovered by
 Lake's `.andSubmodules`, and is included in `./scripts/verify.sh`. Its exact axiom

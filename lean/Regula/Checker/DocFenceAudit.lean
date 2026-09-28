@@ -100,10 +100,6 @@ private def renderedPages (root : FilePath) : IO (List Regula.Site.Page) := do
     let relative := "/".intercalate (path.normalize.components.drop components.length)
     return some (Regula.Site.Page.ofHtml relative (← IO.FS.readFile path))
 
-/-- The coverage map below the documentation root: its links into the checklist page must be
-exactly the checklist's rows, each labelled with its row (`Regula.Site.linkedRows`). -/
-private def coverageMap : FilePath := "guides" / "rule-coverage.md"
-
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
 is written by the library's own code block. The copy's library sources and Verso package inputs
 must be exactly the audited and linked ones (`linked`), and the Verso package must pin every Git
@@ -136,10 +132,10 @@ private def workspaceSearchPath (dir : FilePath) : IO (Array FilePath) :=
 /-- Render the Verso library that `prepareVerso` built in the isolated copy, alone, which resolves
 every cross-reference. The rendered pages must define every section and checklist-row anchor the
 rule registry links (`Regula.Site.standardAnchors`) and every anchor the linked Markdown below
-`docsRoot` links (`Regula.Site.documentAnchors`); the coverage map must link exactly the rows
-of the rendered checklist, in its order, each labelled with its row
-(`Regula.Site.rowMapMismatch`); and each cited section's source must be a module of the library. -/
-private def renderVerso (repo docsRoot copy scratch : FilePath) (verso : VersoPackage)
+`docsRoot` links (`Regula.Site.documentAnchors`); the rendered checklist's rows must be exactly
+`Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`); and each cited section's source
+must be a module of the library. -/
+private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
     (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
   let package := copy / verso.dir.toString
   let library ← captureVerso { verso with dir := repo / verso.dir.toString }
@@ -159,14 +155,10 @@ private def renderVerso (repo docsRoot copy scratch : FilePath) (verso : VersoPa
       (Regula.Site.documentAnchors (markdown.map (·.source)).toList)
   unless missing.isEmpty do
     return some s!"the rendered standard does not define anchors the documentation links: {missing}"
-  let some coverage := markdown.find? (·.uri == (docsRoot / coverageMap).toString)
-    | return some s!"the coverage map {coverageMap} is not a linked document below {docsRoot}"
   let rows := Regula.Site.renderedRows
       (← IO.FS.readFile (html / Regula.checklistChapter / "index.html"))
-  if let some mismatch := Regula.Site.rowMapMismatch
-      (Regula.Site.linkedRows coverage.source) rows then
-    return some s!"the coverage map {coverageMap} does not link exactly the {rows.length} \
-      checklist rows: {mismatch}"
+  if let some mismatch := Regula.Site.rowsMismatch rows then
+    return some s!"the rendered checklist's rows are not Regula.checklistRows: {mismatch}"
   let unknown := Regula.Clause.all.filter fun c => !library.any
                                                     (·.uri == (repo / c.source).toString)
   unless unknown.isEmpty do
@@ -239,7 +231,7 @@ unsafe def run (args : List String) : IO UInt32 := do
                 options.verbose (verso := verso) (environment := environment)
         if result != 0 then return result
         let some requested := options.verso | return result
-        if let some failure ← renderVerso repo docsRoot copy scratch requested linked then
+        if let some failure ← renderVerso repo copy scratch requested linked then
           IO.println s!"FAIL: Verso documentation {requested.library}: {failure}"
           return 1
         Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ repo linked

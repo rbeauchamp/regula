@@ -181,7 +181,7 @@ shards, and then `./scripts/verify.sh site`, which builds and checks the rule-re
 420-second limit; never part of acceptance). The
 [contributor guide](docs/guides/contributing.md#choose-focused-diagnostics) lists which
 workflow runs each diagnostic and when; the
-[website guide](docs/guides/website.md#retention) owns publication. Merge requires passing
+[website guide](docs/guides/website.md#publication) owns publication. Merge requires passing
 CI on the reviewed PR head, applicable focused review and diagnostics.
 Preserve PR, signature, history, and conversation protections. Finish authorized publication,
 exact-head merge, and owned branch cleanup. Skill/handoff-only edits need proportionate

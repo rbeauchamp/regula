@@ -210,8 +210,7 @@ reuse `ResultState.collect`, `finalize` and `AcceptedRun` instead of another tra
 or success Boolean. Require accepted evidence in success renderers. Worker packets
 carry raw observations and strict request identity; serialized `acceptance` fields
 are never proof inputs. Keep file, fresh/incremental project, documentation, optional
-graph and classification-only meanings separate. Con-leche's complete indexed assembly
-is credited at this boundary; its proofs are not imported.
+graph and classification-only meanings separate.
 
 Trace the actual theorem-to-execution path and preserve all source/admission guards.
 An axiom census or theorem-statement reference alone does not establish semantic linkage.
@@ -222,7 +221,7 @@ from a few mutations or a worker exit.
 
 ## Linter and website development
 
-Follow the [architecture](linter-architecture.md) and [coverage map](rule-coverage.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
+Follow the [architecture](linter-architecture.md) and [rule coverage](rule-coverage.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
 
 The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site` (after both rule-example shards), publication and the rule-change workflow. The site build complements, and never partitions, [acceptance](#develop-and-verify). Review workflow must inspect rule IDs, exact scopes/modes, source ranges, versioned help routes and generated-source agreement where affected; no extra mandatory benchmark campaign is introduced.
 

@@ -40,10 +40,7 @@ structure Options where
   /-- `--project DIR`: audit the nearest directory at or above `DIR` that has a Lake
   configuration and a `lean-toolchain`, instead of the current one. -/
   project : Option FilePath := none
-  /-- `--legacy-json-out PATH`: where to write the legacy audit report JSON. -/
-  jsonOut : Option FilePath := none
-  /-- `--json-out PATH`: where to write the versioned result JSON; exclusive with
-  `--legacy-json-out`. -/
+  /-- `--json-out PATH`: where to write the versioned result JSON. -/
   resultOut : Option FilePath := none
   /-- `--acceptance-link PATH`: where a fresh project success records the identity of its
   accepted inputs for the separately timed documentation step. -/
@@ -92,8 +89,6 @@ private def parseArgs : List String → Options → IO Options
       parseArgs rest { options with project := some (FilePath.mk value) }
   | "--json-out" :: value :: rest, options =>
       parseArgs rest { options with resultOut := some (FilePath.mk value) }
-  | "--legacy-json-out" :: value :: rest, options =>
-      parseArgs rest { options with jsonOut := some (FilePath.mk value) }
   | "--acceptance-link" :: value :: rest, options =>
       parseArgs rest { options with acceptanceLink := some (FilePath.mk value) }
   | "--verso" :: value :: rest, options => do
@@ -113,15 +108,6 @@ private def parseArgs : List String → Options → IO Options
 
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
-
-/-- Write the audit report JSON, translating paths of an isolated disposable
-copy back to the checked project's own root. -/
-private def writeRemappedJson (path : FilePath) (value : Json)
-    (sourceRoot targetRoot : FilePath) : IO Unit := timedPhase "legacy report output" do
-  let text ← IO.lazyPure fun _ =>
-    Json.compress (ResultProtocol.legacyJson value sourceRoot.toString targetRoot.toString)
-  if let some parent := path.parent then IO.FS.createDirAll parent
-  IO.FS.writeFile path (text ++ "\n")
 
 /-- The Lake inventory of one audited library or surface: its modules and their source files. -/
 structure LibraryInfo where
@@ -352,8 +338,7 @@ rechecked once at the end. With `documentationPending`, the documentation stage 
 follows in this process owns that terminal recheck and the final success. -/
 private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
     (fresh verbose : Bool) (reportRoot : FilePath)
-    (jsonOut : Option FilePath) (composed : IO.Ref (Option Json))
-    (resultOut : Option FilePath := none)
+    (composed : IO.Ref (Option Json)) (resultOut : Option FilePath := none)
     (observeSources : Array ProducerReport.SourceBinding → IO Unit := fun _ => pure ())
     (documents : Array RegulaPolicy.SourceSnapshot := #[])
     (observeProject : ProjectEvidence → IO Unit := fun _ => pure ())
@@ -517,7 +502,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let mut failures : Array String := #[]
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
-      let mut surfaceReports : Array Json := #[]
       let mut resultSurfaces : Array Json := #[]
       for (surface, outcome) in inspections do
         let inspection ← IO.ofExcept outcome
@@ -710,9 +694,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           ("frontendTranscripts", Json.arr <| transcripts.map toJson),
           ("report", report)
         ]
-        -- Each rendering is built only for the output that reads it; neither affects a decision.
-        if jsonOut.isSome then surfaceReports := surfaceReports.push (surfaceJson (toJson report))
-        -- Legacy output keeps the full report; the result omits the import closure.
+        -- Built only for the result output, which omits the import closure; it affects no
+        -- decision.
         if resultOut.isSome then resultSurfaces := resultSurfaces.push
                                   (surfaceJson report.resultJson)
       let ownedModules := manifest.surfaces.foldl (fun count surface =>
@@ -747,21 +730,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             Acceptance.finish frozen build
           pure (some (snapshot, ⟨request, accepted⟩))
         else pure none
-      if let some output := jsonOut then
-        writeRemappedJson output (Json.mkObj [
-          ("manifest", manifestJson manifest),
-          ("rootInventory", Json.mkObj [
-            ("libraries", Json.arr <| rootInventory.libraries.map Json.str),
-            ("executables", Json.arr <| inventory.executables.map fun exe => Json.mkObj [
-              ("executable", Json.str exe.executable),
-              ("root", Json.str exe.root.toString),
-              ("source", Json.str exe.source.toString)
-            ]),
-            ("leanLibDir", Json.str rootInventory.leanLibDir.toString)
-          ]),
-          ("libraries", Json.arr <| libraries.map libraryInfoJson),
-          ("surfaces", Json.arr surfaceReports)
-        ]) repo reportRoot
       let unresolved := if failures.size == findings.size then #[] else
         #["additional checker failures: " ++ "\n".intercalate failures.toList]
       -- The same decision as the `status` written below, recorded even without `--json-out`.
@@ -827,7 +795,7 @@ snapshot and build; project and documentation acceptance are then combined. With
 `acceptanceLink`, a fresh success also returns the pending identity of its accepted inputs;
 only the caller records it, after its own outer recheck. -/
 private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
-    (incremental verbose : Bool) (jsonOut : Option FilePath) (withDocs : Bool)
+    (incremental verbose : Bool) (withDocs : Bool)
     (composed : IO.Ref (Option Json)) (resultOut : Option FilePath := none)
     (observeConfiguration : FilePath → Array (FilePath × Option String) → IO Unit :=
         fun _ _ => pure ())
@@ -840,8 +808,8 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     observeConfiguration repo configuration
     (·, none) <$> withSourceEvidence #[] configuration repo.toString .incrementalProject
         composed resultOut
-      (auditSurfaceAt repo (manifest.getD (Manifest.defaultPath repo)) false verbose repo jsonOut
-          composed resultOut observeSources (buildLint := buildLint))
+      (auditSurfaceAt repo (manifest.getD (Manifest.defaultPath repo)) false verbose repo composed
+          resultOut observeSources (buildLint := buildLint))
   else withScratch repo "axiom-gate" fun scratch => do
     let copy := scratch / "project"
     timedPhase "isolated source copy" <| copyProject repo copy scratch
@@ -864,7 +832,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
           evidence.configuration evidence.dependencies linkedDocuments
         linked.set (some { digest, account := Account.account evidence.accepted })
     let result ← timedPhase "complete declaration audit" <|
-      auditSurfaceAt copy manifestPath true verbose repo jsonOut composed resultOut observeSources
+      auditSurfaceAt copy manifestPath true verbose repo composed resultOut observeSources
         documents observe withDocs
     if result != 0 then return (result, none)
     let some evidence ← project.get
@@ -929,7 +897,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     return (docsResult, none)
 
 private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
-    (execution : ExecutionClaim) (manifest : Option FilePath) (jsonOut : Option FilePath)
+    (execution : ExecutionClaim) (manifest : Option FilePath)
     (composed : IO.Ref (Option Json)) (resultOut : Option FilePath := none)
     (observeConfiguration : FilePath → Array (FilePath × Option String) → IO Unit :=
         fun _ _ => pure ())
@@ -1094,16 +1062,6 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                                 (c : RegulaPolicy.Claim) × RegulaPolicy.AcceptedRun c))
                 | _ => pure none
               else pure none
-            if let some output := jsonOut then
-              writeJson output <| ResultProtocol.legacyJson <| Json.mkObj [
-                ("claim", (claim.map (Json.str ∘ Profile.toString)).getD Json.null),
-                ("execution", Json.str execution.toString),
-                ("authorizedNativeAxioms", Json.arr <| native.map (Json.str ∘ Name.toString)),
-                ("authorizedUnsafeRecHelpers", Json.arr <| unsafeHelpers.map
-                    (Json.str ∘ Name.toString)),
-                ("frontendTranscripts", Json.arr <| inspected.transcripts.map toJson),
-                ("report", toJson inspected.report)
-              ]
             if let some output := resultOut then
               let resultScope := Json.mkObj
                   [("file", toJson path.toString), ("source", toJson source),
@@ -1176,7 +1134,7 @@ def invalidateResults (args : List String) : IO Unit := do
 `--validate-site`, `--registry-out`, `--validate-registry` and `--replacement-history-worker`
 do only that job; otherwise it invalidates earlier results at the requested output paths,
 parses and checks the options, audits the single file or the manifested project surfaces, and
-writes the result JSON, the legacy report and the acceptance link that were requested. -/
+writes the result JSON and the acceptance link that were requested. -/
 unsafe def run (args : List String) : IO UInt32 := do
   terminalObservation.set none
   RunFeedback.reset
@@ -1248,7 +1206,7 @@ unsafe def run (args : List String) : IO UInt32 := do
         (workerPacket (sourceWorkerRequest "history" moduleName source transcript.sourceContent)
       (toJson transcript.runtimeReplacements))
     return 0
-  for flag in #["--json-out", "--legacy-json-out", "--acceptance-link", "--project", "--file",
+  for flag in #["--json-out", "--acceptance-link", "--project", "--file",
       "--manifest", "--claim", "--execution"] do
     if (optionValues flag args).length > 1 then
       throw <| IO.userError s!"duplicate {flag} option"
@@ -1270,9 +1228,6 @@ unsafe def run (args : List String) : IO UInt32 := do
   let repo ← match options.project with
     | some dir => findRepoRoot dir
     | none => repoRoot
-  if options.jsonOut.isSome && options.resultOut.isSome then
-    throw <| IO.userError "--json-out and --legacy-json-out are mutually exclusive"
-  let jsonOut := options.jsonOut.map (resolve repo)
   let resultOut := options.resultOut.map (resolve repo)
   let acceptanceLink := options.acceptanceLink.map (resolve repo)
   if let some path := acceptanceLink then AcceptanceLink.invalidate path
@@ -1313,14 +1268,14 @@ unsafe def run (args : List String) : IO UInt32 := do
       match options.file with
       | some path =>
           return (← auditFile repo (resolve repo path) options.claim options.execution
-            (options.manifest.map (resolve repo)) jsonOut composed resultOut observeConfiguration
+            (options.manifest.map (resolve repo)) composed resultOut observeConfiguration
                 observeSources, none)
       | none =>
           if options.buildLint then
             IO.println "build policy linter: enforcing all manifested Lake modules (incremental \
               elaboration; fresh policy inspection)"
           let result ← auditSurface repo (options.manifest.map (resolve repo))
-            options.incremental options.verbose jsonOut options.withDocs composed resultOut
+            options.incremental options.verbose options.withDocs composed resultOut
                 observeConfiguration observeSources
             (buildLint := options.buildLint) (acceptanceLink := acceptanceLink.isSome)
             (verso := options.verso.map fun verso =>

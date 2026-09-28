@@ -55,7 +55,8 @@ def main : IO Unit := do
   require (!succeeded (parseMode "fresh")) "unknown mode"
   require
       (!succeeded
-          (validateRegistry producer (manifest.setObjVal! "schemaVersion" (toJson (2 : Nat)))))
+          (validateRegistry producer
+            (manifest.setObjVal! "schemaVersion" (toJson (registrySchemaVersion - 1)))))
     "superseded registry version"
   -- The embedded example pairs are exactly the corpus files the rule-example campaign runs:
   -- this rejects a stale build and an `include_str` of the wrong file.
@@ -77,7 +78,7 @@ def main : IO Unit := do
               (manifest.setObjVal! "rules"
                   (toJson [descriptorJson .projectAxiom, descriptorJson .projectAxiom]))))
     "duplicate and missing IDs"
-  let page : RegistryCodec.Page := ⟨.projectAxiom, RuleId.projectAxiom.route, true, true⟩
+  let page : RegistryCodec.Page := ⟨.projectAxiom, RuleId.projectAxiom.route, true⟩
   require (succeeded (validatePages producer manifest [.projectAxiom] [page]))
       "actual one-page scope"
   require (!succeeded (validatePages producer manifest [.projectAxiom] [])) "missing page"
@@ -91,9 +92,6 @@ def main : IO Unit := do
       (!succeeded
           (validatePages producer manifest [.projectAxiom] [{ page with checkedExample := false }]))
               "unchecked example"
-  require (succeeded (validatePages producer manifest [.moduleDocumentation]
-    [⟨.moduleDocumentation, RuleId.moduleDocumentation.route, true, true⟩]))
-        "implemented module-doc detector"
   let emoji := String.singleton (Char.ofNat 0x1F600)  -- a non-BMP character
   let candidate : SourceCandidate :=
     ⟨⟨"qualification://unicode", "α" ++ emoji ++ "\r\nx"⟩, ⟨0, 9⟩, ⟨2, 6⟩⟩
