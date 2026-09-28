@@ -85,7 +85,7 @@ Cancelled/stale/unsupported/unknown results cannot construct accepted evidence. 
 never construct a fresh whole-project result.
 
 The implemented output schemas are versioned independently from manifest schema 2: registry
-export is at schema 3 and result envelopes are at schema 3 (see [rule registry](rule-registry.md)).
+export and result envelopes each carry their own version ([rule registry](rule-registry.md)).
 Both have top-level schemaVersion, producerVersion, toolchain and sourceRevision, plus rules
 (registry export) or scope/mode/status/stages/stagesCompleted/complete/stagesNotRun/diagnostics/rules/unresolved
 (result export).
@@ -244,7 +244,7 @@ semantics. Unpublished routes get the not-available page, which never falls back
 rules.
 
 The builder admits the evidence, generates and renders the manual, assembles the `dev/` edition
-and each release's edition (its release asset, with a banner naming the latest release once a
+and each release's edition (its permanent copy, with a banner naming the latest release once a
 later one exists) with `index.html`, `404.html` and `build.json`, and checks the tree: size
 budget, only the published routes, one page per registered rule, admitted example text in each page, every
 scanned link resolving under the base path, and the registry's `--validate-site`. Pinned
@@ -253,7 +253,7 @@ relative to each edition (Verso's `<base href>`).
 
 CI runs [acceptance](contributing.md#develop-and-verify), the two rule-example shards and the site
 build/check on every PR and `main`, saving the validated artifact as `site-<commit>`. On `main`, a gate
-refuses an artifact built from uncommitted changes or another commit, and after the same
+refuses an unpublishable artifact ([website guide](website.md#publication)), and after the same
 revision's acceptance and site jobs pass the artifact is uploaded with
 `actions/upload-pages-artifact` and deployed with `actions/deploy-pages` in the `github-pages`
 environment; only the deploy job has `pages: write` and `id-token: write`. Action SHAs are pinned

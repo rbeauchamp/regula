@@ -25,8 +25,9 @@ release and checks it.
 ## Boundaries
 
 Process, filesystem, Git, network and Verso observations are trusted operational inputs. The pure
-decisions (routes, escaping, filters, diffs, links, page structure, colour contrast) are proved in
-`RegulaCore.Site`, `RegulaCore.SitePage`, `RegulaCore.SiteDocs` and `RegulaCore.SiteTheme`.
+decisions (editions, releases and routes, escaping, filters, diffs, links, page structure, colour
+contrast) are proved in `RegulaCore.Edition`, `RegulaCore.Site`, `RegulaCore.SitePage`,
+`RegulaCore.SiteDocs` and `RegulaCore.SiteTheme`.
 Workspace paths of the
 disposable qualification projects are displayed as `<example>`, `<scratch>` and `<regula>`; the
 exact records remain in the corpus export this build consumed.

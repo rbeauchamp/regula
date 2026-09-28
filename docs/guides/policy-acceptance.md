@@ -4,7 +4,7 @@ The POLICY-01 design is implemented by the pure `RegulaPolicy` contracts and
 operational adapters described below. The [domain guide](policy-domain.md) identifies
 admitted data; the [proof guide](policy-proofs.md) gives theorem hypotheses and caller
 linkage. The [architecture](linter-architecture.md) owns the product and the
-[coverage map](rule-coverage.md) owns the twenty-two rules and nine residual accounts.
+[coverage map](rule-coverage.md) accounts for the twenty-two rules and nine residual obligations.
 Normative meaning remains [chapter 8](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/)
 and the [chapter 9 checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/).
 
