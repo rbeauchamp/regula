@@ -70,9 +70,9 @@ tree it writes, the objects it fetches and its resets) are trusted and observed,
 checked by the kernel each time `lean --run` elaborates this file; what the steps
 observe (whether the release is published, the head of `main`, the tag), that publishing a release
 creates its tag at the given commit, and the order of CI's jobs are GitHub's. The edits of
-`RegulaCore/Edition.lean` and `RegulaCore/Rule.lean` are text: `open` and `candidate` read their
-edit of `Edition.lean` back and refuse unless it names the intended build and releases, and the
-kernel checks the edited modules' theorems (`releases_ascending`, `installed_listed`,
+`RegulaCore/Edition.lean` and `RegulaCore/Rule.lean` are text: `open`, `candidate` and `adopt`
+read their edit of `Edition.lean` back and refuse unless it names the intended build and releases,
+and the kernel checks the edited modules' theorems (`releases_ascending`, `installed_listed`,
 `release_attributes_rules`, `lifecycle_listed`) when the release pull request's checks and CI's
 checks of the release commit build them.
 -/
