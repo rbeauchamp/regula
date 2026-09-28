@@ -1056,11 +1056,18 @@ def Lakefile.driverSetting : Lakefile → String
   | .lean => "`lintDriver := \"" ++ lintDriver ++ "\"` in the `package` declaration"
   | .toml => "`lintDriver = \"" ++ lintDriver ++ "\"` at the top level"
 
+/-- The `name` a `lakefile.toml` table writes for the target Lake names `name`: Lake's
+`Name.toString` escapes a name that is not an identifier (`«my-tool»` for `name = "my-tool"`). -/
+def tomlName (name : String) : String :=
+  match name.toName with
+  | .anonymous => name
+  | n => n.toString (escape := false)
+
 /-- The glob setting that makes library `l` include every module below its roots `rs`. -/
 def Lakefile.globs (f : Lakefile) (l : String) (rs : List String) : String :=
   match f with
   | .toml => "add `globs = [" ++ ", ".intercalate (rs.flatMap fun r => [r.quote, (r ++ ".+").quote]) ++
-      "]` to the `[[lean_lib]]` table named \"" ++ l ++ "\""
+      "]` to the `[[lean_lib]]` table named \"" ++ tomlName l ++ "\""
   | .lean => "add ``globs := #[" ++ ", ".intercalate (rs.map fun r => ".andSubmodules `" ++ r) ++
       "]`` to `lean_lib " ++ l ++ "`"
 
@@ -1073,7 +1080,7 @@ def Lakefile.optionsPlace : Lakefile → String
 def Lakefile.target (f : Lakefile) (exe : Bool) (name : String) : String :=
   let kind := if exe then "lean_exe" else "lean_lib"
   match f with
-  | .toml => "the `[[" ++ kind ++ "]]` table named \"" ++ name ++ "\""
+  | .toml => "the `[[" ++ kind ++ "]]` table named \"" ++ tomlName name ++ "\""
   | .lean => "`" ++ kind ++ " " ++ name ++ "`"
 
 /-- `it` for one module, `them` for several. -/

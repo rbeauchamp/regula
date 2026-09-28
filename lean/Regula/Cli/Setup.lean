@@ -354,14 +354,14 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
         let table := "[leanOptions]" ++ String.join (lines.map ("\n" ++ ·))
         pure [(top, if places.topEnd.isSome then "\n\n" ++ table else table ++ "\n\n")]
   let targetText ← targets.mapM fun t => do
-    let kind := if t.exe then "lean_exe" else "lean_lib"
+    let table := s!"[[{if t.exe then "lean_exe" else "lean_lib"}]] table named \"{tomlName t.name}\""
     let lines := t.options.map (Lakefile.toml.entry ·)
     let some place := places.targets.find? fun p =>
         p.exe == t.exe && p.name.any fun s => (Lake.stringToLegalOrSimpleName s).toString == t.name
-      | throw <| IO.userError s!"lakefile.toml has no [[{kind}]] table named \"{t.name}\"; add \
+      | throw <| IO.userError s!"lakefile.toml has no {table}; add \
           {", ".intercalate lines} to its leanOptions by hand"
     if place.unsupported then
-      throw <| IO.userError s!"the [[{kind}]] table named \"{t.name}\" writes leanOptions as \
+      throw <| IO.userError s!"the {table} writes leanOptions as \
         dotted keys or a sub-table; add {", ".intercalate lines} to it by hand"
     match place.inline with
     | some (pos, true) => pure (pos, String.join (lines.map (", " ++ ·)))
