@@ -569,20 +569,20 @@ def releaseCommit (repo head edition : String) (listed : List Version) (v : Vers
 `tagAction` proceeds, create a fresh release commit on it (`releaseCommit`) and point the branch
 `release/v<version>-candidate` at it, from which CI checks it out; leave a published release
 alone, and otherwise fail. Neither the tag nor the release exists yet. Writes the step output
-`commit`: the release commit, empty when there is nothing to release. -/
+`release`: the release commit, empty when there is nothing to release. -/
 def candidate : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
   let edition ← IO.FS.readFile editionFile
   let listed ← IO.ofExcept (releasesOf edition)
   let some v := listed.getLast?
-    | output "commit" ""; IO.println "main lists no release; there is nothing to release"
+    | output "release" ""; IO.println "main lists no release; there is nothing to release"
   let tag := v.tag
   let tagged ← taggedCommit repo tag
   match tagAction (← published repo tag) ((← mainHead repo) == head)
       (if tagged.isSome then .other else .absent) with
   | .skip =>
-    output "commit" ""
+    output "release" ""
     IO.println s!"release {tag} is published; there is nothing to release"
   | .refuse =>
     if let some named := tagged then
@@ -593,7 +593,7 @@ def candidate : IO Unit := do
     let commit ← releaseCommit repo head edition listed v
     let branch := s!"release/{tag}-candidate"
     pointBranch repo branch commit
-    output "commit" commit
+    output "release" commit
     IO.println s!"created the release commit {commit} on {head} as branch {branch}; CI checks it \
       before publishing {tag}"
 
