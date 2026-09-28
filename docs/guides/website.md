@@ -18,7 +18,7 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 | Violating and corrected inputs, findings, statuses | [`examples/rules/<ID>/`](../../examples/rules/) and [`corpus.json`](../../examples/rules/corpus.json), run by the rule-example campaign | The builder reads the campaign's exports for the same commit and renders the recorded bytes and findings. |
 | What every rule shares: strict impact, local options, where rules run, the message form, open obligations, trusted mechanisms and example kinds | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) | Stated once on the *How rules are enforced* page, which every rule page links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
 | Checklist coverage: every module 8 row with the rules that list it and the review obligations it carries | `coveragePage`, from `Regula.checklistRows` ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), each rule's `checklist` and each obligation's `Residual.rows` | `rulesOfRow` and `residualsOfRow` invert them (`mem_rulesOfRow`, `mem_residualsOfRow`), so the page cannot disagree with the rule pages or the obligations ([architecture](architecture.md#coverage-of-the-standard)). |
-| Page construction, escaping, filters, diffs, banners, link checking | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
+| Page construction, escaping, filters, diffs, banners, the site root's target, link checking | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
 | Releases, editions, help links and the route policy | [`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean) (claimed, proved) | `installed`, `releases`, `published`, `helpUrl` and `sitePath`. |
 | Evidence admission, generation, rendering, release copies, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
 | The standard: normative text, checked Lean examples, section and checklist-row anchors | [`website/RegulaStandard.lean`](../../website/RegulaStandard.lean) and [`website/RegulaStandard/`](../../website/RegulaStandard/) (Verso, the only source), with the code blocks of [`RegulaExample`](../../website/RegulaExample.lean) | Included by the generated home page under `standard/`. Each `lean` block is elaborated where it is written, in a fresh [`regula-example`](../../website/RegulaExampleMain.lean) process with exactly its own imports. |
@@ -96,7 +96,9 @@ fails and removes `_site/`:
   examples emitted.
 - **Routes and editions.** Every artifact path is a root file or lies in a published edition
   (`sitePath`, `sitePath_iff`): `dev/` and `v/<version>/` for each of `Regula.releases`, nothing
-  else. `dev/` is the rendered edition, byte for byte. Each release edition is its copy
+  else. The root `index.html` opens `rootEdition`, a published edition (`rootEdition_published`);
+  its link names the same route as its refresh, and the link check resolves it. `dev/` is the
+  rendered edition, byte for byte. Each release edition is its copy
   ([versions](#versions-and-routes)) with the latest-release banner on every HTML page when a
   later release exists. The artifact contains no hidden files (the Pages upload drops them);
   `build.json` records the commit, toolchain, linter version, Verso revision, per-rule evidence,
@@ -184,10 +186,10 @@ CI runs on every pull request and on `main`:
    `id-token: write`; it runs no checkout, provisioning or project code, so nothing it could
    fetch and execute can use its OIDC token.
 9. `verify-deployment`: `Deployment verify` fetches the live `build.json` with a per-attempt
-   query string until it equals the artifact's bytes, then requires the home page of every
-   edition, every development rule page and every release edition's `build.json` to be served
-   with the artifact's exact bytes, and an unpublished route to return the artifact's `404.html`
-   with HTTP 404. It compares only those files.
+   query string until it equals the artifact's bytes, then requires the site root page, the home
+   page of every edition, every development rule page and every release edition's `build.json` to
+   be served with the artifact's exact bytes, and an unpublished route to return the artifact's
+   `404.html` with HTTP 404. It compares only those files.
 
 Each run on `main` cancels older runs of `main`, the deploy job refuses to publish a revision
 that is no longer the head of `main` (for example a manual re-run of an older run, which
@@ -202,6 +204,7 @@ as the source. There is no custom domain or paid hosting. Actions are pinned by 
 
 | Route | Meaning |
 | --- | --- |
+| `/regula/` | The stable address the repository links: it opens the latest release's `/regula/v/<version>/`, or `/regula/dev/` while no release exists. |
 | `/regula/dev/` | The development version: every deployment rebuilds it from `main`. An unreleased build's help links. |
 | `/regula/v/<version>/` | The permanent copy of a release, made when it is released. A released build's help links. |
 | any other path | The not-available page (HTTP 404). It never redirects to other rules. |
@@ -209,9 +212,15 @@ as the source. There is no custom domain or paid hosting. Actions are pinned by 
 `Regula.installed` is the version of a build: a release, or unreleased; `Regula.releases` lists
 every release, oldest first (`releases_ascending`), and a released build is one of them
 (`installed_listed`). Every deployment publishes `dev/` and the edition of every release
-(`published`). The pages of a release's edition are the site its release build rendered; once a
-later release exists, the build inserts a banner at the top of each HTML page's content, directly
-after Verso's content column tag (`bannerAnchor`, `insertBanner_ok`). The banner names the latest
+(`published`). The site root's `index.html` (`landing`) opens `rootEdition`: its refresh, its link
+and its canonical link name that edition. `rootEdition` is derived from `Regula.releases` alone:
+the latest release's edition, whose release is the greatest (`rootEdition_eq_release_iff`), or
+`dev/` exactly while no release exists (`rootEdition_eq_dev_iff`). A release therefore moves the
+root with no other edit, and the repository's About link stays `/regula/`. Help links do not
+follow the root: a released build's name its own release's edition and an unreleased build's name
+`dev/`. The pages of a release's edition are the site its release build rendered; once a later
+release exists, the build inserts a banner at the top of each HTML page's content, directly after
+Verso's content column tag (`bannerAnchor`, `insertBanner_ok`). The banner names the latest
 release (`bannerRelease_eq_some`, `latest_greatest`) and links the same page in its edition, or
 that edition's home page when it has no such page (`bannerTarget_mem`). The development edition
 carries no banner.
@@ -255,8 +264,8 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
    permanent asset and publishes the release, which creates the tag at the release commit. The
    tag then never changes.
 4. The site build of `main` then takes the release's edition from the asset, and the deployment
-   publishes `/v/<version>/`; `dev/` keeps the development label. Every later build takes the
-   release's edition from the asset.
+   publishes `/v/<version>/`, which the site root now opens; `dev/` keeps the development label.
+   Every later build takes the release's edition from the asset.
 
 Rule IDs are never reused for a changed rule. A retired rule keeps a page (its lifecycle chip
 says so).
