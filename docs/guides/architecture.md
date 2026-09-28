@@ -28,9 +28,9 @@ renders the standard and the rule reference; it requires both packages only so t
 examples can import their modules, each in its own helper process.
 
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
-`lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`, `freshChecker` (optional
-serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples` and
-`ruleExampleQualification` (qualification), `site` (the rule reference) and `auditApp`.
+`lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,
+`freshChecker` (optional serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples`
+and `ruleExampleQualification` (qualification), `site` (the rule reference) and `auditApp`.
 
 ## The rule registry
 

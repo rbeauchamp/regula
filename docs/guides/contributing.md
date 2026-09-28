@@ -350,8 +350,8 @@ After fixes, reuse a diagnostic only with an explicit unchanged-relevant-input a
 A release is one action: run the **Release** workflow on `main` (**Actions → Release → Run
 workflow**, or `gh workflow run release.yml --ref main`). Its version is the Lean release in
 [`lean-toolchain`](../../lean-toolchain), the Lean ecosystem's tag convention (Batteries, Aesop,
-Plausible, import-graph and doc-gen4 tag `v4.34.0` for Lean 4.34.0; ProofWidgets numbers its own
-versions because each ships a compiled JavaScript bundle). There is therefore one release per
+Plausible, import-graph and doc-gen4 tag `v4.34.0` for Lean 4.34.0; ProofWidgets instead numbers
+its own versions, such as `v0.0.114`). There is therefore one release per
 supported toolchain: move to the next Lean release before the next Regula release. The workflow
 ([`release.yml`](../../.github/workflows/release.yml)) runs the steps of
 [`lean/Regula/Release.lean`](../../lean/Regula/Release.lean) and the checks of `ci.yml`:
