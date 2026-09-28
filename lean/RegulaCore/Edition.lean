@@ -12,7 +12,7 @@ pages, and `dev/` only for an unreleased build.
 ## Main declarations
 
 - `ReleaseVersion`, `Build`, `installed`, `releases`, `releases_ascending`, `installed_listed`:
-  this build's version and every published release, oldest first.
+  this build's version and every listed release, oldest first.
 - `latest`, `latest_greatest`: the latest release is the greatest.
 - `Edition`, `Edition.root`, `Build.edition`, `published`, `mem_published`,
   `installed_published`: the editions a deployment publishes, which include the installed
