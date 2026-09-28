@@ -72,22 +72,16 @@ private def page (title body : String) : String :=
 /-- The project-site root, the stable address the repository links: a link (and immediate refresh)
 to `rootEdition`, the latest release's edition or the development edition while no release exists
 (`rootEdition_eq_release_iff`, `rootEdition_eq_dev_iff`), with the `tagline` for link previews.
-Its canonical link and link text name the same edition, and a release root also links the
-development edition. -/
+Its canonical link names the same edition. -/
 def landing : String :=
   let target := escape rootEdition.root
-  let (name, dev) := match rootEdition with
-    | .release v => ("Regula " ++ escape v.spelling, "<p>The development version, rebuilt from \
-        <code>main</code>, is at <a href=\"dev/\">dev/</a>.</p>")
-    | .dev => ("the development version", "")
   "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" \
     content=\"width=device-width, initial-scale=1\">" ++
   "<title>Regula rule reference</title><meta name=\"description\" content=\"" ++ escape tagline ++
   "\"><meta property=\"og:description\" content=\"" ++ escape tagline ++
   "\"><meta http-equiv=\"refresh\" content=\"0; url=" ++ target ++ "\"><link rel=\"canonical\" \
     href=\"" ++ siteBase ++ target ++ "\"></head><body><main><h1>Regula rule reference</h1><p><a \
-    href=\"" ++ target ++ "\">Open the rule reference of " ++ name ++ "</a>.</p>" ++ dev ++
-  "</main></body></html>\n"
+    href=\"" ++ target ++ "\">Open the rule reference</a>.</p></main></body></html>\n"
 
 /-- The page GitHub Pages serves for every unpublished path. Links are root-relative because
 it is served at arbitrary paths. -/
