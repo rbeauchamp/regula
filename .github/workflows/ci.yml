@@ -44,7 +44,7 @@ jobs:
       - name: Verify documentation fences (same command and seven-minute limit as local)
         run: ./scripts/verify.sh docs
 
-  # The rule-example corpus: detector qualification (standard §8.8) and the only
+  # The rule-example corpus: detector qualification (standard §7.8) and the only
   # source of the site's examples. Diagnostics, not a partition of acceptance.
   rule-examples:
     name: diagnostics rule-examples ${{ matrix.shard }}

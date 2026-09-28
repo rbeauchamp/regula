@@ -9,6 +9,15 @@ library. A violation can elaborate successfully;
 the actual registered detector must produce its advertised result.
 
 [`corpus.json`](corpus.json) fixes expected rule IDs, reasons, modes, subjects and locations.
-The [rule-example guide](../../docs/guides/rule-examples.md) gives each source pair's exact
+
+Add or change source files first. Select the actual supported detector stage; do not force a
+project-only rule into an editor callback. Fix the intended diagnostic specification in
+`corpus.json`, including all additional findings. Its location fields are explicit expected
+coordinates, checked against the exact source by the registry codec. Whole-field placeholders
+refer to invocation paths or exact source-owned bytes; they never rewrite actual findings.
+Markdown snippet slices are explicit fixture byte anchors, not a second Markdown detector.
+The production Markdown scanner still owns classification and fence semantics.
+
+The [architecture guide](../../docs/guides/architecture.md#rule-examples) gives each source pair's exact
 remediation, accepted-example and diagnostic-demonstration distinctions, qualification
 commands, and the export and trust contracts of the rule-reference website.

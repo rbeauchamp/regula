@@ -41,15 +41,30 @@ lake -d audit build                # the Mathlib-dependent package
 ```
 
 Ordinary acceptance builds its checker executables, type-checks the diagnostic
-modules and audits the root package's claimed Lean surfaces from fresh output. It refuses a root
+modules and audits the root package's claimed Lean surfaces from fresh output. It also runs the
+registry and native qualification controls (`qualify combined`, which runs those of
+`qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, and refuses unless its own freshly captured inputs have the same identity. Each command has its own hard seven-minute
+requires both packages), builds and renders the standard fresh, and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+declaration gate performs Lake-semantic discovery and a clean, warning-free build before
+inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
+development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. Provisioning happens before
 that limit, under its own 30-minute limit. CI runs both commands, in that order in one job, after restoring or
 provisioning pinned dependency caches.
+
+The applicable command evidence is required but does not complete the standard's checklist:
+theorem, type and prose rows still require semantic review. A conformance record for this
+repository states the Lean version, the exact dependency source state (including Mathlib when
+present), the claimed Lake modules, declaration coverage and exact axiom results, execution
+boundaries, the applicable fence and checker-qualification results, and any failures or missing
+evidence. A required check that was skipped leaves its affected row or optional claim
+`INCOMPLETE`; it cannot support conformance. No CI, publication, merge, actual VS Code
+interaction, or full repository semantic conformance is implied by local acceptance or scoped
+integration results.
 
 ### Share one Mathlib across local copies
 
@@ -90,8 +105,8 @@ so copies wait while another copy creates a new pin.
 - Scratch directories live in `tmp/.regula-scratch/`, each beside an ownership marker
   `<name>.owner`. Those of killed runs (for example at the seven-minute limit) are reclaimed
   by the next run that creates one while no other run in the copy holds scratch; only marked
-  directories there are removed. Scratch left directly under `tmp/` by earlier versions is
-  never reclaimed; remove it by hand.
+  directories there are removed. Scratch outside `tmp/.regula-scratch/` is never reclaimed;
+  remove it by hand.
 - GitHub Actions keeps `lake -d audit exe cache get` and its dependency cache; provisioning does
   nothing there. A shared directory is never modified, only removed whole.
 
@@ -113,27 +128,34 @@ checker behavior:
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
 | `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters. |
-| `producers` | [Project producer and documentation qualification](engine-producers.md). |
-| `history` | [Source-bound replacement history qualification](engine-producers.md). |
-| `self-lint` | This repository's own `lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([dogfooding](lean-qualification.md#dogfooding-regula-on-itself)). |
-| `self-audit` | Operational self-audit of the excluded `Regula` library ([dogfooding](lean-qualification.md#dogfooding-regula-on-itself)). |
-| `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](rule-examples.md); a shard runs half of the rules. |
+| `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
+| `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
+| `self-lint` | This repository's own `lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
+| `self-audit` | Operational self-audit of the excluded `Regula` library ([repository conformance](#repository-conformance)). |
+| `rule-examples`, `rule-examples 1/2`, `rule-examples 2/2` | [Source-owned corpus and diagnostic demonstrations](architecture.md#rule-examples); a shard runs half of the rules. |
 
 The `environments` clean-checkout `freshChecker` control claims two import-free modules
 written into a copy with no build directory. It establishes that `freshChecker` builds its
 claimed targets itself, checks each maximal root, and reports accepted coverage of exactly
 those modules. The control does not run `leanchecker --fresh` over this repository's claimed
 graph. That replay rechecks Init, Lean and Mathlib once per root, and took more than 360 s.
-It is the optional serialized-graph claim (§8.9), which ordinary acceptance does not include
+It is the optional serialized-graph claim (§7.9), which ordinary acceptance does not include
 and this repository does not make. `./scripts/verify.sh serialized-graph` remains its
 command. Ordinary acceptance's isolated clean build still covers the real claimed surface.
 
 Omitting `PARTITION` requests the `checkerSelftest` campaign; the `producers`, `history` and
 `rule-examples` campaigns remain separate explicit selections. Each invocation uses the
 same deadline; choose affected checks rather than treating every campaign as a routine
-prerequisite. Run `./scripts/verify.sh serialized-graph` only for the separate serialized-graph
-claim. See the [verification sequence](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/#repository-verification-sequence)
-for evidence requirements. Diagnostics do not replace a failed acceptance run.
+prerequisite. Checker changes need focused verification of the affected capabilities and public
+invocation paths (standard
+[§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations));
+the complete `checkerSelftest --build-bound` campaign is for broad qualification, not a per-change
+gate. A selected diagnostic that fails remains a defect, and an unrun campaign is never reported
+as passed. Run `./scripts/verify.sh serialized-graph` (`lake exe freshChecker --verbose`) only for
+the separate serialized-graph claim: that claim needs fresh checker-state evidence for the exact
+claimed graph, so run the driver when that graph, claim or driver changes, and reuse equivalent
+coverage already obtained for the same inputs rather than repeating the same roots in a raw
+invocation. Diagnostics do not replace a failed acceptance run.
 
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers`,
 `history` and `lint-driver` as parallel jobs, each with its own hard 420-second limit, when the
@@ -142,19 +164,105 @@ checker, rules, rule examples, the adopter fixtures in `examples/lake-lint-toml`
 nightly; it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml)
 runs both shards on every pull request and push to `main`, where they feed
 `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
-capability-triggered diagnostics (standard §8.8), not a partition of ordinary acceptance.
+capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
 as parallel jobs under the same limit when Lean sources, Lake configuration or manifests
 change, on every push to `main`, and nightly. They are not part of acceptance.
 
-
 ## Implementation and qualification layout
 
 Project-owned implementation is Lean 4; `scripts/verify.sh` is the minimal acceptance
-shell boundary. Additional shell scripts require explicit approval under `AGENTS.md`.
-See [Lean qualification](lean-qualification.md) for the proof/IO split and why these
+shell boundary. Additional shell scripts require explicit approval under `AGENTS.md`. Direct
+commands in CI and developer setup examples are invocation recipes, not a second implementation
+language for qualification logic.
+[Proofs and boundaries](proofs-and-boundaries.md) gives the proof/IO split and why the
 integration controls are still necessary. Configuration and external toolchains are
 not claimed as formally verified Lean implementations.
+
+## Repository conformance
+
+This repository applies the standard to its own code and qualifies the checkers it publishes.
+Its claimed surfaces are those of the root [`foundation_manifest.json`](../../foundation_manifest.json)
+(`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision` and
+`AuditApp` with its standalone `Main`) and the `Audit` library of
+[`audit/foundation_manifest.json`](../../audit/foundation_manifest.json). Ordinary acceptance
+audits both freshly, with every target built under the options of
+[Follow the Lean community's conventions](#follow-the-lean-communitys-conventions).
+
+- `Audit` uses an all-submodules glob, so Lake's elaborated inventory owns its module set. It is
+  the claimed surface of the Mathlib-dependent `audit/` package, which requires the checker by
+  relative path exactly as a Mathlib adopter does and is audited against its own surface
+  manifest, so the checker package requires no Mathlib. `audit/Audit/` is one positive surface
+  holding mathematical models, proofs and executable examples, not the checker, and contains no
+  project axioms, holes, compiler-trusting proofs, authored partial or unsafe declarations,
+  runtime replacements or external declarations; generated partial helpers for safe recursion are
+  separately authenticated under standard
+  [§7.4](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#74-inventory-every-owned-declaration).
+- `AuditApp` and its claimed `auditApp` executable apply the complete-program contracts of
+  standard [§3.7](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#37-a-compositional-method-for-complete-program-contracts)
+  to their actual definitions: `RequiredContracts` states the required propositions and
+  `required_contracts` supplies their proofs; `executeChecked` requires that evidence, admits
+  capacity and runs the strict state/error script. Its success, first-refusal and append theorems
+  describe the retained successful prefix; the intrinsic `Limiter` bound supplies the state
+  invariant. `checked_executable` registers the exact admission/runner relation through
+  `ExecutableContract`, reusing `executeChecked_exact`, and `Main` invokes its `run` with
+  `required_contracts`. The total `run` and `execute` remain available, so review inspects the
+  actual caller. In `report` mode, the `IO` shell and reached native mechanisms are reported as
+  execution boundaries; these pure contracts do not prove terminal effects or compiler/runtime
+  correctness. `AuditApp` registers its
+  material claims with `@[regula_material]`, so acceptance checks their docstrings and Intent
+  sections.
+- `lean/Fixtures/` holds isolated positive controls and independent mutations, imported by no
+  positive surface. The checker executables are discovered as root-package `lean_exe` targets and
+  recorded in `excluded-executables`: they are operational tooling whose root modules belong to
+  the excluded `Regula` library, qualified by the diagnostic campaigns rather than claimed.
+- Every Lean block of the Verso standard and every `lean` fence of the Markdown below `docs/`
+  (the guides, which scanning does not make normative) is checked verbatim, before environment
+  inspection, by `./scripts/verify.sh docs`.
+- Checker changes receive focused qualification for affected capabilities under standard §7.8;
+  unchanged capability evidence is reused. When this repository claims separate serialized-graph
+  checking, it runs a fresh `leanchecker` pass over every declared root needed for complete module
+  coverage.
+
+Two diagnostics apply Regula to the rest of its own code base; neither is part of acceptance.
+`./scripts/verify.sh diagnostics self-lint` runs `lake lint` through the `regula/lint` driver in
+the root package and then in `audit/`, exactly as an adopter does. Both packages set
+`lintDriver := "regula/lint"`, so it runs over each package's `foundation_manifest.json` in
+incremental mode and checks the same claimed surfaces as acceptance, through the driver's
+dispatch and exit classes. `./scripts/verify.sh
+diagnostics self-audit` checks the excluded operational `Regula` library: `lake build Regula`
+builds every module warning-free (RG2003, because the package sets `warningAsError`), then
+`qualify self-audit` inspects each module of the library as Lake discovers it, each in its own
+worker (several roots define `main`, so the modules cannot share one environment). For each
+module it kernel-replays every owned declaration that is not `unsafe` or `partial` (RG2005,
+`Admission.validate`), decides every declaration record from the live linter's collector
+(`Regula.Collect.declaration`) with the proved `RegulaPolicy.checked_operationalFailure`
+(RG1001–RG1005, RG1007), and checks module and material-claim docs with the linter's predicates
+(RG5001–RG5003). Operational code is held to Standard-Logical with two facts reported, not
+failed: authored `unsafe`/`partial` declarations (RG1006), and, in a definition whose type is not
+a proposition, the pinned toolchain's Lake axioms (those a `Lake` module in the toolchain's own
+library directory declares). `operationalFailure_none_iff` states the exact success relation,
+`operationalFailure_ne_escapeHatch` that an escape hatch never fails a declaration,
+`operationalFailure_prop` that a proof gets exactly the conforming decision, and
+`operationalFailure_eq_conforming` that the decision is the conforming one on every declaration
+without a reported fact. The self-audit claims no proof surface and no execution result, and
+applies the linter's collector and decisions to completed modules rather than attaching its
+editor hooks. Lean's import and kernel replay, the collector's observations, toolchain artifact
+paths, the worker processes and their JSON transport are trusted.
+
+The repository's own checklist rows, which apply to this repository only:
+
+| ID | Required result | Normative source | Required Lean-specific verification |
+| --- | --- | --- | --- |
+| DOGFOOD-01 | The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples (in the Mathlib-dependent package in `audit/`), the `AuditApp` complete application with its standalone `Main` executable root, and the pure libraries `RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification` and `RegulaProvision` — satisfy every applicable row of the standard's checklist. | [Repository conformance](#repository-conformance) | Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. |
+| DOGFOOD-02 | Intentionally invalid fixtures are isolated from the positive elaborated environment. | [§7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics), [Repository conformance](#repository-conformance) | Reconcile exact imported project modules. Qualification includes a contamination mutation. |
+| DOGFOOD-03 | Normative prose, representative Lean fixtures, checker diagnostics, and status text make no stronger claim than the same verified property. | [§1.6](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#16-claim-boundaries-and-automated-checking), [Repository conformance](#repository-conformance) | Compare advertised capabilities with the checked implementation and applicable qualification evidence. Diagnostic qualification does not prove the checker is universally correct. |
+| DOGFOOD-04 | Examples and fixtures reuse or extend matching Lean/Mathlib mathematical definitions. Custom mathematical definitions state their meaning and why existing definitions do not fit; proofs follow the economy guidance in §3.2.5. | [§1.4](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#14-principled-mathematical-modeling), [§3.2.5](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#325-proof-economy-four-cost-domains-and-one-trust-question) | Compare custom mathematical structures, classes, and aliases with the pinned libraries and inspect required justifications. Review proof reuse where it simplifies the argument. A domain definition or teaching proof does not need a claim that no library theorem exists. |
+| DOGFOOD-05 | The complete application enforces its explicit required propositions: omitting executable classification, removing or weakening required evidence while its proposition remains, or weakening admission fails the gate. Semantic review rejects a narrowed requirement set or bypassed application linkage. | [§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations), [Repository conformance](#repository-conformance) | Inspect `RequiredContracts`, its evidence, and `Main`'s call through `checked_executable.run` to `executeChecked` for adequacy and completeness. The diagnostic campaign includes `app-omitted-exe`, `app-unproved-update`, `app-trivial-update`, `app-weakened-update`, `app-missing-contract-field`, and `app-weakened-admission`, each with its intended diagnostic and a fresh restored control. |
+
+A repository conformance claim records what [Develop and verify](#develop-and-verify) lists and
+follows the standard's [result rule](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/#result-rule), stating which rows it
+covers; a scoped review does not establish full conformance.
 
 ## Follow the Lean community's conventions
 
@@ -198,13 +306,13 @@ implementation merely to mirror the chapter structure.
 
 For review, use the repository-local
 [review toolkit](../../.agents/skills/pr-review-toolkit/SKILL.md) and the applicable
-[compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/). Scope verification to
+[compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/), with the repository rows above. Scope verification to
 the affected claims, retain required checks, and distinguish historical results
 from evidence for the current revision.
 
 ## Change an acceptance boundary
 
-Use the [success-owner and API map](policy-acceptance.md) when changing a driver.
+Use the [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary) when changing a driver.
 Freeze the request and independently discovered census before result collection;
 reuse `ResultState.collect`, `finalize` and `AcceptedRun` instead of another transition
 or success Boolean. Require accepted evidence in success renderers. Worker packets
@@ -221,7 +329,7 @@ from a few mutations or a worker exit.
 
 ## Linter and website development
 
-Follow the [architecture](linter-architecture.md) and [rule coverage](rule-coverage.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
+Follow the [architecture](architecture.md). A rule change updates its descriptor, actual detector, source fixtures, expected typed diagnostics and explanatory page together. Regula is agent-first: the descriptor's requirement, rationale, remedy, rewrites and checked example pair are required fields, because every finding, `lake exe regula` and the agent briefing print them; regenerate the dogfooded [skill](../../.agents/skills/regula/SKILL.md) with `lake exe regula skill > .agents/skills/regula/SKILL.md`, which acceptance checks. Follow the [attribution scope](design-influences.md): preserve actual code/license notices and cite relevant component-level design influences; examples such as CA1416, Ruff and Pyrefly are not exclusive design mandates. Never replace semantic review with docstring presence or generated-page counts.
 
 The [website guide](website.md) specifies the pinned Verso setup, `./scripts/verify.sh site` (after both rule-example shards), publication and the rule-change workflow. The site build complements, and never partitions, [acceptance](#develop-and-verify). Review workflow must inspect rule IDs, exact scopes/modes, source ranges, versioned help routes and generated-source agreement where affected; no extra mandatory benchmark campaign is introduced.
 
@@ -229,7 +337,10 @@ The acceptance transport groups are maintained, capability-triggered diagnostics
 all affected groups when worker dispatch, codecs, joins, request reconstruction or
 terminal output ownership changes. Their positive/refusal/restoration observations
 qualify those IO boundaries; `collect_success_iff` and `finalize_iff` already quantify
-universally over supplied finite observations. Do not add the multi-minute groups to
-every ordinary acceptance run. Existing CI builds transitively check all proof and
+universally over supplied finite observations. A changed worker protocol requires
+public-entrypoint controls for omitted, duplicate and substituted keys, wrong modes and
+snapshots, worker crash and malformed versions; changed library or overlay coverage requires a
+fresh imported-client control and exact Lake inventory checks. Do not add the multi-minute
+groups to every ordinary acceptance run. Existing CI builds transitively check all proof and
 adapter modules; the required CI diagnostics and budgets are described above.
 After fixes, reuse a diagnostic only with an explicit unchanged-relevant-input argument.

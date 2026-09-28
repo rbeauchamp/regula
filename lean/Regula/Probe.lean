@@ -226,7 +226,7 @@ Theorem candidates, supplied then discovered, are tried before definitional
 unfolding, so a kernel-exhausting unfolding cannot consume the memory limit a
 supplied proof needs. The definitional fallback returns
 `DefeqComparison.classify` of its outcome, so a comparison the kernel could not complete is
-unresolved, never trusted (standard §8.6). -/
+unresolved, never trusted (standard §7.6). -/
 private def replacementCorrespondence (env : Environment) (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
     CommandElabM (Correspondence × Option String) := do

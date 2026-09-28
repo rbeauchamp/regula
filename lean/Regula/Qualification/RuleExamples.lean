@@ -524,7 +524,7 @@ the three special refusal productions are admitted individually. Former derived 
 mutations (relabelled demonstrations, stale displayed sources, dropped source accounts)
 and in-process per-record mutations are replaced by `qualify_sound`, which covers every
 record rather than sampled edits. Each production runs in its own fresh
-workspace, so no restored rerun repeats an earlier production (standard §8.8). -/
+workspace, so no restored rerun repeats an earlier production (standard §7.8). -/
 def check (evidence : FilePath) (selection : Option (Array String))
     (suppliedAttempt : Option String := none) (shard : Option (Nat × Nat) := none) : IO Unit := do
   let attempt ← match suppliedAttempt with

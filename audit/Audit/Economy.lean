@@ -26,7 +26,7 @@ loop. The analytic theorem `two_mul_sumTo` replaces per-instance replay with
 one induction for every `n`, and kernel reduction of `sumTo` is unchanged by
 the `csimp` attribute.
 
-Retention reason (standard checklist row `DOGFOOD-04`): Mathlib's
+Retention reason (repository checklist row `DOGFOOD-04`): Mathlib's
 `Finset.sum_range_id_mul_two : (∑ i ∈ range n, i) * 2 = n * (n - 1)` states
 the Gauss identity at a shifted index (`range (n + 1)` corresponds to
 `sumTo n`), but that sum is a `Multiset`-quotient object whose kernel
@@ -36,8 +36,9 @@ elaborate, replay, and compile, not about the arithmetic identity.
 
 **Performance interface.** `closedSumWithProof` returns `closedSum n` with the exact
 Gauss relation as an erased proof, reusing `sumTo_eq_closedSum` and
-`two_mul_sumTo`. It connects the performance chapter to executable evidence
-without duplicating the chapter's teaching functions.
+`two_mul_sumTo`. It connects the performance-notes guide
+(`docs/guides/performance-notes.md`) to executable evidence without duplicating
+the guide's teaching functions.
 
 **Lawful mixin.** `Flourishable` holds operations only; `LawfulFlourishable`
 is a `Prop`-valued mixin that holds every law. A generic claim that uses a

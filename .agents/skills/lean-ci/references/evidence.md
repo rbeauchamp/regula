@@ -33,7 +33,7 @@ The timings and hosted outcomes below were observed; they are not proofs.
 4. **Terminal source-account output.** The producer retains captured sources in memory
    and serializes at terminal boundaries instead of repeatedly serializing every growing
    prefix. Every required terminal path still carries its captured evidence, including
-   failure paths. See [engine producers](../../../../docs/guides/engine-producers.md).
+   failure paths. See [proofs and boundaries](../../../../docs/guides/proofs-and-boundaries.md#producers).
    Before/after equality does not authenticate the process or exclude change-and-restore.
 
 The corpus's displayed `detectorSeconds` brackets the fresh checker subprocess, including

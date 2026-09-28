@@ -28,7 +28,7 @@ number := false
 
 *Requirement*: Every public declaration used as evidence for a material normative claim MUST have a docstring identifying its formal purpose and accurately stating the claim it supports. Describe the relevant domain, hypotheses, result, and invariant boundary. Claims must follow from the elaborated type, the definition, or a proved contract about that definition.
 
-*Community baseline*: Every public definition in a claimed library MUST also have a docstring, as the Lean community requires. {ref "67-community-conventions-and-linters"}[Section 6.7] makes every claimed library enable Lean's `linter.missingDocs`, which reports each public definition, structure, class, inductive type, constructor, and field without one; RG2006 checks that the option is set, and the warning-free elaboration of §8.3 (RG2003) rejects each report. Documenting every major theorem, which Mathlib's [documentation requirements](https://leanprover-community.github.io/contribute/doc.html) also ask for and no enabled linter checks, is RECOMMENDED. The material requirement above is stricter than this baseline: RG5002 checks that each registered material declaration has a docstring and RG5003 that it has an Intent section, whatever linter options are set. One community allowance does not apply to those docstrings: Mathlib's guide lets a docstring "lie slightly" about the actual implementation, while a docstring supporting a material claim states the claim exactly (§5.2).
+*Community baseline*: Every public definition in a claimed library MUST also have a docstring, as the Lean community requires. {ref "67-community-conventions-and-linters"}[Section 6.7] makes every claimed library enable Lean's `linter.missingDocs`, which reports each public definition, structure, class, inductive type, constructor, and field without one; RG2006 checks that the option is set, and the warning-free elaboration of §7.3 (RG2003) rejects each report. Documenting every major theorem, which Mathlib's [documentation requirements](https://leanprover-community.github.io/contribute/doc.html) also ask for and no enabled linter checks, is RECOMMENDED. The material requirement above is stricter than this baseline: RG5002 checks that each registered material declaration has a docstring and RG5003 that it has an Intent section, whatever linter options are set. One community allowance does not apply to those docstrings: Mathlib's guide lets a docstring "lie slightly" about the actual implementation, while a docstring supporting a material claim states the claim exactly (§5.2).
 
 A function's type may constrain its inputs and outputs without specifying their relationship. For example, `Probability → Probability` ensures the output is a probability but does not specify which probability is returned. Document the defining operation or cite the theorem that establishes the promised relationship.
 
@@ -200,17 +200,3 @@ theorem String.self_ne_append_of_ne_empty (s suffix : String) (h : suffix ≠ ""
 ```
 
 Use comments to explain a mathematical choice, a strengthened induction hypothesis, or a necessary case distinction. Prefer names and proof structure when they convey the point. Remove comments that only repeat the adjacent tactic.
-
-# Summary of Documentation Standards
-%%%
-tag := "summary-of-documentation-standards"
-number := false
-%%%
-
-* Public declarations supporting material normative claims have accurate docstrings.
-* Explanations preserve the claim's quantifiers, assumptions, conclusion, and relevant limits, and identify its formal source.
-* Each material claim's docstring carries a written Intent section, the requirement-side target its explanation and declaration are compared against.
-* Module documentation identifies the material declarations, assumptions, and relationships readers need.
-* Proof structure and comments make the mathematical argument easier to follow without adding unsupported claims.
-
-Documentation supports semantic review. Assess its accuracy using the checked definitions and proofs.

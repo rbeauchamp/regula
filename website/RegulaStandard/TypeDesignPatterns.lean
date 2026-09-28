@@ -375,18 +375,3 @@ Without `h`, the unconditional refinement statement is false, as the boundary ex
 *Stateful refinement for finite-prefix safety* relates transition systems as well as state representations. Relate concrete and abstract states, prove initialization and forward simulation into a precisely defined finite abstract closure, and derive invariant transfer over every finite concrete path. {ref "39-stateful-refinement-and-finite-prefix-safety"}[Module 3 §3.9] works through the actual limiter: occupied and free slots are different representations, refusal can stutter, and one reset can match several abstract releases. The proved Lean relation is part of the formal development, distinct from an unproved external adapter.
 
 *Anti-Pattern - Unsupported Claims About a Representation*: A byte array, hash function, or binary tree is a valid subject for a Lean specification. The defect is claiming properties that its definition and proofs do not establish. A tree representation alone proves no hash-collision or authentication property, and a theorem about an abstract verification relation does not establish the behavior of an unrelated implementation. State the required property and prove it about the chosen representation, or provide the checked correspondence needed to transfer it.
-
-# Summary of Type Design Patterns
-%%%
-tag := "summary-of-type-design-patterns"
-number := false
-%%%
-
-These patterns work together in mathematical definitions and executable programs:
-
-* Types encode the semantic distinctions claimed by the interface.
-* Proof-bearing values enforce their predicates; justified raw representations require verified admission and updates.
-* Abstract models use parameters or implemented abstraction boundaries, with explicit assumptions; transferring their results requires checked correspondence.
-* Kernel checking establishes the formal statements; review checks that those statements match the intended claims.
-
-These patterns move verification from prose to types and theorems that Lean checks ({ref "0-core-philosophy-precise-claims-and-kernel-checked-evidence"}[module 0]).

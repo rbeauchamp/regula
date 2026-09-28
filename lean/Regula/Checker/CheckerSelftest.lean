@@ -1538,7 +1538,7 @@ library, a standalone `Main` executable root, and empty exclusion arrays. The
 scratch projects contain nothing named `Audit` or `Fixtures` and share only
 the pinned dependency checkouts. The `relative` variant requires the checker
 by a relative path (the form a project nested inside another repository
-uses), which the §8.3 isolated copy must re-anchor to the original project;
+uses), which the §7.3 isolated copy must re-anchor to the original project;
 its setup verifies that the relative path really names this repository. -/
 private unsafe def adopterQualification (repo scratch : FilePath) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)

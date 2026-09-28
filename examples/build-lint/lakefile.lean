@@ -4,7 +4,7 @@ open Lake DSL
 package build_lint_adopter where
   -- `lake lint` runs the Regula driver over every manifested surface.
   lintDriver := "regula/lint"
-  -- The community linters of standard §6.7 and the options of §8.1. A library that
+  -- The community linters of standard §6.7 and the options of §7.1. A library that
   -- imports Mathlib also enables Mathlib's standard set, as the adoption guide shows.
   leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩,
     ⟨`relaxedAutoImplicit, false⟩]

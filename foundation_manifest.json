@@ -58,19 +58,19 @@
     },
     {
       "executable": "axiomGate",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a78.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "docFenceAudit",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a78.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "freshChecker",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a78.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "checkerSelftest",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a78.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "ruleExamples",
@@ -86,7 +86,7 @@
     },
     {
       "executable": "lint",
-      "rationale": "Lake lint driver; its root module belongs to the excluded Regula library. It dispatches to the axiomGate project audit and classifies its exit; its exit classification is the claimed RegulaCore.Lint contract; qualified by the \u00a78.8 lint-driver campaign, not claimed as a conforming proof surface."
+      "rationale": "Lake lint driver; its root module belongs to the excluded Regula library. It dispatches to the axiomGate project audit and classifies its exit; its exit classification is the claimed RegulaCore.Lint contract; qualified by the \u00a77.8 lint-driver campaign, not claimed as a conforming proof surface."
     },
     {
       "executable": "regula",

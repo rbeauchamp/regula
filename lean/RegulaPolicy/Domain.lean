@@ -183,7 +183,7 @@ inductive DefeqComparison where
   | incomplete
   deriving Repr, DecidableEq
 
-/-- Standard §8.6 classification, total over the comparison outcome: completed positive is
+/-- Standard §7.6 classification, total over the comparison outcome: completed positive is
 checked, completed negative leaves the replacement trusted, and a comparison that could not
 complete is unresolved. -/
 def DefeqComparison.classify : DefeqComparison → Correspondence × Option String

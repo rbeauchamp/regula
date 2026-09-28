@@ -17,7 +17,7 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 | Explanation sections (problem, trigger, further rationale, proof shape, established and not established, configuration, limitations, open obligations, checklist rows, sources, proved linkage) | [`RegulaCore.Guide`](../../lean/RegulaCore/Guide.lean) (`guide`, one exhaustive definition over `RuleId`) | Rendered in a fixed section order. A new rule without an explanation does not compile. |
 | Violating and corrected inputs, findings, statuses | [`examples/rules/<ID>/`](../../examples/rules/) and [`corpus.json`](../../examples/rules/corpus.json), run by the rule-example campaign | The builder reads the campaign's exports for the same commit and renders the recorded bytes and findings. |
 | What every rule shares: strict impact, local options, where rules run, the message form, open obligations, trusted mechanisms and example kinds | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) | Stated once on the *How rules are enforced* page, which every rule page links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
-| Checklist coverage: every module 9 row with the rules that list it and the review obligations it carries | `coveragePage`, from `Regula.checklistRows` ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), each rule's `checklist` and each obligation's `Residual.rows` | `rulesOfRow` and `residualsOfRow` invert them (`mem_rulesOfRow`, `mem_residualsOfRow`), so the page cannot disagree with the rule pages or the obligations ([rule coverage](rule-coverage.md#checklist-rows)). |
+| Checklist coverage: every module 8 row with the rules that list it and the review obligations it carries | `coveragePage`, from `Regula.checklistRows` ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), each rule's `checklist` and each obligation's `Residual.rows` | `rulesOfRow` and `residualsOfRow` invert them (`mem_rulesOfRow`, `mem_residualsOfRow`), so the page cannot disagree with the rule pages or the obligations ([architecture](architecture.md#coverage-of-the-standard)). |
 | Page construction, escaping, filters, diffs, banners, link checking | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
 | Releases, editions, help links and the route policy | [`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean) (claimed, proved) | `installed`, `releases`, `published`, `helpUrl` and `sitePath`. |
 | Evidence admission, generation, rendering, release copies, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
@@ -28,16 +28,17 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 
 The site publishes the standard under `standard/` of every edition, next to the rule pages. A
 rule page links each registry clause ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)
-`Clause`) to its section anchor and each checklist row to its anchor on module 9, in the same
+`Clause`) to its section anchor and each checklist row to its anchor on module 8, in the same
 edition; rule pages do not restate the standard's normative text. The documentation
 acceptance step renders the standard alone and requires each cited section in the elaborated
 standard with its tag and exact heading in its chapter (`website/StandardMain.lean`), each cited
-section's anchor on its chapter page and each linked row's anchor on module 9
+section's anchor on its chapter page and each linked row's anchor on module 8
 (`Regula.Site.standardAnchors`), each page and anchor the `docs/` Markdown links in the
 development standard (`Regula.Site.documentAnchors`), and the rendered checklist's rows to be
 exactly `Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`; a row is the `id` of an
 element of class `Regula.checklistRowClass`). Every row a rule lists is one of them
-(`guide_checklist_listed`). Which rows a rule lists is reviewed with the rule; the artifact's
+(`guide_checklist_listed`). It also requires each cited section's source to be a module of the
+library. Which rows a rule lists is reviewed with the rule; the artifact's
 link check requires every anchor in the rendered site. The generator refuses a cited repository
 path that does not exist.
 
@@ -72,7 +73,8 @@ fails and removes `_site/`:
   `htmlBlock` (`htmlBlock_ok`). Each diff is admitted only when it reproduces both line lists
   (`admitDiff`); a change of only the final line terminator is stated in words. The check
   requires the escaped text of every displayed fixture and finding detail in the rendered page. A
-  file is attributed to a fixture only when its bytes are identical.
+  file is attributed to a fixture only when its bytes are identical. Optional SubVerso
+  highlighting may replace this presentation only with exact source/output correspondence.
 - **The standard.** Every build removes the standard's earlier build outputs and elaborates it
   again, because Lake does not trace the root-package modules its examples import. Each `lean`
   block must elaborate as its kind requires (no error or warning, or an error matching its
@@ -125,7 +127,8 @@ The website package requires the root `regula` package and the Mathlib-dependent
 package by relative path, because the standard's examples import modules of both and Mathlib.
 Like `audit/`, it names the root `.lake/packages` as its packages directory (`packagesDir`), so
 one Mathlib checkout and its artifacts serve every workspace; its Git pins must equal those of
-the packages it requires by path (the documentation check refuses a difference). Verso setup is
+the packages it requires by path (the documentation check refuses a difference). The website
+package and the checker and examples use the same supported Lean release. Verso setup is
 also required before `./scripts/verify.sh docs`, which builds the standard.
 
 Any change to a module source, the corpus or the Lake configuration makes earlier shard
@@ -237,7 +240,8 @@ says so).
 ([contributor guide](contributing.md#develop-and-verify)); it is not part of acceptance.
 In CI the site tooling is built in the preceding step (20-minute step limit) and Verso is
 provisioned from cache by the shared provisioning action (within the job's 45-minute limit on
-a miss). Link checking grows with the number of release editions. Observed timings are
+a miss). Pinned dependencies are cached by toolchain and lock digest; no accepted verdict is
+cached. Link checking grows with the number of release editions. Observed timings are
 observations, not guarantees.
 
 ## Changing a rule
@@ -251,7 +255,7 @@ A rule change touches its semantics, metadata, examples and explanation together
 2. Explanation: the rule's case of `guide` in `RegulaCore/Guide.lean`. Keep every statement no
    stronger than the detector and the standard; `@repo/PATH` links name repository files. State
    only what is specific to the rule; what every rule shares belongs on the enforcement page.
-3. Examples: `examples/rules/<ID>/` and its `corpus.json` entry ([rule examples](rule-examples.md)).
+3. Examples: `examples/rules/<ID>/` and its `corpus.json` entry ([rule examples](architecture.md#rule-examples)).
 4. Run both shards and `./scripts/verify.sh site`; open the affected pages in a browser at a
    narrow and a wide width.
 

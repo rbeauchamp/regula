@@ -7,7 +7,7 @@ import RegulaPolicy.Operational
 /-! # Checker library self-audit
 
 Operational self-audit of the checker's own excluded `Regula` library
-(`./scripts/verify.sh diagnostics self-audit`; docs/guides/lean-qualification.md).
+(`./scripts/verify.sh diagnostics self-audit`; docs/guides/contributing.md).
 
 The library is not a conforming proof surface, so the project audit excludes it. This
 campaign applies the rules that do hold for operational code, per module of the library as

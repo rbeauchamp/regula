@@ -3,10 +3,10 @@ import RegulaExample
 
 open Verso.Genre Manual RegulaExample
 
-#doc (Manual) "0. Core Philosophy: Precise Claims and Kernel-Checked Evidence" =>
+#doc (Manual) "0. Precise Claims and Kernel-Checked Evidence" =>
 %%%
-tag := "0-core-philosophy-precise-claims-and-kernel-checked-evidence"
-file := "0-core-philosophy"
+tag := "0-precise-claims-and-kernel-checked-evidence"
+file := "0-precise-claims-and-kernel-checked-evidence"
 number := false
 %%%
 
@@ -26,9 +26,9 @@ This standard distinguishes three components of Lean:
 * The *kernel* checks elaborated types, definitions, and proof terms against Lean's core type theory.
 * The *compiler* generates executable code.
 
-Compilation alone does not establish that execution preserves the proved properties. Claims about compiled behavior MUST identify the associated trust assumptions ({ref "36-contracts-for-executable-and-effectful-mechanisms"}[module 3 §3.6], {ref "86-classify-lean-computation-mechanisms-exactly"}[module 8 §8.6]).
+Compilation alone does not establish that execution preserves the proved properties. Claims about compiled behavior MUST identify the associated trust assumptions ({ref "36-contracts-for-executable-and-effectful-mechanisms"}[module 3 §3.6], {ref "76-classify-lean-computation-mechanisms-exactly"}[module 7 §7.6]).
 
-Kernel acceptance alone does not establish conformance: Lean permits axioms and proof placeholders such as `sorry`. The standard's declaration and axiom checks reject proof holes and forbidden axioms ({ref "85-proof-completeness-and-foundation-strength"}[module 8 §8.5]).
+Kernel acceptance alone does not establish conformance: Lean permits axioms and proof placeholders such as `sorry`. The standard's declaration and axiom checks reject proof holes and forbidden axioms ({ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]).
 
 # The Role of Testing
 %%%
@@ -52,11 +52,11 @@ number := false
 %%%
 
 1. *Proofs establish the stated properties of the Lean definitions they concern.* A correspondence between an abstract model and an executable Lean definition can be stated as a Lean proposition when both are represented in Lean. A checked proof establishes that correspondence under its stated hypotheses ({ref "13-the-specificationmodel-firewall"}[module 1 §1.3], {ref "24-abstract-mathematical-models"}[module 2 §2.4]). Transferring a result from one formal object to another requires a checked relation strong enough to support that result. A Lean proof alone cannot establish that an external physical system behaves as its formal representation claims. Claims about external execution retain their stated trust boundary ({ref "16-claim-boundaries-and-automated-checking"}[module 1 §1.6]).
-2. *Logical assurance depends on the trusted kernel and the result's transitive axiom dependencies.* Definitions determine the objects and properties to which the result applies. Kernel checking does not establish whether those definitions adequately express the intended claim. Each declaration on a conforming surface has the least permissive actual foundation label containing its exact transitive axiom set; the selected surface profile is an allowed maximum. These profiles are defined in {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[module 4 §4.5]. Auditing these dependencies is part of compliance ({ref "8-tooling-and-machine-audit"}[module 8], {ref "9-compliance-and-quality-audit"}[module 9]).
+2. *Logical assurance depends on the trusted kernel and the result's transitive axiom dependencies.* Definitions determine the objects and properties to which the result applies. Kernel checking does not establish whether those definitions adequately express the intended claim. Each declaration on a conforming surface has the least permissive actual foundation label containing its exact transitive axiom set; the selected surface profile is an allowed maximum. These profiles are defined in {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[module 4 §4.5]. Auditing these dependencies is part of compliance ({ref "7-tooling-and-machine-audit"}[module 7], {ref "8-compliance-and-quality-audit"}[module 8]).
 
-# How to Apply This Philosophy
+# Applying the Principle
 %%%
-tag := "how-to-apply-this-philosophy"
+tag := "applying-the-principle"
 number := false
 %%%
 
@@ -100,15 +100,3 @@ number := false
 %%%
 
 Lean code and proofs are increasingly written by agents, and an agent may not know this standard from its training data. The standard is therefore stated first for agents, while remaining readable by the people who review it: every mechanically checked rule says what it requires, why, and how to comply, so that it can be applied before code is written and acted on from a finding alone. Complying with the rules does not discharge semantic review: whether a statement expresses the intended claim, at the required strength, remains the obligation described above. The {repo "docs/guides/adoption.md#0-brief-your-agent"}[adoption guide] describes how the checker delivers this guidance.
-
-# Further Reading
-%%%
-tag := "further-reading"
-number := false
-%%%
-
-* Proof patterns and contracts: {ref "3-logic-and-proof-patterns"}[module 3]
-* Mathematical foundations via Mathlib: {ref "4-mathematical-foundations"}[module 4]
-* Human-facing documentation: {ref "5-documentation-standards"}[module 5]
-* Repository layout and tooling: {ref "8-tooling-and-machine-audit"}[module 8]
-* Compliance scorecard and audit procedure: {ref "9-compliance-and-quality-audit"}[module 9]

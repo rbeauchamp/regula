@@ -847,9 +847,9 @@ theorem residualsOfRow_ne_nil : ∀ row ∈ checklistRows, residualsOfRow row �
 Markdown delimiter or a sentence's closing `.`, an autolink and a code span count, a page route
 names its `index.html`, and only elements of the row class are rows. -/
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard documentAnchors ["[a](" ++ standardUrl ++ "9-compliance-audit/#DOC-04). <" ++ standardUrl ++
+#guard documentAnchors ["[a](" ++ standardUrl ++ "8-compliance-audit/#DOC-04). <" ++ standardUrl ++
   ">; `" ++ standardUrl ++ "introduction/`."] ==
-  [("9-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
+  [("8-compliance-audit/index.html", "DOC-04"), ("index.html", ""), ("introduction/index.html", "")]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard renderedRows
     "<h2 id=\"audit-matrix\">x</h2><code id=\"A-1\" class=\"checklist-row\">A-1</code>" ==

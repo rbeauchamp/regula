@@ -17,12 +17,12 @@ equivalence][equiv], pinned at `c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0`; con-l
 [README][conleche-readme] gives its Lean FRO context. Their universe-zero representation and
 checker-specific environment are specialized implementations, not generic linter components
 to import. Regula's existing closed `RuleId`/indexed descriptors and [policy
-assembly](policy-acceptance.md) apply related ideas to different predicates. Ordinary
+assembly](proofs-and-boundaries.md#the-acceptance-boundary) apply related ideas to different predicates. Ordinary
 dependent types, canonical forms and complete indexing are broader techniques; con-leche is a documented example,
 not their origin or an exclusive source. Prefer matching Core/Std/Lean definitions and laws
 before writing a new implementation.
 
-The [policy acceptance guide](policy-acceptance.md) owns the implemented assembly and
+The [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary) owns the implemented assembly and
 its delivery evidence. Registry laws concern Regula's own definitions. Neither
 inspiration nor those laws establish extraction fidelity, whole-checker correctness or native runtime behavior. No source copy or imported con-leche
 proof was found in the inspected linter surfaces.
@@ -59,9 +59,10 @@ compiler-integrated semantic analysis (Rust's [Clippy][clippy] and Microsoft's
 [Roslyn analyzers][roslyn]), extensible rule infrastructure ([ESLint][eslint]), cohesive rule
 discovery and fixes (Astral's [Ruff][ruff]), editor and project scope with incremental analysis
 (the [Pyrefly][pyrefly] team), and hints beside compiler feedback (Neil Mitchell's
-[HLint][hlint] and the [Haskell Language Server][hls]). Lean's command, module and environment
-linters, Batteries' linter driver and Mathlib's linter configuration are the Lean facilities it
-builds beside. No code of these projects is copied.
+[HLint][hlint] and the [Haskell Language Server][hls]). None of these examples prescribes an exact
+UX or supplies Lean policy semantics or suppression permission. Lean's command, module and
+environment linters, Batteries' linter driver and Mathlib's linter configuration are the Lean
+facilities it builds beside. No code of these projects is copied.
 
 ## Website
 

@@ -195,7 +195,7 @@ inductive ExampleAudience where
 
 /-- A rule's checked example pair: the exact bytes of `examples/rules/<ID>/Fixed.<ext>`
 (compliant) and `Violation.<ext>` (noncompliant), embedded with `include_str`. These are the
-corpus sources that the rule-example qualification runs (docs/guides/rule-examples.md): the
+corpus sources that the rule-example qualification runs (docs/guides/architecture.md): the
 fixed phase passes a completed positive check, and the violating phase produces this rule's
 findings. `correction` states what the correction changes and preserves; for qualification
 inputs it is the adopter-facing form of the fix. -/

@@ -16,7 +16,7 @@ outcome must be. -/
 open Lean Elab Frontend
 open SubVerso Highlighting
 
-/-- The options every example elaborates under: automatic implicits off, as standard §8.1
+/-- The options every example elaborates under: automatic implicits off, as standard §7.1
 recommends, and Lean's `linter.missingDocs` on, as standard §6.7 requires of a claimed library;
 `pp.tagAppFns` only tags the highlighting. -/
 def exampleOptions (opts : Options) : Options :=

@@ -9,7 +9,8 @@ Use AGENTS.md for required reading, independent review, and verification policy.
 
 For a diff, cover changed claims and their dependencies. Include a baseline defect when
 it contradicts the claimed result; unrelated defects do not turn a scoped review into a
-repository-wide audit. Full compliance covers every applicable module 9 row and surface.
+repository-wide audit. Full compliance covers every applicable module 8 row, the
+repository's `DOGFOOD-*` rows (`docs/guides/contributing.md`), and every surface.
 
 ## Independent review
 
@@ -25,7 +26,7 @@ that gate as incomplete while completing unaffected authorized work.
 
 ## Accepted-result review
 
-For acceptance changes, use [the source/theorem map](../../../../docs/guides/policy-acceptance.md)
+For acceptance changes, use [the acceptance boundary](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)
 and assign distinct fresh-context proof and integration review. The proof review checks
 that the executed collector/finalizer derives complete coverage and approved predicates
 for every required slot, with explicit hypotheses and exact axiom sets. Statement-reference
@@ -69,7 +70,7 @@ through the public entry point, and a restored positive control. Wrong-reason fa
 not close the finding. Qualification observations do not prove universal checker correctness.
 
 Keep prose, definitions, and checker policy aligned where they encode the same claim.
-Preserve module 8's assurance boundary: custom or ambiguous evaluator paths cannot justify
+Preserve module 7's assurance boundary: custom or ambiguous evaluator paths cannot justify
 the recursive-helper exception, a native-proof axiom rests on its natively replayed statement
 and command provenance instead, and arbitrary process or trusted-plugin compromise is outside
 scope.

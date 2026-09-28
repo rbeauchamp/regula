@@ -47,21 +47,21 @@ inductive Clause where
   | importDiscipline
   /-- §6.7 Community Conventions and Linters. -/
   | communityConventions
-  /-- §8.1 Declare the Elaboration Environment. -/
+  /-- §7.1 Declare the Elaboration Environment. -/
   | elaborationEnvironment
-  /-- §8.2 Define Surfaces Through Lake Semantics. -/
+  /-- §7.2 Define Surfaces Through Lake Semantics. -/
   | lakeSurfaces
-  /-- §8.3 Clean Elaboration and Diagnostics. -/
+  /-- §7.3 Clean Elaboration and Diagnostics. -/
   | cleanElaboration
-  /-- §8.4 Inventory Every Owned Declaration. -/
+  /-- §7.4 Inventory Every Owned Declaration. -/
   | declarationInventory
-  /-- §8.5 Proof Completeness and Foundation Strength. -/
+  /-- §7.5 Proof Completeness and Foundation Strength. -/
   | proofCompleteness
-  /-- §8.6 Classify Lean Computation Mechanisms Exactly. -/
+  /-- §7.6 Classify Lean Computation Mechanisms Exactly. -/
   | computationMechanisms
-  /-- §8.7 Check Lean Documentation Verbatim. -/
+  /-- §7.7 Check Lean Documentation Verbatim. -/
   | documentationChecks
-  /-- §8.12 Opt-in Enforcing Build Linter. -/
+  /-- §7.11 Opt-in Enforcing Build Linter. -/
   | enforcingBuildLinter
   deriving DecidableEq, Repr
 
@@ -80,10 +80,10 @@ theorem mem_all (c : Clause) : c ∈ all := by cases c <;> simp [all]
 def number : Clause → String
   | .inlineDocumentation => "5.1" | .faithfulExplanation => "5.2" | .moduleDocumentation => "5.3"
   | .linterDiscipline => "6.2" | .importDiscipline => "6.4" | .communityConventions => "6.7"
-  | .elaborationEnvironment => "8.1" | .lakeSurfaces => "8.2" | .cleanElaboration => "8.3"
-  | .declarationInventory => "8.4" | .proofCompleteness => "8.5"
-  | .computationMechanisms => "8.6" | .documentationChecks => "8.7"
-  | .enforcingBuildLinter => "8.12"
+  | .elaborationEnvironment => "7.1" | .lakeSurfaces => "7.2" | .cleanElaboration => "7.3"
+  | .declarationInventory => "7.4" | .proofCompleteness => "7.5"
+  | .computationMechanisms => "7.6" | .documentationChecks => "7.7"
+  | .enforcingBuildLinter => "7.11"
 
 /-- The heading after the section number. -/
 def title : Clause → String
@@ -110,7 +110,7 @@ def chapter : Clause → String
   | .linterDiscipline | .importDiscipline | .communityConventions => "6-code-organization"
   | .elaborationEnvironment | .lakeSurfaces | .cleanElaboration | .declarationInventory
   | .proofCompleteness | .computationMechanisms | .documentationChecks
-  | .enforcingBuildLinter => "8-tooling-and-machine-audit"
+  | .enforcingBuildLinter => "7-tooling-and-machine-audit"
 
 /-- The chapter's Verso source, relative to the Regula package root. -/
 def source : Clause → String
@@ -150,8 +150,8 @@ end Regula
 
 namespace Regula
 
-/-- The route of the compliance checklist (module 9) below `standard/`. -/
-def checklistChapter : String := "9-compliance-audit"
+/-- The route of the compliance checklist (module 8) below `standard/`. -/
+def checklistChapter : String := "8-compliance-audit"
 
 /-- The path of a compliance-checklist row below an edition root: the row identifier is its
 anchor on the checklist page. -/
@@ -166,7 +166,7 @@ def checklistRowClass : String := "checklist-row"
 number of rows. -/
 def checklistGroups : List (String × Nat) :=
   [("SCOPE", 5), ("TYPE", 6), ("THEOREM", 10), ("FOUND", 5), ("DECL", 4), ("COMP", 4),
-    ("BUILD", 4), ("DOC", 5), ("MUT", 5), ("DOGFOOD", 5)]
+    ("BUILD", 4), ("DOC", 5), ("MUT", 5)]
 
 /-- A row number as the checklist writes it, with at least two digits. -/
 def rowNumber (n : Nat) : String := if n < 10 then "0" ++ toString n else toString n
