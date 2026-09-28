@@ -466,7 +466,8 @@ main h2 { font-size: 1.3rem; line-height: 1.35; font-weight: 650; margin: 2.75re
 main h3 { font-size: 1.02rem; line-height: 1.4; font-weight: 650; margin: 1.5rem 0 0.5rem; }
 section > p, section > ul, section > ol { margin: 0.85rem 0; }
 .permalink-widget > a { text-shadow: 0 0 0 var(--rg-muted); }
-.content-wrapper > .prev-next-buttons:first-child { display: none; }
+.content-wrapper > .prev-next-buttons:first-child, .content-wrapper > .regula-outdated:first-child \
++ .prev-next-buttons { display: none; }
 .prev-next-buttons { gap: 0.75rem; margin-top: 3.5rem; font-weight: 500; }
 .prev-next-buttons > * { flex: 1 1 14rem; color: var(--rg-text); border: 1px solid \
 var(--rg-border); border-radius: var(--rg-radius);
