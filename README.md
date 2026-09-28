@@ -48,7 +48,7 @@ Conformance means satisfying every applicable row of the [compliance checklist](
 
 | Area | Purpose |
 | --- | --- |
-| [docs/](docs/README.md) | Guides and the map to the standard. |
+| [docs/](docs/README.md) | The guides, and where the standard's source lives. |
 | [lean/](lean/README.md) | The `regula` package adopters require, with no dependency beyond the Lean toolchain: the linter, its rule registry and proofs, and checked examples. |
 | [audit/](audit/lakefile.lean) | The Mathlib-dependent package: the standard's Mathlib examples (`Audit`), which requires `regula` by relative path as a Mathlib adopter does. |
 | [examples/](examples/README.md) | Adopting projects and the rule-example sources. |

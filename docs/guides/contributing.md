@@ -169,7 +169,6 @@ The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and
 as parallel jobs under the same limit when Lean sources, Lake configuration or manifests
 change, on every push to `main`, and nightly. They are not part of acceptance.
 
-
 ## Implementation and qualification layout
 
 Project-owned implementation is Lean 4; `scripts/verify.sh` is the minimal acceptance

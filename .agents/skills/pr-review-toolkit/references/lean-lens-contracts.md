@@ -3,10 +3,10 @@
 Select materially relevant sections; independence follows AGENTS.md for delivery reviews, while the
 number of assignments follows distinct risks. Combine compatible questions without merging
 the author and reviewer roles. In full-compliance mode reconcile assignments against every
-current standard module 8 ID and the repository's `DOGFOOD-*` rows (`docs/guides/contributing.md`):
-these focus lists are navigation, not an alternate checklist. A reviewer
-inspects one frozen subject and returns findings with coverage evidence or `CLEAN`; it does not
-edit shared files, launch duplicate reviewers, or silently claim uninspected rows.
+current standard module 8 ID and the repository's `DOGFOOD-*` rows
+(`docs/guides/contributing.md`): these focus lists are navigation, not an alternate checklist.
+A reviewer inspects one frozen subject and returns findings with coverage evidence or `CLEAN`;
+it does not edit shared files, launch duplicate reviewers, or silently claim uninspected rows.
 
 Specification/refinement reasoning usually combines lenses 1–2; Lean/kernel/compiler reasoning
 usually combines 3–5. Assign them independently when both risks are material. Include lens 6 and
