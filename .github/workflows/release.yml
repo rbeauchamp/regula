@@ -15,9 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Create the release commit (main's commit with Regula.installed set to the release and the
-  # release appended to Regula.releases), refuse unless GitHub verified its signature, push it as
-  # release/v<version>, start its checks and open its pull request. A re-run updates the branch.
+  # Create the release commit (main's commit with Regula.installed set to the release, the
+  # release appended to Regula.releases and stamped into every rule lifecycle position still
+  # .unreleased), refuse unless GitHub verified its signature, push it as release/v<version>,
+  # start its checks and open its pull request. A re-run rebuilds the branch on the same commit;
+  # a new run rebuilds it on the current head of main.
   open:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04

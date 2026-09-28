@@ -357,8 +357,16 @@ is a command of [`lean/Regula/Release.lean`](../../lean/Regula/Release.lean), an
 record lands on `main` before anything is published:
 
 1. **open** ([`release.yml`](../../.github/workflows/release.yml)) creates the release commit, a
-   child of the `main` commit the workflow runs on that sets `Regula.installed` to the release
-   and appends it to `Regula.releases` ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)).
+   child of the `main` commit the workflow runs on that sets `Regula.installed` to the release,
+   appends it to `Regula.releases` ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean))
+   and stamps it into every rule lifecycle position still `.unreleased`
+   ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a line that
+   starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new rule states
+   `lifecycle := .active .unreleased`, and a rule retired since the last release states
+   `lifecycle := .retired (.release ⟨X, Y, Z⟩) .unreleased replacement` on one line. The stamp
+   is a convenience; `release_attributes_rules` is the check: when `Regula.installed` is a release,
+   no lifecycle position of any rule is `.unreleased`, so a release commit that misses one does
+   not build.
    GitHub creates and signs it, and the step refuses unless GitHub verified the signature. It
    pushes the commit as `release/v<version>`, starts its checks and opens the pull request
    `release: Regula v<version>`, which merges through normal review like any other. Its site
@@ -386,14 +394,21 @@ refuses every other commit that carries the label, after making sure the reset p
 open, and the site build refuses them too, so `main` deploys nothing else until the reset merges.
 The decision is `Regula.Release.tagAction`, whose theorems the kernel checks each time the step
 runs (`tagAction_converges`, `tagAction_published` and the exact cases of each action).
+While `main` installs a release (from the release merge until the reset merge), a pull request
+that adds or retires a rule waits for the reset pull request, because `release_attributes_rules`
+refuses its `.unreleased` lifecycle position until then. If such a pull request merges while the
+release pull request is still open, run the Release workflow on `main` again as a new run: its
+**open** rebuilds the release commit on the new head of `main` and stamps that rule too. Neither
+a re-run, which reuses the original run's commit, nor GitHub's *Update branch*, which merges the
+rule's `.unreleased` lifecycle into a release build, lets the release pull request pass.
 
-Each step resumes when its job is re-run: **open** updates its branch and keeps an open pull
-request; **reset** only makes sure the reset pull request is open, so it leaves an open one's
-branch, checks and approvals alone and rebuilds it on the head of `main` only when it can no
-longer merge (GitHub reports a conflict; an undetermined state is not one); **tag** keeps a tag
-that already names the commit and refuses a stale run whose commit is no longer the head of `main`
-unless the tag already names it; and **publish** replaces an unpublished draft and skips a
-published release. **open** refuses a version already tagged or listed and a `main` whose
+Each step resumes when its job is re-run: **open** rebuilds its branch on the commit its run
+started from and keeps an open pull request; **reset** only makes sure the reset pull request is
+open, so it leaves an open one's branch, checks and approvals alone and rebuilds it on the head of
+`main` only when it can no longer merge (GitHub reports a conflict; an undetermined state is not
+one); **tag** keeps a tag that already names the commit and refuses a stale run whose commit is
+no longer the head of `main` unless the tag already names it; and **publish** replaces an
+unpublished draft and skips a published release. **open** refuses a version already tagged or listed and a `main` whose
 `Regula.installed` is still a release. A pull request that a workflow opens starts no checks by
 itself, so **open** and **reset** dispatch `ci.yml` on their branch. They open the pull request
 only when the repository setting *Allow GitHub Actions to create and approve pull requests* is on;

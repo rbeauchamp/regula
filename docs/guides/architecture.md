@@ -82,10 +82,16 @@ lifecycle or predicate change still requires semantic review. Never reuse an ID 
 predicate. A compatible clarification retains the rule's identity and records the applicable
 implementation version. `Lifecycle.active` records the release that introduced the rule.
 `Lifecycle.retired` keeps the descriptor as a tombstone with its introduction, retirement and
-optional replacement, which carries a proof that it is a different ID. Every current rule is
-active and unreleased. Checklist rows of the standard are not diagnostic IDs. No rule bans
-`Float`, `IO`, local mutation syntax, classical erased proofs, noncomputable mathematical
-definitions or arbitrary naming styles.
+optional replacement, which carries a proof that it is a different ID. Every rule states its
+lifecycle (the field has no default), and each lifecycle position is a `Build`: a new rule is
+`.active .unreleased`, and a newly retired one records `.unreleased` as its retirement, until the
+next release, whose release commit the Release workflow stamps with it
+([release](contributing.md#release)). `release_attributes_rules` proves that when `installed` is
+a release no lifecycle position of any rule is `.unreleased`, so a release commit that misses one
+does not build, and `lifecycle_listed` that every release a lifecycle names is in `releases`.
+Checklist rows of the standard are not diagnostic IDs. No rule bans `Float`, `IO`, local mutation
+syntax, classical erased proofs, noncomputable mathematical definitions or arbitrary naming
+styles.
 
 ## Findings and locations
 

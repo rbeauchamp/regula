@@ -17,29 +17,35 @@ lean --run lean/Regula/Release.lean reset      # open the pull request that ends
 A release's version is the Lean release in `lean-toolchain`, the Lean ecosystem's tag convention
 (`v4.34.0` for `leanprover/lean4:v4.34.0`), so there is at most one release per supported
 toolchain. `open` creates the release commit as a child of the `main` commit the workflow runs
-on: that commit with `Regula.installed` set to the release and the release appended to
-`Regula.releases` (`RegulaCore/Edition.lean`). GitHub creates and signs it, and `open` refuses
-unless GitHub reports its signature verified; it then opens its pull request, which merges
-through normal review. On `main`, once acceptance and the rule-example shards pass on a commit
-that carries the release label, `tag` names it `v<version>` (`tagAction`), so its site build
-renders the release's edition, deploys it and keeps it as the release asset. Once the deployment
-is verified, `publish` creates the GitHub release with the notes and that asset of the commit the
-tag names, published only once the asset is attached (immutable releases then freeze both), and
-`reset` opens the pull request that sets `Regula.installed` back to `.unreleased`.
+on: that commit with `Regula.installed` set to the release, the release appended to
+`Regula.releases` (`RegulaCore/Edition.lean`), and the release stamped into every rule lifecycle
+position still `.unreleased` (`RegulaCore/Rule.lean`, `stampRules`). GitHub creates and
+signs it, and `open` refuses unless GitHub reports its signature verified; it then opens its pull
+request, which merges through normal review. On `main`, once acceptance and the rule-example
+shards pass on a commit that carries the release label, `tag` names it `v<version>`
+(`tagAction`), so its site build renders the release's edition, deploys it and keeps it as the
+release asset. Once the deployment is verified, `publish` creates the GitHub release with the
+notes and that asset of the commit the tag names, published only once the asset is attached
+(immutable releases then freeze both), and `reset` opens the pull request that sets
+`Regula.installed` back to `.unreleased`.
 
 Other pull requests still merge during a release. A release is cut from whichever labelled head
 of `main` first completes the whole chain: until the release is published, `tag` creates the tag
 at the head of `main` or moves it there (`tagAction_converges`), so a re-run of CI on `main`
 recovers from a run that a later merge cancelled. Once it is published, `tag` never changes the
 tag (`tagAction_published`) and refuses every other commit that still carries the label, after
-making sure the reset pull request is open; the site build refuses them too.
+making sure the reset pull request is open; the site build refuses them too. If a pull request
+that adds or retires a rule merges while the release pull request is open, the Release workflow
+runs on `main` again as a new run, so that `open` rebuilds and stamps the release commit on the
+new head: a re-run reuses the original run's commit, and GitHub's Update branch merges the rule's
+`.unreleased` lifecycle into a release build, which `release_attributes_rules` refuses.
 
-Every step resumes: `open` updates its branch and keeps an open pull request, `reset` leaves an
-open reset pull request alone unless it conflicts with `main`, `tag` keeps a tag that already
-names the commit, and `publish` replaces an unpublished draft and skips a published release. They
-refuse a toolchain that is not a stable release, a version already listed or tagged when the
-release opens, and a stale run whose commit is no longer the head of `main` unless the tag already
-names it.
+Every step resumes: `open` rebuilds its branch on the commit its run started from and keeps an
+open pull request, `reset` leaves an open reset pull request alone unless it conflicts with
+`main`, `tag` keeps a tag that already names the commit, and `publish` replaces an unpublished
+draft and skips a published release. They refuse a toolchain that is not a stable release, a
+version already listed or tagged when the release opens, and a stale run whose commit is no
+longer the head of `main` unless the tag already names it.
 
 ## Boundaries
 
@@ -47,10 +53,11 @@ GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions
 observed, not proved. `tagAction` is the decision the tag step executes, and its theorems are
 checked by the kernel each time `lean --run` elaborates this file; what the step observes
 (whether the release is published, the head of `main`, the tag) and the tag write are GitHub's.
-The edit of `RegulaCore/Edition.lean` is text: `open` and `reset` read their own output back and
-refuse unless it names the intended build and releases, and the kernel checks the edited
-module's theorems (`releases_ascending`, `installed_listed`) when each pull request's checks build
-it.
+The edits of `RegulaCore/Edition.lean` and `RegulaCore/Rule.lean` are text: `open` and `reset`
+read their edit of `Edition.lean` back and refuse unless it names the intended build and
+releases, and the kernel checks the edited modules' theorems (`releases_ascending`,
+`installed_listed`, `release_attributes_rules`, `lifecycle_listed`) when each pull request's
+checks build them.
 -/
 
 namespace Regula.Release
@@ -76,7 +83,7 @@ def Version.spelling (v : Version) : String := s!"{v.major}.{v.minor}.{v.patch}"
 /-- The tag of the release. -/
 def Version.tag (v : Version) : String := "v" ++ v.spelling
 
-/-- The literal `RegulaCore.Edition` writes for the version. -/
+/-- The literal `RegulaCore.Edition` and `RegulaCore.Rule` write for the version. -/
 def Version.literal (v : Version) : String := s!"⟨{v.major}, {v.minor}, {v.patch}⟩"
 
 /-- Three decimal components separated by dots, and nothing else. -/
@@ -126,6 +133,16 @@ def releasesOf (edition : String) : Except String (List Version) := do
     match parseVersion (literal.replace ", " ".") with
     | some v => return v
     | none => throw s!"unexpected release literal {literal}"
+
+/-- `RegulaCore/Rule.lean` with every `.unreleased` on a line that starts `lifecycle :=` replaced
+by release `v`: the introduction of each new rule and the retirement of each newly retired one.
+A convenience, not a check: `release_attributes_rules` is what refuses a release build in which
+any lifecycle position is still `.unreleased`, however it is written. -/
+def stampRules (rules : String) (v : Version) : String :=
+  "\n".intercalate <| (rules.splitOn "\n").map fun line =>
+    if line.trimAsciiStart.toString.startsWith "lifecycle :=" then
+      line.replace ".unreleased" s!"(.release {v.literal})"
+    else line
 
 /-- `RegulaCore/Edition.lean` with `installed` set to `build` (`none` for `.unreleased`) and
 `releases` set to `versions`, written on one line when it fits in 100 characters. -/
@@ -295,17 +312,20 @@ def editionAt (repo sha : String) : IO String :=
   gh #["api", "-H", "Accept: application/vnd.github.raw",
     s!"repos/{repo}/contents/lean/RegulaCore/Edition.lean?ref={sha}"]
 
-/-- A commit with parent `parent` whose tree is `parent`'s with `Edition.lean` replaced by
-`edition`, created and signed by GitHub; refused unless GitHub reports the signature verified. -/
-def editionCommit (repo parent edition message : String) : IO String := do
-  let blob ← ghPost "POST" s!"repos/{repo}/git/blobs"
-    (Json.mkObj [("content", edition), ("encoding", "utf-8")])
+/-- A commit with parent `parent` whose tree is `parent`'s with each `(path, content)` of `files`
+replacing that file, created and signed by GitHub; refused unless GitHub reports the signature
+verified. -/
+def filesCommit (repo parent : String) (files : List (String × String)) (message : String) :
+    IO String := do
+  let entries ← files.mapM fun (path, content) => do
+    let blob ← ghPost "POST" s!"repos/{repo}/git/blobs"
+      (Json.mkObj [("content", content), ("encoding", "utf-8")])
+    return Json.mkObj [("path", path), ("mode", "100644"), ("type", "blob"),
+      ("sha", ← str blob "sha")]
   let base ← ghGet s!"repos/{repo}/git/commits/{parent}"
   let baseTree ← str (← IO.ofExcept (base.getObjVal? "tree")) "sha"
   let tree ← ghPost "POST" s!"repos/{repo}/git/trees" (Json.mkObj [
-    ("base_tree", baseTree),
-    ("tree", Json.arr #[Json.mkObj [("path", "lean/RegulaCore/Edition.lean"),
-      ("mode", "100644"), ("type", "blob"), ("sha", ← str blob "sha")]])])
+    ("base_tree", baseTree), ("tree", Json.arr entries.toArray)])
   let commit ← ghPost "POST" s!"repos/{repo}/git/commits" (Json.mkObj [
     ("message", message), ("tree", ← str tree "sha"), ("parents", Json.arr #[parent])])
   let sha ← str commit "sha"
@@ -313,6 +333,10 @@ def editionCommit (repo parent edition message : String) : IO String := do
   unless verified == .bool true do
     fail s!"GitHub did not verify the signature of the commit {sha}"
   return sha
+
+/-- A signed commit on `parent` that replaces `RegulaCore/Edition.lean` with `edition`. -/
+def editionCommit (repo parent edition message : String) : IO String :=
+  filesCommit repo parent [("lean/RegulaCore/Edition.lean", edition)] message
 
 /-- The commit `main` names now. -/
 private def mainHead (repo : String) : IO String := do
@@ -365,13 +389,17 @@ private def output (key value : String) : IO Unit := do
 /-- `RegulaCore/Edition.lean` in the checkout. -/
 private def editionFile : FilePath := "lean/RegulaCore/Edition.lean"
 
+/-- `RegulaCore/Rule.lean` in the checkout. -/
+private def rulesFile : FilePath := "lean/RegulaCore/Rule.lean"
+
 /-- The release the checked-out commit installs; `none` when it is unreleased. -/
 private def installedHere : IO (Option Version) := do
   IO.ofExcept (installedOf (← IO.FS.readFile editionFile))
 
 /-- Open the release pull request: a commit on the `main` commit the workflow runs on that sets
-`Regula.installed` to the release of `lean-toolchain` and appends it to `Regula.releases`.
-Refuses a version already tagged or listed, and a `main` that still installs a release. -/
+`Regula.installed` to the release of `lean-toolchain`, appends it to `Regula.releases` and
+stamps it into every rule lifecycle position still `.unreleased` (`stampRules`). Refuses a
+version already tagged or listed, and a `main` that still installs a release. -/
 def openRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
@@ -387,14 +415,18 @@ def openRelease : IO Unit := do
   let listed ← IO.ofExcept (releasesOf edition)
   if listed.contains v then fail s!"{tag} is already listed in main's Regula.releases"
   let released ← IO.ofExcept (withEdition edition (some v) (listed ++ [v]))
-  let commit ← editionCommit repo head released
-    s!"release: Regula {tag} for Lean {tag}\n\nSets Regula.installed to the release and appends \
-      it to Regula.releases. Once this is on main, CI tags it {tag}, deploys its edition, \
+  let rules := stampRules (← IO.FS.readFile rulesFile) v
+  let commit ← filesCommit repo head
+    [(editionFile.toString, released), (rulesFile.toString, rules)]
+    s!"release: Regula {tag} for Lean {tag}\n\nSets Regula.installed to the release, appends \
+      it to Regula.releases and stamps it into every rule lifecycle position still \
+      unreleased. Once this is on main, CI tags it {tag}, deploys its edition, \
       publishes the release and opens the pull request that sets Regula.installed back to \
       .unreleased."
   proposeBranch repo s!"release/{tag}" commit s!"release: Regula {tag}"
-    s!"Releases Regula {tag} for Lean {tag}: sets `Regula.installed` to the release and appends \
-      it to `Regula.releases`.\n\n\
+    s!"Releases Regula {tag} for Lean {tag}: sets `Regula.installed` to the release, appends \
+      it to `Regula.releases` and stamps it into every rule lifecycle position still \
+      `.unreleased`.\n\n\
       Once this merges, CI on `main` tags the head of `main` {tag} after acceptance and the \
       rule-example shards pass, deploys https://rbeauchamp.github.io/regula/v/{v.spelling}/, \
       publishes the GitHub release with that edition as its asset once the deployment is \
@@ -402,6 +434,9 @@ def openRelease : IO Unit := do
       Other pull requests still merge meanwhile; until the release is published the tag follows \
       the head of `main`, and afterwards CI refuses every other commit that still carries the \
       release label until that reset pull request merges.\n\n\
+      If a pull request that adds or retires a rule merges before this one, run the Release \
+      workflow on `main` again as a new run, not a re-run and not Update branch: its `open` \
+      step rebuilds and stamps this commit on the new head of `main`.\n\n\
       Opened by the Release workflow, which also started this branch's checks (checks do not \
       start on their own for a pull request a workflow opens)."
 
