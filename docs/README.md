@@ -17,8 +17,9 @@ block of the standard and every Lean fence below `docs/` follows the
 
 ## Use Regula
 
-- [Adopt the standard](guides/adoption.md): package setup, surfaces, profiles, `lake lint`,
-  editor diagnostics, limits, and the semantic obligations commands cannot establish.
+- [Adopt Regula](guides/adoption.md): `require`, `lake exe regula init` and `doctor`, surfaces,
+  profiles, `lake lint`, updating, editor diagnostics, limits, and the semantic obligations
+  commands cannot establish.
 - [Rule-reference website](guides/website.md): sources, guarantees, build, publication and
   versions of the generated rule reference, and the rule-change workflow.
 - [Performance notes](guides/performance-notes.md): practical guidance for efficient Lean code.
@@ -26,7 +27,7 @@ block of the standard and every Lean fence below `docs/` follows the
 ## Work on Regula
 
 - [Work on this repository](guides/contributing.md): layout, development, verification, the
-  repository's own conformance, and review.
+  repository's own conformance, review, and releases.
 - [Architecture](guides/architecture.md): packages, the rule registry, findings, output
   schemas, enforcement paths, rule examples and how the rules cover the standard.
 - [Proofs and boundaries](guides/proofs-and-boundaries.md): what the implementation proves,

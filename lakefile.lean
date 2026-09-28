@@ -5,6 +5,14 @@ open Lake DSL
 -- editor linter, with no dependency beyond the Lean toolchain. Everything that imports Mathlib
 -- (the standard's Mathlib examples) is the separate `regula_audit` package in `audit/`.
 package «regula» where
+  -- Reservoir (https://reservoir.lean-lang.org) lists these; release versions are the tags
+  -- `v<Lean version>` (docs/guides/contributing.md#release).
+  description := "A strict linter for Lean: no holes, no hidden axioms, no unstated trust, and a \
+    fix for every finding."
+  keywords := #["linter", "devtool", "cli", "formal-verification", "software-verification"]
+  homepage := "https://rbeauchamp.github.io/regula/"
+  license := "MIT AND Apache-2.0"
+  licenseFiles := #["LICENSE", "LICENSES/Apache-2.0.txt"]
   lintDriver := "regula/lint"
   srcDir := "lean"
   -- The verification toolset for Regula (see docs/).
@@ -99,8 +107,10 @@ lean_exe «ruleExampleQualification» where
   root := `Regula.Checker.RuleExampleQualificationMain
 
 lean_exe «regula» where
-  -- Offline rule guidance: `explain <RULE-ID>`, `rules`, `agent-guide`, `skill`.
+  -- Project setup (`init`, `doctor`) and offline rule guidance (`explain <RULE-ID>`, `rules`,
+  -- `agent-guide`, `skill`). Loading an adopter's `lakefile.lean` needs the interpreter.
   root := `Regula.Cli.Main
+  supportInterpreter := true
 
 lean_exe «site» where
   -- Rule-reference site builder: generates, renders, assembles and checks the Pages artifact.

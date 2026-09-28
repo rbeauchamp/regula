@@ -19,10 +19,11 @@ A library that imports Mathlib also enables Mathlib's standard linter set as the
 
 The package sets `lintDriver := "regula/lint"`. `lake lint` exits 0 (accepted),
 1 (violation), 2 (invalid configuration) or 3 (incomplete); see the
-[adoption guide](../../docs/guides/adoption.md#6-enforce-with-lake-lint-lake-build-and-ci).
+[adoption guide](../../docs/guides/adoption.md#4-run-lake-lint).
 
 To use it elsewhere, copy this directory and change `require regula from
-"../.."` in `lakefile.lean` to the checker's path or an exact git revision. Lake resolves
+"../.."` in `lakefile.lean` to the checker's path or a release tag
+([adoption guide](../../docs/guides/adoption.md#1-require-regula)). Lake resolves
 the dependency manifest; no files named `Audit` or `Fixtures` are required. The checker
 requires no other package, so the lock manifest records only `regula`.
 

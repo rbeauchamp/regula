@@ -31,11 +31,11 @@ pages, and `dev/` only for an unreleased build.
 
 ## Boundaries
 
-`installed` and `releases` are data that the release process sets. Whether a release asset
-exists and which commit a tag names are the site build's observations, which these decisions take
-as inputs; that the asset stays the copy attached at the release rests on GitHub. That a
-published release's edition is served is the deployment's observation, not a consequence of these
-definitions.
+`installed` and `releases` are data that the release steps set (`lean/Regula/Release.lean`).
+Whether a release asset exists and which commit a tag names are the site build's observations,
+which these decisions take as inputs; that the asset stays the copy attached at the release rests
+on GitHub. That a published release's edition is served is the deployment's observation, not a
+consequence of these definitions.
 -/
 
 @[expose] public section
@@ -87,16 +87,20 @@ def Build.listedIn (b : Build) (rs : List ReleaseVersion) : Prop :=
 instance (b : Build) (rs : List ReleaseVersion) : Decidable (b.listedIn rs) := by
   cases b <;> unfold Build.listedIn <;> infer_instance
 
-/-- This build of Regula. It is `.release v` only in the commit that tag `v<version>` names (and,
-before that tag exists, in the release's own pull request); every later commit is unreleased. The
-site build enforces this: it refuses a build labelled `.release v` once the tag names another
-commit (`labelAdmitted_release_iff`); it renders `v<version>`'s edition from source only in such
-a build and only before the release asset exists, and otherwise takes the frozen asset
-(`releaseSource`); and only a build whose commit the tag names may publish a rendered release
-edition or write the asset (`publishable`). -/
+/-- This build of Regula. It is `.release v` from the release's pull request until the reset pull
+request, which the release steps open once the release is published, sets it back to
+`.unreleased`; every commit on `main` in between carries the label. Tag `v<version>` names one of
+them: until the release is published, the tag step creates the tag at the head of `main` or moves
+it there, and once it is published the tag never changes (`Regula.Release.tagAction` in
+`lean/Regula/Release.lean`, with its theorems). The site build refuses a build labelled
+`.release v` whose tag names another commit (`labelAdmitted_release_iff`), so after publication no
+other labelled commit passes until the reset merges; it renders `v<version>`'s edition from
+source only in a build the tag names or before the tag exists, and only before the release asset
+exists, and otherwise takes the frozen asset (`releaseSource`); and only a build whose commit the
+tag names may publish a rendered release edition or write the asset (`publishable`). -/
 def installed : Build := .unreleased
 
-/-- Every published release, oldest first. The release process appends each release. -/
+/-- Every published release, oldest first. The release's pull request appends it. -/
 def releases : List ReleaseVersion := []
 
 /-- Releases are listed oldest first, each once. -/
@@ -174,8 +178,8 @@ def labelAdmitted : Build → TagState → Bool
   | _, _ => true
 
 /-- A release label is admitted exactly while its tag is absent (the release's own pull request
-and commit, before tagging) or names this commit; once the tag names another commit, every build
-that still carries the label is refused. -/
+and a labelled commit before tagging) or names this commit; while the tag names another commit,
+every build that carries the label is refused. -/
 theorem labelAdmitted_release_iff {v : ReleaseVersion} {tag : TagState} :
     labelAdmitted (.release v) tag = true ↔ tag = .absent ∨ tag = .head := by
   cases tag <;> simp [labelAdmitted]

@@ -131,6 +131,20 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified; failed and incomplete checks retain their own outcomes, and the receipt retains each actual fence classification. The qualifier separately applies `PositiveClassifications` to require a nonempty list with every fence positive, passing and complete before admitting a positive correction. The adapter verifies the original requested documents before emitting accepted metadata. |
 | `FreshChecker.run` | A separate `serializedGraph` claim; `leanchecker` success is an observed process result. |
 
+**`lake lint` dispatch.** Lake's lint dispatch builds only the driver, so the driver first builds its
+audit worker `regula/axiomGate` in the workspace `lake lint` ran in (never the `--project`
+directory). That workspace built the driver, so it resolves the same `regula`, dependencies and
+toolchain; a failed worker build is `INCOMPLETE`. Lake v4.34.0 does not change the driver's working
+directory, and passes the dispatching workspace's package library directories, then
+`LEAN_SYSROOT/lib/lean`, then any inherited `LEAN_PATH`, as its `LEAN_PATH`. The driver requires
+the working-directory workspace's library directories and that directory to begin it
+(`Regula.Checker.Lint.dispatchedFrom_iff`) and otherwise refuses with exit 2, so a driver started
+outside Lake, by a Lake not collocated with the toolchain, or with `-d` from another project is
+refused. The claimed targets are built with the audit-build marker `weak.regula.auditBuild`
+([editor feedback](#editor-feedback)); Lake scopes it to the whole package in its module trace, so
+modules last built with ordinary options are rebuilt for the audit and their replayed logs never
+enter its warning check.
+
 `./scripts/verify.sh` runs `axiomGate --acceptance-link tmp/acceptance-link.json --verso
 website:RegulaStandard:regula-standard` after its builds and other required checks, and
 `./scripts/verify.sh docs` runs `docFenceAudit` with the same arguments over every `docs/` fence and
@@ -570,7 +584,8 @@ earlier finding has that rule (`tag_of_prefix`, `mem_firsts`, `firsts_nodup`, `f
 the streaming emitter executes `Feedback.step` (`renderFrom_cons`) and JSON lists findings in the
 same order (`sortFindings_entries`). `RegulaCore.Guidance`: the briefing lists every rule once
 (`writingSections_perm`) and the `regula` parser admits exactly its documented commands
-(`parseCommand_arguments`, `parseCommand_sound`). Result stages: `stagesOf_required`,
+(`parseCommand_arguments`, `parseCommand_sound`, `parseInvocation_arguments`,
+`parseInvocation_sound`). Result stages: `stagesOf_required`,
 `stagesOf_ordered`, `withDocs_ordered`, `notRun_completedStages_eq_nil_iff`,
 `completedStages_idem`, `guidanceFields_recorded`, `parseStage_stageName`. Snapshot size:
 `snapshotJson_configuration_independent`, `environmentJson_imports_independent` and
@@ -590,6 +605,62 @@ routes, unsupported modes, Unicode/CRLF coordinates, native/text agreement and i
 negative outcomes as observations of those boundaries, not sampled evidence for the universal
 theorems. JSON text parsing, `FileMap`, and the compiler's collection of names, ranges and source
 identity are trusted.
+
+## Project setup and releases
+
+**Proved** (`RegulaCore.Setup`, over the observation `regula init` and `regula doctor` read):
+`plan_idempotent`, applying `init`'s plan leaves an empty plan, so a second run writes nothing;
+`plan_eq_nil_iff`, the plan is empty exactly when every setup issue is one `init` does not fix;
+`issues_run`, the plan removes exactly the fixable issues and adds none. The option check covers
+exactly the claimed targets (the root targets the manifest does not exclude, and none while an
+existing manifest fails RG2002), as RG2006 does: `run_sets`, every required option a claimed
+target built without is then set to its required value as `RegulaPolicy.Community.sets`, the
+RG2006 decision, reads it; `resolved_run`, every claimed target then has a value for every
+required option; `run_options_unclaimed`, when a root target is excluded the package's options
+are unchanged, the options going into each claimed target's own configuration
+(`run_plan_targets`), so none reaches an excluded target; and `run_options_prefix` and
+`withAdded_prefix`, the options the package and each claimed target already give are kept. An
+edit adds a missing piece and has no form that replaces a lint driver or an option value. The
+starter manifest is planned exactly when there is no manifest and the package has a `lean_lib`
+for it to claim (`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
+
+**Checked when it runs:** `init` observes the project again after writing and restores every
+file it wrote unless the new plan is empty, and it writes the starter manifest only after
+`Manifest.parse` reads the text back as exactly that manifest. That the lakefile edits realize
+the model's `apply` is this check, not a theorem. `doctor` runs the audit's own RG2002 functions
+(`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and RG2006
+decision (`Community.failures`) over Lake's resolved options of each claimed target. It applies
+Mathlib's options when the workspace contains Mathlib, where the audit applies them to a target
+whose modules import Mathlib: by `conforming_of_mathlib` a target `doctor` accepts also passes the
+audit, while `doctor` may ask a target that imports no Mathlib for Mathlib's options, which
+`init` writes under `weak.` so they are then ignored. A module below a library root that no
+library includes is a failing setup issue only when a claimed module (of a library or executable
+the manifest does not exclude) reaches it by import through the package's modules, which the
+audit rejects as outside every library; any other such module is a `note` that does not count
+toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
+from a build.
+
+**Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
+which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and
+`lean_exe` declarations, and the filesystem. Runs of `init` and `doctor` on scratch projects in
+both formats (fresh, template, inline-table, structure-instance, bare-`package` and
+computed-`leanOptions` shapes, another driver, a contradicting option, a stale skill, a library
+without globs, left-out modules that a claimed module does and does not import, a library the
+manifest excludes, with options written into bare and configured claimed targets, and a package
+with no `lean_lib`) are bounded observations.
+
+**Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
+and checked by the kernel each time a step elaborates it: the tag step's decision `tagAction`
+creates or moves tag `v<version>` only for the head of `main` while the release is unpublished
+(`tagAction_create_iff`, `tagAction_move_iff`), never writes it once the release is published
+(`tagAction_published`), and never refuses the head of `main` of an unpublished release
+(`tagAction_converges`); `tagAction_keep_iff` and `tagAction_refuse_iff` give the other cases.
+The rest of the file is operational. Its edit of `RegulaCore/Edition.lean` is read back before
+use, and the kernel checks the edited module's theorems (`releases_ascending`,
+`installed_listed`) when the checks of the release and reset pull requests build it. What the
+tag step observes (whether the release is published, the head of `main`, the tag), GitHub's
+signature verification, tags, immutable releases, pull requests and workflow ordering are
+trusted.
 
 ## Rule examples and the corpus runner
 

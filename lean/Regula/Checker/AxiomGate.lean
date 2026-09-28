@@ -65,8 +65,13 @@ structure Options where
 private def usage : String :=
   "usage: lake exe axiomGate -- [--verbose] [--project DIR] [--manifest PATH] [--json-out PATH] \
     [--with-docs] [--acceptance-link PATH [--verso DIR:LIBRARY:RENDER]]\n" ++
+  "       lake exe axiomGate -- (--incremental | --build-lint) [--verbose] [--project DIR] \
+    [--manifest PATH] [--json-out PATH]\n" ++
   "       lake exe axiomGate -- --file FILE [--claim PROFILE] [--execution MODE] [--json-out \
     PATH]\n" ++
+  "The project audit builds an isolated fresh copy by default. --incremental inspects current \
+    policy over the project's incremental build instead; --build-lint does the same as the \
+    enforcing build linter (the build-lint `policy` target) and implies --incremental.\n" ++
   "profiles: kernel-only, choice-free, standard-logical, compiler-trusting\n" ++
   "execution modes: report (default), checked"
 

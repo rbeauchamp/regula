@@ -51,49 +51,35 @@ with a checked violating and corrected example.
 
 ## Try it
 
-Regula has no release yet. Pin an exact commit, and use the Lean release its
-[`lean-toolchain`](lean-toolchain) pins, the only one it supports.
+Regula is a Lake package, and each release is tagged with the one Lean release it supports:
+`v4.34.0` is for `leanprover/lean4:v4.34.0`. Use the
+[release](https://github.com/rbeauchamp/regula/releases) tag that matches your `lean-toolchain`
+(before the first release, an exact commit of `main`).
 
-1. **Configure `lakefile.toml`:** the lint driver (a top-level key), the options Regula
-   checks, Regula itself, and a glob covering every module of your library:
+1. **Require it** in `lakefile.toml`
+   (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v4.34.0"`):
    ```toml
-   lintDriver = "regula/lint"
-
-   [leanOptions]
-   linter.missingDocs = true
-   autoImplicit = false
-   relaxedAutoImplicit = false
-
    [[require]]
    name = "regula"
    git = "https://github.com/rbeauchamp/regula"
-   rev = "<exact commit>"
-
-   [[lean_lib]]
-   name = "MyLib"
-   globs = ["MyLib", "MyLib.+"]
+   rev = "v4.34.0"
    ```
-   A project that uses Mathlib also enables
-   [Mathlib's standard linters](docs/guides/adoption.md#community-conventions-and-linters).
-2. **Classify the library** in `foundation_manifest.json` at the project root.
-   `standard-logical` admits ordinary classical proofs. List each `lean_exe` under the
-   surface's `executables` or in `excluded-executables`:
-   ```json
-   {
-     "schema-version": 2,
-     "surfaces": [
-       { "library": "MyLib", "claim": "standard-logical", "execution": "report",
-         "rationale": "Classical proofs; compiled boundaries are reported." }
-     ],
-     "excluded-libraries": [],
-     "excluded-executables": []
-   }
-   ```
-3. **Run it:**
+2. **Set it up and run it:**
    ```sh
    lake update regula
-   lake lint    # 0 accepted · 1 violation · 2 invalid configuration · 3 incomplete
+   lake exe regula init   # lint driver, leanOptions, foundation_manifest.json, AGENTS.md section
+   lake lint              # 0 accepted · 1 violation · 2 invalid configuration · 3 incomplete
    ```
+   `init` writes only what is missing, in either lakefile format, and never changes a value you
+   set; running it again writes nothing. `lake exe regula doctor` reports anything missing or
+   wrong with its exact fix.
+3. **Review `foundation_manifest.json`.** The starter claims every library as
+   `standard-logical`, which admits ordinary classical proofs; strengthen a claim where you can,
+   and give each library a glob covering all its modules (`globs = ["MyLib", "MyLib.+"]`), which
+   `doctor` reports when a module is left out.
+
+**To update**, change the tag and `lean-toolchain`, then run `lake update regula` and
+`lake exe regula init` again.
 
 **Why your first `sorry` shows RG2003 and INCOMPLETE.** Lean warns `declaration uses 'sorry'`,
 and `lake lint` inspects its rules only after a build without warnings (RG2003). A warning
@@ -107,8 +93,10 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
 
 ## For coding agents
 
-- `lake exe regula agent-guide` prints a compact briefing of every rule, ordered for writing
-  code, to place in `AGENTS.md`; `lake exe regula skill` prints it as an agent skill.
+- `lake exe regula init` adds a short `AGENTS.md` section that tells your agent to run
+  `lake exe regula agent-guide`, a compact briefing of every rule ordered for writing code, before
+  it writes Lean; `lake exe regula init --skill` installs the briefing as an agent skill instead,
+  and running `init` after an update refreshes it.
 - The first finding of each rule in a run adds why it matters, the common compliant rewrites
   and a checked example of the fix (or, where the checked files are qualification inputs, the
   correction they demonstrate); `lake exe regula explain <RULE-ID>` prints the full rule
@@ -151,7 +139,7 @@ toolchain version where useful.
 | Lean | [lean-toolchain](lean-toolchain) |
 | Mathlib (the `audit/` package and the website only) | The `mathlib` entry in [audit/lake-manifest.json](audit/lake-manifest.json) |
 
-Only the pinned Lean release is supported. The `regula` package requires no other package and imports no Mathlib modules, so requiring it adds no Mathlib to your project; Mathlib is used only by the standard's mathematical examples in the separate `audit/` package. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
+Only the pinned Lean release is supported; a release's tag names it (`v4.34.0` for Lean 4.34.0). The `regula` package requires no other package and imports no Mathlib modules, so requiring it adds no Mathlib to your project; Mathlib is used only by the standard's mathematical examples in the separate `audit/` package. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
 
 ## License
 

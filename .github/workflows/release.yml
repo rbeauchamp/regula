@@ -1,0 +1,39 @@
+name: Release
+
+# One action starts a release: run this workflow on main (docs/guides/contributing.md#release).
+# Its version is the Lean release in lean-toolchain, the Lean ecosystem's tag convention. It opens
+# the release pull request; once that merges, ci.yml on main tags, deploys and publishes the
+# release and opens the pull request that ends it. Every step is lean/Regula/Release.lean.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Create the release commit (main's commit with Regula.installed set to the release and the
+  # release appended to Regula.releases), refuse unless GitHub verified its signature, push it as
+  # release/v<version>, start its checks and open its pull request. A re-run updates the branch.
+  open:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+
+      - name: Open the release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: lean --run lean/Regula/Release.lean open
