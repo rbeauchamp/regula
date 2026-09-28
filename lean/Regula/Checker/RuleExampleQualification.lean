@@ -482,7 +482,7 @@ theorem qualify_sound (record : Json) (h : qualify record = .ok ()) : RecordAdmi
 
 /-- Full-corpus coverage derives from the sole closed registry; every selected rule has
 one fixed and one intended diagnostic record, each produced in its own fresh workspace
-with no restored rerun (standard §8.8). -/
+with no restored rerun (standard §7.8). -/
 def qualifyCorpus (json : Json) : Except String Unit := do
   unless (← field json "schemaVersion") == toJson (1 : Nat) do throw "unsupported corpus schema"
   let selected ← (← (← field json "selected").getArr?).mapM RegistryCodec.parseRule

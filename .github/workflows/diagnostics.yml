@@ -1,6 +1,6 @@
 name: Diagnostics
 
-# Capability-triggered qualification campaigns (standard §8.8): the producer and history
+# Capability-triggered qualification campaigns (standard §7.8): the producer and history
 # campaigns, and the `lake lint` dispatch over the maintained adopter fixtures, which crosses
 # Lake, process and filesystem boundaries that the driver's proofs do not cover. They run when
 # the checker, rules, rule examples, adopter fixtures, Lake configuration or manifests change,

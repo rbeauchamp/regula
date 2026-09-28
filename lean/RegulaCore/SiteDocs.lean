@@ -83,7 +83,7 @@ def homePage (ident : Identity) : Except String String := do
           states what they share: a violation fails the result, and missing evidence never \
           passes. The " ++ doc "docs/guides/adoption.md" "adoption guide" ++
               " covers installation, `lake lint`, editor feedback and CI; " ++
-      "[the standard](standard/) and its [compliance checklist](standard/9-compliance-audit/) \
+      "[the standard](standard/) and its [compliance checklist](standard/8-compliance-audit/) \
         define what the rules enforce; every Lean example of the standard is elaborated when this \
         site is built.\n" ++
     "4. **Challenge a rule.** Each rule page gives the rule's rationale, its normative clauses and \
@@ -192,7 +192,7 @@ def coveragePage (ident : Identity) : Except String String := do
       "</tbody></table></div>")
   return header [] "Checklist coverage" "coverage" (some "coverage") (split := false) ++
       notice ++ "\n" ++
-    "Each row of the [compliance checklist](standard/9-compliance-audit/) with the rules whose \
+    "Each row of the [compliance checklist](standard/8-compliance-audit/) with the rules whose \
       page lists it and the review obligations it carries. The rules are derived from the rule \
       explanations, so they and the rule pages cannot disagree; the obligations are derived from \
       the checklist rows each obligation carries, as defined on [how rules are \

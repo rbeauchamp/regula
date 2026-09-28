@@ -4,7 +4,7 @@ To adopt the [standard](https://rbeauchamp.github.io/regula/dev/standard/), iden
 project presents as established, express them precisely in types or propositions, and
 supply kernel-checked evidence. Review whether those statements capture the intended
 claims, including their assumptions and execution boundaries. Conformance requires every
-applicable row of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/); the
+applicable row of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/); the
 checker supports that review by checking the mechanical requirements.
 
 The steps below cover checker setup and the semantic review needed for a conformance
@@ -13,7 +13,7 @@ claim. Use the [supported toolchain](../../README.md#supported-toolchain).
 This is the ordinary path from an existing Lean project to a conformance claim. It uses
 your project's own layout, module names, and lakefile format; nothing named `Audit`,
 `Fixtures`, or `tmp` from this repository is required. The normative definitions behind
-each step are in [standard §8.11](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#811-adopting-the-checker-in-another-project).
+each step are in [standard §7.10](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#710-adopting-the-checker-in-another-project).
 
 ## 0. Brief your agent
 
@@ -106,7 +106,7 @@ release (see the [supported toolchain](../../README.md#supported-toolchain)).
 
 Conformance is claimed per Lake library or executable, and the checker discovers modules
 through Lake's elaborated inventory, not through your umbrella import or a file list
-([standard §8.2](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#82-define-surfaces-through-lake-semantics)).
+([standard §7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics)).
 Give every claimed library a glob that covers its intended modules:
 
 - `lakefile.lean`: ``globs := #[.andSubmodules `Widget]``
@@ -152,7 +152,7 @@ foundation profile; inspect its actual transitive dependencies. Compiler-trustin
 (for example from `native_decide`, `decide +native` or `bv_decide`) never fit any profile and are reported separately.
 
 `execution` states what you claim about compiled code
-([standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly)):
+([standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly)):
 
 | Mode | Meaning |
 | --- | --- |
@@ -193,7 +193,7 @@ lake exe docFenceAudit --jobs 4                            # elaborate every doc
 ```
 
 `docFenceAudit` applies when your project keeps Lean teaching examples in Markdown under
-`docs/` using the [Markdown fence protocol](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#87-check-lean-documentation-verbatim)
+`docs/` using the [Markdown fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim)
 (`<!-- lean-fail: PATTERN -->` and `<!-- lean-trusted-compiler -->` markers).
 
 ## 5. Read a failure
@@ -237,11 +237,11 @@ style preference:
 | `hole` | The declaration depends on `sorryAx` (`sorry`, `admit`, or an unfinished tactic). | [standard §3.4](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#34-foundation-strength-axioms-are-reported-never-assumed) |
 | `unknown-axiom` | A transitive axiom outside `propext`, `Quot.sound`, `Classical.choice` other than `sorryAx` and the compiler-trusting axioms, which have their own reasons. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
 | `label-exceeds-claim` | The declaration's exact label is stronger than the surface's `claim`. Prove the same statement using fewer axioms, or explicitly revise the permitted foundation profile and its rationale. | [standard §4.5](https://rbeauchamp.github.io/regula/dev/standard/4-mathematical-foundations/#45-foundation-strength-kernel-only-choice-free-standard-logical) |
-| `compiler-trusting` | A native-evaluation proof axiom (from `native_decide`, `decide +native` or `bv_decide`) on a positive surface. | [standard §8.5](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#85-proof-completeness-and-foundation-strength) |
-| `escape-hatch` | An authored `partial` or `unsafe` declaration on a positive surface. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |
-| `executable-contract` | An `ExecutableContract` registration is not closed, does not name a complete implementation constant, or names an ineligible implementation: missing, noncomputable, unsafe, partial, proposition-valued, type-producing, or not an executable definition. The Lean type checker separately checks the supplied proof against the registered predicate. | [standard §8.12](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter) |
-| `execution-unresolved` | A compiled path whose replacement, `extern`, or unsafe target cannot be classified. Blocks the execution claim in every mode. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |
-| `execution-trusted-boundary` | A runtime replacement or `extern` boundary without kernel-checked correspondence on a surface claiming `checked` execution. | [standard §8.6](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#86-classify-lean-computation-mechanisms-exactly) |
+| `compiler-trusting` | A native-evaluation proof axiom (from `native_decide`, `decide +native` or `bv_decide`) on a positive surface. | [standard §7.5](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#75-proof-completeness-and-foundation-strength) |
+| `escape-hatch` | An authored `partial` or `unsafe` declaration on a positive surface. | [standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly) |
+| `executable-contract` | An `ExecutableContract` registration is not closed, does not name a complete implementation constant, or names an ineligible implementation: missing, noncomputable, unsafe, partial, proposition-valued, type-producing, or not an executable definition. The Lean type checker separately checks the supplied proof against the registered predicate. | [standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter) |
+| `execution-unresolved` | A compiled path whose replacement, `extern`, or unsafe target cannot be classified. Blocks the execution claim in every mode. | [standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly) |
+| `execution-trusted-boundary` | A runtime replacement or `extern` boundary without kernel-checked correspondence on a surface claiming `checked` execution. | [standard §7.6](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#76-classify-lean-computation-mechanisms-exactly) |
 
 Surface-level failures name the Lake fact. `build-failed` means the claimed surface did not
 elaborate warning-free from empty output (a zero exit with a warning still fails);
@@ -371,7 +371,7 @@ Lake details that affect what ran:
 
 A `lakefile.lean` project can also enforce during plain `lake build` with the
 [build-lint example](../../examples/build-lint/)'s sole-default `policy` target; see
-[standard §8.12](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter)
+[standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter)
 for its scope and cache semantics. `lakefile.toml` has no custom targets, so TOML projects
 use `lake lint`. Direct `lean`, editor elaboration, an explicit build of another target and
 `--builtin-only` do not run the strict gate and are never reported as enforced.
@@ -406,7 +406,7 @@ core-only code.
   reports every public definition without a docstring, and, in a project that depends on
   Mathlib, the syntax linters Mathlib builds with, except the three that enforce policies of
   the Mathlib repository itself. It also turns off automatic implicits
-  ([standard §8.1](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#81-declare-the-elaboration-environment)):
+  ([standard §7.1](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#71-declare-the-elaboration-environment)):
 
   ```toml
   [leanOptions]
@@ -503,7 +503,7 @@ build.
 A green gate establishes hole-freedom, exact axiom sets, module coverage, and boundary
 classification. The current checker does not establish that your theorems say what your prose says, that your
 required contracts are complete, or that your types encode the invariant you advertise.
-Those are the semantic-review rows of [standard module 9](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/), including
+Those are the semantic-review rows of [standard module 8](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/), including
 `SCOPE-*`, `TYPE-*`, `THEOREM-*`, `COMP-01`, `COMP-04`, `DOC-01`, and `DOC-02`.
 Conformance is the whole matrix with one terminal result (`PASS`, `FAIL`, or `INCOMPLETE`),
 not the gate alone.
@@ -526,7 +526,7 @@ not the gate alone.
 - There are no released versions yet. Until the first release, diagnostic help links target the
   development pages under `/dev/`, which change with `main`; a released version's links target
   its own permanent pages under `/v/<version>/` ([versions](website.md#versions-and-routes)).
-- The nine [residual review obligations](rule-coverage.md#residual-review-obligations) stay
+- The nine [residual review obligations](architecture.md#coverage-of-the-standard) stay
   open; every accepted account lists them.
 
 ## What you are not asked to do
@@ -534,7 +534,6 @@ not the gate alone.
 - **Checker qualification is not adopter conformance.** The `MUT-*` rows and the
   `checkerSelftest` suite qualify a checker implementation. An adopter using the shipped
   checker unchanged does not rerun them.
-- **`DOGFOOD-*` rows apply only to this repository.**
 - **`freshChecker`** (fresh `leanchecker` over the serialized module graph) is optional
   defense in depth for the separate `MUT-05` claim, not part of the ordinary loop.
 
@@ -546,7 +545,7 @@ a human view of the same registry that `lake exe regula explain` prints offline:
 what triggers the rule, why it matters, how to fix it, a checked violating and corrected
 example produced by the real checker, the exact configuration and exception boundaries, and
 what a passing result does and does not establish. The site is generated from the
-[registry](rule-registry.md) and the checked [rule examples](rule-examples.md) and published
+[registry](architecture.md#the-rule-registry) and the checked [rule examples](architecture.md#rule-examples) and published
 from `main` by CI; see the [website guide](website.md) for its guarantees and version routes.
 
 ## Accepted results and modes
@@ -556,7 +555,7 @@ inventory. Project, explicit conforming-file and documentation drivers retain a
 proof-bearing `AcceptedRun`; combined project/docs also checks the shared snapshot.
 `--json-out` renders acceptance metadata from that value. Treat it as a report of
 observations, never as a deserializable Lean proof or an authenticated external attestation.
-See the [API and success-owner map](policy-acceptance.md).
+See the [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary).
 
 `--build-lint`/`--incremental` still mean current policy inspection over an incremental
 build. A fresh file claim covers the original file's bytes and its isolated compilation,

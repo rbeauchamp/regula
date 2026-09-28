@@ -2,7 +2,7 @@ module
 
 /-! # Community build configuration decision
 
-The decision behind RG2006 for one claimed Lake target (standard §8.1, §6.7 and §6.2): the
+The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
 options Lake builds its modules with turn automatic implicits off, enable Lean's
 `linter.missingDocs`, keep every linter on except the three Mathlib-repository linters §6.7
 excludes, and, when the target imports Mathlib, enable Mathlib's standard linter set with exactly
@@ -320,7 +320,7 @@ theorem mem_argumentSettings_iff (arguments : List String) (n : Name) (v : Optio
   · rintro ⟨name, value, hd, rfl, rfl⟩
     exact ⟨name, value, hd, rfl, rfl⟩
 
-/-- The options every claimed target sets: no automatic implicits (standard §8.1), and Lean's
+/-- The options every claimed target sets: no automatic implicits (standard §7.1), and Lean's
 linter that reports each public declaration without a docstring (standard §6.7). -/
 def baseline : List (Name × OptionValue) :=
   [(`autoImplicit, .bool false), (`relaxedAutoImplicit, .bool false),

@@ -42,7 +42,7 @@ structure TargetAssignment where
 def reporterOnlyModuleNames : Array Name :=
   #[`Regula.Probe, `Regula.Report, `Regula.Checker.PolicyCodec]
 
-/-- The published checker interfaces a claimed module may import by design (standard §8.10):
+/-- The published checker interfaces a claimed module may import by design (standard §7.10):
 the executable-contract type and the material-claim registration attribute. The probe
 force-loads both, so they are authenticated like the reporter and are never owned. -/
 def publishedInterfaceModuleNames : Array Name :=

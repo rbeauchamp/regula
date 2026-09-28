@@ -20,7 +20,7 @@
 - Strict rules must have a precise Lean, dependent-type, proof, or Lean-code rationale. Put
   domain-specific material in examples or named Lean-domain profiles.
 
-- Follow `docs/guides/linter-architecture.md` and `docs/guides/rule-coverage.md` for the
+- Follow `docs/guides/architecture.md` and `docs/guides/proofs-and-boundaries.md` for the
   product contract. Keep typed rule metadata, diagnostics and checked website
   examples synchronized. Follow `docs/guides/design-influences.md` for contribution-specific
   attribution; no single research reference brands every issue or deliverable. Distinguish planned work
@@ -37,7 +37,7 @@
   When working an open issue, that issue is authoritative until closed; existing green checks
   are scoped results only.
 - For a PR review, pre-merge pass, or independent compliance audit, use the repository-local
-  `.agents/skills/pr-review-toolkit/SKILL.md`. The standard's module 9
+  `.agents/skills/pr-review-toolkit/SKILL.md`. The standard's module 8
   (`website/RegulaStandard/ComplianceAudit.lean`) is the checklist SSOT.
 - Every delivery PR requires independent review by at least one fresh-context reviewer.
   Scope reading and checks to the changed claims; use distinct reviewers for materially
@@ -118,16 +118,17 @@
   and application governance in the universal standard.
 - Keep documentation, diagnostics, checker names, and checker output no stronger than the exact
   Lean property established.
-- Respect the assurance boundary stated in standard module 8: custom or ambiguous evaluator paths fail
+- Respect the assurance boundary stated in standard module 7: custom or ambiguous evaluator paths fail
   the recursive-helper exception, a native-proof axiom rests on its natively replayed statement and
   command provenance instead, and a modified Lean executable, compromised process, and arbitrary
   trusted plugins are outside this Lean-source standard. Do not recursively expand reviews into
   stronger threat models after the documented boundary has direct positive and negative evidence.
-- For a PR, establish the standard's module 9 rows affected by its changes and dependencies.
+- For a PR, establish the standard's module 8 rows affected by its changes and dependencies.
   A full repository-compliance claim requires every applicable row across all claimed surfaces
   to be `PASS`; a scoped PR review does not establish that broader claim.
-  `MUT-*` applies when checker behavior is implemented or changed; `DOGFOOD-*` applies
-  to this repository; `MUT-05` applies to the optional serialized-graph claim. A `FAIL`,
+  `MUT-*` applies when checker behavior is implemented or changed; `DOGFOOD-*` (this
+  repository's own rows, in `docs/guides/contributing.md`) applies to this repository; `MUT-05`
+  applies to the optional serialized-graph claim. A `FAIL`,
   `INCOMPLETE`, unknown, omission, skip, timeout, or unsupported check blocks the affected claim.
 
 In a fresh copy, run `./scripts/provision.sh` before the first `lake build`; otherwise Lake
@@ -164,7 +165,7 @@ Complete applicable theorem/type/prose review too; command success alone is not 
 semantic conformance.
 
 Checker changes receive focused qualification for affected capabilities and invocation
-paths under standard §8.8. Long mutation, external-adopter, build-integration,
+paths under standard §7.8. Long mutation, external-adopter, build-integration,
 and optional serialized-graph campaigns are diagnostics, not automatic merge gates.
 Retain their controls and applicable evidence; never relabel an unrun campaign PASS.
 `./scripts/verify.sh diagnostics [partition]` runs a selected existing campaign under

@@ -37,8 +37,9 @@ namespace Regula.Site
 open Regula.Checker.Account (Residual)
 
 /-- The explanation sections of one rule page, in page order. `residuals` are the review
-obligations a result of this rule never discharges; `checklist` names the chapter 9 rows the rule
-contributes to; `sources` are repository paths of its detector, policy and proof modules. -/
+obligations a result of this rule never discharges; `checklist` names the module 8 checklist rows
+the rule contributes to; `sources` are repository paths of its detector, policy and proof
+modules. -/
 structure Guide where
   /-- What goes wrong in a violating project: the page's lead paragraph and the *Problem*
   section of `regula explain`. -/
@@ -61,7 +62,7 @@ structure Guide where
   limitations : List String
   /-- The review obligations that a result of this rule leaves open. -/
   residuals : List Residual
-  /-- The module 9 checklist row IDs the rule contributes to, such as `DECL-01`. -/
+  /-- The module 8 checklist row IDs the rule contributes to, such as `DECL-01`. -/
   checklist : List String
   /-- Repository paths of the rule's detector, policy and proof modules. -/
   sources : List String
@@ -348,7 +349,7 @@ def guide : RuleId → Guide
           not replayed as logical evidence, and a partial definition has no termination proof. \
           They are rejected with applicability `escape-hatch`.",
         "The only exception is the range-less partial helper Lean generates for a safe, \
-          termination-checked recursive `def`, admitted when every condition of standard §8.4 \
+          termination-checked recursive `def`, admitted when every condition of standard §7.4 \
           holds, including fresh-frontend attribution of the exact source."]
       rationaleDetail := []
       proofShape := [
@@ -356,7 +357,7 @@ def guide : RuleId → Guide
           and prove the relation to the intended function."]
       established := [
         "No authored unsafe or partial declaration is on the claimed surface; every admitted \
-          generated helper satisfied all §8.4 conditions."]
+          generated helper satisfied all §7.4 conditions."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
@@ -407,7 +408,7 @@ def guide : RuleId → Guide
           proofs of incorrectness; restate them as closed full-domain contracts."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
-          ["BUILD-03", "THEOREM-07", "DOGFOOD-05", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
+          ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
       linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`) \
         is operational."
@@ -476,7 +477,7 @@ def guide : RuleId → Guide
         "Executable-only packages are valid Lean projects but unsupported by manifest schema 2.",
         "The editor never guesses an omitted project scope."]
       residuals := [.qualify, .intent, .invariant]
-      checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01", "DOGFOOD-02"]
+      checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01"]
       linkage := "`Regula.Checker.Manifest.parse_sound` and `parseValue_complete` for the \
         manifest (kernel-checked in the excluded `Regula` library) and \
         `Regula.Linter.checked_editorRequest` for the editor's request. Routing a failure to this \
@@ -570,8 +571,8 @@ def guide : RuleId → Guide
           and a single-file audit does not either."]
       residuals := [.qualify]
       checklist :=
-          ["DECL-02", "DECL-03", "DOGFOOD-02", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
-              "BUILD-03", "BUILD-04", "DOGFOOD-05"]
+          ["DECL-02", "DECL-03", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
+              "BUILD-03", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.ScopeOK`, over \
         the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`. The \
         inventory checks are operational."
@@ -612,8 +613,7 @@ def guide : RuleId → Guide
       residuals := [.qualify]
       checklist :=
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
-              "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04",
-                  "DOGFOOD-05"]
+              "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
         The editor's deferral to the project audit is \
         `Regula.Checker.Policy.editor_decision_pending`."
@@ -650,7 +650,7 @@ def guide : RuleId → Guide
           `lean` does not read as a `-D`, such as the value of `-o`. Any other extra argument is \
           allowed."]
       rationaleDetail := [
-        "Standard §8.1 requires the options because they decide which binders a declaration's \
+        "Standard §7.1 requires the options because they decide which binders a declaration's \
           elaborated type has. Standard §6.7 adopts the community's linters as its conventions \
           baseline, and a linter enforces its convention only where it is on: RG2003 rejects \
           warnings, not a missing linter."]
@@ -681,7 +681,7 @@ def guide : RuleId → Guide
           is neither proved nor observed.",
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
-      checklist := ["DECL-01", "DOC-01", "DOGFOOD-01"]
+      checklist := ["DECL-01", "DOC-01"]
       linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
         `conforming_missingDocs`, `leanArgument_mem_failures_iff` and \
         `missingDocs_unset_fails`. Reading Lake's target configuration is operational."

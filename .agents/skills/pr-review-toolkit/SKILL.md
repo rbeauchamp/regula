@@ -8,7 +8,7 @@ description: Review Regula diffs, proof claims, and conformance; use for request
 Determine whether the scoped claims follow from the Lean definitions, proofs, and checker
 evidence. [AGENTS.md](../../../AGENTS.md) owns repository workflow and verification policy;
 the [compliance checklist](../../../website/RegulaStandard/ComplianceAudit.lean) of the reviewed
-revision owns normative rows ([published copy](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/)
+revision owns normative rows ([published copy](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/)
 of the last deployed `main`).
 
 ## Select the review

@@ -17,12 +17,12 @@ equivalence][equiv], pinned at `c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0`; con-l
 [README][conleche-readme] gives its Lean FRO context. Their universe-zero representation and
 checker-specific environment are specialized implementations, not generic linter components
 to import. Regula's existing closed `RuleId`/indexed descriptors and [policy
-assembly](policy-acceptance.md) apply related ideas to different predicates. Ordinary
+assembly](proofs-and-boundaries.md#the-acceptance-boundary) apply related ideas to different predicates. Ordinary
 dependent types, canonical forms and complete indexing are broader techniques; con-leche is a documented example,
 not their origin or an exclusive source. Prefer matching Core/Std/Lean definitions and laws
 before writing a new implementation.
 
-The [policy acceptance guide](policy-acceptance.md) owns the implemented assembly and
+The [acceptance boundary](proofs-and-boundaries.md#the-acceptance-boundary) owns the implemented assembly and
 its delivery evidence. Registry laws concern Regula's own definitions. Neither
 inspiration nor those laws establish extraction fidelity, whole-checker correctness or native runtime behavior. No source copy or imported con-leche
 proof was found in the inspected linter surfaces.

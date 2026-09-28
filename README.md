@@ -38,11 +38,11 @@ which requirements are sound, useful, and practical for real Lean projects.
 
 ## Start here
 
-- **Read the standard:** begin with the [core philosophy](https://rbeauchamp.github.io/regula/dev/standard/0-core-philosophy/), then use the [document map](docs/README.md) to find the relevant rules.
+- **Read the standard:** start at its [introduction](https://rbeauchamp.github.io/regula/dev/standard/introduction/), which lists the modules; the [documentation index](docs/README.md) lists the guides.
 - **Use it in a project:** follow the [adoption guide](docs/guides/adoption.md) and the [standalone examples](examples/README.md).
 - **Inspect or improve it:** explore the [Lean module map](lean/README.md); the [contributor guide](docs/guides/contributing.md#develop-and-verify) gives the build and acceptance commands.
 
-Conformance means satisfying every applicable row of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/9-compliance-audit/). A passing checker command establishes its stated property; semantic review still determines whether the theorems express the intended claims and complete contracts.
+Conformance means satisfying every applicable row of the [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/). A passing checker command establishes its stated property; semantic review still determines whether the theorems express the intended claims and complete contracts.
 
 ## Repository map
 

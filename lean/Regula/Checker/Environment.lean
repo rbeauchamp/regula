@@ -26,9 +26,9 @@ def probeModuleNames : Array String :=
   RegulaPolicy.reporterModuleNames.map (·.toString)
 
 /-- The probe modules no claimed module may import. `Regula.Contract` (the
-executable-contract interface, standard §8.12) and `Regula.MaterialClaim` (the
+executable-contract interface, standard §7.11) and `Regula.MaterialClaim` (the
 `@[regula_material]` registration, §5.2) are the published interfaces a claimed surface
-imports by design (§8.10); the probe and its report records are
+imports by design (§7.10); the probe and its report records are
 checker tooling that reach an audited environment only through the force
 import, never through a claimed module's own imports. -/
 def probeOnlyModuleNames : Array String :=
@@ -107,7 +107,7 @@ private structure HistoryMemo where
 
 /-- The history worker's output bytes for exactly these inputs, shared by the surface
 workers of one audit through `memo` (a directory the coordinator owns for the audit).
-Trusted assumption (the §8.5 supported-process boundary): the worker's output is a
+Trusted assumption (the §7.5 supported-process boundary): the worker's output is a
 deterministic function of the module source, the effective search path (`searchIdentity`,
 see `loadReportCore`) and the pinned binary, with the audit's inherited environment and
 unchanged imported artifacts. Every field is compared exactly before a record is used, so

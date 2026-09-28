@@ -376,12 +376,12 @@ Every Lean declaration has an exact transitive axiom set. `#print axioms` report
 
 *Rules*:
 
-* A choice-dependent declaration is *never* labeled Choice-Free. The repository's gate mechanically checks a surface's claimed profile against these exact sets ({ref "85-proof-completeness-and-foundation-strength"}[module 8 §8.5]).
+* A choice-dependent declaration is *never* labeled Choice-Free. The shipped gate mechanically checks a surface's claimed profile against these exact sets ({ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]).
 * Standard-Logical is a permitted foundation profile. Erased mathematical proofs may use `Classical.choice` within that profile without making the associated program noncomputable. Select the foundation appropriate to the claim and report dependencies honestly. A smaller axiom set is useful when the interface requires it or when a simpler proof achieves it. It is not a general software-assurance ranking.
 * Selecting Choice-Free limits the permitted dependencies. It is not a synonym for correctness or executable construction. Replacing a choice-dependent construction may require explicit witnesses, different operations, or weaker interfaces. Inspect the actual dependencies before deciding whether the change supports the claim.
 * Importing Mathlib is not disqualifying. The transitive axiom set decides. A pure arithmetic theorem proved inside a Mathlib-importing module can still be kernel-only.
 
-A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conforming proof claim. Compiler-trusting mechanisms are classified separately and excluded from conforming positive proof surfaces. A generated-looking name alone does not establish a compiler origin. {ref "85-proof-completeness-and-foundation-strength"}[§8.5] defines the required classification.
+A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conforming proof claim. Compiler-trusting mechanisms are classified separately and excluded from conforming positive proof surfaces. A generated-looking name alone does not establish a compiler origin. {ref "75-proof-completeness-and-foundation-strength"}[§7.5] defines the required classification.
 
 *Selected actual labels from this repository*. An allowed maximum profile admits every subset of its permitted axioms including the empty set. An actual label is the smallest of these three profiles containing the declaration's computed set: empty is Kernel-only; a nonempty subset of `{propext, Quot.sound}` is Choice-Free; a permitted set containing `Classical.choice` is Standard-Logical. Never infer that set from a tactic name. For a theorem, its actual label does not establish that the same proposition has no proof with fewer axioms.
 
@@ -429,21 +429,6 @@ import Audit.DocClaims
 
 The label is computed per declaration, not inferred from an imported module or a type name. Some order and analysis operations over `ℝ` traverse choice-dependent definitions. Other declarations in the same module may remain kernel-only or Choice-Free. The exact transitive set decides. Constructive alternatives can change the interface and proof obligations. They are interface decisions, not automatic conformance upgrades.
 
-*Selecting a maximum is an enforceable requirement.* The opt-in build linter ({ref "812-opt-in-enforcing-build-linter"}[§8.12]) reads the surface's `"claim"` from `foundation_manifest.json` on every enabled ordinary build. Selecting `"choice-free"` rejects both direct and imported/transitive `Classical.choice`, even when the modules have cached build artifacts. Switching a surface with a covered declaration that depends on `Classical.choice` from `"standard-logical"` to `"choice-free"` therefore fails without any source edit. The standalone qualification includes this intended `label-exceeds-claim` failure, a fresh restoration, and positive controls for all three profiles. Enabled ordinary-build evidence is incremental elaboration and current policy inspection, not fresh-source conformance evidence.
+*Selecting a maximum is an enforceable requirement.* The opt-in build linter ({ref "711-opt-in-enforcing-build-linter"}[§7.11]) reads the surface's `"claim"` from `foundation_manifest.json` on every enabled ordinary build. Selecting `"choice-free"` rejects both direct and imported/transitive `Classical.choice`, even when the modules have cached build artifacts. Switching a surface with a covered declaration that depends on `Classical.choice` from `"standard-logical"` to `"choice-free"` therefore fails without any source edit. The standalone qualification includes this intended `label-exceeds-claim` failure, a fresh restoration, and positive controls for all three profiles. Enabled ordinary-build evidence is incremental elaboration and current policy inspection, not fresh-source conformance evidence.
 
 This foundation condition is separate from executable construction. A Standard-Logical correctness proof may use choice while its function computes normally ({ref "38-delivering-executable-witnesses-with-required-evidence"}[§3.8]). Choice-Free alone does not guarantee kernel normalization, executable witness extraction, or native execution assurance. Each requires its own precisely stated claim and evidence.
-
-# Summary of Mathematical Foundations
-%%%
-tag := "summary-of-mathematical-foundations"
-number := false
-%%%
-
-Apply these patterns so that:
-
-* Numeric representations match the claim; real-valued models and machine arithmetic are connected by checked correspondence when needed.
-* Matching Lean and Mathlib structures supply reusable laws and theorems.
-* Claimed orders and interfaces are lawful and complete.
-* Foundation strength is reported per declaration from its exact transitive axiom set, separately from executability and runtime trust.
-
-By using Mathlib's lawful interfaces, Lean definitions and proofs can reuse their checked laws. Each result remains the exact theorem Lean accepted about the stated mathematical objects or executable definitions, at its reported foundation strength.

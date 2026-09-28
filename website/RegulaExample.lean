@@ -15,7 +15,7 @@ block with automatic implicits off and `linter.missingDocs` on (`exampleOptions`
 - `lean`: a positive example; elaboration must report no error and no warning.
 - `lean (fails := "PATTERN")`: an expected rejection; elaboration must report an error and no
   warning, and one error message must match `PATTERN` in the restricted diagnostic language of
-  standard §8.7, decided by the proved `RegulaPolicy.matchesPattern` (`matchesPattern_iff`).
+  standard §7.7, decided by the proved `RegulaPolicy.matchesPattern` (`matchesPattern_iff`).
 - `lean +trustedCompiler`: a teaching example of a compiler-trusting mechanism; elaboration
   must report no error and no warning.
 - `leanSketch`: Lean-like text displayed with a notice that it is not elaborated, for

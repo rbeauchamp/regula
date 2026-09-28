@@ -13,7 +13,7 @@ lake lint    # the same audit through the configured lint driver
 ```
 
 Its `leanOptions` enable Lean's `linter.missingDocs` and turn off automatic implicits
-(standard §6.7 and §8.1), so the enforcing build rejects an undocumented public definition.
+(standard §6.7 and §7.1), so the enforcing build rejects an undocumented public definition.
 A library that imports Mathlib also enables Mathlib's standard linter set as the
 [adoption guide](../../docs/guides/adoption.md#community-conventions-and-linters) shows.
 
@@ -61,6 +61,6 @@ in `extraDepTargets` or run it concurrently with another build of its claimed mo
 
 Native arithmetic remains trusted even with checked execution, and a passing build does not
 establish the adequacy or completeness of the declared requirements. See
-[standard §8.12](https://rbeauchamp.github.io/regula/dev/standard/8-tooling-and-machine-audit/#812-opt-in-enforcing-build-linter)
+[standard §7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter)
 for the exact scope and limits. The `build-policy` and `lint-driver` diagnostics copy these
 files into disposable adopters and mutate them.

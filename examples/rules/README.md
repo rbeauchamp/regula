@@ -9,6 +9,6 @@ library. A violation can elaborate successfully;
 the actual registered detector must produce its advertised result.
 
 [`corpus.json`](corpus.json) fixes expected rule IDs, reasons, modes, subjects and locations.
-The [rule-example guide](../../docs/guides/rule-examples.md) gives each source pair's exact
+The [architecture guide](../../docs/guides/architecture.md#rule-examples) gives each source pair's exact
 remediation, accepted-example and diagnostic-demonstration distinctions, qualification
 commands, and the export and trust contracts of the rule-reference website.

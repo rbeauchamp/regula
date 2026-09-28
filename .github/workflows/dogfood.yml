@@ -1,6 +1,6 @@
 name: Dogfood
 
-# Regula run on its own code base (docs/guides/lean-qualification.md#dogfooding-regula-on-itself):
+# Regula run on its own code base (docs/guides/contributing.md#repository-conformance):
 # the repository's own `lake lint` through `regula/lint` in both packages, and the operational
 # self-audit of the excluded `Regula` library. Neither is part of acceptance; each verify.sh
 # partition keeps its own 420-second limit. It runs when Lean sources, Lake configuration or
