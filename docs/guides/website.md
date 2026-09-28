@@ -227,8 +227,9 @@ releases, a repository setting that is on, forbid changing a published release's
 A release takes these steps, in order ([release procedure](contributing.md#release)):
 
 1. The Release workflow opens the release pull request, whose commit sets `Regula.installed` to
-   the release and appends it to `Regula.releases`
-   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). Before the tag exists, its site
+   the release, appends it to `Regula.releases`
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) and stamps every rule still
+   marked unreleased as introduced by it. Before the tag exists, its site
    build renders the release's edition as a preview, which pull requests never publish.
 2. When it merges, CI on `main` gives the head of `main`, which carries the release label, the
    tag `v<version>` once acceptance and the rule-example shards pass. That commit's site build then renders the
@@ -264,7 +265,8 @@ observations, not guarantees.
 A rule change touches its semantics, metadata, examples and explanation together, in one PR:
 
 1. Registry: `descriptor` in `RegulaCore/Rule.lean`, including its requirement, rationale,
-   remedy, rewrites and example pair. Never change an ID's meaning; add an ID and retire the
+   remedy, rewrites and example pair; a new rule states `lifecycle := .active "unreleased"`,
+   which the next release stamps. Never change an ID's meaning; add an ID and retire the
    old one. Regenerate the dogfooded skill with
    `lake exe regula skill > .agents/skills/regula/SKILL.md`; acceptance refuses a stale one.
 2. Explanation: the rule's case of `guide` in `RegulaCore/Guide.lean`. Keep every statement no

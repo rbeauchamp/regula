@@ -655,9 +655,11 @@ creates or moves tag `v<version>` only for the head of `main` while the release 
 (`tagAction_create_iff`, `tagAction_move_iff`), never writes it once the release is published
 (`tagAction_published`), and never refuses the head of `main` of an unpublished release
 (`tagAction_converges`); `tagAction_keep_iff` and `tagAction_refuse_iff` give the other cases.
-The rest of the file is operational. Its edit of `RegulaCore/Edition.lean` is read back before
-use, and the kernel checks the edited module's theorems (`releases_ascending`,
-`installed_listed`) when the checks of the release and reset pull requests build it. What the
+The rest of the file is operational. Its edits of `RegulaCore/Edition.lean` and
+`RegulaCore/Rule.lean` are read back before use, and the kernel checks the edited modules'
+theorems (`releases_ascending`, `installed_listed`, and `release_attributes_rules`: a release build
+attributes every rule to a release) when the checks of the release and reset pull requests build
+them. What the
 tag step observes (whether the release is published, the head of `main`, the tag), GitHub's
 signature verification, tags, immutable releases, pull requests and workflow ordering are
 trusted.

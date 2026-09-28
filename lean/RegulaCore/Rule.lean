@@ -1,6 +1,7 @@
 module
 
 public import RegulaCore.RuleId
+public import RegulaCore.Edition
 public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
@@ -14,7 +15,13 @@ The registry is the one source of each rule's agent-facing guidance: its one-lin
 `examples` pair are required `RuleDescriptor` fields, so a rule without them does not compile.
 Findings (`RegulaCore.Feedback`), the `regula` command and agent briefing
 (`RegulaCore.Guidance`), the registry and result exports and the website are generated from
-them. -/
+them.
+
+A rule is `.active "unreleased"` until the release that introduces it: `lifecycle` has no
+default, so every rule states it, and the Release workflow's `open` step stamps each rule still
+marked unreleased with the release's version in the release commit. `release_attributes_rules`
+proves that a release build (`Regula.installed` a release) attributes every rule to a release, so
+a release commit in which a rule is still unreleased does not build. -/
 
 @[expose] public section
 
@@ -34,6 +41,14 @@ inductive Lifecycle (id : RuleId) where
   /-- The rule was added in release `introduced` and retired in `version`; `replacement` is the
   rule that takes over its checks, if any, and cannot be `id` itself. -/
   | retired (introduced version : String) (replacement : Option { other : RuleId // other ≠ id })
+
+/-- The introduction a rule records until a release introduces it. -/
+def unreleasedIntroduction : String := "unreleased"
+
+/-- The release that introduced the rule, as its lifecycle records it. -/
+def Lifecycle.introduced {id : RuleId} : Lifecycle id → String
+  | .active introduced => introduced
+  | .retired introduced _ _ => introduced
 
 /-- The kind of property a rule checks; the rule index groups and filters rules by it. -/
 inductive RuleCategory where
@@ -259,8 +274,10 @@ structure RuleDescriptor (id : RuleId) where
   rewrites : List String
   /-- The checked compliant and noncompliant examples. -/
   examples : ExamplePair
-  /-- Whether the rule is active or retired, and since which release. -/
-  lifecycle : Lifecycle id := .active "unreleased"
+  /-- Whether the rule is active or retired, and since which release: `.active "unreleased"`
+  until a release introduces it. No default, so every rule states it where the release step
+  stamps it. -/
+  lifecycle : Lifecycle id
   /-- The severity of the rule's findings under a strict claim. -/
   defaultStrictSeverity : Severity := .error
   /-- What one finding is about, derived from the ID by default. -/
@@ -368,6 +385,7 @@ Example bytes are embedded from `examples/rules/<ID>/`; the `RegulaCore` library
 directory as a Lake input, so editing an example rebuilds this module. -/
 def descriptor : (id : RuleId) → RuleDescriptor id
   | .projectAxiom => {
+      lifecycle := .active "unreleased"
       title := "Project logical axioms are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "project-axiom"
@@ -395,6 +413,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction proves the same `∀ n : Nat, n = n` by `rfl` instead of \
           assuming it, under the unchanged Kernel-only claim." } }
   | .proofHole => {
+      lifecycle := .active "unreleased"
       title := "Proof holes are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "hole"
@@ -421,6 +440,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           violation records Lean's original `sorry` warning as well; the corrected file passes the \
           ordinary warning-rejecting gate." } }
   | .unknownAxiom => {
+      lifecycle := .active "unreleased"
       title := "Unknown transitive axioms are forbidden", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "unknown-axiom"
@@ -446,6 +466,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The dependency proves the same reflexivity statement instead of declaring \
           it as an axiom, and the file that imports it is unchanged." } }
   | .compilerTrusting => {
+      lifecycle := .active "unreleased"
       title := "Compiler-trusting proofs require separate classification", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "compiler-trusting"
@@ -476,6 +497,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           `decide` by kernel reduction, and the library lemma `BitVec.mul_comm`. The violation \
           reports each generated axiom and its parent theorem." } }
   | .profileExceeded => {
+      lifecycle := .active "unreleased"
       title := "Transitive axioms must fit the selected profile", category := .foundation
       normativeClauses := [.proofCompleteness]
       applicability := "label-exceeds-claim"
@@ -504,6 +526,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           empty axiom set, under the unchanged Kernel-only claim, instead of routing through \
           `propext`." } }
   | .escapeHatch => {
+      lifecycle := .active "unreleased"
       title := "Unsafe and partial declarations require exact helper authentication", category :=
           .declaration
       normativeClauses := [.declarationInventory]
@@ -533,6 +556,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction keeps identity's domain and body and removes the unnecessary \
           `unsafe` marker." } }
   | .executableContract => {
+      lifecycle := .active "unreleased"
       title := "Executable contracts require supported closed evidence", category := .execution
       normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
       applicability := "executable-contract"
@@ -560,6 +584,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction moves the complete natural-number domain inside the identity \
           contract's predicate, retaining the same pointwise equality." } }
   | .environment => {
+      lifecycle := .active "unreleased"
       title := "The declared Lean environment must be available", category := .environment
       normativeClauses := [.elaborationEnvironment]
       applicability := "environment"
@@ -589,6 +614,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           violating workspace adds `require unavailable from \"./missing\"`); the Lean source is \
           unchanged." } }
   | .configuration => {
+      lifecycle := .active "unreleased"
       title := "Configuration must classify the complete Lake surface", category := .configuration
       normativeClauses := [.lakeSurfaces]
       applicability := "configuration"
@@ -618,6 +644,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           the unknown manifest key without changing the selected source, profile or execution \
           requirement." } }
   | .sourceBuild => {
+      lifecycle := .active "unreleased"
       title := "Claimed source must elaborate warning-free", category := .elaboration
       normativeClauses := [.cleanElaboration]
       applicability := "source-build"
@@ -648,6 +675,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction removes a dead lambda binding while preserving identity's \
           complete natural-number behavior. No warning or linter is disabled." } }
   | .coverage => {
+      lifecycle := .active "unreleased"
       title := "Owned coverage must match the exact Lake inventory", category := .coverage
       normativeClauses := [.lakeSurfaces]
       applicability := "coverage"
@@ -674,6 +702,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction removes an unused forbidden reporter import; the reflexivity \
           statement and its assumptions are unchanged." } }
   | .admission => {
+      lifecycle := .active "unreleased"
       title := "Required admission and source evidence must be complete", category := .admission
       normativeClauses := [.cleanElaboration]
       applicability := "admission"
@@ -698,6 +727,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction replaces ill-typed unchecked evidence with a checked proof \
           of the same reflexivity statement." } }
   | .communityConfiguration => {
+      lifecycle := .active "unreleased"
       title := "Claimed targets must build with the community configuration"
       category := .configuration
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
@@ -738,6 +768,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           sets, automatic implicits off and `linter.missingDocs` on, without changing the \
           library or its source." } }
   | .executionUnresolved => {
+      lifecycle := .active "unreleased"
       title := "Execution closure must have no unresolved paths", category := .execution
       normativeClauses := [.computationMechanisms]
       applicability := "execution-unresolved"
@@ -763,6 +794,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           prevents history authentication; the reference, replacement and correspondence theorem \
           are unchanged." } }
   | .executionBoundary => {
+      lifecycle := .active "unreleased"
       title := "Checked execution requires admitted correspondence", category := .execution
       normativeClauses := [.computationMechanisms]
       applicability := "execution-trusted-boundary"
@@ -791,6 +823,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           replacement on the full natural-number domain, keeping the checked execution claim and \
           both implementations." } }
   | .fenceStructure => {
+      lifecycle := .active "unreleased"
       title := "Documentation fences must have a valid classification", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "fence-structure"
@@ -815,6 +848,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
             "The correction removes the orphan marker; the positive reflexivity fence is \
               unchanged." } }
   | .positiveExample => {
+      lifecycle := .active "unreleased"
       title := "Positive examples require warning-free elaboration and admission", category :=
           .documentation
       normativeClauses := [.documentationChecks]
@@ -840,6 +874,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction proves the same reflexivity claim in the positive fence; the \
           violation reports the RG1001 underlying rejection alongside RG4002." } }
   | .negativeExample => {
+      lifecycle := .active "unreleased"
       title := "Negative examples require completed intended rejection", category := .documentation
       normativeClauses := [.documentationChecks]
       applicability := "negative-example"
@@ -864,6 +899,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction labels an already valid reflexivity proof as a positive \
           example instead of inventing a compiler failure." } }
   | .trustedExample => {
+      lifecycle := .active "unreleased"
       title := "Teaching examples require authenticated compiler classification", category :=
           .documentation
       normativeClauses := [.documentationChecks]
@@ -891,6 +927,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction labels the same kernel proof as a positive example rather \
           than as native teaching." } }
   | .moduleDocumentation => {
+      lifecycle := .active "unreleased"
       title := "Claimed modules need a leading module docstring and no repeated import"
       category := .documentation
       normativeClauses := [.moduleDocumentation, .importDiscipline]
@@ -923,6 +960,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction :=
             "The correction adds module documentation to the unchanged reflexivity evidence." } }
   | .materialDocumentation => {
+      lifecycle := .active "unreleased"
       title := "Registered public material declarations require docstrings", category :=
           .documentation
       normativeClauses := [.inlineDocumentation]
@@ -948,6 +986,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction adds the registered theorem's docstring, including its `# \
           Intent` section; registration, proposition and proof are unchanged." } }
   | .materialIntent => {
+      lifecycle := .active "unreleased"
       title := "Registered public material declarations require an Intent section", category :=
           .documentation
       normativeClauses := [.faithfulExplanation]
@@ -979,5 +1018,14 @@ presence is the structure type itself; content and size budgets are
 `RuleDescriptor.wellFormed`. -/
 theorem descriptor_rewrites_nonempty : ∀ id, (descriptor id).rewrites ≠ [] := by
   intro id; cases id <;> decide
+
+/-- A release build attributes every rule to a release: when `installed` is a release, no rule's
+lifecycle still records `unreleasedIntroduction`. The Release workflow's `open` step stamps every
+rule still marked unreleased in the release commit it generates; a release-labelled commit in
+which a rule is still unreleased fails to prove this and does not build. On an unreleased build
+the hypothesis is false. -/
+theorem release_attributes_rules (id : RuleId) :
+    installed ≠ .unreleased → (descriptor id).lifecycle.introduced ≠ unreleasedIntroduction := by
+  cases id <;> decide
 
 end Regula

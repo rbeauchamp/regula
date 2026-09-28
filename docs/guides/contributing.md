@@ -357,8 +357,11 @@ is a command of [`lean/Regula/Release.lean`](../../lean/Regula/Release.lean), an
 record lands on `main` before anything is published:
 
 1. **open** ([`release.yml`](../../.github/workflows/release.yml)) creates the release commit, a
-   child of the `main` commit the workflow runs on that sets `Regula.installed` to the release
-   and appends it to `Regula.releases` ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)).
+   child of the `main` commit the workflow runs on that sets `Regula.installed` to the release,
+   appends it to `Regula.releases` ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean))
+   and records it as the release that introduced every rule still marked `.active "unreleased"`
+   ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean); a release build with an unreleased
+   rule does not build, `release_attributes_rules`).
    GitHub creates and signs it, and the step refuses unless GitHub verified the signature. It
    pushes the commit as `release/v<version>`, starts its checks and opens the pull request
    `release: Regula v<version>`, which merges through normal review like any other. Its site
