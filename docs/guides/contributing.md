@@ -11,6 +11,7 @@ prescribe a directory layout for other Lean projects. Read the current
   their only source is the Verso library in [`website/RegulaStandard/`](../../website/RegulaStandard/).
 - **Contracts, examples, and checker internals:** [Lean module map](../../lean/README.md).
 - **Standalone consumers:** [example projects](../../examples/README.md).
+- **Planned work:** the [roadmap](https://github.com/users/rbeauchamp/projects/8); each item needs a design pass before implementation.
 
 The root `lakefile.lean` sets the package source directory to `lean/`. Module
 names and imports remain independent of that physical prefix: for example,
