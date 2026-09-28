@@ -98,10 +98,10 @@ other labelled commit passes until the reset merges; it renders `v<version>`'s e
 source only in a build the tag names or before the tag exists, and only before the release asset
 exists, and otherwise takes the frozen asset (`releaseSource`); and only a build whose commit the
 tag names may publish a rendered release edition or write the asset (`publishable`). -/
-def installed : Build := .unreleased
+def installed : Build := .release ⟨4, 34, 0⟩
 
 /-- Every published release, oldest first. The release's pull request appends it. -/
-def releases : List ReleaseVersion := []
+def releases : List ReleaseVersion := [⟨4, 34, 0⟩]
 
 /-- Releases are listed oldest first, each once. -/
 theorem releases_ascending : releases.Pairwise (· < ·) := by decide
