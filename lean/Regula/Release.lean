@@ -34,9 +34,14 @@ of `main` first completes the whole chain: until the release is published, `tag`
 at the head of `main` or moves it there (`tagAction_converges`), so a re-run of CI on `main`
 recovers from a run that a later merge cancelled. Once it is published, `tag` never changes the
 tag (`tagAction_published`) and refuses every other commit that still carries the label, after
-making sure the reset pull request is open; the site build refuses them too.
+making sure the reset pull request is open; the site build refuses them too. If a pull request
+that adds or retires a rule merges while the release pull request is open, the Release workflow
+runs on `main` again as a new run, so that `open` rebuilds and stamps the release commit on the
+new head: a re-run reuses the original run's commit, and GitHub's Update branch merges the rule's
+`.unreleased` lifecycle into a release build, which `release_attributes_rules` refuses.
 
-Every step resumes: `open` updates its branch and keeps an open pull request, `reset` leaves an
+Every step resumes: `open` rebuilds its branch on the commit its run started from and keeps an
+open pull request, `reset` leaves an
 open reset pull request alone unless it conflicts with `main`, `tag` keeps a tag that already
 names the commit, and `publish` replaces an unpublished draft and skips a published release. They
 refuse a toolchain that is not a stable release, a version already listed or tagged when the
@@ -430,6 +435,9 @@ def openRelease : IO Unit := do
       Other pull requests still merge meanwhile; until the release is published the tag follows \
       the head of `main`, and afterwards CI refuses every other commit that still carries the \
       release label until that reset pull request merges.\n\n\
+      If a pull request that adds or retires a rule merges before this one, run the Release \
+      workflow on `main` again as a new run, not a re-run and not Update branch: its `open` \
+      step rebuilds and stamps this commit on the new head of `main`.\n\n\
       Opened by the Release workflow, which also started this branch's checks (checks do not \
       start on their own for a pull request a workflow opens)."
 
