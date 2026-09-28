@@ -405,11 +405,10 @@ rule's `.unreleased` lifecycle into a release build, lets the release pull reque
 Each step resumes when its job is re-run: **open** rebuilds its branch on the commit its run
 started from and keeps an open pull request; **reset** only makes sure the reset pull request is
 open, so it leaves an open one's branch, checks and approvals alone and rebuilds it on the head of
-`main` only when it can no
-longer merge (GitHub reports a conflict; an undetermined state is not one); **tag** keeps a tag
-that already names the commit and refuses a stale run whose commit is no longer the head of `main`
-unless the tag already names it; and **publish** replaces an unpublished draft and skips a
-published release. **open** refuses a version already tagged or listed and a `main` whose
+`main` only when it can no longer merge (GitHub reports a conflict; an undetermined state is not
+one); **tag** keeps a tag that already names the commit and refuses a stale run whose commit is
+no longer the head of `main` unless the tag already names it; and **publish** replaces an
+unpublished draft and skips a published release. **open** refuses a version already tagged or listed and a `main` whose
 `Regula.installed` is still a release. A pull request that a workflow opens starts no checks by
 itself, so **open** and **reset** dispatch `ci.yml` on their branch. They open the pull request
 only when the repository setting *Allow GitHub Actions to create and approve pull requests* is on;

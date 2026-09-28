@@ -660,10 +660,9 @@ use; its stamp of `RegulaCore/Rule.lean` is not. The kernel checks the edited mo
 when the checks of the release and reset pull requests build them: `releases_ascending`,
 `installed_listed`, `release_attributes_rules` (when `installed` is a release, no lifecycle
 position of any rule is `.unreleased`) and `lifecycle_listed` (every release a rule's lifecycle
-names is in `releases`). What the
-tag step observes (whether the release is published, the head of `main`, the tag), GitHub's
-signature verification, tags, immutable releases, pull requests and workflow ordering are
-trusted.
+names is in `releases`). What the tag step observes (whether the release is published, the head
+of `main`, the tag), GitHub's signature verification, tags, immutable releases, pull requests
+and workflow ordering are trusted.
 
 ## Rule examples and the corpus runner
 

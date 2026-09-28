@@ -89,9 +89,9 @@ next release, whose release commit the Release workflow stamps with it
 ([release](contributing.md#release)). `release_attributes_rules` proves that when `installed` is
 a release no lifecycle position of any rule is `.unreleased`, so a release commit that misses one
 does not build, and `lifecycle_listed` that every release a lifecycle names is in `releases`.
-Checklist rows of the standard are not diagnostic IDs. No rule bans
-`Float`, `IO`, local mutation syntax, classical erased proofs, noncomputable mathematical
-definitions or arbitrary naming styles.
+Checklist rows of the standard are not diagnostic IDs. No rule bans `Float`, `IO`, local mutation
+syntax, classical erased proofs, noncomputable mathematical definitions or arbitrary naming
+styles.
 
 ## Findings and locations
 

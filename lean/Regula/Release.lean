@@ -41,12 +41,11 @@ new head: a re-run reuses the original run's commit, and GitHub's Update branch 
 `.unreleased` lifecycle into a release build, which `release_attributes_rules` refuses.
 
 Every step resumes: `open` rebuilds its branch on the commit its run started from and keeps an
-open pull request, `reset` leaves an
-open reset pull request alone unless it conflicts with `main`, `tag` keeps a tag that already
-names the commit, and `publish` replaces an unpublished draft and skips a published release. They
-refuse a toolchain that is not a stable release, a version already listed or tagged when the
-release opens, and a stale run whose commit is no longer the head of `main` unless the tag already
-names it.
+open pull request, `reset` leaves an open reset pull request alone unless it conflicts with
+`main`, `tag` keeps a tag that already names the commit, and `publish` replaces an unpublished
+draft and skips a published release. They refuse a toolchain that is not a stable release, a
+version already listed or tagged when the release opens, and a stale run whose commit is no
+longer the head of `main` unless the tag already names it.
 
 ## Boundaries
 

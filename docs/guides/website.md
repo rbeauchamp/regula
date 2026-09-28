@@ -229,8 +229,8 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
 1. The Release workflow opens the release pull request, whose commit sets `Regula.installed` to
    the release, appends it to `Regula.releases`
    ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) and stamps it into every rule
-   lifecycle position still `.unreleased`. Before the tag exists, its site
-   build renders the release's edition as a preview, which pull requests never publish.
+   lifecycle position still `.unreleased`. Before the tag exists, its site build renders the
+   release's edition as a preview, which pull requests never publish.
 2. When it merges, CI on `main` gives the head of `main`, which carries the release label, the
    tag `v<version>` once acceptance and the rule-example shards pass. That commit's site build then renders the
    release's edition, so it is publishable, and writes
