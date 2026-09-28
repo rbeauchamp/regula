@@ -1,6 +1,7 @@
 import Regula.Checker.AxiomGate
 import RegulaCore.Guidance
 import Lake.Toml.Grammar
+import Lake.Toml.Load
 import Lean.Elab.Frontend
 
 /-! # `regula init` and `regula doctor`
@@ -82,15 +83,29 @@ def importClosure (sources : NameMap FilePath) (starts : List Name) : IO NameSet
       if sources.contains i.module then pending := i.module :: pending
   return reached
 
+/-- The project's manifest with its Lake inventory, refused unless it loads and classifies every
+root target: the audit's own RG2002 functions. -/
+def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := do
+  let manifest ← Manifest.load (Manifest.defaultPath root)
+  let inventory ← Lake.surfaceInventory root
+  discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
+  AxiomGate.checkClassification manifest inventory
+  return (manifest, inventory)
+
 /-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
 `leanOptions`, and the root targets the manifest does not exclude with their own `leanOptions`),
 whether the workspace contains Mathlib, the required Regula's `lean-toolchain`, the manifest and
 agent-guidance files, and the modules below a library root that no library includes, split by
 whether a claimed module imports them. -/
 def observe (root : FilePath) : IO Project := do
-  -- A target the manifest excludes is not claimed; without a readable manifest every root target
-  -- is, as in the starter.
-  let manifest ← try some <$> Manifest.load (Manifest.defaultPath root) catch _ => pure none
+  -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
+  -- manifest excludes is not. A manifest that does not load or classify every root target claims
+  -- none for the option edits until it does (`doctor` reports it as RG2002).
+  let manifestExists ← (Manifest.defaultPath root).pathExists
+  let manifest ← if manifestExists then
+      try some <$> (·.1) <$> validManifest root catch _ => pure none
+    else pure none
+  let invalid := manifestExists && manifest.isNone
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
   let (lakefile, configFile, driver, options, targets, allClaimed, mathlib, regulaDir, uncovered,
@@ -138,15 +153,16 @@ def observe (root : FilePath) : IO Project := do
       let exes := pkg.leanExes.filter fun exe => !excludedExecutables.contains exe.name.toString
       let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption) :
           Regula.Setup.Target := ⟨exe, name.toString, own options⟩
-      let targets := (libs.map (fun lib => target false lib.name lib.config.leanOptions) ++
-        exes.map (fun exe => target true exe.name exe.config.leanOptions)).toList
+      let targets := if invalid then [] else
+        (libs.map (fun lib => target false lib.name lib.config.leanOptions) ++
+          exes.map (fun exe => target true exe.name exe.config.leanOptions)).toList
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
       let regulaDir := match ws.packages.find? (·.baseName == `regula) with
         | some regula => regula.dir
         | none => pkg.dir
       return (kind, pkg.configFile, pkg.lintDriver,
         (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
-        libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
+        !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered, unimported)
   let agents := root / "AGENTS.md"
   let agentsSection ← if ← agents.pathExists then pure (hasAgentsHeading (← IO.FS.readFile agents))
@@ -257,6 +273,18 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
     (Parser.mkParserState ictx.inputString)
   if let some error := s.errorMsg then
     throw <| IO.userError s!"lakefile.toml does not parse: {error}"
+  -- Each target table's `name` as Lake's TOML loader decodes it, by the position of its value.
+  let decodedTable ← match ← (Lake.Toml.loadToml ictx).toBaseIO with
+    | .ok table => pure table
+    | .error _ => throw <| IO.userError "lakefile.toml does not load as TOML"
+  let names : List (Nat × String) := [`lean_lib, `lean_exe].flatMap fun kind =>
+    match decodedTable.find? kind with
+    | some (.array _ tables) => tables.toList.filterMap fun
+      | .table' _ t => match t.find? `name with
+        | some (.string ref s) => ref.getPos?.map (·.byteIdx, s)
+        | _ => none
+      | _ => none
+    | _ => []
   let stx := s.stxStack.back
   let expressions := stx[1].getArgs.filter fun e => !e.isOfKind nullKind
   let places ← IO.ofExcept <| expressions.foldlM (init := ({}, none))
@@ -295,11 +323,11 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
       | some "leanOptions" => return ({ p with table := some (lineEnd input (← endOf e)) }, table)
       | some "[[lean_lib]]" | some "[[lean_exe]]" =>
         let lastEnd := lineEnd input (← endOf e)
-        let value ← sourceText input e[2]
+        let decoded := names.lookup (← startOf e[2])
         let inline ← if name == "leanOptions" then inlinePlace e else pure none
         return (lastTarget fun t => { t with
           lastEnd
-          name := if name == "name" then some value else t.name
+          name := if name == "name" then decoded else t.name
           inline := if name == "leanOptions" then inline else t.inline
           unsupported := t.unsupported || name.startsWith "leanOptions." ||
             (name == "leanOptions" && inline.isNone) }, table)
@@ -326,8 +354,8 @@ def tomlText (input : String) (driver : Bool) (entries : List (Name × OptionVal
   let targetText ← targets.mapM fun t => do
     let kind := if t.exe then "lean_exe" else "lean_lib"
     let lines := t.options.map (Lakefile.toml.entry ·)
-    let quoted := ["\"" ++ t.name ++ "\"", "'" ++ t.name ++ "'"]
-    let some place := places.targets.find? fun p => p.exe == t.exe && p.name.any quoted.contains
+    let some place := places.targets.find? fun p =>
+        p.exe == t.exe && p.name.any fun s => (Lake.stringToLegalOrSimpleName s).toString == t.name
       | throw <| IO.userError s!"lakefile.toml has no [[{kind}]] table named \"{t.name}\"; add \
           {", ".intercalate lines} to its leanOptions by hand"
     if place.unsupported then
@@ -510,10 +538,7 @@ def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
   let root := project.root
   let mode : EvidenceMode := .incrementalProject
   try
-    let manifest ← Manifest.load (Manifest.defaultPath root)
-    let inventory ← Lake.surfaceInventory root
-    discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
-    AxiomGate.checkClassification manifest inventory
+    let (manifest, inventory) ← validManifest root
     let mut findings := #[]
     for surface in manifest.surfaces do
       let some library := inventory.libraries.find? (·.library == surface.library)

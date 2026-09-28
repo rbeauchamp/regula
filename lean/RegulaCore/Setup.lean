@@ -93,7 +93,8 @@ def agentsSection : String :=
   "declaration, where its guidance allows, with the reason.\n"
 
 /-- A claimed root target: a `lean_lib` or `lean_exe` the manifest does not exclude (every root
-target, before a manifest exists, since the starter manifest claims them all). -/
+target before a manifest exists, since the starter manifest claims them all, and none while a
+manifest exists that does not load or classify every root target). -/
 structure Target where
   /-- The target is a `lean_exe`; otherwise it is a `lean_lib`. -/
   exe : Bool
