@@ -28,12 +28,11 @@ line (a coding agent, a new contributor, you in six months), or when you publish
 proved and want others to see exactly what they rest on.
 **Don't use it** as a Mathlib PR check (Mathlib's CI is the authority) or while exploring a
 proof. It complements [comparator](https://github.com/leanprover/comparator): comparator checks
-one statement against its challenge, and Regula gates the whole project. In the terms of
-[Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/), Regula
-runs the `#print axioms` step over every declaration you claim, against the foundation you
-chose; run `leanchecker` or comparator beside it for the later steps. It also complements
-Lean's own warnings and the Mathlib and Batteries linters, which it requires or recommends
-rather than replaces.
+a proof against the statement its challenge fixes, and Regula gates the whole project. In the
+terms of [Validating a Lean Proof](https://lean-lang.org/doc/reference/latest/ValidatingProofs/),
+Regula runs the `#print axioms` step over every declaration you claim; run `lean4checker` or
+comparator beside it for the later steps. It also complements Lean's own warnings and the
+Mathlib and Batteries linters, which it requires or recommends rather than replaces.
 
 ## What it checks, and what it doesn't
 
