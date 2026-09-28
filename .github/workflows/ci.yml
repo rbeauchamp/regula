@@ -114,7 +114,7 @@ jobs:
   # Both acceptance steps on the release commit, with its release label and the same budget as
   # `verify`; its build is where the kernel checks release_attributes_rules for the release. Like
   # `release-site`, it checks out this commit of main, not the release commit: `adopt` derives the
-  # release commit's content from it with main's own code, proves that it is the release commit's
+  # release commit's content from it with main's own code, checks that it is the release commit's
   # tree on this commit, and only then adopts the release commit's name, taking no file from it
   # (Regula.Release.adopt).
   release-verify:
@@ -133,7 +133,7 @@ jobs:
         with:
           verso: 'true'
 
-      - name: Derive, prove and adopt the release commit
+      - name: Derive, check and adopt the release commit
         id: adopt
         env:
           RELEASE_TREE: ${{ needs.candidate.outputs.tree }}
@@ -166,7 +166,7 @@ jobs:
         with:
           verso: 'true'
 
-      - name: Derive, prove and adopt the release commit
+      - name: Derive, check and adopt the release commit
         id: adopt
         env:
           RELEASE_TREE: ${{ needs.candidate.outputs.tree }}

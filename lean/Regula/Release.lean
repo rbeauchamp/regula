@@ -9,7 +9,7 @@ The steps of a Regula release, run with the pinned toolchain alone, so they need
 lean --run lean/Regula/Release.lean open        # push the branch of the release pull request
 lean --run lean/Regula/Release.lean unreleased  # refuse a release label on main or a pull request
 lean --run lean/Regula/Release.lean candidate   # create the release commit for CI to check
-lean --run lean/Regula/Release.lean adopt       # derive it on main's commit, prove it, adopt it
+lean --run lean/Regula/Release.lean adopt       # derive it on main's commit, check it, adopt it
 lean --run lean/Regula/Release.lean publish     # publish the checked release, creating its tag
 ```
 
@@ -362,8 +362,6 @@ def filesCommit (repo parent : String) (files : List (String × String)) (messag
   let verified := (commit.getObjValD "verification").getObjValD "verified"
   unless verified == .bool true do
     fail s!"GitHub did not verify the signature of the commit {sha}"
-  unless (← commitTree repo sha) == (← str tree "sha") do
-    fail s!"the commit {sha} does not have the tree it was created with"
   return sha
 
 /-- A signed commit on `parent` that replaces `RegulaCore/Edition.lean` with `edition`. -/
@@ -594,10 +592,10 @@ def releaseCommit (repo head edition : String) (listed : List Version) (v : Vers
 
 /-- The candidate step, on the checked-out commit of `main` for its latest listed release: when
 `tagAction` proceeds, create a fresh release commit on it (`releaseCommit`) and point the branch
-`release/v<version>-candidate` at it, whose commit `adopt` fetches; leave a published release
-alone, and otherwise fail. Neither the tag nor the release exists yet. Writes the step outputs
-`commit`, the release commit, and `tree`, its tree, both empty when there is nothing to
-release. -/
+`release/v<version>-candidate` at it, of which `adopt` fetches only that one commit (depth 1);
+leave a published release alone, and otherwise fail. Neither the tag nor the release exists yet.
+Writes the step outputs `commit`, the release commit, and `tree`, its tree, both empty when there
+is nothing to release. -/
 def candidate : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
@@ -651,9 +649,9 @@ mismatch:
    `releaseEdition`, from the workspace's own `Edition.lean` and `lean-toolchain`: the function
    and inputs `candidate` committed (`releaseCommit`).
 2. Stage it; `git write-tree` must be `RELEASE_TREE`.
-3. Fetch only the commit that `release/v<version>-candidate` names, with the version from the
-   workspace's own `Edition.lean`; its tree must be `RELEASE_TREE` and its parents exactly
-   `[GITHUB_SHA]`.
+3. Fetch only that one commit (depth 1) that `release/v<version>-candidate` names, with the
+   version from the workspace's own `Edition.lean`; its tree must be `RELEASE_TREE` and its
+   parents exactly `[GITHUB_SHA]`.
 4. `git reset --soft` to it, which writes no file; the worktree must then be clean at it. Write
    it as the step output `commit`.
 
