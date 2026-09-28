@@ -19,10 +19,11 @@ unless `main` is still at `GITHUB_SHA`, so a re-run of an older run cannot publi
 revision.
 
 `verify` requires `REGULA_PAGE_URL` to be the artifact's recorded site, the live `build.json`
-to equal the artifact's bytes (retrying while the deployment propagates), the home page of every
-edition listed in `build.json`, every rule page of the development edition and the `build.json`
-of every release edition to be served with the artifact's exact bytes, and an unpublished route
-to be answered with HTTP 404 and the artifact's `404.html`. It compares only those files.
+to equal the artifact's bytes (retrying while the deployment propagates), the site root
+`index.html`, the home page of every edition listed in `build.json`, every rule page of the
+development edition and the `build.json` of every release edition to be served with the
+artifact's exact bytes, and an unpublished route to be answered with HTTP 404 and the artifact's
+`404.html`. It compares only those files.
 
 ## Boundaries
 
@@ -67,9 +68,10 @@ def gate (artifact : FilePath) : IO Unit := do
 
 /-- Post-deployment observation of the site at `pageUrl`: the artifact must be a clean build
 for that site; its `build.json` must be served live (polled up to 20 times, 15 seconds
-apart); the home page of every edition, every rule page of the development edition and the
-`build.json` of every release edition must be served with the artifact's bytes; and an
-unpublished route must return 404 with the artifact's `404.html`. Any difference fails. -/
+apart); the site root `index.html`, the home page of every edition, every rule page of the
+development edition and the `build.json` of every release edition must be served with the
+artifact's bytes; and an unpublished route must return 404 with the artifact's `404.html`. Any
+difference fails. -/
 def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
   let recorded ← IO.FS.readBinFile (artifact / "build.json")
   let build ← IO.ofExcept (Json.parse (← IO.FS.readFile (artifact / "build.json")))
@@ -98,7 +100,8 @@ def run (artifact : FilePath) (pageUrl : String) : IO Unit := do
     IO.ofExcept e.getStr?
   let rules ← IO.ofExcept ((← field build "rules").getArr?)
   let routes ← rules.toList.mapM fun rule => str rule "route"
-  let files := editions.map (· ++ "index.html") ++ routes.map ("dev/" ++ · ++ "index.html") ++
+  let files := "index.html" :: editions.map (· ++ "index.html") ++
+    routes.map ("dev/" ++ · ++ "index.html") ++
     (editions.filter (· != "dev/")).map (· ++ "build.json")
   for file in files do
     let status ← fetch (site ++ file ++ probe) (scratch / "file")

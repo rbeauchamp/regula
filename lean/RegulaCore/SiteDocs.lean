@@ -236,6 +236,8 @@ def versionsPage (ident : Identity) : Except String String := do
     "</dl>")
   return header [] "Versions" "versions" (some "versions") (split := false) ++
       notice ++ "\n" ++ identity ++ "\n" ++
+    "* `" ++ siteBase ++ "` opens the latest release's copy, or the development version while no \
+      release exists: the stable address to share.\n" ++
     "* `" ++ siteBase ++ "dev/` is the development version, rebuilt from `main` by every \
       deployment. An unreleased Regula build's findings link here.\n" ++
     "* `" ++ siteBase ++ "v/<version>/` is the permanent copy of a release, made when it is \

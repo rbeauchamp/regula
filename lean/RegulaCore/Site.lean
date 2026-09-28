@@ -15,6 +15,9 @@ about that data is a function here. The editions and the route policy are
 - `pageFiles`, `pageFiles_nodup`, `mem_pageFiles`: the rule pages of an edition, derived only
   from the closed `RuleId`: duplicate-free and total over the registry. `artifactBudget`
   bounds the artifact's size.
+- `rootEdition`, `rootEdition_eq_dev_iff`, `rootEdition_eq_release_iff`, `rootEdition_published`:
+  the edition the project-site root opens is the greatest release's, or the development edition
+  exactly while no release exists, and it is published.
 - `bannerRelease`, `bannerRelease_eq_some`, `bannerTarget`, `bannerTarget_mem`, `outdatedBanner`,
   `bannerAnchor`, `insertBanner`, `insertBanner_ok`: the note at the top of every page of an
   earlier release's edition, which names the latest release and links the same page there, or
@@ -174,6 +177,62 @@ theorem escape_no_backtick (s : String) : (escape s).toList.contains '`' = false
   intro h
   have hm := escape_safe s '`' (by simpa using h)
   simp [markupChar] at hm
+
+/-! ## Site root -/
+
+/-- The edition the project-site root opens, the stable address the repository links: the latest
+release's edition, or the development edition while no release exists. -/
+def rootEdition : Edition :=
+  match latest with
+  | some l => .release l
+  | none => .dev
+
+/-- The site root opens the development edition exactly while no release exists. -/
+theorem rootEdition_eq_dev_iff : rootEdition = .dev ↔ releases = [] := by
+  rw [← List.getLast?_eq_none_iff]
+  unfold rootEdition latest
+  cases releases.getLast? <;> simp
+
+/-- Release order is asymmetric, without the classical order instances of `Nat`. -/
+private theorem releaseVersion_lt_asymm {a b : ReleaseVersion} (h : a < b) : ¬ b < a := by
+  suffices lex : ∀ {x y : List Nat}, List.Lex (· < ·) x y → ¬ List.Lex (· < ·) y x from lex h
+  intro x y h
+  induction h with
+  | nil => intro h; cases h
+  | rel h => intro h'; cases h' with
+    | rel h'' => exact Nat.lt_asymm h h''
+    | cons => exact Nat.lt_irrefl _ h
+  | cons _ ih => intro h'; cases h' with
+    | rel h'' => exact Nat.lt_irrefl _ h''
+    | cons h'' => exact ih h''
+
+/-- The site root opens release `l`'s edition exactly when `l` is the greatest release. -/
+theorem rootEdition_eq_release_iff (l : ReleaseVersion) :
+    rootEdition = .release l ↔ l ∈ releases ∧ ∀ v ∈ releases, v = l ∨ v < l := by
+  unfold rootEdition
+  cases hl : latest with
+  | none =>
+    simp only [reduceCtorEq, false_iff, not_and]
+    intro hmem
+    simp [List.getLast?_eq_none_iff.mp hl] at hmem
+  | some m =>
+    obtain ⟨hm, hmax⟩ := latest_greatest hl
+    simp only [Edition.release.injEq]
+    constructor
+    · rintro rfl; exact ⟨hm, hmax⟩
+    · rintro ⟨hl, hlmax⟩
+      rcases hlmax m hm with h | hml
+      · exact h
+      · rcases hmax l hl with h | hlm
+        · exact h.symm
+        · exact absurd hlm (releaseVersion_lt_asymm hml)
+
+/-- The site root opens a published edition. -/
+theorem rootEdition_published : rootEdition ∈ published := by
+  cases h : rootEdition with
+  | dev => simp [published]
+  | release l =>
+    exact (mem_published _).mpr (Or.inr ⟨l, ((rootEdition_eq_release_iff l).mp h).1, rfl⟩)
 
 /-! ## Release banners -/
 
