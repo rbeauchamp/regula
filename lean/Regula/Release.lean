@@ -483,7 +483,8 @@ def openRelease : IO Unit := do
       the branch while this pull request is open, it starts them by dispatching `ci.yml`."
 
 /-- Refuse unless the checked-out commit is unreleased: no commit of `main` or of a pull request
-carries a release label; only the release commit that `tag` creates does. -/
+carries a release label; only the release commit that `candidate` creates does, and publication
+tags it. -/
 def requireUnreleased : IO Unit := do
   match ← installedHere with
   | none => IO.println "this commit is unreleased"

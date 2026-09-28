@@ -133,14 +133,15 @@ jobs:
       - name: Verify documentation fences (same command and seven-minute limit as local)
         run: ./scripts/verify.sh docs
 
-  # The release commit's corpus shards and site build: the budgets of the two `rule-examples`
-  # shards and `site` in one job. Before the tag exists, its site build renders the release's
-  # edition from source and writes it as the release asset (Regula.releaseSource).
+  # The release commit's corpus shards and site build, one after another: its budget of 105
+  # minutes is 30 + 30 + 45, the budgets of the two `rule-examples` shards and `site` it repeats.
+  # Before the tag exists, its site build renders the release's edition from source and writes it
+  # as the release asset (Regula.releaseSource).
   release-site:
     needs: candidate
     if: needs.candidate.outputs.commit != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 105
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -209,8 +210,10 @@ jobs:
   # Rule-reference website (docs/guides/website.md): generated from the registry, the rule
   # explanations and this run's admitted corpus exports, rendered with pinned Verso and
   # checked. Separate from, and never a partition of, 420-second acceptance. On main it runs after
-  # `publish`, so it takes a release's edition from the asset published in this run; `candidate`
-  # and `publish` are skipped on pull requests, and `publish` whenever there is nothing to release.
+  # `publish`, so it takes a release's edition from the asset published in this run. `candidate`
+  # and `publish` are skipped on pull requests; `publish` is also skipped when there is nothing to
+  # release, and when `release-verify` or `release-site` fails, in which case this job runs and
+  # refuses, because the listed release has no asset yet.
   site:
     needs: [rule-examples, candidate, publish]
     if: >-

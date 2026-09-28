@@ -403,9 +403,9 @@ until the release commit has passed the same checks as `main`:
 
 Each job keeps the budget of the job on `main` it repeats: `candidate` and `publish` 30 minutes
 each; `release-verify` 45 minutes, like `verify`, with each `verify.sh` step under its own
-420-second deadline; and `release-site` 90 minutes, which covers the two 30-minute
-`rule-examples` shards and the 45-minute `site` build run one after another, each `verify.sh`
-step again under its own deadline.
+420-second deadline; and `release-site` 105 minutes, which is 30 + 30 + 45, the budgets of the two
+`rule-examples` shards and the `site` job it repeats one after another, each `verify.sh` step
+again under its own deadline.
 
 Nothing follows the release: `main` stays unreleased, so there is no reset to merge. Adopters
 require the tag, and Lake fetches a dependency's tags with the repository, so a tag whose commit
