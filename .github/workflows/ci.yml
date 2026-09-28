@@ -83,9 +83,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # On main, a merged release pull request's commit (Regula.installed is a release): once
+  # On main, a commit that carries the release label (Regula.installed is a release): once
   # acceptance and the corpus shards pass, tag it v<version>, so the site build below renders the
   # release's edition as publishable and writes its asset (docs/guides/contributing.md#release).
+  # Until the release is published the tag is created at, or moved to, the head of main; once it
+  # is published the tag never changes and this job refuses every other labelled commit, after
+  # making sure the reset pull request is open (Regula.Release.tagAction).
   tag:
     needs: [verify, rule-examples]
     if: >-
@@ -95,6 +98,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+      pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -180,9 +185,12 @@ jobs:
   # revision's acceptance and site jobs passed. This job holds the deployment token, so it runs
   # no checkout, provisioning or project code: only a dependency-free re-check (re-run with this
   # job) that main is still at this revision, then deploy-pages.
+  # Like `site`, it tolerates a skipped `tag` (every unreleased commit).
   deploy:
     needs: [verify, site]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: >-
+      !cancelled() && needs.verify.result == 'success' && needs.site.result == 'success' &&
+      github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -214,6 +222,7 @@ jobs:
   # not-available page (the files Deployment.lean compares).
   verify-deployment:
     needs: deploy
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

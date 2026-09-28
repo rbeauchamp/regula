@@ -640,11 +640,18 @@ inline-table, structure-instance, bare-`package` and computed-`leanOptions` shap
 driver, a contradicting option, a stale skill, a library without globs, left-out modules that a
 claimed module does and does not import) are bounded observations.
 
-**Releases** ([procedure](contributing.md#release)): `lean/Regula/Release.lean` is operational.
-Its edit of `RegulaCore/Edition.lean` is read back before use, and the kernel checks the edited
-module's theorems (`releases_ascending`, `installed_listed`) when the checks of the release and
-reset pull requests build it. GitHub's signature verification, tags, immutable releases, pull
-requests and workflow ordering are trusted.
+**Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
+and checked by the kernel each time a step elaborates it: the tag step's decision `tagAction`
+creates or moves tag `v<version>` only for the head of `main` while the release is unpublished
+(`tagAction_create_iff`, `tagAction_move_iff`), never writes it once the release is published
+(`tagAction_published`), and never refuses the head of `main` of an unpublished release
+(`tagAction_converges`); `tagAction_keep_iff` and `tagAction_refuse_iff` give the other cases.
+The rest of the file is operational. Its edit of `RegulaCore/Edition.lean` is read back before
+use, and the kernel checks the edited module's theorems (`releases_ascending`,
+`installed_listed`) when the checks of the release and reset pull requests build it. What the
+tag step observes (whether the release is published, the head of `main`, the tag), GitHub's
+signature verification, tags, immutable releases, pull requests and workflow ordering are
+trusted.
 
 ## Rule examples and the corpus runner
 

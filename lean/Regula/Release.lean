@@ -20,23 +20,31 @@ toolchain. `open` creates the release commit as a child of the `main` commit the
 on: that commit with `Regula.installed` set to the release and the release appended to
 `Regula.releases` (`RegulaCore/Edition.lean`). GitHub creates and signs it, and `open` refuses
 unless GitHub reports its signature verified; it then opens its pull request, which merges
-through normal review. On `main`, once acceptance and the rule-example shards pass on the merged
-commit, `tag` names it `v<version>`, so its site build renders the release's edition, deploys it
-and keeps it as the release asset. Once the deployment is verified, `publish` creates the GitHub
-release with the notes and that asset, published only once the asset is attached (immutable
-releases then freeze both), and `reset` opens the pull request that sets `Regula.installed` back
-to `.unreleased`. Until it merges, the site build refuses every other commit that carries the
-release label.
+through normal review. On `main`, once acceptance and the rule-example shards pass on a commit
+that carries the release label, `tag` names it `v<version>` (`tagAction`), so its site build
+renders the release's edition, deploys it and keeps it as the release asset. Once the deployment
+is verified, `publish` creates the GitHub release with the notes and that asset of the commit the
+tag names, published only once the asset is attached (immutable releases then freeze both), and
+`reset` opens the pull request that sets `Regula.installed` back to `.unreleased`.
+
+Other pull requests still merge during a release. A release is cut from whichever labelled head
+of `main` first completes the whole chain: until the release is published, `tag` creates the tag
+at the head of `main` or moves it there (`tagAction_converges`), so a re-run of CI on `main`
+recovers from a run that a later merge cancelled. Once it is published, `tag` never changes the
+tag (`tagAction_published`) and refuses every other commit that still carries the label, after
+making sure the reset pull request is open; the site build refuses them too.
 
 Every step resumes: `open` and `reset` update their branch and keep an open pull request, `tag`
-accepts a tag that already names the commit, and `publish` replaces an unpublished draft and
-skips a published release. They refuse a toolchain that is not a stable release, a version
-already listed or tagged, and a tag that names another commit.
+keeps a tag that already names the commit, and `publish` replaces an unpublished draft and skips a
+published release. They refuse a toolchain that is not a stable release, a version already listed
+or tagged when the release opens, and a stale run whose commit is no longer the head of `main`.
 
 ## Boundaries
 
 GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions) is trusted and
-observed, not proved. The edit of `RegulaCore/Edition.lean` is text: `open` and `reset` read
+observed, not proved. `tagAction` is the decision the tag step executes, and its theorems are
+checked by the kernel each time `lean --run` elaborates this file; what the step observes
+(whether the release is published, the head of `main`, the tag) and the tag write are GitHub's. The edit of `RegulaCore/Edition.lean` is text: `open` and `reset` read
 their own output back and refuse unless it names the intended build and releases, and the
 kernel checks the edited module's theorems (`releases_ascending`, `installed_listed`) when each
 pull request's checks build it.
@@ -149,6 +157,79 @@ def withEdition (edition : String) (build : Option Version) (versions : List Ver
   unless (← installedOf result) == build && (← releasesOf result) == versions do
     throw "the edited RegulaCore/Edition.lean does not read back as intended"
   return result
+
+/-! ## The tag decision
+
+A release is cut from whichever release-labelled head of `main` first completes the whole chain.
+While the release is unpublished (no GitHub release, or only a draft), the tag step creates tag
+`v<version>` at the commit it runs on, or moves it there, provided that commit is still the head
+of `main`; once the release is published, the tag never changes, and every other commit that
+carries the release label is refused. -/
+
+/-- Where tag `v<version>` points, relative to the commit the tag step runs on: the three cases
+of the site build's `Regula.TagState`. -/
+inductive Tag where
+  /-- The tag does not exist. -/
+  | absent
+  /-- The tag names this commit. -/
+  | head
+  /-- The tag names another commit. -/
+  | other
+  deriving DecidableEq, Repr
+
+/-- What the tag step does with tag `v<version>`. -/
+inductive TagAction where
+  /-- Create the tag at this commit. -/
+  | create
+  /-- Move the tag from another commit to this one. -/
+  | move
+  /-- Leave the tag, which already names this commit. -/
+  | keep
+  /-- Change nothing and fail. -/
+  | refuse
+  deriving DecidableEq, Repr
+
+/-- The tag step's decision, given whether the release is `published`, whether this commit is the
+`current` head of `main`, and the state of the tag. -/
+def tagAction (published current : Bool) : Tag → TagAction
+  | .head => .keep
+  | .absent => if !published && current then .create else .refuse
+  | .other => if !published && current then .move else .refuse
+
+/-- The step creates the tag exactly for the head of `main` of an unpublished release without one. -/
+theorem tagAction_create_iff (published current : Bool) (tag : Tag) :
+    tagAction published current tag = .create ↔
+      published = false ∧ current = true ∧ tag = .absent := by
+  cases published <;> cases current <;> cases tag <;> decide
+
+/-- The step moves the tag exactly to the head of `main` of an unpublished release whose tag names
+another commit. -/
+theorem tagAction_move_iff (published current : Bool) (tag : Tag) :
+    tagAction published current tag = .move ↔
+      published = false ∧ current = true ∧ tag = .other := by
+  cases published <;> cases current <;> cases tag <;> decide
+
+/-- The step keeps the tag exactly when it already names this commit. -/
+theorem tagAction_keep_iff (published current : Bool) (tag : Tag) :
+    tagAction published current tag = .keep ↔ tag = .head := by
+  cases published <;> cases current <;> cases tag <;> decide
+
+/-- The step refuses exactly when the tag does not name this commit and the release is published
+or this commit is no longer the head of `main`. -/
+theorem tagAction_refuse_iff (published current : Bool) (tag : Tag) :
+    tagAction published current tag = .refuse ↔
+      tag ≠ .head ∧ (published = true ∨ current = false) := by
+  cases published <;> cases current <;> cases tag <;> decide
+
+/-- Once the release is published, the step never writes the tag. -/
+theorem tagAction_published (current : Bool) (tag : Tag) :
+    tagAction true current tag = .keep ∨ tagAction true current tag = .refuse := by
+  cases current <;> cases tag <;> decide
+
+/-- While the release is unpublished, the step on the head of `main` never refuses: the tag then
+names that commit. -/
+theorem tagAction_converges (tag : Tag) : tagAction false true tag ≠ .refuse := by
+  cases tag <;> decide
 
 /-! ## GitHub -/
 
@@ -300,12 +381,13 @@ def openRelease : IO Unit := do
   proposeBranch repo s!"release/{tag}" commit s!"release: Regula {tag}"
     s!"Releases Regula {tag} for Lean {tag}: sets `Regula.installed` to the release and appends \
       it to `Regula.releases`.\n\n\
-      Once this merges, CI on `main` tags the merged commit {tag} after acceptance and the \
+      Once this merges, CI on `main` tags the head of `main` {tag} after acceptance and the \
       rule-example shards pass, deploys https://rbeauchamp.github.io/regula/v/{v.spelling}/, \
       publishes the GitHub release with that edition as its asset once the deployment is \
       verified, and opens the pull request that sets `Regula.installed` back to `.unreleased`. \
-      Until that one merges, the site build refuses every other commit that carries the release \
-      label.\n\n\
+      Other pull requests still merge meanwhile; until the release is published the tag follows \
+      the head of `main`, and afterwards CI refuses every other commit that still carries the \
+      release label until that reset pull request merges.\n\n\
       Opened by the Release workflow, which also started this branch's checks (checks do not \
       start on their own for a pull request a workflow opens)."
 
@@ -316,24 +398,6 @@ def reportInstalled : IO Unit := do
   output "release" release
   IO.println (if release.isEmpty then "this commit is unreleased"
     else s!"this commit installs release {release}")
-
-/-- Tag the checked-out release commit `v<version>`, or accept the tag when it already names the
-commit. Refuses an unreleased commit and a tag that names another commit. -/
-def tagRelease : IO Unit := do
-  let repo ← repository
-  let head ← env "GITHUB_SHA"
-  let some v ← installedHere | fail "this commit is unreleased; there is nothing to tag"
-  let tag := v.tag
-  match ← taggedCommit repo tag with
-  | some commit =>
-    unless commit == head do
-      fail s!"tag {tag} names {commit}, not {head}; every other commit that carries the release \
-        label is refused until the reset pull request sets Regula.installed back to .unreleased"
-    IO.println s!"tag {tag} already names {head}"
-  | none =>
-    discard <| ghPost "POST" s!"repos/{repo}/git/refs"
-      (Json.mkObj [("ref", s!"refs/tags/{tag}"), ("sha", head)])
-    IO.println s!"tagged {head} {tag}"
 
 /-- The release notes written above GitHub's generated list of changes. -/
 def notes (v : Version) (repo : String) : String :=
@@ -409,6 +473,39 @@ def reset : IO Unit := do
       the site build refuses every other commit that carries the release label.\n\n\
       Opened by CI once the release was published, which also started this branch's checks \
       (checks do not start on their own for a pull request a workflow opens)."
+
+/-- Execute `tagAction` for the checked-out release commit: create tag `v<version>` here, move it
+here or keep it, and otherwise fail. Refusing a published release first makes sure its reset pull
+request is open, so a re-run of CI on `main` always ends the release. -/
+def tagRelease : IO Unit := do
+  let repo ← repository
+  let head ← env "GITHUB_SHA"
+  let some v ← installedHere | fail "this commit is unreleased; there is nothing to tag"
+  let tag := v.tag
+  let published := (← releaseOf repo tag).any fun r => r.getObjValD "draft" != .bool true
+  let current := (← mainHead repo) == head
+  let tagged ← taggedCommit repo tag
+  let state : Tag := match tagged with
+    | none => .absent
+    | some commit => if commit == head then .head else .other
+  match tagAction published current state with
+  | .keep => IO.println s!"tag {tag} already names {head}"
+  | .create =>
+    discard <| ghPost "POST" s!"repos/{repo}/git/refs"
+      (Json.mkObj [("ref", s!"refs/tags/{tag}"), ("sha", head)])
+    IO.println s!"tagged {head} {tag}"
+  | .move =>
+    discard <| ghPost "PATCH" s!"repos/{repo}/git/refs/tags/{tag}"
+      (Json.mkObj [("sha", head), ("force", true)])
+    IO.println s!"moved tag {tag} from {tagged.getD ""} to {head}, the head of main; the release \
+      is not published yet"
+  | .refuse =>
+    if published then
+      reset
+      fail s!"release {tag} is published from {tagged.getD "an absent tag"}; main's CI refuses \
+        every other commit that carries the release label until the reset pull request, which \
+        sets Regula.installed back to .unreleased, merges"
+    fail s!"{head} is no longer the head of main; the run on main's head tags it"
 
 end Regula.Release
 

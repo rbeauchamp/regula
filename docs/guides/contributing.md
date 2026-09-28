@@ -363,30 +363,39 @@ record lands on `main` before anything is published:
    pushes the commit as `release/v<version>`, starts its checks and opens the pull request
    `release: Regula v<version>`, which merges through normal review like any other. Its site
    build renders the release's edition as a preview, which pull requests never publish.
-2. **tag** (`ci.yml`, on `main`): once acceptance and both rule-example shards pass on the merged
-   commit, which carries the release label, the `tag` job names it `v<version>`. The `site` job
+2. **tag** (`ci.yml`, the `tag` job on `main`): once acceptance and both rule-example shards pass
+   on a commit that carries the release label, it names that commit `v<version>`. The `site` job
    then renders the release's edition as publishable and writes it as
    `regula-site-<version>.tar.gz` ([versions](website.md#versions-and-routes)), and `deploy`
    publishes `/dev/` and `/v/<version>/`.
 3. **publish** (`ci.yml`, the `release` job, once `verify-deployment` observed those pages live)
    creates the GitHub release with its notes (how to require, set up and update, then GitHub's
-   generated list of changes) and the edition as its asset, published only once the asset is
-   attached. Immutable releases, a repository setting that is on, then freeze the tag and the
-   asset.
+   generated list of changes) and, from the commit the tag names, the edition as its asset,
+   published only once the asset is attached. Immutable releases, a repository setting that is
+   on, then freeze the tag and the asset.
 4. **reset** (same job) opens the pull request `release: end Regula v<version>` from
    `release/v<version>-reset`, which sets `Regula.installed` back to `.unreleased` and keeps the
-   release in `Regula.releases`. Until it merges, the site build refuses every other commit that
-   carries the release label, because the tag names another commit, so `main` deploys nothing
-   else first; its own build takes the release's edition from the asset.
+   release in `Regula.releases`. Its own build takes the release's edition from the asset.
+
+Other pull requests still merge during a release, and every commit on `main` until the reset
+merges carries the release label. The release is cut from whichever labelled head of `main` first
+completes the whole chain: until the release is published, **tag** creates the tag at the head of
+`main` or moves it there, so a run that a later merge cancelled needs no repair, and a re-run of
+CI on `main` finishes the release. Once the release is published, the tag never changes: **tag**
+refuses every other commit that carries the label, after making sure the reset pull request is
+open, and the site build refuses them too, so `main` deploys nothing else until the reset merges.
+The decision is `Regula.Release.tagAction`, whose theorems the kernel checks each time the step
+runs (`tagAction_converges`, `tagAction_published` and the exact cases of each action).
 
 Each step resumes when its job is re-run: **open** and **reset** update their branch and keep an
-open pull request, **tag** accepts a tag that already names the commit, and **publish** replaces
-an unpublished draft and skips a published release. **open** refuses a version already tagged or
-listed and a `main` whose `Regula.installed` is still a release. A pull request that a workflow
-opens starts no checks by itself, so **open** and **reset** dispatch `ci.yml` on their branch. They
-open the pull request only when the repository setting *Allow GitHub Actions to create and approve
-pull requests* is on; otherwise they fail after pushing the branch and dispatching its checks,
-and print the link that opens the pull request.
+open pull request, **tag** keeps a tag that already names the commit and refuses a stale run whose
+commit is no longer the head of `main`, and **publish** replaces an unpublished draft and skips a
+published release. **open** refuses a version already tagged or listed and a `main` whose
+`Regula.installed` is still a release. A pull request that a workflow opens starts no checks by
+itself, so **open** and **reset** dispatch `ci.yml` on their branch. They open the pull request
+only when the repository setting *Allow GitHub Actions to create and approve pull requests* is on;
+otherwise they fail after pushing the branch and dispatching its checks, and print the link that
+opens the pull request.
 
 Adopters update by changing the tag and `lean-toolchain`, then running `lake update regula` and
 `lake exe regula init` ([adoption guide](adoption.md#update-regula)).

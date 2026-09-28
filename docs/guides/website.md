@@ -152,8 +152,10 @@ CI runs on every pull request and on `main`:
 2. `rule-examples` (two shards): the corpus campaign; each uploads its export. The diagnostics
    workflow also runs both shards nightly on `main`.
 3. `tag` (`main` only, and only for a commit whose `Regula.installed` is a release, after
-   `verify` and `rule-examples`): tags the commit `v<version>`, or accepts a tag that already
-   names it, and refuses a tag that names another commit ([release](contributing.md#release)).
+   `verify` and `rule-examples`): until the release is published, creates tag `v<version>` at
+   this commit or moves it here if the commit is still the head of `main`, and keeps a tag that
+   already names it; once the release is published, refuses any other commit
+   ([release](contributing.md#release)).
 4. `site` (after `rule-examples` and after `tag` passed or was skipped): builds the site tooling,
    then `./scripts/verify.sh site` over this run's exports, and uploads the checked `_site/` as
    `site-<commit>` (preview) and, from a clean build of a release whose commit its tag names,
@@ -228,17 +230,21 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
    the release and appends it to `Regula.releases`
    ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). Before the tag exists, its site
    build renders the release's edition as a preview, which pull requests never publish.
-2. When it merges, CI on `main` tags the merged commit `v<version>` once acceptance and the
-   rule-example shards pass. That commit's site build then renders the release's edition, so it
-   is publishable, and writes `tmp/site-release/regula-site-<version>.tar.gz`, kept as the
-   `site-release-<commit>` artifact of that run. The deployment publishes `/v/<version>/`, with
-   `dev/` carrying the release's label at that commit.
-3. Once `verify-deployment` observes those pages live, CI attaches that file to the GitHub
-   release `v<version>` as its permanent asset and publishes the release.
+2. When it merges, CI on `main` gives the head of `main`, which carries the release label, the
+   tag `v<version>` once acceptance and the rule-example shards pass. That commit's site build then renders the
+   release's edition, so it is publishable, and writes
+   `tmp/site-release/regula-site-<version>.tar.gz`, kept as the `site-release-<commit>` artifact
+   of that run. The deployment publishes `/v/<version>/`, with `dev/` carrying the release's
+   label at that commit. Other pull requests still merge meanwhile and carry the label too; until
+   the release is published, the tag follows the head of `main`, and a build of another labelled
+   commit is refused only while the tag names a different one.
+3. Once `verify-deployment` observes those pages live, CI attaches that file, from the commit the
+   tag names, to the GitHub release `v<version>` as its permanent asset and publishes the release.
+   The tag then never changes.
 4. CI then opens the reset pull request, which sets `Regula.installed` back to `.unreleased` and
    restores the development label of `dev/`. Its site build and every later one take the
-   release's edition from the asset. Until it merges, every build of another commit that still
-   carries the release label is refused, because the tag names another commit.
+   release's edition from the asset. Until it merges, CI on `main` refuses every other commit
+   that still carries the release label, because the tag names another commit.
 
 Rule IDs are never reused for a changed rule. A retired rule keeps a page (its lifecycle chip
 says so).
