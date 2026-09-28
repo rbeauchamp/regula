@@ -1,9 +1,12 @@
 name: Release
 
 # One action starts a release: run this workflow on main (docs/guides/contributing.md#release).
-# Its version is the Lean release in lean-toolchain, the Lean ecosystem's tag convention. It opens
-# the release pull request; once that merges, ci.yml on main tags, deploys and publishes the
-# release and opens the pull request that ends it. Every step is lean/Regula/Release.lean.
+# Its version is the Lean release in lean-toolchain, the Lean ecosystem's tag convention. It pushes
+# the branch of the release pull request, which lists the release and stamps it into the rules; a
+# maintainer opens that pull request from the link in the job summary. Once it merges, ci.yml on
+# main creates the release commit, runs main's checks on it and, once they pass, publishes the
+# release, which creates its tag. No workflow creates a pull request. Every step is
+# lean/Regula/Release.lean.
 on:
   workflow_dispatch:
 
@@ -15,18 +18,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Create the release commit (main's commit with Regula.installed set to the release, the
-  # release appended to Regula.releases and stamped into every rule lifecycle position still
-  # .unreleased), refuse unless GitHub verified its signature, push it as release/v<version>,
-  # start its checks and open its pull request. A re-run rebuilds the branch on the same commit;
-  # a new run rebuilds it on the current head of main.
+  # Create the commit of the release pull request (main's commit with the release appended to
+  # Regula.releases and stamped into each .unreleased on a `lifecycle :=` line;
+  # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, push it as
+  # release/v<version> and write the link that opens its pull request to the job summary. When that
+  # pull request is already open, dispatch ci.yml on the rebuilt branch, whose push with this
+  # job's token starts no checks; hence `actions: write`, on this job only. A re-run rebuilds the
+  # branch on the same commit; a new run rebuilds it on the current head of main.
   open:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
-      pull-requests: write
+      pull-requests: read
       actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,7 +40,7 @@ jobs:
 
       - uses: ./.github/actions/provision
 
-      - name: Open the release pull request
+      - name: Push the branch of the release pull request
         env:
           GH_TOKEN: ${{ github.token }}
         run: lean --run lean/Regula/Release.lean open

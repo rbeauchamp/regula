@@ -12,9 +12,9 @@ be uploaded.
 - `render`: run the website package's Verso executable (trusted process boundary).
 - `releaseSources`, `releaseCopies`: each release's edition before banners, from
   `releaseSource`: the frozen copy whenever its release asset exists, and this build's rendered
-  edition only in a build of the installed release before that asset exists, while its tag is
-  absent or names this commit. `buildJson` records each source, whether the tag names this
-  commit and the value of `publishable` for them, which `Deployment gate` requires.
+  edition only in a build of the installed release while its tag is absent or names this commit,
+  before that asset exists. `buildJson` records each source, whether the tag names this commit and
+  the value of `publishable` for the sources, which `Deployment gate` requires.
 - `publishedCopy`: a release's published edition: its copy, with the latest-release banner
   (`outdatedBanner`, `bannerTarget`) inserted into every HTML page (`insertBanner`) when a later
   release exists.
@@ -121,16 +121,16 @@ def editionJson (g : Generated) : Json := Json.mkObj (identityFields g)
 
 /-- The machine-readable identity of an artifact: the build's identity, its published editions,
 how each release's edition was obtained (`releaseSource`) and whether the build's commit is the
-one the installed release's tag names, and the value of `publishable` for them. The deployment
-check compares the live copy with these exact bytes, and `Deployment gate` refuses to publish
-unless the recorded `publishable` is `true`. -/
+one the installed release's tag names, and the value of `publishable` for the sources. The
+deployment check compares the live copy with these exact bytes, and `Deployment gate` refuses to
+publish unless the recorded `publishable` is `true`. -/
 def buildJson (g : Generated) (tag : TagState) (sources : List (ReleaseVersion × ReleaseSource)) :
     Json :=
   Json.mkObj (identityFields g ++ [("editions", toJson (published.map Edition.root)),
     ("releaseSources", toJson (sources.map fun (v, s) => Json.mkObj [
       ("version", .str v.spelling), ("source", .str s.spelling)])),
     ("headTagged", .bool (tag == .head)),
-    ("publishable", .bool (publishable (sources.map (·.2)) tag))])
+    ("publishable", .bool (publishable (sources.map (·.2))))])
 
 private def byPath (files : List (String × ByteArray)) : List (String × ByteArray) :=
   files.mergeSort (fun a b => a.1 ≤ b.1)
@@ -143,9 +143,9 @@ def releaseSources (root : FilePath) (tag : TagState) :
   releases.mapM fun v => do
     match releaseSource installed v (← downloadRelease root v) tag with
     | some source => return (v, source)
-    | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist, \
-        and this build is not a build of that release whose tag v{v.spelling} is absent or names \
-        its commit"
+    | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist \
+        yet, and only the release commit renders its edition; CI on main publishes the asset once \
+        the release commit passes its checks"
 
 /-- Each release's edition before banners, oldest first, from its source: the frozen copy, or the
 rendered edition with its `build.json`. -/
@@ -290,8 +290,8 @@ def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
 
 /-- Complete build: refuse a release label whose tag names another commit, decide each release
 edition's source, admit evidence, generate, render, collect the release editions, assemble and
-check. A clean build whose commit the release's tag names and that rendered its release's edition
-also writes it as that release's asset. -/
+check. A clean build that rendered its release's edition, the release commit's before its
+release is published, also writes that edition as the release asset. -/
 def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
   if ← out.pathExists then IO.FS.removeDirAll out
@@ -301,8 +301,9 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
     | .release v => tagState root v ident.revision
     | .unreleased => pure .absent
   requireChecks [⟨s!"a build labelled {installed.spelling} is refused once tag \
-    v{installed.spelling} names another commit (merge the release's reset pull request, which \
-    sets Regula.installed back to .unreleased)", labelAdmitted installed tag⟩]
+    v{installed.spelling} names another commit: only the release commit that CI on main creates \
+    carries a release label, and main and pull requests keep Regula.installed .unreleased",
+    labelAdmitted installed tag⟩]
   let sources ← releaseSources root tag
   let g ← evidence root ident evidencePaths
   generate root g
@@ -319,16 +320,16 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   if ← (releaseDirectory root).pathExists then IO.FS.removeDirAll (releaseDirectory root)
   if let .release v := installed then
     if sources.any (·.2 == .render) then
-      if publishable (sources.map (·.2)) tag && !ident.dirty then
+      if !ident.dirty then
         let package := releasePackage root v
         if let some parent := package.parent then IO.FS.createDirAll parent
         let packed ← run root "tar" #["-czf", package.toString, "-C",
           (out / (Edition.release v).root).toString, "."]
         requireChecks [⟨s!"release asset {package}\n{packed.stderr}", packed.exitCode == 0⟩]
-        IO.println s!"site: release {v.spelling}'s edition is written to {package}"
-      else IO.println s!"site: release {v.spelling}'s edition is a preview rendered from source; \
-        only a clean build of the commit that tag v{v.spelling} names writes its asset, and \
-        Deployment gate refuses to publish this artifact otherwise"
+        IO.println s!"site: release {v.spelling}'s edition is written to {package}; CI \
+          attaches it as the release asset once every check of this commit passes"
+      else IO.println s!"site: release {v.spelling}'s edition is a preview rendered from \
+        uncommitted changes; only a clean build writes its asset"
   IO.println s!"site: PASS ({RuleId.all.length} rule pages, editions \
     {published.map Edition.root}, {(← snapshotTree out).length} files, \
     commit {ident.revision.val}{if ident.dirty then " with uncommitted changes" else ""}); \

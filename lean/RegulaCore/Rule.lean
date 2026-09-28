@@ -18,11 +18,12 @@ Findings (`RegulaCore.Feedback`), the `regula` command and agent briefing
 them.
 
 Each position of a rule's `lifecycle` (its introduction and, once retired, its retirement) is a
-`Build`: `.unreleased` until the next release, whose release commit the Release workflow's `open`
-step stamps with it. `lifecycle` has no default, so every rule states it.
-`release_attributes_rules` proves that when `Regula.installed` is a release no lifecycle position
-of any rule is `.unreleased`, so a release commit that still has one does not build, and
-`lifecycle_listed` that every release a lifecycle names is in `Regula.releases`. -/
+`Build`: `.unreleased` until the next release, whose release pull request (the Release workflow's
+`open` step) stamps it on `main`. `lifecycle` has no default, so every rule states it.
+`release_attributes_rules` proves that when `Regula.installed` is a release, which only the release
+commit CI creates is, no lifecycle position of any rule is `.unreleased`, so a release commit that
+still has one does not build and nothing is published, and `lifecycle_listed` that every release
+a lifecycle names is in `Regula.releases`. -/
 
 @[expose] public section
 
@@ -1023,9 +1024,11 @@ theorem descriptor_rewrites_nonempty : ∀ id, (descriptor id).rewrites ≠ [] :
   intro id; cases id <;> decide
 
 /-- When `installed` is a release, no lifecycle position of any rule is `.unreleased`: neither an
-introduction nor a retirement. The Release workflow's `open` step stamps them in the release
-commit it generates; a release-labelled commit in which one is still unreleased fails to prove
-this and does not build. On an unreleased build the hypothesis is false. -/
+introduction nor a retirement. The release pull request (the Release workflow's `open` step)
+stamps those on `lifecycle :=` lines on `main`, and the release commit CI creates on the head of
+`main` changes only `installed`; if any position, however written, is still unreleased there, the
+release commit fails to prove this, does not build, and CI publishes nothing. On `main` and every
+pull request the build is unreleased and the hypothesis is false. -/
 theorem release_attributes_rules (id : RuleId) :
     installed ≠ .unreleased → .unreleased ∉ (descriptor id).lifecycle.builds := by
   cases id <;> decide

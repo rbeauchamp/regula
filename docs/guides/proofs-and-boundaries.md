@@ -650,19 +650,28 @@ manifest excludes, with options written into bare and configured claimed targets
 with no `lean_lib`) are bounded observations.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
-and checked by the kernel each time a step elaborates it: the tag step's decision `tagAction`
-creates or moves tag `v<version>` only for the head of `main` while the release is unpublished
-(`tagAction_create_iff`, `tagAction_move_iff`), never writes it once the release is published
-(`tagAction_published`), and never refuses the head of `main` of an unpublished release
-(`tagAction_converges`); `tagAction_keep_iff` and `tagAction_refuse_iff` give the other cases.
-The rest of the file is operational. Its edit of `RegulaCore/Edition.lean` is read back before
-use; its stamp of `RegulaCore/Rule.lean` is not. The kernel checks the edited modules' theorems
-when the checks of the release and reset pull requests build them: `releases_ascending`,
+and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
+candidate and publish steps, proceeds exactly for the head of `main` of an unpublished release
+whose tag is absent or names the release commit (`tagAction_release_iff`), so publication, which
+creates the tag, never leaves it naming another commit; it changes nothing once the release is
+published (`tagAction_published`, `tagAction_skip_iff`), always proceeds on the head of `main` of
+an unpublished release that no tag names elsewhere (`tagAction_converges`), and
+`tagAction_refuse_iff` gives the remaining case. **Proved** in `RegulaCore.Edition`: a build
+labelled a release is admitted exactly while its tag is absent or names its commit
+(`labelAdmitted_release_iff`), and an artifact is deployable exactly when no release edition in
+it was rendered from source (`publishable_iff`). The rest of `Release.lean` is operational,
+including its check that a commit of `main` or of a pull request is unreleased and `adopt`, which
+checks, with `git` trusted, that the release commit is the content CI derived from `main`'s
+commit before CI records it as that commit. Its edits of
+`RegulaCore/Edition.lean` are read back before use; its stamp of `RegulaCore/Rule.lean` is a
+convenience that reads text. The kernel checks the edited modules' theorems when the release pull
+request's checks and CI's checks of the release commit build them: `releases_ascending`,
 `installed_listed`, `release_attributes_rules` (when `installed` is a release, no lifecycle
-position of any rule is `.unreleased`) and `lifecycle_listed` (every release a rule's lifecycle
-names is in `releases`). What the tag step observes (whether the release is published, the head
-of `main`, the tag), GitHub's signature verification, tags, immutable releases, pull requests
-and workflow ordering are trusted.
+position of any rule is `.unreleased`; on the release commit this is the gate before anything is
+published) and `lifecycle_listed` (every release a rule's lifecycle names is in `releases`). What
+the steps observe (whether the release is published, the head of `main`, the tag), GitHub's
+signature verification, that publishing a release creates its tag at the given commit, tags,
+immutable releases, pull requests and workflow ordering are trusted.
 
 ## Rule examples and the corpus runner
 
