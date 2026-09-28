@@ -18,6 +18,9 @@ Three kinds of evidence are kept apart:
   and imported libraries. A proof about a decoded field does not prove the field truthfully
   describes what the compiler did.
 
+None of these proofs verifies the Lean compiler, the source collectors, the filesystem, the JSON
+parser, the registry adapter or a user's intended specification.
+
 The pure libraries (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`,
 `RegulaProvision`) are claimed Standard-Logical surfaces, so acceptance reports every
 declaration's exact axiom set; that profile is an upper bound, not a claim that every proof uses
@@ -43,7 +46,8 @@ Accepted(c,i,r)     := { report with exact c,i,r projections // CompleteFor ∧ 
 
 **Proved** (`RegulaPolicy`): `accept_iff`, `accept_sound` and `accept_complete` (acceptance holds
 exactly for complete, policy-satisfying results; completeness is over the supported finite
-observations, not elaboration, theorem search, source discovery or external liveness);
+observations, not elaboration, theorem search, source discovery, external liveness or detection of
+arbitrary intended specifications);
 `finalize_iff` (for any plan, roles and supplied `(slot, observation)` list, finalization
 succeeds exactly when every required slot has one exactly bound, policy-satisfying observation;
 it does not assume a producer returned enough); `collect_success_iff`, `collect_lookup` and
@@ -53,11 +57,17 @@ succeeds exactly for a fresh required key with a valid binding and changes nothi
 returns no replacement state); `accepted_report_identity` and `accepted_covers_slot` (the report
 projects the exact claim, census, ordered jobs and results); `combineAccepted`,
 `combined_policy` and `combined_reports_same_snapshot` (a combined project and documentation run
-keeps both capstones over one snapshot). File runs bind the requested and compiled sources by
+keeps both capstones over one snapshot). `CombinedAccepted pc dc documents` carries both accepted
+plans, exact project/fresh and documentation modes, the requested documents and equal snapshots.
+The conditional transfer lemmas `finalize_reindexed`, `finalize_singleton_transfer`,
+`LocalEvidenceTransfer.sound` and `GlobalEvidenceTransfer.sound` are not used by the acceptance
+path; their coherence hypotheses are not instantiated for the operational collector, and no
+operational equivalence is claimed. File runs bind the requested and compiled sources by
 `FileSourceBinding.sameBytes`; graph runs freeze their selected roots in `Census.graphRoots`, and
 `GraphOK` cannot select fewer roots than `GraphPlanOK` admitted. Repeated immutable requests use
 Lean's `withPtrEqDecEq` shortcut with structural equality as fallback; the kernel sees the
-structural computation and the pointer shortcut has Lean's runtime trust boundary.
+structural computation and the pointer shortcut has Lean's runtime trust boundary. No wall-clock
+bound follows from these proofs.
 
 The stage relations `PolicyOK` combines, each a declarative relation whose decision function is
 proved sound and complete against it:
@@ -71,12 +81,16 @@ proved sound and complete against it:
 | `ContractOK` (§7.5, §7.11) | Every registered contract targets the exact supported implementation and predicate, with completed admission. Registration adequacy is review. |
 | `ExecutionOK` (§7.6) | Every root's closure accounted for, no unresolved path; report mode permits reported trust, checked mode only checked evidence or origin-checked native runtime. |
 | `DocumentOK` (§7.7) | Complete structural scan; warning-free, admitted Standard-Logical positives; one effective-error match per negative; classified teaching that is never positive conformance. |
-| `DocumentationPresenceOK`, `MaterialDocumentationOK` (§5.1–§5.3) | A module docstring is present (`docstring ≠ none`); each registered material declaration's docstring has a nonempty Intent section. Module-docstring placement is decided by `RegulaPolicy.ModuleHeader`, outside `PolicyOK`. Registration completeness and fidelity remain R-DOC, intent adequacy R-INTENT. |
-| `ExampleExpectationOK` | Exactly the configured positive, compiler-rejection, policy-rejection or trusted-teaching expectation for the exact source snapshot. |
-| `StageOK` (§7.2–§7.3, §7.8–§7.11) | Every required producer completed for this mode; absence, crash, unknown or unsupported state is incomplete. |
+| `DocumentationPresenceOK`, `MaterialDocumentationOK` (§5.1–§5.3) | A module docstring is present (`docstring ≠ none`); each registered material declaration's docstring has a nonempty Intent section. The predicate itself states docstring presence; for a module's `documentationPresence` job the adapter supplies the proved RG5001 header decision (`RegulaPolicy.ModuleHeader.failures_eq_nil_iff`: presence, placement first after the imports and no repeated import) as that evidence (`checked_environmentEvidence`). Registration completeness and fidelity remain R-DOC, intent adequacy R-INTENT. |
+| `ExampleExpectationOK` | Exactly the configured positive, compiler-rejection, policy-rejection or trusted-teaching expectation for the exact source snapshot. Elaborated observations bind group modules and role transcripts to the fixed fences' original bytes, and policy assessment selects the current example unit. Expected policy diagnostics keep stable identity tokens, optional subreason, and exact primary and related locations; matching requires the configured ordered list with no additional diagnostics. The sole registry adapter validates the identity vocabulary and authentic locations, and a completed rejection observation is not itself proof that the external producer did that work. |
+| `StageOK` (§7.2–§7.3, §7.8–§7.11) | `StageOK` checks the appropriate relation for the stage and subject; an unrelated payload constructor cannot pass. Every required producer completed for this mode; absence, crash, unknown or unsupported state is incomplete. |
 
 Required jobs come from `requiredJobs` over scope, mode and fixed applicability, never a
-caller-selected subset. A fresh project requires configuration and discovery, a fresh
+caller-selected subset. `Plan` requires the supplied `JobKey` array to equal that derivation, with
+every key belonging to the same claim; natural-number result slots are positions in that exact
+array, not new semantic identities or caller-selected requirements. In execution modes, every
+recorded successful executable-contract root must be represented among the environment's
+execution roots. A fresh project requires configuration and discovery, a fresh
 warning-free build, logical admission, every owned declaration's policy, every execution root
 and closure, the required transcripts, histories and origins, and documentation presence; an
 incremental project has the same policy obligations over an incremental build; a fresh file
@@ -84,7 +98,8 @@ requires its own compilation, admission, declaration policy and closure, with no
 documentation-presence coverage; fences keep §7.7's logical-only contract; a serialized graph
 requires every selected root checked. Empty modules, empty root sets and fence-free Markdown are
 accepted only after their discovery, build and scan jobs complete; a project still needs a
-nonempty library surface.
+nonempty library surface. A discovered root-package library with no modules is refused, even
+when it is excluded.
 
 **The report account.** Every verdict line and every `completed` status is rendered from
 `Account.account run` (claimed `RegulaCore.Account`). `Account` is the subtype of projections of
@@ -96,8 +111,10 @@ project claim (`coverage_fresh_iff`); the listed contracts are exactly the accep
 execution counts are `executionSummary` of each environment; fence counts partition the accepted
 fences; the residual identifiers stay unresolved. That the run is the current request's is each
 caller's binding, checked by inspection, as is the use of `Account.pass` for project, file,
-build-lint, combined and graph verdict lines. Rendered text and `acceptance` JSON are unproved
-adapter output; JSON is never decoded into acceptance.
+build-lint, combined and graph verdict lines. Only `Status.completed` carries an `Account`; the
+refusal statuses carry none. The documentation audit prints no PASS verdict, and its per-fence
+labels come from task results once an `AcceptedRun` exists. Rendered text and `acceptance` JSON
+are unproved adapter output; JSON is never decoded into acceptance.
 
 **Success owners.** Only these routes construct acceptance; help, planning, internal workers,
 editor hooks, registry and site validation, self-tests and qualifiers have no audit certificate,
@@ -107,13 +124,19 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | Route | Accepted value and remaining boundary |
 | --- | --- |
 | `AxiomGate.auditSurfaceAt` (fresh, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
-| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
+| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. |
-| `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | After a fresh accepted run, the SHA-256 of the accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` refuses unless its own fresh capture has an equal identity. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
+| `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | For fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` refuses unless its own fresh capture has an equal identity. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
 | `AxiomGate.auditFile` with a conforming profile | A `freshFile` plan and `AcceptedRun`; dependencies stay incremental. No profile or a compiler-trusting file is `CLASSIFIED`. |
-| `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. |
-| `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified. The adapter verifies the original requested documents before emitting accepted metadata. |
+| `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. `Documentation.Sources.check` compares the documentation inventory and bytes before fence work and before `finishDocuments`; with `--verso`, `Sources.checkLinked` rechecks the linked inputs after the Verso build. |
+| `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified; failed and incomplete checks retain their own outcomes, and the receipt retains each actual fence classification. The qualifier separately applies `PositiveClassifications` to require a nonempty list with every fence positive, passing and complete before admitting a positive correction. The adapter verifies the original requested documents before emitting accepted metadata. |
 | `FreshChecker.run` | A separate `serializedGraph` claim; `leanchecker` success is an observed process result. |
+
+`./scripts/verify.sh` runs `axiomGate --acceptance-link tmp/acceptance-link.json --verso
+website:RegulaStandard:regula-standard` after its builds and other required checks, and
+`./scripts/verify.sh docs` runs `docFenceAudit` with the same arguments over every `docs/` fence and
+every `lean` block of the standard. The shell's zero exit records completed execution of those
+commands, not a separate Lean proof.
 
 Source capture keeps each prefix for failure reporting; a prefix is not a completed inventory. A
 qualification receipt starts as a new incomplete attempt before timeout selection, spawn and setup reads, keeps
@@ -131,13 +154,24 @@ admission, source reads, process completion and compiled execution remain truste
 
 Keys use Lean `Name` structurally: anonymous, string and numeric constructors are encoded
 reversibly, anonymous is refused as a module or declaration identity, and empty string components
-are preserved. A declaration's identity is its requested environment, snapshot, owning module and
-exact name; a module's is its snapshot and name (the same module in two claimed surfaces is
-refused as ambiguous); a boundary's is its root, reached declaration, kind, optional replacement
-and occurrence; a fence's is its document snapshot and byte spans (generated `DocFence_N` names
-are transport only). Set-valued observations use canonical sorted duplicate-free collections from
-Std's extensional structures; evaluator chains and mutual groups stay ordered. Duplicate
-observations are refused even when equal.
+are preserved; a nonanonymous identity does not establish ownership or extraction authenticity.
+A declaration's identity is its requested environment, snapshot, owning module and
+exact name; a module's is its snapshot and name, and its source mapping must be functional (the
+same module in two claimed surfaces is refused as ambiguous); a boundary's is its root, reached
+declaration, kind, optional replacement and occurrence; a fence's is its document snapshot,
+opening, body and closing byte spans, and its marker kind and expected pattern (generated
+`DocFence_N` names are transport only). An executable root's identity is its requested
+environment, snapshot and root module and name; multiple valid registrations within that
+environment share closure work, but each registration remains a required declaration and contract
+obligation. A job's identity is its claim, stage tag and exact subject key, including the
+requested environment for local stages; attempts are transport metadata, not new required jobs.
+Set-valued observations use canonical sorted duplicate-free collections from Std's extensional
+structures; evaluator chains and mutual groups stay ordered. Axiom lists, module sets and closure
+edges have set semantics, with proved lookup and membership laws independent of storage order;
+canonicalization preserves membership. Duplicate observations are refused even when equal.
+`ResultState` carries unique keys, a subset of the fixed plan and valid payload bindings; empty
+construction and every insertion preserve that invariant, and no unchecked mutation or raw JSON
+constructor returns this state.
 
 The census is created by traversal before any policy outcome is filtered: freeze Lake targets,
 sources, manifest and Markdown; complete the mode's build, import and admission stages and take
@@ -145,7 +179,11 @@ the census of owned declarations, roots and required transcripts; then freeze th
 before collecting results. `Census.requests` is the ordered array of environment requests, and
 `CensusOK` requires the returned requests to equal it and their positive module partition to be
 the whole claim. `InventoryValid` requires unique names within each Lean environment; different
-environments may each define `main`, and their inventories are never merged. `Roles.eq_authorize`
+environments may each define `main`, and their inventories are never merged. Each
+`EnvironmentCensus` retains its complete admitted policy inventory, transcripts, execution roots,
+replay arrays, sources and origins. No entrypoint is renamed, filtered or exempted. Configuration,
+discovery and build jobs occur once. File and graph paths use one environment; document plans use
+no project environment and retain their exact fence inventory and modes. `Roles.eq_authorize`
 and `frozenEnvironmentRoles_eq` prove the role receipt frozen per environment equals
 recomputation, so roles are not re-authorized per job and no worker flag is trusted.
 `Common.mapWorkQueue`, `admitIndexedWorkerResults` and the documentation collector run
@@ -159,8 +197,11 @@ types whose parsers refuse unknown tags (pretty types and messages remain open t
 identities, structural references, canonical sets, agreeing safety fields and transcripts bound
 to source bytes, compiler identity and valid coordinates (an inventory is still not an independent
 census); `admitExecution` requires unique roots and boundary occurrences with valid native-origin
-bindings; `admitBoundaryEvidence` preserves correspondence, detail and native origin, refuses
-incompatible extra evidence, and every representable value round-trips. The pure codec proves
+bindings; `BoundaryEvidence kind` keeps replacement equality, simplification equality and
+opaque-body admission distinct, and a trusted native-runtime observation carries matching origin
+data; `admitBoundaryEvidence` preserves correspondence, detail and native origin, refuses
+incompatible extra evidence, and every representable value round-trips. Accepted canonical
+external spellings re-encode identically. The pure codec proves
 `decode (encode x) = ok x` over a tagged tree; that is not a theorem about JSON text. Worker
 parsing (`Checker.PolicyCodec`, whose container recursion is adapted from Lean's JSON parser under
 Apache-2.0) rejects duplicate fields before building a map, unknown and missing fields,
@@ -168,9 +209,11 @@ unsupported tags and numeric overflow; the parent waits for the child's exit and
 response against its own request.
 
 **Trusted:** these relations concern supplied observations. `InfrastructureOK` binds the exact
-reporter, codec and collector artifacts the IO adapter compares with the running checker's; the
-public `Contract`, `Diagnostic` and `StructuralName` interfaces do not imply a library-wide
-exemption.
+reporter, codec and collector artifacts the IO adapter compares with the running checker's;
+`InfrastructureOK` binds these receipts, ownership disjoint from owned and imported modules, and
+all observed incoming imports, and the full admission module, required and admitted inventories
+survive the infrastructure partition; the public `Contract`, `Diagnostic` and `StructuralName`
+interfaces do not imply a library-wide exemption.
 
 ## Declarations, foundations and roles
 
@@ -178,11 +221,11 @@ exemption.
 
 | Property | Declarations | Meaning and limit |
 | --- | --- | --- |
-| Least foundation | `leastFoundation_spec`, `leastFoundation_ext`, `foundationFor_least` | Every axiom set within Standard-Logical gets its least containing profile, invariant under order and duplicates. Not the weakest possible proof of the proposition. |
-| Classification | `foundationFor_iff`, `declarationFailure_iff`, `policyFor_ordered`, `OrderedDecision.unique` | Each of the six foundation classes (three labels, hole, unknown axiom, compiler-trusting) has its exact meaning; a declaration's diagnostic is its first failed requirement (invalid membership, owned axiom, hole, unknown, escape hatch, compiler trust, contract failure, profile excess). Renderer strings are not proved. |
-| Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. |
-| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). The observed replay, whole-value and equation fields are inputs; the predicates do not prove them truthful. |
-| Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. The recognition direction assumes `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
+| Least foundation | `leastFoundation_spec`, `leastFoundation_ext`, `foundationFor_least` | Every axiom set within Standard-Logical gets its least containing profile, invariant under order and duplicates. The actual public classifier (`foundationFor` with inventory-bound roles) uses this same result. Not the weakest possible proof of the proposition. |
+| Classification | `foundationFor_iff`, `declarationFailure_iff`, `policyFor_ordered`, `OrderedDecision.unique` | Each of the six foundation classes (three labels, hole, unknown axiom, compiler-trusting) has its exact meaning; a declaration's diagnostic is its first failed requirement (invalid membership, owned axiom, hole, unknown, escape hatch, compiler trust, contract failure, profile excess). For an axiom set outside Standard-Logical, classification keeps the diagnostic precedence hole, then unknown axiom, then compiler-trusting. Renderer strings are not proved. |
+| Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. A conforming request requires its permitted foundation, safety relation and recorded contract obligations. |
+| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` requires both the exactness and the definitional-equality observations for the helper's whole value and its generated equation; exactness and definitional comparison are not collapsed. The observed replay, whole-value and equation fields are inputs; the predicates do not prove them truthful. |
+| Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and Lean's three compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. |
 | Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. |
 | Expected diagnostics | `matchesPattern_iff`, `orderedLiterals_iff` | The restricted pattern's ordered leftmost-split match within one effective-error message. |
@@ -191,7 +234,7 @@ exemption.
 
 | Operational caller | Proved pure function | Remaining boundary |
 | --- | --- | --- |
-| `Checker/Policy.admitScope`, with `Frontend.validateCoordinates` | `checked_scope` (first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`); `checked_coordinates` (claimed `RegulaCore.Coordinates`: success iff `CoordinatesAgree`) | Lean's UTF-16 column function (`FileMap.leanPosToLspPos`) and `FileMap`; source and compiler observation acquisition. |
+| `Checker/Policy.admitScope`, with `Frontend.validateCoordinates` | `checked_scope` (first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff all coordinate checks and `InventoryValid` hold, retaining both input arrays); `checked_coordinates` (claimed `RegulaCore.Coordinates`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) | Lean's UTF-16 column function (`FileMap.leanPosToLspPos`) and `FileMap`; source and compiler observation acquisition. |
 | `request`, `ruleFor`/`reasonFor`, `ruleForMember` (claimed `RegulaCore.Policy`) | `checked_request`, `checked_rule`, `checked_memberRule` over `policyFor`; `ruleForFailure_injective`, `reasonFor_eq_some_iff` | Registry descriptor text; adequacy of the mapped rule set. |
 | `labelOf`, `labelOfMember`, `classify`, `classifyMember` | `foundationFor`; `checked_memberFoundation`, `labelOf_member`, `classifyMember_eq` | Transitive `Lean.collectAxioms` results and module ownership. |
 | `executionFailureRecords`, `executionFailures`, `executionSummary` | `checked_executionFailures` (line `k` renders record `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` | Root and closure collection, retained compiler edges, correspondence admission, source history and runtime origins. |
@@ -205,9 +248,15 @@ exemption.
 
 `finishDocuments` is the documentation finalizer, not an arbitrary raw-occurrence admission API.
 Computational helpers such as `declarationFailure`, `labelOf`, `compilerAxiom` and
-`boundaryEvidenceCandidate` take caller-supplied sets and authorize nothing; `policyFor`,
-`foundationFor` and their member forms require an inventory-bound `Roles` receipt, and
-`admitBoundaryEvidence` preserves every observation field. Generated-role validators execute the
+`boundaryEvidenceCandidate` take caller-supplied sets and authorize nothing; proof-facing
+dependencies expose their existing definitions so exported proofs and downstream reduction keep
+their meaning, which gives these helpers public bodies; `policyFor`, `foundationFor` and their
+member forms require an inventory-bound `Roles` receipt, and the member forms
+`memberFailure`/`memberFoundation` also require a proof that the declaration belongs to that
+inventory, with registrations stating agreement on every member (`checked_memberRule` equals
+`ruleFor` for every inventory member); `admitBoundaryEvidence` preserves every observation field.
+`boundaryEvidenceCandidate` may discard incompatible fields, so use `admitBoundaryEvidence` when
+every supplied observation field must be preserved. Generated-role validators execute the
 decidable component propositions, so there is no unconnected reference evaluator; `ExactlyOne`
 has a proved decision procedure that considers only the possible first witness and still
 requires equality to the complete singleton sequence (no wall-clock improvement is claimed).
@@ -225,8 +274,11 @@ the call through each success owner.
 | RG2004 | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | RG3001, RG3002 | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff` | The theorems cover the supplied unresolved paths and boundaries, not complete root and closure discovery or external runtime correctness. |
 | RG4003 | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
-| RG5002, RG5003 | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
+| RG5002, RG5003 | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
 | RG2001–RG2005, RG4001–RG4004, RG5001–RG5003 | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
+
+RG2006 checks the Lake options with a proved decision over Lake's resolved configuration
+(`RegulaPolicy.Community.failures`, `failures_eq_nil_iff`), not by re-implementing any linter.
 
 **Correspondence resource bound.** `checkCorrespondenceProof` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
@@ -238,15 +290,24 @@ source, not observed: the kernel throws only when current resident memory reache
 the first check never fires on memory already held, and because the limit never re-reads the
 peak, an exhausted check cannot raise the next one's limit. The 1 GiB is shared by every later
 check and other growth in the worker, so after one exhaustion later checks may exhaust at once;
-they fail closed as unresolved. At most three report workers run, so checks add at most 3 GiB
-above those workers' first-check peaks; that increment does not by itself bound the audit's
-total memory. Supplied and discovered theorem candidates are tried before the kernel-defeq check,
-and kernel resource exhaustion is never conflated with rejection; a theorem candidate whose
-admission exhausts the kernel supplies no evidence, like any candidate the deliberately incomplete
-search cannot use. The correspondence cache in `Probe.environmentReport` stores checked results by
-name pair within one fixed environment, and replacement-history worker output is shared within one
-audit only under identical inputs (standard §7.6); no cache crosses environments. Mapping the kernel result to
-the observed outcome is checked by inspection, and the kernel decision itself is trusted.
+they fail closed as unresolved. At most three report workers run, each running its checks
+sequentially, so checks add at most 3 GiB above those workers' first-check peaks; that increment
+does not by itself bound the audit's total memory. Supplied and then discovered theorem candidates
+are tried before the kernel-defeq check, so a kernel-exhausting unfolding cannot consume the
+headroom a supplied proof needs and a replacement with both reports `proved:` evidence, and kernel
+resource exhaustion is never conflated with rejection; a theorem candidate whose admission
+exhausts the kernel supplies no evidence, like any candidate the deliberately incomplete search
+cannot use. The correspondence cache in `Probe.environmentReport` stores checked results by name
+pair within one fixed environment, and replacement-history worker output is shared within one
+audit only under identical inputs (standard §7.6); no cache crosses environments. A
+cross-environment cache would need equality of all relevant inputs, revalidated evidence and a
+proof that varying candidate data cannot weaken acceptance. Generated-role and canonical runtime
+recognition determine policy authority and are not untrusted acceleration hints; profiles, scope
+and pins are normative configuration, not freely variable candidate data. An incomplete
+comparison is unresolved with the reason that the kernel ran out of resources before deciding
+definitional correspondence; mapping the kernel result to the outcome (`kernelExhausted` for an
+incomplete comparison, a rejection or a proof beyond Standard-Logical for a completed negative
+one) is checked by inspection, and the kernel decision itself is trusted.
 
 ## Producers
 
@@ -255,70 +316,133 @@ inferred from any pure proof.
 
 - **Census.** `Probe.environmentReport` freezes `(owning module, declaration)` keys from
   `Probe.ownedConstants`, and ordinary and registered executable roots (private or imported),
-  before building observations. No policy-success filter defines either census. An inspected empty
-  root set is `some #[]`, an uninspected one `none`.
+  before building observations. No policy-success filter defines either census.
+  `Probe.ownedConstants` traverses imported module indices, so it is not a current-document
+  inventory. An inspected empty root set is `some #[]`, an uninspected one `none`. Only valid
+  registrations add executable roots, and all registrations remain in the declaration observations
+  even when several registrations share one root.
 - **Admission.** `Admission.validate` replays safe, nonpartial owned declarations and their owned
   dependencies with the pinned `Environment.replay`, checks every required entry is in the
-  resulting kernel and returns a typed receipt. Imported unowned modules remain trusted; the
-  receipt records the completed operation and does not authenticate replay.
+  resulting kernel and returns a typed receipt. It returns
+  `IO (Except ProducerReport.AdmissionFailure ProducerReport.AdmissionReceipt)`: a successful
+  receipt's required keys come from safe, nonpartial original kernel entries in the replay scope,
+  and it records the admitted keys. Replay scope includes owned dependencies and the existing
+  reporter closure where required; it may exceed the reported surface. Imported unowned modules
+  remain trusted; the receipt records the completed operation and does not authenticate replay.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
   RG5001–RG5003 findings do not depend on whether native feedback was imported. Observed RG5003
   evidence is the fresh-project corpus pair and the native `MissingIntent` control; no incremental
   or build-lint RG5003 run is claimed.
-- **Transport.** **Proved:** `ProducerReport.validate_sound` shows every report
-  `Environment.validate` admits is `Environment.Admissible`, restating every executed guard (the
-  census, execution results for exactly the requested roots, `ExecutionValid` closures, unique
-  located source bindings, the replay receipt, documentation observations, and histories exactly
-  for the requested modules, completed ones located and source-stable, unavailable ones leaving
-  every requesting root unresolved); `validate_eq_ok` decomposes the guard sequence,
-  `validate_nonvacuous` exhibits an admitted report and `fromJson_admissible` extends soundness to
-  the decoder. Producers, documentation groups and acceptance call `checked_validate.run`; the
-  coordinator's decoder keeps its success as a `ProducerReport.Admitted` proof
-  (`fromJson_admitted`), which `Acceptance.freezeEnvironment` requires
-  (`Admitted.admitExecution_eq`). These do not authenticate the observations; a direct interactive
-  dump has no loader receipt and cannot pass the decoder. Replay and source-evidence failures cross
-  workers as typed `ProducerReport.Outcome.admissionFailed` (the shared
-  `Environment.validateSourceEvidence` guard) and surface as RG2005, incomplete; initial setup
-  failures stay RG2001.
+- **Transport.** `Report.Collected` adds extraction keys to the pure policy report;
+  `Checker.ProducerReport.Environment` adds the operational receipts and owns their JSON decoder:
+  `census` (requested modules, declaration keys, optional execution root keys and root/module
+  history requests), `admission` (replay modules, required keys and observed admitted keys),
+  `documentation` (every module's presence, including declaration-free modules, frozen material
+  keys and exact optional docstrings), `histories` (one completed source receipt or explicit
+  unavailable outcome for every requested module) and `sourceBindings` (exact loaded-owned
+  module/path/text snapshots). Use `--json-out` to consume producer evidence. **Proved:**
+  `ProducerReport.validate_sound` shows every report `Environment.validate` admits is
+  `Environment.Admissible`, restating every executed guard (a nonempty, unique, loaded module
+  census; a declaration census equal to the reported keys in order and duplicate-free; execution
+  results exactly for the requested roots; `ExecutionValid` closures; unique located source
+  bindings covering every claimed module and range; a replay receipt admitting exactly its unique
+  requirements and requiring every safe, total declaration; documentation observations for
+  exactly the claimed modules and unique material selection; unique history requests with exactly
+  one history per requested module; completed histories located, source-stable, bound to the
+  owned snapshot when the module has one and free of anonymous edge endpoints; unavailable
+  histories leaving every requested root unresolved; requested runtime replacements whose
+  resolved edges appear in completed histories; root/boundary module attribution with exact
+  replacement-edge channels; and, for every current replacement reference, a reached,
+  attributed, requested and recorded module history, with the root's historical edges the
+  canonical form of exactly those completed-history edges); `validate_eq_ok` decomposes the guard
+  sequence, `validate_nonvacuous` exhibits an admitted report and `fromJson_admissible` extends
+  soundness to the decoder. Producers, documentation groups and acceptance call
+  `checked_validate.run`; the project report worker skips its own call: the coordinator's decoder
+  runs the same check once and keeps its success as a `ProducerReport.Admitted` proof
+  (`fromJson_admitted` shows it accepts and refuses exactly as the plain decoder), and
+  `Acceptance.freezeEnvironment` requires that proof instead of re-running the check and takes
+  the execution inventory from it (`Admitted.admitExecution_eq`). These do not authenticate the
+  observations; a direct interactive dump has no loader receipt and cannot pass the decoder.
+  Replay and source-evidence failures cross workers as typed
+  `ProducerReport.Outcome.admissionFailed` (the shared `Environment.validateSourceEvidence` guard)
+  and surface as RG2005, incomplete; initial setup failures stay RG2001. A transported refusal is
+  consumed only after worker-packet validation; the parent's own snapshot check can return a typed
+  refusal even when a worker crashes or a packet is malformed, and this does not accept or
+  authenticate that worker result. Documentation retains its fence finding alongside the typed
+  refusal, using fence context without manufacturing a valid declaration range.
 - **Replacement histories.** The walk registers each `(root, module)` history request first; the
   loader keeps the Lean-resolved path, the exact bytes before and after an isolated worker and the
   ordered replacement edges, so earlier choices overwritten by later attributes are kept. A
-  changed source or unsupported evaluator yields `unavailable`, never a completed receipt.
+  changed source or unsupported evaluator yields `unavailable`, never a completed receipt. A
+  runtime-replacement boundary must have a registered request, and completed execution requires
+  its replacement edge in a completed history. Logical-only inspection has no execution roots,
+  requests or history receipts.
 - **Closure.** `ExecutionRoot.closure` records the actual `Probe.executionWalk`: each first visit
   with its owning module and the earlier visit that queued it, and separate edge channels
   (`compilerEdges` from retained IR; `logicalEdges`; `candidateEdges`, every constant-equality
   candidate; `historyEdges`; `currentReplacementEdges`; `activeSimplificationEdges`;
   `helperEdges`; `requiredCode` and `unavailableCode`, where a nonempty unavailable subset requires
   unresolved execution). Their union is a conservative traversal, not a selected or minimal call
-  graph; a missing closure never yields an empty boundary set. Every enqueue site records its edge
-  and parent visit together, and visited-name suppression stops recursion without deleting self
-  edges. Retained IR edges use the declaration step of Lean's pinned
-  `IR.CollectUsedDecls.collectDecl`, because `collectUsedDecls` also inserts the declaration itself
-  and filtering its result would discard genuine recursive calls; this specialized API is
-  requalified on a toolchain upgrade. `Environment.validate` calls `admitExecution` at producer
-  and decoder boundaries; missing or inconsistent observations refuse inspection, so no omitted
-  record becomes a clean result. **Proved:** `ExecutionClosure.discovery_induction`, `nodes_induction` and
-  `admitExecution_preserves` (over the executed admission, not a separate graph model): for a
-  closure satisfying `DiscoveryOK` (respectively `Valid`), a predicate true at the root and
-  preserved by each recorded edge holds at every visit (respectively every admitted node), and a
-  successful admission retains exactly its roots and proves `ExecutionValid`. They establish
-  connectedness and structural admission, not completeness or authenticity of IR extraction or
-  that a candidate edge executes. An active `csimp` self-edge stays an unresolved
-  replacement-only cycle (RG3001).
+  graph; a missing closure never yields an empty boundary set. `compilerEdges` belongs to
+  `ExecutionRoot` and records retained IR calls, closures and initialization dependencies; in the
+  `closure` account, `logicalEdges` are constants used by the logical bodies the walk follows,
+  `historyEdges` are replacement choices from completed, source-bound module histories,
+  `currentReplacementEdges` are current `implemented_by` choices retained even when history is
+  unavailable, `activeSimplificationEdges` are active simplifications used by the replacement-only
+  cycle check (each is also a candidate), and `helperEdges` are explicit opaque-to-partial-helper
+  traversal. Every enqueue site records its edge and parent visit together, and visited-name
+  suppression stops recursion without deleting self edges. Retained IR edges use the declaration
+  step of Lean's pinned `IR.CollectUsedDecls.collectDecl`, because `collectUsedDecls` also inserts
+  the declaration itself and filtering its result would discard genuine recursive calls; this
+  specialized API is requalified on a toolchain upgrade. `Environment.validate` calls
+  `admitExecution` at producer and decoder boundaries, reconciles visits with available module
+  attribution, requires exact candidate/replacement boundary coverage and binds each historical
+  edge set to its actual module receipt; missing or inconsistent observations refuse inspection,
+  so no omitted record becomes a clean result. The initial visit is the root, and the sorted
+  `nodes` census is exactly the set of these visits, with no duplicate visits.
+  `RegulaPolicy.ExecutionClosure.Valid` checks the supplied census, discovery witnesses, canonical
+  edge channels, endpoints, code obligations and unresolved requirement; `ExecutionRoot.Valid`
+  additionally reconciles boundary names, replacement targets and compiler callers, and the
+  induction uses the strictly earlier parent index, not another graph search. **Proved:**
+  `ExecutionClosure.discovery_induction`, `nodes_induction` and `admitExecution_preserves` (over
+  the executed admission, not a separate graph model): for a closure satisfying `DiscoveryOK`
+  (respectively `Valid`), a predicate true at the root and preserved by each recorded edge holds
+  at every visit (respectively every admitted node), and a successful admission retains exactly
+  its roots and proves `ExecutionValid`. They establish connectedness and structural admission,
+  not completeness or authenticity of IR extraction, that a candidate edge executes, machine-code
+  correspondence or intended-specification adequacy. An active `csimp` self-edge stays an
+  unresolved replacement-only cycle (RG3001). Reflexive constant equalities remain in the
+  candidate set, so that self-edge satisfies the active-edge subset invariant; an inactive
+  reflexive candidate does not create an active cycle, and ordinary recursive IR self-edges remain
+  a separate channel.
 - **Source binding.** `ProducerReport.SourceBinding` keeps module, path and exact text. Project
   checks capture Lake's source map and configuration before building; the loader checks source
   before import and after inspection, and transcripts, histories and every declaration range must
-  match the frozen text. `SourceBinding.withUnchanged` rechecks sources and configuration around
-  every frozen-input operation, including failed builds, crashed workers and decoding failures,
-  and returns a typed refusal (RG2005, incomplete) on a change while preserving the original
-  outcome otherwise. Terminal results keep captured sources (`sourceAccount`) even on failure;
-  an absent or partial account does not establish coverage.
+  match the frozen text. Requests carry the frozen sources; producer and parent compare the
+  report's loaded-owned subset with that request, worker requests use `sourceBindings` as their
+  sole source map, and loader module/path pairs are projections of those bindings. Locations and
+  result exports reuse the frozen text; they do not recapture newer text as if it had been
+  checked. Grouped documentation and fixture inspection receive the exact
+  `Compilation.spec.source` values instead of recapturing them after compilation, and batch
+  compilation creates snippet files in its parent before dispatch, which workers consume without
+  rewriting. `SourceBinding.withUnchanged` rechecks sources and configuration around every
+  frozen-input operation, including failed builds, crashed workers and decoding failures, and
+  returns a typed refusal (RG2005, incomplete) on a change while preserving the original outcome
+  otherwise. This includes missing or unreadable previously frozen source or configuration, and
+  read failures preserve the underlying IO reason; initial environment and setup failures remain
+  RG2001, and only re-reading existing frozen evidence receives this normalization. Terminal
+  results keep captured sources (`sourceAccount`) even on failure; an absent or partial account
+  does not establish coverage. Capture callbacks retain the growing account in memory, and
+  serialization occurs at terminal success/error boundaries; when an outer handler has no
+  captured sources, it preserves any account already serialized by the worker.
 
 **Trusted:** Lake build semantics, compiler and imported-dependency authenticity, filesystem
 reads, and the absence of a change restored between two observations. Byte equality is an
-observation, not a filesystem lock or a source-to-`.olean` theorem.
+observation, not a filesystem lock or a source-to-`.olean` theorem. Imported unowned source is
+inspected only when required by an existing history obligation; this does not add full-Mathlib
+analysis to Core-only adopters.
 
 ## Inputs and dependency identity
 
@@ -327,8 +451,15 @@ canonical source paths, root bytes, the manifest, Lake configuration, lock and t
 and each dependency's declared inputs (Lake's buildable library domains and executable roots,
 with submodules a glob admits). `Snapshot.inputsUnchanged` rediscovers and rereads them all once
 at the end, refusing any addition, removal or change; the combined route rechecks after its
-documentation stage. No Markdown is a refusal; no whole-workspace scan substitutes for the Lake
-inventory. Standalone and rule-example documentation callers capture dependencies before their
+documentation stage. This rediscovery runs even when the dependency array is empty; it compares
+against the original records and never replaces the accepted request. Configuration observations
+retain presence and exact bytes for the selected manifest, Lake configuration, lock and
+toolchain. No Markdown is a refusal; no whole-workspace scan substitutes for the Lake inventory.
+Dependency inputs are captured independently of Git ignore rules. Unused dependency executables
+need not ship source files, while root-package targets remain required and terminal rediscovery
+detects executable source additions and removals. Configuration paths come from Lake's actual
+package configuration and manifest, plus toolchain and default-config presence checks.
+Standalone and rule-example documentation callers capture dependencies before their
 prerequisite build and pass that observation into `auditBuiltProject`, which performs no
 replacement capture and rechecks the supplied observation before finalization. Source identities
 keep exact snapshot bytes and logical URI; a digest may index storage, but digest equality alone
@@ -358,9 +489,11 @@ bytes exactly. Observed with Git 2.54 and `core.ignorecase`, literal pathspecs a
 tracked paths and final components byte for byte, and the one divergence was an input under an
 untracked directory whose leading components differ from the on-disk spelling only by case on a
 case-insensitive filesystem: the unrestricted status spells the on-disk path, so that input reads
-clean. Only the reported bit, never a captured byte, is affected. Non-UTF-8 fields are dropped, since they cannot equal a declared
-input. Every declared input's bytes are still read and UTF-8-decoded, and the terminal recheck
-recaptures them.
+clean. Only the reported bit, never a captured byte, is affected. Non-UTF-8 fields are dropped,
+since they cannot equal a declared input. Every declared input's bytes are still read and
+UTF-8-decoded, and the terminal recheck recaptures them. The status output itself is not
+retained, nor is any Git diff, untracked-file content list or directory-wide bytes; unrelated
+files and build outputs are not inputs merely because they share a dependency directory.
 
 Project census construction keeps failures until the policy diagnostic pass has completed.
 Unavailable history prevents acceptance, while its execution findings keep RG3001,
@@ -393,18 +526,26 @@ module findings at the end of the in-memory file and configuration refusals at t
 command, never at an invented declaration. An unsupported `regula.localFoundation` request is a
 configuration violation on each affected nonterminal command snapshot, including
 declaration-free commands, and is intentionally not deduplicated across independent snapshots.
+The module hook owns only the imports-only configuration fallback. This ownership uses the normal
+Lean language frontend's preceding-command array, and the low-level
+`Frontend.elabCommandAtFrontend` API is not a supported feedback driver.
 `liveFeedback_auditBuild` proves `liveFeedback true scopeValue = false`: under the audit build's
 import-time marker the feedback switch is off whatever a command scope sets `linter.regula` to;
 that every local finding is gated by that switch is checked by inspection. Disabling local
-feedback cannot disable a mandatory project predicate.
+feedback cannot disable a mandatory project predicate. Enabling it cannot reach a project audit's
+own build: `lake lint`'s claimed build and the audit's fresh elaboration pass the unregistered
+command-line marker `weak.regula.auditBuild`, which the linter reads only from a module's
+import-time options and under which it emits nothing.
 
 **Documentation presence.** `Lean.findDocString?` accepts ordinary, Verso and inherited
 docstrings; private names follow Lean's visibility and never enter the public `@[regula_material]`
 selector. RG5001 reads Markdown and Verso module-doc metadata loaded with `importAll := true`,
 `loadExts := true` and `level := .private`; an empty loaded array means absence, an unknown module
 identity is unavailable evidence rather than an absent doc comment, and current metadata is
-checked only after module completion by the module hook. Presence alone does not discharge
-module 5's requirements.
+checked only after module completion by the module hook. RG5001 reads the header's imports with
+Lean's `parseHeader` (`HeaderSyntax.imports` without the implicit `Init`) and parses the first
+command once with `topLevelCommandParserFn`; a first command that does not parse is not a module
+docstring. Presence alone does not discharge module 5's requirements.
 
 The production linter reuses Lean's `getNewDecls`, `getDeclsInCurrModule`, the linter hooks,
 declaration ranges, axiom collection and docstring APIs; no upstream code is copied. The project
@@ -415,7 +556,9 @@ inspects it, and neither the linter nor manifest scope is exempted. `qualify nat
 `checkerSelftest --policy-domain-only`, `--native-adopter-only` and `--forced-collector-only`
 controls are bounded observations of this API behavior, not proofs about arbitrary plugins,
 native machine code or editor interaction. VS Code behavior (opening the link, the Problems-panel
-fallback, non-BMP and CRLF ranges, stale and cancelled snapshots) was observed, not proved.
+fallback, code serialization, non-BMP and CRLF ranges, stale and cancelled snapshots, and the
+absence of any Lean-manual link) was observed, not proved. An ordinary browser link check is not
+editor acceptance.
 
 ## Registry, feedback and output
 
@@ -434,28 +577,41 @@ same order (`sortFindings_entries`). `RegulaCore.Guidance`: the briefing lists e
 `snapshotJson_configuration_independent`, `environmentJson_imports_independent` and
 `Environment.resultJson_imports_independent` (`rfl`) show the rendering does not depend on
 dependency text or import lists; the resulting size bound is an argument from construction, not a
-theorem about byte counts.
+theorem about byte counts. In the excluded library, `RegistryCodec.mode_roundtrip`,
+`mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
+`nameParts_roundtrip`, `name_roundtrip` and `Regula.sortFindings_entries` on `propext`,
+`Classical.choice` and `Quot.sound`; `RegistryChecks` bounds them to Standard-Logical.
 
 These theorems concern text and data as functions of their inputs: that the checker supplies
 every finding, and that the process writes the lines, are operational. `admitGuidance` checks a
 result's consistency against writer regressions, not authenticity: a report edited to be
 self-consistent passes. `RegistryChecks` exhaustively checks the 22 descriptors, the embedded
-examples and the committed skill file, and exercises malformed transport, routes, modes and
-Unicode/CRLF coordinates as observations of those boundaries. JSON text parsing, `FileMap`, and
-the compiler's collection of names, ranges and source identity are trusted.
+examples and the committed skill file, and exercises malformed transport, missing and duplicate
+routes, unsupported modes, Unicode/CRLF coordinates, native/text agreement and incomplete
+negative outcomes as observations of those boundaries, not sampled evidence for the universal
+theorems. JSON text parsing, `FileMap`, and the compiler's collection of names, ranges and source
+identity are trusted.
 
 ## Rule examples and the corpus runner
 
 **Proved:** `admitExampleRequest` admits exactly expected/observed request equality;
-`admitExampleSources` requires every observed source in the frozen snapshot and the displayed
-text in it; `admitDemonstration_sound` and `_complete`, `demonstration_completed`,
+`admitExampleSources` admits exactly when every observed source is in the frozen snapshot and the
+displayed text is in it (soundness and completeness), and file requests additionally require that
+text at the requested path; `admitDemonstration_sound` and `_complete`, `demonstration_completed`,
 `demonstration_observed_incomplete`, `demonstration_selected_rule` and
 `demonstration_not_accepted` (an admitted demonstration fails every accepted-example kind);
 `RegulaPolicy.incomplete_example_refused` (an incomplete outcome satisfies no fence
-expectation); `positiveClassifications_sound`. `Checker.RuleExampleQualification.qualify_sound`:
-every record `qualify` admits is `RecordAdmissible` (current producer identity, parsed mode, equal
-before/after snapshots, the observed request decoding to the frozen one, exit at most 1, sources
-in the bound snapshot, findings equal to the parsed diagnostics, one of three kinds, and
+expectation); `positiveClassifications_sound`. `admitDemonstration` returns the unchanged
+observation with a proof of `DemonstrationOK`: completed production, nonempty expected findings,
+a selected-rule incomplete finding, exact mode and canonical diagnostic equality; the observed
+list itself must contain an incomplete finding for the selected rule, without assuming
+injectivity of JSON rendering, and `demonstration_not_accepted` holds for any expected finding
+list. `Checker.RuleExampleQualification.qualify_sound`: every record `qualify` admits is
+`RecordAdmissible` (current producer identity, parsed mode, equal before/after snapshots, the
+observed request decoding to the frozen one, exit at most 1, sources in the bound snapshot with
+one having the displayed text, for a file or diagnostic-only request one being the requested
+subject with the displayed text, a result source account unless the request is diagnostic-only
+or documentation, findings equal to the parsed diagnostics, one of three kinds, and
 `DemonstrationOK` for a demonstration); it proves nothing about the producer that wrote the
 record. `RuleExampleProjection.qualify_record` and `qualifyCorpus_records` give exact equality at
 the adapter's canonical record constructor and over the full corpus, including ordered scans,
@@ -472,16 +628,34 @@ workspaces). Task scheduling, `IO.asTask`/`IO.wait` and process reaping are trus
 runner shares one private copy of the root package and the captured dependency roots with every
 producer and records a content identity of every entry (path, `lstat` kind, length, 64-bit native
 hash) before any producer and after all are joined, and a difference refuses the run; equality
-shows the end state equals the start, not that no write occurred. The runner never changes shared
-dependency permissions, so a deadline kill cannot leave the dependency trees read-only. Git facts are captured once and injected into producers by exact
-request (`ruleExamples --injected-git-facts`; results carry `"gitFacts": "injected"`, and
-`axiomGate` rejects the flag): `Snapshot.assemble_facts_eq` and `stateOfCore_congruence` show
-equal facts give identical captures and bytes, and the campaign rechecks the shared trees once at
-the end. Root processes, concurrent external writers, filesystem honesty, hash collisions and
-writes restored before the terminal check are trusted. Records use a qualification-only view
-(top-level `acceptance` and `documentationAcceptance` payloads null, every key and raw-tree shape
-kept), with the exact detector bytes in `PATH.raw/ATTEMPT/RULE/PHASE/result.json`. Partial exports
-remain `INCOMPLETE`. The runner does not re-read its own sidecars and requires unchanged terminal
+shows the end state equals the start, not that no write occurred. Producers must not write the
+shared copy or dependency roots; no permission enforces this, and nothing prevents a write, so
+`Slot.sharedIdentity` checks it only by content identity, recording symlinks by resolution and
+never following them. The runner never changes shared dependency permissions, so a deadline kill
+cannot leave the dependency trees read-only. Git facts are captured once and injected into
+producers by exact request (`ruleExamples --injected-git-facts`; results carry
+`"gitFacts": "injected"`, and `axiomGate` rejects the flag): `Snapshot.assemble_facts_eq` and
+`stateOfCore_congruence` show equal facts give identical captures and bytes, and the campaign
+rechecks the shared trees once at the end. Before any producer starts, the runner makes one
+complete `Snapshot.dependenciesCaptures` and exports only its Git facts (revision and dirty bit),
+each keyed by the exact capture request (package, canonical root, and ordered source and
+configuration paths), as `injected-git-facts.json` retained with the attempt's raw evidence and
+named by every producer registration. A producer reads every source and configuration byte
+itself and uses an injected pair only for an exactly matching request, so the private `regula`
+copy and fixture dependencies are always observed fresh; the flag is an internal corpus-producer
+entry only. Producers do not recheck an injected dependency at their own end (at run end
+`Snapshot.inputsUnchanged` rechecks the once-captured value with fresh reads and fresh Git),
+every producer still rechecks each non-injected dependency and its own inputs, and admission
+ignores the `gitFacts` field. Root processes, concurrent external writers, other file owners,
+filesystem honesty, hash collisions and writes restored before the terminal check are trusted.
+Records use a qualification-only view (top-level `acceptance` and `documentationAcceptance`
+payloads null, every key and raw-tree shape kept), with the exact detector bytes in
+`PATH.raw/ATTEMPT/RULE/PHASE/result.json`. Beside it are the registered
+command/request/snapshots, stream files, terminal metadata and the compact original record; during
+production the `INCOMPLETE` receipt points to these sidecars, and the full aggregate is written
+once all records and controls are ready. The runner consumes records in fixed order and drains
+every launched task before ordinary or exceptional scratch cleanup. Partial exports remain
+`INCOMPLETE`. The runner does not re-read its own sidecars and requires unchanged terminal
 checker sources before the final export, whose only writer, `saveCompleted`, requires the
 `Cleaned` witness that `withScratchCleaned` constructs after scratch removal. `COMPLETED` attests
 what finished; the run's verdict is its exit status: a deadline kill before the final save leaves
@@ -496,7 +670,7 @@ Each control is classified by what it can establish (standard §0 "The Role of T
 **Proved** controls sampled a pure function the checker executes and are replaced by a theorem
 over every input; **External** controls observe a boundary no proof covers and are kept at the
 smallest set exercising it; **Counterexample aids** remain only where the universal statement is
-not yet proved, and are labelled so at their definition.
+not yet proved, and are labelled so at their definition; they are not correctness evidence.
 
 | Campaign | Control | Property | Class | Evidence |
 | --- | --- | --- | --- | --- |
@@ -508,11 +682,11 @@ not yet proved, and are labelled so at their definition.
 | rule-examples | 44 Fixed/Violation productions | every published example yields exactly its documented findings | External | observed |
 | rule-examples | 3 refusal productions | the producer's own request and classification account | External | observed |
 | rule-examples | 7 record mutations, 7 admission subprocesses | `qualify` refusals | Proved | `RuleExampleQualification.qualify_sound` |
-| checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus | compiler, elaborator, CLI and fence workers | External | observed |
+| checkerSelftest fixtures | in-process and CLI fixture verdicts; fence corpus; diagnostic-setup controls | compiler, elaborator, CLI and fence workers | External | observed |
 | checkerSelftest fixtures | 11 execution-policy cases | failure kind per boundary and claim | Proved | `boundaryFailures_ids`, `rootFailures_ids`, `executionFailureRecords_empty_iff` |
 | checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | open: a step-function scanner with proved problem coverage |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
-| checkerSelftest structural | real manifests, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
+| checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec and source cases | registry, diagnostic and source codecs | Proved in part | round-trip theorems; open: state the remaining refusals as theorems |
@@ -520,16 +694,62 @@ not yet proved, and are labelled so at their definition.
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
 
-The `qualify` campaigns and what they observe: `registry` (malformed invocations invalidate stale
-output; the validators accept real exports and refuse each removed field, the previous schema and
-a missing page); `native` (42 compiler controls for identity, multiplicity, severity, ranges,
-documentation and ownership, four at a time in dependency order) and `native-launcher` (42 paired
-baseline/cached-environment controls with exact equality); `producers`, `history` and
-`rule-examples` (above); `closure-evidence`, `configuration-capture`, `documentation-source`,
-`fence-evidence`, `frozen-exits`, `input-inventory`, `documentation-dependencies`,
-`receipt-boundaries`, `acceptance fences`, `acceptance-snapshots dependencies|history|git-status`
-(the dirty decision against a literal-pathspec status for G1–G3), `environments` and
-`self-audit`. `checkerSelftest --policy-domain-only` qualifies strict transport, external-adopter
+The `qualify` campaigns and what they observe:
+
+- `registry`: six malformed invocations invalidate stale output; the validators accept real
+  exports and refuse each removed field, the previous schema and a missing page.
+- `native`: 42 compiler controls for identity, multiplicity, severity and warning promotion,
+  ranges, current and imported ownership, private and generated coverage and both documentation
+  formats. Each control is its own compiler process with its own source path, run four at a time
+  in dependency order: imported-artifact controls after the artifacts they import, restored
+  controls after every malformed one.
+- `native-launcher`: 42 paired baseline/cached-environment controls with exact equality.
+- `producers`: for the incremental and build-lint entrypoints and each of RG5001/RG5002, one
+  workspace runs Fixed, then Violation over that Fixed build (so a stale build must not hide the
+  violation), then Fixed again from a cleared build. A standalone executable additionally has
+  positive and owned-axiom controls, each in its own fresh workspace, and each carries module
+  documentation so the intended axiom violation is isolated. Each invocation checks exact stable
+  ID, detail, primary location, related locations and result status, and requires unique output
+  and exact embedded source/selector/type/axiom evidence. The fresh-project RG5001/RG5002
+  observations are the rule-example corpus records, validated there by the same producer oracle.
+  Optional raw export: `lake exe qualify producers --evidence tmp/producer-examples.json`; the
+  export embeds exact source bytes and canonical diagnostic/result data, including the checker
+  build identity, and supplies scoped source/evidence inputs, not the site's complete typed
+  expectation validator.
+- `history`: ten project and file invocations, each in its own fresh workspace, covering private
+  and imported roots, reached-closure and source accounts, unsupported-evaluator refusal and
+  source-snapshot changes.
+- `rule-examples`: above.
+- `closure-evidence`: reflexive candidate versus active cycle, retained recursive IR edges and
+  range refusals through four invocation paths.
+- `configuration-capture`: initial configuration IO failure through the project and file result
+  protocols.
+- `documentation-source`: both public documentation paths with changed and missing
+  dependency/configuration inputs and fresh restored positives. Its `--source-read-only`
+  selection adds original-file and declaration-build read failures, initial setup classification
+  and restored positives. These observations do not establish universal IO correctness.
+- `fence-evidence`: independent range, admission, policy and compiler failures inside positive
+  fences, plus restoration.
+- `frozen-exits`: frozen-input rechecks after imports and failed build and compilation
+  operations.
+- `input-inventory`: root additions and Markdown edit or removal during the prerequisite build, an
+  actual new-module build and restored fresh controls.
+- `documentation-dependencies`: both documentation commands retain pre-build dependency
+  observations, and the combined project/documentation positive remains distinct.
+- `receipt-boundaries`: timeout-selection and spawn failures (see
+  [Operational assumptions](#operational-assumptions)).
+- `acceptance fences`: fence-compilation packet mutations with positive restoration.
+- `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
+  mutation), `history` (RG3001 fresh, incremental and build-lint history refusal and restoration)
+  and `git-status` (the dirty decision against a literal-pathspec status for G1–G3, plus the
+  symlinked-root and outside-root cases); `all` runs all three under one deadline. It checks typed
+  root/source attribution and absence of acceptance on unavailable history; these are scoped
+  operational controls, not a proof of IO extraction or a full acceptance run.
+- `environments` and `self-audit`.
+
+`producers` accepts an optional `--evidence PATH`; `environments --evidence PATH` and
+`acceptance GROUP --evidence PATH` (group `fences`) take an evidence path.
+`checkerSelftest --policy-domain-only` qualifies strict transport, external-adopter
 public imports, forbidden probe imports, recursion-helper execution coverage and positive-file
 warnings (a positive `freshFile` claim rejects warnings, including those emitted after a source
 disables `warningAsError`); `--policy-transport-only` repeats just its parser, decoder and
@@ -546,15 +766,27 @@ the module's `collectAxioms` command). `parse_sound` and `parse_input`: every ma
 `parse` accepts satisfies `Manifest.Valid` (nonempty surfaces, duplicate-free library and
 executable names across surfaces and exclusions, well-formed target names, no compiler-trusting
 claim, a nonempty rationale for every entry) and comes from JSON whose keys are all allowed and
-whose schema version is 2, each array decoding element by element in order. The refusal-class
-theorems (`parse_malformed`, `objectWithKeys_unknown`, `topLevel_unknownKey`,
-`topLevel_schemaVersion`, `topLevel_emptySurfaces`, `parseSurface_unknownKey`,
-`surfaceExecution_unknown`, `surfaceExecution_nonString`) give the documented message of each
-isolated defect under their stated preconditions; other refusals, including a missing required
-field and an unknown key in an exclusion entry, are not classified by a theorem, and the public
-CLI controls remain external observations of how each class renders. `parse_emptyExclusions`:
-JSON meeting the top-level conditions with empty exclusion arrays is accepted with exactly its
-surfaces whenever they parse; it does not prove that any particular surface is accepted.
+whose schema version is 2, each array decoding element by element in order. Every name and
+rationale is the JSON string, the claim is `Profile.parse?` of the JSON string, an absent
+`executables` is empty and a present one is exactly its string array, and an absent `execution`
+is `report` while a present one is `ExecutionClaim.parse?` of the JSON string (`SurfaceDecodes`,
+`ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). `load` adds only the missing-file check
+and the read. The refusal-class theorems (`parse_malformed`, `objectWithKeys_unknown`,
+`topLevel_unknownKey`, `topLevel_schemaVersion`, `topLevel_emptySurfaces`,
+`parseSurface_unknownKey`, `surfaceExecution_unknown`, `surfaceExecution_nonString`) give the
+documented message of each isolated defect under their stated preconditions (unparseable JSON
+gives `manifest-malformed`; a key outside the allowed set gives
+`manifest-schema: LOCATION has unknown key(s): KEYS` at the top level, or for a surface after
+accepted earlier surfaces; a wrong version with allowed keys gives
+`manifest-schema: schema-version must be exactly 2`; an empty surfaces array with the rest of the
+top level accepted gives `manifest-incomplete: surfaces must be a nonempty array`; an
+unrecognized or non-string `execution`, once every earlier surface check accepts it
+(`SurfacePrefixOK`), gives the `manifest-schema` execution message); other refusals, including a
+missing required field and an unknown key in an exclusion entry, are not classified by a theorem,
+and the public CLI controls remain external observations of how each class renders.
+`parse_emptyExclusions`: JSON meeting the top-level conditions with empty exclusion arrays is
+accepted with exactly its surfaces whenever they parse; it does not prove that any particular
+surface is accepted.
 `parse_ok` (`parse` accepts `m` exactly when `PolicyCodec.parse` returns a value `parseValue`
 accepts with `m`), `parseValue_ok` (`parseValue` accepts a value with `m` exactly when
 `m.Valid` and the value `Encodes` `m`, so `Manifest.Valid` is exactly what the parser admits) and
@@ -568,11 +800,15 @@ manifests from the repository's; `structural_libraries` and `structural_executab
 base classifies exactly the actual targets, and `structural_roundtrip` (with `parseValue_toJson`:
 `parseValue (toJson m) = .ok m ↔ m.Valid`) covers what the gate reads at the `Json` value
 boundary for any accepted manifest and claim set selecting an actual surface. `structuralBase`
-checks that claim hypothesis at run time, and no theorem links that check to the hypothesis. The text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs
-core `partial` parsers, so no theorem describes them; `parse_of_encodes` names what they must
-deliver. The variants that rewrite the `AuditApp` surface after derivation are not covered.
-`diagnostics structural` passed locally in 572 s without the deadline (observed 2026-09-27); it
-exceeds the 420-second budget, so it is not a CI job.
+checks that claim hypothesis at run time, and no theorem links that check to the hypothesis. The
+text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
+parsers, so no theorem describes them; `parse_of_encodes` names what they must deliver. The
+variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only,
+claimed-exe and app-omitted-exe variants exclude every actual `AuditApp` executable they stop
+claiming, except app-omitted-exe, which leaves them unclassified on purpose. `RegulaPolicy` stays
+claimed in each copy because the checker probe's own imports resolve to it in a self-hosted copy.
+`diagnostics structural` passed locally in 572 s without the deadline (observed 2026-09-27);
+meeting the 420-second budget remains open, so it is not a CI job.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
@@ -591,24 +827,31 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   `compilerMatches_exact` state the field and ordered-list relations.
 - `Json.validateDecoded_exact`: a decoding error always refuses; success exactly when decoding
   yields assertions that all hold. `History.requirements` and `Producer.requirements` spell out
-  the mandatory fields; neither proves the observations were extracted truthfully or that Lean's
-  JSON parser matches a formal JSON specification.
+  the mandatory fields and their exact comparisons, and their registered contracts apply this
+  equivalence to the actual decoders; neither proves the observations were extracted truthfully
+  or that Lean's JSON parser matches a formal JSON specification.
+- `History.validate_importedRootExecuted` and `validate_unsupported_unresolved`: every report the
+  history oracle admits executes the imported registered root with a foreign module, and, for an
+  unsupported evaluator, leaves every root requested from the audited module with nonempty
+  unresolved evidence.
 - `Evidence.checked_validation` and `checked_documentation`: exact conjunctions of decoded status,
   diagnostic, exit and transcript requirements, including distinct fence and project admission
   messages and the underlying IO reason.
 - `Launcher.admit`: a proof-bearing mapping with nonempty unique names and both required search
   paths, admitting every valid decoded mapping; `checked_equivalence` requires exactly 42
   observations and full ordered equality of source, arguments, streams, exit, environment and
-  resolved executable. Lake's environment is cached only within one invocation; neither
-  observations nor compiled artifacts are reused, environment values are not exported, and
-  durations are observations, not a speed guarantee or compiler-equivalence theorem.
+  resolved executable. Lake's environment is cached only within one fixed parent and workspace
+  invocation, separately for the imported-control search-path override; neither observations nor
+  compiled artifacts are reused, environment values are not exported, and durations are
+  observations, not a speed guarantee or compiler-equivalence theorem.
 - `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
   order, object keys and scalar kinds preserved; only entire matching string values change;
   depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules
   through Lake's elaborated inventory, not a source glob.
 - `RegulaVerification.parseMode_sound`, `parseMode_roundtrip` and `select_exact`: exact argument
-  binding and acceptance of every documented invocation; `commands_nonempty` rules out an empty
-  selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
+  binding and acceptance of every documented invocation; the caller consumes the proof-bearing
+  selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
+  empty selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
   accepts has an empty `packages` array. Process execution remains IO.
 
 ## Operational assumptions
@@ -617,14 +860,19 @@ The supported compiler, filesystem, process runtime and GNU timeout are trusted.
 public invocation runs under one non-foreground GNU timeout owning the whole process group,
 including descendants with inherited output handles; OS scheduling and signal delivery are
 trusted, not a real-time theorem. Acceptance passes an internal `--under-deadline` flag to
-`qualify` so it does not detach a nested timer; the flag is not a bounded standalone invocation.
-Direct `lake exe qualify` campaigns have one 420-second process-group deadline. Before
-provisioning and any checker build, `scripts/verify.sh` has `RegulaVerification` invalidate the
-selected mode's earlier PASS or accepted link and remove an earlier site artifact (the private
-`--begin-attempt` flag), so a failed setup or build cannot leave either in place. Each public
-invocation replaces its receipt with a fresh incomplete attempt before any fallible timeout
-selection or spawn, and `qualify receipt-boundaries` exercises those failures. Scratch
-directories are removed on normal or exceptional return; a killed run's directory is reclaimed by
-the next scratch user once no live process holds the scratch lock (`Regula.Scratch`). Helpers
-invoke external programs with argument arrays, never generated shell programs. The operator's
-narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md).
+`qualify` so it does not detach a nested timer; the private flag is not a bounded standalone
+invocation or an alternative acceptance command. Direct `lake exe qualify` campaigns have one
+420-second process-group deadline. Before provisioning and any checker build, `scripts/verify.sh`
+has `RegulaVerification` invalidate the selected mode's earlier PASS or accepted link and remove
+an earlier site artifact (the private `--begin-attempt` flag), so a failed setup or build cannot
+leave either in place. Each public invocation replaces its receipt with a fresh incomplete attempt
+before any fallible timeout selection or spawn, and `qualify receipt-boundaries` seeds completed
+evidence and exercises actual missing or unusable timeout selection and selected-timer spawn
+failures for both `acceptance` and `environments`; the timed child carries the same attempt and
+adds no new deadline. Acceptance keeps existing raw result/trace sidecars before parsing and
+records partial file locations on the active case, and completed command records contain
+executable plus argv; these are diagnostic receipt guarantees under trusted filesystem and process
+IO. Scratch directories are removed on normal or exceptional return; a killed run's directory is
+reclaimed by the next scratch user once no live process holds the scratch lock (`Regula.Scratch`).
+Helpers invoke external programs with argument arrays, never generated shell programs. The
+operator's narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md).

@@ -61,7 +61,8 @@ discovery and fixes (Astral's [Ruff][ruff]), editor and project scope with incre
 (the [Pyrefly][pyrefly] team), and hints beside compiler feedback (Neil Mitchell's
 [HLint][hlint] and the [Haskell Language Server][hls]). Lean's command, module and environment
 linters, Batteries' linter driver and Mathlib's linter configuration are the Lean facilities it
-builds beside. No code of these projects is copied.
+builds beside. No code of these projects is copied. None of these examples prescribes an exact
+UX or supplies Lean policy semantics or suppression permission.
 
 ## Website
 

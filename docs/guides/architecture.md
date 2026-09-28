@@ -15,7 +15,7 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 | --- | --- | --- |
 | `RegulaPolicy` | Pure policy: domain types, admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
 | `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
-| `RegulaQualification` | Pure observation oracles for qualification campaigns. | Claimed |
+| `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
 | `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and local provisioning. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
 | `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI, linter hooks, qualification drivers and the site builder. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
@@ -41,8 +41,8 @@ route (`rules/<ID>/`) cannot be set independently. `descriptor : (id : RuleId) �
 registration table whose missing entries silently disappear. A descriptor carries title,
 category, scope, evidence kind, normative clauses (the closed `Clause` type of
 [`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), applicability, strict default,
-supported evidence modes and lifecycle. Its message form is not a field but `messageForm id`,
-the same `messageLine` the checker renders.
+supported evidence modes and lifecycle. Every registered rule is enforced by the checker. Its
+message form is not a field but `messageForm id`, the same `messageLine` the checker renders.
 
 Every descriptor also carries the agent-facing guidance, with no defaults, so a rule without it
 does not compile: a one-line `requirement`, a short `rationale`, a one-line imperative `remedy`,
@@ -63,19 +63,29 @@ review obligations it leaves open.
 To add or change a rule:
 
 1. Establish its exact Lean predicate and its place in the [coverage](#coverage-of-the-standard).
-2. Add the constructor, spelling and parser branch, descriptor, guide entry and dependent payload.
+2. Add the constructor, spelling and parser branch, descriptor, guide entry and dependent payload;
+   update the closed inventory (`RuleId.all`) and its proofs.
 3. Add the detector and the adapter that invokes it before enabling its modes; add the example
    pair and its `corpus.json` entry; regenerate the dogfooded skill
    (`lake exe regula skill > .agents/skills/regula/SKILL.md`).
 4. Preserve existing qualification controls and qualify the changed admission and output paths
    (standard [§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations)).
 
+Keep detectors separate from adapters, and construct `Finding` through the sole registry,
+preserving its original `Name`, supported mode, impact and genuine location. Do not rerun a
+complete imported environment scan per command, create a second policy implementation or use
+parser regexes for ownership; add modes only for actual producer interfaces and document their
+partial scope.
+
 Metadata text, a nonempty mode list and a green build are not proofs of detector adequacy, and a
 lifecycle or predicate change still requires semantic review. Never reuse an ID for a changed
-predicate. `Lifecycle.retired` keeps the descriptor as a tombstone
-with its introduction, retirement and optional replacement, which carries a proof that it is a
-different ID. Every current rule is active and unreleased. Checklist rows of the standard are not
-diagnostic IDs.
+predicate. A compatible clarification retains the rule's identity and records the applicable
+implementation version. `Lifecycle.active` records the release that introduced the rule.
+`Lifecycle.retired` keeps the descriptor as a tombstone with its introduction, retirement and
+optional replacement, which carries a proof that it is a different ID. Every current rule is
+active and unreleased. Checklist rows of the standard are not diagnostic IDs. No rule bans
+`Float`, `IO`, local mutation syntax, classical erased proofs, noncomputable mathematical
+definitions or arbitrary naming styles.
 
 ## Findings and locations
 
@@ -84,9 +94,12 @@ diagnostic IDs.
 locations, evidence mode, claim context, strict impact and display severity; collections store
 the dependent pair `Finding`, so no invalid rule/payload combination exists. `makeDiagnostic`
 requires the mode to be one the descriptor supports. Strict impact is `violation` or
-`incomplete`; display severity cannot change it or the acceptance decision. The profile and
-execution parsers stay the configuration authority: claim text in a diagnostic describes that
-context and is not an independent policy decision.
+`incomplete`; display severity cannot change it or the acceptance decision. All rules are strict
+errors when applicable (`descriptor_severity_error`). Rules keep only the technical exceptions of
+standard §§7.4–7.6: authenticated generated helpers, separately classified teaching native
+proofs, and origin-checked native-runtime boundaries. The profile and execution parsers stay the
+configuration authority: claim text in a diagnostic describes that context and is not an
+independent policy decision.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
@@ -95,8 +108,11 @@ attribution, and an inconsistent supplied range fails rather than acquiring an i
 location. `sourceFromReport` additionally requires the recorded code-point and UTF-16 coordinates
 to agree with that text. Report lines are one-based and columns count Unicode code points; `startUtf16` and
 `endUtf16` are zero-based UTF-16 columns within their lines, computed with Lean's
-`leanPosToLspPos`. Fence findings use labelled virtual snippet locations, never Markdown
-coordinates. Filesystem paths stay native diagnostic filenames; project reports may keep
+`leanPosToLspPos`. Native messages use Lean code-point positions, and the same validated
+selection supplies both the JSON LSP range and the native position. Fence declaration findings
+use labelled virtual snippet locations whose snapshot is the exact verbatim snippet, never
+Markdown coordinates; aggregate fence errors keep their document and fence origin in context
+attribution. Filesystem paths stay native diagnostic filenames; project reports may keep
 disposable source-copy paths as evidence beside the actual source text, without asserting that
 those paths stay live after the run, and no textual path substitution is applied. Names are
 encoded structurally (tagged string and numeric components, outermost first) by
@@ -121,11 +137,14 @@ snapshot never becomes a project result. Source compilation is distinct from lat
 normal pinned-compiler exit with a source-located error or warning can establish an emitted
 diagnostic, while crashes, termination and inspection exceptions are incomplete, and flattened
 Lake build failures stay incomplete with the original text kept; neither permits acceptance.
-Combined project and documentation output stays incomplete while its documentation stage is
-pending. Recognizable output destinations are invalidated before argument parsing (an
-unadmitted configuration writes null `scope` and `mode` with an incomplete status), so callers
-require the current invocation's successful completion and never reuse an earlier report after a
-failed command.
+RG2001 reports setup failures in fresh, incremental and file audits; documentation-audit setup
+failures print `FAIL` without a finding. Combined project and documentation output stays
+incomplete while its documentation stage is pending, and configuration that has not been
+admitted has null `scope` and `mode` and an incomplete status. Recognizable output destinations
+are invalidated before argument parsing where their paths can be resolved: absolute destinations
+first, without requiring valid project configuration, and relative destinations once the project
+root is resolved. Callers must require the current invocation's successful completion, never
+reuse a previous report after a failed command.
 
 ## Output schemas
 
@@ -147,24 +166,32 @@ own directory and suffixed `:unreleased-worktree` when that worktree had changes
 metadata, not authenticated binary identity.
 
 - **Registry, schema 4:** the canonical `rules`, whose `normativeClauses` are
-  `{section, title, source, url}` objects. `parseDescriptor` compares input with canonical
+  `{section, title, source, url}` objects (the cited section's number, heading, Verso source path
+  and URL in the installed build's edition). `parseDescriptor` compares input with canonical
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
+  Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
+  JSON fields or versions, and invalid lifecycle references.
 - **Result, schema 3:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
-  order) and `unresolved`. `stagesCompleted` is the recorded stages without each stage a stopping
-  finding (an incomplete finding, or an RG2002 or RG2003 refusal) left unfinished and every later
-  one; `complete` holds exactly when no required stage is missing. One function,
-  `ResultProtocol.guidanceFields`, derives these members for writer and reader, and
-  `ResultProtocol.admitGuidance` re-derives them on admission. The
+  order) and `unresolved`. A writer records the stages its run completed: a context failure the
+  stages its call site finished, and a finished audit every stage; an empty documentation scan
+  leaves the documentation stages unrecorded. `stagesCompleted` is the recorded stages without
+  each stage a stopping finding (an incomplete finding, or an RG2002 or RG2003 refusal) left
+  unfinished and every later one; `complete` holds exactly when no required stage is missing.
+  One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
+  and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope` keeps the project
-  configuration files in full (`scope.configuration`). File `scope.report` and project
-  `scope.surfaces[*].report` keep the complete observed declaration and execution inventories,
-  including trusted boundaries and correspondence evidence; project scope also keeps its source
-  snapshots, Lake library inventory and completed stage names. File scope keeps its nullable
-  foundation claim, execution claim and exact source even without findings.
+  configuration files in full (`scope.configuration`). Canonical file and project results retain
+  `scope.configuration` as path/optional-text pairs, with `null` for an absent file. The
+  `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,
+  and no consumer reads it there. File `scope.report` and project `scope.surfaces[*].report`
+  keep the complete observed declaration and execution inventories, including trusted boundaries
+  and correspondence evidence; project scope also keeps its source snapshots, Lake library
+  inventory and completed stage names. File scope keeps its nullable foundation claim, execution
+  claim and exact source even without findings.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
@@ -175,9 +202,14 @@ metadata, not authenticated binary identity.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content
-  identity). It omits imported module lists. The run still freezes and rechecks every captured
-  byte in memory; only the serialization is bounded, so a result's size follows the audited
-  project, not its dependencies.
+  identity). It omits `acceptance.environments[*].importedModules` and the report's `modules`
+  and `moduleOrigins` import-closure lists; owned modules remain in `census.modules`. The run
+  still freezes and rechecks every captured byte in memory; only the serialization is bounded,
+  so a result's size follows the audited project, not its dependencies.
+- **Environments:** the rendered `acceptance.environments` array keeps each environment's
+  ordinal, module assignment, infrastructure modules, declaration/root/replay inventory and
+  optional file binding, not the modules it merely imports. Local job subjects contain that
+  ordinal and their local subject, and the common snapshot is rendered once.
 
 - **Worker transport:** a separate protocol with its own version, request identity and
   producer/toolchain binding. Wire results carry observations, never proofs or an accepted flag;
@@ -195,7 +227,8 @@ metadata, not authenticated binary identity.
   process runs in them. Messages carry codes such as `Regula.RG1001`, real ranges and the rule's
   URL, and attach Lean's own `Lean.errorDescriptionWidget` (published with `logMessage`, not
   `logAt`, which would attach a Lean-manual link) so the infoview shows **View explanation**; the
-  message text keeps the URL for clients without widgets. Pinned LSP diagnostics have no
+  message text keeps the URL for clients without widgets. The widget's text alternative is empty,
+  and `warningAsError` promotes these warnings uniformly. Pinned LSP diagnostics have no
   `codeDescription`, and registering an external error name does not redirect Lean's widget, so
   no Lean fork or project JavaScript is used. `linter.regula` (default true, following
   `linter.all`) and `regula.localFoundation` (`classification-only` by default, or a profile)
@@ -221,7 +254,8 @@ not reimplemented as rules. Pin-sensitive interfaces are those of Lean 4.34.0
 [UTF-16 conversion](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Data/Lsp/Utf16.lean),
 [command hooks](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Elab/Command.lean)
 and [`lintDriver`](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/lake/Lake/Config/PackageConfig.lean);
-a toolchain upgrade requalifies them.
+a toolchain upgrade requalifies them. Check the Lean version and commit before pin-sensitive
+inspection; the compiler-dependent account is specified in standard §7.6.
 
 ## Rule examples
 
@@ -232,19 +266,28 @@ RG2002, RG2006) pair; RG2006's pair is the package's `lakefile.lean`, to which t
 phase's invocation, evidence mode, expected IDs, subreasons, message patterns, subjects and full
 primary locations before execution; its [README](../../examples/rules/README.md) gives the
 authoring rules and placeholders. Keep a pair's `correction` sentence and its fixtures in the
-same change.
+same change. The RG5001, RG5002 and RG5003 corrections each preserve exactly
+`∀ n : Nat, n = n`, with the same proof and no new assumptions; only documentation is added.
 
 `Website.ExampleExpectation` has exactly four accepted kinds: positive, compiler rejection (one
 effective error matching the restricted pattern), policy rejection (the expected findings, none
-extra; RG1001's source elaborates and is then rejected) and trusted teaching. RG2001, RG2005 and
-RG3001 instead have **diagnostic demonstrations** of unavailable analysis: completed, authentic
-production of the expected INCOMPLETE finding with the exact source, configuration, mode, rule,
-reason and locations, outside the four kinds, never accepted evidence. A crash, missing response,
-stale source or unrelated error is not a demonstration, and no rule can become conforming by
-expecting its own unavailability; each corrected counterpart runs its applicable completed
-positive checks. The demonstration guarantees (`incomplete_example_refused`,
-`admitDemonstration_sound` and `_complete`, `demonstration_completed`,
-`demonstration_observed_incomplete`, `demonstration_not_accepted`) depend exactly on `propext`,
+extra; RG1001's source elaborates and is then rejected) and trusted teaching. The
+compiler-rejection pattern and the policy-rejection expected-diagnostic specification are
+nonempty; a policy rejection requires completed real checker rejection for the exact source,
+configuration and mode, matching the expected rule ID, the subreason where specified, and the
+expected primary and related source ranges or explicit module or project location. A source-free
+detector keeps its module or project location; an example adapter must not manufacture a source
+range. `Website.ExampleBinding` retains an admitted snapshot, mode and typed `ExampleRequest`;
+`validateBoundExample` checks binding and completion and the exact diagnostic list before
+applying the four-kind policy. RG2001, RG2005 and RG3001 instead have **diagnostic
+demonstrations** of unavailable analysis: completed, authentic production of the expected
+INCOMPLETE finding with the exact source, configuration, mode, rule, reason and locations,
+outside the four kinds, never accepted evidence. A crash, missing response, stale source or
+unrelated error is not a demonstration, and no rule can become conforming by expecting its own
+unavailability; each corrected counterpart runs its applicable completed positive checks. The
+demonstration guarantees (`incomplete_example_refused`, `admitDemonstration_sound` and
+`_complete`, `demonstration_completed`, `demonstration_observed_incomplete`,
+`demonstration_not_accepted`) depend exactly on `propext`,
 `Classical.choice` and `Quot.sound`: Standard-Logical, not Kernel-only. If the initial configuration read fails, the result keeps the original IO
 diagnostic as RG2001, incomplete, with an empty source account and a null effective
 configuration; it cannot qualify as an example or a demonstration. After that read succeeds,
@@ -254,7 +297,8 @@ failure.
 The runner (`Regula.Qualification.RuleExamples`) copies each phase byte for byte into its own
 fresh Core-only adopter workspace (standard §7.8's fresh-workspace form) with empty root build
 output and unique result paths, checks source and configuration readback, runs at most five
-detector invocations concurrently and consumes evidence in registry and phase order. File
+detector invocations concurrently and consumes evidence in registry and phase order. Each
+invocation may launch subprocesses. File
 fixtures are separate from the warning-free positive library used to prepare dependencies. The
 adapters reuse `SourceBinding.withUnchanged`, typed `SourceAudit` outcomes and the documentation
 driver's frozen snapshots and serialize only after snapshot checks complete, so a typed refusal
@@ -262,7 +306,9 @@ or process exception cannot become a qualifying example. The producer captures i
 invocation and effective configuration, including absent files and Lake package overrides;
 copied configuration paths are compared relative to their recorded roots without rewriting
 source or diagnostic identities, a changed effective package override is refused, and neither
-configuration relocation nor a combined `--with-docs` request is authorized. The campaign applies
+configuration relocation nor a combined `--with-docs` request is authorized. The qualifier also
+compares the actual effective configuration and the file or per-surface claim and execution with
+the request. The campaign applies
 `ResultProtocol.admitGuidance` to every result it admits.
 
 An export (corpus schema 1) records the exact sources, commands, original compiler output,
@@ -357,4 +403,5 @@ checker PASS alone.
 
 Lean's authors supply the linter, elaboration, message and Lake APIs; Verso's authors supply
 rendering. Design influences (including con-leche and Microsoft CA1416) and the license notices
-of adapted code are credited in [design influences](design-influences.md).
+of adapted code are credited in [design influences](design-influences.md). No external tool
+defines Lean policy or permits suppressing mandatory requirements.

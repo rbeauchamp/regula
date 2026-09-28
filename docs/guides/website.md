@@ -36,7 +36,8 @@ section's anchor on its chapter page and each linked row's anchor on module 8
 (`Regula.Site.standardAnchors`), each page and anchor the `docs/` Markdown links in the
 development standard (`Regula.Site.documentAnchors`), and the rendered checklist's rows to be
 exactly `Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`; a row is the `id` of an
-element of class `Regula.checklistRowClass`). Every row a rule lists is one of them
+element of class `Regula.checklistRowClass`). It also requires each cited section's source to
+be a module of the library. Every row a rule lists is one of them
 (`guide_checklist_listed`). Which rows a rule lists is reviewed with the rule; the artifact's
 link check requires every anchor in the rendered site. The generator refuses a cited repository
 path that does not exist.
@@ -72,7 +73,8 @@ fails and removes `_site/`:
   `htmlBlock` (`htmlBlock_ok`). Each diff is admitted only when it reproduces both line lists
   (`admitDiff`); a change of only the final line terminator is stated in words. The check
   requires the escaped text of every displayed fixture and finding detail in the rendered page. A
-  file is attributed to a fixture only when its bytes are identical.
+  file is attributed to a fixture only when its bytes are identical. Optional SubVerso
+  highlighting may replace this presentation only with exact source/output correspondence.
 - **The standard.** Every build removes the standard's earlier build outputs and elaborates it
   again, because Lake does not trace the root-package modules its examples import. Each `lean`
   block must elaborate as its kind requires (no error or warning, or an error matching its
@@ -125,7 +127,8 @@ The website package requires the root `regula` package and the Mathlib-dependent
 package by relative path, because the standard's examples import modules of both and Mathlib.
 Like `audit/`, it names the root `.lake/packages` as its packages directory (`packagesDir`), so
 one Mathlib checkout and its artifacts serve every workspace; its Git pins must equal those of
-the packages it requires by path (the documentation check refuses a difference). Verso setup is
+the packages it requires by path (the documentation check refuses a difference). The website
+package and the checker and examples use the same supported Lean release. Verso setup is
 also required before `./scripts/verify.sh docs`, which builds the standard.
 
 Any change to a module source, the corpus or the Lake configuration makes earlier shard
@@ -237,7 +240,8 @@ says so).
 ([contributor guide](contributing.md#develop-and-verify)); it is not part of acceptance.
 In CI the site tooling is built in the preceding step (20-minute step limit) and Verso is
 provisioned from cache by the shared provisioning action (within the job's 45-minute limit on
-a miss). Link checking grows with the number of release editions. Observed timings are
+a miss). Pinned dependencies are cached by toolchain and lock digest; no accepted verdict is
+cached. Link checking grows with the number of release editions. Observed timings are
 observations, not guarantees.
 
 ## Changing a rule

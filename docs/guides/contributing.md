@@ -41,7 +41,9 @@ lake -d audit build                # the Mathlib-dependent package
 ```
 
 Ordinary acceptance builds its checker executables, type-checks the diagnostic
-modules and audits the root package's claimed Lean surfaces from fresh output. It refuses a root
+modules and audits the root package's claimed Lean surfaces from fresh output. It also runs the
+registry and native qualification controls (`qualify combined`, which runs those of
+`qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
@@ -60,7 +62,9 @@ repository states the Lean version, the exact dependency source state (including
 present), the claimed Lake modules, declaration coverage and exact axiom results, execution
 boundaries, the applicable fence and checker-qualification results, and any failures or missing
 evidence. A required check that was skipped leaves its affected row or optional claim
-`INCOMPLETE`; it cannot support conformance.
+`INCOMPLETE`; it cannot support conformance. No CI, publication, merge, actual VS Code
+interaction, or full repository semantic conformance is implied by local acceptance or scoped
+integration results.
 
 ### Share one Mathlib across local copies
 
@@ -169,7 +173,9 @@ change, on every push to `main`, and nightly. They are not part of acceptance.
 ## Implementation and qualification layout
 
 Project-owned implementation is Lean 4; `scripts/verify.sh` is the minimal acceptance
-shell boundary. Additional shell scripts require explicit approval under `AGENTS.md`.
+shell boundary. Additional shell scripts require explicit approval under `AGENTS.md`. Direct
+commands in CI and developer setup examples are invocation recipes, not a second implementation
+language for qualification logic.
 [Proofs and boundaries](proofs-and-boundaries.md) gives the proof/IO split and why the
 integration controls are still necessary. Configuration and external toolchains are
 not claimed as formally verified Lean implementations.
@@ -202,8 +208,9 @@ audits both freshly, with every target built under the options of
   invariant. `checked_executable` registers the exact admission/runner relation through
   `ExecutableContract`, reusing `executeChecked_exact`, and `Main` invokes its `run` with
   `required_contracts`. The total `run` and `execute` remain available, so review inspects the
-  actual caller. The `IO` shell and reached native mechanisms are reported execution boundaries;
-  the pure contracts prove nothing about terminal effects or the compiler. `AuditApp` registers its
+  actual caller. In `report` mode, the `IO` shell and reached native mechanisms are reported as
+  execution boundaries; these pure contracts do not prove terminal effects or compiler/runtime
+  correctness. `AuditApp` registers its
   material claims with `@[regula_material]`, so acceptance checks their docstrings and Intent
   sections.
 - `lean/Fixtures/` holds isolated positive controls and independent mutations, imported by no
@@ -220,9 +227,13 @@ audits both freshly, with every target built under the options of
 
 Two diagnostics apply Regula to the rest of its own code base; neither is part of acceptance.
 `./scripts/verify.sh diagnostics self-lint` runs `lake lint` through the `regula/lint` driver in
-the root package and then in `audit/`, exactly as an adopter does. `./scripts/verify.sh
+the root package and then in `audit/`, exactly as an adopter does. Both packages set
+`lintDriver := "regula/lint"`, so it runs over each package's `foundation_manifest.json` in
+incremental mode and checks the same claimed surfaces as acceptance, through the driver's
+dispatch and exit classes. `./scripts/verify.sh
 diagnostics self-audit` checks the excluded operational `Regula` library: `lake build Regula`
-builds every module warning-free, then `qualify self-audit` inspects each module in its own
+builds every module warning-free (RG2003, because the package sets `warningAsError`), then
+`qualify self-audit` inspects each module of the library as Lake discovers it, each in its own
 worker (several roots define `main`, so the modules cannot share one environment). For each
 module it kernel-replays every owned declaration that is not `unsafe` or `partial` (RG2005,
 `Admission.validate`), decides every declaration record from the live linter's collector
@@ -325,7 +336,10 @@ The [website guide](website.md) specifies the pinned Verso setup, `./scripts/ver
 
 The acceptance transport groups are maintained, capability-triggered diagnostics. Run
 all affected groups when worker dispatch, codecs, joins, request reconstruction or
-terminal output ownership changes. Their positive/refusal/restoration observations
+terminal output ownership changes. A changed worker protocol requires public-entrypoint controls
+for omitted, duplicate and substituted keys, wrong modes and snapshots, worker crash and
+malformed versions; changed library or overlay coverage requires a fresh imported-client control
+and exact Lake inventory checks. Their positive/refusal/restoration observations
 qualify those IO boundaries; `collect_success_iff` and `finalize_iff` already quantify
 universally over supplied finite observations. Do not add the multi-minute groups to
 every ordinary acceptance run. Existing CI builds transitively check all proof and

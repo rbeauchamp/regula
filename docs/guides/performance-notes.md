@@ -65,6 +65,7 @@ name = "perfExample"
 root = "Main"
 ```
 
+This minimal execution example is not an adoption of the standard's surface manifest or audit.
 Its `Main.lean` deliberately adds modulo `2^64`; it does not promise an unbounded sum:
 
 ```lean
@@ -125,7 +126,7 @@ If every prefix must be retained, choose a representation suited to persistent v
 
 *Limits:* persistent snapshots are sometimes the requirement; do not destroy them merely to
 obtain uniqueness. A unique outer object does not make every object inside it unique. Reuse is an
-implementation opportunity, not a linear-type guarantee.
+implementation opportunity, not a linear-type guarantee or a performance theorem.
 
 ## 3. Use update APIs that avoid avoidable sharing
 
@@ -150,7 +151,8 @@ def appendPending (pending : IO.Ref (Array Nat)) (value : Nat) : IO Unit :=
 ```
 
 `IO.Ref` is the IO specialization of `ST.Ref`.[^io] A separate `get`, `push` and `set` can leave
-the old array referenced by the cell during the update.
+the old array referenced by the cell during the update. The update APIs avoid that alias; they
+do not promise zero allocation.
 
 *Limits:* `Array.modify` leaves an invalid index unchanged; an API that promises rejection needs
 an explicit check. Use the safe public interfaces, not their internal unsafe machinery. A
@@ -219,12 +221,14 @@ def rollingWord (seed : UInt64) (words : Array UInt64) : UInt64 := Id.run do
   return acc
 ```
 
-Convert at a representation boundary, then keep the inner calculation concrete; hoist genuinely
-invariant conversions out of loops.
+It is not a cryptographic hash or a demonstration that `Array UInt64` is packed storage. Convert
+at a representation boundary, then keep the inner calculation concrete; hoist genuinely invariant
+conversions out of loops.
 
 *Limits:* use `Nat` or `Int` when the result is unbounded. Fixed-width arithmetic wraps; `USize`
 is platform-sized. Floating-point conversion and reassociation change answers; replacing exact
-arithmetic with floats needs a specification and correspondence.
+arithmetic with floats needs a specification and correspondence. A concrete type enables
+optimization; it does not certify the generated instruction sequence or a speedup on every target.
 
 ## 6. Use compact storage when large numeric collections justify it
 
@@ -246,9 +250,13 @@ def sumSquares (samples : FloatArray) : Float := Id.run do
   return total
 ```
 
+`FloatArray` leaves floating-point semantics unchanged: the example fixes a left-to-right
+accumulation order and does not assert exact real arithmetic or the absence of exceptional values.
+
 A whole-collection conversion can erase the benefit for a short computation, and a logical
 `data : Array …` field does not make extracting it free. Keep generic containers when their API,
-persistence or small size fits better.
+persistence or small size fits better. A `ByteArray` holds bytes, not validated text or wider
+words; byte order, bounds and alignment come from an explicit encoding, not the buffer.
 
 ## 7. Avoid unnecessary passes, intermediate collections and late answers
 
@@ -289,8 +297,9 @@ def cachedOrBuild (cached : Option String) (build : Unit → String) : String :=
   cached.getD (build ())
 ```
 
-*Limits:* two passes may be clearer or reuse a result. Fusion must preserve effects, errors and
-floating-point association.
+*Limits:* two passes may be clearer or reuse a result. The compiler can optimize some
+compositions, so source syntax alone is not an allocation trace. Fusion must preserve effects,
+errors and floating-point association.
 
 ## 8. Build text incrementally and respect UTF-8
 
@@ -311,8 +320,10 @@ def renderLines (lines : Array String) : String := Id.run do
   return output
 ```
 
-Repeated prepending or retaining old outputs has a different cost model. Do not convert a string
-to a character list to scan it; use positions, slices or traversal APIs over the UTF-8 text.
+Each append still costs work proportional to the fragment, and capacity growth sometimes copies
+the output; the pattern avoids recopying the whole prefix on every iteration. Repeated prepending
+or retaining old outputs has a different cost model. Do not convert a string to a character list
+to scan it; use positions, slices or traversal APIs over the UTF-8 text.
 
 *Limits:* byte offsets, code-point positions and user-perceived characters differ. `String.take`
 counts code points and returns a `String.Slice`.[^string-take] `String.Iterator` is an outgoing API;
@@ -340,7 +351,8 @@ def retainPrefix (input : String) : String :=
 
 Borrow while parsing and own at the long-lived result: copying a small token stored in a cache
 lets a large input buffer become unreachable. A view retained while its backing array is updated
-can defeat exclusive reuse.
+can defeat exclusive reuse. A view avoids allocation, not traversal: finding a code-point
+boundary can still scan, and views and copies leave decoding and bounds obligations unchanged.
 
 ## 10. Prefer stack-appropriate traversals and library implementations
 
@@ -368,7 +380,8 @@ where
 ```
 
 Inspect native behavior before rewriting a library function whose logical definition looks
-non-tail-recursive. A termination proof supplies no stack or time bound, and a replacement that
+non-tail-recursive. A tail-recursive traversal can still allocate a large result or retain
+substantial input. A termination proof supplies no stack or time bound, and a replacement that
 changes traversal or arithmetic order needs semantic justification.
 
 ## 11. Match associative containers to the query
@@ -421,8 +434,9 @@ def replaceAt? (xs : Array Nat) (i value : Nat) : Option (Array Nat) :=
 ```
 
 Reuse admitted invariants instead of revalidating internally. The `!` in an API name is not an
-optimization guarantee. Erasure does not remove a runtime `Decidable` branch or a validation
-scan, and an erased classical proof does not make classically chosen data executable
+optimization guarantee. Erasure does not remove a runtime `Decidable` branch, a validation scan,
+ordinary data stored alongside a proof, or every wrapper and typeclass dictionary, and an erased
+classical proof does not make classically chosen data executable
 ([§3.8](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#38-delivering-executable-witnesses-with-required-evidence)).
 
 ## 13. Specialize or inline only at relevant boundaries
@@ -456,15 +470,16 @@ reduction;[^csimp] prefer that, or an existing library replacement, over unsafe 
 unproved replacements. [`Audit.Economy`](../../audit/Audit/Economy.lean)'s `closedSumWithProof`
 returns the closed form with the exact contract `2 * s = n * (n + 1)`, reusing the universal sum
 proof; the proof is erased at runtime. That is checked functional evidence, not a measured
-speedup.
+speedup or a machine-arithmetic cost bound.
 
 ## 14. Batch bulk output and stream inputs
 
 *When:* formatting, small writes or whole-input materialization dominate the useful work.
 
 `IO.FS.Stream` has byte and text operations; output can be buffered and flushing is
-explicit.[^io] Work in byte chunks for binary data, process input incrementally when the whole
-input is not needed, and batch small records:
+explicit.[^io] One output call is not necessarily one operating-system call, so source-level call
+counts do not establish syscall counts. Work in byte chunks for binary data, process input
+incrementally when the whole input is not needed, and batch small records:
 
 ```lean
 import Init
@@ -485,9 +500,10 @@ def writeLinesBatched (stream : IO.FS.Stream) (lines : Array String)
     stream.putStr buffer
 ```
 
-The proof parameter states the configuration domain; it is not a runtime test. This bounds lines
-between writes, not bytes, and receives a materialized array. Arbitrary byte chunks can split a
-UTF-8 encoding, so incremental decoding must keep decoder state.
+The proof parameter states the configuration domain; it is not a runtime test. The function does
+not flush after each batch, and IO failures propagate. This bounds lines between writes, not
+bytes, and receives a materialized array, so it is not a whole-process bounded-memory claim.
+Arbitrary byte chunks can split a UTF-8 encoding, so incremental decoding must keep decoder state.
 
 ## 15. Parallelize coarse independent work
 
@@ -507,9 +523,11 @@ def workPair (work : Array UInt64 → UInt64)
   (pending.get, rightResult)
 ```
 
+The function exposes one parallel opportunity; it does not prove a speedup or force a schedule.
 Divide substantial work into a bounded number of chunks; avoid a task per cheap operation.
 Thresholds and worker counts are workload decisions. A parallel floating-point reduction can
-round differently, and effect ordering and cancellation remain separate obligations.
+round differently, and effect ordering, cancellation and concurrency correctness remain separate
+obligations.
 
 ## 16. Apply the same economy to proofs, builds and metaprograms
 
@@ -537,7 +555,8 @@ heartbeat profiling is selected:[^trace]
 lake env lean -Dtrace.profiler=true -Dtrace.profiler.threshold=20 Path/Module.lean
 ```
 
-This is an elaboration diagnostic, not an application benchmark.
+This is an elaboration diagnostic, not an application benchmark. Do not infer kernel-checking
+time solely from a tactic command's visible duration.
 
 Reuse valid build artifacts during development. `precompileModules` defaults to `false`;
 enabling it for a library builds shared libraries loaded on import, which can accelerate
@@ -550,8 +569,9 @@ name = "MyTactics"
 precompileModules = true
 ```
 
-It does not make the kernel execute compiled code, and the fresh-source and kernel-admission
-evidence of
+This is an entry for an existing package, not a complete configuration or a claim that its source
+exists. It does not make the kernel execute compiled code, and the fresh-source and
+kernel-admission evidence of
 [§7.3](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#73-clean-elaboration-and-diagnostics)
 remains separate.
 
@@ -569,9 +589,11 @@ def containsConstant (expression : Lean.Expr) (target : Lean.Name) : Bool :=
     | _ => false)).isSome
 ```
 
-This is a syntactic search, not definitional equality. Cache only computations whose context
-(environment, local context, metavariable assignments, transparency) is fixed or part of the key,
-and bound the cache's lifetime.
+This is a syntactic search, not a definitional-equality test or a scan of every dependency of the
+named constants. Cache only computations whose context (environment, local context, metavariable
+assignments, transparency) is fixed or part of the key, and bound the cache's lifetime.
+`Expr.replace`'s memoization is evidence about that visitor, not a cache-validity result for other
+metaprograms.
 
 ## 17. Measure the remaining tradeoffs
 
@@ -610,7 +632,7 @@ Lean sources are cited at the `v4.34.0` release tag.
 [^list-impl]: [`Init/Data/List/Impl.lean`](https://github.com/leanprover/lean4/blob/v4.34.0/src/Init/Data/List/Impl.lean): tail-recursive implementations such as `filterMapTR` and `foldrTR` and their `csimp` equalities.
 [^range]: [`Init/Data/Range/Basic.lean`](https://github.com/leanprover/lean4/blob/v4.34.0/src/Init/Data/Range/Basic.lean): `Std.Legacy.Range`, `forIn'` and the `[:stop]` notation.
 [^boxing]: Lean Language Reference, [Boxing](https://lean-lang.org/doc/reference/latest/Run-Time-Code/Boxing/): scalar representations, polymorphic boxing and tagged immediates.
-[^runtime-header]: [`include/lean/lean.h`](https://github.com/leanprover/lean4/blob/v4.34.0/src/include/lean/lean.h): array slots, scalar-array layout, small naturals and the stored string length.
+[^runtime-header]: [`include/lean/lean.h`](https://github.com/leanprover/lean4/blob/v4.34.0/src/include/lean/lean.h): array slots, scalar-array layout, small naturals and the stored string length. These are runtime implementation facts, not guarantees for every future backend.
 [^uint]: [`Init/Data/UInt/Basic.lean`](https://github.com/leanprover/lean4/blob/v4.34.0/src/Init/Data/UInt/Basic.lean) and [`BasicAux.lean`](https://github.com/leanprover/lean4/blob/v4.34.0/src/Init/Data/UInt/BasicAux.lean): machine-word operations and `UInt64.ofNat`/`Nat.toUInt64`.
 [^byte-arrays]: Lean Language Reference, [Byte Arrays](https://lean-lang.org/doc/reference/latest/Basic-Types/Byte-Arrays/), and [`Init/Data/ByteArray/Basic.lean`](https://github.com/leanprover/lean4/blob/v4.34.0/src/Init/Data/ByteArray/Basic.lean).
 [^float-array]: [`Init/Data/FloatArray/Basic.lean`](https://github.com/leanprover/lean4/blob/v4.34.0/src/Init/Data/FloatArray/Basic.lean): runtime-overridden representation, `push`, `forIn` and folds.
