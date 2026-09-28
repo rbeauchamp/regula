@@ -191,14 +191,31 @@ carries no banner.
 
 A release's copy is its GitHub release asset `regula-site-<version>.tar.gz`, attached to the
 release tagged `v<version>`: a gzip-compressed tar archive of that release's edition, paths
-relative to the edition root. A clean build whose `installed` is a release renders that edition
-from its own commit, writes it to `tmp/site-release/regula-site-<version>.tar.gz`, and CI keeps
-it as the `site-release-<commit>` artifact; the release attaches that file. Every other build
-downloads the asset of each release it does not build and refuses a missing or unreadable
-archive, a symbolic link, a copy without a home page, and a copy whose `build.json` does not
-record a clean build of that release for this site. So a release edition cannot silently drop
-out of a deployment: the build fails instead. That the asset stays the one attached at release
-rests on GitHub; immutable releases, a repository setting, would enforce it.
+relative to the edition root. Every build requests the asset of each release (HTTP 404 means
+absent; any other failure refuses) and, when it exists, takes that release's edition from it and
+never renders it again (`Regula.releaseSource`, `releaseSource_asset_iff`). It refuses an
+unreadable archive, a symbolic link, a copy without a home page, and a copy whose `build.json`
+does not record a clean build of that release for this site. Only the build of a release in the
+commit its tag names renders that edition from source, and only while no asset exists
+(`releaseSource_render_iff`); any other build refuses a release without an asset, so a release
+edition cannot silently drop out of a deployment or be replaced. A build whose `installed` is a
+release refuses unless its commit is the one tag `v<version>` names (`labelAdmitted`), read with
+`git ls-remote` because CI checkouts have no tags. That the asset stays the one attached at
+release rests on GitHub; immutable releases, a repository setting, would enforce it.
+
+A release takes these steps, in order:
+
+1. A commit sets `Regula.installed` to the release and appends it to `Regula.releases`
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)). Its site builds, including its
+   pull request's, refuse until step 2.
+2. Tag that commit on `main` `v<version>`, push the tag, then run (or re-run) its site build.
+3. That build renders the release's edition and writes
+   `tmp/site-release/regula-site-<version>.tar.gz`, which CI keeps for only 30 days as the
+   `site-release-<commit>` artifact. Attach that file to the GitHub release `v<version>` as its
+   permanent asset.
+4. The next commit sets `Regula.installed` back to `.unreleased`. Its site build refuses until
+   step 3 is done, and every later build refuses a release label that its commit does not carry
+   as a tag.
 
 Rule IDs are never reused for a changed rule. A retired rule keeps a page (its lifecycle chip
 says so).

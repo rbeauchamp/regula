@@ -10,8 +10,9 @@ be uploaded.
 ## Main declarations
 
 - `render`: run the website package's Verso executable (trusted process boundary).
-- `releaseCopies`: each release's edition before banners: the current build's for the installed
-  release, the fetched copy (`fetchRelease`) for every other release.
+- `releaseCopies`: each release's edition before banners, from `releaseSource`: the frozen
+  copy whenever its release asset exists, and this build's rendered edition only in the tagged
+  build of the installed release before that asset exists.
 - `publishedCopy`: a release's published edition: its copy, with the latest-release banner
   (`outdatedBanner`, `bannerTarget`) inserted into every HTML page (`insertBanner`) when a later
   release exists.
@@ -29,7 +30,8 @@ be uploaded.
 The check observes files this process wrote and read back; it does not observe GitHub Pages.
 That a release's copy is the one made at its release rests on the release asset, which GitHub
 stores; the build refuses a copy that does not record a clean build of that release for this
-site. Deployment is verified separately against the live site (`Regula.Site.Deployment`).
+site, and a build labelled as a release that is not the commit its tag names (`labelAdmitted`).
+Deployment is verified separately against the live site (`Regula.Site.Deployment`).
 -/
 
 namespace Regula.Site.Build
@@ -121,14 +123,19 @@ def buildJson (g : Generated) : Json :=
 private def byPath (files : List (String × ByteArray)) : List (String × ByteArray) :=
   files.mergeSort (fun a b => a.1 ≤ b.1)
 
-/-- Each release's edition before banners, oldest first: the rendered edition with its
-`build.json` for the installed release, and the fetched copy for every other release. -/
-def releaseCopies (root : FilePath) (g : Generated) (edition : List (String × ByteArray)) :
-    IO (List (ReleaseVersion × List (String × ByteArray))) :=
+/-- Each release's edition before banners, oldest first, with its `releaseSource`: the frozen copy
+whenever the release asset exists, and the rendered edition with its `build.json` only in the
+tagged build of the installed release before that asset exists; anything else refuses. `tagged`
+is whether this build's commit is the one the installed release's tag names. -/
+def releaseCopies (root : FilePath) (g : Generated) (edition : List (String × ByteArray))
+    (tagged : Bool) : IO (List (ReleaseVersion × ReleaseSource × List (String × ByteArray))) :=
   releases.mapM fun v => do
-    if installed = .release v then
-      return (v, byPath (edition ++ [("build.json", ((editionJson g).pretty ++ "\n").toUTF8)]))
-    else return (v, ← fetchRelease root v)
+    match releaseSource installed v (← downloadRelease root v) tagged with
+    | some .asset => return (v, .asset, ← extractRelease root v)
+    | some .render => return (v, .render,
+        byPath (edition ++ [("build.json", ((editionJson g).pretty ++ "\n").toUTF8)]))
+    | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist, \
+        and this build is not the build of that release in the commit tagged v{v.spelling}"
 
 /-- The published files of release `v`'s edition, given `copy`, its files before banners, and
 `latestFiles`, the paths of the latest release's edition: the copy itself for the latest release,
@@ -259,17 +266,25 @@ def checkArtifact (root out : FilePath) (g : Generated) (edition : List (String 
 def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
   root / "tmp/site-release" / releaseAsset v
 
-/-- Complete build: admit evidence, generate, render, collect the release editions, assemble and
-check. A clean build of a release also writes that release's edition as its release asset. -/
+/-- Complete build: refuse a release label on another commit than its tag names, admit evidence,
+generate, render, collect the release editions, assemble and check. A clean build that rendered
+its release's edition also writes it as that release's asset. -/
 def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
   if ← out.pathExists then IO.FS.removeDirAll out
   let root ← rootDirectory
   let ident ← identity root
+  let tagged ← match installed with
+    | .release v => headTagged root v ident.revision
+    | .unreleased => pure false
+  requireChecks [⟨s!"a build labelled {installed.spelling} is the commit that tag \
+    v{installed.spelling} names (the commit after a release sets Regula.installed back to \
+    .unreleased)", labelAdmitted installed tagged⟩]
   let g ← evidence root ident evidencePaths
   generate root g
   let edition ← render root (root / "tmp/site-render") ident.revision.val
-  let editions ← IO.ofExcept (publishedCopies (← releaseCopies root g edition))
+  let copies ← releaseCopies root g edition tagged
+  let editions ← IO.ofExcept (publishedCopies (copies.map fun (v, _, files) => (v, files)))
   try
     assemble out g edition editions
     checkArtifact root out g edition editions
@@ -280,7 +295,7 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   IO.FS.removeDirAll (root / "tmp/site-render")
   if ← (releaseDirectory root).pathExists then IO.FS.removeDirAll (releaseDirectory root)
   if let .release v := installed then
-    unless ident.dirty do
+    if copies.any (·.2.1 == .render) && !ident.dirty then
       let package := releasePackage root v
       if let some parent := package.parent then IO.FS.createDirAll parent
       let packed ← run root "tar" #["-czf", package.toString, "-C",

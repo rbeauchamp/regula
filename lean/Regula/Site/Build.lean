@@ -17,7 +17,9 @@ release and checks it.
   proved `ruleExampleQualification` executable, and its recorded checker, corpus and
   configuration bytes equal the current sources.
 - `exampleOf`: the display form of one rule's two admitted records.
-- `fetchRelease`: the permanent copy of a release's edition, from the release's GitHub asset.
+- `headTagged`, `downloadRelease`, `extractRelease`: the observations the release decisions
+  (`labelAdmitted`, `releaseSource`) take: whether the build's commit is the one a release tag
+  names, whether a release's GitHub asset exists, and the permanent copy it holds.
 - `build`: generation, Verso rendering, assembly and `checkArtifact`.
 
 ## Boundaries
@@ -267,18 +269,43 @@ def releaseAssetUrl (v : ReleaseVersion) : String :=
 /-- Scratch directory of the fetched release copies; `<version>/` holds each extracted edition. -/
 def releaseDirectory (root : FilePath) : FilePath := root / "tmp/site-releases"
 
-/-- Fetch and extract the permanent copy of release `v`'s edition and return its files. Refuses
-an unreachable asset, a symbolic link, a copy without a home page, and a copy whose `build.json`
+/-- The commit that tag reference `ref` names in `git ls-remote` output: its peeled `^{}` line
+when the tag is annotated, otherwise its own line. -/
+def taggedCommit (listing ref : String) : Option String :=
+  let entries := (listing.splitOn "\n").filterMap fun line => match line.splitOn "\t" with
+    | [commit, name] => some (name, commit)
+    | _ => none
+  entries.lookup (ref ++ "^{}") <|> entries.lookup ref
+
+/-- Whether `head` is the commit that the repository's tag `v<version>` names. The tag is read
+from the repository with `git ls-remote`, because CI checkouts are shallow and have no tags. -/
+def headTagged (root : FilePath) (v : ReleaseVersion) (head : Commit) : IO Bool := do
+  let listing ← git root #["ls-remote", "--tags", repository]
+  return taggedCommit listing ("refs/tags/v" ++ v.spelling) == some head.val
+
+/-- Download release `v`'s asset into `releaseDirectory` and return whether it exists: HTTP 200
+is present and 404 absent; any other answer or a failed transfer refuses. -/
+def downloadRelease (root : FilePath) (v : ReleaseVersion) : IO Bool := do
+  IO.FS.createDirAll (releaseDirectory root)
+  let archive := releaseDirectory root / releaseAsset v
+  let fetched ← run root "curl" #["--silent", "--show-error", "--location", "--max-time", "120",
+    "--output", archive.toString, "--write-out", "%{http_code}", releaseAssetUrl v]
+  requireChecks [⟨s!"release {v.spelling}: {releaseAssetUrl v}\n{fetched.stderr}",
+    fetched.exitCode == 0⟩]
+  match fetched.stdout.trimAscii.toString with
+  | "200" => return true
+  | "404" => return false
+  | status => throw <| IO.userError s!"release {v.spelling}: {releaseAssetUrl v} answered HTTP \
+      {status}"
+
+/-- Extract the downloaded permanent copy of release `v`'s edition and return its files. Refuses
+an unreadable archive, a symbolic link, a copy without a home page, and a copy whose `build.json`
 does not record a clean build of `v` for this site. -/
-def fetchRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × ByteArray)) := do
+def extractRelease (root : FilePath) (v : ReleaseVersion) : IO (List (String × ByteArray)) := do
   let dir := releaseDirectory root / v.spelling
   if ← dir.pathExists then IO.FS.removeDirAll dir
   IO.FS.createDirAll dir
   let archive := releaseDirectory root / releaseAsset v
-  let fetched ← run root "curl" #["--fail", "--silent", "--show-error", "--location",
-    "--max-time", "120", "--output", archive.toString, releaseAssetUrl v]
-  requireChecks [⟨s!"release {v.spelling}: {releaseAssetUrl v}\n{fetched.stderr}",
-    fetched.exitCode == 0⟩]
   let extracted ← run root "tar" #["-xzf", archive.toString, "-C", dir.toString]
   requireChecks [⟨s!"release {v.spelling}: extract {releaseAsset v}\n{extracted.stderr}",
     extracted.exitCode == 0⟩]

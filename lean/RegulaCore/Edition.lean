@@ -20,14 +20,20 @@ pages, and `dev/` only for an unreleased build.
 - `Edition.url`, `Edition.url_dev_iff`, `helpUrl`, `helpUrl_pagePath`, `helpUrl_release`,
   `helpUrl_unreleased`, `helpUrl_dev_iff`: the help link of a rule targets the installed
   release's page, and `dev/` exactly for an unreleased build.
+- `labelAdmitted`, `labelAdmitted_release`, `releaseSource`, `releaseSource_render_iff`,
+  `releaseSource_asset_iff`: a build carries a release label only as the commit tagged with that
+  release, and renders a release's edition from source only there and before its release asset
+  exists; once the asset exists every build takes the edition from it.
 - `sitePath`, `sitePath_iff`: the route policy of the published artifact: its root files and
   the files of the published editions, nothing else.
 
 ## Boundaries
 
-`installed` and `releases` are data that the release process sets; that a published release's
-edition is served, and is the copy made at that release, is the site build's check and the
-deployment's observation, not a consequence of these definitions.
+`installed` and `releases` are data that the release process sets. Whether a release asset
+exists and which commit a tag names are the site build's observations, which these decisions take
+as inputs; that the asset stays the copy attached at the release rests on GitHub. That a
+published release's edition is served is the deployment's observation, not a consequence of these
+definitions.
 -/
 
 @[expose] public section
@@ -79,8 +85,11 @@ def Build.listedIn (b : Build) (rs : List ReleaseVersion) : Prop :=
 instance (b : Build) (rs : List ReleaseVersion) : Decidable (b.listedIn rs) := by
   cases b <;> unfold Build.listedIn <;> infer_instance
 
-/-- This build of Regula. The release process sets it to the release a commit tags; every other
-commit is unreleased. -/
+/-- This build of Regula. It is `.release v` only in the commit tagged `v<version>`; every other
+commit, including the next one, is unreleased. The site build enforces this: a build labelled
+`.release v` refuses unless its commit is the one tagged `v<version>` (`labelAdmitted`), and it
+renders `v<version>`'s edition from source only in that commit and only before the release
+asset exists, and otherwise takes the frozen asset (`releaseSource`). -/
 def installed : Build := .unreleased
 
 /-- Every published release, oldest first. The release process appends each release. -/
@@ -143,6 +152,48 @@ def Build.edition : Build → Edition
 /-- Only an unreleased build is described by the development edition. -/
 theorem Build.edition_eq_dev_iff (b : Build) : b.edition = .dev ↔ b = .unreleased := by
   cases b <;> simp [Build.edition]
+
+/-- Whether build `b` may carry its label, given whether its commit is the one tagged
+`v<version>` for its release: an unreleased build always, a release only as that commit. -/
+def labelAdmitted : Build → Bool → Bool
+  | .release _, headTagged => headTagged
+  | .unreleased, _ => true
+
+/-- A build labelled as a release is admitted only as the commit its tag names. -/
+theorem labelAdmitted_release {v : ReleaseVersion} {headTagged : Bool} :
+    labelAdmitted (.release v) headTagged = true ↔ headTagged = true := by simp [labelAdmitted]
+
+/-- Where a site build takes a release's edition from. -/
+inductive ReleaseSource where
+  /-- The frozen copy: the release asset attached at the release. -/
+  | asset
+  /-- The edition this build renders from its own sources. -/
+  | render
+  deriving DecidableEq, Repr
+
+/-- The source of release `v`'s edition in a site build of `b`, given whether `v`'s release asset
+exists and whether the build's commit is the one tagged `v<version>`: the asset whenever it
+exists, the rendered edition only in the tagged build of `v` before its asset exists, and
+otherwise `none`, which the build refuses. -/
+def releaseSource (b : Build) (v : ReleaseVersion) (assetExists headTagged : Bool) :
+    Option ReleaseSource :=
+  if assetExists then some .asset
+  else if b = .release v ∧ headTagged then some .render
+  else none
+
+/-- A release's edition is rendered from source only by the build of that release in the commit
+its tag names, before the release asset exists. -/
+theorem releaseSource_render_iff (b : Build) (v : ReleaseVersion) (assetExists headTagged : Bool) :
+    releaseSource b v assetExists headTagged = some .render ↔
+      assetExists = false ∧ b = .release v ∧ headTagged = true := by
+  unfold releaseSource
+  cases assetExists <;> by_cases h : b = .release v ∧ headTagged = true <;> simp_all
+
+/-- Once a release asset exists, every build takes that release's edition from it. -/
+theorem releaseSource_asset_iff (b : Build) (v : ReleaseVersion) (assetExists headTagged : Bool) :
+    releaseSource b v assetExists headTagged = some .asset ↔ assetExists = true := by
+  unfold releaseSource
+  cases assetExists <;> by_cases h : b = .release v ∧ headTagged = true <;> simp_all
 
 /-- The editions every deployment publishes: the development edition and each release's. -/
 def published : List Edition := .dev :: releases.map .release
