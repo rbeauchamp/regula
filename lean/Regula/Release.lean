@@ -372,15 +372,12 @@ def editionCommit (repo parent edition message : String) : IO String :=
 private def mainHead (repo : String) : IO String := do
   str (← IO.ofExcept ((← ghGet s!"repos/{repo}/git/ref/heads/main").getObjVal? "object")) "sha"
 
-/-- The open pull request from `branch`, with the details GitHub computes for one pull request
-(such as `mergeable`, which is `null` until GitHub has computed it), if there is one. -/
+/-- The open pull request from `branch`, if there is one. -/
 private def openPull (repo branch : String) : IO (Option Json) := do
   let owner := (repo.splitOn "/").head!
   let pulls ← IO.ofExcept
     (← ghGet s!"repos/{repo}/pulls?state=open&head={owner}:{branch}").getArr?
-  let some pull := pulls[0]? | return none
-  let number ← IO.ofExcept (pull.getObjValAs? Nat "number")
-  return some (← ghGet s!"repos/{repo}/pulls/{number}")
+  return pulls[0]?
 
 /-- `s` percent-encoded for a URL query value: every byte outside RFC 3986's unreserved set. -/
 def percentEncode (s : String) : String :=
