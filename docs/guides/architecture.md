@@ -70,7 +70,9 @@ To add or change a rule:
 4. Preserve existing qualification controls and qualify the changed admission and output paths
    (standard [§7.8](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#78-qualify-checker-implementations-with-independent-mutations)).
 
-Never reuse an ID for a changed predicate. `Lifecycle.retired` keeps the descriptor as a tombstone
+Metadata text, a nonempty mode list and a green build are not proofs of detector adequacy, and a
+lifecycle or predicate change still requires semantic review. Never reuse an ID for a changed
+predicate. `Lifecycle.retired` keeps the descriptor as a tombstone
 with its introduction, retirement and optional replacement, which carries a proof that it is a
 different ID. Every current rule is active and unreleased. Checklist rows of the standard are not
 diagnostic IDs.
@@ -82,17 +84,28 @@ diagnostic IDs.
 locations, evidence mode, claim context, strict impact and display severity; collections store
 the dependent pair `Finding`, so no invalid rule/payload combination exists. `makeDiagnostic`
 requires the mode to be one the descriptor supports. Strict impact is `violation` or
-`incomplete`; display severity cannot change it or the acceptance decision.
+`incomplete`; display severity cannot change it or the acceptance decision. The profile and
+execution parsers stay the configuration authority: claim text in a diagnostic describes that
+context and is not an independent policy decision.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
 bounds, character boundaries, ordering and containment; missing ranges fall back to module
 attribution, and an inconsistent supplied range fails rather than acquiring an invented
-location. Report lines are one-based and columns count Unicode code points; `startUtf16` and
+location. `sourceFromReport` additionally requires the recorded code-point and UTF-16 coordinates
+to agree with that text. Report lines are one-based and columns count Unicode code points; `startUtf16` and
 `endUtf16` are zero-based UTF-16 columns within their lines, computed with Lean's
 `leanPosToLspPos`. Fence findings use labelled virtual snippet locations, never Markdown
-coordinates. Names are encoded structurally (tagged string and numeric components, outermost
-first) by `Regula.StructuralName`, never through printed forms.
+coordinates. Filesystem paths stay native diagnostic filenames; project reports may keep
+disposable source-copy paths as evidence beside the actual source text, without asserting that
+those paths stay live after the run, and no textual path substitution is applied. Names are
+encoded structurally (tagged string and numeric components, outermost first) by
+`Regula.StructuralName`, never through printed forms, and display-only worker records cannot
+supply a declaration diagnostic. `parseDiagnostic` reconstructs the indexed payload and admitted
+source location and compares the input with its canonical re-encoding, refusing unknown fields,
+unsupported modes and IDs, invalid coordinates and altered redundant text or help URLs; the
+proved name, ID and mode codec laws are not a proof of Lean's JSON parser, `FileMap` or the
+complete diagnostic decoder.
 
 ## Evidence modes and results
 
@@ -104,7 +117,15 @@ unresolved obligations. Status is `completed`, `rejected`, `incomplete` or `clas
 completed and were accepted, never whole-standard conformance; the report account behind it and
 its proof obligations are in [proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary).
 Internal failures are incomplete, never fabricated violations or empty successes, and an editor
-snapshot never becomes a project result.
+snapshot never becomes a project result. Source compilation is distinct from later inspection: a
+normal pinned-compiler exit with a source-located error or warning can establish an emitted
+diagnostic, while crashes, termination and inspection exceptions are incomplete, and flattened
+Lake build failures stay incomplete with the original text kept; neither permits acceptance.
+Combined project and documentation output stays incomplete while its documentation stage is
+pending. Recognizable output destinations are invalidated before argument parsing (an
+unadmitted configuration writes null `scope` and `mode` with an incomplete status), so callers
+require the current invocation's successful completion and never reuse an earlier report after a
+failed command.
 
 ## Output schemas
 
@@ -138,14 +159,35 @@ metadata, not authenticated binary identity.
   `ResultProtocol.guidanceFields`, derives these members for writer and reader, and
   `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
-- **Snapshot rendering:** a result renders its audited sources in full, the configuration by URI
-  and each dependency by package, pinned revision and input-scoped `dirty` bit (a dirty or path
-  dependency as `{package, revision, dirty: true}`, with no content identity). It omits imported
-  module lists. The run still freezes and rechecks every captured byte in memory; only the
-  serialization is bounded, so a result's size follows the audited project, not its dependencies.
+- **Scope:** In `axiomGate` and `ruleExamples` results, `scope` keeps the project
+  configuration files in full (`scope.configuration`). File `scope.report` and project
+  `scope.surfaces[*].report` keep the complete observed declaration and execution inventories,
+  including trusted boundaries and correspondence evidence; project scope also keeps its source
+  snapshots, Lake library inventory and completed stage names. File scope keeps its nullable
+  foundation claim, execution claim and exact source even without findings.
+- **Acceptance account:** a completed result's `acceptance.account` renders the report account:
+  `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
+  `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
+  implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
+  per-environment `execution` counts, `fences` by expectation, `trusted` mechanisms and the run's
+  `unresolvedReview` identifiers. A completed envelope's `mode` is the account's, and a listed
+  identifier names an open obligation, not a completed review.
+- **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
+  configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
+  bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content
+  identity). It omits imported module lists. The run still freezes and rechecks every captured
+  byte in memory; only the serialization is bounded, so a result's size follows the audited
+  project, not its dependencies.
+
 - **Worker transport:** a separate protocol with its own version, request identity and
   producer/toolchain binding. Wire results carry observations, never proofs or an accepted flag;
   the parent revalidates and reruns the pure decision.
+- **Site artifact:** `axiomGate --validate-site REGISTRY ARTIFACT` admits an object with `required`
+  and `emitted` rule-ID arrays and `pages`, each page with `id`, `route` and `checkedExample`. It
+  requires the expected producer and registry, unique and complete required pages, canonical
+  routes and checked examples, and every emitted ID within the required scope, and refuses unknown
+  fields. The site builder supplies the observed inventory and checked-example evidence; the
+  validator does not prove filesystem or compiler observations.
 
 ## Enforcement paths
 
@@ -200,7 +242,10 @@ production of the expected INCOMPLETE finding with the exact source, configurati
 reason and locations, outside the four kinds, never accepted evidence. A crash, missing response,
 stale source or unrelated error is not a demonstration, and no rule can become conforming by
 expecting its own unavailability; each corrected counterpart runs its applicable completed
-positive checks. If the initial configuration read fails, the result keeps the original IO
+positive checks. The demonstration guarantees (`incomplete_example_refused`,
+`admitDemonstration_sound` and `_complete`, `demonstration_completed`,
+`demonstration_observed_incomplete`, `demonstration_not_accepted`) depend exactly on `propext`,
+`Classical.choice` and `Quot.sound`: Standard-Logical, not Kernel-only. If the initial configuration read fails, the result keeps the original IO
 diagnostic as RG2001, incomplete, with an empty source account and a null effective
 configuration; it cannot qualify as an example or a demonstration. After that read succeeds,
 early terminal failures keep the producer's request and any configuration captured before the
@@ -274,7 +319,7 @@ the rows whose review or mechanical check the clauses feed, not that those rows 
 | 1.3–1.6 | SCOPE-02–05, TYPE-02/05, THEOREM-01/07/08, DOC-01/02, DECL-01–04, COMP-01–04. Explicit constrained parameters fall under TYPE-01/02 and THEOREM-01/03. |
 | 2.1–2.4 | TYPE-01–06, SCOPE-03, THEOREM-03/07/08. Tags, totalized domains, assumptions, reuse and refinement have distinct obligations. |
 | 3.1–3.5 | THEOREM-01–06/10, TYPE-03/05, FOUND-01–05, DOC-01/02. Proof readability and economy recommendations are review guidance, not mandatory tactic or size rules. |
-| 3.6–3.8 | COMP-01–04, SCOPE-03/05, THEOREM-01/03/05/07, BUILD-02/03. Metaprogram output validity is not producer correctness; §3.6 requires an optimization to preserve the contract it optimizes ([performance notes](performance-notes.md) are guidance). |
+| 3.6–3.8 | COMP-01–04, SCOPE-03/05, THEOREM-01/03/05/07, BUILD-02/03. Metaprogram output validity is not producer correctness; §3.6's contract obligation includes optimizations, which meet the same contract ([performance notes](performance-notes.md) are guidance). |
 | 3.9–3.10 | THEOREM-04/08/09, SCOPE-02/03, DOC-02, FOUND-01/02. Conditional and open claims are not rejected for lacking an antecedent witness. |
 | 4.1–4.4 | TYPE-01–05, THEOREM-01/02/07/08, SCOPE-02/03. Numeric and mathematical-interface adequacy are specified-domain obligations. |
 | 4.5 | FOUND-01–05, BUILD-02, COMP-01. The exact least label is reported separately from the selected maximum and from executable witnesses. |
@@ -301,8 +346,12 @@ The site's [checklist coverage](https://rbeauchamp.github.io/regula/dev/coverage
 every checklist row with the rules whose explanation lists it and the obligations it carries,
 generated from each rule's `checklist` and each obligation's `Residual.rows` and inverted by
 construction (`Regula.Site.mem_rulesOfRow`, `mem_residualsOfRow`). A row no rule lists is
-semantic review only. Which rows a rule lists and which an obligation carries are reviewed with
-the rule or obligation, against each row's required verification.
+semantic review only. Every obligation carries at least one row, each a checklist row
+(`residual_rows_listed`), and every checklist row carries at least one obligation
+(`residualsOfRow_ne_nil`), both kernel-checked. Which rows a rule lists and which an obligation
+carries are reviewed with the rule or obligation, against each row's required verification; the
+kernel checks cover only membership and coverage, and no row passes on a presence check or a
+checker PASS alone.
 
 ## Credits
 

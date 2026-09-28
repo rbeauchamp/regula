@@ -225,7 +225,7 @@ the call through each success owner.
 | RG2004 | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | RG3001, RG3002 | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff` | The theorems cover the supplied unresolved paths and boundaries, not complete root and closure discovery or external runtime correctness. |
 | RG4003 | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
-| RG5002, RG5003 | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff`, `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
+| RG5002, RG5003 | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
 | RG2001–RG2005, RG4001–RG4004, RG5001–RG5003 | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
 
 **Correspondence resource bound.** `checkCorrespondenceProof` gives the kernel Lean's
@@ -241,7 +241,11 @@ check and other growth in the worker, so after one exhaustion later checks may e
 they fail closed as unresolved. At most three report workers run, so checks add at most 3 GiB
 above those workers' first-check peaks; that increment does not by itself bound the audit's
 total memory. Supplied and discovered theorem candidates are tried before the kernel-defeq check,
-and kernel resource exhaustion is never conflated with rejection. Mapping the kernel result to
+and kernel resource exhaustion is never conflated with rejection; a theorem candidate whose
+admission exhausts the kernel supplies no evidence, like any candidate the deliberately incomplete
+search cannot use. The correspondence cache in `Probe.environmentReport` stores checked results by
+name pair within one fixed environment, and replacement-history worker output is shared within one
+audit only under identical inputs (standard §7.6); no cache crosses environments. Mapping the kernel result to
 the observed outcome is checked by inspection, and the kernel decision itself is trusted.
 
 ## Producers
@@ -286,10 +290,16 @@ inferred from any pure proof.
   with its owning module and the earlier visit that queued it, and separate edge channels
   (`compilerEdges` from retained IR; `logicalEdges`; `candidateEdges`, every constant-equality
   candidate; `historyEdges`; `currentReplacementEdges`; `activeSimplificationEdges`;
-  `helperEdges`; `requiredCode` and `unavailableCode`). Their union is a conservative traversal,
-  not a selected or minimal call graph. Retained IR edges use the declaration step of Lean's
-  pinned `IR.CollectUsedDecls.collectDecl`, a specialized API that a toolchain upgrade must
-  requalify. **Proved:** `ExecutionClosure.discovery_induction`, `nodes_induction` and
+  `helperEdges`; `requiredCode` and `unavailableCode`, where a nonempty unavailable subset requires
+  unresolved execution). Their union is a conservative traversal, not a selected or minimal call
+  graph; a missing closure never yields an empty boundary set. Every enqueue site records its edge
+  and parent visit together, and visited-name suppression stops recursion without deleting self
+  edges. Retained IR edges use the declaration step of Lean's pinned
+  `IR.CollectUsedDecls.collectDecl`, because `collectUsedDecls` also inserts the declaration itself
+  and filtering its result would discard genuine recursive calls; this specialized API is
+  requalified on a toolchain upgrade. `Environment.validate` calls `admitExecution` at producer
+  and decoder boundaries; missing or inconsistent observations refuse inspection, so no omitted
+  record becomes a clean result. **Proved:** `ExecutionClosure.discovery_induction`, `nodes_induction` and
   `admitExecution_preserves` (over the executed admission, not a separate graph model): for a
   closure satisfying `DiscoveryOK` (respectively `Valid`), a predicate true at the root and
   preserved by each recorded edge holds at every visit (respectively every admitted node), and a
@@ -344,9 +354,11 @@ with a literal-pathspec status:
 Under G3 and G4 an input inside an untracked nested repository or a modified submodule reads
 dirty, which is conservative. Otherwise the two decisions agree on the trusted premise that Git
 reports a path with the same case and Unicode form as the declared input; membership compares
-bytes exactly. On a case-insensitive filesystem, an input under an untracked directory whose
-spelling differs from the disk's only by case reads clean; only the reported bit, never a
-captured byte, is affected. Non-UTF-8 fields are dropped, since they cannot equal a declared
+bytes exactly. Observed with Git 2.54 and `core.ignorecase`, literal pathspecs also matched
+tracked paths and final components byte for byte, and the one divergence was an input under an
+untracked directory whose leading components differ from the on-disk spelling only by case on a
+case-insensitive filesystem: the unrestricted status spells the on-disk path, so that input reads
+clean. Only the reported bit, never a captured byte, is affected. Non-UTF-8 fields are dropped, since they cannot equal a declared
 input. Every declared input's bytes are still read and UTF-8-decoded, and the terminal recheck
 recaptures them.
 
@@ -446,7 +458,10 @@ before/after snapshots, the observed request decoding to the frozen one, exit at
 in the bound snapshot, findings equal to the parsed diagnostics, one of three kinds, and
 `DemonstrationOK` for a demonstration); it proves nothing about the producer that wrote the
 record. `RuleExampleProjection.qualify_record` and `qualifyCorpus_records` give exact equality at
-the adapter's canonical record constructor and over the full corpus.
+the adapter's canonical record constructor and over the full corpus, including ordered scans,
+completeness and first refusals; their structural raw-tree laws avoid assuming parser
+well-formedness, and they do not authenticate parsing, duplicate-key handling, serialization,
+hashes, filesystem custody or subprocesses.
 
 The runner's schedule is the pure `RegulaQualification.CorpusWindow`: `launched_le` (launched but
 unconsumed tasks within the width), `launch_order` (every job launched once, in order),
@@ -456,15 +471,24 @@ unconsumed tasks within the width), `launch_order` (every job launched once, in 
 workspaces). Task scheduling, `IO.asTask`/`IO.wait` and process reaping are trusted. The
 runner shares one private copy of the root package and the captured dependency roots with every
 producer and records a content identity of every entry (path, `lstat` kind, length, 64-bit native
-hash) before any producer and after all are joined; equality shows the end state equals the start,
-not that no write occurred. Git facts are captured once and injected into producers by exact
+hash) before any producer and after all are joined, and a difference refuses the run; equality
+shows the end state equals the start, not that no write occurred. The runner never changes shared
+dependency permissions, so a deadline kill cannot leave the dependency trees read-only. Git facts are captured once and injected into producers by exact
 request (`ruleExamples --injected-git-facts`; results carry `"gitFacts": "injected"`, and
 `axiomGate` rejects the flag): `Snapshot.assemble_facts_eq` and `stateOfCore_congruence` show
 equal facts give identical captures and bytes, and the campaign rechecks the shared trees once at
 the end. Root processes, concurrent external writers, filesystem honesty, hash collisions and
-writes restored before the terminal check are trusted. The final export's only writer,
-`saveCompleted`, requires the `Cleaned` witness that `withScratchCleaned` constructs after
-scratch removal; `COMPLETED` attests what finished, while the run's verdict is its exit status.
+writes restored before the terminal check are trusted. Records use a qualification-only view
+(top-level `acceptance` and `documentationAcceptance` payloads null, every key and raw-tree shape
+kept), with the exact detector bytes in `PATH.raw/ATTEMPT/RULE/PHASE/result.json`. Partial exports
+remain `INCOMPLETE`. The runner does not re-read its own sidecars and requires unchanged terminal
+checker sources before the final export, whose only writer, `saveCompleted`, requires the
+`Cleaned` witness that `withScratchCleaned` constructs after scratch removal. `COMPLETED` attests
+what finished; the run's verdict is its exit status: a deadline kill before the final save leaves
+`INCOMPLETE` and partial files, a kill after it still fails the run, and every write inside the
+killed process group is followed by an exit tail, so no such file is itself a verdict. Stream
+retention on kill covers completed lines already read; only terminal observations claim complete
+streams.
 
 ## Qualification ledger
 
@@ -505,9 +529,17 @@ baseline/cached-environment controls with exact equality); `producers`, `history
 `fence-evidence`, `frozen-exits`, `input-inventory`, `documentation-dependencies`,
 `receipt-boundaries`, `acceptance fences`, `acceptance-snapshots dependencies|history|git-status`
 (the dirty decision against a literal-pathspec status for G1–G3), `environments` and
-`self-audit`. `checkerSelftest --policy-domain-only`, `--native-adopter-only` and
-`--forced-collector-only` qualify public adopter imports, forbidden probe imports, the production
-linter import and the force-loaded collector.
+`self-audit`. `checkerSelftest --policy-domain-only` qualifies strict transport, external-adopter
+public imports, forbidden probe imports, recursion-helper execution coverage and positive-file
+warnings (a positive `freshFile` claim rejects warnings, including those emitted after a source
+disables `warningAsError`); `--policy-transport-only` repeats just its parser, decoder and
+admission controls; `--native-adopter-only` and `--forced-collector-only` qualify the production
+linter import and the force-loaded collector. The pinned compiler leaves some generated
+recursive-datatype helpers without standalone IR: the probe recognizes the inductive and recursor
+relationship for that specific absence while keeping the helper as a root with its full source,
+runtime-boundary and replacement-history checks, and retained compiler edges still require IR;
+the public controls include both an authored tagged lookalike and a runtime-modified genuine
+helper.
 
 **The manifest** (`Checker.Manifest`, excluded library; axioms bounded to Standard-Logical by
 the module's `collectAxioms` command). `parse_sound` and `parse_input`: every manifest the executed
@@ -542,16 +574,42 @@ deliver. The variants that rewrite the `AuditApp` surface after derivation are n
 `diagnostics structural` passed locally in 572 s without the deadline (observed 2026-09-27); it
 exceeds the 420-second budget, so it is not a CI job.
 
-**Other proved oracles:** `Checks.evaluate_success`, `evaluate_error` and `evaluate_append`
-(`checked_evaluation`); `Registry.validate_exact`; `Native.validate_exact`,
-`nativeMatches_exact`, `compilerMatches_exact`; `Json.validateDecoded_exact` with
-`History.requirements` and `Producer.requirements` (not a proof that Lean's JSON parser matches a
-formal JSON specification); `Evidence.checked_validation` and `checked_documentation`;
-`Launcher.admit` and `checked_equivalence`; `Template.instantiate` (the required `Maps` proof for
-the recursive JSON transformation, refusing at depth 64); `RegulaVerification.parseMode_sound`,
-`parseMode_roundtrip`, `select_exact` and `commands_nonempty`; `dependencyFree` (the root lock
-manifest records no dependency). The IO drivers call each `ExecutableContract.run`, so the
-evidence is required by their source linkage and erased at execution.
+**Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
+`ExecutableContract.run`, so the evidence is required by their source linkage and erased at
+execution, and calling a proved oracle does not prove the driver or its IO effects.
+
+- `Checks.evaluate_success`: evaluation succeeds exactly when every supplied assertion holds;
+  `evaluate_error` identifies the satisfied prefix and first false assertion, and
+  `evaluate_append` specifies composition (`checked_evaluation` requires all three). An empty
+  conjunction is permitted; each protocol supplies its own nonempty, explicit requirements.
+- `Registry.validate_exact`: success exactly when the exit is nonzero, the root is an object,
+  status is explicitly `incomplete` and the seeded `old` key is absent (present-null is not
+  absent).
+- `Native.validate_exact`: success exactly when compiler messages match in order and length,
+  native identities match with multiplicity, exit outcome and stderr agree, native file,
+  severity and help fields agree and any requested detail is present; `nativeMatches_exact` and
+  `compilerMatches_exact` state the field and ordered-list relations.
+- `Json.validateDecoded_exact`: a decoding error always refuses; success exactly when decoding
+  yields assertions that all hold. `History.requirements` and `Producer.requirements` spell out
+  the mandatory fields; neither proves the observations were extracted truthfully or that Lean's
+  JSON parser matches a formal JSON specification.
+- `Evidence.checked_validation` and `checked_documentation`: exact conjunctions of decoded status,
+  diagnostic, exit and transcript requirements, including distinct fence and project admission
+  messages and the underlying IO reason.
+- `Launcher.admit`: a proof-bearing mapping with nonempty unique names and both required search
+  paths, admitting every valid decoded mapping; `checked_equivalence` requires exactly 42
+  observations and full ordered equality of source, arguments, streams, exit, environment and
+  resolved executable. Lake's environment is cached only within one invocation; neither
+  observations nor compiled artifacts are reused, environment values are not exported, and
+  durations are observations, not a speed guarantee or compiler-equivalence theorem.
+- `Template.instantiate`: the required `Maps` proof for the recursive JSON transformation (array
+  order, object keys and scalar kinds preserved; only entire matching string values change;
+  depth exhaustion refuses, and the corpus uses 64 levels). Checker snapshots discover modules
+  through Lake's elaborated inventory, not a source glob.
+- `RegulaVerification.parseMode_sound`, `parseMode_roundtrip` and `select_exact`: exact argument
+  binding and acceptance of every documented invocation; `commands_nonempty` rules out an empty
+  selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
+  accepts has an empty `packages` array. Process execution remains IO.
 
 ## Operational assumptions
 
@@ -560,7 +618,10 @@ public invocation runs under one non-foreground GNU timeout owning the whole pro
 including descendants with inherited output handles; OS scheduling and signal delivery are
 trusted, not a real-time theorem. Acceptance passes an internal `--under-deadline` flag to
 `qualify` so it does not detach a nested timer; the flag is not a bounded standalone invocation.
-Direct `lake exe qualify` campaigns have one 420-second process-group deadline. Each public
+Direct `lake exe qualify` campaigns have one 420-second process-group deadline. Before
+provisioning and any checker build, `scripts/verify.sh` has `RegulaVerification` invalidate the
+selected mode's earlier PASS or accepted link and remove an earlier site artifact (the private
+`--begin-attempt` flag), so a failed setup or build cannot leave either in place. Each public
 invocation replaces its receipt with a fresh incomplete attempt before any fallible timeout
 selection or spawn, and `qualify receipt-boundaries` exercises those failures. Scratch
 directories are removed on normal or exceptional return; a killed run's directory is reclaimed by

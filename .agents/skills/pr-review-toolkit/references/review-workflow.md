@@ -9,7 +9,7 @@ Use AGENTS.md for required reading, independent review, and verification policy.
 
 For a diff, cover changed claims and their dependencies. Include a baseline defect when
 it contradicts the claimed result; unrelated defects do not turn a scoped review into a
-repository-wide audit. Full compliance covers every applicable module 8 row and surface.
+repository-wide audit. Full compliance covers every applicable module 8 row, the repository's DOGFOOD-* rows (docs/guides/contributing.md), and every surface.
 
 ## Independent review
 

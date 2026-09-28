@@ -646,7 +646,7 @@ tag := "36-contracts-for-executable-and-effectful-mechanisms"
 number := false
 %%%
 
-*Requirement*: Every material behavior claimed for an owned executable component has explicit contracts checked against its actual Lean definitions. Each contract states exactly the guarantee its mechanism provides on the pinned toolchain. Executable partiality, logical opacity, and unsoundness are different properties and MUST NOT be conflated. An optimization MUST preserve the intended result, input domain, error behavior, and relevant ordering of effects; a faster implementation of a different specification is not an optimization of the original contract.
+*Requirement*: Every material behavior claimed for an owned executable component has explicit contracts checked against its actual Lean definitions. Each contract states exactly the guarantee its mechanism provides on the pinned toolchain. Executable partiality, logical opacity, and unsoundness are different properties and MUST NOT be conflated. This includes optimizations: an optimized implementation MUST meet the same contract, so an optimization preserves the intended result, input domain, error behavior, and relevant ordering of effects; a faster implementation of a different specification is not an optimization of the original contract.
 
 *What each mechanism guarantees on the pinned toolchain*:
 
