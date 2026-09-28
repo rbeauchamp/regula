@@ -359,9 +359,14 @@ record lands on `main` before anything is published:
 1. **open** ([`release.yml`](../../.github/workflows/release.yml)) creates the release commit, a
    child of the `main` commit the workflow runs on that sets `Regula.installed` to the release,
    appends it to `Regula.releases` ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean))
-   and records it as the release that introduced every rule still marked `.active "unreleased"`
-   ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean); a release build with an unreleased
-   rule does not build, `release_attributes_rules`).
+   and stamps it into every rule lifecycle position still `.unreleased`
+   ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a line that
+   starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new rule states
+   `lifecycle := .active .unreleased`, and a rule retired since the last release states
+   `lifecycle := .retired (.release ⟨X, Y, Z⟩) .unreleased replacement` on one line. The stamp is
+   a convenience; `release_attributes_rules` is the check: when `Regula.installed` is a release,
+   no lifecycle position of any rule is `.unreleased`, so a release commit that misses one does
+   not build.
    GitHub creates and signs it, and the step refuses unless GitHub verified the signature. It
    pushes the commit as `release/v<version>`, starts its checks and opens the pull request
    `release: Regula v<version>`, which merges through normal review like any other. Its site
@@ -389,6 +394,9 @@ refuses every other commit that carries the label, after making sure the reset p
 open, and the site build refuses them too, so `main` deploys nothing else until the reset merges.
 The decision is `Regula.Release.tagAction`, whose theorems the kernel checks each time the step
 runs (`tagAction_converges`, `tagAction_published` and the exact cases of each action).
+While `main` installs a release (from the release merge until the reset merge), a pull request
+that adds or retires a rule waits for the reset pull request, because `release_attributes_rules`
+refuses its `.unreleased` lifecycle position until then.
 
 Each step resumes when its job is re-run: **open** updates its branch and keeps an open pull
 request; **reset** only makes sure the reset pull request is open, so it leaves an open one's

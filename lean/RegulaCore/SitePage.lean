@@ -210,9 +210,9 @@ private def joinComma (xs : List String) : String := String.intercalate ", " xs
 /-- The lifecycle sentence of a retired rule's chip: the release that retired it and its
 replacement. -/
 def lifecycleText {id : RuleId} : Lifecycle id → String
-  | .active introduced => "Active since " ++ introduced
+  | .active introduced => "Active since " ++ introduced.spelling
   | .retired introduced version replacement =>
-      "Retired in " ++ version ++ " (introduced " ++ introduced ++ ")" ++
+      "Retired in " ++ version.spelling ++ " (introduced " ++ introduced.spelling ++ ")" ++
       (match replacement with | some r => "; replaced by " ++ r.val.spelling | none => "")
 
 /-- Where a finding of each evidence mode is reported, as the index shows it. The two project

@@ -18,8 +18,8 @@ A release's version is the Lean release in `lean-toolchain`, the Lean ecosystem'
 (`v4.34.0` for `leanprover/lean4:v4.34.0`), so there is at most one release per supported
 toolchain. `open` creates the release commit as a child of the `main` commit the workflow runs
 on: that commit with `Regula.installed` set to the release, the release appended to
-`Regula.releases` (`RegulaCore/Edition.lean`), and every rule still marked `.active "unreleased"`
-stamped as introduced by the release (`RegulaCore/Rule.lean`, `stampRules`). GitHub creates and
+`Regula.releases` (`RegulaCore/Edition.lean`), and the release stamped into every rule lifecycle
+position still `.unreleased` (`RegulaCore/Rule.lean`, `stampRules`). GitHub creates and
 signs it, and `open` refuses unless GitHub reports its signature verified; it then opens its pull
 request, which merges through normal review. On `main`, once acceptance and the rule-example
 shards pass on a commit that carries the release label, `tag` names it `v<version>`
@@ -50,9 +50,10 @@ observed, not proved. `tagAction` is the decision the tag step executes, and its
 checked by the kernel each time `lean --run` elaborates this file; what the step observes
 (whether the release is published, the head of `main`, the tag) and the tag write are GitHub's.
 The edits of `RegulaCore/Edition.lean` and `RegulaCore/Rule.lean` are text: `open` and `reset`
-read their own output back and refuse unless it names the intended build, releases and stamps,
-and the kernel checks the edited modules' theorems (`releases_ascending`, `installed_listed`,
-`release_attributes_rules`) when each pull request's checks build them.
+read their edit of `Edition.lean` back and refuse unless it names the intended build and
+releases, and the kernel checks the edited modules' theorems (`releases_ascending`,
+`installed_listed`, `release_attributes_rules`, `lifecycle_listed`) when each pull request's
+checks build them.
 -/
 
 namespace Regula.Release
@@ -78,7 +79,7 @@ def Version.spelling (v : Version) : String := s!"{v.major}.{v.minor}.{v.patch}"
 /-- The tag of the release. -/
 def Version.tag (v : Version) : String := "v" ++ v.spelling
 
-/-- The literal `RegulaCore.Edition` writes for the version. -/
+/-- The literal `RegulaCore.Edition` and `RegulaCore.Rule` write for the version. -/
 def Version.literal (v : Version) : String := s!"⟨{v.major}, {v.minor}, {v.patch}⟩"
 
 /-- Three decimal components separated by dots, and nothing else. -/
@@ -129,20 +130,15 @@ def releasesOf (edition : String) : Except String (List Version) := do
     | some v => return v
     | none => throw s!"unexpected release literal {literal}"
 
-/-- The lifecycle a rule states until a release introduces it (`Regula.unreleasedIntroduction`). -/
-def unreleasedLifecycle : String := "lifecycle := .active \"unreleased\""
-
-/-- `RegulaCore/Rule.lean` with every rule still marked `unreleasedLifecycle` stamped as
-introduced by release `v`. Read back: refused if a rule still records the unreleased
-introduction, active or retired. The kernel checks the result (`release_attributes_rules`) when
-the release commit builds. -/
-def stampRules (rules : String) (v : Version) : Except String String := do
-  let stamped :=
-    rules.replace unreleasedLifecycle ("lifecycle := .active \"" ++ v.spelling ++ "\"")
-  for marker in [unreleasedLifecycle, "lifecycle := .retired \"unreleased\""] do
-    unless (stamped.splitOn marker).length == 1 do
-      throw s!"RegulaCore/Rule.lean still has `{marker}` after stamping"
-  return stamped
+/-- `RegulaCore/Rule.lean` with every `.unreleased` on a line that starts `lifecycle :=` replaced
+by release `v`: the introduction of each new rule and the retirement of each newly retired one.
+A convenience, not a check: `release_attributes_rules` is what refuses a release build in which
+any lifecycle position is still `.unreleased`, however it is written. -/
+def stampRules (rules : String) (v : Version) : String :=
+  "\n".intercalate <| (rules.splitOn "\n").map fun line =>
+    if line.trimAsciiStart.toString.startsWith "lifecycle :=" then
+      line.replace ".unreleased" s!"(.release {v.literal})"
+    else line
 
 /-- `RegulaCore/Edition.lean` with `installed` set to `build` (`none` for `.unreleased`) and
 `releases` set to `versions`, written on one line when it fits in 100 characters. -/
@@ -397,8 +393,9 @@ private def installedHere : IO (Option Version) := do
   IO.ofExcept (installedOf (← IO.FS.readFile editionFile))
 
 /-- Open the release pull request: a commit on the `main` commit the workflow runs on that sets
-`Regula.installed` to the release of `lean-toolchain` and appends it to `Regula.releases`.
-Refuses a version already tagged or listed, and a `main` that still installs a release. -/
+`Regula.installed` to the release of `lean-toolchain`, appends it to `Regula.releases` and
+stamps it into every rule lifecycle position still `.unreleased` (`stampRules`). Refuses a
+version already tagged or listed, and a `main` that still installs a release. -/
 def openRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
@@ -414,18 +411,18 @@ def openRelease : IO Unit := do
   let listed ← IO.ofExcept (releasesOf edition)
   if listed.contains v then fail s!"{tag} is already listed in main's Regula.releases"
   let released ← IO.ofExcept (withEdition edition (some v) (listed ++ [v]))
-  let rules ← IO.ofExcept (stampRules (← IO.FS.readFile rulesFile) v)
+  let rules := stampRules (← IO.FS.readFile rulesFile) v
   let commit ← filesCommit repo head
     [(editionFile.toString, released), (rulesFile.toString, rules)]
     s!"release: Regula {tag} for Lean {tag}\n\nSets Regula.installed to the release, appends \
-      it to Regula.releases and records it as the release that introduced every rule still \
-      marked unreleased. Once this is on main, CI tags it {tag}, deploys its edition, \
+      it to Regula.releases and stamps it into every rule lifecycle position still \
+      unreleased. Once this is on main, CI tags it {tag}, deploys its edition, \
       publishes the release and opens the pull request that sets Regula.installed back to \
       .unreleased."
   proposeBranch repo s!"release/{tag}" commit s!"release: Regula {tag}"
     s!"Releases Regula {tag} for Lean {tag}: sets `Regula.installed` to the release, appends \
-      it to `Regula.releases` and records it as the release that introduced every rule still \
-      marked unreleased.\n\n\
+      it to `Regula.releases` and stamps it into every rule lifecycle position still \
+      `.unreleased`.\n\n\
       Once this merges, CI on `main` tags the head of `main` {tag} after acceptance and the \
       rule-example shards pass, deploys https://rbeauchamp.github.io/regula/v/{v.spelling}/, \
       publishes the GitHub release with that edition as its asset once the deployment is \

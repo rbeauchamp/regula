@@ -95,10 +95,9 @@ def descriptorJson (id : RuleId) : Json :=
     ("evidenceModes", toJson (d.evidenceModes.map modeText)),
     ("messageTemplate", toJson d.messageTemplate),
     ("helpRoute", toJson id.route), ("helpUrl", toJson (helpUrl id)),
-    ("introduced", toJson (match d.lifecycle with
-      | .active version | .retired version _ _ => version)),
+    ("introduced", toJson d.lifecycle.introduced.spelling),
     ("retired", match d.lifecycle with
-      | .active _ => Json.null | .retired _ version _ => toJson version),
+      | .active _ => Json.null | .retired _ version _ => toJson version.spelling),
     ("replacement", match d.lifecycle with
       | .active _ => Json.null
       | .retired _ _ replacement => (replacement.map (ruleJson ∘ Subtype.val)).getD Json.null),]
