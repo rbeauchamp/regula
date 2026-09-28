@@ -225,7 +225,6 @@ def versionsPage (ident : Identity) : Except String String := do
     "<dt>Lean toolchain (linter and examples)</dt><dd><code>" ++ escape ident.toolchain ++
         "</code></dd>" ++
     "<dt>Verso revision</dt><dd><code>" ++ escape ident.versoRevision ++ "</code></dd>" ++
-    "<dt>Rules</dt><dd>" ++ toString RuleId.all.length ++ "</dd>" ++
     "<dt>Releases</dt><dd>" ++ (if releases.isEmpty then "none yet" else
       ", ".intercalate (releases.reverse.map fun v =>
         "<a href=\"" ++ escape (basePath ++ (Edition.release v).root) ++ "\">" ++
@@ -241,12 +240,7 @@ def versionsPage (ident : Identity) : Except String String := do
       page there.\n\n" ++
     "A route that is not published shows the site's not-available page. It never redirects to \
       other rules: an old link cannot silently acquire changed semantics. Rule IDs are never \
-      reused for a changed rule; a retired rule keeps a page that says so.\n\n" ++
-    "The site is a static GitHub Pages site without cookies, accounts or analytics. Search and \
-      the table of contents use Verso's JavaScript, and the colour-theme control uses the site's \
-      own script, which keeps the choice in the browser; every explanation, link and the rule \
-      catalogue work without JavaScript. A deployment can lag `main` while checks run or after \
-      they fail; each page states the commit it was built from.\n"
+      reused for a changed rule; a retired rule keeps a page that says so.\n"
 
 /-- The credits and licenses page. -/
 def creditsPage (ident : Identity) : Except String String := do

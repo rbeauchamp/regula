@@ -17,9 +17,9 @@ pages, and `dev/` only for an unreleased build.
 - `Edition`, `Edition.root`, `Build.edition`, `published`, `mem_published`,
   `installed_published`: the editions a deployment publishes, which include the installed
   build's.
-- `Edition.url`, `helpUrl`, `helpUrl_release`, `helpUrl_unreleased`, `edition_url_dev_iff`: the
-  help link of a rule targets the installed release's page, and `dev/` exactly for an unreleased
-  build.
+- `Edition.url`, `Edition.url_dev_iff`, `helpUrl`, `helpUrl_pagePath`, `helpUrl_release`,
+  `helpUrl_unreleased`, `helpUrl_dev_iff`: the help link of a rule targets the installed
+  release's page, and `dev/` exactly for an unreleased build.
 - `sitePath`, `sitePath_iff`: the route policy of the published artifact: its root files and
   the files of the published editions, nothing else.
 

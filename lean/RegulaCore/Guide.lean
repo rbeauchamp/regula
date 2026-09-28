@@ -563,9 +563,8 @@ def guide : RuleId → Guide
         "That the chosen library boundaries are the ones the project intends to claim; that is \
           reviewed with the manifest rationale."]
       configuration := [
-        "No source option, attribute or command-line flag makes this rule pass on a claimed \
-          surface; an exclusion in the manifest never permits a claimed module to import the \
-          excluded one."]
+        "An exclusion in the manifest never permits a claimed module to import the excluded \
+          one."]
       limitations := [
         "Whole-project scope only: the editor is explicitly partial and does not report this rule, \
           and a single-file audit does not either."]
