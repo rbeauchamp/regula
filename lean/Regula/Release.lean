@@ -34,20 +34,23 @@ recovers from a run that a later merge cancelled. Once it is published, `tag` ne
 tag (`tagAction_published`) and refuses every other commit that still carries the label, after
 making sure the reset pull request is open; the site build refuses them too.
 
-Every step resumes: `open` and `reset` update their branch and keep an open pull request, `tag`
-keeps a tag that already names the commit, and `publish` replaces an unpublished draft and skips a
-published release. They refuse a toolchain that is not a stable release, a version already listed
-or tagged when the release opens, and a stale run whose commit is no longer the head of `main`.
+Every step resumes: `open` updates its branch and keeps an open pull request, `reset` leaves an
+open reset pull request alone unless it conflicts with `main`, `tag` keeps a tag that already
+names the commit, and `publish` replaces an unpublished draft and skips a published release. They
+refuse a toolchain that is not a stable release, a version already listed or tagged when the
+release opens, and a stale run whose commit is no longer the head of `main` unless the tag already
+names it.
 
 ## Boundaries
 
 GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions) is trusted and
 observed, not proved. `tagAction` is the decision the tag step executes, and its theorems are
 checked by the kernel each time `lean --run` elaborates this file; what the step observes
-(whether the release is published, the head of `main`, the tag) and the tag write are GitHub's. The edit of `RegulaCore/Edition.lean` is text: `open` and `reset` read
-their own output back and refuse unless it names the intended build and releases, and the
-kernel checks the edited module's theorems (`releases_ascending`, `installed_listed`) when each
-pull request's checks build it.
+(whether the release is published, the head of `main`, the tag) and the tag write are GitHub's.
+The edit of `RegulaCore/Edition.lean` is text: `open` and `reset` read their own output back and
+refuse unless it names the intended build and releases, and the kernel checks the edited
+module's theorems (`releases_ascending`, `installed_listed`) when each pull request's checks build
+it.
 -/
 
 namespace Regula.Release
@@ -196,7 +199,8 @@ def tagAction (published current : Bool) : Tag → TagAction
   | .absent => if !published && current then .create else .refuse
   | .other => if !published && current then .move else .refuse
 
-/-- The step creates the tag exactly for the head of `main` of an unpublished release without one. -/
+/-- The step creates the tag exactly for the head of `main` of an unpublished release without
+one. -/
 theorem tagAction_create_iff (published current : Bool) (tag : Tag) :
     tagAction published current tag = .create ↔
       published = false ∧ current = true ∧ tag = .absent := by
@@ -340,6 +344,16 @@ private def proposeBranch (repo branch commit title body : String) : IO Unit := 
         setting that lets GitHub Actions create pull requests and re-run this job"
   IO.println s!"branch {branch} names {commit}; its pull request awaits review"
 
+/-- The open pull request from `branch`, with the details GitHub computes for one pull request
+(such as `mergeable`, which is `null` until GitHub has computed it), if there is one. -/
+private def openPull (repo branch : String) : IO (Option Json) := do
+  let owner := (repo.splitOn "/").head!
+  let pulls ← IO.ofExcept
+    (← ghGet s!"repos/{repo}/pulls?state=open&head={owner}:{branch}").getArr?
+  let some pull := pulls[0]? | return none
+  let number ← IO.ofExcept (pull.getObjValAs? Nat "number")
+  return some (← ghGet s!"repos/{repo}/pulls/{number}")
+
 /-- Append `key=value` to the step outputs file `GITHUB_OUTPUT`. -/
 private def output (key value : String) : IO Unit := do
   let path ← env "GITHUB_OUTPUT"
@@ -444,9 +458,11 @@ def publish : IO Unit := do
     fail s!"release {tag} is not published with its site asset"
   IO.println s!"published release {tag} with regula-site-{v.spelling}.tar.gz"
 
-/-- Once the release of the checked-out commit is published, open the pull request that sets
-`Regula.installed` on `main` back to `.unreleased`, keeping `Regula.releases`. Nothing is left to
-do once `main` is unreleased. -/
+/-- Once the release of the checked-out commit is published, make sure the pull request that sets
+`Regula.installed` on `main` back to `.unreleased`, keeping `Regula.releases`, is open: open it
+when none is, and rebuild an open one on the head of `main` only when it can no longer merge (a
+conflict), leaving its branch, checks and approvals alone otherwise. Nothing is left to do once
+`main` is unreleased. -/
 def reset : IO Unit := do
   let repo ← repository
   let some v ← installedHere | fail "this commit is unreleased; there is no release to end"
@@ -460,13 +476,20 @@ def reset : IO Unit := do
     IO.println "main's Regula.installed is already unreleased; nothing to reset"
     return
   | some w => unless w == v do fail s!"main installs {w.tag}, not {tag}"
+  let branch := s!"release/{tag}-reset"
+  if let some pull ← openPull repo branch then
+    let conflicted := pull.getObjValD "mergeable" == .bool false ||
+      pull.getObjValD "mergeable_state" == .str "dirty"
+    unless conflicted do
+      IO.println s!"the reset pull request from {branch} is open; leaving it as it is"
+      return
   let listed ← IO.ofExcept (releasesOf edition)
   let unreleased ← IO.ofExcept (withEdition edition none listed)
   let commit ← editionCommit repo main unreleased
     s!"release: end Regula {tag}\n\nSets Regula.installed back to .unreleased now that the release \
       {tag} is published; Regula.releases keeps it, so every deployment serves its edition from \
       the release asset."
-  proposeBranch repo s!"release/{tag}-reset" commit s!"release: end Regula {tag}"
+  proposeBranch repo branch commit s!"release: end Regula {tag}"
     s!"Sets `Regula.installed` back to `.unreleased` after the release {tag}, published with its \
       site edition as a release asset. `Regula.releases` keeps {tag}, so every deployment serves \
       https://rbeauchamp.github.io/regula/v/{v.spelling}/ from that asset. Until this merges, \

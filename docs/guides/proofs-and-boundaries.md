@@ -611,11 +611,16 @@ identity are trusted.
 **Proved** (`RegulaCore.Setup`, over the observation `regula init` and `regula doctor` read):
 `plan_idempotent`, applying `init`'s plan leaves an empty plan, so a second run writes nothing;
 `plan_eq_nil_iff`, the plan is empty exactly when every setup issue is one `init` does not fix;
-`issues_run`, the plan removes exactly the fixable issues and adds none; `run_sets`, every
-required option the package gave no value is then set to its required value as
-`RegulaPolicy.Community.sets`, the RG2006 decision, reads it; and `run_options_prefix`, the options
-the package already gives are kept. An edit adds a missing piece and has no form that replaces
-a lint driver or an option value.
+`issues_run`, the plan removes exactly the fixable issues and adds none. The option check covers
+exactly the claimed targets (the root targets the manifest does not exclude), as RG2006 does:
+`run_sets`, every required option a claimed target built without is then set to its required
+value as `RegulaPolicy.Community.sets`, the RG2006 decision, reads it; `resolved_run`, every
+claimed target then has a value for every required option; `run_options_unclaimed`, when a root
+target is excluded the package's options are unchanged, the options going into each claimed
+target's own configuration (`run_plan_targets`), so none reaches an excluded target; and
+`run_options_prefix` and `withAdded_prefix`, the options the package and each claimed target
+already give are kept. An edit adds a missing piece and has no form that replaces a lint driver
+or an option value.
 
 **Checked when it runs:** `init` observes the project again after writing and restores every
 file it wrote unless the new plan is empty, and it writes the starter manifest only after
@@ -634,11 +639,13 @@ toward `doctor`'s exit status. That reachability is read from the sources' impor
 from a build.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
-which elaborates a `lakefile.lean` as Lake does to locate the `package` declaration, and the
-filesystem. Runs of `init` and `doctor` on scratch projects in both formats (fresh, template,
-inline-table, structure-instance, bare-`package` and computed-`leanOptions` shapes, another
-driver, a contradicting option, a stale skill, a library without globs, left-out modules that a
-claimed module does and does not import) are bounded observations.
+which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and
+`lean_exe` declarations, and the filesystem. Runs of `init` and `doctor` on scratch projects in
+both formats (fresh, template, inline-table, structure-instance, bare-`package` and
+computed-`leanOptions` shapes, another driver, a contradicting option, a stale skill, a library
+without globs, left-out modules that a claimed module does and does not import, and a library the
+manifest excludes, with options written into bare and configured claimed targets) are bounded
+observations.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: the tag step's decision `tagAction`

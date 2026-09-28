@@ -59,7 +59,7 @@ lake exe regula init            # or: lake exe regula init --skill
 | Piece | What `init` writes when it is missing |
 | --- | --- |
 | Lint driver | `lintDriver = "regula/lint"` (`lakefile.toml`, top level) or `lintDriver := "regula/lint"` (`lakefile.lean`, in the `package` declaration), so `lake lint` runs Regula. |
-| Options | The package `leanOptions` the rules require, each only if the package gives it no value: `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
+| Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value: in the package's configuration when every root target is claimed (as the starter manifest claims them all), and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
 | Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library ([step 3](#3-review-the-claimed-surface)). |
 | Agent guidance | A short `## Lean standard: Regula` section in `AGENTS.md` (created if needed), or with `--skill` the briefing as `.agents/skills/regula/SKILL.md`. `init` also rewrites `.claude/skills/regula/SKILL.md`, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
 
@@ -316,7 +316,8 @@ core-only code.
   off automatic implicits
   ([standard §7.1](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#71-declare-the-elaboration-environment))
   and, in a project that depends on Mathlib, enables the syntax linters Mathlib builds with,
-  except the three that enforce policies of the Mathlib repository itself. `init` writes these:
+  except the three that enforce policies of the Mathlib repository itself. `init` writes these
+  (into each claimed target's own configuration instead when the manifest excludes a root target):
 
   ```toml
   [leanOptions]

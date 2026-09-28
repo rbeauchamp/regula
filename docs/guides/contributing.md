@@ -387,9 +387,12 @@ open, and the site build refuses them too, so `main` deploys nothing else until 
 The decision is `Regula.Release.tagAction`, whose theorems the kernel checks each time the step
 runs (`tagAction_converges`, `tagAction_published` and the exact cases of each action).
 
-Each step resumes when its job is re-run: **open** and **reset** update their branch and keep an
-open pull request, **tag** keeps a tag that already names the commit and refuses a stale run whose
-commit is no longer the head of `main`, and **publish** replaces an unpublished draft and skips a
+Each step resumes when its job is re-run: **open** updates its branch and keeps an open pull
+request; **reset** only makes sure the reset pull request is open, so it leaves an open one's
+branch, checks and approvals alone and rebuilds it on the head of `main` only when it can no
+longer merge (GitHub reports a conflict; an undetermined state is not one); **tag** keeps a tag
+that already names the commit and refuses a stale run whose commit is no longer the head of `main`
+unless the tag already names it; and **publish** replaces an unpublished draft and skips a
 published release. **open** refuses a version already tagged or listed and a `main` whose
 `Regula.installed` is still a release. A pull request that a workflow opens starts no checks by
 itself, so **open** and **reset** dispatch `ci.yml` on their branch. They open the pull request
