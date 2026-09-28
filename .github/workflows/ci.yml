@@ -121,7 +121,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Only a build of a release writes it: that release's edition, for the release's asset.
+      # Only a clean build of a release whose commit its tag v<version> names writes it: that
+      # release's edition, for the release's asset.
       - name: Keep the release edition
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -130,7 +131,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Refuse to publish a dirty artifact or one of another commit
+      - name: Refuse to publish a dirty, other-commit or untagged-release artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: lean --run lean/Regula/Site/Deployment.lean gate _site
 

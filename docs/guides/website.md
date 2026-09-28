@@ -148,11 +148,12 @@ CI runs on every pull request and on `main`:
 2. `rule-examples` (two shards): the corpus campaign; each uploads its export. The diagnostics
    workflow also runs both shards nightly on `main`.
 3. `site`: builds the site tooling, then `./scripts/verify.sh site` over this run's exports, and
-   uploads the checked `_site/` as `site-<commit>` (preview) and a release build's edition as
-   `site-release-<commit>`. On `main` only, `Deployment gate` refuses an artifact built from
-   uncommitted changes, from another commit than `GITHUB_SHA`, or with a release edition rendered
-   from source by a build whose commit that release's tag does not name (`Regula.publishable`),
-   and the checked `_site/` is then uploaded as the Pages artifact. Pull requests never publish.
+   uploads the checked `_site/` as `site-<commit>` (preview) and, from a clean build of a release
+   whose commit its tag names, that release's edition as `site-release-<commit>`. On `main` only,
+   `Deployment gate` refuses an artifact built from uncommitted changes, from another commit than
+   `GITHUB_SHA`, or with a release edition rendered from source by a build whose commit that
+   release's tag does not name (the build's recorded value of `Regula.publishable`), and the
+   checked `_site/` is then uploaded as the Pages artifact. Pull requests never publish.
 4. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
    (default token, `contents: read`) whether this commit is still the head of `main` and refuses
    otherwise; then `actions/deploy-pages` publishes exactly the validated artifact to the
@@ -204,10 +205,11 @@ from source only while no asset exists, only as a build of that release, and onl
 refuses a release without an asset, so a release edition cannot silently drop out of a deployment
 or be replaced. A build whose `installed` is a release refuses once that tag names another commit
 (`labelAdmitted_release_iff`); the tag is read with `git ls-remote` because CI checkouts have no
-tags. Publication needs the tagged build: `Deployment gate` refuses an artifact with a release
-edition rendered from source unless its commit is the one the tag names (`publishable`), and only
-such a clean build writes the release asset. That the asset stays the one attached at release
-rests on GitHub; immutable releases, a repository setting, would enforce it.
+tags. Publication needs the tagged build: the build records in `build.json` whether its artifact is
+`publishable` (no release edition rendered from source unless its commit is the one the tag
+names), `Deployment gate` refuses an artifact that is not, and only such a clean build writes the
+release asset. That the asset stays the one attached at release rests on GitHub; immutable
+releases, a repository setting, would enforce it.
 
 A release takes these steps, in order:
 
@@ -221,9 +223,10 @@ A release takes these steps, in order:
    `tmp/site-release/regula-site-<version>.tar.gz`, which CI keeps for only 30 days as the
    `site-release-<commit>` artifact. Attach that file to the GitHub release `v<version>` as its
    permanent asset.
-4. The next commit sets `Regula.installed` back to `.unreleased`. Its site build refuses until
-   step 3 is done, and every build of another commit that still carries the release label is
-   refused once the tag exists.
+4. The next commit sets `Regula.installed` back to `.unreleased`, which restores the development
+   label of `dev/` (at the release commit `dev/` is that release and carries its label). Its site
+   build refuses until step 3 is done, and every build of another commit that still carries the
+   release label is refused once the tag exists.
 
 Rule IDs are never reused for a changed rule. A retired rule keeps a page (its lifecycle chip
 says so).

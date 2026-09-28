@@ -13,8 +13,8 @@ be uploaded.
 - `releaseSources`, `releaseCopies`: each release's edition before banners, from
   `releaseSource`: the frozen copy whenever its release asset exists, and this build's rendered
   edition only in a build of the installed release before that asset exists, while its tag is
-  absent or names this commit. `buildJson` records each source and whether the tag names this
-  commit, from which `Deployment gate` decides `publishable`.
+  absent or names this commit. `buildJson` records each source, whether the tag names this
+  commit and the value of `publishable` for them, which `Deployment gate` requires.
 - `publishedCopy`: a release's published edition: its copy, with the latest-release banner
   (`outdatedBanner`, `bannerTarget`) inserted into every HTML page (`insertBanner`) when a later
   release exists.
@@ -119,15 +119,16 @@ def editionJson (g : Generated) : Json := Json.mkObj (identityFields g)
 
 /-- The machine-readable identity of an artifact: the build's identity, its published editions,
 how each release's edition was obtained (`releaseSource`) and whether the build's commit is the
-one the installed release's tag names. The deployment check compares the live copy with these
-exact bytes, and `Deployment gate` refuses to publish unless `publishable` holds of the recorded
-sources and tag. -/
+one the installed release's tag names, and the value of `publishable` for them. The deployment
+check compares the live copy with these exact bytes, and `Deployment gate` refuses to publish
+unless the recorded `publishable` is `true`. -/
 def buildJson (g : Generated) (tag : TagState) (sources : List (ReleaseVersion × ReleaseSource)) :
     Json :=
   Json.mkObj (identityFields g ++ [("editions", toJson (published.map Edition.root)),
     ("releaseSources", toJson (sources.map fun (v, s) => Json.mkObj [
       ("version", .str v.spelling), ("source", .str s.spelling)])),
-    ("headTagged", .bool (tag == .head))])
+    ("headTagged", .bool (tag == .head)),
+    ("publishable", .bool (publishable (sources.map (·.2)) tag))])
 
 private def byPath (files : List (String × ByteArray)) : List (String × ByteArray) :=
   files.mergeSort (fun a b => a.1 ≤ b.1)

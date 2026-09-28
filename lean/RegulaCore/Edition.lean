@@ -223,8 +223,8 @@ theorem releaseSource_asset_iff (b : Build) (v : ReleaseVersion) (assetExists : 
 
 /-- Whether an artifact whose release editions came from `sources` may be published, and a
 rendered release edition written as its asset: a release edition rendered from source only by a
-build whose commit the release's tag names. `Deployment gate` applies it to the facts the
-artifact's `build.json` records. -/
+build whose commit the release's tag names. The site build records its value in the artifact's
+`build.json`, which `Deployment gate` requires to be `true`. -/
 def publishable (sources : List ReleaseSource) (tag : TagState) : Bool :=
   !sources.contains .render || tag == .head
 
