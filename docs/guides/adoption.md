@@ -165,8 +165,8 @@ lake lint -- --explain-config              # read-only: manifest, scope, profile
 ```
 
 The driver builds every manifested library and executable by its explicit Lake target, with
-warnings as failures, and inspects the completed environment; it re-evaluates current policy
-even when every module is cached. Run it from the project root without `-d`: it refuses a working
+warnings as failures, and inspects the completed environments: each library in one, and each
+claimed executable's root in one of its own, since every root defines `main`. It re-evaluates current policy even when every module is cached. Run it from the project root without `-d`: it refuses a working
 directory that is not the workspace that dispatched it. Its exit status separates the outcome:
 
 | Exit | Outcome |

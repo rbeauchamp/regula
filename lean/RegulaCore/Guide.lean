@@ -637,7 +637,7 @@ def guide : RuleId → Guide
           `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
           `false`, or when a `-D name=value` among the extra arguments gives a required option \
           another value or sets such a linter to `false`.",
-        "A target of a surface whose loaded environment contains a Mathlib module must also set \
+        "A target of a surface whose loaded environments contain a Mathlib module must also set \
           `weak.linter.mathlibStandardSet` to `true`, `weak.linter.style.header` and \
           `weak.linter.hashCommand` to `false`, and `weak.linter.style.longFile` to `0`.",
         "A key's leading `weak.` component is read as the option it sets; a target that gives one \
@@ -673,7 +673,7 @@ def guide : RuleId → Guide
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake \
           resolves for the workspace the audit loads.",
-        "Whether a surface imports Mathlib is read from its whole loaded environment, so every \
+        "Whether a surface imports Mathlib is read from all of its loaded environments, so every \
           claimed target of such a surface, including an executable whose own root does not \
           import Mathlib, needs the Mathlib options.",
         "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \

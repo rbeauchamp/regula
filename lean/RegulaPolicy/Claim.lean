@@ -215,17 +215,56 @@ inductive Stage where
   | graph
   deriving Repr, DecidableEq
 
-/-- Per-surface assignments preserve distinct selected maxima. -/
+/-- Per-surface assignments preserve distinct selected maxima. The claimed library's modules
+and the claimed executables' root modules are kept apart, so `environments` can load each root
+without the others. -/
 structure SurfaceAssignment where
-  /-- The claimed Lake target's name. -/
+  /-- The claimed Lake library's name. -/
   target : String
-  /-- The target's modules. -/
-  modules : Array Identity
+  /-- The claimed library's modules. -/
+  library : Array Identity
+  /-- The root module of each claimed executable, in manifest order. -/
+  executables : Array Identity
   /-- The foundation profile claimed for the target. -/
   profile : ConformingProfile
   /-- The execution claim for the target. -/
   execution : ExecutionClaim
   deriving Repr, DecidableEq
+
+/-- The surface's modules: its library's modules, then its executables' root modules. -/
+def SurfaceAssignment.modules (s : SurfaceAssignment) : Array Identity :=
+  s.library ++ s.executables
+
+/-- The module assignment of each Lean environment a project audit loads for the surface: the
+library's modules in one, then each executable's root module alone in one of its own. Lean
+refuses to import two modules that declare the same name, and an executable's root module
+declares its `main`, so two roots cannot share an environment; nor can a root and a library
+module that declares `main`. -/
+def SurfaceAssignment.environments (s : SurfaceAssignment) : Array (Array Identity) :=
+  #[s.library] ++ s.executables.map (#[·])
+
+/-- The module names of each environment of the surface, in `environments` order. -/
+def SurfaceAssignment.environmentNames (s : SurfaceAssignment) : Array (Array Lean.Name) :=
+  s.environments.map (·.map (·.name))
+
+/-- The environments partition the surface's modules, in order: none is lost or repeated. -/
+theorem SurfaceAssignment.flatten_environments (s : SurfaceAssignment) :
+    s.environments.flatten = s.modules := by
+  apply Array.toList_inj.mp
+  simp only [environments, modules, Array.toList_flatten, Array.toList_append, Array.toList_map,
+    List.map_append, List.flatten_append, List.map_map, Function.comp_def]
+  congr 1
+  · simp
+  · generalize s.executables.toList = roots
+    induction roots <;> simp_all
+
+/-- An environment of the surface is exactly its library's modules or one executable root
+alone. -/
+theorem SurfaceAssignment.mem_environments (s : SurfaceAssignment) (e : Array Identity) :
+    e ∈ s.environments ↔ e = s.library ∨ ∃ r ∈ s.executables, e = #[r] := by
+  simp only [environments, Array.mem_append, Array.mem_singleton, Array.mem_map]
+  exact or_congr Iff.rfl
+    ⟨fun ⟨r, hr, h⟩ => ⟨r, hr, h.symm⟩, fun ⟨r, hr, h⟩ => ⟨r, hr, h.symm⟩⟩
 
 /-- A requested claim before validation: `Claim` holds the ones that satisfy
 `ClaimCandidate.Valid`. -/
@@ -259,7 +298,7 @@ remain unsupported. This does not assert completeness of an external Lake invent
 def ClaimCandidate.Valid (c : ClaimCandidate) : Prop :=
   scopeModeCompatible c.scope c.mode = true ∧
   c.snapshot.Valid ∧
-  (∀ s ∈ c.surfaces, s.target ≠ "" ∧ s.modules.size > 0) ∧
+  (∀ s ∈ c.surfaces, s.target ≠ "" ∧ s.library.size > 0) ∧
   (c.surfaces.toList.flatMap (fun s => s.modules.toList)).Pairwise (fun a b => a.name ≠ b.name) ∧
   c.surfaces.toList.Pairwise (fun a b => a.target ≠ b.target) ∧
   (match c.scope with

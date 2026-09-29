@@ -203,8 +203,8 @@ def conformingProfile (profile : Profile) : Except String ConformingProfile :=
   checked_conformingProfile.run profile
 
 /-- Required claim surface for one manifest surface: its library name and execution claim,
-the conforming profile its claim spells, and the modules of the first Lake library of that
-name followed by the root of the first Lake executable of each claimed executable name. -/
+the conforming profile its claim spells, the modules of the first Lake library of that name,
+and, in manifest order, the root of the first Lake executable of each claimed executable name. -/
 def SurfaceAssigned (inventory : Lake.SurfaceInventory) (surface : Manifest.Surface)
     (assigned : SurfaceAssignment) : Prop :=
   assigned.target = surface.library ∧ assigned.execution = surface.execution ∧
@@ -214,7 +214,8 @@ def SurfaceAssigned (inventory : Lake.SurfaceInventory) (surface : Manifest.Surf
       (∀ i (h : i < surface.executables.size) (h' : i < roots.length),
         (inventory.executables.find? (·.executable == surface.executables[i])).map (·.root) =
           some roots[i]) ∧
-      assigned.modules.toList.map (·.name) = library.modules.toList ++ roots
+      assigned.library.toList.map (·.name) = library.modules.toList ∧
+      assigned.executables.toList.map (·.name) = roots
 
 /-- Required census assignment: success exactly with one `SurfaceAssigned` claim surface
 per manifest surface, in manifest order. -/
@@ -237,9 +238,10 @@ private def assignSurface (inventory : Lake.SurfaceInventory) (surface : Manifes
   let some library := inventory.libraries.find? (·.library == surface.library)
     | throw "manifest surface missing from Lake discovery"
   let roots ← surface.executables.toList.mapM (executableRoot inventory)
-  let modules ← (library.modules.toList ++ roots).mapM admitIdentity
+  let modules ← library.modules.toList.mapM admitIdentity
+  let rootModules ← roots.mapM admitIdentity
   let profile ← conformingProfile surface.claim
-  return ⟨surface.library, modules.toArray, profile, surface.execution⟩
+  return ⟨surface.library, modules.toArray, rootModules.toArray, profile, surface.execution⟩
 
 private def surfaceAssignmentsImpl (manifest : Manifest)
     (inventory : Lake.SurfaceInventory) : Except String (Array SurfaceAssignment) :=
@@ -296,64 +298,76 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
     cases hr : surface.executables.toList.mapM (executableRoot inventory) with
     | error e =>
       simp only [bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-      intro _ _ _ roots hlen hroots _
+      intro _ _ _ roots hlen hroots _ _
       rw [(rootsOk roots).mpr ⟨hlen, hroots⟩] at hr
       cases hr
     | ok roots =>
       have ⟨hlen, hroots⟩ := (rootsOk roots).mp hr
-      cases hm : (library.modules.toList ++ roots).mapM admitIdentity with
+      -- The roots are determined by the executable names, so every witness is `roots`.
+      have sameRoots : ∀ roots' : List Name, roots'.length = surface.executables.size →
+          (∀ i (h : i < surface.executables.size) (h' : i < roots'.length),
+            (inventory.executables.find? (·.executable == surface.executables[i])).map
+              (·.root) = some roots'[i]) → roots' = roots := by
+        intro roots' hlen' hroots'
+        apply List.ext_getElem (by rw [hlen, hlen'])
+        intro i h h'
+        have a := hroots' i (by omega) h
+        have b := hroots i (by omega) h'
+        rw [a] at b
+        exact Option.some.inj b
+      cases hm : library.modules.toList.mapM admitIdentity with
       | error e =>
-        simp only [hm, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-        intro _ _ _ roots' hlen' hroots' hnames
-        have same : roots' = roots := by
-          apply List.ext_getElem (by rw [hlen, hlen'])
-          intro i h h'
-          have a := hroots' i (by omega) h
-          have b := hroots i (by omega) h'
-          rw [a] at b
-          exact Option.some.inj b
-        subst same
-        rw [(admitIdentities_ok _ assigned.modules.toList).mpr hnames] at hm
+        simp only [bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
+        intro _ _ _ _ _ _ hnames _
+        rw [(admitIdentities_ok _ assigned.library.toList).mpr hnames] at hm
         cases hm
       | ok modules =>
         have hnames := (admitIdentities_ok _ _).mp hm
-        cases hp : conformingProfile surface.claim with
+        cases hx : roots.mapM admitIdentity with
         | error e =>
-          simp only [hm, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-          intro _ _ hspell _ _ _ _
-          have := (checked_conformingProfile.evidence.1 surface.claim assigned.profile).mpr hspell
-          change conformingProfile surface.claim = _ at this
-          rw [hp] at this
-          cases this
-        | ok profile =>
-          have hspell := (checked_conformingProfile.evidence.1 surface.claim profile).mp hp
-          simp only [hm, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
-          constructor
-          · rintro rfl
-            exact ⟨rfl, rfl, hspell, roots, hlen, hroots, by simpa using hnames⟩
-          · rintro ⟨ht, he, hs, roots', hlen', hroots', hn⟩
-            have same : roots' = roots := by
-              apply List.ext_getElem (by rw [hlen, hlen'])
-              intro i h h'
-              have a := hroots' i (by omega) h
-              have b := hroots i (by omega) h'
-              rw [a] at b
-              exact Option.some.inj b
-            subst same
-            have hmods : assigned.modules.toList = modules := by
-              have := (admitIdentities_ok _ assigned.modules.toList).mpr hn
-              rw [hm] at this
-              exact (Except.ok.inj this).symm
-            have hprof : assigned.profile = profile := by
-              have h2 : assigned.profile.spelling = profile.spelling := hs.symm.trans hspell
-              revert h2
-              generalize assigned.profile = q
-              cases q <;> cases profile <;> simp [ConformingProfile.spelling]
-            cases assigned with
-            | mk target mods prof exec =>
-              simp only at ht he hmods hprof
-              subst ht he hprof
-              rw [← hmods]
+          simp only [hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
+          intro _ _ _ roots' hlen' hroots' _ hrootNames
+          obtain rfl := sameRoots roots' hlen' hroots'
+          rw [(admitIdentities_ok _ assigned.executables.toList).mpr hrootNames] at hx
+          cases hx
+        | ok rootModules =>
+          have hrootNames := (admitIdentities_ok _ _).mp hx
+          cases hp : conformingProfile surface.claim with
+          | error e =>
+            simp only [hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
+            intro _ _ hspell _ _ _ _ _
+            have := (checked_conformingProfile.evidence.1 surface.claim assigned.profile).mpr
+              hspell
+            change conformingProfile surface.claim = _ at this
+            rw [hp] at this
+            cases this
+          | ok profile =>
+            have hspell := (checked_conformingProfile.evidence.1 surface.claim profile).mp hp
+            simp only [hx, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
+            constructor
+            · rintro rfl
+              exact ⟨rfl, rfl, hspell, roots, hlen, hroots, by simpa using hnames,
+                by simpa using hrootNames⟩
+            · rintro ⟨ht, he, hs, roots', hlen', hroots', hn, hrn⟩
+              obtain rfl := sameRoots roots' hlen' hroots'
+              have hlib : assigned.library.toList = modules := by
+                have := (admitIdentities_ok _ assigned.library.toList).mpr hn
+                rw [hm] at this
+                exact (Except.ok.inj this).symm
+              have hexe : assigned.executables.toList = rootModules := by
+                have := (admitIdentities_ok _ assigned.executables.toList).mpr hrn
+                rw [hx] at this
+                exact (Except.ok.inj this).symm
+              have hprof : assigned.profile = profile := by
+                have h2 : assigned.profile.spelling = profile.spelling := hs.symm.trans hspell
+                revert h2
+                generalize assigned.profile = q
+                cases q <;> cases profile <;> simp [ConformingProfile.spelling]
+              cases assigned with
+              | mk target lib exes prof exec =>
+                simp only at ht he hlib hexe hprof
+                subst ht he hprof
+                rw [← hlib, ← hexe]
 
 /-- Registers `SurfaceAssignmentsContract` about the executed census assignment. -/
 theorem checked_surfaceAssignments :

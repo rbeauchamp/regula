@@ -191,7 +191,10 @@ sources, manifest and Markdown; complete the mode's build, import and admission 
 the census of owned declarations, roots and required transcripts; then freeze the required jobs
 before collecting results. `Census.requests` is the ordered array of environment requests, and
 `CensusOK` requires the returned requests to equal it and their positive module partition to be
-the whole claim. `InventoryValid` requires unique names within each Lean environment; different
+the whole claim. A project claim requests `SurfaceAssignment.environments` for each surface in
+order: the library's modules, then each claimed executable's root alone
+(`census_executable_alone`; `acceptedRun_executable_alone` for every accepted project run),
+because two roots that each define `main` cannot share one environment. `InventoryValid` requires unique names within each Lean environment; different
 environments may each define `main`, and their inventories are never merged. Each
 `EnvironmentCensus` retains its complete admitted policy inventory, transcripts, execution roots,
 replay arrays, sources and origins. No entrypoint is renamed, filtered or exempted. Configuration,

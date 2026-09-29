@@ -380,8 +380,8 @@ def CensusOK (c : Claim) (i : Census) : Prop :=
        canonicalNames (moduleNames i.modules) = canonicalNames
          (c.val.surfaces.flatMap (fun s => s.modules.map (·.name))) ∧ i.fences = #[] ∧
        (if c.val.mode = .serializedGraph then i.requests.size = 1 else
-         i.requests.map (fun r => moduleNames r.modules) = c.val.surfaces.map
-             (fun s => s.modules.map (·.name)))
+         i.requests.map (fun r => moduleNames r.modules) =
+           c.val.surfaces.flatMap (·.environmentNames))
    | .file .. | .editor .. => i.requests.size = 1 ∧ i.fences = #[]
    | .documentation docs => i.requests = #[] ∧ ∀ f ∈ i.fences, f.document ∈ docs)
 set_option synthInstance.maxSize 1024 in
@@ -424,14 +424,30 @@ theorem census_requested_environment (c : Claim) (i : Census) (h : CensusOK c i)
   obtain ⟨e, he, eq⟩ := Array.mem_map.mp hr
   exact ⟨e, he, eq, h.2.2.1 e he⟩
 
-/-- Ordinary project requests use the full original surface assignment, in order. -/
+/-- Ordinary project requests are the claim's surface environments, in order: each surface's
+library, then each of its executable roots alone (`SurfaceAssignment.environments`). -/
 theorem census_project_partition (c : Claim) (i : Census) (h : CensusOK c i)
     (scope : c.val.scope = .project) (mode : c.val.mode ≠ .serializedGraph) :
     i.requests.map (fun r => moduleNames r.modules) =
-      c.val.surfaces.map (fun s => s.modules.map (·.name)) := by
+      c.val.surfaces.flatMap (·.environmentNames) := by
   have hs := h.2.2.2.2.2.2.2.2.2
   rw [scope] at hs
   simpa [mode] using hs.2.2.2
+
+/-- In an ordinary project census, every claimed executable's root module is requested in an
+environment whose only positive module it is, so no other executable root or library module is
+assigned beside it. -/
+theorem census_executable_alone (c : Claim) (i : Census) (h : CensusOK c i)
+    (scope : c.val.scope = .project) (mode : c.val.mode ≠ .serializedGraph)
+    (s : SurfaceAssignment) (hs : s ∈ c.val.surfaces) (root : Identity)
+    (hr : root ∈ s.executables) :
+    ∃ r ∈ i.requests, moduleNames r.modules = #[root.name] := by
+  have hin : #[root.name] ∈ c.val.surfaces.flatMap (·.environmentNames) := by
+    refine Array.mem_flatMap.mpr ⟨s, hs, Array.mem_map.mpr ⟨#[root], ?_, by simp⟩⟩
+    exact (s.mem_environments _).mpr (.inr ⟨root, hr, rfl⟩)
+  rw [← census_project_partition c i h scope mode] at hin
+  obtain ⟨r, hr', eq⟩ := Array.mem_map.mp hin
+  exact ⟨r, hr', eq⟩
 
 /-- A module's profile is derived from its positive assignment, never a result payload. -/
 def profileForModule (c : Claim) (m : Name) : Option ConformingProfile :=

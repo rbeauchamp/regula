@@ -192,10 +192,11 @@ metadata, not authenticated binary identity.
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,
-  and no consumer reads it there. File `scope.report` and project `scope.surfaces[*].report`
-  keep the complete observed declaration and execution inventories, including trusted boundaries
-  and correspondence evidence; project scope also keeps its source snapshots, Lake library
-  inventory and completed stage names. File scope keeps its nullable foundation claim, execution
+  and no consumer reads it there. File `scope.report`, project `scope.surfaces[*].report` (the
+  library's environment) and `scope.surfaces[*].executables[*].report` (each claimed
+  executable's root, inspected alone) keep the complete observed declaration and execution
+  inventories, including trusted boundaries and correspondence evidence; project scope also keeps
+  its source snapshots, Lake library inventory and completed stage names. File scope keeps its nullable foundation claim, execution
   claim and exact source even without findings.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
