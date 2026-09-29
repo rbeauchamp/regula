@@ -45,6 +45,10 @@
   "expect": "pass",
   "claim": "standard-logical"
  },
+ "Fixtures.Positive.RegenerationHandlerOverride": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
  "Fixtures.Positive.AliasedContract": {
   "expect": "pass",
   "claim": "standard-logical",
@@ -206,6 +210,13 @@
   ],
   "output": [
    "[VIOLATION[escape-hatch]] fixtures_axiom_loop._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.PreprocessDroppedCall": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_dropped._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.ForgedMatchElaborator": {

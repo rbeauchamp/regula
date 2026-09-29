@@ -121,8 +121,8 @@ instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by
 
 /-- A recursion helper is admitted exactly when its record, its Lean-linked base's record and their
 group meet every component. No transcript, provenance or elaborator record is consulted: the
-regeneration observation makes the admitted pair exactly what Lean's recursion compiler produces
-from the helper's own recursion, whoever added it. -/
+regeneration observation makes the base, up to compilation erasure, what Lean's recursion compiler
+produces from the helper's own recursion, whoever added it. -/
 def RecursiveHelperOK (ds : Array Declaration) (h : Declaration) : Prop :=
   RecursiveHelperShape h ∧ h ∈ ds ∧ ∃ b ∈ ds,
     h.unsafeRecBase = some b.name ∧ RecursiveBaseShape h b ∧ RecursiveGroup h b

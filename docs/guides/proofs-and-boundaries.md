@@ -179,7 +179,7 @@ environment share closure work, but each registration remains a required declara
 obligation. A job's identity is its claim, stage tag and exact subject key, including the
 requested environment for local stages; attempts are transport metadata, not new required jobs.
 Set-valued observations use canonical sorted duplicate-free collections from Std's extensional
-structures; evaluator chains and mutual groups stay ordered. Axiom lists, module sets and closure
+structures; mutual groups and transcript commands stay ordered. Axiom lists, module sets and closure
 edges have set semantics, with proved lookup and membership laws independent of storage order;
 canonicalization preserves membership. Duplicate observations are refused even when equal.
 `ResultState` carries unique keys, a subset of the fixed plan and valid payload bindings; empty
@@ -578,12 +578,14 @@ assembly belong to the project routes.
 the type's constants, closed under unfolding, and only modules that import `Regula.Contract`
 contribute constants. For a recursion helper it reruns Lean's own recursion compiler on the
 helper's group (structural recursion first, then well-founded recursion with every decreasing proof
-elided) and compares each regenerated definition with the observed one up to compilation erasure:
+elided), with only the toolchain's own `wf_preprocess` rules and the executable's built-in macros,
+tactic and term elaborators, and compares each regenerated definition with the observed one up to compilation erasure:
 proofs and types, each classified in its own side's context, are erased and a well-founded fixpoint
 is compared without its relation or measure (`Declaration.unsafeRecRegenerated`). It never uses
 `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of the
 self-referential helper does not terminate. The regeneration runs Lean's elaborator in the report
-worker and is undone. The report's other elaborator observations (`Meta.isProp`, the pretty-printed type,
+worker and is undone before the comparison, which reads the observed definitions and decides erasure
+in the inspected environment. The report's other elaborator observations (`Meta.isProp`, the pretty-printed type,
 and `Probe`'s executable-root classification) run under Lean's default limits. When one fails,
 the report worker's error names the module, the declaration (for an execution walk, its root) and
 the failing stage: `declaration record` (any observation of `Collect.declaration`),

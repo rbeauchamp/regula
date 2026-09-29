@@ -342,8 +342,8 @@ def guide : RuleId → Guide
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
       problem := "An owned declaration is marked `unsafe` or `partial` and is not the \
-        code-generation helper that Lean's own recursion compiler regenerates exactly from a safe \
-        recursive definition."
+        code-generation helper of a safe recursive definition that Lean's own recursion compiler \
+        regenerates from the helper, up to compilation erasure."
       trigger := [
         "Authored `unsafe` and `partial` declarations are escape hatches: an unsafe declaration is \
           checked only in Lean's unsafe mode, cannot be used by safe declarations or proofs and is \
@@ -352,14 +352,17 @@ def guide : RuleId → Guide
         "The only exception is the range-less partial helper Lean generates for a safe, \
           termination-checked recursive `def` (structural or well-founded recursion, a `where` \
           or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq`, `BEq`, \
-          `Hashable` or `Repr` function on a recursive, non-nested inductive). It is admitted by \
-          exact match (standard §7.4): rerunning Lean's recursion compiler on the helper's \
-          recursion regenerates the observed base, up to compilation erasure, and the base's \
-          axioms are within Standard-Logical. Which code added the helper does not matter.",
+          `Hashable` or `Repr` function on a recursive inductive that is neither nested nor \
+          mutual). It is admitted by exact match (standard §7.4): rerunning Lean's recursion \
+          compiler on the helper's recursion, with only the toolchain's own preprocessing rules \
+          and syntax handlers, regenerates the observed base, up to compilation erasure, and the \
+          base's axioms are within Standard-Logical. Which code added the helper does not matter.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
-          the `partial def` comparison that `deriving BEq` generates for a nested or mutual \
-          inductive."]
+          the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
+          for a nested or mutual inductive (and deriving `Ord` for any recursive one).",
+        "A helper of a safe definition that the regeneration does not reproduce is reported \
+          under the helper's name (see the limitations below); its definition may be correct."]
       rationaleDetail := []
       proofShape := [
         "A total replacement keeps the same domain and result type; if it changes behavior, state \
@@ -371,17 +374,20 @@ def guide : RuleId → Guide
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
-        "That the regeneration observation is truthful or that a helper's compiled code matches \
-          its value; both rest on the pinned Lean toolchain.",
+        "That the regeneration observation is truthful, that the toolchain's recursion compiler \
+          and preprocessing rules preserve the helper's recursive calls, or that a helper's \
+          compiled code matches its value; these rest on the pinned Lean toolchain and on \
+          Regula's own unproved regeneration comparison.",
         "Termination proofs' adequacy for cost claims."]
       configuration := [
         "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
       limitations := [
         "A helper is not admitted where the regeneration does not reproduce its base: a \
           structural recursion on an argument other than the first one Lean's automatic choice \
-          accepts (selectable by `termination_by structural`), a `partial_fixpoint` definition, or \
+          accepts (selectable by `termination_by structural`), a `partial_fixpoint` definition, \
           a base compiled through a fixpoint combinator other than `WellFounded.fix` and \
-          `WellFounded.Nat.fix`.",
+          `WellFounded.Nat.fix`, or a base whose compilation used a `wf_preprocess` rule declared \
+          outside the Lean toolchain.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]

@@ -14,7 +14,7 @@ namespace Regula.Checker.Frontend
 
 open Lean hiding Command
 open RegulaPolicy (Declaration)
-open RegulaPolicy.Frontend (SyntaxRange Command Transcript)
+open RegulaPolicy.Frontend (Command Transcript)
 
 /-- An ordered check: the condition it requires and the refusal reported when it fails. -/
 abbrev Obligation := Prop × String
@@ -98,15 +98,6 @@ theorem decides_forM_map {α : Type} (l : List α) (f : α → Except String Uni
   rw [List.map_eq_flatMap]
   exact decides_forM l f (fun x => [obligation x]) h
 
-/-- A transcript range has positive lines, both ends round-trip through `fm`, and its
-start is not after its stop. -/
-def RangeAgrees (fm : FileMap) (range : SyntaxRange) : Prop :=
-  range.start.line > 0 ∧ range.end.line > 0 ∧
-    fm.toPosition (fm.ofPosition (leanPosition range.start)) = leanPosition range.start ∧
-    fm.toPosition (fm.ofPosition (leanPosition range.end)) = leanPosition range.end ∧
-    (fm.ofPosition (leanPosition range.start)).byteIdx ≤
-      (fm.ofPosition (leanPosition range.end)).byteIdx
-
 /-- A declaration's reported ranges agree with `snapshot` and name an admissible
 source candidate. -/
 def RangesConvert (column : Utf16Column) (snapshot : SourceSnapshot)
@@ -120,36 +111,19 @@ def snapshotOf (transcript : Transcript) : SourceSnapshot :=
   ⟨transcript.source, transcript.sourceContent⟩
 
 /-- Required coordinate agreement: every command's `added` names are exactly its
-`addedDeclarations` names; every command, evaluator and binding range satisfies
-`RangeAgrees` in the transcript's `FileMap`; and the ranges of every declaration of the
-transcript's module convert against its snapshot. -/
+`addedDeclarations` names, and the ranges of every declaration of the transcript's module
+convert against its snapshot. -/
 def CoordinatesAgree (column : Utf16Column) (declarations : Array Declaration)
     (transcript : Transcript) : Prop :=
   (∀ command ∈ transcript.commands,
-    command.added = command.addedDeclarations.map (·.name) ∧
-    (∀ range ∈ command.commandRange, RangeAgrees transcript.sourceContent.toFileMap range) ∧
-    (∀ evaluator ∈ command.evaluators, ∀ range ∈ evaluator.range,
-      RangeAgrees transcript.sourceContent.toFileMap range) ∧
-    (∀ binding ∈ command.bindings, ∀ range ∈ binding.range,
-      RangeAgrees transcript.sourceContent.toFileMap range)) ∧
+    command.added = command.addedDeclarations.map (·.name)) ∧
   ∀ declaration ∈ declarations, declaration.module = transcript.module →
     ∀ ranges ∈ declaration.ranges, RangesConvert column (snapshotOf transcript) ranges
 
-/-- The obligation that `range` satisfies `RangeAgrees` in `fm`, refused as a coordinate
-disagreement. -/
-def rangeObligation (fm : FileMap) (range : SyntaxRange) : Obligation :=
-  (RangeAgrees fm range, "transcript coordinates disagree with source snapshot")
-
-/-- One command's obligations: its declaration inventory, then its command range, then
-each evaluator's range, then each binding's range. -/
-def commandObligations (fm : FileMap) (command : Command) : List Obligation :=
-  (command.added = command.addedDeclarations.map (·.name),
-      "transcript declaration inventory mismatch") ::
-    (command.commandRange.toList.map (rangeObligation fm) ++
-      command.evaluators.toList.flatMap (fun evaluator =>
-        evaluator.range.toList.map (rangeObligation fm)) ++
-      command.bindings.toList.flatMap (fun binding =>
-        binding.range.toList.map (rangeObligation fm)))
+/-- One command's obligation: its declaration inventory. -/
+def commandObligations (command : Command) : List Obligation :=
+  [(command.added = command.addedDeclarations.map (·.name),
+      "transcript declaration inventory mismatch")]
 
 /-- One declaration's reported-range obligations: full range, selection range, then
 source-candidate admission. -/
@@ -165,7 +139,7 @@ def reportObligations (column : Utf16Column) (snapshot : SourceSnapshot)
 reported-range obligations of each same-module declaration in inventory order. -/
 def coordinateObligations (column : Utf16Column) (declarations : Array Declaration)
     (transcript : Transcript) : List Obligation :=
-  transcript.commands.toList.flatMap (commandObligations transcript.sourceContent.toFileMap) ++
+  transcript.commands.toList.flatMap commandObligations ++
     declarations.toList.flatMap fun declaration =>
       if declaration.module = transcript.module then
         declaration.ranges.toList.flatMap (reportObligations column (snapshotOf transcript))
@@ -182,36 +156,15 @@ def CoordinateContract
     Decides (check column declarations transcript)
       (coordinateObligations column declarations transcript)
 
-/-- Checks one transcript range against `fm`: both lines positive, both ends round-trip
-through `FileMap`, and start not after stop; `rangeCoordinates_decides` shows it refuses exactly
-when `rangeObligation` fails. -/
-def rangeCoordinates (fm : FileMap) (range : SyntaxRange) : Except String Unit := do
-  let a : Lean.Position := ⟨range.start.line, range.start.column⟩
-  let b : Lean.Position := ⟨range.end.line, range.end.column⟩
-  let start := fm.ofPosition a
-  let stop := fm.ofPosition b
-  unless a.line > 0 && b.line > 0 && fm.toPosition start == a &&
-      fm.toPosition stop == b && start.byteIdx ≤ stop.byteIdx do
-    throw "transcript coordinates disagree with source snapshot"
-
 /-- Checks that a command's `added` names equal the names of its `addedDeclarations`, in order. -/
 def commandInventory (command : Command) : Except String Unit :=
   unless command.added == command.addedDeclarations.map (·.name) do
     throw "transcript declaration inventory mismatch"
 
-/-- Checks one command: its declaration inventory, then its command, evaluator and binding
-ranges, refusing at the first failure in the order of `commandObligations`
-(`commandCoordinates_decides`). -/
-def commandCoordinates (fm : FileMap) (command : Command) : Except String Unit := do
-  commandInventory command
-  command.commandRange.toList.forM (rangeCoordinates fm)
-  command.evaluators.toList.forM fun evaluator => evaluator.range.toList.forM (rangeCoordinates fm)
-  command.bindings.toList.forM fun binding => binding.range.toList.forM (rangeCoordinates fm)
-
 /-- Recheck source coordinates against exact transcript bytes using Lean's `FileMap`. -/
 def coordinateCheck (column : Utf16Column) (declarations : Array Declaration)
     (transcript : Transcript) : Except String Unit := do
-  transcript.commands.toList.forM (commandCoordinates transcript.sourceContent.toFileMap)
+  transcript.commands.toList.forM commandInventory
   declarations.toList.forM fun declaration =>
     if declaration.module == transcript.module then
       declaration.ranges.toList.forM fun ranges =>
@@ -219,30 +172,11 @@ def coordinateCheck (column : Utf16Column) (declarations : Array Declaration)
           fun _ => ()
     else pure ()
 
-theorem rangeCoordinates_decides (fm : FileMap) (range : SyntaxRange) :
-    Decides (rangeCoordinates fm range) [rangeObligation fm range] :=
-  decides_guard _ _ (by simp [RangeAgrees, leanPosition, and_assoc]) _
-
-theorem commandCoordinates_decides (fm : FileMap) (command : Command) :
-    Decides (commandCoordinates fm command) (commandObligations fm command) := by
-  have ranges := fun (l : List SyntaxRange) =>
-    decides_forM_map l (rangeCoordinates fm) (rangeObligation fm)
-      fun range _ => rangeCoordinates_decides fm range
-  have evaluators := decides_forM command.evaluators.toList
-    (fun evaluator => evaluator.range.toList.forM (rangeCoordinates fm))
-    (fun evaluator => evaluator.range.toList.map (rangeObligation fm))
-    fun evaluator _ => ranges _
-  have bindings := decides_forM command.bindings.toList
-    (fun binding => binding.range.toList.forM (rangeCoordinates fm))
-    (fun binding => binding.range.toList.map (rangeObligation fm))
-    fun binding _ => ranges _
-  have all := (decides_guard (command.added == command.addedDeclarations.map (·.name))
+theorem commandInventory_decides (command : Command) :
+    Decides (commandInventory command) (commandObligations command) :=
+  decides_guard (command.added == command.addedDeclarations.map (·.name))
     (command.added = command.addedDeclarations.map (·.name)) (by simp)
-    "transcript declaration inventory mismatch").bind
-      ((ranges command.commandRange.toList).bind (evaluators.bind bindings))
-  unfold commandCoordinates commandObligations
-  rw [List.append_assoc]
-  exact all
+    "transcript declaration inventory mismatch"
 
 theorem sourceFromReportWith_decides (column : Utf16Column) (snapshot : SourceSnapshot)
     (ranges : RegulaPolicy.Ranges) :
@@ -260,7 +194,7 @@ theorem coordinateCheck_decides (column : Utf16Column) (declarations : Array Dec
     Decides (coordinateCheck column declarations transcript)
       (coordinateObligations column declarations transcript) := by
   refine (decides_forM _ _ _ fun command _ =>
-    commandCoordinates_decides _ command).bind (decides_forM _ _ _ fun declaration _ => ?_)
+    commandInventory_decides command).bind (decides_forM _ _ _ fun declaration _ => ?_)
   by_cases hm : declaration.module = transcript.module
   · simp only [beq_iff_eq, hm, ↓reduceIte]
     exact decides_forM _ _ _ fun ranges _ => sourceFromReportWith_decides column _ ranges
@@ -275,10 +209,10 @@ theorem coordinateObligations_hold (column : Utf16Column) (declarations : Array 
       (∀ o ∈ (if c then l else []), o.1) ↔ (c → ∀ o ∈ l, o.1) := by
     intro c _ l
     by_cases hc : c <;> simp [hc]
-  simp only [coordinateObligations, commandObligations, reportObligations, rangeObligation,
+  simp only [coordinateObligations, commandObligations, reportObligations,
     CoordinatesAgree, RangesConvert, ite_nil, List.forall_mem_append, List.forall_mem_flatMap,
-    List.forall_mem_cons, List.forall_mem_map, List.not_mem_nil, false_implies, implies_true,
-    and_true, Array.mem_toList_iff, Option.mem_toList, Option.mem_def, and_assoc]
+    List.forall_mem_cons, List.not_mem_nil, false_implies, implies_true,
+    and_true, Array.mem_toList_iff, Option.mem_toList, Option.mem_def]
 
 /-- Registers `CoordinateContract` about the executed coordinate check. -/
 theorem checked_coordinates : Regula.ExecutableContract coordinateCheck CoordinateContract :=

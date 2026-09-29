@@ -159,34 +159,73 @@ private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : E
           (body'.instantiate1 y)
     | _, _ => return false
 
-/-- Whether every definition a regeneration added (named under `regenerationRoot`) equals up to
-compilation erasure the observed definition of the same name without that root, with every
-constant under the root renamed back; at least one must have been added. -/
-private def regenerationMatches (before : Environment) : MetaM Bool := do
-  let env ← getEnv
-  let unregenerated := fun (e : Expr) => e.replace fun
-    | .const n us => if n.getRoot == regenerationRoot then
-        some (mkConst (n.replacePrefix regenerationRoot .anonymous) us) else none
-    | _ => none
-  let mut compared := 0
-  for (name, info) in env.constants.map₂.toList do
-    unless name.getRoot == regenerationRoot && !before.contains name do continue
-    let .defnInfo regenerated := info | continue
-    let some (.defnInfo observed) := env.find? (name.replacePrefix regenerationRoot .anonymous)
-      | return false
-    unless ← equalErased 100000 #[] (unregenerated regenerated.value) observed.value do
-      return false
-    compared := compared + 1
-  return compared > 0
+/-- The definitions a regeneration added to `before` to reach `after`, those named under
+`regenerationRoot`, each with its value and with every constant under the root renamed back. -/
+private def regeneratedDefinitions (before after : Environment) : Array (Name × Expr) :=
+  let unregenerate := fun (n : Name) => n.replacePrefix regenerationRoot .anonymous
+  after.constants.map₂.toList.toArray.filterMap fun (name, info) => do
+    guard <| name.getRoot == regenerationRoot && !before.contains name
+    let .defnInfo regenerated := info | none
+    return (unregenerate name, regenerated.value.replace fun
+      | .const n us => if n.getRoot == regenerationRoot then some (mkConst (unregenerate n) us)
+        else none
+      | _ => none)
+
+/-- Whether each regenerated definition equals up to compilation erasure the observed definition of
+its name in the current environment; at least one must have been regenerated. -/
+private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Bool := do
+  if regenerated.isEmpty then return false
+  for (name, value) in regenerated do
+    let some (.defnInfo observed) := (← getEnv).find? name | return false
+    unless ← equalErased 100000 #[] value observed.value do return false
+  return true
+
+/-- The `wf_preprocess` rules of the running Lean toolchain: the global entries of the modules Lean
+loaded from the toolchain's own library directory, recognized by canonical path, since a module's
+name does not establish toolchain ownership. Rules a project or dependency adds are left out. -/
+private def toolchainPreprocessRules (env : Environment) : IO Meta.SimpTheorems := do
+  let ext := Lean.Elab.WF.wfPreprocessSimpExtension
+  let libDir ← Lean.getLibDir (← Lean.findSysroot)
+  let mut rules ← ext.descr.mkInitial
+  for (moduleName, index) in env.header.moduleNames.zipIdx do
+    let entries := ext.ext.getModuleEntries env index
+    if entries.isEmpty then continue
+    let expected := Lean.modToFilePath libDir moduleName "olean"
+    unless ← expected.pathExists do continue
+    unless (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected) do
+      continue
+    for entry in entries do
+      if let .global rule := entry then rules := ext.descr.addEntry rules rule
+  return ext.descr.finalizeImport rules
+
+/-- `env` with `registry` holding only the handlers built into the running executable (its
+`tableRef`), none that an imported module registered. -/
+private def builtinHandlersOnly {γ : Type} (registry : KeyedDeclsAttribute γ)
+    (env : Environment) : IO Environment := do
+  let builtin := KeyedDeclsAttribute.mkStateOfTable (← registry.tableRef.get)
+  return registry.ext.modifyState env fun _ => builtin
+
+/-- The environment a regeneration runs in: `env` with only the toolchain's `wf_preprocess` rules
+and only the executable's built-in macros, tactic and term elaborators, so that no rule or syntax
+handler of the audited modules or their dependencies takes part. -/
+private def regenerationEnvironment (env : Environment) : IO Environment := do
+  let rules ← toolchainPreprocessRules env
+  let env := Lean.Elab.WF.wfPreprocessSimpExtension.modifyState env fun _ => rules
+  let env ← builtinHandlersOnly macroAttribute env
+  let env ← builtinHandlersOnly Lean.Elab.Tactic.tacticElabAttribute env
+  builtinHandlersOnly Lean.Elab.Term.termElabAttribute env
 
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
 to the group's helpers standing for the recursive calls, and compare what it generates with the
 observed base and its auxiliary definitions (`regenerationMatches`). Structural recursion is tried
-first, with no hint, as Lean itself does; then well-founded recursion, with Lean's measure
-inference and every decreasing proof elided (`all_goals sorry`), since the comparison erases proofs
-and the observed base's own kernel-checked value supplies them. A regeneration that reports an error
-does not count. Every change is undone. A `checkerLimit?` reached is rethrown. -/
+first, with no hint; then well-founded recursion, with Lean's measure inference and every
+decreasing proof elided (`all_goals exact sorry`, on the raw goal), since the comparison erases
+proofs and the observed base's own kernel-checked value supplies them. The compiler runs in
+`regenerationEnvironment`. A regeneration that reports an error does not count. Every change is
+undone before the comparison, which reads the observed definitions and decides erasure in the
+inspected environment: whatever code runs during a regeneration, only the definitions it adds are
+compared. A `checkerLimit?` reached is rethrown. -/
 private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo) :
     CommandElabM (Option RecursionOrigin) := do
   let some _ := Lean.Compiler.isUnsafeRecName? name | return none
@@ -208,22 +247,25 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
                 declName := regenerationRoot ++ bases[i]!, binders := .missing, type := value.type,
                 value := rename value.value, termination := .none } : PreDefinition)
     let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
+    let regenerating ← regenerationEnvironment (← getEnv)
     let attempt (run : TermElabM Unit) : TermElabM Bool := do
       let saved ← saveState
-      let before ← getEnv
-      try
-        Core.resetMessageLog
-        run
-        let reproduced := !(← Core.getMessageLog).hasErrors && (← regenerationMatches before)
-        saved.restore
-        return reproduced
-      catch ex =>
-        saved.restore
-        if (← checkerLimit? ex).isSome then throw ex
-        return false
+      let regenerated ← try
+          Core.resetMessageLog
+          setEnv regenerating
+          withOptions (·.setBool `debug.rawDecreasingByGoal true) run
+          let failed := (← Core.getMessageLog).hasErrors
+          let after ← getEnv
+          saved.restore
+          pure (if failed then #[] else regeneratedDefinitions regenerating after)
+        catch ex =>
+          saved.restore
+          if (← checkerLimit? ex).isSome then throw ex
+          pure #[]
+      regenerationMatches regenerated
     let docCtx := (← getLCtx, ← Meta.getLocalInstances)
     if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
-    let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals sorry)
+    let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)
     let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
       { preDef with termination := { TerminationHints.none with
           decreasingBy? := some ({ ref := .missing, tactic := elided } : DecreasingBy) } }
@@ -424,8 +466,8 @@ inductive Stage where
   /-- A local editor snapshot of the current command: the record without the replay-only
   observations. -/
   | snapshot
-  /-- A declaration of the trusted environment probe: the record also gathers the
-  `unsafe rec` value and equation evidence and the native-decision evidence that replay needs. -/
+  /-- A declaration of the trusted environment probe: the record also carries the regeneration
+  of a recursion helper and the native-decision evidence that replay needs. -/
   | replayCandidate
   deriving DecidableEq, Inhabited
 

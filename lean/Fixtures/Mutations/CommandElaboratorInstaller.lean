@@ -7,7 +7,7 @@ handler that forges a safe base with the victim command's exact range, its
 recursion tag, stored predefinition and looping helper. The installer's syntax
 kind is the module's own and it runs in `CommandElabM`. Exact match rejects the
 forged helper because Lean's recursion compiler does not regenerate the forged
-base from it; the genuine derived helper is admitted.
+base from it.
 -/
 open Lean Elab Command
 

@@ -26,7 +26,7 @@ elab "forge_unsafe_rec_metadata" : command => do
         all := [baseName]
       })
       -- Keep the safe base executable: missing code would be a second fault,
-      -- independent of the forged helper provenance this mutation isolates.
+      -- independent of the forged helper this mutation isolates.
       liftCoreM <| compileDecls #[baseName]
       liftCoreM <| Lean.Meta.markAsRecursive baseName
       addDeclarationRangesFromSyntax baseName stx

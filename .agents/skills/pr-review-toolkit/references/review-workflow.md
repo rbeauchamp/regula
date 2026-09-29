@@ -71,7 +71,8 @@ not close the finding. Qualification observations do not prove universal checker
 
 Keep prose, definitions, and checker policy aligned where they encode the same claim.
 Preserve module 7's assurance boundary: a recursion helper is admitted only when Lean's own
-recursion compiler regenerates it exactly, whatever evaluator produced it, a native-proof axiom
+recursion compiler regenerates its base from it, up to compilation erasure, whatever evaluator
+produced it, a native-proof axiom
 rests on its natively replayed statement and command provenance instead, and arbitrary process
 or trusted-plugin compromise is outside scope.
 

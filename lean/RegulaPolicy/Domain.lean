@@ -447,11 +447,12 @@ theorem Reducibility.canonical (s : String) (x : Reducibility) (h : parse? s = s
   unfold parse? at h
   split at h <;> cases h <;> rfl
 
-/-- Supported RecursionOrigin values; parsing cannot manufacture an unknown constructor. -/
+/-- The route by which Lean's recursion compiler regenerated a helper's base
+(`Declaration.unsafeRecRegenerated`); parsing cannot manufacture an unknown constructor. -/
 inductive RecursionOrigin where
-  /-- Lean's structural-recursion equation information holds the base's predefinition. -/
+  /-- Structural recursion. -/
   | «structural»
-  /-- Lean's well-founded-recursion equation information holds the base's predefinition. -/
+  /-- Well-founded recursion. -/
   | «wellFounded»
   deriving Repr, DecidableEq, Inhabited
 
@@ -937,29 +938,6 @@ structure ImportRecord where
   isMeta : Bool
   deriving Repr, DecidableEq
 
-/-- The source span of a syntax node: its start and stop positions. -/
-structure SyntaxRange where
-  /-- Where the node begins. -/
-  start : Position
-  /-- Where the node ends. -/
-  «end» : Position
-  deriving Repr, DecidableEq
-
-/-- One elaboration node of a command's information tree that names its elaborator. -/
-structure Evaluator where
-  /-- Whether the node elaborated a command, a tactic or a term. -/
-  role : EvaluatorRole
-  /-- The elaborator that ran; anonymous for Lean's built-in scaffolding. -/
-  elaborator : Lean.Name
-  /-- The syntax kind it elaborated. -/
-  kind : Lean.Name
-  /-- The node's source span, when its syntax has one. -/
-  range : Option SyntaxRange
-  /-- The elaborator is Lean's scaffolding, a syntax macro, or registered for this kind by the
-  toolchain or an imported library, not by the audited module itself. -/
-  pinned : Bool
-  deriving Repr, DecidableEq
-
 /-- One constant a command added to the environment. -/
 structure AddedDeclaration where
   /-- The constant's name. -/
@@ -973,30 +951,13 @@ structure AddedDeclaration where
   nativeStatement : Option String := none
   deriving Repr, DecidableEq
 
-/-- A constant binder in a command's information tree: where a declared name is written. -/
-structure DeclarationBinding where
-  /-- The bound constant. -/
-  name : Lean.Name
-  /-- The source span of its identifier, when recorded. -/
-  range : Option SyntaxRange
-  deriving Repr, DecidableEq
-
-/-- One command that added constants, with the elaboration that produced them. -/
+/-- One command that added constants: what it added and whether it declares an axiom, the
+provenance a native-proof axiom's authentication reads (`NativeTeachingOK`). -/
 structure Command where
-  /-- The command's elaborator. -/
-  commandElaborator : Lean.Name
-  /-- The command's syntax kind. -/
-  commandKind : Lean.Name
-  /-- The command's source span, when recorded. -/
-  commandRange : Option SyntaxRange
   /-- The names of the constants the command added. -/
   added : Array Lean.Name
   /-- A record of each added constant. -/
   addedDeclarations : Array AddedDeclaration
-  /-- Every elaboration node of the command's information tree that names an elaborator. -/
-  evaluators : Array Evaluator
-  /-- The constant binders of the command's information tree. -/
-  bindings : Array DeclarationBinding := #[]
   /-- Whether the command's syntax, a command its information tree records, or the output of a
   macro expansion there contains an `axiom` declaration node, quoted syntax included. It is read
   from syntax, so it holds even when elaborating that declaration failed. -/

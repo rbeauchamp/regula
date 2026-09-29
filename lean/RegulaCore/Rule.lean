@@ -546,12 +546,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       rewrites := [
         "Remove an unnecessary `unsafe` marker.",
         "Replace `partial def` by a definition with structural recursion or a `termination_by` \
-          measure and `decreasing_by` proof. The finding names the `partial def` itself: Lean \
-          compiles it through a generated `_unsafe_rec` helper, which is admitted only for a safe, \
-          termination-checked definition.",
-        "`deriving BEq` on a nested or mutual inductive generates a `partial def` comparison, \
-          reported under its generated name (such as `instBEqT.beq`); write the `BEq` instance by \
-          structural recursion instead.",
+          measure and `decreasing_by` proof; the finding names the `partial def` itself. A \
+          finding naming the `._unsafe_rec` helper of a safe definition means the checker did not \
+          regenerate its base (standard §7.4 lists the unsupported forms, such as \
+          `termination_by structural` on a later argument); restate its recursion.",
+        "Deriving `BEq`, `Hashable`, `Repr` or `Ord` on a nested or mutual inductive (`Ord` on \
+          any recursive one) generates a `partial def`, reported under its generated name (such \
+          as `instBEqT.beq`); write that instance by structural recursion instead.",
         "If the computation must stay unsafe or partial, move it to a separate, unclaimed \
           dependency package; a claimed module cannot import an excluded module of its own package \
           (RG2004). Where a claimed executable reaches it, it is reported as a trusted \

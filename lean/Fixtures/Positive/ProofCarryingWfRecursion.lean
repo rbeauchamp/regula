@@ -2,8 +2,8 @@
 Positive control (issues #126 and #125): well-founded recursion that passes a
 tactic proof to its recursive call. Lean elaborates it without error; the
 declaration-report worker must complete its report instead of failing with
-Lean's maximum recursion depth while comparing the generated helper with its
-predefinition. Exact match admits the helper: Lean's well-founded recursion
+Lean's maximum recursion depth while comparing the regenerated base with the
+observed one. Exact match admits the helper: Lean's well-founded recursion
 compiler, rerun on the helper with every decreasing proof elided, regenerates
 the observed base up to compilation erasure, the passed proof included.
 -/
