@@ -191,10 +191,11 @@ sources, manifest and Markdown; complete the mode's build, import and admission 
 the census of owned declarations, roots and required transcripts; then freeze the required jobs
 before collecting results. `Census.requests` is the ordered array of environment requests, and
 `CensusOK` requires the returned requests to equal it and their positive module partition to be
-the whole claim. A project claim requests `SurfaceAssignment.environments` for each surface in
-order: the library's modules, then each claimed executable's root alone
-(`census_executable_alone`; `acceptedRun_executable_alone` for every accepted project run),
-because two roots that each define `main` cannot share one environment. `InventoryValid`
+the whole claim. An ordinary (non-serialized-graph) project claim requests
+`SurfaceAssignment.environments` for each surface in order: the library's modules, then each
+claimed executable's root alone (`census_executable_alone`; `acceptedRun_executable_alone` for
+every accepted ordinary project run), because two roots that each define `main` cannot share one
+environment. `InventoryValid`
 requires unique names within each Lean environment; different environments may each define
 `main`, and their inventories are never merged. Each
 `EnvironmentCensus` retains its complete admitted policy inventory, transcripts, execution roots,
@@ -348,6 +349,29 @@ inferred from any pure proof.
   and it records the admitted keys. Replay scope includes owned dependencies and the existing
   reporter closure where required; it may exceed the reported surface. Imported unowned modules
   remain trusted; the receipt records the completed operation and does not authenticate replay.
+- **Admission reuse.** The project audit inspects every library environment before any
+  executable's, and hands the executables the libraries' completed admissions
+  (`Admission.PriorAdmission`). An executable's environment keeps an owned module other than its
+  root in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's
+  `reused`) exactly when (1) a library environment replayed it over the identical import closure
+  (`Admission.importClosure`: the same modules, canonical `.olean` paths and import edges);
+  (2) every owned module of that closure is a claimed library module whose `.olean` the
+  coordinator read before the first inspection and compares byte for byte after the last (a
+  change is RG2005, incomplete); (3) each declaration of each owned module of the closure refers
+  only to constants of its own closure (`ConstantInfo.getUsedConstantsAsSet`, the dependencies
+  `Kernel.Environment.replay` replays first); and (4) every owned module of the closure is reused
+  too. Every other owned module is replayed. The coordinator rechecks each reused module against
+  the admissions it handed out (`Admission.reuseJustified`), and `Admission.validate` still
+  refuses a base module that imports a replayed one. **Derived, not machine-checked:** the kernel's
+  check of a declaration depends only on the declaration and the constants it consults, which
+  its references and their values reach. By (3), (4) and the imported base's own references, a
+  reused module's declarations consult only its closure; by (1) and (2) that closure is the same
+  bytes in both environments, so the library environment's successful replay is the one this
+  environment would repeat. This rests on the stated trusted boundary: authentic imported
+  artifacts unchanged during the audit (as the history memo already assumes), filesystem reads,
+  and no change restored between the two byte observations. No theorem models the kernel or
+  links the reuse predicate to it. Library environments still replay every owned module they
+  load, including one another library environment also replays.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's

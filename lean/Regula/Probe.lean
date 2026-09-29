@@ -104,6 +104,13 @@ def ownedConstants (env : Environment) (modules : List Name) :
         own := own.push (name, info)
   return own
 
+/-- The name, canonical `.olean` path and direct imports of every module loaded in `env`, in
+header order. -/
+def loadedModuleOrigins (env : Environment) : IO (Array Regula.Report.ModuleOrigin) :=
+  env.header.moduleNames.zip env.header.moduleData |>.mapM fun (moduleName, data) => do
+    let path ← IO.FS.realPath (← Lean.findOLean moduleName)
+    return { name := moduleName, olean := path.toString, imports := data.imports.map (·.module) }
+
 /-- Declarations attributed by Lean to one of the exact requested modules. -/
 private def ownedDecls (env : Environment) (modules : List Name) :
     CommandElabM (Array (Name × ConstantInfo)) :=
@@ -654,11 +661,7 @@ def environmentReport (modules : List Name)
   -- Execution trust checks always need canonical origins. Logical-only
   -- documentation inspection may omit this otherwise unused report payload.
   let moduleOrigins ← if includeExecution || includeModuleOrigins then
-      env.header.moduleNames.zip env.header.moduleData |>.mapM fun (moduleName, data) => do
-        let path ← liftIO <| IO.FS.realPath (← Lean.findOLean moduleName)
-        return ({ name := moduleName, olean := path.toString
-                  imports := data.imports.map (·.module) } :
-          Regula.Report.ModuleOrigin)
+      liftIO <| loadedModuleOrigins env
     else pure #[]
   let own ← ownedDecls env modules
   let declarationKeys ← own.mapM fun (name, _) => do

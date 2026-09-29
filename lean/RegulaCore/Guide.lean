@@ -581,12 +581,15 @@ def guide : RuleId → Guide
               "lean/Regula/Checker/AxiomGate.lean"] }
   | .admission => {
       problem := "Required evidence is missing, incomplete, unsupported or invalid: owned \
-        declarations did not pass kernel admission, a frozen source changed during the audit, or \
-        authentication the result needs could not complete. The result is INCOMPLETE."
+        declarations did not pass kernel admission, a frozen source or `.olean` file changed \
+        during the audit, or authentication the result needs could not complete. The result is \
+        INCOMPLETE."
       trigger := [
         "Before accepting proof evidence the checker replays every owned logical declaration and \
-          its owned dependencies through Lean's kernel (`Admission.validate`). A declaration that \
-          fails replay, source bytes that changed after they were frozen, or a required \
+          its owned dependencies through Lean's kernel (`Admission.validate`); an executable's \
+          environment reuses, instead of repeating, a library environment's replay of a module \
+          over the identical import closure and frozen `.olean` bytes. A declaration that fails \
+          replay, source or `.olean` bytes that changed after they were frozen, or a required \
           authentication that failed is reported here with impact `incomplete`.",
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \

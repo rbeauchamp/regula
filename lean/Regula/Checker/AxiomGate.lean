@@ -245,12 +245,15 @@ private structure ReportWorkerRequest where
   /-- Directory the coordinator owns for this audit, where surface workers share
   replacement-history worker output (`Environment.historyWorkerOutput`). -/
   historyMemo : String
+  /-- The library environments' completed admissions, which an executable's environment reuses
+  (`Admission.reusedModules`); empty for a library's environment. -/
+  priors : Array Admission.PriorAdmission
   deriving ToJson
 
 instance : FromJson ReportWorkerRequest := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
       ["modules", "searchRoots", "sourceRoots", "sourceBindings", "ownedOutput",
-    "historyMemo"]
+    "historyMemo", "priors"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     searchRoots := ← j.getObjValAs? _ "searchRoots"
@@ -258,6 +261,7 @@ instance : FromJson ReportWorkerRequest := ⟨fun j => do
     sourceBindings := ← j.getObjValAs? _ "sourceBindings"
     ownedOutput := ← j.getObjValAs? _ "ownedOutput"
     historyMemo := ← j.getObjValAs? _ "historyMemo"
+    priors := ← j.getObjValAs? _ "priors"
   }⟩
 
 /-- One Lean environment the project audit loads for a claimed surface, in the order of
@@ -309,6 +313,26 @@ private structure SurfaceInspection where
   admitted : Regula.Checker.ProducerReport.Admitted
   transcripts : Array Frontend.Transcript
   frontendFailures : Array String
+
+/-- The completed admissions of the library environments, as an executable's environment may
+reuse them: each offers the modules it replayed whose import closure loads every `owned` module
+from the `.olean` path `frozen` records for it. -/
+private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
+    (inspections : Array (Except IO.Error
+      (Except ProducerReport.AdmissionFailure SurfaceInspection))) :
+    Array Admission.PriorAdmission :=
+  inspections.filterMap fun
+    | .ok (.ok inspected) =>
+        let report := inspected.admitted.report
+        let index := Admission.originIndex report.moduleOrigins
+        let offered := ((report.admission.map (·.modules)).getD #[]).filter fun m =>
+          match Admission.importClosure index m with
+          | none => false
+          | some closure => closure.all fun origin =>
+              !owned.contains origin.name || frozen[origin.name]? == some origin.olean
+        if offered.isEmpty then none
+        else some { modules := offered, origins := report.moduleOrigins }
+    | _ => none
 
 private def capturedSourceAccount (resultOut : Option FilePath)
     (sources : Array ProducerReport.SourceBinding) : IO Json := do
@@ -463,7 +487,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             if free > 0 then set (free - 1); return true else return false) do
           IO.sleep 20
         try act finally slots.atomically (modify (· + 1))
-      let inspectEnvironment (historyMemo : FilePath) (environment : SurfaceEnvironment) :
+      let inspectEnvironment (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
+          (environment : SurfaceEnvironment) :
           IO (Except ProducerReport.AdmissionFailure SurfaceInspection) := do
         let info := environment.info
         let request : ReportWorkerRequest := {
@@ -473,6 +498,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           sourceBindings
           ownedOutput := inventory.leanLibDir.toString
           historyMemo := historyMemo.toString
+          priors
         }
         -- The decoder validates the report once and keeps that success as a proof.
         let outcome : ProducerReport.AdmittedOutcome ← withSlot <|
@@ -484,6 +510,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let report := admitted.report
         if let .error failure := SourceBinding.validateAgainst sourceBindings report then
           return .error failure
+        unless Admission.reuseJustified priors report do
+          return .error ⟨s!"[VIOLATION[kernel-admission]] {environment.label} reused an \
+            admission no library environment offered over the same import closure"⟩
         -- `mapWorkQueue` returns results in module order, so transcripts and failures
         -- keep the order of the former sequential loop.
         let modules := candidateModules report.declarations
@@ -504,13 +533,47 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         if let .error failure := SourceBinding.transcriptsMatch sourceBindings transcripts then
           return .error failure
         return .ok { info, admitted, transcripts, frontendFailures }
-      let inspections ← withScratch (← IO.currentDir) "history-memo" fun historyMemo =>
-        mapWorkQueue 3 environments fun environment => do
+      -- An executable's environment reuses a library module's admission only over the `.olean`
+      -- frozen here, and every frozen file is compared again after the last inspection.
+      let frozenArtifacts ← if environments.any (·.executable.isSome) then
+          (assignments.flatMap (·.library)).filterMapM fun identity => do
+            let path := Lean.modToFilePath inventory.leanLibDir identity.name "olean"
+            unless ← path.pathExists do return none
+            return some (identity.name, (← IO.FS.realPath path).toString,
+              ← IO.FS.readBinFile path)
+        else pure #[]
+      let inspectGroup (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
+          (group : Array (Nat × SurfaceEnvironment)) :=
+        mapWorkQueue 3 group fun (index, environment) => do
           -- Capture failures as values so every started worker is joined, then choose
           -- fatal errors in claim order instead of worker-completion order.
-          return (environment, ← (inspectEnvironment historyMemo environment).toBaseIO)
+          return (index, environment,
+            ← (inspectEnvironment historyMemo priors environment).toBaseIO)
+      let inspections ← withScratch (← IO.currentDir) "history-memo" fun historyMemo => do
+        let indexed := environments.mapIdx fun index environment => (index, environment)
+        -- Every library's environment completes before any executable's, which reuses the
+        -- admissions they offer (`Admission.reusedModules`).
+        let libraries ← inspectGroup historyMemo #[] (indexed.filter (·.2.executable.isNone))
+        let executableGroup := indexed.filter (·.2.executable.isSome)
+        let priors := if executableGroup.isEmpty then #[] else
+          libraryPriors
+            (NameSet.ofArray ((sourceBindings.map (·.moduleName)).filter fun name =>
+              !Environment.probeModuleNames.contains name.toString))
+            (frozenArtifacts.foldl (fun paths (name, path, _) => paths.insert name path) {})
+            (libraries.map (·.2.2))
+        let executables ← inspectGroup historyMemo priors executableGroup
+        return ((libraries ++ executables).qsort (·.1 < ·.1)).map (·.2)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
+      for (name, path, content) in frozenArtifacts do
+        let current ← (IO.FS.readBinFile path).toBaseIO
+        unless (match current with | .ok bytes => bytes == content | .error _ => false) do
+          reportContextFailure .admission reportRoot.toString
+            (if fresh then .freshProject else .incrementalProject) .incomplete
+                [.configuration, .discovery, .build]
+            s!"producer-artifact: the .olean of {name} changed during the audit" composed
+            resultOut sourceBindings
+          return 1
       -- Freeze the complete discovery domain before the per-declaration policy loop.
       -- Expected modules are the coordinator's Lake assignments, never response fields.
       for (_, outcome) in inspections do
@@ -1223,7 +1286,7 @@ unsafe def run (args : List String) : IO UInt32 := do
         (request.searchRoots.map FilePath.mk) (request.sourceRoots.map FilePath.mk)
         (request.sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
         (some (FilePath.mk request.ownedOutput)) (validateReport := false)
-        (historyMemo := some (FilePath.mk request.historyMemo))
+        (historyMemo := some (FilePath.mk request.historyMemo)) (priors := request.priors)
       if let .ok report := outcome then
         if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
           return .error failure
