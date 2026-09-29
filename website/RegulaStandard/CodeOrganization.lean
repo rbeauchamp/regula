@@ -285,7 +285,7 @@ number := false
 * *Lean's `linter.missingDocs`*, with value `true`. It reports every public definition, structure, class, inductive type, constructor, field, and syntax extension that has no docstring, the community's rule that every definition is documented.
 * *Mathlib's standard linter set*, for a library that imports Mathlib: `weak.linter.mathlibStandardSet` with value `true`, the syntax linters Mathlib itself builds with (line length, tactic style, whitespace, and others).
 
-A few linters of that set enforce policies of the Mathlib repository itself. A library that enables the set MUST turn them off in the same `leanOptions`, except that it MAY leave the header linter on when it configures that linter's license line, in the same `leanOptions` or by a `-D` argument (below); at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
+A few linters of that set enforce policies of the Mathlib repository itself. A library that enables the set MUST turn them off in the same `leanOptions`, except that it MAY instead set the header linter to `true` there when it configures that linter's license line, in the same `leanOptions` or by a `-D` argument (below); at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
 
 :::table +header
 *

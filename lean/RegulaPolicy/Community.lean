@@ -39,8 +39,8 @@ them a value the requirement does not admit or turns off another linter.
 - `licensed_header_passes`, `unlicensed_header_fails`: a Mathlib target with the header linter on
   and Acorn's MIT license line has no failure; without the license line it fails with exactly the
   header linter.
-- `licensed_header_argument_passes`: Acorn's `weakLeanArgs`, which turn the header linter on and
-  give its license line by `-D`, configure the license line and add no failure.
+- `licensed_header_argument_passes`: Acorn's `weakLeanArgs`, which turn the standard set and the
+  header linter on and give its license line by `-D`, configure the license line and add no failure.
 - `conforming_autoImplicit`, `conforming_missingDocs`: what a conforming target gives the
   automatic-implicit options and `linter.missingDocs`.
 - `missingDocs_unset_fails`: a core-only target (`mathlib = false`) with only the
@@ -600,11 +600,11 @@ def OptionValue.text : OptionValue → String
   | .bool b => toString b
   | .nat n => toString n
 
-/-- What a failure of the option `name` adds to its finding detail: the header linter may also
-stay on, with the license line configured. -/
+/-- What a failure of the option `name` adds to its finding detail: the header linter may also be
+`true` in `leanOptions`, with the license line configured. -/
 def licenseHint (name : Name) : String :=
   if optionOf name = headerLinter then
-    s!", or keep it on and set `{licenseOption}` to your license line"
+    s!", or set it to true in `leanOptions` and set `{licenseOption}` to your license line"
   else ""
 
 /-- One failure as a finding detail. -/
@@ -927,35 +927,42 @@ theorem unlicensed_header_fails :
     argumentTexts, definiteSettings, definiteTexts, headerLinter, licenseOption,
     OptionValue.readsAs]
 
-/-- Acorn's `weakLeanArgs`, which turn the header linter on and give its MIT license line by whole
-`-D` arguments, configure the license line and add no failure, for every target whose options give
-the license option only nonempty strings. -/
+/-- Acorn's `weakLeanArgs`, which turn Mathlib's standard linter set and the header linter on and
+give the header linter's MIT license line by whole `-D` arguments, configure the license line and
+add no failure, for every target whose options give the license option only nonempty strings. -/
 theorem licensed_header_argument_passes (o : BuildOptions) (mathlib : Bool)
-    (ha : o.arguments = ["-Dweak.linter.style.header=true",
+    (ha : o.arguments = ["-Dweak.linter.mathlibStandardSet=true",
+      "-Dweak.linter.style.header=true",
       "-Dweak.linter.style.header.license=Released under the MIT license as described in the \
         repository LICENSE."])
     (hl : ∀ v ∈ valuesOf o licenseOption, ∃ t, v = .string t ∧ t ≠ "")
+    (hs : "weak.linter.mathlibStandardSet".toName = `weak.linter.mathlibStandardSet)
     (h : "weak.linter.style.header".toName = `weak.linter.style.header)
     (h' : "weak.linter.style.header.license".toName = `weak.linter.style.header.license)
     (n : Name) (v : OptionValue) :
     licensed o = true ∧ Failure.leanArgument n v ∉ failures o mathlib := by
-  have ht : argumentTexts o.arguments = [("weak.linter.style.header", "true"),
+  have ht : argumentTexts o.arguments = [("weak.linter.mathlibStandardSet", "true"),
+      ("weak.linter.style.header", "true"),
       ("weak.linter.style.header.license",
         "Released under the MIT license as described in the repository LICENSE.")] := by
     rw [ha]; decide
   have hd : definiteTexts o.arguments = argumentTexts o.arguments := by
     rw [ha]; decide
+  have hos : optionOf `weak.linter.mathlibStandardSet = `linter.mathlibStandardSet := rfl
   have ho : optionOf `weak.linter.style.header = headerLinter := rfl
   have ho' : optionOf `weak.linter.style.header.license = licenseOption := rfl
   have hne : headerLinter ≠ licenseOption := by simp [headerLinter, licenseOption]
+  have hr : (OptionValue.string "true").readsAs (.bool true) = true := by decide
   have hlicensed : licensed o = true := by
     rw [licensed_iff]
     refine ⟨.inr ⟨(`weak.linter.style.header.license,
       .string "Released under the MIT license as described in the repository LICENSE."),
-      by simp [definiteSettings, hd, ht, h'], ho'⟩, hl, fun s hs hso => ?_⟩
-    simp only [argumentSettings, ht, h, h', List.map_cons, List.map_nil, List.mem_cons,
-      List.not_mem_nil, or_false] at hs
-    rcases hs with rfl | rfl
+      by simp [definiteSettings, hd, ht, h'], ho'⟩, hl, fun s hm hso => ?_⟩
+    simp only [argumentSettings, ht, hs, h, h', List.map_cons, List.map_nil, List.mem_cons,
+      List.not_mem_nil, or_false] at hm
+    rcases hm with rfl | rfl | rfl
+    · rw [hos] at hso
+      simp [licenseOption] at hso
     · exact absurd (ho.symm.trans hso) hne
     · exact ⟨_, rfl, by simp⟩
   refine ⟨hlicensed, ?_⟩
@@ -963,9 +970,10 @@ theorem licensed_header_argument_passes (o : BuildOptions) (mathlib : Bool)
   rintro ⟨name, value, hdef, rfl, rfl, hc⟩
   rw [← mem_argumentTexts_iff, ht] at hdef
   simp only [List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false] at hdef
-  rcases hdef with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+  rcases hdef with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+  · rw [hs, hos] at hc
+    cases mathlib <;> simp [required, baseline, mathlibBaseline, admits, hr] at hc
   · rw [h, ho] at hc
-    have hr : (OptionValue.string "true").readsAs (.bool true) = true := by decide
     cases mathlib <;>
       simp [required, baseline, mathlibBaseline, admits, hlicensed, hr, headerLinter] at hc
   · rw [h', ho'] at hc

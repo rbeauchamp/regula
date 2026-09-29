@@ -649,7 +649,7 @@ def guide : RuleId → Guide
           arguments that are each a whole `-Dname=value`, with every value that `leanOptions` or \
           any `-D` gives it a nonempty string.",
         "A key's leading `weak.` component is read as the option it sets; a target that gives one \
-          option under both spellings must give the required value under each. A string value \
+          option under both spellings must give a value the rule admits under each. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
           One finding per target lists every failure.",
         "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
