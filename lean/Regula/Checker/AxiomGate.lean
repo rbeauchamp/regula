@@ -114,12 +114,13 @@ private def parseArgs : List String → Options → IO Options
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
 
-/-- The Lake inventory of one audited library or surface: its modules and their source files. -/
+/-- The Lake inventory of one audited library or surface environment: its modules and their
+source files. -/
 structure LibraryInfo where
-  /-- The Lake library name. -/
+  /-- The Lake library name; for an executable's environment, the executable's name. -/
   name : String
-  /-- Its modules as Lake reports them; for a surface, also the roots of its claimed
-  executables. -/
+  /-- Its modules as Lake reports them; for a surface environment, the modules that environment
+  owns: the library's modules, or one executable's root. -/
   modules : Array Name
   /-- The source file Lake resolves for each of those modules. -/
   sources : Array Lake.SourceEntry
@@ -615,6 +616,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let mut failures : Array String := #[]
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
+      let mut reportedImports : Std.HashSet (String × String) := {}
       -- Each surface's library entry, with the entries of its executables' environments.
       let mut resultSurfaces : Array (Json × Array Json) := #[]
       -- RG2006 reads whether a surface imports Mathlib from all of its environments together;
@@ -666,15 +668,11 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               reportRoot.toString
                   (s!"surface-not-fresh: {moduleName} did not resolve from the fresh Lake output")
                   (if fresh then .freshProject else .incrementalProject) .incomplete)
+        let mut importDetails : Array String := #[]
         for moduleName in envModules do
           if excludedModules.contains moduleName then
-            failures := failures.push s!"unexpected-project-module: excluded module {moduleName} \
-              was imported into positive library {environment.label}"
-            findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-              reportRoot.toString
-                  (s!"unexpected-project-module: excluded module {moduleName} was imported into \
-                    positive library {environment.label}")
-                        (if fresh then .freshProject else .incrementalProject) .violation)
+            importDetails := importDetails.push s!"unexpected-project-module: excluded module \
+              {moduleName} was imported into positive library {surface.library}"
         -- The probe modules are exempt from the environment-level exclusion check
         -- because the force import always brings them in. Any other module in the
         -- audited environment that imports the probe or its report records is
@@ -686,25 +684,22 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           if (Environment.probeModuleNames.map String.toName).contains origin.name then continue
           for imported in origin.imports do
             if (Environment.probeOnlyModuleNames.map String.toName).contains imported then
-              failures := failures.push s!"unexpected-project-module: checker probe \
-                module {imported} was imported into positive library {environment.label} \
+              importDetails := importDetails.push s!"unexpected-project-module: checker probe \
+                module {imported} was imported into positive library {surface.library} \
                 by {origin.name}"
-              findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-                reportRoot.toString
-                    (s!"unexpected-project-module: checker probe module {imported} was imported \
-                      into positive library {environment.label} by {origin.name}")
-                          (if fresh then .freshProject else .incrementalProject) .violation)
         for origin in report.moduleOrigins do
           if (Environment.probeModuleNames.map String.toName).contains origin.name then continue
           if ← pathWithin (FilePath.mk origin.olean) rootInventory.leanLibDir then
             if !configuredModules.contains origin.name then
-              failures := failures.push s!"unexpected-project-module: root-owned \
+              importDetails := importDetails.push s!"unexpected-project-module: root-owned \
                 module {origin.name} is outside every manifested Lake library"
-              findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-                reportRoot.toString
-                    (s!"unexpected-project-module: root-owned module {origin.name} is outside \
-                      every manifested Lake library")
-                          (if fresh then .freshProject else .incrementalProject) .violation)
+        for detail in importDetails do
+          unless reportedImports.contains (surface.library, detail) do
+            reportedImports := reportedImports.insert (surface.library, detail)
+            failures := failures.push detail
+            findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
+              reportRoot.toString detail (if fresh then .freshProject else .incrementalProject)
+                .violation)
         if report.declarations.any fun decl => !info.modules.contains decl.«module» then
           failures := failures.push s!"declaration-attribution-mismatch: {environment.label}"
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage

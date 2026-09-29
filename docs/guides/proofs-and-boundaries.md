@@ -824,6 +824,8 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
+| project audit | executable admission reuse recheck | a report reusing an admission no library environment offered is refused | Proved | `Admission.reuseJustified_sound` |
+| project audit | none | a frozen `.olean` part that changes during the audit is RG2005 | External | open: MUT-02 not yet evidenced; no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:
 
