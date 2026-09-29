@@ -194,8 +194,9 @@ before collecting results. `Census.requests` is the ordered array of environment
 the whole claim. A project claim requests `SurfaceAssignment.environments` for each surface in
 order: the library's modules, then each claimed executable's root alone
 (`census_executable_alone`; `acceptedRun_executable_alone` for every accepted project run),
-because two roots that each define `main` cannot share one environment. `InventoryValid` requires unique names within each Lean environment; different
-environments may each define `main`, and their inventories are never merged. Each
+because two roots that each define `main` cannot share one environment. `InventoryValid`
+requires unique names within each Lean environment; different environments may each define
+`main`, and their inventories are never merged. Each
 `EnvironmentCensus` retains its complete admitted policy inventory, transcripts, execution roots,
 replay arrays, sources and origins. No entrypoint is renamed, filtered or exempted. Configuration,
 discovery and build jobs occur once. File and graph paths use one environment; document plans use
@@ -901,9 +902,10 @@ boundary for any accepted manifest and claim set selecting an actual surface. `s
 checks that claim hypothesis at run time, and no theorem links that check to the hypothesis. The
 text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
 parsers, so no theorem describes them; `parse_of_encodes` names what they must deliver. The
-variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only,
-claimed-exe and app-omitted-exe variants exclude every actual `AuditApp` executable they stop
-claiming, except app-omitted-exe, which leaves them unclassified on purpose. `RegulaPolicy` stays
+variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only
+variant excludes every actual `AuditApp` executable it stops claiming, and app-omitted-exe
+leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
+executable, so two claimed roots each define `main`. `RegulaPolicy` stays
 claimed in each copy because the checker probe's own imports resolve to it in a self-hosted copy.
 `diagnostics structural` passed locally in 572 s without the deadline (observed 2026-09-27);
 meeting the 420-second budget remains open, so it is not a CI job.
