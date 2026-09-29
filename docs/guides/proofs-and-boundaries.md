@@ -299,6 +299,12 @@ the call through each success owner.
 
 RG2006 checks the Lake options with a proved decision over Lake's resolved configuration
 (`RegulaPolicy.Community.failures`, `failures_eq_nil_iff`), not by re-implementing any linter.
+It admits Mathlib's header linter on only when the target configures the linter's license option
+(`conforming_header`, `header_on_unlicensed_fails`); every other required option admits only its
+required value (`admits_of_ne`). The license option counts as configured only when `leanOptions`
+gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only make the target
+fail. That the linter compares the header with that option is read from Mathlib's source and
+assumed.
 
 **Correspondence resource bound.** `checkCorrespondenceProof` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
@@ -670,9 +676,9 @@ identity are trusted.
 `issues_run`, the plan removes exactly the fixable issues and adds none. The option check covers
 exactly the claimed targets (the root targets the manifest does not exclude, and none while an
 existing manifest fails RG2002), as RG2006 does: `run_sets`, every required option a claimed
-target built without is then set to its required value as `RegulaPolicy.Community.sets`, the
-RG2006 decision, reads it; `resolved_run`, every claimed target then has a value for every
-required option; `run_options_unclaimed`, when a root target is excluded the package's options
+target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
+it, which meets RG2006's requirement on that option (`meets_of_sets`); `resolved_run`, every
+claimed target then has a value for every required option; `run_options_unclaimed`, when a root target is excluded the package's options
 are unchanged, the options going into each claimed target's own configuration
 (`run_plan_targets`), so none reaches an excluded target; and `run_options_prefix` and
 `withAdded_prefix`, the options the package and each claimed target already give are kept. An

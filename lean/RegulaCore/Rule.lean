@@ -737,9 +737,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Each claimed target sets in `leanOptions`: automatic implicits off, \
-        `linter.missingDocs` on, no linter off beyond the §6.7 exclusions and, with Mathlib, its \
-        standard set on; no `-D` undoes this."
+      requirement := "Claimed targets' `leanOptions` set auto-implicits off, `linter.missingDocs` on, no \
+        linter off past §6.7 exclusions, with Mathlib its standard set on, header linter off or \
+        licensed; no `-D` undoes it."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
         elaborated \
         statement can quantify over more than the text a reviewer compares with the intent. A \
@@ -755,13 +755,14 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           ⟨`linter.missingDocs, true⟩`` to `leanOptions` (the same keys under `[leanOptions]` in \
           `lakefile.toml`), then declare each universe and implicit the build reports as unknown \
           and document each declaration it reports.",
-        "With Mathlib, also set `weak.linter.mathlibStandardSet` to true and \
-          `weak.linter.style.header`, `weak.linter.hashCommand` false and \
-          `weak.linter.style.longFile` 0.",
+        "With Mathlib, also set `weak.linter.mathlibStandardSet` to true, `weak.linter.hashCommand` \
+          false, `weak.linter.style.longFile` 0 and `weak.linter.style.header` false, or true \
+          with `weak.linter.style.header.license` set to your license line.",
         "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
           one declaration the community's guidance allows, with a comment (§6.2).",
         "Delete each `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these \
-          options another value or turns off another linter; other extra arguments may stay."]
+          options a value the rule does not admit or turns off another linter; other extra \
+          arguments may stay."]
       examples := {
         language := .lean
         audience := .adopter

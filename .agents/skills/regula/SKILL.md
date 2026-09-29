@@ -229,7 +229,7 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
 
 ### RG2006 Claimed targets must build with the community configuration
 
-Each claimed target sets in `leanOptions`: automatic implicits off, `linter.missingDocs` on, no linter off beyond the §6.7 exclusions and, with Mathlib, its standard set on; no `-D` undoes this.
+Claimed targets' `leanOptions` set auto-implicits off, `linter.missingDocs` on, no linter off past §6.7 exclusions, with Mathlib its standard set on, header linter off or licensed; no `-D` undoes it.
 Fix: Set the target's Lake `leanOptions`: `autoImplicit` and `relaxedAutoImplicit` false, `linter.missingDocs` true and, with Mathlib, the standard set and its three §6.7 exclusions; remove other linter disables and each `-D` extra `lean` argument that overrides these options.
 
 ```lean

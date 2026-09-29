@@ -28,8 +28,9 @@ commands execute over what they observe of a project.
   that target gives a value, so no option reaches a target the manifest excludes
   (`run_options_unclaimed`).
 - `run_plan_targets`, `run_sets`, `resolved_run`: after the plan, a claimed target that built
-  without a required option builds with its required value (`RegulaPolicy.Community.sets`, the
-  RG2006 decision), and every claimed target has a value for every required option.
+  without a required option builds with its required value (`RegulaPolicy.Community.sets`, which
+  meets RG2006's requirement on that option by `meets_of_sets`), and every claimed target has a
+  value for every required option.
 - `run_options_prefix`, `withAdded_prefix`: the plan never changes or removes an option the
   package or a claimed target already sets.
 - `Issue.message`, `Issue.fix`, `unimportedNote`, `Edit.summary`: the text `doctor` and `init`

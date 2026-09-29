@@ -339,8 +339,8 @@ core-only code.
   The last four lines apply only with Mathlib. The excluded linters enforce Mathlib's
   contribution header, its ban on `#` commands such as a passing `#guard`, and its file-length
   limit; turning off the header linter also turns off its checks that the module docstring comes
-  first and that no import repeats, which RG5001 checks instead (standard §5.3 and §6.4). In
-  `lakefile.lean` the same options are
+  first and that no import repeats, which RG5001 checks instead (standard §5.3 and §6.4).
+  In `lakefile.lean` the same options are
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
   The linters report through build warnings, so `lake lint` reports each as RG2003 (`INCOMPLETE`,
   exit 3). RG2006 checks every option above in Lake's resolved configuration of each claimed
@@ -350,6 +350,32 @@ core-only code.
   linter for the one declaration (`set_option linter.style.longLine false in`) with a comment
   giving the reason. Never disable Lean's default warnings, such as `linter.unusedVariables` or
   `warn.sorry`.
+
+  To keep Mathlib's header linter on, replace `weak.linter.style.header = false` with `true` and
+  give the license line it expects in `weak.linter.style.header.license`, a `String` that defaults
+  to Mathlib's Apache 2.0 statement at the pinned Mathlib. RG2006 accepts the header linter only
+  with that option set to a nonempty string in `leanOptions`, and the linter then also checks the
+  copyright and authors lines of every module that the library root imports. A TOML key cannot
+  both hold a value and have sub-keys, so Lake rejects `weak.linter.style.header.license` beside
+  `weak.linter.style.header` in a `[leanOptions]` table; in `lakefile.toml` write `leanOptions` as
+  an array of `{name, value}` entries instead, a top-level key before any table:
+
+  ```toml
+  leanOptions = [
+    {name = "linter.missingDocs", value = true},
+    {name = "autoImplicit", value = false},
+    {name = "relaxedAutoImplicit", value = false},
+    {name = "weak.linter.mathlibStandardSet", value = true},
+    {name = "weak.linter.style.header", value = true},
+    {name = "weak.linter.style.header.license", value = "Released under the MIT license as described in the repository LICENSE."},
+    {name = "weak.linter.hashCommand", value = false},
+    {name = "weak.linter.style.longFile", value = 0},
+  ]
+  ```
+
+  In `lakefile.lean` add both to the same `leanOptions`:
+  ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, "Released under the MIT license as described in the repository LICENSE."⟩``.
+  A `-D` extra `lean` argument does not configure the license line for RG2006.
 - **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
   recommended. They report through their own command and lint the built modules, so run
   `lake build` first. Keep one lint driver and run the other as its own command:

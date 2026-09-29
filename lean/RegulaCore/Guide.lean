@@ -640,12 +640,15 @@ def guide : RuleId → Guide
           `true`, when any other `linter.…` option than \
           `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
           `false`, or when a `-D name=value` among the extra arguments gives a required option \
-          another value or sets such a linter to `false`.",
+          a value the rule does not admit or sets such a linter to `false`.",
         "A target of a surface whose loaded environments contain a Mathlib module must also set \
-          `weak.linter.mathlibStandardSet` to `true`, `weak.linter.style.header` and \
-          `weak.linter.hashCommand` to `false`, and `weak.linter.style.longFile` to `0`.",
+          `weak.linter.mathlibStandardSet` to `true`, `weak.linter.hashCommand` to `false` and \
+          `weak.linter.style.longFile` to `0`, and `weak.linter.style.header` to `false`, or to \
+          `true` when the target also gives `weak.linter.style.header.license` the license line \
+          Mathlib's header linter expects in `leanOptions`, with every value that `leanOptions` or \
+          any `-D` gives it a nonempty string; a `-D` alone does not configure the license line.",
         "A key's leading `weak.` component is read as the option it sets; a target that gives one \
-          option under both spellings must give the required value under each. A string value \
+          option under both spellings must give a value the rule admits under each. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
           One finding per target lists every failure.",
         "Every `-D` that `lean` reads starts at the first `D` of an argument that begins with a \
@@ -663,7 +666,8 @@ def guide : RuleId → Guide
         "Every claimed library and executable is built through Lake with automatic implicits \
           off and `linter.missingDocs` on, turns off no linter target-wide beyond the §6.7 \
           exclusions and, in a Mathlib surface, enables the standard set with exactly those \
-          exclusions; no `-D` extra `lean` argument overrides these options."]
+          exclusions, or with the header linter on and its license line configured; no `-D` \
+          extra `lean` argument overrides these options."]
       notEstablished := [
         "That no module sets an option back in source, such as `set_option autoImplicit true` or \
           a linter disable; review checks source options (§6.2).",
@@ -673,7 +677,13 @@ def guide : RuleId → Guide
           options unchanged."]
       configuration := [
         "The Lake configuration is the input; no manifest field, source option or command-line \
-          flag exempts a claimed target."]
+          flag exempts a claimed target.",
+        "A Mathlib target that keeps the header linter on names its license line in `leanOptions`: \
+          ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, \
+          \"Released under the MIT license as described in the repository LICENSE.\"⟩``; a \
+          `lakefile.toml` gives both in the array form of `leanOptions`, since its \
+          `[leanOptions]` table cannot hold both keys. Without the license option the target \
+          must set the header linter to `false`."]
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake \
           resolves for the workspace the audit loads.",
@@ -683,12 +693,18 @@ def guide : RuleId → Guide
         "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \
           as read from Lean's `Lean.Shell` source and its getopt handling; that correspondence \
           is neither proved nor observed.",
+        "That Mathlib's header linter compares the second header line with \
+          `linter.style.header.license` is read from its source at the pinned release and \
+          assumed; the rule checks that the license option is configured, not that the modules' \
+          header lines match it.",
         "The rule runs in project audits only; editor feedback does not read Lake configuration."]
       residuals := [.qualify, .intent]
       checklist := ["DECL-01", "DOC-01"]
       linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
-        `conforming_missingDocs`, `leanArgument_mem_failures_iff` and \
-        `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
+        `conforming_missingDocs`, `conforming_header`, `header_on_unlicensed_fails`, \
+        `licensed_iff`, `licensed_header_passes`, `unlicensed_header_fails`, \
+        `leanArgument_mem_failures_iff` and `missingDocs_unset_fails`. Reading Lake's target \
+        configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {
