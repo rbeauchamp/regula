@@ -245,12 +245,13 @@ Theorem candidates, supplied then discovered, are tried before definitional
 unfolding, so a kernel-exhausting unfolding cannot consume the memory limit a
 supplied proof needs. The definitional fallback returns
 `DefeqComparison.classify` of its outcome, so a comparison the kernel could not complete is
-unresolved, never trusted (standard §7.6). -/
+unresolved, never trusted (standard §7.6). An elaborator resource limit reached while
+constructing the correspondence is rethrown rather than recorded as unresolved. -/
 private def replacementCorrespondence (env : Environment) (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
-    CommandElabM (Correspondence × Option String) := do
-  try
-    liftTermElabM <| Meta.withoutModifyingMCtx do
+    CommandElabM (Correspondence × Option String) :=
+  liftTermElabM <| Meta.withoutModifyingMCtx do
+    try
       let referenceInfo ← getConstInfo reference
       let replacementInfo ← getConstInfo replacement
       let levels := referenceInfo.levelParams
@@ -281,9 +282,9 @@ private def replacementCorrespondence (env : Environment) (reference replacement
               | none => .incomplete
           catch _ => pure (.completed none)
         return comparison.classify
-  catch _ =>
-    return (.unresolved,
-        some s!"cannot construct exact correspondence for {reference} and {replacement}")
+    catch _ =>
+      return (.unresolved,
+          some s!"cannot construct exact correspondence for {reference} and {replacement}")
 
 /-- The pinned `CSimp.isConstantReplacement?` shape, indexed independently of
 the final scoped attribute state. This conservative candidate set includes

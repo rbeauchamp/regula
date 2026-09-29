@@ -543,7 +543,9 @@ the failing stage: `declaration record` (any observation of `Collect.declaration
 `executable-root classification`, `proposition test` or `execution walk`. When the failure is one
 of those limits, it says the limit is the checker's own, that options set in the source, such as
 `maxRecDepth`, do not apply to the checker, and to report it as a Regula issue; the audit is still
-incomplete.
+incomplete. An observation that treats its own failure as missing evidence (the recursion
+helper's unfolding equation, native replay, a replacement's correspondence search) rethrows such a
+limit instead, so it is never recorded as a finding about the source.
 
 The adapter runs the same pure policy and total failure-to-ID mapping as the project checker
 (`Regula.Checker.Policy.editor_decision_rule`); a potential generated-role exception is deferred

@@ -102,15 +102,15 @@ private def unsafeRecExpected? (env : Environment) (baseName : Name) :
 /-- Independently require a kernel-checked unfolding theorem with exactly the
 one-step equation reconstructed from the same built-in predefinition. Its definitional
 observation is that syntactic equality, as in `unsafeRecValueEvidence`. A failure to obtain or
-build the equation, including a Lean resource limit reached while doing so, leaves both
-observations `false`. -/
+build the equation leaves both observations `false`; a Lean resource limit reached while doing
+so is rethrown, since the limit is the checker's, not missing evidence. -/
 private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
     CommandElabM (Option (Bool × Bool × Array Name)) := do
   let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
   let some (_, levelParams, value, _) := recursionPredefinition? env baseName
     | return none
   liftTermElabM <| withoutModifyingEnv do
-    tryCatchRuntimeEx (do
+    try
       let some equationName ← Meta.getUnfoldEqnFor? baseName
         | return some (false, false, #[])
       let some equationInfo := (← getEnv).find? equationName
@@ -121,8 +121,9 @@ private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
         Meta.letToHave (← Meta.mkForallFVars args equality)
       let exact := equationInfo.type == expectedType
       let axioms ← collectAxioms equationName
-      return some (exact, exact, axioms))
-      fun _ => return some (false, false, #[])
+      return some (exact, exact, axioms)
+    catch _ =>
+      return some (false, false, #[])
 
 /-- Whether a helper's entire value is the pinned compiler transformation of
 the built-in structural/well-founded predefinition stored for its safe base. Syntactic equality
@@ -180,16 +181,16 @@ def nativeStatement? (name : Name) (type : Expr) : Option String := do
   return toString (repr unindexed)
 
 /-- Independently replay the Boolean native evaluation without retaining any
-declaration it creates. This remains compiler evidence, never a kernel proof. -/
-private def replayNative (asserted : Expr) : CommandElabM Bool := do
-  try
-    let result ← liftTermElabM <| withoutModifyingEnv do
-      Meta.nativeEqTrue `audit_native_replay asserted
-    return match result with
-      | .success _ => true
-      | .notTrue   => false
-  catch _ =>
-    return false
+declaration it creates. This remains compiler evidence, never a kernel proof. A failed replay
+is `false`; a Lean resource limit reached during it is rethrown. -/
+private def replayNative (asserted : Expr) : CommandElabM Bool :=
+  liftTermElabM <| withoutModifyingEnv do
+    try
+      return match ← Meta.nativeEqTrue `audit_native_replay asserted with
+        | .success _ => true
+        | .notTrue   => false
+    catch _ =>
+      return false
 
 /-- Classify the terminal result after Lean reduction, including aliases of
 function types and universes. Runtime roots cannot return erased types. -/
