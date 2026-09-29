@@ -761,7 +761,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Replace a target-wide ``⟨`linter.X, false⟩`` with `set_option linter.X false in` on the \
           one declaration the community's guidance allows, with a comment (§6.2).",
         "Delete each `-D name=value` in `moreLeanArgs` or `weakLeanArgs` that gives one of these \
-          options another value or turns off another linter; other extra arguments may stay."]
+          options a value the rule does not admit or turns off another linter; other extra \
+          arguments may stay."]
       examples := {
         language := .lean
         audience := .adopter

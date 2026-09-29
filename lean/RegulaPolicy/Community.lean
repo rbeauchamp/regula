@@ -55,8 +55,9 @@ one, except that the header linter may be `true` when the license line is config
 option is given at least once in `leanOptions`, and every value that `leanOptions` or any `-D`
 candidate gives it is a nonempty string. Lean parses a string value by the option's declared type
 (`Lean.Language.Lean.setOption`): `"true"` and `"false"` for a Boolean option and a numeral for a
-natural-number one, so `readsAs` compares a string with a required value that way. A linter option is an option whose first component is `linter`; turning
-one off means giving it a value Lean reads as `false`.
+natural-number one, so `readsAs` compares a string with a required value that way. A linter
+option is an option whose first component is `linter`; turning one off means giving it a value
+Lean reads as `false`.
 
 ## Boundaries
 
