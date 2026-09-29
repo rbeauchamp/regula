@@ -314,9 +314,18 @@ private structure SurfaceInspection where
   transcripts : Array Frontend.Transcript
   frontendFailures : Array String
 
+/-- The bytes of every part Lean reads for the module whose `.olean` is `olean`, in
+`OLeanLevel` order, `none` for an absent part: the exported `.olean`, and for a module-system
+file its `.olean.server` and `.olean.private`, from which `importModules (level := .private)`
+takes the kernel constants. -/
+private def oleanParts (olean : FilePath) : IO (Array (Option ByteArray)) :=
+  #[Lean.OLeanLevel.exported, .server, .private].mapM fun level => do
+    let part := level.adjustFileName olean
+    if ← part.pathExists then some <$> IO.FS.readBinFile part else pure none
+
 /-- The completed admissions of the library environments, as an executable's environment may
 reuse them: each offers the modules it replayed whose import closure loads every `owned` module
-from the `.olean` path `frozen` records for it. -/
+from the canonical `.olean` path whose parts `frozen` records for it. -/
 private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
     (inspections : Array (Except IO.Error
       (Except ProducerReport.AdmissionFailure SurfaceInspection))) :
@@ -534,13 +543,13 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           return .error failure
         return .ok { info, admitted, transcripts, frontendFailures }
       -- An executable's environment reuses a library module's admission only over the `.olean`
-      -- frozen here, and every frozen file is compared again after the last inspection.
+      -- parts frozen here, and every frozen part is compared again after the last inspection.
       let frozenArtifacts ← if environments.any (·.executable.isSome) then
           (assignments.flatMap (·.library)).filterMapM fun identity => do
             let path := Lean.modToFilePath inventory.leanLibDir identity.name "olean"
             unless ← path.pathExists do return none
-            return some (identity.name, (← IO.FS.realPath path).toString,
-              ← IO.FS.readBinFile path)
+            return some (identity.name, (← IO.FS.realPath path).toString, path,
+              ← oleanParts path)
         else pure #[]
       let inspectGroup (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
           (group : Array (Nat × SurfaceEnvironment)) :=
@@ -559,19 +568,19 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           libraryPriors
             (NameSet.ofArray ((sourceBindings.map (·.moduleName)).filter fun name =>
               !Environment.probeModuleNames.contains name.toString))
-            (frozenArtifacts.foldl (fun paths (name, path, _) => paths.insert name path) {})
+            (frozenArtifacts.foldl (fun paths (name, real, _) => paths.insert name real) {})
             (libraries.map (·.2.2))
         let executables ← inspectGroup historyMemo priors executableGroup
         return ((libraries ++ executables).qsort (·.1 < ·.1)).map (·.2)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
-      for (name, path, content) in frozenArtifacts do
-        let current ← (IO.FS.readBinFile path).toBaseIO
-        unless (match current with | .ok bytes => bytes == content | .error _ => false) do
+      for (name, _, path, parts) in frozenArtifacts do
+        let current ← (oleanParts path).toBaseIO
+        unless (match current with | .ok found => found == parts | .error _ => false) do
           reportContextFailure .admission reportRoot.toString
             (if fresh then .freshProject else .incrementalProject) .incomplete
                 [.configuration, .discovery, .build]
-            s!"producer-artifact: the .olean of {name} changed during the audit" composed
+            s!"producer-artifact: the .olean files of {name} changed during the audit" composed
             resultOut sourceBindings
           return 1
       -- Freeze the complete discovery domain before the per-declaration policy loop.

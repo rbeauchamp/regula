@@ -61,7 +61,7 @@ def importClosure (origins : Std.HashMap Name RegulaPolicy.ModuleOrigin) (m : Na
 /-- Whether every constant a declaration of `m` refers to (`ConstantInfo.getUsedConstantsAsSet`,
 the dependencies `Kernel.Environment.replay` replays first) is declared in a module of
 `closure`. -/
-private def referencesWithin (env : Environment) (m : Name)
+def referencesWithin (env : Environment) (m : Name)
     (closure : Array RegulaPolicy.ModuleOrigin) : Bool := Id.run do
   let some owner := env.getModuleIdx? m | return false
   let allowed := closure.foldl (fun names origin => names.insert origin.name) ({} : NameSet)
@@ -72,42 +72,116 @@ private def referencesWithin (env : Environment) (m : Name)
   return true
 
 /-- The priors' offered modules, each with its admission's origins indexed by module name. -/
-private def indexPriors (priors : Array PriorAdmission) :
+def indexPriors (priors : Array PriorAdmission) :
     Array (Array Name × Std.HashMap Name RegulaPolicy.ModuleOrigin) :=
   priors.map fun prior => (prior.modules, originIndex prior.origins)
 
 /-- The import closure of `m` in the environment whose origins are `here`, when `m` is not
 `requested` there and an `earlier` admission offers `m` over the identical closure. -/
-private def offeredClosure
+def offeredClosure
     (earlier : Array (Array Name × Std.HashMap Name RegulaPolicy.ModuleOrigin))
     (here : Std.HashMap Name RegulaPolicy.ModuleOrigin) (requested : Array Name) (m : Name) :
-    Option (Array RegulaPolicy.ModuleOrigin) := do
-  guard !requested.contains m
-  let closure ← importClosure here m
-  guard <| earlier.any fun (modules, index) =>
-    modules.contains m && importClosure index m == some closure
-  return closure
+    Option (Array RegulaPolicy.ModuleOrigin) :=
+  if requested.contains m then none
+  else match importClosure here m with
+    | none => none
+    | some closure =>
+        if earlier.any (fun entry => entry.1.contains m && importClosure entry.2 m == some closure)
+        then some closure else none
+
+/-- `offeredClosure` returns a closure exactly for an unrequested module that an earlier
+admission offers over that same closure. -/
+theorem offeredClosure_eq_some {earlier : Array (Array Name × Std.HashMap Name
+      RegulaPolicy.ModuleOrigin)} {here : Std.HashMap Name RegulaPolicy.ModuleOrigin}
+    {requested : Array Name} {m : Name} {closure : Array RegulaPolicy.ModuleOrigin} :
+    offeredClosure earlier here requested m = some closure ↔
+      m ∉ requested ∧ importClosure here m = some closure ∧
+      ∃ entry ∈ earlier, m ∈ entry.1 ∧ importClosure entry.2 m = some closure := by
+  unfold offeredClosure
+  by_cases hr : m ∈ requested
+  · simp [Array.contains_eq_mem, hr]
+  · simp only [Array.contains_eq_mem, hr, decide_false, Bool.false_eq_true, ↓reduceIte,
+      not_false_eq_true, true_and]
+    cases hc : importClosure here m with
+    | none => simp
+    | some found =>
+      simp only [Option.some.injEq, Array.any_eq_true', Bool.and_eq_true, decide_eq_true_eq,
+        beq_iff_eq]
+      by_cases hany : ∃ entry ∈ earlier, m ∈ entry.1 ∧ importClosure entry.2 m = some found
+      · simp only [hany, ↓reduceIte, Option.some.injEq]
+        constructor
+        · rintro rfl; exact ⟨rfl, hany⟩
+        · rintro ⟨rfl, -⟩; rfl
+      · simp only [hany, ↓reduceIte, reduceCtorEq, false_iff, not_and]
+        rintro rfl
+        exact hany
+
+/-- Whether every `owned` module of the entry's closure is one of `names`. -/
+def closureWithin (owned names : Std.HashSet Name)
+    (entry : Name × Array RegulaPolicy.ModuleOrigin) : Bool :=
+  entry.2.all fun origin => !owned.contains origin.name || names.contains origin.name
 
 /-- The owned modules of `env` outside `requested` whose kernel admission this environment
 reuses instead of replaying: an earlier environment of the same audit replayed and offers each
 one over the identical import closure (`offeredClosure`), every declaration of every owned
-module in that closure refers only to constants of its own closure, and every owned module the
-closure contains is reused too, so no reused module imports a replayed one. Every other owned
-module is replayed. -/
+module in that closure refers only to constants of its own closure (`referencesWithin`), and
+every owned module the closure contains is reused too. When the last condition fails for the
+filtered set, nothing is reused. Every other owned module is replayed. `mem_reusedModules`
+states this contract. -/
 def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
-    (requested owned : Array Name) (priors : Array PriorAdmission) : Array Name := Id.run do
-  if priors.isEmpty then return #[]
+    (requested owned : Array Name) (priors : Array PriorAdmission) : Array Name :=
   let here := originIndex origins
   let earlier := indexPriors priors
-  let mut settled : Array (Name × Array RegulaPolicy.ModuleOrigin) := #[]
-  for m in owned do
-    let some closure := offeredClosure earlier here requested m | continue
-    if referencesWithin env m closure then settled := settled.push (m, closure)
-  let ownedSet := NameSet.ofArray owned
-  let settledSet := NameSet.ofArray (settled.map (·.1))
-  return settled.filterMap fun (m, closure) =>
-    if closure.all (fun origin => !ownedSet.contains origin.name ||
-        settledSet.contains origin.name) then some m else none
+  let settled := owned.filterMap fun m =>
+    (offeredClosure earlier here requested m).bind fun closure =>
+      if referencesWithin env m closure then some (m, closure) else none
+  let ownedSet := Std.HashSet.ofList owned.toList
+  let kept := settled.filter
+    (closureWithin ownedSet (Std.HashSet.ofList (settled.map (·.1)).toList))
+  if kept.all (closureWithin ownedSet (Std.HashSet.ofList (kept.map (·.1)).toList)) then
+    kept.map (·.1)
+  else #[]
+
+/-- Every reused module is an owned, unrequested module that some prior offers over the
+import closure it has here, whose declarations refer only to that closure, and whose closure's
+owned modules are all reused too, so reuse never leaves an owned import to replay. -/
+theorem mem_reusedModules {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
+    {requested owned : Array Name} {priors : Array PriorAdmission} {m : Name}
+    (h : m ∈ reusedModules env origins requested owned priors) :
+    m ∈ owned ∧ m ∉ requested ∧ ∃ closure,
+      importClosure (originIndex origins) m = some closure ∧
+      referencesWithin env m closure = true ∧
+      (∃ prior ∈ priors, m ∈ prior.modules ∧
+        importClosure (originIndex prior.origins) m = some closure) ∧
+      ∀ origin ∈ closure, origin.name ∈ owned →
+        origin.name ∈ reusedModules env origins requested owned priors := by
+  unfold reusedModules at h ⊢
+  simp only at h ⊢
+  split at h
+  · rename_i hall
+    simp only [hall, ↓reduceIte]
+    obtain ⟨⟨m', closure⟩, hkept, rfl⟩ := Array.mem_map.mp h
+    have hsettled := (Array.mem_filter.mp hkept).1
+    obtain ⟨a, ha, hf⟩ := Array.mem_filterMap.mp hsettled
+    cases ho : offeredClosure (indexPriors priors) (originIndex origins) requested a with
+    | none => simp [ho] at hf
+    | some found =>
+      simp only [ho, Option.bind_some] at hf
+      split at hf
+      · rename_i hrefs
+        simp only [Option.some.injEq, Prod.mk.injEq] at hf
+        obtain ⟨rfl, rfl⟩ := hf
+        obtain ⟨hreq, hclosure, entry, hentry, hm, hc⟩ := offeredClosure_eq_some.mp ho
+        obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hentry
+        refine ⟨ha, hreq, found, hclosure, hrefs, ⟨prior, hprior, hm, hc⟩, ?_⟩
+        intro origin horigin howned
+        have hw := Array.all_eq_true'.mp hall _ hkept
+        simp only [closureWithin, Array.all_eq_true', Bool.or_eq_true, Bool.not_eq_eq_eq_not,
+          Bool.not_true, Std.HashSet.contains_ofList, List.contains_iff_mem,
+          Array.mem_toList_iff] at hw
+        exact (hw origin horigin).resolve_left (by simpa using howned)
+      · simp at hf
+  · simp at h
 
 /-- Whether a report's admission reused only what `priors` offered (`offeredClosure`, over the
 import closures the report's own module origins give). -/
@@ -117,6 +191,22 @@ def reuseJustified (priors : Array PriorAdmission) (report : ProducerReport.Envi
   let earlier := indexPriors priors
   ((report.admission.map (·.reused)).getD #[]).all fun m =>
     (offeredClosure earlier here report.census.modules m).isSome
+
+/-- An accepted report reused only unrequested modules that some prior offers over the import
+closure the report's own module origins give them. -/
+theorem reuseJustified_sound {priors : Array PriorAdmission} {report : ProducerReport.Environment}
+    (h : reuseJustified priors report = true) {receipt : ProducerReport.AdmissionReceipt}
+    (hr : report.admission = some receipt) {m : Name} (hm : m ∈ receipt.reused) :
+    m ∉ report.census.modules ∧ ∃ closure,
+      importClosure (originIndex report.moduleOrigins) m = some closure ∧
+      ∃ prior ∈ priors, m ∈ prior.modules ∧
+        importClosure (originIndex prior.origins) m = some closure := by
+  simp only [reuseJustified, hr, Option.map_some, Option.getD_some, Array.all_eq_true',
+    Option.isSome_iff_exists] at h
+  obtain ⟨closure, ho⟩ := h m hm
+  obtain ⟨hreq, hclosure, entry, hentry, hmem, hc⟩ := offeredClosure_eq_some.mp ho
+  obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hentry
+  exact ⟨hreq, closure, hclosure, prior, hprior, hmem, hc⟩
 
 /-- Replay the completed owned logical declarations against trusted imports, except those of
 the `reused` modules, which stay in the replay base with the trusted imports. The original

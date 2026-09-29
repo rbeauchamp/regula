@@ -168,8 +168,9 @@ The driver builds every manifested library and executable by its explicit Lake t
 warnings as failures, and inspects the completed environments: each library in one, and each
 claimed executable's root in one of its own, since every root defines `main`. The libraries'
 environments come first; an executable's environment reuses their kernel check of the claimed
-library modules its root imports when those load identically in both, instead of repeating it.
-It re-evaluates current policy even when every module is cached. Run it from the project root
+library modules its root imports when those load from byte-identical `.olean` files (including
+`.olean.private` parts) in both, instead of repeating it. Library environments still repeat the
+kernel check of each other's modules they import. It re-evaluates current policy even when every module is cached. Run it from the project root
 without `-d`: it refuses a working directory that is not the workspace that dispatched it. Its
 exit status separates the outcome:
 
