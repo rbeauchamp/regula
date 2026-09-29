@@ -8,8 +8,8 @@ options Lake builds its modules with turn automatic implicits off, enable Lean's
 excludes, and, when the target imports Mathlib, enable Mathlib's standard linter set with exactly
 those exclusions. Of these, Mathlib's header linter may instead stay on when the target configures
 its license line (`linter.style.header.license`). The target sets these options in Lake's
-`leanOptions`, where the audit reads them, and no `-D` among its extra `lean` arguments sets one of
-them to another value or turns off another linter.
+`leanOptions`, where the audit reads them, and no `-D` among its extra `lean` arguments gives one of
+them a value the requirement does not admit or turns off another linter.
 
 ## Main declarations
 
@@ -22,6 +22,8 @@ them to another value or turns off another linter.
 - `licensed`, `admits`, `meets`: the target configures the header linter's license line; the values
   the requirement admits for a required option, which are its required value and, for the header
   linter, `true` with a configured license.
+- `meets_of_sets`: options that set a required option to its required value (`sets`) meet the
+  requirement on it.
 - `failures`: the executed decision, every failure of one target in a fixed order.
 - `failures_eq_nil_iff`: no failure exactly when `Conforming` holds.
 - `conforming_of_mathlib`: the Mathlib requirement strengthens the core-only one.
@@ -554,6 +556,12 @@ admits. -/
 def meets (o : BuildOptions) (r : Name × OptionValue) : Bool :=
   !(valuesOf o r.1).isEmpty && (valuesOf o r.1).all (admits o r)
 
+/-- Options that set a required option to its required value meet the requirement on it. -/
+theorem meets_of_sets (o : BuildOptions) (r : Name × OptionValue) (h : sets o r.1 r.2 = true) :
+    meets o r = true := by
+  simp only [sets, meets, Bool.and_eq_true, List.all_eq_true] at h ⊢
+  exact ⟨h.1, fun v hv => by simp [admits, h.2 v hv]⟩
+
 /-- Setting `name` to `value` turns off a linter outside the §6.7 exclusions (§6.2). -/
 def disables (name : Name) (value : OptionValue) : Bool :=
   rootOf name == some "linter" && value.readsAs (.bool false) && !exclusions.contains name
@@ -566,7 +574,8 @@ def contradicts (o : BuildOptions) (mathlib : Bool) (name : Name) (value : Optio
 
 /-- One way a target's build options fail RG2006. -/
 inductive Failure where
-  /-- A required option is not set to its value; `given` lists the values the options give. -/
+  /-- A required option is not given, or is given a value the requirement does not admit; `given`
+  lists the values the options give. -/
   | option (name : Name) (value : OptionValue) (given : List OptionValue)
   /-- A linter outside the §6.7 exclusions is turned off for every module of the target. -/
   | disabledLinter (name : Name)
@@ -720,8 +729,9 @@ theorem missingDocs_unset_fails :
   simp [failures, required, baseline, meets, admits, valuesOf, optionOf, disables, rootOf,
     exclusions, argumentSettings, argumentTexts, OptionValue.readsAs]
 
-/-- A `-D` string value contradicts the requirement exactly when it is not what Lean reads as a
-required option's value, or it is `"false"` for a linter outside the §6.7 exclusions. -/
+/-- A `-D` string value contradicts the requirement exactly when it is a value the requirement does
+not admit for a required option (`admits`), or it is `"false"` for a linter outside the §6.7
+exclusions. -/
 theorem contradicts_string_eq_true_iff (o : BuildOptions) (mathlib : Bool) (n : Name)
     (value : String) :
     contradicts o mathlib n (.string value) = true ↔

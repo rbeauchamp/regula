@@ -677,8 +677,8 @@ identity are trusted.
 `issues_run`, the plan removes exactly the fixable issues and adds none. The option check covers
 exactly the claimed targets (the root targets the manifest does not exclude, and none while an
 existing manifest fails RG2002), as RG2006 does: `run_sets`, every required option a claimed
-target built without is then set to its required value as `RegulaPolicy.Community.sets`, the
-RG2006 decision, reads it; `resolved_run`, every claimed target then has a value for every
+target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
+it, which meets RG2006's requirement on that option (`meets_of_sets`); `resolved_run`, every claimed target then has a value for every
 required option; `run_options_unclaimed`, when a root target is excluded the package's options
 are unchanged, the options going into each claimed target's own configuration
 (`run_plan_targets`), so none reaches an excluded target; and `run_options_prefix` and

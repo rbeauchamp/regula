@@ -640,7 +640,7 @@ def guide : RuleId → Guide
           `true`, when any other `linter.…` option than \
           `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
           `false`, or when a `-D name=value` among the extra arguments gives a required option \
-          another value or sets such a linter to `false`.",
+          a value the rule does not admit or sets such a linter to `false`.",
         "A target of a surface whose loaded environments contain a Mathlib module must also set \
           `weak.linter.mathlibStandardSet` to `true`, `weak.linter.hashCommand` to `false` and \
           `weak.linter.style.longFile` to `0`, and `weak.linter.style.header` to `false`, or to \
