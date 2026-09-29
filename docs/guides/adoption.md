@@ -354,24 +354,28 @@ core-only code.
   To keep Mathlib's header linter on, replace `weak.linter.style.header = false` with `true` and
   give the license line it expects in `weak.linter.style.header.license`, a `String` that defaults
   to Mathlib's Apache 2.0 statement at the pinned Mathlib. RG2006 accepts the header linter only
-  with that option set to a nonempty string, and the linter then also checks the copyright and
-  authors lines of every module that the library root imports. A TOML key cannot both hold a value
-  and have sub-keys, so Lake rejects `weak.linter.style.header.license` beside
-  `weak.linter.style.header` in `[leanOptions]`; in `lakefile.toml` give the license line as a whole
-  `-D` argument in the package's `moreLeanArgs`, which, unlike `weakLeanArgs`, rebuilds the modules
-  when the line changes. It is a top-level key, so it goes before `[leanOptions]`:
+  with that option set to a nonempty string in `leanOptions`, and the linter then also checks the
+  copyright and authors lines of every module that the library root imports. A TOML key cannot
+  both hold a value and have sub-keys, so Lake rejects `weak.linter.style.header.license` beside
+  `weak.linter.style.header` in a `[leanOptions]` table; in `lakefile.toml` write `leanOptions` as
+  an array of `{name, value}` entries instead, a top-level key before any table:
 
   ```toml
-  moreLeanArgs = ["-Dweak.linter.style.header.license=Released under the MIT license as described in the repository LICENSE."]
-
-  [leanOptions]
-  # ...the options above, with the header linter on:
-  weak.linter.style.header = true
+  leanOptions = [
+    {name = "linter.missingDocs", value = true},
+    {name = "autoImplicit", value = false},
+    {name = "relaxedAutoImplicit", value = false},
+    {name = "weak.linter.mathlibStandardSet", value = true},
+    {name = "weak.linter.style.header", value = true},
+    {name = "weak.linter.style.header.license", value = "Released under the MIT license as described in the repository LICENSE."},
+    {name = "weak.linter.hashCommand", value = false},
+    {name = "weak.linter.style.longFile", value = 0},
+  ]
   ```
 
-  RG2006 counts a `-D` license line only in the leading extra arguments that are each a whole
-  `-Dname=value`. In `lakefile.lean` both options can stay in `leanOptions`:
+  In `lakefile.lean` add both to the same `leanOptions`:
   ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, "Released under the MIT license as described in the repository LICENSE."⟩``.
+  A `-D` extra `lean` argument does not configure the license line for RG2006.
 - **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
   recommended. They report through their own command and lint the built modules, so run
   `lake build` first. Keep one lint driver and run the other as its own command:

@@ -302,10 +302,9 @@ RG2006 checks the Lake options with a proved decision over Lake's resolved confi
 It admits Mathlib's header linter on only when the target configures the linter's license option
 (`conforming_header`, `header_on_unlicensed_fails`); every other required option admits only its
 required value (`admits_of_ne`). The license option counts as configured only when `leanOptions`
-or a leading whole `-Dname=value` extra argument gives it (`licensed_iff`), a reading proved
-contained in the rejecting `-D` reading; that `lean` reads such an argument as that setting is
-assumed from Lake's and Lean's sources. That the linter compares the header with that option is
-read from Mathlib's source and assumed.
+gives it (`licensed_iff`); a `-D` extra argument that gives it a value can only make the target
+fail. That the linter compares the header with that option is read from Mathlib's source and
+assumed.
 
 **Correspondence resource bound.** `checkCorrespondenceProof` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a

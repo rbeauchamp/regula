@@ -16,8 +16,6 @@ them a value the requirement does not admit or turns off another linter.
 - `BuildOptions`: Lake's resolved `leanOptions` and extra `lean` arguments for one target.
 - `OptionValue.readsAs`: the value Lean reads an option value as.
 - `argumentSettings`: the options the extra `lean` arguments can set with `-D`.
-- `definiteSettings`: the options the leading extra arguments that are each a whole
-  `-Dname=value` set, which `lean` reads for certain.
 - `required`: the options every claimed target sets, and the additional Mathlib options.
 - `licensed`, `admits`, `meets`: the target configures the header linter's license line; the values
   the requirement admits for a required option, which are its required value and, for the header
@@ -31,16 +29,11 @@ them a value the requirement does not admit or turns off another linter.
   conforming Mathlib target gives the header linter, that a target with the header linter on and no
   license line fails, and that every other required option admits only its required value.
 - `Licensed`, `licensed_iff`, `admits_iff`: the license line counts as configured only when the
-  options or a `-D` of `definiteSettings` give it, and every value any reading gives it is a
-  nonempty string; `licensed` and `admits` decide exactly that and what the requirement admits.
-- `mem_definiteTexts_iff`, `mem_argumentSettings_of_mem_definiteSettings`: the certain `-D`
-  reading holds exactly the settings of whole `-Dname=value` arguments that only such arguments
-  precede, and each is also a candidate of `argumentSettings`.
+  options give it, and every value that the options or any `-D` candidate give it is a nonempty
+  string; `licensed` and `admits` decide exactly that and what the requirement admits.
 - `licensed_header_passes`, `unlicensed_header_fails`: a Mathlib target with the header linter on
   and Acorn's MIT license line has no failure; without the license line it fails with exactly the
   header linter.
-- `licensed_header_argument_passes`: Acorn's `weakLeanArgs`, which turn the standard set and the
-  header linter on and give its license line by `-D`, configure the license line and add no failure.
 - `conforming_autoImplicit`, `conforming_missingDocs`: what a conforming target gives the
   automatic-implicit options and `linter.missingDocs`.
 - `missingDocs_unset_fails`: a core-only target (`mathlib = false`) with only the
@@ -59,11 +52,10 @@ Lake and Lean accept an option key with a leading `weak.` component, which sets 
 after it when that option is declared and is otherwise ignored; `optionOf` reads the option a key
 sets. When a target sets one option under both spellings, every value given must be the required
 one, except that the header linter may be `true` when the license line is configured: the license
-option is given at least once, in `leanOptions` or by a `-D` of `definiteSettings`, and every value
-that `leanOptions` or any `-D` candidate gives it is a nonempty string. Lean parses a string value
-by the option's declared type (`Lean.Language.Lean.setOption`): `"true"` and `"false"` for a
-Boolean option and a numeral for a natural-number one, so `readsAs` compares a string with a
-required value that way. A linter option is an option whose first component is `linter`; turning
+option is given at least once in `leanOptions`, and every value that `leanOptions` or any `-D`
+candidate gives it is a nonempty string. Lean parses a string value by the option's declared type
+(`Lean.Language.Lean.setOption`): `"true"` and `"false"` for a Boolean option and a numeral for a
+natural-number one, so `readsAs` compares a string with a required value that way. A linter option is an option whose first component is `linter`; turning
 one off means giving it a value Lean reads as `false`.
 
 ## Boundaries
@@ -76,13 +68,8 @@ one that loads a plugin or a setup file. `argumentSettings` models the `lean` co
 value follows the `D` or is the next argument, so the model reads a superset of the `-D`
 settings and can reject a candidate `lean` does not read as one. That correspondence with the
 command-line parser of the Lean executable is assumed, read from Lean's `Lean.Shell` source and
-its getopt handling; it is neither proved nor observed. That reading only rejects. A `-D` counts
-toward a configured license line only through `definiteSettings`, which reads the leading extra
-arguments that are each a whole `-Dname=value`, up to the first argument of another form, and is
-proved contained in `argumentSettings`. That `lean` reads each of them as the setting
-`name=value` is likewise assumed: Lake passes the extra arguments first, before the source file
-and its own arguments (`Lake.compileLeanModule`), and `lean` reads an argument that continues
-after `-D` as `-D` with the rest of the argument as its value. That Mathlib's header linter at the
+its getopt handling; it is neither proved nor observed. That reading only rejects: a `-D` never
+configures the license line, which only `leanOptions` does. That Mathlib's header linter at the
 pinned release compares the second header line with `linter.style.header.license` is likewise read
 from its source (`Mathlib/Tactic/Linter/Header.lean`) and assumed. The decision does not read
 `set_option` commands in source, which review checks (`DECL-01`), nor options given to `lake` on
@@ -353,115 +340,6 @@ theorem mem_argumentSettings_iff (arguments : List String) (n : Name) (v : Optio
   · rintro ⟨name, value, hd, rfl, rfl⟩
     exact ⟨name, value, hd, rfl, rfl⟩
 
-/-- The `-D` setting of an argument that is a whole `-Dname=value`. -/
-def attachedText? (argument : String) : Option (String × String) :=
-  match argument.toList with
-  | c :: d :: text => if c = '-' ∧ d = 'D' then settingText? text else none
-  | _ => none
-
-/-- The name and value texts of the `-D` settings that `lean` reads for certain: those of the
-leading extra arguments that are each a whole `-Dname=value`, up to the first argument of another
-form. -/
-def definiteTexts : List String → List (String × String)
-  | [] => []
-  | argument :: rest =>
-    match attachedText? argument with
-    | some t => t :: definiteTexts rest
-    | none => []
-
-/-- The option settings of `definiteTexts`: each name read as `lean` reads it (`String.toName`),
-each value a string. -/
-def definiteSettings (arguments : List String) : List (Name × OptionValue) :=
-  (definiteTexts arguments).map fun t => (t.1.toName, .string t.2)
-
-/-- `argument` is a whole `-Dname=value`, with no `=` in `name`. -/
-def AttachedForm (argument : String) (name value : String) : Prop :=
-  ∃ text, argument.toList = '-' :: 'D' :: text ∧ SettingForm text name value
-
-/-- `attachedText?` reads exactly the whole `-Dname=value` arguments. -/
-theorem attachedText?_eq_some_iff (argument name value : String) :
-    attachedText? argument = some (name, value) ↔ AttachedForm argument name value := by
-  unfold attachedText? AttachedForm
-  generalize argument.toList = chars
-  match chars with
-  | [] => simp
-  | [c] => simp
-  | c :: d :: text =>
-    by_cases h : c = '-' ∧ d = 'D'
-    · obtain ⟨rfl, rfl⟩ := h
-      simp [settingText?_eq_some_iff]
-    · simp only [h, ↓reduceIte, reduceCtorEq, false_iff, not_exists, not_and]
-      intro text' heq
-      simp only [List.cons.injEq] at heq
-      exact absurd ⟨heq.1, heq.2.1⟩ h
-
-/-- `definiteTexts` reads exactly the settings of the whole `-Dname=value` arguments that only
-such arguments precede. -/
-theorem mem_definiteTexts_iff (arguments : List String) (name value : String) :
-    (name, value) ∈ definiteTexts arguments ↔
-      ∃ pre argument rest, arguments = pre ++ argument :: rest ∧
-        (∀ a ∈ pre, ∃ n v, AttachedForm a n v) ∧ AttachedForm argument name value := by
-  induction arguments with
-  | nil => simp [definiteTexts]
-  | cons argument rest ih =>
-    cases ha : attachedText? argument with
-    | none =>
-      simp only [definiteTexts, ha, List.not_mem_nil, false_iff, not_exists, not_and]
-      intro pre b more heq hpre hb
-      cases pre with
-      | nil =>
-        simp only [List.nil_append, List.cons.injEq] at heq
-        obtain ⟨rfl, rfl⟩ := heq
-        rw [← attachedText?_eq_some_iff, ha] at hb
-        simp at hb
-      | cons p pre =>
-        simp only [List.cons_append, List.cons.injEq] at heq
-        obtain ⟨rfl, rfl⟩ := heq
-        obtain ⟨n, v, hp⟩ := hpre argument (by simp)
-        rw [← attachedText?_eq_some_iff, ha] at hp
-        simp at hp
-    | some t =>
-      obtain ⟨n₀, v₀⟩ := t
-      have hat := (attachedText?_eq_some_iff argument n₀ v₀).1 ha
-      simp only [definiteTexts, ha, List.mem_cons, Prod.mk.injEq, ih]
-      constructor
-      · rintro (⟨rfl, rfl⟩ | ⟨pre, b, more, rfl, hpre, hb⟩)
-        · exact ⟨[], argument, rest, rfl, by simp, hat⟩
-        · refine ⟨argument :: pre, b, more, rfl, fun a ha' => ?_, hb⟩
-          rcases List.mem_cons.1 ha' with rfl | ha'
-          · exact ⟨n₀, v₀, hat⟩
-          · exact hpre a ha'
-      · rintro ⟨pre, b, more, heq, hpre, hb⟩
-        cases pre with
-        | nil =>
-          simp only [List.nil_append, List.cons.injEq] at heq
-          obtain ⟨rfl, rfl⟩ := heq
-          rw [← attachedText?_eq_some_iff, ha] at hb
-          simp only [Option.some.injEq, Prod.mk.injEq] at hb
-          exact .inl ⟨hb.1.symm, hb.2.symm⟩
-        | cons p pre =>
-          simp only [List.cons_append, List.cons.injEq] at heq
-          obtain ⟨rfl, rfl⟩ := heq
-          exact .inr ⟨pre, b, more, rfl, fun a ha' => hpre a (List.mem_cons_of_mem _ ha'), hb⟩
-
-/-- Every setting that `definiteTexts` reads is one that `argumentTexts` reads. -/
-theorem mem_argumentTexts_of_mem_definiteTexts (arguments : List String) (name value : String)
-    (h : (name, value) ∈ definiteTexts arguments) : (name, value) ∈ argumentTexts arguments := by
-  obtain ⟨pre, argument, rest, rfl, -, text, ht, hs⟩ := (mem_definiteTexts_iff _ _ _).1 h
-  rw [mem_argumentTexts_iff]
-  refine ⟨pre, argument, rest, rfl, text, ⟨[], by simpa using ht, by simp, by simp⟩, .inl ⟨?_, hs⟩⟩
-  obtain ⟨n, v, rfl, -⟩ := hs
-  simp
-
-/-- Every setting of `definiteSettings` is one of `argumentSettings`: the certain reading is
-contained in the reading of every candidate. -/
-theorem mem_argumentSettings_of_mem_definiteSettings (arguments : List String)
-    (s : Name × OptionValue) (h : s ∈ definiteSettings arguments) :
-    s ∈ argumentSettings arguments := by
-  simp only [definiteSettings, argumentSettings, List.mem_map, Prod.exists] at h ⊢
-  obtain ⟨name, value, hm, rfl⟩ := h
-  exact ⟨name, value, mem_argumentTexts_of_mem_definiteTexts _ _ _ hm, rfl⟩
-
 /-- The options every claimed target sets: no automatic implicits (standard §7.1), and Lean's
 linter that reports each public declaration without a docstring (standard §6.7). -/
 def baseline : List (Name × OptionValue) :=
@@ -508,35 +386,27 @@ def licenseValues (o : BuildOptions) : List OptionValue :=
     ((argumentSettings o.arguments).filterMap fun s =>
       if optionOf s.1 = licenseOption then some s.2 else none)
 
-/-- The target gives the license option a value that `lean` reads for certain: in its options, or
-by a `-D` of `definiteSettings`. -/
-def licenseGiven (o : BuildOptions) : Bool :=
-  !(valuesOf o licenseOption).isEmpty ||
-    (definiteSettings o.arguments).any fun s => optionOf s.1 == licenseOption
-
-/-- The target configures the license line: `lean` reads the license option for certain
-(`licenseGiven`), and every value that its options and every `-D` candidate give it is a nonempty
-string. -/
+/-- The target configures the license line: its options give the license option at least once,
+and every value that its options and every `-D` candidate give it is a nonempty string. -/
 def licensed (o : BuildOptions) : Bool :=
-  licenseGiven o && (licenseValues o).all OptionValue.isLicense
+  !(valuesOf o licenseOption).isEmpty && (licenseValues o).all OptionValue.isLicense
 
-/-- The target configures the license line, stated without the executed decisions: its options or
-a `-D` of `definiteSettings` give the license option a value, and every value that its options and
-every `-D` candidate of `argumentSettings` give it is a nonempty string. -/
+/-- The target configures the license line, stated without the executed decisions: its options
+give the license option a value, and every value that its options and every `-D` candidate of
+`argumentSettings` give it is a nonempty string. -/
 def Licensed (o : BuildOptions) : Prop :=
-  (valuesOf o licenseOption ≠ [] ∨
-    ∃ s ∈ definiteSettings o.arguments, optionOf s.1 = licenseOption) ∧
+  valuesOf o licenseOption ≠ [] ∧
   (∀ v ∈ valuesOf o licenseOption, ∃ t, v = .string t ∧ t ≠ "") ∧
   ∀ s ∈ argumentSettings o.arguments, optionOf s.1 = licenseOption →
     ∃ t, s.2 = .string t ∧ t ≠ ""
 
-/-- `licensed` decides exactly `Licensed`: a `-D` candidate alone never configures the license
-line. -/
+/-- `licensed` decides exactly `Licensed`: only the options configure the license line, and a
+`-D` candidate can only make it fail. -/
 theorem licensed_iff (o : BuildOptions) : licensed o = true ↔ Licensed o := by
   have hl : ∀ v : OptionValue, v.isLicense = true ↔ ∃ t, v = .string t ∧ t ≠ "" := by
     intro v
     cases v <;> simp [OptionValue.isLicense]
-  simp [licensed, licenseGiven, licenseValues, Licensed, hl, -List.all_filterMap]
+  simp [licensed, licenseValues, Licensed, hl, -List.all_filterMap]
   exact fun _ _ => ⟨fun h a b => h b a, fun h b a => h a b⟩
 
 /-- The target gives the required option `r` the value `v` that the requirement admits: the value
@@ -601,10 +471,10 @@ def OptionValue.text : OptionValue → String
   | .nat n => toString n
 
 /-- What a failure of the option `name` adds to its finding detail: the header linter may also be
-`true` in `leanOptions`, with the license line configured. -/
+`true` in `leanOptions`, with the license line configured there. -/
 def licenseHint (name : Name) : String :=
   if optionOf name = headerLinter then
-    s!", or set it to true in `leanOptions` and set `{licenseOption}` to your license line"
+    s!", or set it to true and `{licenseOption}` to your license line, both in `leanOptions`"
   else ""
 
 /-- One failure as a finding detail. -/
@@ -910,9 +780,8 @@ theorem licensed_header_passes :
         .string "Released under the MIT license as described in the repository LICENSE."),
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true = [] := by
   simp +decide [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
-    licenseGiven, licenseValues, valuesOf, optionOf, disables, exclusions, argumentSettings,
-    argumentTexts, definiteSettings, definiteTexts, headerLinter, licenseOption,
-    OptionValue.readsAs, OptionValue.isLicense]
+    licenseValues, valuesOf, optionOf, disables, exclusions, argumentSettings, argumentTexts,
+    headerLinter, licenseOption, OptionValue.readsAs, OptionValue.isLicense]
 
 /-- The same target without the license line fails with exactly the header linter, set to
 `true`, where `false` is required. -/
@@ -922,61 +791,8 @@ theorem unlicensed_header_fails :
       (`linter.style.header, .bool true),
       (`linter.hashCommand, .bool false), (`linter.style.longFile, .nat 0)], []⟩ true =
       [.option `linter.style.header (.bool false) [.bool true]] := by
-  simp [failures, required, baseline, mathlibBaseline, meets, admits, licensed, licenseGiven,
+  simp [failures, required, baseline, mathlibBaseline, meets, admits, licensed,
     licenseValues, valuesOf, optionOf, disables, rootOf, exclusions, argumentSettings,
-    argumentTexts, definiteSettings, definiteTexts, headerLinter, licenseOption,
-    OptionValue.readsAs]
-
-/-- Acorn's `weakLeanArgs`, which turn Mathlib's standard linter set and the header linter on and
-give the header linter's MIT license line by whole `-D` arguments, configure the license line and
-add no failure, for every target whose options give the license option only nonempty strings. -/
-theorem licensed_header_argument_passes (o : BuildOptions) (mathlib : Bool)
-    (ha : o.arguments = ["-Dweak.linter.mathlibStandardSet=true",
-      "-Dweak.linter.style.header=true",
-      "-Dweak.linter.style.header.license=Released under the MIT license as described in the \
-        repository LICENSE."])
-    (hl : ∀ v ∈ valuesOf o licenseOption, ∃ t, v = .string t ∧ t ≠ "")
-    (hs : "weak.linter.mathlibStandardSet".toName = `weak.linter.mathlibStandardSet)
-    (h : "weak.linter.style.header".toName = `weak.linter.style.header)
-    (h' : "weak.linter.style.header.license".toName = `weak.linter.style.header.license)
-    (n : Name) (v : OptionValue) :
-    licensed o = true ∧ Failure.leanArgument n v ∉ failures o mathlib := by
-  have ht : argumentTexts o.arguments = [("weak.linter.mathlibStandardSet", "true"),
-      ("weak.linter.style.header", "true"),
-      ("weak.linter.style.header.license",
-        "Released under the MIT license as described in the repository LICENSE.")] := by
-    rw [ha]; decide
-  have hd : definiteTexts o.arguments = argumentTexts o.arguments := by
-    rw [ha]; decide
-  have hos : optionOf `weak.linter.mathlibStandardSet = `linter.mathlibStandardSet := rfl
-  have ho : optionOf `weak.linter.style.header = headerLinter := rfl
-  have ho' : optionOf `weak.linter.style.header.license = licenseOption := rfl
-  have hne : headerLinter ≠ licenseOption := by simp [headerLinter, licenseOption]
-  have hr : (OptionValue.string "true").readsAs (.bool true) = true := by decide
-  have hlicensed : licensed o = true := by
-    rw [licensed_iff]
-    refine ⟨.inr ⟨(`weak.linter.style.header.license,
-      .string "Released under the MIT license as described in the repository LICENSE."),
-      by simp [definiteSettings, hd, ht, h'], ho'⟩, hl, fun s hm hso => ?_⟩
-    simp only [argumentSettings, ht, hs, h, h', List.map_cons, List.map_nil, List.mem_cons,
-      List.not_mem_nil, or_false] at hm
-    rcases hm with rfl | rfl | rfl
-    · rw [hos] at hso
-      simp [licenseOption] at hso
-    · exact absurd (ho.symm.trans hso) hne
-    · exact ⟨_, rfl, by simp⟩
-  refine ⟨hlicensed, ?_⟩
-  rw [leanArgument_mem_failures_iff]
-  rintro ⟨name, value, hdef, rfl, rfl, hc⟩
-  rw [← mem_argumentTexts_iff, ht] at hdef
-  simp only [List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false] at hdef
-  rcases hdef with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
-  · rw [hs, hos] at hc
-    cases mathlib <;> simp [required, baseline, mathlibBaseline, admits, hr] at hc
-  · rw [h, ho] at hc
-    cases mathlib <;>
-      simp [required, baseline, mathlibBaseline, admits, hlicensed, hr, headerLinter] at hc
-  · rw [h', ho'] at hc
-    cases mathlib <;> simp [required, baseline, mathlibBaseline, licenseOption] at hc
+    argumentTexts, headerLinter, licenseOption, OptionValue.readsAs]
 
 end RegulaPolicy.Community
