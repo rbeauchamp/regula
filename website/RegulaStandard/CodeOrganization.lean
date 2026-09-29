@@ -285,17 +285,17 @@ number := false
 * *Lean's `linter.missingDocs`*, with value `true`. It reports every public definition, structure, class, inductive type, constructor, field, and syntax extension that has no docstring, the community's rule that every definition is documented.
 * *Mathlib's standard linter set*, for a library that imports Mathlib: `weak.linter.mathlibStandardSet` with value `true`, the syntax linters Mathlib itself builds with (line length, tactic style, whitespace, and others).
 
-A few linters of that set enforce policies of the Mathlib repository itself. A library that enables the set MUST turn them off in the same `leanOptions`; at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
+A few linters of that set enforce policies of the Mathlib repository itself. A library that enables the set MUST turn them off in the same `leanOptions`, except that it MAY leave the header linter on when it configures that linter's license line (below); at the pinned Mathlib they are exactly these. An explicitly set linter option takes precedence over the set, and the `weak.` prefix lets Lake accept an option that Mathlib rather than Lean declares.
 
 :::table +header
 *
   * Option
   * Value
-  * Why it is excluded
+  * Why it is not adopted as it stands
 *
   * `weak.linter.style.header`
-  * `false`
-  * It requires Mathlib's contribution header, a copyright line, the Apache 2.0 license statement, and an authors line, in every module that the library root imports: the Mathlib repository's licensing and attribution policy.
+  * `false`, or `true` with `weak.linter.style.header.license` set to the library's license line
+  * It requires Mathlib's contribution header, a copyright line, a license line, and an authors line, in every module that the library root imports. The copyright and authors lines are the Mathlib repository's attribution policy. The license line defaults to the Mathlib repository's Apache 2.0 statement, and the option `linter.style.header.license` replaces it, so a library that keeps the linter on states its own license there, and otherwise turns the linter off.
 *
   * `weak.linter.hashCommand`
   * `false`
@@ -306,11 +306,23 @@ A few linters of that set enforce policies of the Mathlib repository itself. A l
   * Its 1500-line file limit is the Mathlib repository's file-size policy, and Mathlib documents no limit for downstream projects; `0` keeps it off.
 :::
 
-Turning off `linter.style.header` also turns off two community checks that the same linter makes: that the module docstring is the first command after the imports, on every module, and that no import is repeated with the same modifiers, on the modules that the library root imports. Both remain requirements ({ref "53-module-documentation"}[module 5 §5.3], {ref "64-import-discipline"}[§6.4]), and RG5001 checks both on every claimed module: its module docstring is the first command after the imports, and its header repeats no import with the same modifiers.
+A library that keeps the header linter on names its own license line in the same `leanOptions`, for example:
+
+```leanSketch
+leanOptions := #[
+  ⟨`weak.linter.mathlibStandardSet, true⟩,
+  ⟨`weak.linter.style.header, true⟩,
+  ⟨`weak.linter.style.header.license,
+    "Released under the MIT license as described in the repository LICENSE."⟩,
+  ⟨`weak.linter.hashCommand, false⟩,
+  ⟨`weak.linter.style.longFile, .ofNat 0⟩]
+```
+
+Turning off `linter.style.header` also turns off two community checks that the same linter makes: that the module docstring is the first command after the imports, on every module, and that no import is repeated with the same modifiers, on the modules that the library root imports. A library that leaves it on keeps both checks in the linter. Both remain requirements ({ref "53-module-documentation"}[module 5 §5.3], {ref "64-import-discipline"}[§6.4]), and RG5001 checks both on every claimed module: its module docstring is the first command after the imports, and its header repeats no import with the same modifiers.
 
 Two linters of the set whose messages mention Mathlib stay in the baseline. `linter.style.native` reports `native_decide` and `decide +native`, which conforming proof surfaces already exclude as compiler-trusting ({ref "34-foundation-strength-axioms-are-reported-never-assumed"}[module 3 §3.4], {ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]). `linter.style.setOption` reports the development-only `debug`, `pp`, `profiler`, and `trace` options and an unscoped `maxHeartbeats` setting; a deliberate use takes the declaration-scoped disable of §6.2.
 
-Their findings are ordinary build warnings, so the warning-free elaboration of {ref "73-clean-elaboration-and-diagnostics"}[§7.3] (RG2003) rejects every one of them. The standard enforces this community baseline by composing the community's linters with that rule; it restates none of their checks. Its own universal rules stay technical Lean rules (`SCOPE-04` in {ref "8-compliance-and-quality-audit"}[module 8]), and they are stricter where they apply: a registered material declaration needs a docstring that states its claim exactly ({ref "51-inline-documentation-requirements"}[module 5 §5.1–§5.2]; RG5002, RG5003). RG2006 checks the options from Lake's resolved configuration of every claimed library and executable: every target enables `linter.missingDocs`, a target of a surface that imports Mathlib enables the standard set with exactly the exclusions above, and no target turns off any other linter for all its modules (§6.2). RG2006 does not read `set_option` commands in source, whose disables review checks as §6.2 describes.
+Their findings are ordinary build warnings, so the warning-free elaboration of {ref "73-clean-elaboration-and-diagnostics"}[§7.3] (RG2003) rejects every one of them. The standard enforces this community baseline by composing the community's linters with that rule; it restates none of their checks. Its own universal rules stay technical Lean rules (`SCOPE-04` in {ref "8-compliance-and-quality-audit"}[module 8]), and they are stricter where they apply: a registered material declaration needs a docstring that states its claim exactly ({ref "51-inline-documentation-requirements"}[module 5 §5.1–§5.2]; RG5002, RG5003). RG2006 checks the options from Lake's resolved configuration of every claimed library and executable: every target enables `linter.missingDocs`, a target of a surface that imports Mathlib enables the standard set with exactly the exclusions above, or with the header linter on and its license option set to a nonempty string, and no target turns off any other linter for all its modules (§6.2). RG2006 does not read `set_option` commands in source, whose disables review checks as §6.2 describes.
 
 The conventions are written in these guides:
 

@@ -299,6 +299,10 @@ the call through each success owner.
 
 RG2006 checks the Lake options with a proved decision over Lake's resolved configuration
 (`RegulaPolicy.Community.failures`, `failures_eq_nil_iff`), not by re-implementing any linter.
+It admits Mathlib's header linter on only when the target configures the linter's license option
+(`conforming_header`, `header_on_unlicensed_fails`); every other required option admits only its
+required value (`admits_of_ne`). That the linter compares the header with that option is read from
+Mathlib's source and assumed.
 
 **Correspondence resource bound.** `checkCorrespondenceProof` gives the kernel Lean's
 per-declaration default heartbeats (`Core.getMaxHeartbeats` of the default options), so a
