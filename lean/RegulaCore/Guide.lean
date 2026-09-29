@@ -350,9 +350,11 @@ def guide : RuleId → Guide
           They are rejected with applicability `escape-hatch`.",
         "The only exception is the range-less partial helper Lean generates for a safe, \
           termination-checked recursive `def` (structural or well-founded recursion, a `where` \
-          or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq` comparison), \
+          or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq`, `BEq`, \
+          `Hashable` or `Repr` function on a recursive, non-nested inductive), \
           admitted when every condition of standard §7.4 holds, including fresh-frontend \
-          attribution of the exact source. The helper inherits its base's classification.",
+          attribution of the exact source. The helper is admitted only as the executable form \
+          of such a base.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` comparison that `deriving BEq` generates for a nested or mutual \
@@ -375,10 +377,14 @@ def guide : RuleId → Guide
         "The helper exception is conservative: elaborators defined in the audited module, \
           `run_tac` or `by_elab` in the recursion's proofs make the checker reject a definition \
           Lean accepts.",
-        "A derived instance's recursive helper is rejected in a module that registers a macro or \
-          elaborator for a syntax kind it does not declare, or replaces an attribute: Lean \
-          elaborates the derived definitions without information trees, so nothing else bounds \
-          what ran there.",
+        "No helper is admitted in a module that ran its own source as code (such as `#eval` or \
+          `run_cmd`) before or in the introducing command, or that registers a macro of its own or \
+          any elaborator for a syntax kind it did not add, or adds or replaces an attribute: such \
+          code can run without an evaluator record, as where Lean elaborates a derived \
+          `DecidableEq` comparison with information trees disabled. Declaring it in a separate \
+          imported module avoids this.",
+        "A simproc or other extension code declared in the audited module and run inside a \
+          pinned tactic is not observed by the fresh-frontend check.",
         "Editor feedback may be pending until the project command completes the fresh-frontend \
           check."]
       residuals := [.qualify, .cost, .intent]

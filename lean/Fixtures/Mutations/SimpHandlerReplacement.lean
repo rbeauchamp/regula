@@ -1,9 +1,11 @@
 import Lean
 
-/-! An attribute application is recorded under the attribute implementation's
-reference. A source-local implementation that keeps the built-in `simp`
-reference is not the post-import object, so the recursive definition it tags
-keeps its helper an escape hatch. -/
+/-
+Mutation (issue #125): `Positive.AttributedRecursion` plus an earlier
+source-local implementation of `simp` that keeps the built-in reference. It is
+not the post-import object, and audited source ran to install it, so the
+helper of the definition it tags is not admitted.
+-/
 open Lean
 
 run_cmd do

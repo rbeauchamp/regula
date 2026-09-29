@@ -1,10 +1,10 @@
+import Lean
+
 /-
-Mutation (issue #125): a derived comparison's helper is admitted without a
-binder record only when nothing the module registered could run unrecorded
-while Lean elaborates the generated definitions with information trees
-disabled. This module registers a macro for a built-in tactic kind, so the
-derived helper stays an escape hatch even though the comparison is safe. A
-notation or syntax the module declares itself would not have this effect.
+Mutation (issue #125): `Positive.DerivedRecursion` plus one module-local macro
+for a built-in tactic kind. Lean may dispatch it where it elaborates generated
+definitions with information trees disabled, so no helper of the module is
+admitted, although each derived function is safe.
 -/
 
 macro_rules
@@ -13,4 +13,5 @@ macro_rules
 inductive FixturesMarked where
   | leaf
   | wrap (inner : FixturesMarked)
-  deriving DecidableEq
+  | pair (left right : FixturesMarked)
+  deriving DecidableEq, BEq, Hashable, Repr

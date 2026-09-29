@@ -119,9 +119,9 @@ def checkerLimit? (ex : Exception) : BaseIO (Option String) := do
 
 /-- Independently require a kernel-checked unfolding theorem with exactly the
 one-step equation reconstructed from the same built-in predefinition. Its definitional
-observation is that syntactic equality, as in `unsafeRecValueEvidence`. A failure to obtain or
-build the equation leaves both observations `false`; a `checkerLimit?` reached while doing so is
-rethrown, since the limit is the checker's, not missing evidence. -/
+observation is that syntactic equality. A failure to obtain or build the equation leaves both
+observations `false`; a `checkerLimit?` reached while doing so is rethrown, since the limit is the
+checker's, not missing evidence. -/
 private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
     CommandElabM (Option (Bool × Bool × Array Name)) := do
   let some baseName := Lean.Compiler.isUnsafeRecName? name | return none

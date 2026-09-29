@@ -6,9 +6,10 @@ import RegulaCore.Policy
 Operational adapter over the claimed `RegulaCore.Policy` projections: it binds
 scope admission to the frontend's source-coordinate check and renders policy results
 as text. This file defines `admitScope` (running `checked_scope`), `executionSummary` (running
-`RegulaPolicy.checked_summary`) and the unproved renderers `describeBoundary`, `classify` and
-`classifyMember`; `executionFailureRecords` is the claimed decision itself. The rules, member
-labels and `executionFailures` in this namespace are defined in claimed `RegulaCore.Policy`. -/
+`RegulaPolicy.checked_summary`) and the unproved renderers `describeBoundary`, `classify`,
+`classifyMember` and `subjectDetail`; `executionFailureRecords` is the claimed decision itself.
+The rules, member labels and `executionFailures` in this namespace are defined in claimed
+`RegulaCore.Policy`. -/
 
 namespace Regula.Checker.Policy
 

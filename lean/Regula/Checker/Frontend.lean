@@ -87,13 +87,13 @@ instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
   }⟩
 
 /-- One elaborated command that added constants, with its evaluators, binders and whether it
-declares an axiom, and the source-local overrides its environment holds
+declares an axiom, and the audited-source code it could have run unrecorded
 (`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
 abbrev Command := RegulaPolicy.Frontend.Command
 deriving instance ToJson for RegulaPolicy.Frontend.Command
 instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
   exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations",
-      "evaluators", "bindings", "declaresAxiom", "sourceLocalOverrides"]
+      "evaluators", "bindings", "declaresAxiom", "sourceLocalCode"]
   return {
     commandElaborator := ← j.getObjValAs? _ "commandElaborator"
     commandKind := ← j.getObjValAs? _ "commandKind"
@@ -103,7 +103,7 @@ instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
     evaluators := ← j.getObjValAs? _ "evaluators"
     bindings := ← j.getObjValAs? _ "bindings"
     declaresAxiom := ← j.getObjValAs? _ "declaresAxiom"
-    sourceLocalOverrides := ← j.getObjValAs? _ "sourceLocalOverrides"
+    sourceLocalCode := ← j.getObjValAs? _ "sourceLocalCode"
   }⟩
 
 /-- The fresh-elaboration transcript of one module (`RegulaPolicy.Frontend.Transcript`),
@@ -412,42 +412,69 @@ private unsafe def baselineAttribute (baselineEnv commandEnv : Environment) (nam
   | .ok baseline, .ok current => ptrEq baseline current
   | _, _ => false
 
-/-- The references (`AttributeImpl.ref`) that only attributes `commandEnv` registers exactly
-as `baselineEnv` does carry: an application recorded with such a reference ran an attribute of the
-pinned toolchain or an imported library. A reference also carried by an attribute the module
-added or replaced is excluded, since the recorded name then does not determine which
-implementation ran. -/
-private unsafe def baselineAttributeRefs (baselineEnv commandEnv : Environment) : NameSet :=
-  let (pinned, spoiled) := (getAttributeNames commandEnv).foldl
+/-- The references (`AttributeImpl.ref`) that only attributes registered exactly as `baselineEnv`
+does carry, in each of `envs` (the command's environments at its start and at its end): an
+application recorded with such a reference ran an attribute of the pinned toolchain or an imported
+library. A reference also carried by an attribute the module added or replaced in either
+environment is excluded, since the recorded name then does not determine which implementation
+ran; sampling the start too covers a replacement that restores the original while it runs. -/
+private unsafe def baselineAttributeRefs (baselineEnv : Environment) (envs : Array Environment) :
+    NameSet :=
+  let (pinned, spoiled) := envs.foldl (fun acc env => (getAttributeNames env).foldl
     (fun ((pinned, spoiled) : NameSet × NameSet) name =>
-      match getAttributeImpl commandEnv name with
+      match getAttributeImpl env name with
       | .ok current =>
-          if baselineAttribute baselineEnv commandEnv name then (pinned.insert current.ref, spoiled)
+          if baselineAttribute baselineEnv env name then (pinned.insert current.ref, spoiled)
           else (pinned, spoiled.insert current.ref)
-      | .error _ => (pinned, spoiled))
+      | .error _ => (pinned, spoiled)) acc)
     ({}, {})
   spoiled.foldl (fun pinned ref => pinned.erase ref) pinned
 
-/-- `Command.sourceLocalOverrides`: the declarations of the macros and term, tactic, command and
-`do`-element elaborators the audited module declared and registered (`KeyedDeclsAttribute` entries
-whose declaration belongs to the current module) for a syntax kind that is not one of its own
-declarations, then the attributes of `commandEnv` that are not `baselineEnv`'s objects. A
-notation or syntax the module declares together with its own macro is not an override:
-Lean-generated syntax cannot have its kind. -/
-private unsafe def sourceLocalOverrides (baselineEnv commandEnv : Environment) : Array Name :=
+/-- The built-in elaborators that run audited source as code: `#eval`, `#eval!`, `run_cmd`,
+`run_elab`, `run_meta` (`Lean.Elab.BuiltinEvalCommand`), `by_elab` (`Lean.Elab.BuiltinNotation`)
+and `run_tac` (`Lean.Elab.Tactic.BuiltinTactic`). -/
+private def sourceRunners : Array Name := #[
+  `Lean.Elab.Command.elabEval, `Lean.Elab.Command.elabEvalBang, `Lean.Elab.Command.elabRunCmd,
+  `Lean.Elab.Command.elabRunElab, `Lean.Elab.Command.elabRunMeta, `Lean.Elab.Term.elabRunElab,
+  `Lean.Elab.Tactic.evalRunTac]
+
+/-- The elaborators among `records` that ran audited source as code: one of `sourceRunners`, or a
+declaration of the audited module itself (in `env`, the command's environment). -/
+private def sourceExecutions (env : Environment) (records : Array Evaluator) : Array Name :=
+  (records.filter fun e => sourceRunners.contains e.elaborator ||
+    (env.contains e.elaborator && (env.getModuleIdxFor? e.elaborator).isNone)).map (·.elaborator)
+
+/-- What `env`, one of a command's environments, holds that elaboration could run from the audited
+module without an information-tree record, under a syntax kind the module did not add to Lean's
+parser extension (the module's own notation or syntax is not counted, since syntax Lean generates
+never has such a kind): each term, tactic, command or `do`-element elaborator entry of the whole
+dispatch table that is not an entry object of `baselineEnv`'s table for that kind, which covers the
+module's own elaborators and imported code the module registered itself, as the recorded-evaluator
+rule (`pinnedElaborator`) does; each macro entry whose declaration belongs to the module (a macro
+only rewrites syntax, so an imported macro is imported code); then each attribute that is not
+`baselineEnv`'s object under its name. -/
+private unsafe def sourceLocalRegistrations (baselineEnv env : Environment) : Array Name :=
   let declaredHere := fun (name : Name) =>
-    commandEnv.contains name && (commandEnv.getModuleIdxFor? name).isNone
-  let overriding := fun (entries : List KeyedDeclsAttribute.OLeanEntry) =>
-    entries.filterMap fun entry =>
-      if declaredHere entry.declName && !declaredHere entry.key then some entry.declName else none
-  let elaborators := overriding (macroAttribute.ext.getState commandEnv).newEntries ++
-    overriding (Term.termElabAttribute.ext.getState commandEnv).newEntries ++
-    overriding (Tactic.tacticElabAttribute.ext.getState commandEnv).newEntries ++
-    overriding (Command.commandElabAttribute.ext.getState commandEnv).newEntries ++
-    overriding (Do.doElemElabAttribute.ext.getState commandEnv).newEntries
-  let attributes := (getAttributeNames commandEnv).filter
-    (!baselineAttribute baselineEnv commandEnv ·)
-  RegulaPolicy.canonicalNames (elaborators ++ attributes).toArray
+    env.contains name && (env.getModuleIdxFor? name).isNone
+  let baselineKinds := (Parser.parserExtension.getState baselineEnv).kinds
+  let moduleKinds := (Parser.parserExtension.getState env).kinds
+  let moduleKind := fun (kind : Name) => moduleKinds.contains kind && !baselineKinds.contains kind
+  let foreign := fun {γ : Type} (table : KeyedDeclsAttribute.Table γ)
+      (counted : Name → KeyedDeclsAttribute.AttributeEntry γ → Bool) =>
+    table.fold (fun (found : Array Name) key entries =>
+      if moduleKind key then found
+      else found ++ (entries.filter (counted key)).toArray.map (·.declName)) #[]
+  let unregistered := fun {γ : Type} (registry : KeyedDeclsAttribute γ) =>
+    let baseline := (registry.ext.getState baselineEnv).table
+    foreign (registry.ext.getState env).table fun key entry =>
+      !((baseline.find? key).getD []).any (ptrEq · entry)
+  let elaborators := unregistered Term.termElabAttribute ++
+    unregistered Tactic.tacticElabAttribute ++ unregistered Command.commandElabAttribute ++
+    unregistered Do.doElemElabAttribute
+  let macros := foreign (macroAttribute.ext.getState env).table fun _ entry =>
+    declaredHere entry.declName
+  elaborators ++ macros ++
+    ((getAttributeNames env).filter (!baselineAttribute baselineEnv env ·)).toArray
 
 /-- In ordinary command snapshots, only the local map can gain declarations.
 When pointer identity confirms the same immutable imported map allocation, scan
@@ -503,6 +530,8 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   let mut before? : Option Environment := none
   let mut baseline? : Option Environment := none
   let mut commands : Array Command := #[]
+  -- Every audited-source execution recorded so far, in any command of the module.
+  let mut executed : Array Name := #[]
   let mut runtimeReplacements : Array (Name × Name) := #[]
   let mut replacementHistoryUnsupported : Array String := #[]
   for snapshot in snapshots.getAll do
@@ -519,30 +548,34 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
               replacementHistoryUnsupported := replacementHistoryUnsupported.push evaluator
         if let some after := commandCtx.cmdEnv? then
           if let some before := before? then
+            let baseline := baseline?.getD commandCtx.env
+            let attributeRefs := baselineAttributeRefs baseline #[before, after]
+            -- Attribute refs are navigation metadata. Require the actual
+            -- immutable registered handler object from the compiler baseline,
+            -- not a source replacement retaining its name/ref.
+            let specializeSame := match (getAttributeImpl compilerEnv `specialize),
+                (getAttributeImpl baseline `specialize),
+                (getAttributeImpl commandCtx.env `specialize) with
+              | .ok expected, .ok baseline, .ok current =>
+                  ptrEq expected baseline && ptrEq expected current
+              | _, _, _ => false
+            let evaluators := evaluatorRecords baseline commandCtx.env commandCtx.fileMap tree
+              specializeSame attributeRefs.contains
+            executed := executed ++ sourceExecutions commandCtx.env evaluators
             let added := newConstants before after
             if !added.isEmpty then
-              -- Attribute refs are navigation metadata. Require the actual
-              -- immutable registered handler object from the compiler baseline,
-              -- not a source replacement retaining its name/ref.
-              let specializeSame := match (getAttributeImpl compilerEnv `specialize),
-                  (getAttributeImpl (baseline?.getD commandCtx.env) `specialize),
-                  (getAttributeImpl commandCtx.env `specialize) with
-                | .ok expected, .ok baseline, .ok current =>
-                    ptrEq expected baseline && ptrEq expected current
-                | _, _, _ => false
-              let baseline := baseline?.getD commandCtx.env
-              let attributeRefs := baselineAttributeRefs baseline commandCtx.env
               commands := commands.push {
                 commandElaborator := info.elaborator
                 commandKind := info.stx.getKind
                 commandRange := syntaxRange commandCtx.fileMap info.stx
                 added := added
                 addedDeclarations := added.map (constantRecord after)
-                evaluators := evaluatorRecords baseline commandCtx.env commandCtx.fileMap tree
-                  specializeSame attributeRefs.contains
+                evaluators
                 bindings := declarationBindings commandCtx.fileMap tree
                 declaresAxiom := declaresAxiom tree
-                sourceLocalOverrides := sourceLocalOverrides baseline commandCtx.env
+                sourceLocalCode := RegulaPolicy.canonicalNames <| executed ++
+                  sourceLocalRegistrations baseline before ++
+                  sourceLocalRegistrations baseline after
               }
           before? := some after
         else if before?.isNone then

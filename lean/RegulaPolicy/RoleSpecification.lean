@@ -96,20 +96,20 @@ instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by
     unfold PinnedEvaluator; infer_instance
 
 /-- The base is the literal declaration, a nested one bound at its exact selection range, or,
-contained in the literal command, one that elaboration generated without a binder record (a
-derived instance's function). That last origin also requires that the command's environment holds
-no source-local override (`Command.sourceLocalOverrides`): Lean elaborates such generated
-definitions with information trees disabled, where every elaborator that can run is then one the
-pinned toolchain or an imported library registered. Every recorded evaluator is pinned in each
-case. -/
+contained in the literal command, one that elaboration generated from syntax with no source
+position (every binder record of its name has no range, as for a derived instance's function).
+Every recorded evaluator is pinned, and no audited-source code may have run unrecorded
+(`Command.sourceLocalCode` is empty): such code could have produced or rewritten the records,
+and Lean elaborates some generated definitions, such as a derived `DecidableEq` comparison, with
+information trees disabled. -/
 def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop :=
   (LiteralDeclaration c r ∨
     ∃ outer ∈ c.commandRange, ∃ ranges ∈ base.ranges,
       LiteralDeclaration c outer ∧ PositionLE outer.start r.start ∧ PositionLE r.end outer.end ∧
       ((∃ b ∈ c.bindings, b.name = base.name ∧
         b.range = some ⟨ranges.selectionRange.start, ranges.selectionRange.end⟩) ∨
-       (c.bindings.all (·.name != base.name) ∧ c.sourceLocalOverrides = #[]))) ∧
-  ∀ e ∈ c.evaluators, PinnedEvaluator e
+       ∀ b ∈ c.bindings, b.name = base.name → b.range = none)) ∧
+  (∀ e ∈ c.evaluators, PinnedEvaluator e) ∧ c.sourceLocalCode = #[]
 instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
     (RecursiveCommand c b r) := by
   unfold RecursiveCommand; infer_instance

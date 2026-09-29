@@ -40,8 +40,8 @@ theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration) (ts : Array Tran
 /-- Every name `authorizedUnsafeRecHelpers` admits is the helper of a safe recursive base: its
 Lean-linked base (`Declaration.unsafeRecBase`) is an inventory definition of the same module,
 neither `partial` nor `unsafe`, that Lean tagged recursive. The kernel admits a safe definition
-only with a value that uses no general recursion, so such a base is terminating by construction;
-the helper is admitted for it and inherits that classification. -/
+only with a value that uses no general recursion, so such a base is terminating by construction.
+This states the base; it does not relate the helper's own axioms or failures to the base's. -/
 theorem authorizedUnsafeRecHelpers_base (ds : Array Declaration) (ts : Array Transcript) (n : Name)
     (hn : n ∈ authorizedUnsafeRecHelpers ds ts) :
     ∃ h ∈ ds, h.name = n ∧ ∃ b ∈ ds, h.unsafeRecBase = some b.name ∧ b.kind = .definition ∧

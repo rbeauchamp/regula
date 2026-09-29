@@ -45,6 +45,10 @@
   "expect": "pass",
   "claim": "standard-logical"
  },
+ "Fixtures.Positive.AttributedRecursion": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
  "Fixtures.Positive.AliasedContract": {
   "expect": "pass",
   "claim": "standard-logical",
@@ -185,11 +189,45 @@
  },
  "Fixtures.Mutations.DerivedWithSourceLocalMacro": {
   "expect": "fail",
-  "reason": "escape-hatch"
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] instDecidableEqFixturesMarked.decEq._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.DerivedAfterRunCmd": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] instDecidableEqFixturesRan.decEq._unsafe_rec"
+  ]
  },
  "Fixtures.Mutations.SimpHandlerReplacement": {
   "expect": "fail",
-  "reason": "escape-hatch"
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_simp_replaced._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.SelfRestoringSimpHandler": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_simp_restored._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.DerivedAfterLocalRegistration": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] instDecidableEqFixturesRegistered.decEq._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.ForgedMatchElaborator": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_by_match._unsafe_rec"
+  ]
  },
  "Fixtures.Mutations.UnsafeDef": {
   "expect": "fail",
