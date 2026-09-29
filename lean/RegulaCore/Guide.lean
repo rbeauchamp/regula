@@ -581,12 +581,16 @@ def guide : RuleId → Guide
               "lean/Regula/Checker/AxiomGate.lean"] }
   | .admission => {
       problem := "Required evidence is missing, incomplete, unsupported or invalid: owned \
-        declarations did not pass kernel admission, a frozen source changed during the audit, or \
-        authentication the result needs could not complete. The result is INCOMPLETE."
+        declarations did not pass kernel admission, a frozen source or `.olean` file changed \
+        during the audit, or authentication the result needs could not complete. The result is \
+        INCOMPLETE."
       trigger := [
         "Before accepting proof evidence the checker replays every owned logical declaration and \
-          its owned dependencies through Lean's kernel (`Admission.validate`). A declaration that \
-          fails replay, source bytes that changed after they were frozen, or a required \
+          its owned dependencies through Lean's kernel (`Admission.validate`); an executable's \
+          environment reuses, instead of repeating, a library environment's replay of a module \
+          over the identical import closure and frozen `.olean` parts (including \
+          `.olean.private`). A declaration that fails replay, source or `.olean` bytes that \
+          changed after they were frozen, or a required \
           authentication that failed is reported here with impact `incomplete`.",
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
@@ -637,7 +641,7 @@ def guide : RuleId → Guide
           `linter.style.header`, `linter.hashCommand` and `linter.style.longFile` is set to \
           `false`, or when a `-D name=value` among the extra arguments gives a required option \
           another value or sets such a linter to `false`.",
-        "A target of a surface whose loaded environment contains a Mathlib module must also set \
+        "A target of a surface whose loaded environments contain a Mathlib module must also set \
           `weak.linter.mathlibStandardSet` to `true`, `weak.linter.style.header` and \
           `weak.linter.hashCommand` to `false`, and `weak.linter.style.longFile` to `0`.",
         "A key's leading `weak.` component is read as the option it sets; a target that gives one \
@@ -673,7 +677,7 @@ def guide : RuleId → Guide
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake \
           resolves for the workspace the audit loads.",
-        "Whether a surface imports Mathlib is read from its whole loaded environment, so every \
+        "Whether a surface imports Mathlib is read from all of its loaded environments, so every \
           claimed target of such a surface, including an executable whose own root does not \
           import Mathlib, needs the Mathlib options.",
         "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \

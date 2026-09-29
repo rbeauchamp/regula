@@ -44,21 +44,25 @@ instance : FromJson Census := ⟨fun j => do
 /-- Replay scope can exceed report scope. Required keys come from the original environment;
 admitted keys are observed in the separately replayed kernel after `Environment.replay`. -/
 structure AdmissionReceipt where
-  /-- The modules whose owned declarations were replayed: the owned modules and the checker
-  reporter modules that import one of them, without duplicates. -/
+  /-- The modules whose owned declarations were replayed: the owned modules other than `reused`
+  and the checker reporter modules that import one of them, without duplicates. -/
   modules : Array Name
   /-- The `(module, declaration)` key of every owned declaration that is neither `unsafe` nor
   `partial`, taken from the original environment. -/
   required : Array (Name × Name)
   /-- The required keys found in the kernel environment after replay, in the same order. -/
   admitted : Array (Name × Name)
+  /-- The owned, unrequested modules not replayed here because an earlier environment of the same
+  audit admitted them over the identical import closure (`Admission.reusedModules`). -/
+  reused : Array Name
   deriving Repr, ToJson
 
 instance : FromJson AdmissionReceipt := ⟨fun j => do
-  exactFields j ["modules", "required", "admitted"]
+  exactFields j ["modules", "required", "admitted", "reused"]
   return { modules := ← j.getObjValAs? _ "modules"
            required := ← j.getObjValAs? _ "required"
-           admitted := ← j.getObjValAs? _ "admitted" }⟩
+           admitted := ← j.getObjValAs? _ "admitted"
+           reused := ← j.getObjValAs? _ "reused" }⟩
 
 instance : ToJson ModuleHeader.ImportSpec := ⟨fun s => Json.mkObj [
   ("module", toJson s.module), ("importAll", toJson s.importAll),
@@ -737,7 +741,7 @@ theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
     toolchain := "", modules := #[`A], moduleOrigins := #[], declarations := #[], execution := #[]
     census :=
         { modules := #[`A], declarations := #[], executionRoots := none, historyRequests := #[] }
-    admission := some { modules := #[`A], required := #[], admitted := #[] }
+    admission := some { modules := #[`A], required := #[], admitted := #[], reused := #[] }
     documentation := some {
       modules := #[(`A, ⟨true, true, []⟩)], materialDeclarations := #[], declarations := #[] }
     sourceBindings := #[{ moduleName := `A, path := "A.lean", content := "" }] }

@@ -114,12 +114,13 @@ private def parseArgs : List String → Options → IO Options
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
 
-/-- The Lake inventory of one audited library or surface: its modules and their source files. -/
+/-- The Lake inventory of one audited library or surface environment: its modules and their
+source files. -/
 structure LibraryInfo where
-  /-- The Lake library name. -/
+  /-- The Lake library name; for an executable's environment, the executable's name. -/
   name : String
-  /-- Its modules as Lake reports them; for a surface, also the roots of its claimed
-  executables. -/
+  /-- Its modules as Lake reports them; for a surface environment, the modules that environment
+  owns: the library's modules, or one executable's root. -/
   modules : Array Name
   /-- The source file Lake resolves for each of those modules. -/
   sources : Array Lake.SourceEntry
@@ -245,12 +246,15 @@ private structure ReportWorkerRequest where
   /-- Directory the coordinator owns for this audit, where surface workers share
   replacement-history worker output (`Environment.historyWorkerOutput`). -/
   historyMemo : String
+  /-- The library environments' completed admissions, which an executable's environment reuses
+  (`Admission.reusedModules`); empty for a library's environment. -/
+  priors : Array Admission.PriorAdmission
   deriving ToJson
 
 instance : FromJson ReportWorkerRequest := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
       ["modules", "searchRoots", "sourceRoots", "sourceBindings", "ownedOutput",
-    "historyMemo"]
+    "historyMemo", "priors"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     searchRoots := ← j.getObjValAs? _ "searchRoots"
@@ -258,13 +262,87 @@ instance : FromJson ReportWorkerRequest := ⟨fun j => do
     sourceBindings := ← j.getObjValAs? _ "sourceBindings"
     ownedOutput := ← j.getObjValAs? _ "ownedOutput"
     historyMemo := ← j.getObjValAs? _ "historyMemo"
+    priors := ← j.getObjValAs? _ "priors"
   }⟩
+
+/-- One Lean environment the project audit loads for a claimed surface, in the order of
+`RegulaPolicy.SurfaceAssignment.environments`: the surface's library, or one claimed
+executable whose root module it loads without any other executable root. -/
+private structure SurfaceEnvironment where
+  /-- The manifest surface the environment belongs to; its claim and execution claim apply. -/
+  surface : Manifest.Surface
+  /-- The claimed executable whose root the environment loads; `none` for the library. -/
+  executable : Option Lake.ExecutableInventory
+  /-- The environment's owned modules, as the claim assigns them, and their source files. -/
+  info : LibraryInfo
+
+/-- The environment's name in progress lines and findings: the surface's library, followed by
+the executable's name for an executable's environment. -/
+private def SurfaceEnvironment.label (environment : SurfaceEnvironment) : String :=
+  match environment.executable with
+  | none => environment.surface.library
+  | some exe => s!"{environment.surface.library} executable {exe.executable}"
+
+/-- The environments of every claimed surface, in claim order, with the modules of
+`assignments.flatMap (·.environmentNames)`: each surface's library, then each executable root
+alone. `checked_surfaceAssignments` assigns the surfaces in manifest order and gives the `i`th
+root as the root of the manifest's `i`th executable name, so the size checks cannot fail. -/
+private def surfaceEnvironments (manifest : Manifest)
+    (assignments : Array RegulaPolicy.SurfaceAssignment) (libraries : Array LibraryInfo)
+    (exeInfoFor : String → IO Lake.ExecutableInventory) : IO (Array SurfaceEnvironment) := do
+  unless manifest.surfaces.size == assignments.size do
+    throw <| IO.userError "internal error: surface assignments differ from the manifest"
+  let mut environments : Array SurfaceEnvironment := #[]
+  for (surface, assignment) in manifest.surfaces.zip assignments do
+    let library ← infoFor libraries surface.library
+    environments := environments.push {
+      surface, executable := none
+      info := { library with modules := assignment.library.map (·.name) } }
+    unless surface.executables.size == assignment.executables.size do
+      throw <| IO.userError s!"internal error: executable assignments differ for {surface.library}"
+    for (name, root) in surface.executables.zip assignment.executables do
+      let exe ← exeInfoFor name
+      environments := environments.push {
+        surface, executable := some exe
+        info := {
+          name, modules := #[root.name]
+          sources := #[{ «module» := root.name, source := exe.source }] } }
+  return environments
 
 private structure SurfaceInspection where
   info : LibraryInfo
   admitted : Regula.Checker.ProducerReport.Admitted
   transcripts : Array Frontend.Transcript
   frontendFailures : Array String
+
+/-- The bytes of every part Lean reads for the module whose `.olean` is `olean`, in
+`OLeanLevel` order, `none` for an absent part: the exported `.olean`, and for a module-system
+file its `.olean.server` and `.olean.private`, from which `importModules (level := .private)`
+takes the kernel constants. -/
+private def oleanParts (olean : FilePath) : IO (Array (Option ByteArray)) :=
+  #[Lean.OLeanLevel.exported, .server, .private].mapM fun level => do
+    let part := level.adjustFileName olean
+    if ← part.pathExists then some <$> IO.FS.readBinFile part else pure none
+
+/-- The completed admissions of the library environments, as an executable's environment may
+reuse them: each offers the modules it replayed whose import closure loads every `owned` module
+from the canonical `.olean` path whose parts `frozen` records for it. -/
+private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
+    (inspections : Array (Except IO.Error
+      (Except ProducerReport.AdmissionFailure SurfaceInspection))) :
+    Array Admission.PriorAdmission :=
+  inspections.filterMap fun
+    | .ok (.ok inspected) =>
+        let report := inspected.admitted.report
+        let index := Admission.originIndex report.moduleOrigins
+        let offered := ((report.admission.map (·.modules)).getD #[]).filter fun m =>
+          match Admission.importClosure index m with
+          | none => false
+          | some closure => closure.all fun origin =>
+              !owned.contains origin.name || frozen[origin.name]? == some origin.olean
+        if offered.isEmpty then none
+        else some { modules := offered, origins := report.moduleOrigins }
+    | _ => none
 
 private def capturedSourceAccount (resultOut : Option FilePath)
     (sources : Array ProducerReport.SourceBinding) : IO Json := do
@@ -373,16 +451,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       match inventory.executables.find? (·.executable == name) with
       | some info => return info
       | none => throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {name}"
-    let mut surfaces : Array LibraryInfo := #[]
-    for surface in manifest.surfaces do
-      let base ← infoFor libraries surface.library
-      let mut modules := base.modules
-      let mut sources := base.sources
-      for exeName in surface.executables do
-        let exe ← exeInfoFor exeName
-        modules := modules.push exe.root
-        sources := sources.push { «module» := exe.root, source := exe.source }
-      surfaces := surfaces.push { name := surface.library, modules, sources }
+    -- Two executable roots that each declare `main` cannot be imported into one environment,
+    -- so each root is inspected alone (`RegulaPolicy.census_executable_alone`).
+    let environments ← surfaceEnvironments manifest assignments libraries exeInfoFor
     withSourceEvidence sourceBindings configuration reportRoot.toString
         (if fresh then .freshProject else .incrementalProject) composed resultOut do
       let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
@@ -426,9 +497,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             if free > 0 then set (free - 1); return true else return false) do
           IO.sleep 20
         try act finally slots.atomically (modify (· + 1))
-      let inspectSurface (historyMemo : FilePath) (surface : Manifest.Surface) :
+      let inspectEnvironment (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
+          (environment : SurfaceEnvironment) :
           IO (Except ProducerReport.AdmissionFailure SurfaceInspection) := do
-        let info ← infoFor surfaces surface.library
+        let info := environment.info
         let request : ReportWorkerRequest := {
           modules := info.modules
           searchRoots := inventory.leanPath.map (·.toString)
@@ -436,10 +508,11 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           sourceBindings
           ownedOutput := inventory.leanLibDir.toString
           historyMemo := historyMemo.toString
+          priors
         }
         -- The decoder validates the report once and keeps that success as a proof.
         let outcome : ProducerReport.AdmittedOutcome ← withSlot <|
-            timedPhase s!"declaration inspection {surface.library}" <|
+            timedPhase s!"declaration inspection {environment.label}" <|
           runTypedWorker "--declaration-report-worker" request
         if let .error failure := outcome then return .error failure
         let .ok admitted := outcome
@@ -447,6 +520,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let report := admitted.report
         if let .error failure := SourceBinding.validateAgainst sourceBindings report then
           return .error failure
+        unless Admission.reuseJustified priors report do
+          return .error ⟨s!"[VIOLATION[kernel-admission]] {environment.label} reused an \
+            admission no library environment offered over the same import closure"⟩
         -- `mapWorkQueue` returns results in module order, so transcripts and failures
         -- keep the order of the former sequential loop.
         let modules := candidateModules report.declarations
@@ -467,13 +543,47 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         if let .error failure := SourceBinding.transcriptsMatch sourceBindings transcripts then
           return .error failure
         return .ok { info, admitted, transcripts, frontendFailures }
-      let inspections ← withScratch (← IO.currentDir) "history-memo" fun historyMemo =>
-        mapWorkQueue 3 manifest.surfaces fun surface => do
+      -- An executable's environment reuses a library module's admission only over the `.olean`
+      -- parts frozen here, and every frozen part is compared again after the last inspection.
+      let frozenArtifacts ← if environments.any (·.executable.isSome) then
+          (assignments.flatMap (·.library)).filterMapM fun identity => do
+            let path := Lean.modToFilePath inventory.leanLibDir identity.name "olean"
+            unless ← path.pathExists do return none
+            return some (identity.name, (← IO.FS.realPath path).toString, path,
+              ← oleanParts path)
+        else pure #[]
+      let inspectGroup (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
+          (group : Array (Nat × SurfaceEnvironment)) :=
+        mapWorkQueue 3 group fun (index, environment) => do
           -- Capture failures as values so every started worker is joined, then choose
-          -- fatal errors in manifest order instead of worker-completion order.
-          return (surface, ← (inspectSurface historyMemo surface).toBaseIO)
+          -- fatal errors in claim order instead of worker-completion order.
+          return (index, environment,
+            ← (inspectEnvironment historyMemo priors environment).toBaseIO)
+      let inspections ← withScratch (← IO.currentDir) "history-memo" fun historyMemo => do
+        let indexed := environments.mapIdx fun index environment => (index, environment)
+        -- Every library's environment completes before any executable's, which reuses the
+        -- admissions they offer (`Admission.reusedModules`).
+        let libraries ← inspectGroup historyMemo #[] (indexed.filter (·.2.executable.isNone))
+        let executableGroup := indexed.filter (·.2.executable.isSome)
+        let priors := if executableGroup.isEmpty then #[] else
+          libraryPriors
+            (NameSet.ofArray ((sourceBindings.map (·.moduleName)).filter fun name =>
+              !Environment.probeModuleNames.contains name.toString))
+            (frozenArtifacts.foldl (fun paths (name, real, _) => paths.insert name real) {})
+            (libraries.map (·.2.2))
+        let executables ← inspectGroup historyMemo priors executableGroup
+        return ((libraries ++ executables).qsort (·.1 < ·.1)).map (·.2)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
+      for (name, _, path, parts) in frozenArtifacts do
+        let current ← (oleanParts path).toBaseIO
+        unless (match current with | .ok found => found == parts | .error _ => false) do
+          reportContextFailure .admission reportRoot.toString
+            (if fresh then .freshProject else .incrementalProject) .incomplete
+                [.configuration, .discovery, .build]
+            s!"producer-artifact: the .olean files of {name} changed during the audit" composed
+            resultOut sourceBindings
+          return 1
       -- Freeze the complete discovery domain before the per-declaration policy loop.
       -- Expected modules are the coordinator's Lake assignments, never response fields.
       for (_, outcome) in inspections do
@@ -484,12 +594,11 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                 [.configuration, .discovery, .build]
             failure.detail composed resultOut sourceBindings
           return 1
-      let rawInspections ← inspections.mapM fun (surface, outcome) => do
-        let info ← infoFor surfaces surface.library
+      let rawInspections ← inspections.mapM fun (environment, outcome) => do
         let response ← IO.ofExcept outcome
         let inspected ← IO.ofExcept <| response.mapError (·.detail)
         pure ({
-          expectedModules := info.modules, admitted := inspected.admitted,
+          expectedModules := environment.info.modules, admitted := inspected.admitted,
           transcripts := inspected.transcripts } : Acceptance.RequestedInspection)
       let freezeRequest : IO (RegulaPolicy.AdmittedSnapshot ×
           ((c : RegulaPolicy.Claim) × Acceptance.Frozen c)) := do
@@ -499,7 +608,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let request ← IO.ofExcept <| RegulaPolicy.admitClaim {
           scope := .project, mode := if fresh then .freshProject else .incrementalProject,
           snapshot := snapshot.val, surfaces := assignments }
-        let frozen ← Acceptance.freeze request (surfaces.map (·.modules))
+        let frozen ← Acceptance.freeze request (environments.map (·.info.modules))
           (Acceptance.configuredTargets manifest) (Acceptance.discoveredTargets inventory)
           sourceBindings inventory.leanLibDir rawInspections
         pure (snapshot, ⟨request, frozen⟩)
@@ -507,8 +616,20 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let mut failures : Array String := #[]
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
-      let mut resultSurfaces : Array Json := #[]
-      for (surface, outcome) in inspections do
+      let mut reportedImports : Std.HashSet (String × String) := {}
+      -- Each surface's library entry, with the entries of its executables' environments.
+      let mut resultSurfaces : Array (Json × Array Json) := #[]
+      -- RG2006 reads whether a surface imports Mathlib from all of its environments together;
+      -- they load exactly the import closure of the surface's library and executable roots.
+      let mathlibSurfaces := inspections.filterMap fun (environment, outcome) =>
+        match outcome with
+        | .ok (.ok inspected) =>
+            if inspected.admitted.report.modules.any (·.getRoot == `Mathlib) then
+              some environment.surface.library
+            else none
+        | _ => none
+      for (environment, outcome) in inspections do
+        let surface := environment.surface
         let inspection ← IO.ofExcept outcome
         if let .error failure := inspection then
           reportContextFailure .admission reportRoot.toString
@@ -547,15 +668,11 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               reportRoot.toString
                   (s!"surface-not-fresh: {moduleName} did not resolve from the fresh Lake output")
                   (if fresh then .freshProject else .incrementalProject) .incomplete)
+        let mut importDetails : Array String := #[]
         for moduleName in envModules do
           if excludedModules.contains moduleName then
-            failures := failures.push s!"unexpected-project-module: excluded module {moduleName} \
-              was imported into positive library {surface.library}"
-            findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-              reportRoot.toString
-                  (s!"unexpected-project-module: excluded module {moduleName} was imported into \
-                    positive library {surface.library}")
-                        (if fresh then .freshProject else .incrementalProject) .violation)
+            importDetails := importDetails.push s!"unexpected-project-module: excluded module \
+              {moduleName} was imported into positive library {surface.library}"
         -- The probe modules are exempt from the environment-level exclusion check
         -- because the force import always brings them in. Any other module in the
         -- audited environment that imports the probe or its report records is
@@ -567,29 +684,26 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           if (Environment.probeModuleNames.map String.toName).contains origin.name then continue
           for imported in origin.imports do
             if (Environment.probeOnlyModuleNames.map String.toName).contains imported then
-              failures := failures.push s!"unexpected-project-module: checker probe \
+              importDetails := importDetails.push s!"unexpected-project-module: checker probe \
                 module {imported} was imported into positive library {surface.library} \
                 by {origin.name}"
-              findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-                reportRoot.toString
-                    (s!"unexpected-project-module: checker probe module {imported} was imported \
-                      into positive library {surface.library} by {origin.name}")
-                          (if fresh then .freshProject else .incrementalProject) .violation)
         for origin in report.moduleOrigins do
           if (Environment.probeModuleNames.map String.toName).contains origin.name then continue
           if ← pathWithin (FilePath.mk origin.olean) rootInventory.leanLibDir then
             if !configuredModules.contains origin.name then
-              failures := failures.push s!"unexpected-project-module: root-owned \
+              importDetails := importDetails.push s!"unexpected-project-module: root-owned \
                 module {origin.name} is outside every manifested Lake library"
-              findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-                reportRoot.toString
-                    (s!"unexpected-project-module: root-owned module {origin.name} is outside \
-                      every manifested Lake library")
-                          (if fresh then .freshProject else .incrementalProject) .violation)
+        for detail in importDetails do
+          unless reportedImports.contains (surface.library, detail) do
+            reportedImports := reportedImports.insert (surface.library, detail)
+            failures := failures.push detail
+            findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
+              reportRoot.toString detail (if fresh then .freshProject else .incrementalProject)
+                .violation)
         if report.declarations.any fun decl => !info.modules.contains decl.«module» then
-          failures := failures.push s!"declaration-attribution-mismatch: {surface.library}"
+          failures := failures.push s!"declaration-attribution-mismatch: {environment.label}"
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-            reportRoot.toString (s!"declaration-attribution-mismatch: {surface.library}")
+            reportRoot.toString (s!"declaration-attribution-mismatch: {environment.label}")
                 (if fresh then .freshProject else .incrementalProject) .incomplete)
         failures := failures ++ frontendFailures
         for failure in frontendFailures do
@@ -612,23 +726,25 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             findings := findings.push finding
             let detail := (Regula.argumentParts finding.1 finding.2.arguments).2
             failures := failures.push s!"{detail} ({moduleName})"
-        -- RG2006: the options Lake builds each claimed target of this surface with, decided by
-        -- the proved `RegulaPolicy.Community.failures` (`failures_eq_nil_iff`). The surface
-        -- imports Mathlib when its loaded environment contains a `Mathlib` module.
-        let mathlib := report.modules.any (·.getRoot == `Mathlib)
-        let some libraryInventory := inventory.libraries.find? (·.library == surface.library)
-          | throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {surface.library}"
-        let mut targets := #[(surface.library, libraryInventory.options)]
-        for exeName in surface.executables do
-          targets := targets.push (exeName, (← exeInfoFor exeName).options)
-        for (target, options) in targets do
-          let failed := RegulaPolicy.Community.failures options mathlib
-          unless failed.isEmpty do
-            let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
-              ⟨target, RegulaPolicy.Community.detail failed⟩ (.project reportRoot.toString) mode
-              (some surface.claim.toString) .violation
-            findings := findings.push ⟨.communityConfiguration, finding⟩
-            failures := failures.push s!"community-configuration: {target}"
+        -- RG2006: the options Lake builds the claimed target this environment owns with,
+        -- decided by the proved `RegulaPolicy.Community.failures` (`failures_eq_nil_iff`). The
+        -- surface imports Mathlib when one of its environments contains a `Mathlib` module.
+        let mathlib := mathlibSurfaces.contains surface.library
+        let (target, options) ← match environment.executable with
+          | some exe => pure (exe.executable, exe.options)
+          | none => do
+              let some libraryInventory :=
+                  inventory.libraries.find? (·.library == surface.library)
+                | throw <| IO.userError
+                    s!"lake-query-malformed: auditPlan omitted {surface.library}"
+              pure (surface.library, libraryInventory.options)
+        let failed := RegulaPolicy.Community.failures options mathlib
+        unless failed.isEmpty do
+          let finding ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
+            ⟨target, RegulaPolicy.Community.detail failed⟩ (.project reportRoot.toString) mode
+            (some surface.claim.toString) .violation
+          findings := findings.push ⟨.communityConfiguration, finding⟩
+          failures := failures.push s!"community-configuration: {target}"
         for (key, docstring) in documentation.declarations do
           -- The proved classification (`materialDocumentationFailure_eq_none_iff`) of the
           -- recorded docstring decides RG5002 (none attached) or RG5003 (no Intent section).
@@ -676,10 +792,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               |>.qsort fun left right => Name.quickLt left.name right.name
             for decl in declarations do IO.println s!"  {Policy.classify decl scope}"
         let summary := Policy.executionSummary executionInventory
-        IO.println <| s!"execution coverage for {surface.library} [claim: {surface.execution}]: " ++
-          s!"{summary.roots} root(s), {summary.boundaries} boundary(ies) " ++
-          s!"({summary.checked} checked, {summary.trusted} trusted), {summary.unresolved} \
-            unresolved"
+        IO.println <| s!"execution coverage for {environment.label} " ++
+          s!"[claim: {surface.execution}]: {summary.roots} root(s), " ++
+          s!"{summary.boundaries} boundary(ies) ({summary.checked} checked, " ++
+          s!"{summary.trusted} trusted), {summary.unresolved} unresolved"
         -- Every root and boundary is always in `--json-out`; text lists them only on request.
         if verbose then
           for root in report.execution do
@@ -689,10 +805,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                 IO.println s!"    {Policy.describeBoundary boundary}"
               for item in root.unresolved do
                 IO.println s!"    unresolved {item}"
-        let surfaceJson (report : Json) := Json.mkObj [
-          ("library", Json.str surface.library),
-          ("claim", Json.str surface.claim.toString),
-          ("execution", Json.str surface.execution.spelling),
+        let environmentFields (report : Json) : List (String × Json) := [
           ("modules", Json.arr <| info.modules.map (fun n => Json.str n.toString)),
           ("authorizedNativeAxioms", Json.arr <| native.map (Json.str ∘ Name.toString)),
           ("authorizedUnsafeRecHelpers", Json.arr <| unsafeHelpers.map (Json.str ∘ Name.toString)),
@@ -700,13 +813,23 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           ("report", report)
         ]
         -- Built only for the result output, which omits the import closure; it affects no
-        -- decision.
-        if resultOut.isSome then resultSurfaces := resultSurfaces.push
-                                  (surfaceJson report.resultJson)
-      let ownedModules := manifest.surfaces.foldl (fun count surface =>
-        match surfaces.find? (·.name == surface.library) with
-        | some info => count + info.modules.size
-        | none => count) 0
+        -- decision. A library's entry opens its surface, and each executable's environment
+        -- follows it in claim order.
+        if resultOut.isSome then
+          let fields := environmentFields report.resultJson
+          match environment.executable, resultSurfaces.back? with
+          | none, _ =>
+              resultSurfaces := resultSurfaces.push (Json.mkObj <| [
+                ("library", Json.str surface.library),
+                ("claim", Json.str surface.claim.toString),
+                ("execution", Json.str surface.execution.spelling)] ++ fields, #[])
+          | some exe, some (library, executables) =>
+              resultSurfaces := resultSurfaces.pop.push (library, executables.push
+                (Json.mkObj <| ("executable", Json.str exe.executable) :: fields))
+          | some _, none =>
+              throw <| IO.userError "internal error: executable environment before its library"
+      let ownedModules := environments.foldl (fun count environment =>
+        count + environment.info.modules.size) 0
       let claimedExes := manifest.surfaces.foldl
         (fun count surface => count + surface.executables.size) 0
       IO.println <| s!"claimed libraries: {manifest.surfaces.size}   " ++
@@ -745,17 +868,19 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                    .incomplete else .rejected
       recordStatus status findings
       if let some output := resultOut then
+        let ownedModuleNames := environments.flatMap (·.info.modules)
         let sources :=
-            (sourceBindings.filter
-                (fun s => (surfaces.flatMap (·.modules)).contains s.moduleName)).map fun s =>
+            (sourceBindings.filter (fun s => ownedModuleNames.contains s.moduleName)).map fun s =>
           Json.mkObj
               [("module", toJson s.moduleName), ("path", toJson s.path),
                   ("source", toJson s.content)]
+        let surfaceEntries := resultSurfaces.map fun (library, executables) =>
+          library.setObjVal! "executables" (Json.arr executables)
         let resultScope := Json.mkObj
             [("project", toJson reportRoot.toString), ("manifest", manifestJson manifest),
-            ("modules", toJson (surfaces.flatMap (·.modules))),
+            ("modules", toJson ownedModuleNames),
             ("declarations", toJson totalDeclarations),
-            ("sources", toJson sources), ("surfaces", toJson resultSurfaces),
+            ("sources", toJson sources), ("surfaces", toJson surfaceEntries),
             ("configuration", toJson configuration), ("configurationRoot", toJson repo.toString),
             ("libraries", toJson (libraries.map libraryInfoJson)),
             ("completedStages", toJson
@@ -1165,7 +1290,7 @@ unsafe def run (args : List String) : IO UInt32 := do
         (request.searchRoots.map FilePath.mk) (request.sourceRoots.map FilePath.mk)
         (request.sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
         (some (FilePath.mk request.ownedOutput)) (validateReport := false)
-        (historyMemo := some (FilePath.mk request.historyMemo))
+        (historyMemo := some (FilePath.mk request.historyMemo)) (priors := request.priors)
       if let .ok report := outcome then
         if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
           return .error failure

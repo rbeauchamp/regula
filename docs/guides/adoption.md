@@ -165,9 +165,14 @@ lake lint -- --explain-config              # read-only: manifest, scope, profile
 ```
 
 The driver builds every manifested library and executable by its explicit Lake target, with
-warnings as failures, and inspects the completed environment; it re-evaluates current policy
-even when every module is cached. Run it from the project root without `-d`: it refuses a working
-directory that is not the workspace that dispatched it. Its exit status separates the outcome:
+warnings as failures, and inspects the completed environments: each library in one, and each
+claimed executable's root in one of its own, since every root defines `main`. The libraries'
+environments come first; an executable's environment reuses their kernel check of the claimed
+library modules its root imports when those load from byte-identical `.olean` files (including
+`.olean.private` parts) in both, instead of repeating it. Library environments still repeat the
+kernel check of each other's modules they import. It re-evaluates current policy even when every
+module is cached. Run it from the project root without `-d`: it refuses a working directory that
+is not the workspace that dispatched it. Its exit status separates the outcome:
 
 | Exit | Outcome |
 | --- | --- |
@@ -267,13 +272,13 @@ rule's scope, reason and a violating and corrected example produced by the real 
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 3, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 4, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `3`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `4`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges), `arguments`, `text`, `remedy` and `helpUrl`. |

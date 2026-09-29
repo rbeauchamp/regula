@@ -16,7 +16,12 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 3 adds, for agents, each diagnostic's `remedy`, the top-level `rules` (the
+/-- Result schema 4 inspects each claimed executable's root in an environment of its own: a
+project `scope.surfaces[*]` entry's `modules` and `report` cover only its library, and each
+claimed executable has its own `executables[*]` entry with its own `modules` and `report`. A
+report's `admission` also lists as `reused` the modules its environment did not replay because a
+library's environment admitted them over the identical import closure.
+Schema 3 added, for agents, each diagnostic's `remedy`, the top-level `rules` (the
 guidance of every rule that fired, once each), the stage evidence `stages` (the run's required
 stages) and `stagesCompleted` (those that completed), and their derivation `complete` (every
 stage of the run completed) and `stagesNotRun` (the stages that did not). Schema 2 omitted the
@@ -24,7 +29,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 3
+def schemaVersion : Nat := 4
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion

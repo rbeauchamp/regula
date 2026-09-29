@@ -22,6 +22,13 @@ private def first (values : Array Json) : Except String Json :=
 def account (report : Json) : Except String Json := do
   field (← first (← array (← field report "scope") "surfaces")) "report"
 
+/-- The report of the first surface's first claimed executable, which the public project
+protocol lists in that surface's `executables`: each executable root is inspected in an
+environment of its own. -/
+def executableAccount (report : Json) : Except String Json := do
+  let surface ← first (← array (← field report "scope") "surfaces")
+  field (← first (← array surface "executables")) "report"
+
 /-- Exact byte offset of the prefix before the first occurrence. Callers separately
 require the expected source fragments; this helper alone does not promise a match. -/
 private def beforeBytes (source marker : String) : Nat :=
@@ -137,11 +144,11 @@ theorem checked_validation : Regula.ExecutableContract validate
             Satisfied checks) :=
   ⟨fun _ _ _ _ _ _ _ => validateDecoded_exact _⟩
 
-/-- Standalone executable observations: exact intended rejection, module documentation
-and `main` in the execution-root census. -/
+/-- Standalone executable observations, from the executable's own environment report: exact
+intended rejection, module documentation and `main` in the execution-root census. -/
 def standaloneRequirements (report : Json) (code : Nat) (mutated : Bool) : Except String
     (List Check) := do
-  let account ← account report
+  let account ← executableAccount report
   let ids ← (← array report "diagnostics").toList.mapM (fun d => text d "id")
   return [
     ⟨"standalone exit", code == (if mutated then 1 else 0)⟩,

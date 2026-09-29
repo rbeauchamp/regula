@@ -472,6 +472,18 @@ theorem acceptedRun_environment_inventory {c : Claim} (run : AcceptedRun c) :
   ⟨rfl, (census_exact_requests c run.census run.plan.valid.2.2.1),
     (census_exact_modules c run.census run.plan.valid.2.2.1).1⟩
 
+/-- An accepted ordinary project run inspected every claimed executable's root module in an
+environment of its own: some accepted environment owns exactly that root. -/
+theorem acceptedRun_executable_alone {c : Claim} (run : AcceptedRun c)
+    (scope : c.val.scope = .project) (mode : c.val.mode ≠ .serializedGraph)
+    (s : SurfaceAssignment) (hs : s ∈ c.val.surfaces) (root : Identity)
+    (hr : root ∈ s.executables) :
+    ∃ e ∈ run.report.census.environments, moduleNames e.modules = #[root.name] := by
+  have valid := run.plan.valid.2.2.1
+  obtain ⟨r, hr', names⟩ := census_executable_alone c run.census valid scope mode s hs root hr
+  obtain ⟨e, he, rfl, ok⟩ := census_requested_environment c run.census valid r hr'
+  exact ⟨e, he, by rw [← ok.1]; exact names⟩
+
 /-- Every accepted environment observation uses that environment's inventory and roles.
 Full job/snapshot binding and occurrence uniqueness remain the original collector theorem. -/
 theorem accepted_environment_resolves {c : Claim} {i : Census} {p : Plan c i}

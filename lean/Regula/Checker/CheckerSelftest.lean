@@ -1148,11 +1148,10 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
   let exeDecl :=
     "\nlean_exe «selftestTool» where\n  root := `SelftestMain\n"
   let claimedManifest := copy / "claimed-exe.json"
-  -- The claimed-exe controls claim only the added executable: the application
-  -- executable's root `Main` already defines `main`, so a surface claiming
-  -- both would collide in one environment for reasons unrelated to the
-  -- mutation under test.
-  let claimedManifestText ← auditAppVariant repo #["selftestTool"] true
+  -- The claimed-exe controls claim the added executable beside the application's: both roots
+  -- define `main`, so the positive control also requires each root to be inspected in an
+  -- environment of its own (`census_executable_alone`).
+  let claimedManifestText ← auditAppVariant repo #["auditApp", "selftestTool"] true
   let claimedGate := gate #["--manifest", claimedManifest.toString, "--incremental"]
   withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- \
     Does nothing. -/\ndef main : IO Unit := pure ()\n" do

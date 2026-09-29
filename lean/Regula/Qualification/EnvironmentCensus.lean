@@ -37,7 +37,7 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let sources ← SourceBinding.capture inventory.moduleSources
   let manifest ← Manifest.load (Manifest.defaultPath root)
   let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
-  let expected := assignments.map (fun a => a.modules.map (·.name))
+  let expected := assignments.flatMap (·.environmentNames)
   let dependencies ← Snapshot.dependencies inventory
   let targets := manifest.surfaces.flatMap fun s => #[s.library] ++ s.executables
   let (build, failure) ← Lake.buildCheckedObservation root targets
@@ -80,10 +80,16 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   SourceBinding.unchanged sources
   SourceBinding.configurationUnchanged configuration
   Snapshot.inputsUnchanged inventory dependencies
-  let some leftIndex := (manifest.surfaces.toList.findIdx? (·.library == "RegulaVerification"))
+  -- Both environments own a `main`: the verification library's driver and the application
+  -- executable's root, which is requested alone (`census_executable_alone`).
+  let some verification := assignments.find? (·.target == "RegulaVerification")
     | throw <| IO.userError "verification surface absent"
-  let some rightIndex := (manifest.surfaces.toList.findIdx? (·.library == "AuditApp"))
-    | throw <| IO.userError "application surface absent"
+  let some leftIndex := expected.toList.findIdx? (· == verification.library.map (·.name))
+    | throw <| IO.userError "verification environment absent"
+  let some application := inventory.executables.find? (·.executable == "auditApp")
+    | throw <| IO.userError "application executable absent"
+  let some rightIndex := expected.toList.findIdx? (· == #[application.root])
+    | throw <| IO.userError "application environment absent"
   let some left := reports[leftIndex]? | throw <| IO.userError "verification packet absent"
   let some right := reports[rightIndex]? | throw <| IO.userError "application packet absent"
   let collisions := left.report.declarations.flatMap fun a =>

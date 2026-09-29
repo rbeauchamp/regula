@@ -191,8 +191,13 @@ sources, manifest and Markdown; complete the mode's build, import and admission 
 the census of owned declarations, roots and required transcripts; then freeze the required jobs
 before collecting results. `Census.requests` is the ordered array of environment requests, and
 `CensusOK` requires the returned requests to equal it and their positive module partition to be
-the whole claim. `InventoryValid` requires unique names within each Lean environment; different
-environments may each define `main`, and their inventories are never merged. Each
+the whole claim. An ordinary (non-serialized-graph) project claim requests
+`SurfaceAssignment.environments` for each surface in order: the library's modules, then each
+claimed executable's root alone (`census_executable_alone`; `acceptedRun_executable_alone` for
+every accepted ordinary project run), because two roots that each define `main` cannot share one
+environment. `InventoryValid`
+requires unique names within each Lean environment; different environments may each define
+`main`, and their inventories are never merged. Each
 `EnvironmentCensus` retains its complete admitted policy inventory, transcripts, execution roots,
 replay arrays, sources and origins. No entrypoint is renamed, filtered or exempted. Configuration,
 discovery and build jobs occur once. File and graph paths use one environment; document plans use
@@ -344,6 +349,37 @@ inferred from any pure proof.
   and it records the admitted keys. Replay scope includes owned dependencies and the existing
   reporter closure where required; it may exceed the reported surface. Imported unowned modules
   remain trusted; the receipt records the completed operation and does not authenticate replay.
+- **Admission reuse.** The project audit inspects every library environment before any
+  executable's, and hands the executables the libraries' completed admissions
+  (`Admission.PriorAdmission`). An executable's environment keeps an owned module other than its
+  root in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's
+  `reused`) only when (1) a handed-out library admission replayed it over the identical import
+  closure (`Admission.importClosure`: the same modules, canonical `.olean` paths and import
+  edges); (2) every owned module of that closure is a claimed library module all of whose
+  `.olean` parts (the `.olean` and, for a module-system file, the `.olean.server` and the
+  `.olean.private` Lean takes its kernel constants from) the coordinator read before the first
+  inspection and compares, presence and bytes, after the last (a change is RG2005, incomplete);
+  (3) each declaration of each owned module of the closure refers only to constants of its own
+  closure (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the
+  dependencies `Kernel.Environment.replay` replays first); and (4) every owned module of the
+  closure is reused too. If the filtered set misses (4), nothing is reused. Every other owned
+  module is replayed. **Proved** about the executed definitions: `Admission.mem_reusedModules`
+  (a reused module is owned, unrequested and satisfies (1), (3) and (4)) and
+  `Admission.reuseJustified_sound` (the coordinator's recheck of a report accepts only
+  unrequested modules a handed-out admission offers over the report's own closure). **Checked
+  at run time, not proved:** that the handed-out admissions list only replayed modules whose
+  closures are frozen, (2), and that a closure contains every module its members import
+  (`Admission.validate` still refuses a base module that imports a replayed one). **Derived, not
+  machine-checked:** the kernel's check of a declaration depends only on the declaration and the
+  constants it consults, which its references and their values reach. By (3), (4) and the
+  imported base's own references, a reused module's declarations consult only its closure; by
+  (1) and (2) that closure is the same bytes in both environments, so the library environment's
+  successful replay is the one this environment would repeat. This rests on the stated trusted
+  boundary: authentic imported artifacts unchanged during the audit (as the history memo already
+  assumes), filesystem reads, and no change restored between the two byte observations. No
+  theorem models the kernel. Reuse is scoped to executable environments: library environments
+  still replay every owned module they load, including one another library environment also
+  replays, a cost that predates per-executable environments and this reuse does not address.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
@@ -353,7 +389,8 @@ inferred from any pure proof.
 - **Transport.** `Report.Collected` adds extraction keys to the pure policy report;
   `Checker.ProducerReport.Environment` adds the operational receipts and owns their JSON decoder:
   `census` (requested modules, declaration keys, optional execution root keys and root/module
-  history requests), `admission` (replay modules, required keys and observed admitted keys),
+  history requests), `admission` (replay modules, required keys, observed admitted keys and
+  reused modules),
   `documentation` (every module's presence, including declaration-free modules, frozen material
   keys and exact optional docstrings), `histories` (one completed source receipt or explicit
   unavailable outcome for every requested module) and `sourceBindings` (exact loaded-owned
@@ -788,6 +825,8 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
+| project audit | executable admission reuse recheck | a report reusing an admission no library environment offered is refused | Proved | `Admission.reuseJustified_sound` |
+| project audit | none | a frozen `.olean` part that changes during the audit is RG2005 | External | open: MUT-02 not yet evidenced; no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:
 
@@ -898,9 +937,10 @@ boundary for any accepted manifest and claim set selecting an actual surface. `s
 checks that claim hypothesis at run time, and no theorem links that check to the hypothesis. The
 text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
 parsers, so no theorem describes them; `parse_of_encodes` names what they must deliver. The
-variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only,
-claimed-exe and app-omitted-exe variants exclude every actual `AuditApp` executable they stop
-claiming, except app-omitted-exe, which leaves them unclassified on purpose. `RegulaPolicy` stays
+variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only
+variant excludes every actual `AuditApp` executable it stops claiming, and app-omitted-exe
+leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
+executable, so two claimed roots each define `main`. `RegulaPolicy` stays
 claimed in each copy because the checker probe's own imports resolve to it in a self-hosted copy.
 `diagnostics structural` passed locally in 572 s without the deadline (observed 2026-09-27);
 meeting the 420-second budget remains open, so it is not a CI job.

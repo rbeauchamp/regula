@@ -162,7 +162,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 3, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 4, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -177,7 +177,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 3:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 4:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -192,11 +192,12 @@ metadata, not authenticated binary identity.
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,
-  and no consumer reads it there. File `scope.report` and project `scope.surfaces[*].report`
-  keep the complete observed declaration and execution inventories, including trusted boundaries
-  and correspondence evidence; project scope also keeps its source snapshots, Lake library
-  inventory and completed stage names. File scope keeps its nullable foundation claim, execution
-  claim and exact source even without findings.
+  and no consumer reads it there. File `scope.report`, project `scope.surfaces[*].report` (the
+  library's environment) and `scope.surfaces[*].executables[*].report` (each claimed
+  executable's root, inspected alone) keep the complete observed declaration and execution
+  inventories, including trusted boundaries and correspondence evidence; project scope also keeps
+  its source snapshots, Lake library inventory and completed stage names. File scope keeps its
+  nullable foundation claim, execution claim and exact source even without findings.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
