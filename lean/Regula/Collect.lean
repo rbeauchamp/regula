@@ -216,13 +216,10 @@ aware module": a pass that marks nothing has reached it, and every other pass ma
 finitely many modules, so at most one pass per module runs. -/
 def ContractScope.new (env : Environment) : BaseIO ContractScope := do
   let names := env.header.moduleNames
-  let indices : NameMap Nat :=
-    (names.foldl (fun (map, index) name => (map.insert name index, index + 1))
-      (({} : NameMap Nat), 0)).1
   let importsAware (aware : Array Bool) (index : Nat) : Bool :=
     match env.header.moduleData[index]? with
     | some data => data.imports.any fun imported =>
-        ((indices.find? imported.module).bind (aware[·]?)).getD false
+        ((env.getModuleIdx? imported.module).bind fun idx => aware[(idx : Nat)]?).getD false
     | none => false
   let mut aware := names.map (· == `Regula.Contract)
   for _ in [:names.size] do
@@ -232,7 +229,9 @@ def ContractScope.new (env : Environment) : BaseIO ContractScope := do
         aware := aware.set! index true
         changed := true
     if !changed then break
-  return { aware, mainAware := names.contains `Regula.Contract || env.mainModule == `Regula.Contract
+  return { aware
+           mainAware := (env.getModuleIdx? `Regula.Contract).isSome ||
+             env.mainModule == `Regula.Contract
            free := ← IO.mkRef {} }
 
 /-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
@@ -447,6 +446,7 @@ def commandDeclarations : CommandElabM (Array RegulaPolicy.Declaration) := do
       -- with actual current declarations before constructing observations.
       if (env.getModuleIdxFor? name).isNone && (env.find? name).isSome &&
           !names.contains name then names := names.push name
+  if names.isEmpty then return #[]
   let scope ← ContractScope.new env
   names.mapM (declaration · .snapshot scope)
 
