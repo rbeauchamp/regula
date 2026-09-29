@@ -33,6 +33,28 @@
   "claim": "standard-logical",
   "label": "kernel-only"
  },
+ "Fixtures.Positive.ProofCarryingWfRecursion": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "allSmall._unsafe_rec"
+  ]
+ },
+ "Fixtures.Positive.AliasedContract": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "executable-contract=aliasedIdentity",
+   "chain_large"
+  ]
+ },
+ "Fixtures.Mutations.ParameterizedAliasedContract": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=registration must be closed"
+  ]
+ },
  "Fixtures.Positive.RuntimeReplacement": {
   "expect": "pass",
   "claim": "standard-logical",

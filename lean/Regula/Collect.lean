@@ -99,8 +99,29 @@ private def unsafeRecExpected? (env : Environment) (baseName : Name) :
     | _ => none
   return (origin, expected)
 
+/-- The pinned Lean v4.34.0 renderings (`Kernel.Exception.toMessageData`) of the kernel's resource
+limits, which `throwKernelException` throws as untagged errors, each with the limit it names. -/
+private def kernelLimits : Array (String × String) := #[
+  ("(kernel) deterministic timeout", "kernel heartbeats"),
+  ("(kernel) deep recursion detected", "kernel recursion depth"),
+  ("(kernel) excessive memory consumption detected", "kernel memory")]
+
+/-- The resource limit of the checker's own Lean process that `ex` reports, if any: an elaborator
+limit (`Exception.isRuntime`), or a kernel limit recognized by its pinned rendering, also inside an
+elaborator error that wraps it (as `Meta.nativeEqTrue` does). Either is the checker's limit, not
+evidence about the inspected source. -/
+def checkerLimit? (ex : Exception) : BaseIO (Option String) := do
+  if ex.isMaxRecDepth then return some "maximum recursion depth"
+  if ex.isMaxHeartbeat then return some "maximum heartbeats"
+  let text ← ex.toMessageData.toString
+  return kernelLimits.findSome? fun (rendering, limit) =>
+    if text.contains rendering then some limit else none
+
 /-- Independently require a kernel-checked unfolding theorem with exactly the
-one-step equation reconstructed from the same built-in predefinition. -/
+one-step equation reconstructed from the same built-in predefinition. Its definitional
+observation is that syntactic equality, as in `unsafeRecValueEvidence`. A failure to obtain or
+build the equation leaves both observations `false`; a `checkerLimit?` reached while doing so is
+rethrown, since the limit is the checker's, not missing evidence. -/
 private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
     CommandElabM (Option (Bool × Bool × Array Name)) := do
   let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
@@ -116,21 +137,26 @@ private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
         let lhs := mkAppN (mkConst baseName (levelParams.map mkLevelParam)) args
         let equality ← Meta.mkEq lhs body
         Meta.letToHave (← Meta.mkForallFVars args equality)
-      let definitional ← Meta.isDefEq equationInfo.type expectedType
+      let exact := equationInfo.type == expectedType
       let axioms ← collectAxioms equationName
-      return some (equationInfo.type == expectedType, definitional, axioms)
-    catch _ =>
+      return some (exact, exact, axioms)
+    catch ex =>
+      if (← checkerLimit? ex).isSome then throw ex
       return some (false, false, #[])
 
 /-- Whether a helper's entire value is the pinned compiler transformation of
-the built-in structural/well-founded predefinition stored for its safe base. -/
+the built-in structural/well-founded predefinition stored for its safe base. Syntactic equality
+is both the exact and the definitional observation, since it implies definitional equality.
+`Meta.isDefEq` is not used: where the values differ under a recursive call, its lazy delta
+reduction unfolds the self-referential helper on both sides before comparing arguments, and each
+unfolding reproduces the same comparison one call deeper. -/
 private def unsafeRecValueEvidence (env : Environment) (name : Name)
-    (info : ConstantInfo) : CommandElabM (Option (RecursionOrigin × Bool × Bool)) := do
-  let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
-  let some (origin, expected) := unsafeRecExpected? env baseName | return none
-  let .defnInfo helper := info | return none
-  let definitional ← liftTermElabM <| Meta.isDefEq helper.value expected
-  return some (origin, helper.value == expected, definitional)
+    (info : ConstantInfo) : Option (RecursionOrigin × Bool × Bool) := do
+  let baseName ← Lean.Compiler.isUnsafeRecName? name
+  let (origin, expected) ← unsafeRecExpected? env baseName
+  let .defnInfo helper := info | none
+  let exact := helper.value == expected
+  return (origin, exact, exact)
 
 /-- The Boolean expression `e` of a type `e = true`. -/
 private def assertedBool? (type : Expr) : Option Expr := do
@@ -174,22 +200,103 @@ def nativeStatement? (name : Name) (type : Expr) : Option String := do
   return toString (repr unindexed)
 
 /-- Independently replay the Boolean native evaluation without retaining any
-declaration it creates. This remains compiler evidence, never a kernel proof. -/
-private def replayNative (asserted : Expr) : CommandElabM Bool := do
-  try
-    let result ← liftTermElabM <| withoutModifyingEnv do
-      Meta.nativeEqTrue `audit_native_replay asserted
-    return match result with
-      | .success _ => true
-      | .notTrue   => false
-  catch _ =>
-    return false
+declaration it creates. This remains compiler evidence, never a kernel proof. A failed replay
+is `false`; a `checkerLimit?` reached during it is rethrown. -/
+private def replayNative (asserted : Expr) : CommandElabM Bool :=
+  liftTermElabM <| withoutModifyingEnv do
+    try
+      return match ← Meta.nativeEqTrue `audit_native_replay asserted with
+        | .success _ => true
+        | .notTrue   => false
+    catch ex =>
+      if (← checkerLimit? ex).isSome then throw ex
+      return false
 
 /-- Classify the terminal result after Lean reduction, including aliases of
 function types and universes. Runtime roots cannot return erased types. -/
 def returnsSort (type : Expr) : MetaM Bool :=
   Meta.withTransparency .all <|
     Meta.forallTelescopeReducing type (fun _ body => pure body.isSort) (whnfType := true)
+
+/-- The part of an environment whose declarations can mention `Regula.ExecutableContract`, with a
+memo of constants shown not to reach it. Lean admits a constant only when every constant its type
+and value mention is already in the environment, so no constant of a module that is neither
+`Regula.Contract` nor a transitive importer of it mentions the contract type, and neither does
+any constant such a constant mentions. -/
+structure ContractScope where
+  /-- For each imported module index: `Regula.Contract` or a module that transitively imports it. -/
+  aware : Array Bool
+  /-- Whether the current module's own constants can mention it: the current module imports
+  every module of the header. -/
+  mainAware : Bool
+  /-- Constants whose closure under `unfoldReferences` was searched without reaching it. -/
+  free : IO.Ref NameSet
+
+/-- The scope of `env`. Awareness is the least fixed point of "is `Regula.Contract` or imports an
+aware module": a pass that marks nothing has reached it, and every other pass marks one of the
+finitely many modules, so at most one pass per module runs. -/
+def ContractScope.new (env : Environment) : BaseIO ContractScope := do
+  let names := env.header.moduleNames
+  let importsAware (aware : Array Bool) (index : Nat) : Bool :=
+    match env.header.moduleData[index]? with
+    | some data => data.imports.any fun imported =>
+        ((env.getModuleIdx? imported.module).bind fun idx => aware[(idx : Nat)]?).getD false
+    | none => false
+  let mut aware := names.map (· == `Regula.Contract)
+  for _ in [:names.size] do
+    let mut changed := false
+    for index in [:names.size] do
+      if !(aware[index]?.getD true) && importsAware aware index then
+        aware := aware.set! index true
+        changed := true
+    if !changed then break
+  return { aware
+           mainAware := (env.getModuleIdx? `Regula.Contract).isSome ||
+             env.mainModule == `Regula.Contract
+           free := ← IO.mkRef {} }
+
+/-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
+aware, so the search expands it. -/
+def ContractScope.constantAware (scope : ContractScope) (env : Environment) (name : Name) : Bool :=
+  match env.getModuleIdxFor? name with
+  | some index => scope.aware[(index : Nat)]?.getD true
+  | none => scope.mainAware
+
+/-- The constants that unfolding `info` can introduce: those its type and value mention (a
+theorem's and an opaque constant's too, since reduction at `.all` transparency unfolds theorems),
+the constructors of an inductive and of a recursor's rules, and its smart-unfolding definition. -/
+private def unfoldReferences (env : Environment) (info : ConstantInfo) : Array Name :=
+  let mentioned := info.type.getUsedConstants ++
+    ((info.value? (allowOpaque := true)).map Expr.getUsedConstants).getD #[]
+  let structural := match info with
+    | .inductInfo value => value.ctors.toArray
+    | .recInfo value =>
+      value.rules.foldl (fun names rule => (names.push rule.ctor) ++ rule.rhs.getUsedConstants) #[]
+    | _ => #[]
+  let smart := Lean.Meta.mkSmartUnfoldingNameFor info.name
+  mentioned ++ structural ++ (if env.contains smart then #[smart] else #[])
+
+/-- Whether reducing `type` can produce `Regula.ExecutableContract`: whether the contract type is
+among the constants `type` mentions, closed under `unfoldReferences`. Lean's reduction steps
+(delta, iota, beta, zeta, eta, projection, smart unfolding, and literal and native Boolean or
+natural-number steps) introduce only constants of that closure or of `Init`, which does not import
+`Regula.Contract`. Constants of modules outside the scope are not expanded, and a search that ends
+without finding the contract type records every constant it expanded as free. -/
+def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : Expr) :
+    BaseIO Bool := do
+  let free ← scope.free.get
+  let mut pending := type.getUsedConstants
+  let mut expanded : NameSet := {}
+  while !pending.isEmpty do
+    let name := pending.back!
+    pending := pending.pop
+    if name == ``Regula.ExecutableContract then return true
+    if expanded.contains name || free.contains name || !scope.constantAware env name then continue
+    expanded := expanded.insert name
+    if let some info := env.find? name then
+      pending := pending ++ unfoldReferences env info
+  scope.free.modify fun free => expanded.foldl (fun free name => free.insert name) free
+  return false
 
 /-- Recognize a closed proof-bearing requirement by its elaborated type. No
 annotation, theorem-name inventory, or proposition matcher supplies evidence:
@@ -199,11 +306,16 @@ an existential proof. Its execution closure is inspected even if it is private.
 The interface's own constructor is not a registration: `mk` is excluded by kind, and its
 definitional twin, the flat constructor Lean generates with the structure
 (`Lean.mkFlatCtorOfStructCtorName`), by exact name.
+The type is reduced at `.all` transparency only when `ContractScope.mayReach` admits that the
+reduction can produce the contract type; otherwise the declaration is not a registration, with no
+reduction. Lean's elaboration never reduces a declared type this way, and doing so can exhaust
+Lean's resource limits on an ordinary proposition, such as one computed from 64-bit literals.
 -/
-private def executableContract? (env : Environment) (info : ConstantInfo) :
+private def executableContract? (env : Environment) (scope : ContractScope) (info : ConstantInfo) :
     CommandElabM (Option RegulaPolicy.ExecutableContract) := do
   if !#[DeclarationKind.definition, .theorem, .opaque].contains (kindOf info) then return none
   if info.name == Lean.mkFlatCtorOfStructCtorName ``Regula.ExecutableContract.mk then return none
+  unless (← scope.mayReach env info.type) do return none
   liftTermElabM <| Meta.withTransparency .all <|
     Meta.forallTelescopeReducing info.type (whnfType := true) fun parameters type => do
     if !type.isAppOfArity ``Regula.ExecutableContract 3 then return none
@@ -258,10 +370,15 @@ def moduleOf (env : Environment) (name : Name) : Except String Name := do
 
 /-- Construct the canonical record from this command's actual environment.
 Replay candidates still require the existing fresh transcript and admission guards;
-these observations alone never authorize a generated role. -/
-def declaration (name : Name) (stage : Stage) :
+these observations alone never authorize a generated role. A caller recording several declarations
+of one environment passes one `ContractScope.new` of it, so its memo is shared; without one, a
+fresh scope is built. -/
+def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none) :
     CommandElabM RegulaPolicy.Declaration := do
   let env ← getEnv
+  let scope ← match scope? with
+    | some scope => pure scope
+    | none => ContractScope.new env
   let some info := env.find? name | throwError "declaration {name} is unavailable"
   let moduleName ← IO.ofExcept (moduleOf env name)
   let axioms ← collectAxioms name
@@ -270,8 +387,8 @@ def declaration (name : Name) (stage : Stage) :
     return toString (← Meta.ppExpr info.type)
   let ranges? ← findDeclarationRangesCore? name
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
-  let unsafeRecValueEvidence? ← if stage == .replayCandidate then
-      unsafeRecValueEvidence env name info else pure none
+  let unsafeRecValueEvidence? := if stage == .replayCandidate then
+      unsafeRecValueEvidence env name info else none
   let unsafeRecEquationEvidence? ← if stage == .replayCandidate then
       unsafeRecEquationEvidence env name else pure none
   let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
@@ -327,14 +444,15 @@ def declaration (name : Name) (stage : Stage) :
     nativeReplay := nativeReplay?
     ranges := ranges?.map rangesReport
     axioms := RegulaPolicy.canonicalNames axioms
-    executableContract := ← executableContract? env info
+    executableContract := ← executableContract? env scope info
   }
 
 /-- Complete current-module inventory, with no visibility or generated-name filter.
 Uses Lean's own local constant map through its environment-linter API. The caller
 must separately establish completion of elaboration before claiming completion. -/
 def currentModule (stage : Stage := .snapshot) : CommandElabM (Array RegulaPolicy.Declaration) := do
-  (← liftCoreM Lean.Linter.EnvLinter.getDeclsInCurrModule).mapM (declaration · stage)
+  let scope ← ContractScope.new (← getEnv)
+  (← liftCoreM Lean.Linter.EnvLinter.getDeclsInCurrModule).mapM (declaration · stage scope)
 
 /-- Declaration binders recorded in this command's information trees. This is a
 local feedback selection, not a complete module census: elaborators can add
@@ -349,6 +467,8 @@ def commandDeclarations : CommandElabM (Array RegulaPolicy.Declaration) := do
       -- with actual current declarations before constructing observations.
       if (env.getModuleIdxFor? name).isNone && (env.find? name).isSome &&
           !names.contains name then names := names.push name
-  names.mapM (declaration · .snapshot)
+  if names.isEmpty then return #[]
+  let scope ← ContractScope.new env
+  names.mapM (declaration · .snapshot scope)
 
 end Regula.Collect
