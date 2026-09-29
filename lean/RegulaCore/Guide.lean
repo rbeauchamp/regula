@@ -683,8 +683,8 @@ def guide : RuleId → Guide
           ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, \
           \"Released under the MIT license as described in the repository LICENSE.\"⟩``, or by \
           a whole `-Dweak.linter.style.header.license=…` argument before any extra argument of \
-          another form, as `lakefile.toml` needs; without the license option the target must set \
-          the header linter to `false`."]
+          another form, as a `lakefile.toml` `[leanOptions]` table needs; without the license \
+          option the target must set the header linter to `false`."]
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake \
           resolves for the workspace the audit loads.",

@@ -28,8 +28,9 @@ them to another value or turns off another linter.
 - `conforming_header`, `header_on_unlicensed_fails`, `admits_header_iff`, `admits_of_ne`: what a
   conforming Mathlib target gives the header linter, that a target with the header linter on and no
   license line fails, and that every other required option admits only its required value.
-- `licensed_iff`: the license line counts as configured only when the options or a `-D` of
-  `definiteSettings` give it, and every value any reading gives it is a nonempty string.
+- `Licensed`, `licensed_iff`, `admits_iff`: the license line counts as configured only when the
+  options or a `-D` of `definiteSettings` give it, and every value any reading gives it is a
+  nonempty string; `licensed` and `admits` decide exactly that and what the requirement admits.
 - `mem_definiteTexts_iff`, `mem_argumentSettings_of_mem_definiteSettings`: the certain `-D`
   reading holds exactly the settings of whole `-Dname=value` arguments that only such arguments
   precede, and each is also a candidate of `argumentSettings`.
@@ -517,11 +518,36 @@ string. -/
 def licensed (o : BuildOptions) : Bool :=
   licenseGiven o && (licenseValues o).all OptionValue.isLicense
 
+/-- The target configures the license line, stated without the executed decisions: its options or
+a `-D` of `definiteSettings` give the license option a value, and every value that its options and
+every `-D` candidate of `argumentSettings` give it is a nonempty string. -/
+def Licensed (o : BuildOptions) : Prop :=
+  (valuesOf o licenseOption ≠ [] ∨
+    ∃ s ∈ definiteSettings o.arguments, optionOf s.1 = licenseOption) ∧
+  (∀ v ∈ valuesOf o licenseOption, ∃ t, v = .string t ∧ t ≠ "") ∧
+  ∀ s ∈ argumentSettings o.arguments, optionOf s.1 = licenseOption →
+    ∃ t, s.2 = .string t ∧ t ≠ ""
+
+/-- `licensed` decides exactly `Licensed`: a `-D` candidate alone never configures the license
+line. -/
+theorem licensed_iff (o : BuildOptions) : licensed o = true ↔ Licensed o := by
+  have hl : ∀ v : OptionValue, v.isLicense = true ↔ ∃ t, v = .string t ∧ t ≠ "" := by
+    intro v
+    cases v <;> simp [OptionValue.isLicense]
+  simp [licensed, licenseGiven, licenseValues, Licensed, hl, -List.all_filterMap]
+  exact fun _ _ => ⟨fun h a b => h b a, fun h b a => h a b⟩
+
 /-- The target gives the required option `r` the value `v` that the requirement admits: the value
 Lean reads as the required one, or, for the header linter, Lean's reading of `true` when the
 target configures the license line. -/
 def admits (o : BuildOptions) (r : Name × OptionValue) (v : OptionValue) : Bool :=
   v.readsAs r.2 || (r.1 == headerLinter && v.readsAs (.bool true) && licensed o)
+
+/-- `admits` decides exactly what the requirement admits, stated without the executed decisions. -/
+theorem admits_iff (o : BuildOptions) (r : Name × OptionValue) (v : OptionValue) :
+    admits o r v = true ↔
+      v.readsAs r.2 = true ∨ (r.1 = headerLinter ∧ v.readsAs (.bool true) = true ∧ Licensed o) := by
+  simp [admits, licensed_iff, and_assoc]
 
 /-- The options give the required option `r` a value, and only values that the requirement
 admits. -/
@@ -588,17 +614,19 @@ def detail (failures : List Failure) : String :=
   "community-configuration: " ++ "; ".intercalate (failures.map Failure.text)
 
 /-- The RG2006 obligation of one target, stated without the executed Boolean decisions: every
-required option is given, and only values that the requirement admits (`admits`: what Lean reads
-as its required value, and for Mathlib's header linter also `true` when the target configures the
-license option); no option turns off a linter outside the §6.7 exclusions; and no `-D` among the
+required option is given, and only values that the requirement admits: what Lean reads as its
+required value, and for Mathlib's header linter also `true` when the target configures the license
+line (`Licensed`); no option turns off a linter outside the §6.7 exclusions; and no `-D` among the
 extra `lean` arguments gives a required option a value the requirement does not admit or turns off
 such a linter. -/
 def Conforming (o : BuildOptions) (mathlib : Bool) : Prop :=
-  (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1, admits o r v = true) ∧
+  (∀ r ∈ required mathlib, valuesOf o r.1 ≠ [] ∧ ∀ v ∈ valuesOf o r.1,
+    v.readsAs r.2 = true ∨ (r.1 = headerLinter ∧ v.readsAs (.bool true) = true ∧ Licensed o)) ∧
   (∀ entry ∈ o.options, rootOf (optionOf entry.1) = some "linter" →
     entry.2.readsAs (.bool false) = true → optionOf entry.1 ∈ exclusions) ∧
   ∀ s ∈ argumentSettings o.arguments,
-    (∀ r ∈ required mathlib, optionOf s.1 = r.1 → admits o r s.2 = true) ∧
+    (∀ r ∈ required mathlib, optionOf s.1 = r.1 → s.2.readsAs r.2 = true ∨
+      (r.1 = headerLinter ∧ s.2.readsAs (.bool true) = true ∧ Licensed o)) ∧
     (rootOf (optionOf s.1) = some "linter" → s.2.readsAs (.bool false) = true →
       optionOf s.1 ∈ exclusions)
 
@@ -627,7 +655,8 @@ theorem contradicts_eq_false_iff (o : BuildOptions) (mathlib : Bool) (name : Nam
 /-- The decision reports no failure exactly when the target meets its RG2006 obligation. -/
 theorem failures_eq_nil_iff (o : BuildOptions) (mathlib : Bool) :
     failures o mathlib = [] ↔ Conforming o mathlib := by
-  simp only [failures, Conforming, List.append_eq_nil_iff, List.filterMap_eq_nil_iff, and_assoc]
+  simp only [failures, Conforming, ← admits_iff, List.append_eq_nil_iff,
+    List.filterMap_eq_nil_iff, and_assoc]
   refine and_congr (forall₂_congr fun r _ => ?_)
     (and_congr (forall₂_congr fun e _ => ?_) (forall₂_congr fun s _ => ?_))
   · rw [← meets_iff]
@@ -665,12 +694,8 @@ theorem conforming_autoImplicit (o : BuildOptions) (mathlib : Bool) (h : Conform
   have hne : name ≠ headerLinter := by
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hname
     rcases hname with rfl | rfl <;> simp [headerLinter]
-  exact ⟨fun v hv => by
-      have := (h.1 _ hr).2 v hv
-      rwa [admits_of_ne o (name, .bool false) hne] at this,
-    fun s hs hs' => by
-      have := (h.2.2 s hs).1 _ hr hs'
-      rwa [admits_of_ne o (name, .bool false) hne] at this⟩
+  exact ⟨fun v hv => ((h.1 _ hr).2 v hv).resolve_right fun h' => hne h'.1,
+    fun s hs hs' => ((h.2.2 s hs).1 _ hr hs').resolve_right fun h' => hne h'.1⟩
 
 /-- Every conforming target enables `linter.missingDocs`: its options give the option at least
 once and only values Lean reads as `true`, and no `-D` among its extra `lean` arguments gives it
@@ -683,11 +708,8 @@ theorem conforming_missingDocs (o : BuildOptions) (mathlib : Bool) (h : Conformi
   have hr : (`linter.missingDocs, OptionValue.bool true) ∈ required mathlib := by
     simp [required, baseline]
   have hne : (`linter.missingDocs : Name) ≠ headerLinter := by simp [headerLinter]
-  refine ⟨(h.1 _ hr).1, fun v hv => ?_, fun s hs hs' => ?_⟩
-  · have := (h.1 _ hr).2 v hv
-    rwa [admits_of_ne o (`linter.missingDocs, .bool true) hne] at this
-  · have := (h.2.2 s hs).1 _ hr hs'
-    rwa [admits_of_ne o (`linter.missingDocs, .bool true) hne] at this
+  exact ⟨(h.1 _ hr).1, fun v hv => ((h.1 _ hr).2 v hv).resolve_right fun h' => hne h'.1,
+    fun s hs hs' => ((h.2.2 s hs).1 _ hr hs').resolve_right fun h' => hne h'.1⟩
 
 /-- A core-only target (`mathlib = false`) that turns automatic implicits off, sets no other
 option and has no extra `lean` arguments fails with exactly one failure: `linter.missingDocs` is
@@ -830,16 +852,6 @@ theorem readsAs_true_false (v : OptionValue) (ht : v.readsAs (.bool true) = true
   | bool b => cases b <;> first | exact absurd ht (by decide) | exact absurd hf (by decide)
   | nat n => simp [OptionValue.readsAs] at ht
 
-/-- The target configures the license line exactly when its options or a `-D` of
-`definiteSettings` give the license option a value, and every value that its options and every
-`-D` candidate give it is a nonempty string: a `-D` candidate alone never configures it. -/
-theorem licensed_iff (o : BuildOptions) :
-    licensed o = true ↔
-      (valuesOf o licenseOption ≠ [] ∨
-        ∃ s ∈ definiteSettings o.arguments, optionOf s.1 = licenseOption) ∧
-      ∀ v ∈ licenseValues o, v.isLicense = true := by
-  simp [licensed, licenseGiven]
-
 /-- The header linter, set to `false`, is required of every Mathlib target. -/
 theorem header_mem_required : (headerLinter, OptionValue.bool false) ∈ required true := by
   simp [required, mathlibBaseline, headerLinter]
@@ -848,8 +860,8 @@ theorem header_mem_required : (headerLinter, OptionValue.bool false) ∈ require
 the target configures the license line. -/
 theorem admits_header_iff (o : BuildOptions) (v : OptionValue) :
     admits o (headerLinter, .bool false) v = true ↔
-      v.readsAs (.bool false) = true ∨ (v.readsAs (.bool true) = true ∧ licensed o = true) := by
-  simp [admits]
+      v.readsAs (.bool false) = true ∨ (v.readsAs (.bool true) = true ∧ Licensed o) := by
+  simp [admits_iff]
 
 /-- A conforming Mathlib target gives the header linter, in its options and in its `-D`
 arguments, only values Lean reads as `false`, or reads as `true` while the target configures the
@@ -857,27 +869,26 @@ license line; its options give the header linter a value. -/
 theorem conforming_header (o : BuildOptions) (h : Conforming o true) :
     valuesOf o headerLinter ≠ [] ∧
       (∀ v ∈ valuesOf o headerLinter,
-        v.readsAs (.bool false) = true ∨ (v.readsAs (.bool true) = true ∧ licensed o = true)) ∧
+        v.readsAs (.bool false) = true ∨ (v.readsAs (.bool true) = true ∧ Licensed o)) ∧
       ∀ s ∈ argumentSettings o.arguments, optionOf s.1 = headerLinter →
-        s.2.readsAs (.bool false) = true ∨
-          (s.2.readsAs (.bool true) = true ∧ licensed o = true) :=
+        s.2.readsAs (.bool false) = true ∨ (s.2.readsAs (.bool true) = true ∧ Licensed o) :=
   ⟨(h.1 _ header_mem_required).1,
-    fun v hv => (admits_header_iff o v).1 ((h.1 _ header_mem_required).2 v hv),
-    fun s hs hs' => (admits_header_iff o s.2).1 ((h.2.2 s hs).1 _ header_mem_required hs')⟩
+    fun v hv => ((h.1 _ header_mem_required).2 v hv).imp_right And.right,
+    fun s hs hs' => ((h.2.2 s hs).1 _ header_mem_required hs').imp_right And.right⟩
 
 /-- A Mathlib target that leaves the header linter on and configures no license line fails: the
 header linter's `true`, in a value its options give or in a `-D` argument, is not admitted. -/
-theorem header_on_unlicensed_fails (o : BuildOptions) (hl : licensed o = false) :
+theorem header_on_unlicensed_fails (o : BuildOptions) (hl : ¬ Licensed o) :
     (∀ v ∈ valuesOf o headerLinter, v.readsAs (.bool true) = true → ¬ Conforming o true) ∧
     (∀ s ∈ argumentSettings o.arguments, optionOf s.1 = headerLinter →
       s.2.readsAs (.bool true) = true → ¬ Conforming o true) := by
   refine ⟨fun v hv ht hc => ?_, fun s hs hs' ht hc => ?_⟩
   · rcases (conforming_header o hc).2.1 v hv with hf | ⟨-, hl'⟩
     · exact readsAs_true_false v ht hf
-    · simp [hl] at hl'
+    · exact hl hl'
   · rcases (conforming_header o hc).2.2 s hs hs' with hf | ⟨-, hl'⟩
     · exact readsAs_true_false s.2 ht hf
-    · simp [hl] at hl'
+    · exact hl hl'
 
 /-- A Mathlib target that turns the header linter on and sets its license line to Acorn's MIT
 line, with the other §6.7 options, has no failure. -/
@@ -913,7 +924,7 @@ theorem licensed_header_argument_passes (o : BuildOptions) (mathlib : Bool)
     (ha : o.arguments = ["-Dweak.linter.style.header=true",
       "-Dweak.linter.style.header.license=Released under the MIT license as described in the \
         repository LICENSE."])
-    (hl : ∀ v ∈ valuesOf o licenseOption, v.isLicense = true)
+    (hl : ∀ v ∈ valuesOf o licenseOption, ∃ t, v = .string t ∧ t ≠ "")
     (h : "weak.linter.style.header".toName = `weak.linter.style.header)
     (h' : "weak.linter.style.header.license".toName = `weak.linter.style.header.license)
     (n : Name) (v : OptionValue) :
@@ -931,15 +942,12 @@ theorem licensed_header_argument_passes (o : BuildOptions) (mathlib : Bool)
     rw [licensed_iff]
     refine ⟨.inr ⟨(`weak.linter.style.header.license,
       .string "Released under the MIT license as described in the repository LICENSE."),
-      by simp [definiteSettings, hd, ht, h'], ho'⟩, fun v hv => ?_⟩
-    simp only [licenseValues, List.mem_append, List.mem_filterMap, argumentSettings, ht,
-      List.map_cons, List.map_nil, List.mem_cons, List.not_mem_nil, or_false, h, h'] at hv
-    rcases hv with hv | ⟨s, rfl | rfl, hs⟩
-    · exact hl v hv
-    · simp [ho, hne] at hs
-    · simp only [ho', ↓reduceIte, Option.some.injEq] at hs
-      subst hs
-      decide
+      by simp [definiteSettings, hd, ht, h'], ho'⟩, hl, fun s hs hso => ?_⟩
+    simp only [argumentSettings, ht, h, h', List.map_cons, List.map_nil, List.mem_cons,
+      List.not_mem_nil, or_false] at hs
+    rcases hs with rfl | rfl
+    · exact absurd (ho.symm.trans hso) hne
+    · exact ⟨_, rfl, by simp⟩
   refine ⟨hlicensed, ?_⟩
   rw [leanArgument_mem_failures_iff]
   rintro ⟨name, value, hdef, rfl, rfl, hc⟩

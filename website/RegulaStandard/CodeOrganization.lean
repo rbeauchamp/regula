@@ -318,7 +318,7 @@ leanOptions := #[
   ⟨`weak.linter.style.longFile, .ofNat 0⟩]
 ```
 
-A `lakefile.toml` cannot write that option beside the header linter in its `[leanOptions]` table, since a TOML key cannot both hold a value and have sub-keys. Such a library gives the license line instead as a `-D` argument, `-Dweak.linter.style.header.license=` followed by the line, whole in one extra `lean` argument (`moreLeanArgs` or `weakLeanArgs`) that only such whole `-Dname=value` arguments precede, so that `lean` reads it as that option for certain.
+A `lakefile.toml` cannot write that option beside the header linter in its `[leanOptions]` table, since a TOML key cannot both hold a value and have sub-keys. Such a library can give the license line instead as a `-D` argument, `-Dweak.linter.style.header.license=` followed by the line, whole in one extra `lean` argument (`moreLeanArgs` or `weakLeanArgs`) that only such whole `-Dname=value` arguments precede, so that `lean` reads it as that option for certain.
 
 Turning off `linter.style.header` also turns off two community checks that the same linter makes: that the module docstring is the first command after the imports, on every module, and that no import is repeated with the same modifiers, on the modules that the library root imports. A library that leaves it on keeps both checks in the linter. Both remain requirements ({ref "53-module-documentation"}[module 5 §5.3], {ref "64-import-discipline"}[§6.4]), and RG5001 checks both on every claimed module: its module docstring is the first command after the imports, and its header repeats no import with the same modifiers.
 

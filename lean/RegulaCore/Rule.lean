@@ -737,9 +737,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.elaborationEnvironment, .communityConventions, .linterDiscipline]
       applicability := "community-configuration"
       evidenceModes := [.incrementalProject, .freshProject]
-      requirement := "Claimed targets set auto-implicits off, `linter.missingDocs` on, no linter off beyond \
-        §6.7 exclusions and, with Mathlib, its standard set on, its header linter off or \
-        licensed; no `-D` undoes this."
+      requirement := "Claimed targets' `leanOptions` set auto-implicits off, `linter.missingDocs` on, no \
+        linter off past §6.7 exclusions, with Mathlib its standard set on, header linter off or \
+        licensed; no `-D` undoes it."
       rationale := "An automatic implicit adds a binder the source does not show, so the \
         elaborated \
         statement can quantify over more than the text a reviewer compares with the intent. A \
