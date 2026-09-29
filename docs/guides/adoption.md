@@ -170,9 +170,9 @@ claimed executable's root in one of its own, since every root defines `main`. Th
 environments come first; an executable's environment reuses their kernel check of the claimed
 library modules its root imports when those load from byte-identical `.olean` files (including
 `.olean.private` parts) in both, instead of repeating it. Library environments still repeat the
-kernel check of each other's modules they import. It re-evaluates current policy even when every module is cached. Run it from the project root
-without `-d`: it refuses a working directory that is not the workspace that dispatched it. Its
-exit status separates the outcome:
+kernel check of each other's modules they import. It re-evaluates current policy even when every
+module is cached. Run it from the project root without `-d`: it refuses a working directory that
+is not the workspace that dispatched it. Its exit status separates the outcome:
 
 | Exit | Outcome |
 | --- | --- |

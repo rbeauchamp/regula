@@ -389,7 +389,8 @@ inferred from any pure proof.
 - **Transport.** `Report.Collected` adds extraction keys to the pure policy report;
   `Checker.ProducerReport.Environment` adds the operational receipts and owns their JSON decoder:
   `census` (requested modules, declaration keys, optional execution root keys and root/module
-  history requests), `admission` (replay modules, required keys and observed admitted keys),
+  history requests), `admission` (replay modules, required keys, observed admitted keys and
+  reused modules),
   `documentation` (every module's presence, including declaration-free modules, frozen material
   keys and exact optional docstrings), `histories` (one completed source receipt or explicit
   unavailable outcome for every requested module) and `sourceBindings` (exact loaded-owned
