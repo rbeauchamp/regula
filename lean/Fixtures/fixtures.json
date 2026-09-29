@@ -236,6 +236,20 @@
    "[VIOLATION[escape-hatch]] fixtures_forged_by_handler._unsafe_rec"
   ]
  },
+ "Fixtures.Mutations.CommandElaboratorInstaller": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_by_command._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.ExtensionRecordValue": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_record_sum._unsafe_rec"
+  ]
+ },
  "Fixtures.Mutations.ForgedMatchElaborator": {
   "expect": "fail",
   "reason": "escape-hatch",

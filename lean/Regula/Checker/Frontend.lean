@@ -438,28 +438,57 @@ private def sourceRunners : Array Name := #[
   `Lean.Elab.Command.elabRunElab, `Lean.Elab.Command.elabRunMeta, `Lean.Elab.Term.elabRunElab,
   `Lean.Elab.Tactic.evalRunTac]
 
-/-- The elaborators among `records` that ran audited source as code: the `sourceRunners`. A
-module's own elaborators count where they are declared (`elaboratorCode`); its macros, recorded
-under their own names wherever a notation of the module is used, only rewrite syntax (`MacroM`
-reaches neither the environment nor `IO`). -/
-private def sourceExecutions (records : Array Evaluator) : Array Name :=
-  (records.filter (sourceRunners.contains ·.elaborator)).map (·.elaborator)
+/-- The elaborators among `records` that ran audited source as code: the `sourceRunners`, and every
+declaration of the audited module (in `env`) other than a macro. A module's elaborators also count
+where they are declared (`elaboratorCode`); a macro (type `Lean.Macro`), recorded under its own
+name wherever the module's notation is used, only rewrites syntax (`MacroM` reaches neither the
+environment nor `IO`). -/
+private def sourceExecutions (env : Environment) (records : Array Evaluator) : Array Name :=
+  (records.filter fun e => sourceRunners.contains e.elaborator ||
+    (env.contains e.elaborator && (env.getModuleIdxFor? e.elaborator).isNone &&
+      !((env.find? e.elaborator).any (·.type.isConstOf ``Lean.Macro)))).map (·.elaborator)
 
-/-- Whether `info` is code that runs with Lean's elaborator state: a definition or opaque constant
-whose type, unfolded, is a function receiving a `Lean.Core.Context`, as every `CoreM`-based
-metaprogram (an elaborator, tactic, simproc, deriving handler, delaborator or other extension
-code, and any function into such a monad) does. A macro (`MacroM`) or an `IO` function receives
-none. A check that fails counts as such code. -/
-private def elaboratorCode (env : Environment) (info : ConstantInfo) : IO Bool := do
+/-- The contexts that give code Lean's elaborator state: `CoreM` (and every monad over it, from
+`MetaM` to `TacticM`) reads a `Lean.Core.Context`; `CommandElabM` a `Lean.Elab.Command.Context`. -/
+private def elaboratorContexts : Array Name := #[``Lean.Core.Context, ``Lean.Elab.Command.Context]
+
+/-- Whether `info` is a definition or opaque constant that is or holds code with Lean's elaborator
+state: an `elaboratorContexts` constant occurs among the constants of its type and of the types of
+the constants its value mentions, closed under the types of the constants reached, the values of
+the definitions reached (type abbreviations such as `TermElab`, `MetaM` or `CommandElab`) and the
+constructors of the inductive types reached, whose types carry a structure's fields. So is every
+elaborator, tactic, simproc, deriving handler, linter or delaborator, every function into such a
+monad, every value of a record or container holding one (such as a library's extension record with
+a `MetaM` field), and every value that builds such code inline. A macro (`MacroM`) or an `IO`
+function is not, since `Init` imports neither context. `free` memoizes the constants whose closure
+was searched without reaching one; the environment only grows, so a constant's closure never
+changes. -/
+private def elaboratorCode (env : Environment) (free : IO.Ref NameSet) (info : ConstantInfo) :
+    IO Bool := do
+  let valueConstants := match info with
+    | .defnInfo value => value.value.getUsedConstants
+    | .opaqueInfo value => value.value.getUsedConstants
+    | _ => #[]
   unless info matches .defnInfo _ | .opaqueInfo _ do return false
-  let receivesCore : MetaM Bool :=
-    Meta.forallTelescopeReducing info.type (whnfType := true) fun parameters _ =>
-      parameters.anyM fun parameter => do
-        return (← Meta.whnf (← Meta.inferType parameter)).isConstOf ``Lean.Core.Context
-  try
-    (receivesCore.run' {} {}).toIO' { fileName := "<frontend-transcript>", fileMap := default }
-      { env }
-  catch _ => return true
+  if valueConstants.any elaboratorContexts.contains then return true
+  let known ← free.get
+  let mut pending := info.type.getUsedConstants ++ valueConstants.flatMap fun name =>
+    ((env.find? name).map (·.type.getUsedConstants)).getD #[]
+  let mut expanded : NameSet := {}
+  while !pending.isEmpty do
+    let name := pending.back!
+    pending := pending.pop
+    if elaboratorContexts.contains name then return true
+    if expanded.contains name || known.contains name then continue
+    expanded := expanded.insert name
+    if let some reached := env.find? name then
+      pending := pending ++ reached.type.getUsedConstants
+      match reached with
+      | .defnInfo value => pending := pending ++ value.value.getUsedConstants
+      | .inductInfo value => pending := pending ++ value.ctors.toArray
+      | _ => pure ()
+  free.modify fun known => expanded.foldl (fun known name => known.insert name) known
+  return false
 
 /-- What `env`, one of a command's environments, holds that elaboration could run from the audited
 module without an information-tree record, under a syntax kind the module did not add to Lean's
@@ -550,6 +579,7 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   -- Audited-source code of any command of the module so far: runs of code runners, module
   -- declarations that run with the elaborator's state, and registrations at every command's end.
   let mut executed : Array Name := #[]
+  let freeOfCore ← IO.mkRef ({} : NameSet)
   let mut runtimeReplacements : Array (Name × Name) := #[]
   let mut replacementHistoryUnsupported : Array String := #[]
   for snapshot in snapshots.getAll do
@@ -582,9 +612,9 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
             let added := newConstants before after
             let declaredCode ← added.filterM fun name =>
               match after.find? name with
-              | some info => elaboratorCode after info
+              | some info => elaboratorCode after freeOfCore info
               | none => pure false
-            executed := RegulaPolicy.canonicalNames <| executed ++ sourceExecutions evaluators ++
+            executed := RegulaPolicy.canonicalNames <| executed ++ sourceExecutions after evaluators ++
               declaredCode ++ sourceLocalRegistrations baseline after
             if !added.isEmpty then
               commands := commands.push {

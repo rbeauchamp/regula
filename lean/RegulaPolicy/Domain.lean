@@ -1017,9 +1017,12 @@ structure Command where
   declaresAxiom : Bool
   /-- Audited-source code that could have run without an evaluator record, accumulated over the
   module up to and including this command: each recorded code runner (`#eval`, `#eval!`,
-  `run_cmd`, `run_elab`, `run_meta`, `by_elab`, `run_tac`); each definition the module declares
-  whose type, unfolded, receives a `Lean.Core.Context` (code that runs with Lean's elaborator state,
-  such as an elaborator, simproc or deriving handler, but not a macro or an `IO` function); and, in
+  `run_cmd`, `run_elab`, `run_meta`, `by_elab`, `run_tac`) and each recorded evaluator that is a
+  module declaration other than a macro; each definition the module declares that is or holds code
+  with Lean's elaborator state (`Lean.Core.Context` or `Lean.Elab.Command.Context` reachable from
+  its type or from the types of the constants its value mentions, through types, definition values
+  and constructors: an elaborator, simproc, deriving handler, linter or a record value holding one,
+  but not a macro or an `IO` function); and, in
   the environment at every command boundary, under each syntax kind the module did not add, each
   term, tactic, command or `do`-element elaborator entry that is not an entry object of the
   module's post-import environment, each macro the module declares, and each attribute that is

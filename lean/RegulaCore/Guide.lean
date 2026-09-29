@@ -378,15 +378,17 @@ def guide : RuleId → Guide
           `run_tac` or `by_elab` in the recursion's proofs make the checker reject a definition \
           Lean accepts.",
         "A helper is not admitted when, before or in its introducing command, the module ran a \
-          code runner (such as `#eval` or `run_cmd`), declared code that runs with Lean's \
-          elaborator state (an elaborator, simproc, deriving handler or other `CoreM`-based \
-          metaprogram), registered a macro of its own for syntax it did not declare (such as a \
-          `decreasing_trivial` extension) or an elaborator entry the post-import environment did \
-          not register (including an imported library's scoped elaborator a later `open` \
-          activates), or added or replaced an attribute. Such code can run without an evaluator \
-          record, as inside `simp` or where Lean elaborates a derived `DecidableEq` comparison \
-          with information trees disabled. The module's own notation and `IO` code do not count; \
-          declaring the rest in a separate imported module avoids this.",
+          code runner (such as `#eval` or `run_cmd`), declared a definition that is or holds \
+          code with Lean's elaborator state (one whose type or value reaches \
+          `Lean.Core.Context` or `Lean.Elab.Command.Context`: an elaborator, simproc, deriving \
+          handler or linter, or a record value holding one), registered a macro of its own for \
+          syntax it did not declare (such as a `decreasing_trivial` extension) or an elaborator \
+          entry the post-import environment did not register (including an imported library's \
+          scoped elaborator a later `open` activates), or added or replaced an attribute. Such \
+          code can run without an evaluator record, as inside `simp` or where Lean elaborates a \
+          derived `DecidableEq` comparison with information trees disabled. The module's own \
+          notation and `IO` code do not count; declaring the rest in a separate imported module \
+          avoids this.",
         "Editor feedback may be pending until the project command completes the fresh-frontend \
           check."]
       residuals := [.qualify, .cost, .intent]
