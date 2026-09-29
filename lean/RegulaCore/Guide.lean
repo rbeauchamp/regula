@@ -644,8 +644,10 @@ def guide : RuleId → Guide
         "A target of a surface whose loaded environments contain a Mathlib module must also set \
           `weak.linter.mathlibStandardSet` to `true`, `weak.linter.hashCommand` to `false` and \
           `weak.linter.style.longFile` to `0`, and `weak.linter.style.header` to `false`, or to \
-          `true` when the target also gives `weak.linter.style.header.license` a nonempty string \
-          (in `leanOptions` or by `-D`), the license line Mathlib's header linter expects.",
+          `true` when the target also gives `weak.linter.style.header.license` the license line \
+          Mathlib's header linter expects: in `leanOptions`, or by a `-D` in the leading extra \
+          arguments that are each a whole `-Dname=value`, with every value that `leanOptions` or \
+          any `-D` gives it a nonempty string.",
         "A key's leading `weak.` component is read as the option it sets; a target that gives one \
           option under both spellings must give the required value under each. A string value \
           counts as Lean parses it for the option: `\"false\"` is `false` and `\"0\"` is `0`. \
@@ -679,8 +681,10 @@ def guide : RuleId → Guide
           flag exempts a claimed target.",
         "A Mathlib target that keeps the header linter on names its license line in `leanOptions`: \
           ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, \
-          \"Released under the MIT license as described in the repository LICENSE.\"⟩``; \
-          without the license option the target must set the header linter to `false`."]
+          \"Released under the MIT license as described in the repository LICENSE.\"⟩``, or by \
+          a whole `-Dweak.linter.style.header.license=…` argument before any extra argument of \
+          another form, as `lakefile.toml` needs; without the license option the target must set \
+          the header linter to `false`."]
       limitations := [
         "Options given on `lake`'s own command line are not read; the rule reads what Lake \
           resolves for the workspace the audit loads.",
@@ -690,6 +694,10 @@ def guide : RuleId → Guide
         "The `-D` reading is assumed to cover the command-line parser of the Lean executable, \
           as read from Lean's `Lean.Shell` source and its getopt handling; that correspondence \
           is neither proved nor observed.",
+        "A `-D` license line counts only through the leading extra arguments that are each a \
+          whole `-Dname=value`, a reading proved contained in the `-D` reading. That `lean` \
+          reads each as that setting is assumed, as read from Lake's `compileLeanModule`, which \
+          passes the extra arguments first, and Lean's `Lean.Shell` source.",
         "That Mathlib's header linter compares the second header line with \
           `linter.style.header.license` is read from its source at the pinned release and \
           assumed; the rule checks that the license option is configured, not that the modules' \
@@ -699,8 +707,10 @@ def guide : RuleId → Guide
       checklist := ["DECL-01", "DOC-01"]
       linkage := "`RegulaPolicy.Community.failures_eq_nil_iff`, `conforming_of_mathlib`, \
         `conforming_missingDocs`, `conforming_header`, `header_on_unlicensed_fails`, \
-        `licensed_header_passes`, `unlicensed_header_fails`, `leanArgument_mem_failures_iff` and \
-        `missingDocs_unset_fails`. Reading Lake's target configuration is operational."
+        `licensed_iff`, `mem_argumentSettings_of_mem_definiteSettings`, \
+        `licensed_header_passes`, `licensed_header_argument_passes`, `unlicensed_header_fails`, \
+        `leanArgument_mem_failures_iff` and `missingDocs_unset_fails`. Reading Lake's target \
+        configuration is operational."
       sources := ["lean/RegulaPolicy/Community.lean", "lean/Regula/Checker/Lake.lean",
         "lean/Regula/Checker/AxiomGate.lean", "website/RegulaStandard/CodeOrganization.lean"] }
   | .executionUnresolved => {
