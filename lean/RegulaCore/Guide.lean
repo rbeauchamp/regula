@@ -349,15 +349,22 @@ def guide : RuleId → Guide
           not replayed as logical evidence, and a partial definition has no termination proof. \
           They are rejected with applicability `escape-hatch`.",
         "The only exception is the range-less partial helper Lean generates for a safe, \
-          termination-checked recursive `def`, admitted when every condition of standard §7.4 \
-          holds, including fresh-frontend attribution of the exact source."]
+          termination-checked recursive `def` (structural or well-founded recursion, a `where` \
+          or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq` comparison), \
+          admitted when every condition of standard §7.4 holds, including fresh-frontend \
+          attribution of the exact source. The helper inherits its base's classification.",
+        "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
+          The finding names the `partial def`, at its source range, not the helper; this includes \
+          the `partial def` comparison that `deriving BEq` generates for a nested or mutual \
+          inductive."]
       rationaleDetail := []
       proofShape := [
         "A total replacement keeps the same domain and result type; if it changes behavior, state \
           and prove the relation to the intended function."]
       established := [
         "No authored unsafe or partial declaration is on the claimed surface; every admitted \
-          generated helper satisfied all §7.4 conditions."]
+          generated helper satisfied all §7.4 conditions, and its base is a safe, non-partial \
+          recursive definition of the same module."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
@@ -368,12 +375,18 @@ def guide : RuleId → Guide
         "The helper exception is conservative: elaborators defined in the audited module, \
           `run_tac` or `by_elab` in the recursion's proofs make the checker reject a definition \
           Lean accepts.",
+        "A derived instance's recursive helper is rejected in a module that registers a macro or \
+          elaborator for a syntax kind it does not declare, or replaces an attribute: Lean \
+          elaborates the derived definitions without information trees, so nothing else bounds \
+          what ran there.",
         "Editor feedback may be pending until the project command completes the fresh-frontend \
           check."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
-        characterizes the authenticated recursion helpers."
+        characterizes the authenticated recursion helpers, `authorizedUnsafeRecHelpers_base` \
+        gives each a safe recursive base, and `Regula.Checker.Policy.partialParent_rule` with \
+        `subject_contract` reports a `partial def`'s helper under the `partial def`."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Checker/Frontend.lean",
               "lean/RegulaCore/Policy.lean"] }

@@ -144,19 +144,39 @@ private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
       if (← checkerLimit? ex).isSome then throw ex
       return some (false, false, #[])
 
-/-- Whether a helper's entire value is the pinned compiler transformation of
-the built-in structural/well-founded predefinition stored for its safe base. Syntactic equality
-is both the exact and the definitional observation, since it implies definitional equality.
-`Meta.isDefEq` is not used: where the values differ under a recursive call, its lazy delta
-reduction unfolds the self-referential helper on both sides before comparing arguments, and each
-unfolding reproduces the same comparison one call deeper. -/
+/-- The closed proof `@lcProof True` that `eraseProofs` puts in place of every proof. -/
+private def erasedProof : Expr := mkApp (mkConst ``lcProof) (mkConst ``True)
+
+/-- `e` with every proof subterm, in a binder type too, replaced by `erasedProof`: the
+computational content Lean's compiler, which erases proofs, sees. The placeholder keeps later
+types in the traversal inferable. It is itself a proof, so no non-proof subterm equals it. -/
+private def eraseProofs (e : Expr) : MetaM Expr :=
+  Meta.transform e (pre := fun e => do
+    return if ← Meta.isProof e then .done erasedProof else .continue)
+
+/-- Whether a helper's entire value is the pinned compiler transformation of the built-in
+structural/well-founded predefinition stored for its safe base: syntactically (the exact
+observation), and up to proofs (`eraseProofs` of both sides agree). The stored predefinition is
+the one Lean's `abstractNestedProofs` rewrote, each non-trivial nested proof replaced by an
+auxiliary theorem applied to its context, while `addAndCompilePartialRec` builds the helper from
+the predefinition before that step, so a helper whose predefinition has such a proof differs from
+the reconstruction exactly in those proofs. `Meta.isDefEq` is not used: where the values differ
+under a recursive call, its lazy delta reduction unfolds the self-referential helper on both sides
+before comparing arguments, and each unfolding reproduces the same comparison one call deeper. A
+failure to compare leaves the observation `false`; a `checkerLimit?` reached is rethrown. -/
 private def unsafeRecValueEvidence (env : Environment) (name : Name)
-    (info : ConstantInfo) : Option (RecursionOrigin × Bool × Bool) := do
-  let baseName ← Lean.Compiler.isUnsafeRecName? name
-  let (origin, expected) ← unsafeRecExpected? env baseName
-  let .defnInfo helper := info | none
+    (info : ConstantInfo) : CommandElabM (Option (RecursionOrigin × Bool × Bool)) := do
+  let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
+  let some (origin, expected) := unsafeRecExpected? env baseName | return none
+  let .defnInfo helper := info | return none
   let exact := helper.value == expected
-  return (origin, exact, exact)
+  if exact then return some (origin, true, true)
+  liftTermElabM <| withoutModifyingEnv do
+    try
+      return some (origin, false, (← eraseProofs helper.value) == (← eraseProofs expected))
+    catch ex =>
+      if (← checkerLimit? ex).isSome then throw ex
+      return some (origin, false, false)
 
 /-- The Boolean expression `e` of a type `e = true`. -/
 private def assertedBool? (type : Expr) : Option Expr := do
@@ -387,8 +407,8 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     return toString (← Meta.ppExpr info.type)
   let ranges? ← findDeclarationRangesCore? name
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
-  let unsafeRecValueEvidence? := if stage == .replayCandidate then
-      unsafeRecValueEvidence env name info else none
+  let unsafeRecValueEvidence? ← if stage == .replayCandidate then
+      unsafeRecValueEvidence env name info else pure none
   let unsafeRecEquationEvidence? ← if stage == .replayCandidate then
       unsafeRecEquationEvidence env name else pure none
   let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
@@ -435,7 +455,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     valueConstants := RegulaPolicy.canonicalNames valueConstants
     unsafeRecValueOrigin := unsafeRecValueEvidence?.map fun (origin, _, _) => origin
     unsafeRecValueExact := unsafeRecValueEvidence?.map fun (_, exact, _) => exact
-    unsafeRecValueDefeq := unsafeRecValueEvidence?.map fun (_, _, value) => value
+    unsafeRecValueUpToProofs := unsafeRecValueEvidence?.map fun (_, _, erased) => erased
     unsafeRecEquationExact := unsafeRecEquationEvidence?.map fun (exact, _, _) => exact
     unsafeRecEquationDefeq := unsafeRecEquationEvidence?.map fun (_, value, _) => value
     unsafeRecEquationAxioms := unsafeRecEquationEvidence?.map fun (_, _, values) =>

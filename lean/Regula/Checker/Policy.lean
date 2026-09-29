@@ -109,6 +109,16 @@ def classifyMember (decl : Declaration) (scope : PolicyScope)
     (member : decl ∈ scope.inventory.declarations) : String :=
   classifyWith decl (labelOfMember decl scope member).spelling
 
+/-- Finding detail for a member: `classifyMember`'s text, or, when the finding names the member's
+partial parent (`subject`), that parent's text followed by the member's, the helper Lean runs in
+the parent's place. -/
+def subjectDetail (decl : Declaration) (scope : PolicyScope)
+    (member : decl ∈ scope.inventory.declarations) : String :=
+  let named := subject decl scope member
+  if named.name == decl.name then classifyMember decl scope member
+  else s!"{classify named scope} is a `partial` definition; Lean runs its generated helper \
+    {classifyMember decl scope member}"
+
 theorem classifyMember_eq (decl : Declaration) (scope : PolicyScope)
     (member : decl ∈ scope.inventory.declarations) :
     classifyMember decl scope member = classify decl scope := by

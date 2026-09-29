@@ -148,7 +148,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecValueOrigin", "unsafeRecValueExact",
-                  "unsafeRecValueDefeq", "unsafeRecEquationExact", "unsafeRecEquationDefeq",
+                  "unsafeRecValueUpToProofs", "unsafeRecEquationExact", "unsafeRecEquationDefeq",
                       "unsafeRecEquationAxioms", "nativeStatement", "nativeReplay", "ranges",
                           "axioms", "executableContract"]
   return {
@@ -177,7 +177,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     valueConstants := ← j.getObjValAs? _ "valueConstants"
     unsafeRecValueOrigin := ← j.getObjValAs? _ "unsafeRecValueOrigin"
     unsafeRecValueExact := ← j.getObjValAs? _ "unsafeRecValueExact"
-    unsafeRecValueDefeq := ← j.getObjValAs? _ "unsafeRecValueDefeq"
+    unsafeRecValueUpToProofs := ← j.getObjValAs? _ "unsafeRecValueUpToProofs"
     unsafeRecEquationExact := ← j.getObjValAs? _ "unsafeRecEquationExact"
     unsafeRecEquationDefeq := ← j.getObjValAs? _ "unsafeRecEquationDefeq"
     unsafeRecEquationAxioms := ← j.getObjValAs? _ "unsafeRecEquationAxioms"

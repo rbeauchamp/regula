@@ -87,12 +87,13 @@ instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
   }⟩
 
 /-- One elaborated command that added constants, with its evaluators, binders and whether it
-declares an axiom (`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
+declares an axiom, and the source-local overrides its environment holds
+(`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
 abbrev Command := RegulaPolicy.Frontend.Command
 deriving instance ToJson for RegulaPolicy.Frontend.Command
 instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
   exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations",
-      "evaluators", "bindings", "declaresAxiom"]
+      "evaluators", "bindings", "declaresAxiom", "sourceLocalOverrides"]
   return {
     commandElaborator := ← j.getObjValAs? _ "commandElaborator"
     commandKind := ← j.getObjValAs? _ "commandKind"
@@ -102,6 +103,7 @@ instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
     evaluators := ← j.getObjValAs? _ "evaluators"
     bindings := ← j.getObjValAs? _ "bindings"
     declaresAxiom := ← j.getObjValAs? _ "declaresAxiom"
+    sourceLocalOverrides := ← j.getObjValAs? _ "sourceLocalOverrides"
   }⟩
 
 /-- The fresh-elaboration transcript of one module (`RegulaPolicy.Frontend.Transcript`),
@@ -233,9 +235,13 @@ scaffolding, a syntax macro registered in the command's own environment
 evaluator records and are audited in turn), or an elaborator registered for
 that exact syntax kind in the module's post-import environment, i.e. by the
 pinned toolchain or an explicitly imported library rather than by the audited
-module itself. -/
+module itself. An attribute application is recorded as a command node whose
+elaborator is the attribute implementation's `ref` (`Term.applyAttributesCore`);
+it is pinned when `baselineAttribute` holds of that reference
+(`baselineAttributeRefs`). -/
 private def pinnedElaborator (baselineEnv commandEnv : Environment)
-    (role : EvaluatorRole) (elaborator : Name) (kind : Name) (specializeSame := false) : Bool :=
+    (role : EvaluatorRole) (elaborator : Name) (kind : Name) (specializeSame := false)
+    (baselineAttribute : Name → Bool := fun _ => false) : Bool :=
   if elaborator.isAnonymous then true
   else if role == .command && elaborator == `Lean.Compiler.specializeAttr &&
       #[`Lean.Parser.Attr.specialize, `specialize].contains kind then
@@ -243,6 +249,7 @@ private def pinnedElaborator (baselineEnv commandEnv : Environment)
       (getAttributeImpl env `specialize).toOption.any (·.ref == elaborator)
     specializeSame && registered baselineEnv && registered commandEnv &&
       !(commandEnv.contains elaborator && (commandEnv.getModuleIdxFor? elaborator).isNone)
+  else if role == .command && baselineAttribute elaborator then true
   else if (macroAttribute.getEntries commandEnv kind).any (·.declName == elaborator) then true
   else if role == .tactic then
     (Tactic.tacticElabAttribute.getEntries baselineEnv kind).any (·.declName == elaborator)
@@ -263,24 +270,40 @@ private def evaluatorInfo? : Info → Option (EvaluatorRole × ElabInfo)
   | .ofChoiceInfo i => some (.term, i.toElabInfo)
   | _ => none
 
+/-- The evaluator records of an information tree. A node is also pinned when an enclosing node
+of the same role names the same elaborator and is pinned (`dispatched`): Lean's tactic framework
+runs an elaborator with that name as the context's elaborator (`Tactic.Context.elaborator`, set
+where `evalTactic` dispatches it for its own syntax kind), and every tactic information node the
+elaborator records while it runs, such as one for the separators and sequence nodes of a tactic
+block or the arguments `intro` introduces, carries that name with the node's own syntax
+(`Tactic.mkTacticInfo`). -/
 private def evaluatorRecords (baselineEnv commandEnv : Environment)
-    (fileMap : FileMap) (tree : InfoTree) (specializeSame : Bool) : Array Evaluator :=
+    (fileMap : FileMap) (tree : InfoTree) (specializeSame : Bool)
+    (baselineAttribute : Name → Bool) (dispatched : Array (EvaluatorRole × Name) := #[]) :
+    Array Evaluator :=
   match tree with
-  | .context _ child => evaluatorRecords baselineEnv commandEnv fileMap child specializeSame
+  | .context _ child =>
+      evaluatorRecords baselineEnv commandEnv fileMap child specializeSame baselineAttribute
+        dispatched
   | .node info children =>
-      let own := match evaluatorInfo? info with
-        | some (role, i) => #[{
-            role
-            elaborator := i.elaborator
-            kind := i.stx.getKind
-            range := syntaxRange fileMap i.stx
-            pinned := pinnedElaborator baselineEnv commandEnv role
-              i.elaborator i.stx.getKind specializeSame
-          }]
-        | none => #[]
+      let (own, dispatched) : Array Evaluator × Array (EvaluatorRole × Name) :=
+        match evaluatorInfo? info with
+        | some (role, i) =>
+            let inherited := dispatched.contains (role, i.elaborator)
+            let pinned := inherited || pinnedElaborator baselineEnv commandEnv role
+              i.elaborator i.stx.getKind specializeSame baselineAttribute
+            (#[{
+              role
+              elaborator := i.elaborator
+              kind := i.stx.getKind
+              range := syntaxRange fileMap i.stx
+              pinned
+            }], if pinned && !inherited then dispatched.push (role, i.elaborator) else dispatched)
+        | none => (#[], dispatched)
       (elems children).attach.foldl
         (fun acc ⟨child, _⟩ =>
-          acc ++ evaluatorRecords baselineEnv commandEnv fileMap child specializeSame) own
+          acc ++ evaluatorRecords baselineEnv commandEnv fileMap child specializeSame
+            baselineAttribute dispatched) own
   | .hole _ => #[]
 termination_by tree
 decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
@@ -381,6 +404,51 @@ private def constantRecord (env : Environment) (name : Name) : AddedDeclaration 
     «type» := toString (repr info.type)
     nativeStatement := Regula.Collect.nativeStatement? name info.type }
 
+/-- Whether the attribute `name` of `commandEnv` is the implementation object the module's
+post-import `baselineEnv` registers under that name. -/
+private unsafe def baselineAttribute (baselineEnv commandEnv : Environment) (name : Name) :
+    Bool :=
+  match getAttributeImpl baselineEnv name, getAttributeImpl commandEnv name with
+  | .ok baseline, .ok current => ptrEq baseline current
+  | _, _ => false
+
+/-- The references (`AttributeImpl.ref`) that only attributes `commandEnv` registers exactly
+as `baselineEnv` does carry: an application recorded with such a reference ran an attribute of the
+pinned toolchain or an imported library. A reference also carried by an attribute the module
+added or replaced is excluded, since the recorded name then does not determine which
+implementation ran. -/
+private unsafe def baselineAttributeRefs (baselineEnv commandEnv : Environment) : NameSet :=
+  let (pinned, spoiled) := (getAttributeNames commandEnv).foldl
+    (fun ((pinned, spoiled) : NameSet × NameSet) name =>
+      match getAttributeImpl commandEnv name with
+      | .ok current =>
+          if baselineAttribute baselineEnv commandEnv name then (pinned.insert current.ref, spoiled)
+          else (pinned, spoiled.insert current.ref)
+      | .error _ => (pinned, spoiled))
+    ({}, {})
+  spoiled.foldl (fun pinned ref => pinned.erase ref) pinned
+
+/-- `Command.sourceLocalOverrides`: the declarations of the macros and term, tactic, command and
+`do`-element elaborators the audited module declared and registered (`KeyedDeclsAttribute` entries
+whose declaration belongs to the current module) for a syntax kind that is not one of its own
+declarations, then the attributes of `commandEnv` that are not `baselineEnv`'s objects. A
+notation or syntax the module declares together with its own macro is not an override:
+Lean-generated syntax cannot have its kind. -/
+private unsafe def sourceLocalOverrides (baselineEnv commandEnv : Environment) : Array Name :=
+  let declaredHere := fun (name : Name) =>
+    commandEnv.contains name && (commandEnv.getModuleIdxFor? name).isNone
+  let overriding := fun (entries : List KeyedDeclsAttribute.OLeanEntry) =>
+    entries.filterMap fun entry =>
+      if declaredHere entry.declName && !declaredHere entry.key then some entry.declName else none
+  let elaborators := overriding (macroAttribute.ext.getState commandEnv).newEntries ++
+    overriding (Term.termElabAttribute.ext.getState commandEnv).newEntries ++
+    overriding (Tactic.tacticElabAttribute.ext.getState commandEnv).newEntries ++
+    overriding (Command.commandElabAttribute.ext.getState commandEnv).newEntries ++
+    overriding (Do.doElemElabAttribute.ext.getState commandEnv).newEntries
+  let attributes := (getAttributeNames commandEnv).filter
+    (!baselineAttribute baselineEnv commandEnv ·)
+  RegulaPolicy.canonicalNames (elaborators ++ attributes).toArray
+
 /-- In ordinary command snapshots, only the local map can gain declarations.
 When pointer identity confirms the same immutable imported map allocation, scan
 only local declarations; otherwise preserve the complete environment difference. -/
@@ -462,16 +530,19 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
                 | .ok expected, .ok baseline, .ok current =>
                     ptrEq expected baseline && ptrEq expected current
                 | _, _, _ => false
+              let baseline := baseline?.getD commandCtx.env
+              let attributeRefs := baselineAttributeRefs baseline commandCtx.env
               commands := commands.push {
                 commandElaborator := info.elaborator
                 commandKind := info.stx.getKind
                 commandRange := syntaxRange commandCtx.fileMap info.stx
                 added := added
                 addedDeclarations := added.map (constantRecord after)
-                evaluators := evaluatorRecords (baseline?.getD commandCtx.env)
-                  commandCtx.env commandCtx.fileMap tree specializeSame
+                evaluators := evaluatorRecords baseline commandCtx.env commandCtx.fileMap tree
+                  specializeSame attributeRefs.contains
                 bindings := declarationBindings commandCtx.fileMap tree
                 declaresAxiom := declaresAxiom tree
+                sourceLocalOverrides := sourceLocalOverrides baseline commandCtx.env
               }
           before? := some after
         else if before?.isNone then

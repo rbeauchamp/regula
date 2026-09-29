@@ -1,12 +1,13 @@
 /-
-Regression control (issue #126): well-founded recursion that passes a tactic
-proof to its recursive call. Lean elaborates it without error; the
+Positive control (issues #126 and #125): well-founded recursion that passes a
+tactic proof to its recursive call. Lean elaborates it without error; the
 declaration-report worker must complete its report instead of failing with
 Lean's maximum recursion depth while comparing the generated helper with its
 predefinition. Lean abstracts the nested proof into an auxiliary theorem in
-the stored predefinition but keeps it inline in the helper, so the helper is
-not the exact transformation and remains an escape hatch until issue #125
-admits that shape; this control fixes the completed report, not that verdict.
+the stored predefinition but keeps it inline in the helper, so the helper
+equals the compiler transformation only up to proofs, which the checker's
+comparison admits; the proof's own `intro`, `·` and sequence tactic nodes,
+recorded under their dispatching built-in elaborators, are pinned.
 -/
 
 def allSmall (bytes : ByteArray) (start : Nat)

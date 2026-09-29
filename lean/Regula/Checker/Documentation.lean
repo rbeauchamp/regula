@@ -499,8 +499,10 @@ private def assessPositive (task : Task) (unitName : Name)
       if decl.module != unitName then continue
       if let some id := Policy.ruleForMember decl (some claim) scope h then
         let reason := (Regula.descriptor id).applicability
-        problems := problems.push s!"{reason}: {decl.name} axioms={repr decl.axioms.toList}"
-        policyProblems := policyProblems.push (id, decl)
+        -- The finding names the declaration the author wrote (`Policy.subject_contract`).
+        let named := Policy.subject decl scope h
+        problems := problems.push s!"{reason}: {named.name} axioms={repr decl.axioms.toList}"
+        policyProblems := policyProblems.push (id, named)
       if Policy.labelOfMember decl scope h == .compilerTrusting then
         compilerCount := compilerCount + 1
     return (problems, policyProblems, compilerCount)

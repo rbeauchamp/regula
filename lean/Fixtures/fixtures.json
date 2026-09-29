@@ -34,11 +34,16 @@
   "label": "kernel-only"
  },
  "Fixtures.Positive.ProofCarryingWfRecursion": {
-  "expect": "fail",
-  "reason": "escape-hatch",
-  "output": [
-   "allSmall._unsafe_rec"
-  ]
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Positive.TerminatingHelpers": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Positive.DerivedRecursion": {
+  "expect": "pass",
+  "claim": "standard-logical"
  },
  "Fixtures.Positive.AliasedContract": {
   "expect": "pass",
@@ -165,6 +170,24 @@
   "claim": "choice-free"
  },
  "Fixtures.Mutations.PartialDef": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "fixtures_spin (opaque) type=Nat → Nat axioms=[] -> kernel-only is a `partial` definition"
+  ]
+ },
+ "Fixtures.Mutations.DerivedPartialBEq": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "instBEqFixturesTree.beq (opaque)"
+  ]
+ },
+ "Fixtures.Mutations.DerivedWithSourceLocalMacro": {
+  "expect": "fail",
+  "reason": "escape-hatch"
+ },
+ "Fixtures.Mutations.SimpHandlerReplacement": {
   "expect": "fail",
   "reason": "escape-hatch"
  },

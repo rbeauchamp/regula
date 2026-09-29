@@ -614,10 +614,12 @@ structure Declaration where
   /-- For such a helper: its value is syntactically the compiler transformation reconstructed
   from that predefinition. -/
   unsafeRecValueExact : Option Bool
-  /-- For such a helper: its value is definitionally equal to that reconstruction, established by
-  syntactic equality, which implies it, so it equals `unsafeRecValueExact`; `false` does not
-  mean the two differ definitionally. -/
-  unsafeRecValueDefeq : Option Bool
+  /-- For such a helper: its value equals that reconstruction once every proof subterm of each,
+  in a binder type too, is replaced by one fixed proof, the computational content Lean's compiler
+  compiles after erasing proofs. It holds when `unsafeRecValueExact` does, and also where Lean
+  abstracted a nested proof of the stored predefinition into an auxiliary theorem that the helper
+  keeps inline. `false` also records a comparison that could not complete. -/
+  unsafeRecValueUpToProofs : Option Bool
   /-- For such a helper: the base's unfolding equation has exactly the expected statement. -/
   unsafeRecEquationExact : Option Bool
   /-- For such a helper: the base's unfolding equation is definitionally equal to the expected
@@ -1013,6 +1015,12 @@ structure Command where
   macro expansion there contains an `axiom` declaration node, quoted syntax included. It is read
   from syntax, so it holds even when elaborating that declaration failed. -/
   declaresAxiom : Bool
+  /-- What the audited module itself had registered, in the command's environment, that
+  elaboration could run without an information-tree record: each macro or term, tactic, command
+  or `do`-element elaborator it registered for a syntax kind it does not declare, and each
+  attribute it added or whose implementation it replaced relative to the module's post-import
+  environment. -/
+  sourceLocalOverrides : Array Lean.Name := #[]
   deriving Repr, DecidableEq
 
 /-- The record of one fresh frontend elaboration of a module's exact source. -/

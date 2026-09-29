@@ -763,13 +763,15 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         for h : decl in scope.inventory.declarations do
           if let some id := Policy.ruleForMember decl (some surface.claim) scope h then
             let reason := (Regula.descriptor id).applicability
-            let classification := Policy.classifyMember decl scope h
+            -- The finding names the declaration the author wrote (`Policy.subject_contract`).
+            let named := Policy.subject decl scope h
+            let classification := Policy.subjectDetail decl scope h
             failures :=
-                failures.push s!"{reason}: {decl.name} [claim: {surface.claim}] {classification}"
-            let snapshot := snapshotFor decl.module
-            let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation decl snapshot
+                failures.push s!"{reason}: {named.name} [claim: {surface.claim}] {classification}"
+            let snapshot := snapshotFor named.module
+            let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation named snapshot
             let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
-                (← IO.ofExcept (RuleDiagnostics.declarationName decl))
+                (← IO.ofExcept (RuleDiagnostics.declarationName named))
               classification location
               (if fresh then .freshProject else .incrementalProject) (some surface.claim.toString)
             findings := findings.push finding
@@ -1113,18 +1115,21 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
             -- rule per declaration; its reason is `reasonFor`'s by definition.
             for h : decl in scope.inventory.declarations do
               let rule := Policy.ruleForMember decl claim scope h
-              let classification := Policy.classifyMember decl scope h
-              let verdict := match rule with
-                | none => "OK"
-                | some id => s!"VIOLATION[{(Regula.descriptor id).applicability}]"
+              -- A violation line names the finding's subject, as its finding does.
+              let (verdict, classification) := match rule with
+                | none => ("OK", Policy.classifyMember decl scope h)
+                | some id => (s!"VIOLATION[{(Regula.descriptor id).applicability}]",
+                    Policy.subjectDetail decl scope h)
               IO.println s!"[{verdict}] {classification}"
               if let some id := rule then
                 reasons := reasons.push (Regula.descriptor id).applicability
-                let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation decl
+                -- The finding names the declaration the author wrote (`Policy.subject_contract`).
+                let named := Policy.subject decl scope h
+                let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation named
                   (some ⟨path.toString, source⟩)
                 let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
-                    (← IO.ofExcept (RuleDiagnostics.declarationName decl))
-                  classification location .freshFile (claim.map Profile.toString)
+                    (← IO.ofExcept (RuleDiagnostics.declarationName named))
+                  (Policy.subjectDetail decl scope h) location .freshFile (claim.map Profile.toString)
                 findings := findings.push finding
             let executionInventory ← IO.ofExcept <| Policy.admitExecution inspected.report.execution
             let executionViolations := Policy.executionFailures executionInventory execution

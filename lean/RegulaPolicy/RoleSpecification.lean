@@ -69,14 +69,22 @@ instance (ts : Array Transcript) (a : Declaration) (t : NativeTactic) (pfx : Nam
     Decidable (NativeIntroducingCommand ts a t pfx c) := by
         unfold NativeIntroducingCommand; infer_instance
 
-/-- Literal declaration origin, including the exact built-in dotted-name expansion. -/
+/-- Lean's command elaborator for a `mutual … end` block. -/
+def mutualElaborator := `Lean.Elab.Command.elabMutual
+/-- The syntax kind of a `mutual … end` block. -/
+def mutualKind := `Lean.Parser.Command.mutual
+
+/-- Literal declaration origin, including the exact built-in dotted-name expansion, or a literal
+`mutual … end` block, which Lean's built-in `elabMutual` elaborates as one command. -/
 def LiteralDeclaration (c : Command) (r : SyntaxRange) : Prop :=
-  c.commandKind = declarationKind ∧ c.commandRange = some r ∧
-  (c.commandElaborator = declarationElaborator ∨
-    (c.commandElaborator = namespacedDeclarationElaborator ∧
-      (c.evaluators.filter (fun e => e.role == .command &&
-        e.elaborator == declarationElaborator && e.kind == declarationKind &&
-        e.range == some r)).size = 1))
+  c.commandRange = some r ∧
+  ((c.commandKind = declarationKind ∧
+    (c.commandElaborator = declarationElaborator ∨
+      (c.commandElaborator = namespacedDeclarationElaborator ∧
+        (c.evaluators.filter (fun e => e.role == .command &&
+          e.elaborator == declarationElaborator && e.kind == declarationKind &&
+          e.range == some r)).size = 1))) ∨
+   (c.commandKind = mutualKind ∧ c.commandElaborator = mutualElaborator))
 instance (c : Command) (r : SyntaxRange) : Decidable (LiteralDeclaration c r) := by
   unfold LiteralDeclaration; infer_instance
 
@@ -87,13 +95,20 @@ def PinnedEvaluator (e : Evaluator) : Prop :=
 instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by
     unfold PinnedEvaluator; infer_instance
 
-/-- Nested binders require exact selection attribution as well as source containment. -/
+/-- The base is the literal declaration, a nested one bound at its exact selection range, or,
+contained in the literal command, one that elaboration generated without a binder record (a
+derived instance's function). That last origin also requires that the command's environment holds
+no source-local override (`Command.sourceLocalOverrides`): Lean elaborates such generated
+definitions with information trees disabled, where every elaborator that can run is then one the
+pinned toolchain or an imported library registered. Every recorded evaluator is pinned in each
+case. -/
 def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop :=
   (LiteralDeclaration c r ∨
     ∃ outer ∈ c.commandRange, ∃ ranges ∈ base.ranges,
       LiteralDeclaration c outer ∧ PositionLE outer.start r.start ∧ PositionLE r.end outer.end ∧
-      ∃ b ∈ c.bindings, b.name = base.name ∧
-        b.range = some ⟨ranges.selectionRange.start, ranges.selectionRange.end⟩) ∧
+      ((∃ b ∈ c.bindings, b.name = base.name ∧
+        b.range = some ⟨ranges.selectionRange.start, ranges.selectionRange.end⟩) ∨
+       (c.bindings.all (·.name != base.name) ∧ c.sourceLocalOverrides = #[]))) ∧
   ∀ e ∈ c.evaluators, PinnedEvaluator e
 instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
     (RecursiveCommand c b r) := by
@@ -146,30 +161,34 @@ def NativeTeachingOK (ds : Array Declaration) (ts : Array Transcript) (a : Decla
 instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
 
-/-- Range-less generated partial helper with all value and equation checks retained. -/
+/-- Range-less generated partial helper whose whole value is the compiler transformation of its
+base's stored predefinition up to proofs (`Declaration.unsafeRecValueUpToProofs`), with the
+equation checks retained. -/
 def RecursiveHelperShape (h : Declaration) : Prop :=
   h.kind = .definition ∧ h.internal = true ∧ h.ranges = none ∧ h.isPartial = true ∧
   h.isUnsafe = false ∧ h.hints = some .opaque ∧ h.implementedBy = none ∧ h.extern = false ∧
-  h.unsafeRecValueOrigin.isSome = true ∧ h.unsafeRecValueExact = some true ∧
-  h.unsafeRecValueDefeq = some true ∧ h.unsafeRecEquationExact = some true ∧
-  h.unsafeRecEquationDefeq = some true
+  h.unsafeRecValueOrigin.isSome = true ∧ h.unsafeRecValueUpToProofs = some true ∧
+  h.unsafeRecEquationExact = some true ∧ h.unsafeRecEquationDefeq = some true
 instance (h : Declaration) : Decidable (RecursiveHelperShape h) := by
     unfold RecursiveHelperShape; infer_instance
 
-/-- Safe recursive base, exact type/universes, and bounded helper/equation dependencies. -/
+/-- Safe recursive base, exact type/universes, and bounded helper/equation dependencies. The base
+is regular-hinted, or abbreviation-hinted for a recursive `abbrev`. -/
 def RecursiveBaseShape (h b : Declaration) : Prop :=
   b.kind = .definition ∧ h.module = b.module ∧ b.isPartial = false ∧ b.isUnsafe = false ∧
-  b.hints = some .regular ∧ b.recursive = true ∧ b.implementedBy = none ∧ b.extern = false ∧
+  (b.hints = some .regular ∨ b.hints = some .abbrev) ∧ b.recursive = true ∧
+  b.implementedBy = none ∧ b.extern = false ∧
   h.type = b.type ∧ h.levelParams = b.levelParams ∧ (∀ n ∈ h.axioms, n ∈ b.axioms) ∧
   ∃ eqAxioms ∈ h.unsafeRecEquationAxioms,
     ∀ n ∈ eqAxioms, Permitted .standardLogical n ∨ n ∈ b.axioms
 instance (h b : Declaration) : Decidable (RecursiveBaseShape h b) := by
     unfold RecursiveBaseShape; infer_instance
 
-/-- Mutual-group order is preserved, with exact helper transformation and self-reference. -/
+/-- Mutual-group order is preserved, with exact helper transformation, and the helper calls a
+helper of its group: itself, or in a mutual block possibly only another member's helper. -/
 def RecursiveGroup (h b : Declaration) : Prop :=
   b.all ≠ #[] ∧ h.all = b.all.map (fun n => Name.str n "_unsafe_rec") ∧
-  h.name ∈ b.all.map (fun n => Name.str n "_unsafe_rec") ∧ h.name ∈ h.valueConstants
+  h.name ∈ b.all.map (fun n => Name.str n "_unsafe_rec") ∧ ∃ n ∈ h.all, n ∈ h.valueConstants
 instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by
     unfold RecursiveGroup; infer_instance
 
