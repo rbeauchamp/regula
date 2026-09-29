@@ -113,11 +113,15 @@
 
 - Change normative prose, Lean fixtures, and Lean-specific checkers together when they encode
   the same claim. Prefer Lean-native inspection and include positive controls plus adversarial
-  mutations.
+  mutations in the change itself, before review. After moving a path or changing a command,
+  search the whole repository (docstrings, CI YAML, guides, Lean-printed messages) for the old
+  form before review.
 - Reuse established Lean and Mathlib definitions when they fit. Avoid arbitrary style mandates
   and application governance in the universal standard.
-- Keep documentation, diagnostics, checker names, and checker output no stronger than the exact
-  Lean property established.
+- Keep documentation, docstrings, rule pages, diagnostics, checker names, and checker output no
+  stronger than the exact Lean property established. Before review, check each new sentence that
+  cites a theorem or check against its actual statement, hypotheses, and caller; name what it
+  leaves uncovered.
 - Respect the assurance boundary stated in standard module 7: custom or ambiguous evaluator paths fail
   the recursive-helper exception, a native-proof axiom rests on its natively replayed statement and
   command provenance instead, and a modified Lean executable, compromised process, and arbitrary
