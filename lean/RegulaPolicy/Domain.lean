@@ -614,14 +614,15 @@ structure Declaration where
   /-- For such a helper: its value is syntactically the compiler transformation reconstructed
   from that predefinition. -/
   unsafeRecValueExact : Option Bool
-  /-- For such a helper: its value is definitionally equal to that reconstruction, established
-  without reduction by congruence and proof irrelevance; `false` when that does not establish
-  it. -/
+  /-- For such a helper: its value is definitionally equal to that reconstruction, established by
+  syntactic equality, which implies it, so it equals `unsafeRecValueExact`; `false` does not
+  mean the two differ definitionally. -/
   unsafeRecValueDefeq : Option Bool
   /-- For such a helper: the base's unfolding equation has exactly the expected statement. -/
   unsafeRecEquationExact : Option Bool
   /-- For such a helper: the base's unfolding equation is definitionally equal to the expected
-  statement, established in the same way. -/
+  statement, established by syntactic equality in the same way, so it equals
+  `unsafeRecEquationExact`. -/
   unsafeRecEquationDefeq : Option Bool
   /-- For such a helper: the axioms of the base's unfolding equation, sorted and without
   duplicates. -/

@@ -533,12 +533,14 @@ assembly belong to the project routes.
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
 the type's constants, closed under unfolding, and only modules that import `Regula.Contract`
-contribute constants. It establishes a recursion helper's two definitional observations
-structurally, by congruence and proof irrelevance, never by `Meta.isDefEq`: where the two values
-differ under a recursive call, its lazy unfolding of the self-referential helper does not
+contribute constants. It establishes a recursion helper's two definitional observations by
+syntactic equality, which implies definitional equality, never by `Meta.isDefEq`: where the two
+values differ under a recursive call, its lazy unfolding of the self-referential helper does not
 terminate. The report's other elaborator observations (`Meta.isProp`, the pretty-printed type,
-and `Probe`'s executable-root classification) run under Lean's default limits, and the report
-worker's error names the module, the declaration and the observation of any that fails.
+and `Probe`'s executable-root classification) run under Lean's default limits. When one fails,
+the report worker's error names the module, the declaration (for an execution walk, its root) and
+the failing stage: `declaration record` (any observation of `Collect.declaration`),
+`executable-root classification`, `proposition test` or `execution walk`.
 
 The adapter runs the same pure policy and total failure-to-ID mapping as the project checker
 (`Regula.Checker.Policy.editor_decision_rule`); a potential generated-role exception is deferred

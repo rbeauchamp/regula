@@ -99,65 +99,11 @@ private def unsafeRecExpected? (env : Environment) (baseName : Name) :
     | _ => none
   return (origin, expected)
 
-/-- Whether the head of `e` alone makes it a proof: an application of a theorem. The kernel admits
-a theorem only when its type is a proposition (`KernelException.thmTypeIsNotProp`), and applying a
-proof of a Π-proposition to arguments yields a proof. -/
-private def theoremApplication (env : Environment) (e : Expr) : Bool :=
-  match e.getAppFn with
-  | .const name _ => (env.find? name).any (·.isTheorem)
-  | _ => false
-
-/-- A definitional equality established structurally, without reduction: `t` and `s` are equal up
-to metadata, to `let` against `have`, and to proof irrelevance where a proof replaces another. The
-predefinition Lean stores for a recursive base has each nested proof abstracted into an
-auxiliary theorem (`abstractNestedProofs`), while the compiler helper keeps the proof inline, so
-this is the difference the two values show.
-
-`typed` means that the shared context fixes the position's type identically on both sides: an
-argument of an identical constant or variable head after congruent arguments, a `let` value, or
-the body of a binder at such a position. There a theorem application on either side is a proof of
-that proposition, so when both terms are well-typed the other side is a proof of the same
-proposition and the two are definitionally equal by proof irrelevance. Everywhere else it compares
-by congruence. It recurses structurally on `t`, so no Lean resource limit applies, and it descends
-only where the terms are not already equal, visiting a shared subterm once per occurrence. A
-`false` result only means that this comparison did not establish the equality. -/
-private def congruentUpToProofs (env : Environment) : (typed : Bool) → (t s : Expr) → Bool
-  | typed, t, s =>
-    let s := s.consumeMData
-    if t == s then true
-    else if typed && (theoremApplication env t || theoremApplication env s) then true
-    else match t with
-      | .mdata _ t => congruentUpToProofs env typed t s
-      | .app f a => match s with
-        | .app g b =>
-          congruentUpToProofs env false f g &&
-            congruentUpToProofs env (f.getAppFn.isConst || f.getAppFn.isFVar ||
-              f.getAppFn.isBVar) a b
-        | _ => false
-      | .lam _ domain body _ => match s with
-        | .lam _ domain' body' _ =>
-          congruentUpToProofs env false domain domain' && congruentUpToProofs env typed body body'
-        | _ => false
-      | .forallE _ domain body _ => match s with
-        | .forallE _ domain' body' _ =>
-          congruentUpToProofs env false domain domain' && congruentUpToProofs env false body body'
-        | _ => false
-      | .letE _ type value body _ => match s with
-        | .letE _ type' value' body' _ =>
-          congruentUpToProofs env false type type' && congruentUpToProofs env true value value' &&
-            congruentUpToProofs env typed body body'
-        | _ => false
-      | .proj structName index struct => match s with
-        | .proj structName' index' struct' =>
-          structName == structName' && index == index' &&
-            congruentUpToProofs env false struct struct'
-        | _ => false
-      | _ => false
-
 /-- Independently require a kernel-checked unfolding theorem with exactly the
-one-step equation reconstructed from the same built-in predefinition. Its definitional comparison
-is `congruentUpToProofs`, which does not reduce. A failure to obtain or build the equation,
-including a Lean resource limit reached while doing so, leaves both observations `false`. -/
+one-step equation reconstructed from the same built-in predefinition. Its definitional
+observation is that syntactic equality, as in `unsafeRecValueEvidence`. A failure to obtain or
+build the equation, including a Lean resource limit reached while doing so, leaves both
+observations `false`. -/
 private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
     CommandElabM (Option (Bool × Bool × Array Name)) := do
   let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
@@ -173,22 +119,24 @@ private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
         let lhs := mkAppN (mkConst baseName (levelParams.map mkLevelParam)) args
         let equality ← Meta.mkEq lhs body
         Meta.letToHave (← Meta.mkForallFVars args equality)
-      let definitional := congruentUpToProofs (← getEnv) false equationInfo.type expectedType
+      let exact := equationInfo.type == expectedType
       let axioms ← collectAxioms equationName
-      return some (equationInfo.type == expectedType, definitional, axioms))
+      return some (exact, exact, axioms))
       fun _ => return some (false, false, #[])
 
 /-- Whether a helper's entire value is the pinned compiler transformation of
-the built-in structural/well-founded predefinition stored for its safe base: exactly, and
-definitionally by `congruentUpToProofs`. `Meta.isDefEq` is not used: where the values differ
-under a recursive call, its lazy delta reduction unfolds the self-referential helper on both sides
-before comparing arguments, and each unfolding reproduces the same comparison one call deeper. -/
+the built-in structural/well-founded predefinition stored for its safe base. Syntactic equality
+is both the exact and the definitional observation, since it implies definitional equality.
+`Meta.isDefEq` is not used: where the values differ under a recursive call, its lazy delta
+reduction unfolds the self-referential helper on both sides before comparing arguments, and each
+unfolding reproduces the same comparison one call deeper. -/
 private def unsafeRecValueEvidence (env : Environment) (name : Name)
     (info : ConstantInfo) : Option (RecursionOrigin × Bool × Bool) := do
   let baseName ← Lean.Compiler.isUnsafeRecName? name
   let (origin, expected) ← unsafeRecExpected? env baseName
   let .defnInfo helper := info | none
-  return (origin, helper.value == expected, congruentUpToProofs env false helper.value expected)
+  let exact := helper.value == expected
+  return (origin, exact, exact)
 
 /-- The Boolean expression `e` of a type `e = true`. -/
 private def assertedBool? (type : Expr) : Option Expr := do
