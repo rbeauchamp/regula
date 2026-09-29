@@ -3,11 +3,9 @@ Positive control (issues #126 and #125): well-founded recursion that passes a
 tactic proof to its recursive call. Lean elaborates it without error; the
 declaration-report worker must complete its report instead of failing with
 Lean's maximum recursion depth while comparing the generated helper with its
-predefinition. Lean abstracts the nested proof into an auxiliary theorem in
-the stored predefinition but keeps it inline in the helper, so the helper
-equals the compiler transformation only up to proofs, which the checker's
-comparison admits; the proof's own `intro`, `·` and sequence tactic nodes,
-recorded under their dispatching built-in elaborators, are pinned.
+predefinition. Exact match admits the helper: Lean's well-founded recursion
+compiler, rerun on the helper with every decreasing proof elided, regenerates
+the observed base up to compilation erasure, the passed proof included.
 -/
 
 def allSmall (bytes : ByteArray) (start : Nat)

@@ -23,9 +23,8 @@ def authorizedNativeAxioms (ds : Array Declaration) (ts : Array Transcript := #[
   (ds.filter (fun a => decide (NativeTeachingOK ds ts a))).map (·.name)
 
 /-- Execute the finite independent recursive-helper relation; no caller whitelist. -/
-def authorizedUnsafeRecHelpers (ds : Array Declaration) (ts : Array Transcript := #[]) :
-    Array Name :=
-  (ds.filter (fun h => decide (RecursiveHelperOK ds ts h))).map (·.name)
+def authorizedUnsafeRecHelpers (ds : Array Declaration) : Array Name :=
+  (ds.filter (fun h => decide (RecursiveHelperOK ds h))).map (·.name)
 
 /-- Authorization is equivalent to existence of the complete native relation at this name. -/
 theorem authorizedNativeAxioms_iff (ds : Array Declaration) (ts : Array Transcript) (n : Name) :
@@ -33,23 +32,29 @@ theorem authorizedNativeAxioms_iff (ds : Array Declaration) (ts : Array Transcri
   simp [authorizedNativeAxioms, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
 /-- Authorization is equivalent to existence of the complete helper relation at this name. -/
-theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration) (ts : Array Transcript) (n : Name) :
-    n ∈ authorizedUnsafeRecHelpers ds ts ↔ ∃ h ∈ ds, h.name = n ∧ RecursiveHelperOK ds ts h := by
+theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration) (n : Name) :
+    n ∈ authorizedUnsafeRecHelpers ds ↔ ∃ h ∈ ds, h.name = n ∧ RecursiveHelperOK ds h := by
   simp [authorizedUnsafeRecHelpers, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
-/-- Every name `authorizedUnsafeRecHelpers` admits is the helper of a safe recursive base: its
-Lean-linked base (`Declaration.unsafeRecBase`) is an inventory definition of the same module,
-neither `partial` nor `unsafe`, that Lean tagged recursive. The kernel admits a safe definition
-only with a value that uses no general recursion, so such a base is terminating by construction.
-This states the base; it does not relate the helper's own axioms or failures to the base's. -/
-theorem authorizedUnsafeRecHelpers_base (ds : Array Declaration) (ts : Array Transcript) (n : Name)
-    (hn : n ∈ authorizedUnsafeRecHelpers ds ts) :
-    ∃ h ∈ ds, h.name = n ∧ ∃ b ∈ ds, h.unsafeRecBase = some b.name ∧ b.kind = .definition ∧
-      b.module = h.module ∧ b.isPartial = false ∧ b.isUnsafe = false ∧ b.recursive = true := by
-  obtain ⟨h, hd, rfl, _, _, b, hb, hbase, shape, _⟩ :=
-    (authorizedUnsafeRecHelpers_iff ds ts n).mp hn
-  obtain ⟨hkind, hmodule, hpartial, hunsafe, _, hrec, _⟩ := shape
-  exact ⟨h, hd, rfl, b, hb, hbase, hkind, hmodule.symm, hpartial, hunsafe, hrec⟩
+/-- Every name `authorizedUnsafeRecHelpers` admits is a helper that Lean's own recursion compiler
+regenerates (`Declaration.unsafeRecRegenerated`), whose Lean-linked base
+(`Declaration.unsafeRecBase`) is an inventory definition of the same module and type, neither
+`partial` nor `unsafe`, with every axiom within Standard-Logical. The regeneration observation makes
+that base Lean's compilation of the helper's own recursion, so its kernel-checked value carries the
+decreasing proofs of that recursion; those proofs rest on no `sorryAx` or project axiom. This states
+the recorded observations; it does not prove the regeneration truthful or relate compiled code to
+kernel values. -/
+theorem authorizedUnsafeRecHelpers_base (ds : Array Declaration) (n : Name)
+    (hn : n ∈ authorizedUnsafeRecHelpers ds) :
+    ∃ h ∈ ds, h.name = n ∧ h.unsafeRecRegenerated.isSome = true ∧ ∃ b ∈ ds,
+      h.unsafeRecBase = some b.name ∧ b.kind = .definition ∧ b.module = h.module ∧
+      b.type = h.type ∧ b.isPartial = false ∧ b.isUnsafe = false ∧
+      ∀ a ∈ b.axioms, Permitted .standardLogical a := by
+  obtain ⟨h, hd, rfl, hshape, _, b, hb, hbase, shape, _⟩ :=
+    (authorizedUnsafeRecHelpers_iff ds n).mp hn
+  obtain ⟨hkind, hmodule, hpartial, hunsafe, _, _, htype, _, _, haxioms⟩ := shape
+  exact ⟨h, hd, rfl, hshape.2.2.2.2.2.2.2.2, b, hb, hbase, hkind, hmodule.symm, htype.symm,
+    hpartial, hunsafe, haxioms⟩
 
 /-- `p` is the declaration Lean compiles through the partial helper `h`: `h` is `partial` and its
 Lean-linked base (`Declaration.unsafeRecBase`, Lean's own `Compiler.isUnsafeRecName?`) is `p`, an
@@ -108,12 +113,12 @@ theorem partialParent?_eq_some_iff {ds : Array Declaration}
 /-- The helper of a partial parent is never an authorized recursion helper: the finding about
 it belongs to the declaration the author wrote (or derived). Its base is that opaque parent,
 while an authorized helper's base is a definition (`authorizedUnsafeRecHelpers_base`). -/
-theorem partialParent_not_authorized {ds : Array Declaration} (ts : Array Transcript)
+theorem partialParent_not_authorized {ds : Array Declaration}
     (unique : UniqueNames (ds.map (·.name))) {h p : Declaration} (hh : h ∈ ds) (hp : p ∈ ds)
-    (parent : PartialParent h p) : h.name ∉ authorizedUnsafeRecHelpers ds ts := by
+    (parent : PartialParent h p) : h.name ∉ authorizedUnsafeRecHelpers ds := by
   intro authorized
-  obtain ⟨h', hh', hname, b, hb, hbase, hkind, _⟩ :=
-    authorizedUnsafeRecHelpers_base ds ts h.name authorized
+  obtain ⟨h', hh', hname, _, b, hb, hbase, hkind, _⟩ :=
+    authorizedUnsafeRecHelpers_base ds h.name authorized
   cases eq_of_name_eq unique hh' hh hname
   have hbp : b.name = p.name := Option.some.inj (hbase.symm.trans parent.2.1)
   cases eq_of_name_eq unique hb hp hbp
@@ -173,12 +178,12 @@ structure Roles (inventory : Inventory) where
   /-- `native` is what `authorizedNativeAxioms` computes from this inventory. -/
   native_exact : native = authorizedNativeAxioms inventory.declarations inventory.transcripts
   /-- `helpers` is what `authorizedUnsafeRecHelpers` computes from this inventory. -/
-  helpers_exact : helpers = authorizedUnsafeRecHelpers inventory.declarations inventory.transcripts
+  helpers_exact : helpers = authorizedUnsafeRecHelpers inventory.declarations
 
 /-- Recompute both validators from the admitted data; no serialized proof is trusted. -/
 def authorize (i : Inventory) : Roles i :=
   ⟨authorizedNativeAxioms i.declarations i.transcripts,
-   authorizedUnsafeRecHelpers i.declarations i.transcripts, rfl, rfl⟩
+   authorizedUnsafeRecHelpers i.declarations, rfl, rfl⟩
 
 /-- Any role receipt for this exact inventory equals recomputation of both validators.
 The equations in Roles determine the arrays; no producer verdict is assumed. -/

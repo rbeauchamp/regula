@@ -309,8 +309,7 @@ theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope 
   rw [ruleForMember_eq, Ne, (ruleFor_contract decl claim scope).1,
     RegulaPolicy.policyFor_none_iff]
   rintro ⟨_, ok⟩
-  have notHelper := RegulaPolicy.partialParent_not_authorized scope.inventory.transcripts unique
-    member hp parent
+  have notHelper := RegulaPolicy.partialParent_not_authorized unique member hp parent
   rw [← scope.roles.helpers_exact] at notHelper
   rcases ok with ⟨_, native, _⟩ | ⟨_, _, _, safety, _⟩
   · rw [scope.roles.native_exact] at native

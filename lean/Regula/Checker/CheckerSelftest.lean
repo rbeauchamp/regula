@@ -396,8 +396,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
         -- only fixtures that can need a transcript pay for one. A divergence
         -- (post-load need with no worker transcript) fails closed below.
         wantsTranscript := moduleData.constants.any fun info =>
-          Policy.declarationNeedsTranscript info.isUnsafe info.isPartial
-            (Regula.Probe.kindOf info) info.name
+          Policy.declarationNeedsTranscript (Regula.Probe.kindOf info) info.name
       }
   -- Group by exact constant-name disjointness (the `Documentation.auditTasks`
   -- strategy): one environment load per collision group covers every fixture

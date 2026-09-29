@@ -608,27 +608,13 @@ structure Declaration where
   hints : Option Reducibility
   /-- The constants its value mentions, sorted and without duplicates; empty without a value. -/
   valueConstants : Array Lean.Name
-  /-- For an `_unsafe_rec` helper inspected as a replay candidate: which recursion information
-  holds its base's predefinition. -/
-  unsafeRecValueOrigin : Option RecursionOrigin
-  /-- For such a helper: its value is syntactically the compiler transformation reconstructed
-  from that predefinition. -/
-  unsafeRecValueExact : Option Bool
-  /-- For such a helper: its value equals that reconstruction once every proof subterm of each,
-  in a binder type too, is replaced by one fixed proof, the computational content Lean's compiler
-  compiles after erasing proofs. It holds when `unsafeRecValueExact` does, and also where Lean
-  abstracted a nested proof of the stored predefinition into an auxiliary theorem that the helper
-  keeps inline. `false` also records a comparison that could not complete. -/
-  unsafeRecValueUpToProofs : Option Bool
-  /-- For such a helper: the base's unfolding equation has exactly the expected statement. -/
-  unsafeRecEquationExact : Option Bool
-  /-- For such a helper: the base's unfolding equation is definitionally equal to the expected
-  statement, established by syntactic equality in the same way, so it equals
-  `unsafeRecEquationExact`. -/
-  unsafeRecEquationDefeq : Option Bool
-  /-- For such a helper: the axioms of the base's unfolding equation, sorted and without
-  duplicates. -/
-  unsafeRecEquationAxioms : Option (Array Lean.Name)
+  /-- For an `_unsafe_rec` helper inspected as a replay candidate: the route by which Lean's own
+  recursion compiler, rerun on the values of the helper's group (each helper's calls to its group
+  standing for the recursive calls), reproduced the observed base and every auxiliary definition it
+  generated, up to compilation erasure (`Collect.unsafeRecRegeneration`): structural recursion, or
+  well-founded recursion with every decreasing proof elided. `none` when neither did, and for every
+  other declaration or inspection stage. -/
+  unsafeRecRegenerated : Option RecursionOrigin
   /-- For an axiom whose name the `nativeEqTrue` scheme generates for a native tactic
   (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
   (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
@@ -1015,19 +1001,6 @@ structure Command where
   macro expansion there contains an `axiom` declaration node, quoted syntax included. It is read
   from syntax, so it holds even when elaborating that declaration failed. -/
   declaresAxiom : Bool
-  /-- Audited-source code that could have run without an evaluator record, accumulated over the
-  module up to and including this command: each recorded code runner (`#eval`, `#eval!`,
-  `run_cmd`, `run_elab`, `run_meta`, `by_elab`, `run_tac`) and each recorded evaluator that is a
-  module declaration other than a macro; each definition the module declares that is or holds code
-  with Lean's elaborator state (`Lean.Core.Context` or `Lean.Elab.Command.Context` reachable from
-  its type or from the types of the constants its value mentions, through types, definition values
-  and constructors: an elaborator, simproc, deriving handler, linter or a record value holding one,
-  but not a macro or an `IO` function); and, in
-  the environment at every command boundary, under each syntax kind the module did not add, each
-  term, tactic, command or `do`-element elaborator entry that is not an entry object of the
-  module's post-import environment, each macro the module declares, and each attribute that is
-  not the post-import object. -/
-  sourceLocalCode : Array Lean.Name
   deriving Repr, DecidableEq
 
 /-- The record of one fresh frontend elaboration of a module's exact source. -/

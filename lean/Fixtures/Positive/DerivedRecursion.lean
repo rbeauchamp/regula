@@ -1,16 +1,10 @@
-import Lean
-
 /-
 Positive control (issue #125): deriving `DecidableEq`, `BEq`, `Hashable` and
 `Repr` on a recursive inductive generates structurally recursive functions with
-Lean's `_unsafe_rec` helpers inside the inductive's own declaration command.
-Lean elaborates the generated syntax with no canonical source ranges (the
-`DecidableEq` comparison with information trees disabled), so the helpers are
-admitted without a positioned binder record; no audited-source code ran or is
-registered in this module. The stored predefinitions abstract nested proofs
-into auxiliary theorems that the helpers keep inline; they are compared up to
-proofs. The mutations `DerivedWithSourceLocalMacro` and `DerivedAfterRunCmd`
-each add one fault to this control.
+Lean's `_unsafe_rec` helpers inside the inductive's own declaration command, the
+`DecidableEq` comparison elaborated with information trees disabled. Exact match
+admits each helper: Lean's structural recursion compiler, rerun on the helper,
+regenerates the observed derived function.
 -/
 
 inductive FixturesShape where

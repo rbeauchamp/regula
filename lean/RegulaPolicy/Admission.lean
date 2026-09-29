@@ -54,7 +54,6 @@ def Declaration.Valid (d : Declaration) : Prop :=
   Named d.name ∧ Named d.module ∧
   d.safety = (if d.isPartial then some .partial else if d.isUnsafe then some .unsafe else none) ∧
   canonicalNames d.axioms = d.axioms ∧ canonicalNames d.valueConstants = d.valueConstants ∧
-  (∀ ns ∈ d.unsafeRecEquationAxioms, canonicalNames ns = ns ∧ ∀ n ∈ ns, Named n) ∧
   (∀ n ∈ d.axioms, Named n) ∧ (∀ n ∈ d.valueConstants, Named n) ∧
   (∀ n ∈ d.all, Named n) ∧
   (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧

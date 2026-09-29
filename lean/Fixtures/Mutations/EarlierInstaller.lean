@@ -8,9 +8,9 @@ handler, installs a module-defined deriving handler through the process-global
 level, so the environment at the victim command's start and end holds only
 post-import entries and no code runner is recorded. The installed handler then
 forges a safe base with the victim command's exact range, its recursion tag,
-stored predefinition and looping helper. Before registrations were accumulated
-over every command and module metaprogram declarations counted, this forged
-helper was admitted and the file audit passed.
+stored predefinition and looping helper. Provenance-based admission admitted it
+and the file audit passed; exact match rejects it because Lean's recursion
+compiler does not regenerate the forged base from the helper.
 -/
 open Lean Elab Term Command
 

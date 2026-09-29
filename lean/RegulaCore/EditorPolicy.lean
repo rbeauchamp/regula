@@ -55,7 +55,8 @@ def editorRequest (value : String) : Option InspectionRequest :=
 theorem editorRequest_contract : EditorRequestContract editorRequest :=
   checked_editorRequest.evidence
 
-/-- A missing fresh transcript cannot turn a possible generated-role exception into either
+/-- Missing replay-stage role evidence (a fresh transcript for a native-proof axiom, the
+regeneration for a recursion helper) cannot turn a possible generated-role exception into either
 authorization or a definitive role-related violation. Other failures retain the pure
 policy's precedence. -/
 def needsRoleEvidence (d : Declaration) : DeclarationFailure → Bool

@@ -1,16 +1,14 @@
 /-
-Positive control (issue #125): Lean's generated `_unsafe_rec` helpers of safe,
-termination-checked definitions are admitted in each literal form Lean 4.34.0
-elaborates differently: well-founded recursion with a fixed parameter and the
-default `decreasing_tactic` (whose nested tactic information nodes carry the
-dispatching elaborator's name over sub-syntax), a `where` helper with a
-`decreasing_by` tactic block, a recursive definition carrying an attribute
-(recorded under the attribute implementation's reference), a recursive
-`abbrev` (abbreviation-hinted), structural recursion in a `mutual` block of
-private definitions (each helper calls only the other member's helper), and
-recursion through the module's own notation in a module that also declares
-`IO` code: a notation's macro only rewrites syntax and `IO` code does not run
-with Lean's elaborator state.
+Positive control (issue #125): exact match admits Lean's generated `_unsafe_rec`
+helpers of safe, termination-checked definitions in each form Lean 4.34.0
+compiles differently: well-founded recursion with a fixed parameter and the
+default `decreasing_tactic`, a `where` helper with a `decreasing_by` tactic
+block, a recursive definition carrying an attribute, a recursive `abbrev`,
+structural recursion in a `mutual` block of private definitions, recursion
+through the module's own notation beside `IO` code, a decreasing proof that
+Lean's default tactics cannot find (regenerated with the proof elided, the
+base's own proof standing), and a lexicographic measure over two arguments
+(packed into a unary function).
 -/
 
 def fixtures_walk (bytes : ByteArray) (start : Nat) : Nat :=
@@ -51,3 +49,14 @@ def fixtures_doubling : Nat → Nat
 
 def fixtures_announce (message : String) : IO Unit :=
   IO.println message
+
+def fixtures_self_div (n : Nat) : Nat :=
+  if h : n = 0 then 0 else fixtures_self_div (n - n / n) + 1
+termination_by n
+decreasing_by
+  rw [Nat.div_self (Nat.pos_of_ne_zero h)]
+  omega
+
+def fixtures_two_args (a b : Nat) : Nat :=
+  if a = 0 then b else if b = 0 then fixtures_two_args (a - 1) 5 else fixtures_two_args a (b - 1)
+termination_by (a, b)

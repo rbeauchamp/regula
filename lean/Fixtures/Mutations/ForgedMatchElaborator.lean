@@ -7,8 +7,8 @@ predefinition and a looping `_unsafe_rec` helper, with the base's declaration
 range set to the inductive command below. It runs, unrecorded, when Lean's
 `DecidableEq` deriving handler elaborates its generated `match` with
 information trees disabled, so every recorded evaluator of that command is
-pinned. The registered module-local elaborator (`Command.sourceLocalCode`) keeps
-the forged helper an escape hatch; before that condition it was admitted.
+pinned. It defeated provenance-based admission; exact match rejects it because
+Lean's recursion compiler does not regenerate the forged base from the helper.
 -/
 open Lean Elab Term
 

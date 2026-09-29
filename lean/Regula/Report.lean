@@ -147,10 +147,8 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
-              "valueConstants", "unsafeRecValueOrigin", "unsafeRecValueExact",
-                  "unsafeRecValueUpToProofs", "unsafeRecEquationExact", "unsafeRecEquationDefeq",
-                      "unsafeRecEquationAxioms", "nativeStatement", "nativeReplay", "ranges",
-                          "axioms", "executableContract"]
+              "valueConstants", "unsafeRecRegenerated", "nativeStatement", "nativeReplay",
+                  "ranges", "axioms", "executableContract"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -175,12 +173,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     all := ← j.getObjValAs? _ "all"
     hints := ← j.getObjValAs? _ "hints"
     valueConstants := ← j.getObjValAs? _ "valueConstants"
-    unsafeRecValueOrigin := ← j.getObjValAs? _ "unsafeRecValueOrigin"
-    unsafeRecValueExact := ← j.getObjValAs? _ "unsafeRecValueExact"
-    unsafeRecValueUpToProofs := ← j.getObjValAs? _ "unsafeRecValueUpToProofs"
-    unsafeRecEquationExact := ← j.getObjValAs? _ "unsafeRecEquationExact"
-    unsafeRecEquationDefeq := ← j.getObjValAs? _ "unsafeRecEquationDefeq"
-    unsafeRecEquationAxioms := ← j.getObjValAs? _ "unsafeRecEquationAxioms"
+    unsafeRecRegenerated := ← j.getObjValAs? _ "unsafeRecRegenerated"
     nativeStatement := ← j.getObjValAs? _ "nativeStatement"
     nativeReplay := ← j.getObjValAs? _ "nativeReplay"
     ranges := ← j.getObjValAs? _ "ranges"

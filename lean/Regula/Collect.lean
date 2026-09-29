@@ -8,8 +8,8 @@ public import Lean.Compiler.ExternAttr
 public import Lean.Compiler.CSimpAttr
 public import Lean.Compiler.IR.EmitUtil
 public import Lean.DeclarationRange
-public import Lean.Elab.PreDefinition.Structural.Eqns
-public import Lean.Elab.PreDefinition.WF.Eqns
+public import Lean.Elab.PreDefinition.Structural.Main
+public import Lean.Elab.PreDefinition.WF.Main
 public import Lean.Meta.Match.MatcherInfo
 public import Lean.Meta.Native
 public import RegulaPolicy.NativeAxiom
@@ -77,28 +77,6 @@ private def valueOf? : ConstantInfo → Option Expr
   | .opaqueInfo value => some value.value
   | _                 => none
 
-/-- Retrieve the original built-in recursion predefinition for a safe base. -/
-private def recursionPredefinition? (env : Environment) (baseName : Name) :
-    Option (RecursionOrigin × List Name × Expr × Array Name) :=
-    match Lean.Elab.Structural.eqnInfoExt.find? env baseName with
-    | some info => some (.structural, info.levelParams, info.value, info.declNames)
-    | none => match Lean.Elab.WF.eqnInfoExt.find? env baseName with
-      | some info => some (.wellFounded, info.levelParams, info.value, info.declNames)
-      | none => none
-
-/-- Reconstruct the exact executable body transformation used by Lean 4.34.0's
-`addAndCompilePartialRec` from the built-in recursion equation metadata. -/
-private def unsafeRecExpected? (env : Environment) (baseName : Name) :
-    Option (RecursionOrigin × Expr) := do
-  let (origin, _, value, group) ← recursionPredefinition? env baseName
-  let expected := value.replace fun expr => match expr with
-    | .const name levels =>
-        if group.contains name then
-          some <| mkConst (Lean.Compiler.mkUnsafeRecName name) levels
-        else none
-    | _ => none
-  return (origin, expected)
-
 /-- The pinned Lean v4.34.0 renderings (`Kernel.Exception.toMessageData`) of the kernel's resource
 limits, which `throwKernelException` throws as untagged errors, each with the limit it names. -/
 private def kernelLimits : Array (String × String) := #[
@@ -117,66 +95,140 @@ def checkerLimit? (ex : Exception) : BaseIO (Option String) := do
   return kernelLimits.findSome? fun (rendering, limit) =>
     if text.contains rendering then some limit else none
 
-/-- Independently require a kernel-checked unfolding theorem with exactly the
-one-step equation reconstructed from the same built-in predefinition. Its definitional
-observation is that syntactic equality. A failure to obtain or build the equation leaves both
-observations `false`; a `checkerLimit?` reached while doing so is rethrown, since the limit is the
-checker's, not missing evidence. -/
-private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
-    CommandElabM (Option (Bool × Bool × Array Name)) := do
-  let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
-  let some (_, levelParams, value, _) := recursionPredefinition? env baseName
-    | return none
-  liftTermElabM <| withoutModifyingEnv do
-    try
-      let some equationName ← Meta.getUnfoldEqnFor? baseName
-        | return some (false, false, #[])
-      let some equationInfo := (← getEnv).find? equationName
-        | return some (false, false, #[])
-      let expectedType ← Meta.lambdaTelescope value fun args body => do
-        let lhs := mkAppN (mkConst baseName (levelParams.map mkLevelParam)) args
-        let equality ← Meta.mkEq lhs body
-        Meta.letToHave (← Meta.mkForallFVars args equality)
-      let exact := equationInfo.type == expectedType
-      let axioms ← collectAxioms equationName
-      return some (exact, exact, axioms)
-    catch ex =>
-      if (← checkerLimit? ex).isSome then throw ex
-      return some (false, false, #[])
+/-- The root under which a regeneration names the definitions it adds. -/
+private def regenerationRoot : Name := `_regula_regeneration
 
-/-- The closed proof `@lcProof True` that `eraseProofs` puts in place of every proof. -/
-private def erasedProof : Expr := mkApp (mkConst ``lcProof) (mkConst ``True)
+/-- The arguments of a well-founded fixpoint application that carry its computation: for
+`WellFounded.fix α C r hwf F x…` and `WellFounded.Nat.fix α motive h F x…` (the two combinators
+Lean 4.34.0's well-founded recursion uses) the domain, the motive, the functional and the
+remaining arguments, without the relation `r`, its well-foundedness proof or the measure `h`. -/
+private def fixpointArguments? (e : Expr) : Option (Array Expr) :=
+  let args := e.getAppArgs
+  if e.isAppOf ``WellFounded.fix && args.size ≥ 5 then
+    some (#[args[0]!, args[1]!, args[4]!] ++ args.extract 5 args.size)
+  else if e.isAppOf ``WellFounded.Nat.fix && args.size ≥ 4 then
+    some (#[args[0]!, args[1]!, args[3]!] ++ args.extract 4 args.size)
+  else none
 
-/-- `e` with every proof subterm, in a binder type too, replaced by `erasedProof`: the
-computational content Lean's compiler, which erases proofs, sees. The placeholder keeps later
-types in the traversal inferable. It is itself a proof, so no non-proof subterm equals it. -/
-private def eraseProofs (e : Expr) : MetaM Expr :=
-  Meta.transform e (pre := fun e => do
-    return if ← Meta.isProof e then .done erasedProof else .continue)
+/-- Whether `e` is a proof or a type in the current local context: what Lean's code generator
+erases. -/
+private def erasedByCompilation (e : Expr) : MetaM Bool := do
+  return (← Meta.isProof e) || (← Meta.isType e)
 
-/-- Whether a helper's entire value is the pinned compiler transformation of the built-in
-structural/well-founded predefinition stored for its safe base: syntactically (the exact
-observation), and up to proofs (`eraseProofs` of both sides agree). The stored predefinition is
-the one Lean's `abstractNestedProofs` rewrote, each non-trivial nested proof replaced by an
-auxiliary theorem applied to its context, while `addAndCompilePartialRec` builds the helper from
-the predefinition before that step, so a helper whose predefinition has such a proof differs from
-the reconstruction exactly in those proofs. `Meta.isDefEq` is not used: where the values differ
-under a recursive call, its lazy delta reduction unfolds the self-referential helper on both sides
-before comparing arguments, and each unfolding reproduces the same comparison one call deeper. A
-failure to compare leaves the observation `false`; a `checkerLimit?` reached is rethrown. -/
-private def unsafeRecValueEvidence (env : Environment) (name : Name)
-    (info : ConstantInfo) : CommandElabM (Option (RecursionOrigin × Bool × Bool)) := do
-  let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
-  let some (origin, expected) := unsafeRecExpected? env baseName | return none
+/-- Whether `a` and `b` are equal up to compilation erasure: the same expression after every proof
+and every type of each side, decided in that side's own local context, is erased, with the
+variables they bind paired and each well-founded fixpoint reduced to `fixpointArguments?`. The two
+sides then compile to the same code; their recursion, relations and termination proofs may
+differ. `fuel` bounds the depth; exhausting it answers `false`. -/
+private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : Expr) :
+    MetaM Bool := do
+  match fuel with
+  | 0 => return false
+  | fuel + 1 =>
+    if a == b && !a.hasFVar && !b.hasFVar then return true
+    if (← erasedByCompilation a) && (← erasedByCompilation b) then return true
+    let all := fun (xs ys : Array Expr) => do
+      if xs.size != ys.size then return false
+      for i in [:xs.size] do
+        unless ← equalErased fuel pairs xs[i]! ys[i]! do return false
+      return true
+    match a, b with
+    | .mdata _ a', _ => equalErased fuel pairs a' b
+    | _, .mdata _ b' => equalErased fuel pairs a b'
+    | .fvar x, .fvar y => return x == y || pairs.contains (x, y)
+    | .const n us, .const m vs => return n == m && us == vs
+    | .lit l, .lit l' => return l == l'
+    | .sort u, .sort v => return u == v
+    | .proj s i e, .proj s' i' e' => return s == s' && i == i' && (← equalErased fuel pairs e e')
+    | .app .., .app .. =>
+      match fixpointArguments? a, fixpointArguments? b with
+      | some xs, some ys => all xs ys
+      | none, none =>
+        if ← equalErased fuel pairs a.getAppFn b.getAppFn then all a.getAppArgs b.getAppArgs
+        else return false
+      | _, _ => return false
+    | .lam n t body bi, .lam _ t' body' bi' | .forallE n t body bi, .forallE _ t' body' bi' =>
+      unless ← equalErased fuel pairs t t' do return false
+      Meta.withLocalDecl n bi t fun x => Meta.withLocalDecl n bi' t' fun y =>
+        equalErased fuel (pairs.push (x.fvarId!, y.fvarId!)) (body.instantiate1 x)
+          (body'.instantiate1 y)
+    | .letE n t v body _, .letE _ t' v' body' _ =>
+      unless (← equalErased fuel pairs t t') && (← equalErased fuel pairs v v') do return false
+      Meta.withLetDecl n t v fun x => Meta.withLetDecl n t' v' fun y =>
+        equalErased fuel (pairs.push (x.fvarId!, y.fvarId!)) (body.instantiate1 x)
+          (body'.instantiate1 y)
+    | _, _ => return false
+
+/-- Whether every definition a regeneration added (named under `regenerationRoot`) equals up to
+compilation erasure the observed definition of the same name without that root, with every
+constant under the root renamed back; at least one must have been added. -/
+private def regenerationMatches (before : Environment) : MetaM Bool := do
+  let env ← getEnv
+  let unregenerated := fun (e : Expr) => e.replace fun
+    | .const n us => if n.getRoot == regenerationRoot then
+        some (mkConst (n.replacePrefix regenerationRoot .anonymous) us) else none
+    | _ => none
+  let mut compared := 0
+  for (name, info) in env.constants.map₂.toList do
+    unless name.getRoot == regenerationRoot && !before.contains name do continue
+    let .defnInfo regenerated := info | continue
+    let some (.defnInfo observed) := env.find? (name.replacePrefix regenerationRoot .anonymous)
+      | return false
+    unless ← equalErased 100000 #[] (unregenerated regenerated.value) observed.value do
+      return false
+    compared := compared + 1
+  return compared > 0
+
+/-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
+each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
+to the group's helpers standing for the recursive calls, and compare what it generates with the
+observed base and its auxiliary definitions (`regenerationMatches`). Structural recursion is tried
+first, with no hint, as Lean itself does; then well-founded recursion, with Lean's measure
+inference and every decreasing proof elided (`all_goals sorry`), since the comparison erases proofs
+and the observed base's own kernel-checked value supplies them. A regeneration that reports an error
+does not count. Every change is undone. A `checkerLimit?` reached is rethrown. -/
+private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo) :
+    CommandElabM (Option RecursionOrigin) := do
+  let some _ := Lean.Compiler.isUnsafeRecName? name | return none
   let .defnInfo helper := info | return none
-  let exact := helper.value == expected
-  if exact then return some (origin, true, true)
-  liftTermElabM <| withoutModifyingEnv do
-    try
-      return some (origin, false, (← eraseProofs helper.value) == (← eraseProofs expected))
-    catch ex =>
-      if (← checkerLimit? ex).isSome then throw ex
-      return some (origin, false, false)
+  let group := helper.all.toArray
+  let some bases := group.mapM (fun member => do
+      let base ← Lean.Compiler.isUnsafeRecName? member
+      guard <| (env.find? member).any (· matches ConstantInfo.defnInfo _)
+      guard <| (env.find? base).any (· matches ConstantInfo.defnInfo _)
+      pure base)
+    | return none
+  let rename := fun (value : Expr) => value.replace fun
+    | .const n us => (group.idxOf? n).map fun i => mkConst (regenerationRoot ++ bases[i]!) us
+    | _ => none
+  liftTermElabM do
+    let preDefs ← group.mapIdxM fun i member => do
+      let some (.defnInfo value) := env.find? member | throwError "missing helper {member}"
+      return ({ ref := .missing, kind := .def, levelParams := value.levelParams, modifiers := {},
+                declName := regenerationRoot ++ bases[i]!, binders := .missing, type := value.type,
+                value := rename value.value, termination := .none } : PreDefinition)
+    let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
+    let attempt (run : TermElabM Unit) : TermElabM Bool := do
+      let saved ← saveState
+      let before ← getEnv
+      try
+        Core.resetMessageLog
+        run
+        let reproduced := !(← Core.getMessageLog).hasErrors && (← regenerationMatches before)
+        saved.restore
+        return reproduced
+      catch ex =>
+        saved.restore
+        if (← checkerLimit? ex).isSome then throw ex
+        return false
+    let docCtx := (← getLCtx, ← Meta.getLocalInstances)
+    if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
+    let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals sorry)
+    let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
+      { preDef with termination := { TerminationHints.none with
+          decreasingBy? := some ({ ref := .missing, tactic := elided } : DecreasingBy) } }
+    if ← attempt (wfRecursion docCtx wfDefs noMeasures) then return some .wellFounded
+    return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/
 private def assertedBool? (type : Expr) : Option Expr := do
@@ -407,10 +459,8 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     return toString (← Meta.ppExpr info.type)
   let ranges? ← findDeclarationRangesCore? name
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
-  let unsafeRecValueEvidence? ← if stage == .replayCandidate then
-      unsafeRecValueEvidence env name info else pure none
-  let unsafeRecEquationEvidence? ← if stage == .replayCandidate then
-      unsafeRecEquationEvidence env name else pure none
+  let unsafeRecRegenerated ← if stage == .replayCandidate then
+      unsafeRecRegeneration env name info else pure none
   let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
   let nativeReplay? ← native?.mapM fun (_, _, asserted) => replayNative asserted
   let levelParams : List Name := info.levelParams
@@ -453,13 +503,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     all := all.toArray
     hints
     valueConstants := RegulaPolicy.canonicalNames valueConstants
-    unsafeRecValueOrigin := unsafeRecValueEvidence?.map fun (origin, _, _) => origin
-    unsafeRecValueExact := unsafeRecValueEvidence?.map fun (_, exact, _) => exact
-    unsafeRecValueUpToProofs := unsafeRecValueEvidence?.map fun (_, _, erased) => erased
-    unsafeRecEquationExact := unsafeRecEquationEvidence?.map fun (exact, _, _) => exact
-    unsafeRecEquationDefeq := unsafeRecEquationEvidence?.map fun (_, value, _) => value
-    unsafeRecEquationAxioms := unsafeRecEquationEvidence?.map fun (_, _, values) =>
-      RegulaPolicy.canonicalNames values
+    unsafeRecRegenerated
     nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
     ranges := ranges?.map rangesReport

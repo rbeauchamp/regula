@@ -341,8 +341,9 @@ def guide : RuleId → Guide
           ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
-      problem := "An owned declaration is marked `unsafe` or `partial` and is not the exactly \
-        authenticated code-generation helper of a safe recursive definition."
+      problem := "An owned declaration is marked `unsafe` or `partial` and is not the \
+        code-generation helper that Lean's own recursion compiler regenerates exactly from a safe \
+        recursive definition."
       trigger := [
         "Authored `unsafe` and `partial` declarations are escape hatches: an unsafe declaration is \
           checked only in Lean's unsafe mode, cannot be used by safe declarations or proofs and is \
@@ -351,10 +352,10 @@ def guide : RuleId → Guide
         "The only exception is the range-less partial helper Lean generates for a safe, \
           termination-checked recursive `def` (structural or well-founded recursion, a `where` \
           or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq`, `BEq`, \
-          `Hashable` or `Repr` function on a recursive, non-nested inductive), \
-          admitted when every condition of standard §7.4 holds, including fresh-frontend \
-          attribution of the exact source. The helper is admitted only as the executable form \
-          of such a base.",
+          `Hashable` or `Repr` function on a recursive, non-nested inductive). It is admitted by \
+          exact match (standard §7.4): rerunning Lean's recursion compiler on the helper's \
+          recursion regenerates the observed base, up to compilation erasure, and the base's \
+          axioms are within Standard-Logical. Which code added the helper does not matter.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` comparison that `deriving BEq` generates for a nested or mutual \
@@ -365,40 +366,32 @@ def guide : RuleId → Guide
           and prove the relation to the intended function."]
       established := [
         "No authored unsafe or partial declaration is on the claimed surface; every admitted \
-          generated helper satisfied all §7.4 conditions, and its base is a safe, non-partial \
-          recursive definition of the same module."]
+          generated helper has a safe base of the same module and type, with Standard-Logical \
+          axioms, that Lean's own recursion compiler regenerates from the helper's recursion."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
+        "That the regeneration observation is truthful or that a helper's compiled code matches \
+          its value; both rest on the pinned Lean toolchain.",
         "Termination proofs' adequacy for cost claims."]
       configuration := [
         "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
       limitations := [
-        "The helper exception is conservative: elaborators defined in the audited module, \
-          `run_tac` or `by_elab` in the recursion's proofs make the checker reject a definition \
-          Lean accepts.",
-        "A helper is not admitted when, before or in its introducing command, the module ran a \
-          code runner (such as `#eval` or `run_cmd`), declared a definition that is or holds \
-          code with Lean's elaborator state (one whose type or value reaches \
-          `Lean.Core.Context` or `Lean.Elab.Command.Context`: an elaborator, simproc, deriving \
-          handler or linter, or a record value holding one), registered a macro of its own for \
-          syntax it did not declare (such as a `decreasing_trivial` extension) or an elaborator \
-          entry the post-import environment did not register (including an imported library's \
-          scoped elaborator a later `open` activates), or added or replaced an attribute. Such \
-          code can run without an evaluator record, as inside `simp` or where Lean elaborates a \
-          derived `DecidableEq` comparison with information trees disabled. The module's own \
-          notation and `IO` code do not count; declaring the rest in a separate imported module \
-          avoids this.",
-        "Editor feedback may be pending until the project command completes the fresh-frontend \
-          check."]
+        "A helper is not admitted where the regeneration does not reproduce its base: a \
+          structural recursion on an argument other than the first one Lean's automatic choice \
+          accepts (selectable by `termination_by structural`), a `partial_fixpoint` definition, or \
+          a base compiled through a fixpoint combinator other than `WellFounded.fix` and \
+          `WellFounded.Nat.fix`.",
+        "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
-        characterizes the authenticated recursion helpers, `authorizedUnsafeRecHelpers_base` \
-        gives each a safe recursive base, and `Regula.Checker.Policy.partialParent_rule` with \
-        `subject_contract` reports a `partial def`'s helper under the `partial def`."
+        characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
+        each a regenerated, safe base with Standard-Logical axioms, and \
+        `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
+        `partial def`'s helper under the `partial def`."
       sources :=
-          ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Checker/Frontend.lean",
+          ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Collect.lean",
               "lean/RegulaCore/Policy.lean"] }
   | .executableContract => {
       problem := "A closed `ExecutableContract f R` registration does not have the supported \

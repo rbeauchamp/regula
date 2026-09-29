@@ -5,9 +5,9 @@ Mutation (issue #125, adversarial): a module-local command elaborator installs,
 through the process-global `derivingHandlersRef`, a module-defined deriving
 handler that forges a safe base with the victim command's exact range, its
 recursion tag, stored predefinition and looping helper. The installer's syntax
-kind is the module's own, and both its code and the handler run in
-`CommandElabM`, which reads a `Lean.Elab.Command.Context` but no
-`Lean.Core.Context`; they count as code with Lean's elaborator state.
+kind is the module's own and it runs in `CommandElabM`. Exact match rejects the
+forged helper because Lean's recursion compiler does not regenerate the forged
+base from it; the genuine derived helper is admitted.
 -/
 open Lean Elab Command
 

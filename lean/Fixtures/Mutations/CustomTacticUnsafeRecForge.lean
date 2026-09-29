@@ -1,10 +1,9 @@
 /-
 Mutation: a custom tactic elaborator defined in the audited module runs the
 same public-API forgery as `run_tac` while spelling the definition without
-`run_tac`. The elaborator is not pinned to the module's post-import
-environment, so the introducing command's evaluator set fails closed even
-though the mutation forges the complete accepted metadata, value
-transformation, and unfolding-equation evidence.
+`run_tac`, and forges the metadata, stored predefinition and a looping helper.
+Rejected by exact match: rerunning Lean's recursion compiler on the forged
+helper's own recursion does not regenerate the forged base.
 -/
 import Lean
 import Lean.Elab.PreDefinition.Structural.Eqns
