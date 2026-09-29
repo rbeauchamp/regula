@@ -377,14 +377,16 @@ def guide : RuleId → Guide
         "The helper exception is conservative: elaborators defined in the audited module, \
           `run_tac` or `by_elab` in the recursion's proofs make the checker reject a definition \
           Lean accepts.",
-        "No helper is admitted in a module that ran its own source as code (such as `#eval` or \
-          `run_cmd`) before or in the introducing command, or that registers a macro of its own or \
-          any elaborator for a syntax kind it did not add, or adds or replaces an attribute: such \
-          code can run without an evaluator record, as where Lean elaborates a derived \
-          `DecidableEq` comparison with information trees disabled. Declaring it in a separate \
-          imported module avoids this.",
-        "A simproc or other extension code declared in the audited module and run inside a \
-          pinned tactic is not observed by the fresh-frontend check.",
+        "A helper is not admitted when, before or in its introducing command, the module ran a \
+          code runner (such as `#eval` or `run_cmd`), declared code that runs with Lean's \
+          elaborator state (an elaborator, simproc, deriving handler or other `CoreM`-based \
+          metaprogram), registered a macro of its own for syntax it did not declare (such as a \
+          `decreasing_trivial` extension) or an elaborator entry the post-import environment did \
+          not register (including an imported library's scoped elaborator a later `open` \
+          activates), or added or replaced an attribute. Such code can run without an evaluator \
+          record, as inside `simp` or where Lean elaborates a derived `DecidableEq` comparison \
+          with information trees disabled. The module's own notation and `IO` code do not count; \
+          declaring the rest in a separate imported module avoids this.",
         "Editor feedback may be pending until the project command completes the fresh-frontend \
           check."]
       residuals := [.qualify, .cost, .intent]

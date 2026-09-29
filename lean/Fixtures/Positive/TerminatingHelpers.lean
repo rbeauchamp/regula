@@ -6,8 +6,11 @@ default `decreasing_tactic` (whose nested tactic information nodes carry the
 dispatching elaborator's name over sub-syntax), a `where` helper with a
 `decreasing_by` tactic block, a recursive definition carrying an attribute
 (recorded under the attribute implementation's reference), a recursive
-`abbrev` (abbreviation-hinted), and structural recursion in a `mutual` block
-of private definitions (each helper calls only the other member's helper).
+`abbrev` (abbreviation-hinted), structural recursion in a `mutual` block of
+private definitions (each helper calls only the other member's helper), and
+recursion through the module's own notation in a module that also declares
+`IO` code: a notation's macro only rewrites syntax and `IO` code does not run
+with Lean's elaborator state.
 -/
 
 def fixtures_walk (bytes : ByteArray) (start : Nat) : Nat :=
@@ -39,3 +42,12 @@ private def fixtures_odd : Nat → Bool
   | 0 => false
   | n + 1 => fixtures_even n
 end
+
+notation:max "fixturesTwice " x:max => x + x
+
+def fixtures_doubling : Nat → Nat
+  | 0 => 1
+  | n + 1 => fixturesTwice (fixtures_doubling n)
+
+def fixtures_announce (message : String) : IO Unit :=
+  IO.println message

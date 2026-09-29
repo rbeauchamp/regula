@@ -438,11 +438,28 @@ private def sourceRunners : Array Name := #[
   `Lean.Elab.Command.elabRunElab, `Lean.Elab.Command.elabRunMeta, `Lean.Elab.Term.elabRunElab,
   `Lean.Elab.Tactic.evalRunTac]
 
-/-- The elaborators among `records` that ran audited source as code: one of `sourceRunners`, or a
-declaration of the audited module itself (in `env`, the command's environment). -/
-private def sourceExecutions (env : Environment) (records : Array Evaluator) : Array Name :=
-  (records.filter fun e => sourceRunners.contains e.elaborator ||
-    (env.contains e.elaborator && (env.getModuleIdxFor? e.elaborator).isNone)).map (·.elaborator)
+/-- The elaborators among `records` that ran audited source as code: the `sourceRunners`. A
+module's own elaborators count where they are declared (`elaboratorCode`); its macros, recorded
+under their own names wherever a notation of the module is used, only rewrite syntax (`MacroM`
+reaches neither the environment nor `IO`). -/
+private def sourceExecutions (records : Array Evaluator) : Array Name :=
+  (records.filter (sourceRunners.contains ·.elaborator)).map (·.elaborator)
+
+/-- Whether `info` is code that runs with Lean's elaborator state: a definition or opaque constant
+whose type, unfolded, is a function receiving a `Lean.Core.Context`, as every `CoreM`-based
+metaprogram (an elaborator, tactic, simproc, deriving handler, delaborator or other extension
+code, and any function into such a monad) does. A macro (`MacroM`) or an `IO` function receives
+none. A check that fails counts as such code. -/
+private def elaboratorCode (env : Environment) (info : ConstantInfo) : IO Bool := do
+  unless info matches .defnInfo _ | .opaqueInfo _ do return false
+  let receivesCore : MetaM Bool :=
+    Meta.forallTelescopeReducing info.type (whnfType := true) fun parameters _ =>
+      parameters.anyM fun parameter => do
+        return (← Meta.whnf (← Meta.inferType parameter)).isConstOf ``Lean.Core.Context
+  try
+    (receivesCore.run' {} {}).toIO' { fileName := "<frontend-transcript>", fileMap := default }
+      { env }
+  catch _ => return true
 
 /-- What `env`, one of a command's environments, holds that elaboration could run from the audited
 module without an information-tree record, under a syntax kind the module did not add to Lean's
@@ -530,7 +547,8 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   let mut before? : Option Environment := none
   let mut baseline? : Option Environment := none
   let mut commands : Array Command := #[]
-  -- Every audited-source execution recorded so far, in any command of the module.
+  -- Audited-source code of any command of the module so far: runs of code runners, module
+  -- declarations that run with the elaborator's state, and registrations at every command's end.
   let mut executed : Array Name := #[]
   let mut runtimeReplacements : Array (Name × Name) := #[]
   let mut replacementHistoryUnsupported : Array String := #[]
@@ -561,8 +579,13 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
               | _, _, _ => false
             let evaluators := evaluatorRecords baseline commandCtx.env commandCtx.fileMap tree
               specializeSame attributeRefs.contains
-            executed := executed ++ sourceExecutions commandCtx.env evaluators
             let added := newConstants before after
+            let declaredCode ← added.filterM fun name =>
+              match after.find? name with
+              | some info => elaboratorCode after info
+              | none => pure false
+            executed := RegulaPolicy.canonicalNames <| executed ++ sourceExecutions evaluators ++
+              declaredCode ++ sourceLocalRegistrations baseline after
             if !added.isEmpty then
               commands := commands.push {
                 commandElaborator := info.elaborator
@@ -574,8 +597,7 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
                 bindings := declarationBindings commandCtx.fileMap tree
                 declaresAxiom := declaresAxiom tree
                 sourceLocalCode := RegulaPolicy.canonicalNames <| executed ++
-                  sourceLocalRegistrations baseline before ++
-                  sourceLocalRegistrations baseline after
+                  sourceLocalRegistrations baseline before
               }
           before? := some after
         else if before?.isNone then

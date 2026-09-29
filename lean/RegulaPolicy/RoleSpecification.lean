@@ -96,12 +96,12 @@ instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by
     unfold PinnedEvaluator; infer_instance
 
 /-- The base is the literal declaration, a nested one bound at its exact selection range, or,
-contained in the literal command, one that elaboration generated from syntax with no source
-position (every binder record of its name has no range, as for a derived instance's function).
-Every recorded evaluator is pinned, and no audited-source code may have run unrecorded
-(`Command.sourceLocalCode` is empty): such code could have produced or rewritten the records,
-and Lean elaborates some generated definitions, such as a derived `DecidableEq` comparison, with
-information trees disabled. -/
+contained in the literal command, one that elaboration generated from syntax with no canonical
+source range (every binder record of its name has no range, as for a derived instance's
+function). Every recorded evaluator is pinned, and no audited-source code can have run
+unrecorded (`Command.sourceLocalCode` is empty): such code could have produced or rewritten the
+records, and some of it runs without a record, as inside `simp` or where Lean elaborates a derived
+`DecidableEq` comparison with information trees disabled. -/
 def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop :=
   (LiteralDeclaration c r ∨
     ∃ outer ∈ c.commandRange, ∃ ranges ∈ base.ranges,

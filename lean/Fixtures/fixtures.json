@@ -222,6 +222,20 @@
    "[VIOLATION[escape-hatch]] instDecidableEqFixturesRegistered.decEq._unsafe_rec"
   ]
  },
+ "Fixtures.Mutations.ModuleSimproc": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_simproc_sum._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.EarlierInstaller": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_by_handler._unsafe_rec"
+  ]
+ },
  "Fixtures.Mutations.ForgedMatchElaborator": {
   "expect": "fail",
   "reason": "escape-hatch",

@@ -1015,15 +1015,15 @@ structure Command where
   macro expansion there contains an `axiom` declaration node, quoted syntax included. It is read
   from syntax, so it holds even when elaborating that declaration failed. -/
   declaresAxiom : Bool
-  /-- Audited-source code that may have run during the command although its evaluator records do
-  not show it: each elaborator of this or an earlier command of the module that ran audited source
-  as code (a code runner such as `#eval`, `run_cmd` or `run_tac`, or a declaration of the module
-  itself), which could have changed the registries attribution relies on; and, in the command's
-  environment at its start or at its end, under each syntax kind the module did not add, each term,
-  tactic, command or `do`-element elaborator entry that is not an entry object of the module's
-  post-import environment, each macro the module declares, and each attribute that is not the
-  post-import object, which Lean may dispatch where it elaborates with information trees
-  disabled. -/
+  /-- Audited-source code that could have run without an evaluator record, accumulated over the
+  module up to and including this command: each recorded code runner (`#eval`, `#eval!`,
+  `run_cmd`, `run_elab`, `run_meta`, `by_elab`, `run_tac`); each definition the module declares
+  whose type, unfolded, receives a `Lean.Core.Context` (code that runs with Lean's elaborator state,
+  such as an elaborator, simproc or deriving handler, but not a macro or an `IO` function); and, in
+  the environment at every command boundary, under each syntax kind the module did not add, each
+  term, tactic, command or `do`-element elaborator entry that is not an entry object of the
+  module's post-import environment, each macro the module declares, and each attribute that is
+  not the post-import object. -/
   sourceLocalCode : Array Lean.Name
   deriving Repr, DecidableEq
 
