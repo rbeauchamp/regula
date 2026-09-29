@@ -530,6 +530,16 @@ assembly belong to the project routes.
 | Module hook | RG5001 (module docstring present and first, no repeated import), RG5002 and RG5003 for registered public declarations. | Complete local declaration-policy coverage. |
 | `Collect.declaration` (`.snapshot`, `.replayCandidate`) | The canonical facts `Probe` uses, with replay and helper observations in the second form. | Replay and role authentication. |
 
+`Collect.declaration` reduces a declared type only when the reduction could produce
+`Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
+the type's constants, closed under unfolding, and only modules that import `Regula.Contract`
+contribute constants. It establishes a recursion helper's two definitional observations
+structurally, by congruence and proof irrelevance, never by `Meta.isDefEq`: where the two values
+differ under a recursive call, its lazy unfolding of the self-referential helper does not
+terminate. The report's other elaborator observations (`Meta.isProp`, the pretty-printed type,
+and `Probe`'s executable-root classification) run under Lean's default limits, and the report
+worker's error names the module, the declaration and the observation of any that fails.
+
 The adapter runs the same pure policy and total failure-to-ID mapping as the project checker
 (`Regula.Checker.Policy.editor_decision_rule`); a potential generated-role exception is deferred
 as RG2005 rather than guessed. Recoverable compiler errors can leave hole-bearing declarations,

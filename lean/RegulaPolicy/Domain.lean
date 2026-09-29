@@ -614,13 +614,14 @@ structure Declaration where
   /-- For such a helper: its value is syntactically the compiler transformation reconstructed
   from that predefinition. -/
   unsafeRecValueExact : Option Bool
-  /-- For such a helper: its value is definitionally equal to that reconstruction
-  (`Meta.isDefEq`). -/
+  /-- For such a helper: its value is definitionally equal to that reconstruction, established
+  without reduction by congruence and proof irrelevance; `false` when that does not establish
+  it. -/
   unsafeRecValueDefeq : Option Bool
   /-- For such a helper: the base's unfolding equation has exactly the expected statement. -/
   unsafeRecEquationExact : Option Bool
   /-- For such a helper: the base's unfolding equation is definitionally equal to the expected
-  statement. -/
+  statement, established in the same way. -/
   unsafeRecEquationDefeq : Option Bool
   /-- For such a helper: the axioms of the base's unfolding equation, sorted and without
   duplicates. -/

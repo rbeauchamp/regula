@@ -71,9 +71,10 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
   let ctx : Elab.Command.Context := {
     fileName := "<operational-self-audit>", fileMap := FileMap.ofString "",
     snap? := none, cancelTk? := none }
+  let scope ← Regula.Collect.ContractScope.new env
   let collected ← EIO.toIO' <|
     (show Elab.Command.CommandElabM (Array RegulaPolicy.Declaration) from
-      own.mapM fun (name, _) => Regula.Collect.declaration name .snapshot).run ctx
+      own.mapM fun (name, _) => Regula.Collect.declaration name .snapshot scope).run ctx
       |>.run (Elab.Command.mkState env)
   let declarations : Array RegulaPolicy.Declaration ← match collected with
     | .ok (declarations, _) => pure declarations

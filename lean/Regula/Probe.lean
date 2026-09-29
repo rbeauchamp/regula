@@ -109,6 +109,18 @@ private def ownedDecls (env : Environment) (modules : List Name) :
     CommandElabM (Array (Name × ConstantInfo)) :=
   pure (ownedConstants env modules)
 
+/-- Run one observation of the declaration `name`, so that its failure names the declaration's
+module, the declaration and the observation. `CommandElabM`'s `try`/`catch` also catches Lean's
+runtime resource exceptions (recursion depth, heartbeats), which the Core-based monads rethrow. -/
+private def observing {α : Type} (env : Environment) (name : Name) (observation : String)
+    (act : CommandElabM α) : CommandElabM α := do
+  try act
+  catch ex =>
+    let owner := match Regula.Collect.moduleOf env name with
+      | .ok moduleName => m!"{moduleName}"
+      | .error _ => m!"<unattributed>"
+    throwError "module {owner}, declaration {name}: {observation} failed: {ex.toMessageData}"
+
 /-- Kernel heartbeat budget for one correspondence check: Lean's per-declaration default
 (`maxHeartbeats` at its default value, in the kernel's raw unit), so a checker-added
 correspondence obligation costs no more than a declaration the adopter could write. -/
@@ -537,7 +549,8 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
       continue
     match info with
     | .defnInfo _ =>
-        if !(← liftTermElabM <| Meta.isProp info.type) then
+        if !(← observing env name "proposition test" <|
+            liftTermElabM <| Meta.isProp info.type) then
           if let some value := info.value? then
             let dependencies := value.getUsedConstants
             logicalEdges := logicalEdges ++ dependencies.map (name, ·)
@@ -557,7 +570,8 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
         | none =>
             boundaries := boundaries.push <|
               (← entry .opaqueComputation .checked none (some "kernel-checked-body"))
-            if !(← liftTermElabM <| Meta.isProp info.type) then
+            if !(← observing env name "proposition test" <|
+                liftTermElabM <| Meta.isProp info.type) then
               if let some value := info.value? (allowOpaque := true) then
                 let dependencies := value.getUsedConstants
                 logicalEdges := logicalEdges ++ dependencies.map (name, ·)
@@ -609,9 +623,10 @@ private def executableRoots (env : Environment) (own : Array (Name × ConstantIn
     | .defnInfo _ | .opaqueInfo _ =>
         if name.isInternal || info.isUnsafe || info.isPartial
             || Lean.isNoncomputable env name then continue
-        if ← liftTermElabM <| Meta.isProp info.type then continue
-        let typeProducing ← liftTermElabM <| Regula.Collect.returnsSort info.type
-        if typeProducing then continue
+        let eligible ← observing env name "executable-root classification" do
+          if ← liftTermElabM <| Meta.isProp info.type then return false
+          return !(← liftTermElabM <| Regula.Collect.returnsSort info.type)
+        if !eligible then continue
         roots := roots.push name
     | _ => continue
   return roots
@@ -643,7 +658,9 @@ def environmentReport (modules : List Name)
     let some idx := env.getModuleIdxFor? name
       | throwError "declaration census has no owner for {name}"
     return (env.header.modules[(idx : Nat)]!.module, name)
-  let entries ← own.mapM fun (name, _) => Regula.Collect.declaration name .replayCandidate
+  let scope ← Regula.Collect.ContractScope.new env
+  let entries ← own.mapM fun (name, _) =>
+    observing env name "declaration record" (Regula.Collect.declaration name .replayCandidate scope)
   let roots ← if includeExecution then do
     let mut roots ← executableRoots env own
     for entry in entries do
@@ -683,10 +700,11 @@ def environmentReport (modules : List Name)
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
-        executionWalk env modules nativeModules (fun name => do
-          historyRequests.modify fun requests =>
-            if requests.contains (root, name) then requests else requests.push (root, name)
-          loadReplacementHistory name) candidates proofCache dependencyCache recursorHelpers root
+        observing env root "execution walk" <|
+          executionWalk env modules nativeModules (fun name => do
+            historyRequests.modify fun requests =>
+              if requests.contains (root, name) then requests else requests.push (root, name)
+            loadReplacementHistory name) candidates proofCache dependencyCache recursorHelpers root
       return ({
         name := root
         «module» := moduleName
