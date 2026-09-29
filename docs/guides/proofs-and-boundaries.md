@@ -541,11 +541,13 @@ and `Probe`'s executable-root classification) run under Lean's default limits. W
 the report worker's error names the module, the declaration (for an execution walk, its root) and
 the failing stage: `declaration record` (any observation of `Collect.declaration`),
 `executable-root classification`, `proposition test` or `execution walk`. When the failure is one
-of those limits, it says the limit is the checker's own, that options set in the source, such as
-`maxRecDepth`, do not apply to the checker, and to report it as a Regula issue; the audit is still
-incomplete. An observation that treats its own failure as missing evidence (the recursion
-helper's unfolding equation, native replay, a replacement's correspondence search) rethrows such a
-limit instead, so it is never recorded as a finding about the source.
+of those limits, or a kernel limit (deterministic timeout, deep recursion or excessive memory,
+recognized by its pinned Lean v4.34.0 message), it says the limit is the checker's own, that
+options set in the source, such as `maxRecDepth`, do not apply to the checker, and to report it
+as a Regula issue; the audit is still incomplete. The recursion helper's unfolding equation and
+native replay, which otherwise record their own failure as missing evidence, rethrow such a limit
+instead. A replacement's correspondence search rethrows an elaborator limit, but its kernel check
+runs under its own budget and records exhaustion as an unresolved correspondence (standard §7.6).
 
 The adapter runs the same pure policy and total failure-to-ID mapping as the project checker
 (`Regula.Checker.Policy.editor_decision_rule`); a potential generated-role exception is deferred

@@ -99,11 +99,29 @@ private def unsafeRecExpected? (env : Environment) (baseName : Name) :
     | _ => none
   return (origin, expected)
 
+/-- The pinned Lean v4.34.0 renderings (`Kernel.Exception.toMessageData`) of the kernel's resource
+limits, which `throwKernelException` throws as untagged errors, each with the limit it names. -/
+private def kernelLimits : Array (String × String) := #[
+  ("(kernel) deterministic timeout", "kernel heartbeats"),
+  ("(kernel) deep recursion detected", "kernel recursion depth"),
+  ("(kernel) excessive memory consumption detected", "kernel memory")]
+
+/-- The resource limit of the checker's own Lean process that `ex` reports, if any: an elaborator
+limit (`Exception.isRuntime`), or a kernel limit recognized by its pinned rendering, also inside an
+elaborator error that wraps it (as `Meta.nativeEqTrue` does). Either is the checker's limit, not
+evidence about the inspected source. -/
+def checkerLimit? (ex : Exception) : BaseIO (Option String) := do
+  if ex.isMaxRecDepth then return some "maximum recursion depth"
+  if ex.isMaxHeartbeat then return some "maximum heartbeats"
+  let text ← ex.toMessageData.toString
+  return kernelLimits.findSome? fun (rendering, limit) =>
+    if text.contains rendering then some limit else none
+
 /-- Independently require a kernel-checked unfolding theorem with exactly the
 one-step equation reconstructed from the same built-in predefinition. Its definitional
 observation is that syntactic equality, as in `unsafeRecValueEvidence`. A failure to obtain or
-build the equation leaves both observations `false`; a Lean resource limit reached while doing
-so is rethrown, since the limit is the checker's, not missing evidence. -/
+build the equation leaves both observations `false`; a `checkerLimit?` reached while doing so is
+rethrown, since the limit is the checker's, not missing evidence. -/
 private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
     CommandElabM (Option (Bool × Bool × Array Name)) := do
   let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
@@ -122,7 +140,8 @@ private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
       let exact := equationInfo.type == expectedType
       let axioms ← collectAxioms equationName
       return some (exact, exact, axioms)
-    catch _ =>
+    catch ex =>
+      if (← checkerLimit? ex).isSome then throw ex
       return some (false, false, #[])
 
 /-- Whether a helper's entire value is the pinned compiler transformation of
@@ -182,14 +201,15 @@ def nativeStatement? (name : Name) (type : Expr) : Option String := do
 
 /-- Independently replay the Boolean native evaluation without retaining any
 declaration it creates. This remains compiler evidence, never a kernel proof. A failed replay
-is `false`; a Lean resource limit reached during it is rethrown. -/
+is `false`; a `checkerLimit?` reached during it is rethrown. -/
 private def replayNative (asserted : Expr) : CommandElabM Bool :=
   liftTermElabM <| withoutModifyingEnv do
     try
       return match ← Meta.nativeEqTrue `audit_native_replay asserted with
         | .success _ => true
         | .notTrue   => false
-    catch _ =>
+    catch ex =>
+      if (← checkerLimit? ex).isSome then throw ex
       return false
 
 /-- Classify the terminal result after Lean reduction, including aliases of

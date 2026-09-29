@@ -112,8 +112,8 @@ private def ownedDecls (env : Environment) (modules : List Name) :
 /-- Run one observation of the declaration `name`, so that its failure names the declaration's
 module, the declaration and the observation. `CommandElabM`'s `try`/`catch` also catches Lean's
 runtime resource exceptions (recursion depth, heartbeats), which the Core-based monads rethrow.
-Such a limit is the checker's own, so its message replaces Lean's advice to raise it in the
-source. -/
+Such a limit, or a kernel limit (`Collect.checkerLimit?`), is the checker's own, so its message
+replaces Lean's advice to raise it in the source. -/
 private def observing {α : Type} (env : Environment) (name : Name) (observation : String)
     (act : CommandElabM α) : CommandElabM α := do
   try act
@@ -121,8 +121,7 @@ private def observing {α : Type} (env : Environment) (name : Name) (observation
     let owner := match Regula.Collect.moduleOf env name with
       | .ok moduleName => m!"{moduleName}"
       | .error _ => m!"<unattributed>"
-    if ex.isRuntime then
-      let limit := if ex.isMaxRecDepth then "maximum recursion depth" else "maximum heartbeats"
+    if let some limit := (← Regula.Collect.checkerLimit? ex) then
       throwError "module {owner}, declaration {name}: {observation} reached the Regula checker's \
         own resource limit ({limit}); options set in the source, such as `maxRecDepth`, do not \
         apply to the checker. Report this as a Regula issue."
