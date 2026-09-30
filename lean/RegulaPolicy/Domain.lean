@@ -79,8 +79,8 @@ inductive BoundaryKind where
   /-- A `@[csimp]`-shaped constant-equality lemma may let the compiler replace this constant
   with another. -/
   | «compilerSimplification»
-  /-- An `@[extern]` constant of a Lean `Init` module whose origin was admitted, implemented by
-  the Lean runtime. -/
+  /-- An `@[extern]` constant of a toolchain module (`Init`, `Std` or `Lean`) whose origin was
+  admitted, implemented by the toolchain's own native code. -/
   | «nativeRuntime»
   /-- Any other `@[extern]` constant, implemented outside Lean. -/
   | «external»
@@ -133,6 +133,29 @@ theorem BoundaryKind.canonical (s : String) (x : BoundaryKind) (h : parse? s = s
     x.spelling = s := by
   unfold parse? at h
   split at h <;> cases h <;> rfl
+
+/-- The kind's position in declaration order (`BoundaryKind.index_injective`). -/
+def BoundaryKind.index : BoundaryKind → Nat
+  | .«runtimeReplacement» => 0
+  | .«compilerSimplification» => 1
+  | .«nativeRuntime» => 2
+  | .«external» => 3
+  | .«unsafeComputation» => 4
+  | .«partialComputation» => 5
+  | .«opaqueComputation» => 6
+  | .«compilerTrustedProof» => 7
+
+/-- Distinct kinds have distinct indices. -/
+theorem BoundaryKind.index_injective : Function.Injective BoundaryKind.index := by
+  intro a b h
+  cases a <;> cases b <;> simp_all [BoundaryKind.index]
+
+/-- Kinds ordered by `index`, for canonical keyed sets. -/
+instance : Ord BoundaryKind := ⟨compareOn BoundaryKind.index⟩
+instance : Std.TransOrd BoundaryKind :=
+  inferInstanceAs (Std.TransCmp (compareOn BoundaryKind.index))
+instance : Std.LawfulEqOrd BoundaryKind where
+  eq_of_compare h := BoundaryKind.index_injective (Std.LawfulEqOrd.eq_of_compare h)
 
 /-- Supported Correspondence values; parsing cannot manufacture an unknown constructor. -/
 inductive Correspondence where
@@ -299,8 +322,9 @@ theorem ConformingProfile.canonical (s : String) (x : ConformingProfile) (h : pa
 inductive ExecutionClaim where
   /-- Resolved execution boundaries pass whether checked or trusted; they are reported. -/
   | «report»
-  /-- A resolved boundary passes only with checked evidence or as an admitted native-runtime
-  boundary (`BoundaryOK`). -/
+  /-- A resolved boundary passes only with checked evidence or when its trusted evidence carries
+  an admitted toolchain origin (`BoundaryOK`), which only a runtime replacement, native-runtime
+  `extern`, or unsafe or partial computation can (`TrustedEvidence`). -/
   | «checked»
   deriving Repr, DecidableEq, Inhabited
 
@@ -634,33 +658,43 @@ structure Declaration where
   executableContract : Option ExecutableContract := none
   deriving Repr, DecidableEq
 
-/-- Origin observations are admitted only when the resolved and expected canonical
-paths agree for an Init module. The filesystem meaning of those paths remains IO evidence. -/
-structure NativeOrigin where
-  /-- The module that declares the native-runtime constant. -/
+/-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`
+and `Lean`. A module under one of them is toolchain code only with an admitted origin
+(`ToolchainOrigin`); the name alone never makes it so. -/
+def ToolchainRoot (root : Lean.Name) : Prop := root = `Init ∨ root = `Std ∨ root = `Lean
+
+instance : DecidablePred ToolchainRoot := fun _ => by unfold ToolchainRoot; infer_instance
+
+/-- Origin observations are admitted only when the resolved and expected canonical paths agree
+for a module under a toolchain root (`ToolchainRoot`), whatever the module's name. That the
+paths are the module's loaded `.olean` and its copy in the pinned toolchain's library, and so
+identify the toolchain's own artifact, is the probe's filesystem observation, not a property
+of this type. -/
+structure ToolchainOrigin where
+  /-- The module that declares the toolchain-owned boundary. -/
   moduleName : Lean.Name
   /-- The canonical path of the `.olean` file the module was loaded from. -/
   actual : String
   /-- The canonical path of that module's `.olean` in the toolchain's library directory. -/
   expected : String
-  /-- The module is under `Init`. -/
-  initModule : moduleName.getRoot = `Init
+  /-- The module is under `Init`, `Std` or `Lean`. -/
+  toolchainModule : ToolchainRoot moduleName.getRoot
   /-- The resolved path is not empty. -/
   nonempty : actual ≠ ""
   /-- The resolved and expected paths are the same text. -/
   agrees : actual = expected
   deriving Repr, DecidableEq
 
-/-- Admit an origin observation: an error unless the module is under `Init` and `actual` is
-nonempty and equal to `expected` (`nativeOrigin_roundtrip`). -/
-def admitNativeOrigin (moduleName : Lean.Name) (actual expected : String) :
-    Except String NativeOrigin :=
-  if hm : moduleName.getRoot = `Init then
+/-- Admit an origin observation: an error unless the module is under `Init`, `Std` or `Lean`
+and `actual` is nonempty and equal to `expected` (`toolchainOrigin_roundtrip`). -/
+def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
+    Except String ToolchainOrigin :=
+  if hm : ToolchainRoot moduleName.getRoot then
     if hn : actual ≠ "" then
       if he : actual = expected then .ok ⟨moduleName, actual, expected, hm, hn, he⟩
-      else .error "native-runtime origin mismatch"
-    else .error "empty native-runtime origin"
-  else .error "native-runtime module is not Init"
+      else .error "toolchain origin mismatch"
+    else .error "empty toolchain origin"
+  else .error "toolchain module is not under Init, Std or Lean"
 
 /-- Checked replacement equality and an admitted opaque body have different meanings. -/
 inductive CheckedEvidence : BoundaryKind → Type where
@@ -672,10 +706,23 @@ inductive CheckedEvidence : BoundaryKind → Type where
   | opaqueBody : CheckedEvidence .opaqueComputation
   deriving Repr, DecidableEq
 
-/-- Only the native-runtime kind needs this specific trusted origin observation. -/
+/-- Trusted evidence by kind. A native-runtime `extern` always carries the admitted origin of
+its toolchain module. A runtime replacement or an unsafe or partial computation may carry one,
+which the probe attaches exactly when the declaring module has an admitted toolchain origin;
+without one it is the project's or a dependency's. No other kind can carry one: a compiler
+simplification is registered by its equality's module, an `external` is by definition outside
+the toolchain, the probe reports an opaque constant as checked, unresolved, or through its
+partial helper, and a compiler-trusting proof axiom is the project's use of the compiler. -/
 def TrustedEvidence : BoundaryKind → Type
-  | .nativeRuntime => NativeOrigin
-  | _ => Unit
+  | .nativeRuntime => ToolchainOrigin
+  | .runtimeReplacement | .unsafeComputation | .partialComputation => Option ToolchainOrigin
+  | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof => Unit
+
+/-- The kinds whose trusted evidence can carry a toolchain origin (`TrustedEvidence`): a
+runtime replacement, a native-runtime `extern`, and unsafe or partial computation. -/
+def BoundaryKind.toolchainOwnable : BoundaryKind → Bool
+  | .runtimeReplacement | .nativeRuntime | .unsafeComputation | .partialComputation => true
+  | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof => false
 
 instance (k : BoundaryKind) : Repr (TrustedEvidence k) := by cases k <;> dsimp
     [TrustedEvidence] <;> infer_instance
@@ -686,7 +733,7 @@ instance (k : BoundaryKind) : DecidableEq (TrustedEvidence k) := by cases k <;> 
 inductive BoundaryEvidence (kind : BoundaryKind) where
   /-- Checked evidence of a kind that admits it. -/
   | checked (evidence : CheckedEvidence kind)
-  /-- A trusted boundary, with an optional detail and, for native runtime, its origin. -/
+  /-- A trusted boundary, with an optional detail and the toolchain origin its kind admits. -/
   | trusted (detail : Option String) (origin : TrustedEvidence kind)
   /-- An unresolved boundary, with an optional detail. -/
   | unresolved (detail : Option String)
@@ -703,18 +750,48 @@ def BoundaryEvidence.detail {k : BoundaryKind} : BoundaryEvidence k → Option S
     | .opaqueBody => some "kernel-checked-body"
   | .trusted s _ | .unresolved s => s
 
-/-- The admitted origin of a trusted native-runtime boundary; `none` for any other evidence. -/
-def BoundaryEvidence.nativeOrigin? {k : BoundaryKind} (e : BoundaryEvidence k) :
-    Option NativeOrigin :=
+/-- The admitted toolchain origin of a toolchain-owned trusted boundary; `none` for any other
+evidence. Such a boundary is trusted (`correspondence_of_toolchainOrigin`). -/
+def BoundaryEvidence.toolchainOrigin? {k : BoundaryKind} (e : BoundaryEvidence k) :
+    Option ToolchainOrigin :=
   match k, e with
   | .nativeRuntime, .trusted _ origin => some origin
+  | .runtimeReplacement, .trusted _ origin => origin
+  | .unsafeComputation, .trusted _ origin => origin
+  | .partialComputation, .trusted _ origin => origin
   | _, _ => none
+
+/-- A toolchain-owned boundary is trusted: never checked, never unresolved. -/
+theorem BoundaryEvidence.correspondence_of_toolchainOrigin {k : BoundaryKind}
+    {e : BoundaryEvidence k} {o : ToolchainOrigin} (h : e.toolchainOrigin? = some o) :
+    e.correspondence = .trusted := by
+  cases e with
+  | trusted => rfl
+  | checked evidence => cases evidence <;> cases h
+  | unresolved => cases k <;> cases h
+
+/-- Only an ownable kind can be toolchain-owned. -/
+theorem BoundaryEvidence.toolchainOwnable_of_toolchainOrigin {k : BoundaryKind}
+    {e : BoundaryEvidence k} {o : ToolchainOrigin} (h : e.toolchainOrigin? = some o) :
+    k.toolchainOwnable = true := by
+  cases e with
+  | trusted => cases k <;> first | rfl | cases h
+  | checked evidence => cases evidence <;> cases h
+  | unresolved => cases k <;> cases h
+
+/-- A resolved native-runtime boundary is toolchain-owned. -/
+theorem BoundaryEvidence.toolchainOrigin_of_nativeRuntime {e : BoundaryEvidence .nativeRuntime}
+    (h : e.correspondence ≠ .unresolved) : e.toolchainOrigin?.isSome := by
+  cases e with
+  | checked evidence => cases evidence
+  | trusted => rfl
+  | unresolved => exact absurd rfl h
 
 /-- Raw candidate construction may discard incompatible observation fields.
 Operational/wire callers requiring field preservation must use `admitBoundaryEvidence`.
 A candidate is an indexed value, not a receipt for the supplied raw fields. -/
 def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option NativeOrigin) : Except String
+    (detail : Option String) (origin : Option ToolchainOrigin) : Except String
     (BoundaryEvidence kind) :=
   match state with
   | .unresolved => .ok (.unresolved detail)
@@ -722,8 +799,11 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
     | .nativeRuntime => match origin with
       | some o => .ok (.trusted detail o)
       | none => .error "missing native-runtime origin"
-    | .runtimeReplacement | .compilerSimplification | .external | .unsafeComputation
-    | .partialComputation | .opaqueComputation | .compilerTrustedProof => .ok (.trusted detail ())
+    | .runtimeReplacement => .ok (.trusted detail origin)
+    | .unsafeComputation => .ok (.trusted detail origin)
+    | .partialComputation => .ok (.trusted detail origin)
+    | .compilerSimplification | .external | .opaqueComputation | .compilerTrustedProof =>
+        .ok (.trusted detail ())
   | .checked => match kind, detail with
     | .runtimeReplacement, some s => .ok (.checked (.replacement s))
     | .compilerSimplification, some s => .ok (.checked (.simplification s))
@@ -732,17 +812,17 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
 
 /-- Admission retains every supplied evidence field or refuses the observation. -/
 def admitBoundaryEvidence (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option NativeOrigin) : Except String
+    (detail : Option String) (origin : Option ToolchainOrigin) : Except String
     (BoundaryEvidence kind) :=
   match boundaryEvidenceCandidate kind state detail origin with
   | .error error => .error error
   | .ok e =>
-    if e.correspondence = state ∧ e.detail = detail ∧ e.nativeOrigin? = origin then .ok e
+    if e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin then .ok e
     else .error "boundary evidence contains incompatible fields"
 
 private theorem boundaryEvidenceCandidate_roundtrip {kind : BoundaryKind}
     (e : BoundaryEvidence kind) :
-    boundaryEvidenceCandidate kind e.correspondence e.detail e.nativeOrigin? = .ok e := by
+    boundaryEvidenceCandidate kind e.correspondence e.detail e.toolchainOrigin? = .ok e := by
   cases e with
   | checked evidence => cases evidence <;> rfl
   | trusted detail origin => cases kind <;> rfl
@@ -750,9 +830,9 @@ private theorem boundaryEvidenceCandidate_roundtrip {kind : BoundaryKind}
 
 /-- Successful admission preserves every evidence projection for all raw inputs. -/
 theorem boundaryEvidence_admission_preserves (kind : BoundaryKind) (state : Correspondence)
-    (detail : Option String) (origin : Option NativeOrigin) (e : BoundaryEvidence kind)
+    (detail : Option String) (origin : Option ToolchainOrigin) (e : BoundaryEvidence kind)
     (h : admitBoundaryEvidence kind state detail origin = .ok e) :
-    e.correspondence = state ∧ e.detail = detail ∧ e.nativeOrigin? = origin := by
+    e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin := by
   unfold admitBoundaryEvidence at h
   split at h
   next => cases h
@@ -763,18 +843,18 @@ theorem boundaryEvidence_admission_preserves (kind : BoundaryKind) (state : Corr
 
 /-- Every inhabitant of the indexed evidence domain survives its actual admission API. -/
 theorem boundaryEvidence_roundtrip {kind : BoundaryKind} (e : BoundaryEvidence kind) :
-    admitBoundaryEvidence kind e.correspondence e.detail e.nativeOrigin? = .ok e := by
+    admitBoundaryEvidence kind e.correspondence e.detail e.toolchainOrigin? = .ok e := by
   unfold admitBoundaryEvidence
   rw [boundaryEvidenceCandidate_roundtrip]
   simp
 
-/-- Canonical native-origin admission preserves its module and exact path observation. -/
-theorem nativeOrigin_roundtrip (o : NativeOrigin) :
-    admitNativeOrigin o.moduleName o.actual o.expected = .ok o := by
+/-- Canonical toolchain-origin admission preserves its module and exact path observation. -/
+theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
+    admitToolchainOrigin o.moduleName o.actual o.expected = .ok o := by
   cases o with
   | mk m a e hm hn he =>
     cases he
-    simp [admitNativeOrigin, hm, hn]
+    simp [admitToolchainOrigin, hm, hn]
 
 /-- One boundary in the conservative compiler/source closure of an
 executable root. `boundary` is one of `runtime-replacement`, `compiler-simplification`,
@@ -809,6 +889,23 @@ def ExecutionBoundary.correspondence (b : ExecutionBoundary) : Correspondence :=
 
 /-- The detail text of the boundary's evidence. -/
 def ExecutionBoundary.evidence (b : ExecutionBoundary) : Option String := b.account.detail
+
+/-- The admitted origin of the boundary's module when the toolchain owns the boundary, which
+then belongs to the toolchain's trusted base rather than to the project or a dependency;
+`none` otherwise (`BoundaryEvidence.toolchainOrigin?`). -/
+def ExecutionBoundary.toolchainOrigin? (b : ExecutionBoundary) : Option ToolchainOrigin :=
+  b.account.toolchainOrigin?
+
+/-- The boundary claims toolchain ownership: it is a native-runtime `extern` or carries a
+toolchain origin, so its module needs the origin observation (`OriginOK`). -/
+def ExecutionBoundary.claimsToolchain (b : ExecutionBoundary) : Bool :=
+  b.boundary == .nativeRuntime || b.toolchainOrigin?.isSome
+
+/-- The boundary is a runtime replacement the toolchain does not own, so its module's source
+history must record its replacement (`HistoryOK`). Which implementation a toolchain replacement
+runs belongs to the toolchain's trusted base, with no history obligation. -/
+def ExecutionBoundary.needsHistory (b : ExecutionBoundary) : Bool :=
+  b.boundary == .runtimeReplacement && b.toolchainOrigin?.isNone
 
 /-- One first visit, recorded before inspecting its policy outcomes. A non-root visit
 retains the earlier visit that queued it; IR-only names may lack module attribution. -/

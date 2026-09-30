@@ -773,7 +773,11 @@ def guide : RuleId → Guide
           `execution-unresolved` and impact `incomplete`, in both `report` and `checked` execution \
           modes.",
         "Replacement history is reconstructed by fresh re-elaboration; metaprogramming commands \
-          such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable."]
+          such as `run_cmd`, `run_elab` or module-local elaborators make it unavailable.",
+        "A path through the Lean toolchain's own origin-checked `Init`, `Std` or `Lean` modules \
+          does not need that history: a toolchain replacement is followed through the current \
+          target its compiled module records, as part of the toolchain's trusted base, so no \
+          toolchain replacement is reported as unresolved for missing history."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -800,14 +804,23 @@ def guide : RuleId → Guide
           ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
               "lean/Regula/Checker/RuleDiagnostics.lean"] }
   | .executionBoundary => {
-      problem := "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary other \
-        than a toolchain native-runtime primitive lacks kernel-checked correspondence: for example \
-        an `implemented_by` replacement without an admitted equality proof, an external `extern`, \
-        or unsafe or partial computation."
+      problem := "On a surface claiming `\"execution\": \"checked\"`, a reachable boundary the \
+        project or a dependency owns lacks kernel-checked correspondence: for example an \
+        `implemented_by` replacement without an admitted equality proof, an external `extern`, or \
+        unsafe or partial computation."
       trigger := [
         "Each reached boundary gets a kind and a correspondence state. Under checked execution, a \
-          boundary that is `trusted` rather than `checked` (other than origin-checked `Init` \
-          runtime primitives) is rejected with applicability `execution-trusted-boundary`.",
+          boundary that is `trusted` rather than `checked` is rejected with applicability \
+          `execution-trusted-boundary` in every root that reaches it, unless the boundary itself \
+          carries an admitted toolchain origin. Only a replacement, `extern`, or unsafe or partial \
+          computation can: a `csimp` simplification or a compiler-trusting proof axiom never \
+          does, even on a constant declared in `Init`.",
+        "The toolchain owns a replacement, `extern`, or unsafe or partial computation declared in \
+          one of its own `Init`, `Std` or `Lean` modules, decided by where Lean loaded that module \
+          from (the pinned toolchain's library, an observation of the probe), not by its name. \
+          Such a boundary is the toolchain's trusted base: it passes and is reported once for the \
+          whole audit, with every environment and root that reaches it, in the audit's toolchain \
+          trusted base.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
           logical axioms and no extra premises."]
@@ -817,11 +830,22 @@ def guide : RuleId → Guide
           with no additional hypotheses, admitted by the kernel. An actual domain hypothesis is \
           legitimate; an extra premise such as `False` is not."]
       established := [
-        "Every reached non-native-runtime boundary of a checked surface has kernel-admitted \
-          correspondence."]
+        "Every reached boundary of a checked surface without an admitted toolchain origin has \
+          kernel-admitted correspondence; each one without it has a failure record in every root \
+          whose account contains it (`RegulaPolicy.project_boundary_reported`).",
+        "Each toolchain-owned boundary of every environment an audit inspects is in exactly one \
+          entry of the audit's toolchain trusted base, which lists exactly the environments and \
+          roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]
       notEstablished := [
-        "Correctness of native-runtime primitives, the compiler or external code; a Lean equality \
-          does not prove external machine code. These stay trusted and reported.",
+        "Correctness of the toolchain's own replacements, unsafe code and native primitives, the \
+          compiler or external code; a Lean equality does not prove external machine code. These \
+          stay trusted and reported.",
+        "Anything about code the program selects at runtime rather than references: a constant \
+          it evaluates by name (`Lean.Environment.evalConst`, `Lean.Meta.reduceBoolNative`), a \
+          dynamic library or plugin it loads, or a process it spawns. The account is the static \
+          closure; such code is data to it, and the toolchain primitive that runs it is trusted \
+          base. The `initialize` and `[init]` actions of imported modules, static or at runtime, \
+          are likewise outside the account.",
         "That the executable roots are the ones the project intends to cover (R-INVARIANT)."]
       configuration := [
         "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \
@@ -834,9 +858,11 @@ def guide : RuleId → Guide
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
-        `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`; an \
-        accepted run satisfies `RegulaPolicy.BoundaryOK`. Extracting the execution closure from \
-        compiler IR is operational."
+        `Regula.Checker.Policy.checked_executionFailures`, `executionRule_injective`, \
+        `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported` and \
+        `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
+        Extracting the execution closure from compiler IR and observing module origins are \
+        operational."
       sources :=
           ["lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean",
               "website/RegulaStandard/ToolingAndMachineAudit.lean"] }

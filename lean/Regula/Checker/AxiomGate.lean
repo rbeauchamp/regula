@@ -58,8 +58,9 @@ structure Options where
   incremental : Bool := false
   /-- `--build-lint`: run as the enforcing build linter, which also sets `incremental`. -/
   buildLint : Bool := false
-  /-- `--verbose`: also print every classified declaration and every execution root with a
-  boundary or an unresolved path. -/
+  /-- `--verbose`: also print every classified declaration, every execution root with a
+  boundary the toolchain does not own or an unresolved path, and every entry of the audit's
+  toolchain trusted base. -/
   verbose : Bool := false
   /-- `--help` or `-h`: print the usage text and exit. -/
   help : Bool := false
@@ -423,6 +424,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let mut reportedImports : Std.HashSet (String × String) := {}
       -- Each surface's library entry, with the entries of its executables' environments.
       let mut resultSurfaces : Array (Json × Array Json) := #[]
+      -- Every environment's execution account, labeled, for the audit's toolchain trusted base.
+      let mut executionAccounts : Array (String × Policy.ExecutionInventory) := #[]
       -- RG2006 reads whether a surface imports Mathlib from all of its environments together;
       -- they load exactly the import closure of the surface's library and executable roots.
       let mathlibSurfaces := inspections.filterMap fun (environment, outcome) =>
@@ -598,19 +601,17 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               |>.qsort fun left right => Name.quickLt left.name right.name
             for decl in declarations do IO.println s!"  {Policy.classify decl scope}"
         let summary := Policy.executionSummary executionInventory
+        executionAccounts := executionAccounts.push (environment.label, executionInventory)
         IO.println <| s!"execution coverage for {environment.label} " ++
           s!"[claim: {surface.execution}]: {summary.roots} root(s), " ++
           s!"{summary.boundaries} boundary(ies) ({summary.checked} checked, " ++
           s!"{summary.trusted} trusted), {summary.unresolved} unresolved"
         -- Every root and boundary is always in `--json-out`; text lists them only on request.
+        -- Toolchain-owned boundaries are listed once for the whole audit, after every
+        -- environment.
         if verbose then
-          for root in report.execution do
-            if !root.boundaries.isEmpty || !root.unresolved.isEmpty then
-              IO.println s!"  execution root {root.name}"
-              for boundary in root.boundaries do
-                IO.println s!"    {Policy.describeBoundary boundary}"
-              for item in root.unresolved do
-                IO.println s!"    unresolved {item}"
+          for line in Policy.executionAccountLines executionInventory do
+            IO.println line
         let environmentFields (report : Json) : List (String × Json) := [
           ("modules", Json.arr <| info.modules.map (fun n => Json.str n.toString)),
           ("authorizedNativeAxioms", Json.arr <| native.map (Json.str ∘ Name.toString)),
@@ -634,6 +635,11 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                 (Json.mkObj <| ("executable", Json.str exe.executable) :: fields))
           | some _, none =>
               throw <| IO.userError "internal error: executable environment before its library"
+      let toolchainBase := Policy.toolchainBase executionAccounts
+      -- Each toolchain-owned boundary once for the whole audit; its size always, its entries
+      -- only on request.
+      for line in Policy.toolchainBaseLines toolchainBase verbose do
+        IO.println line
       let ownedModules := environments.foldl (fun count environment =>
         count + environment.info.modules.size) 0
       let claimedExes := manifest.surfaces.foldl
@@ -687,6 +693,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             ("modules", toJson ownedModuleNames),
             ("declarations", toJson totalDeclarations),
             ("sources", toJson sources), ("surfaces", toJson surfaceEntries),
+            ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
             ("configuration", toJson configuration), ("configurationRoot", toJson repo.toString),
             ("libraries", toJson (libraries.map libraryInfoJson)),
             ("completedStages", toJson
@@ -947,17 +954,14 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
               findings := findings.push finding
             RunFeedback.emitAll IO.println findings
             let summary := Policy.executionSummary executionInventory
+            let toolchainBase := Policy.toolchainBase #[(path.toString, executionInventory)]
             IO.println <| s!"execution coverage [claim: {execution}]: {summary.roots} root(s), " ++
               s!"{summary.boundaries} boundary(ies) ({summary.checked} checked, {summary.trusted} \
                 trusted), " ++
               s!"{summary.unresolved} unresolved"
-            for root in inspected.report.execution do
-              if !root.boundaries.isEmpty || !root.unresolved.isEmpty then
-                IO.println s!"  execution root {root.name}"
-                for boundary in root.boundaries do
-                  IO.println s!"    {Policy.describeBoundary boundary}"
-                for item in root.unresolved do
-                  IO.println s!"    unresolved {item}"
+            for line in Policy.executionAccountLines executionInventory ++
+                Policy.toolchainBaseLines toolchainBase true do
+              IO.println line
             for violation in executionViolations do
               let reason := (violation.splitOn ":").head?.getD "execution-unresolved"
               IO.println s!"[VIOLATION[{reason}]] {violation}"
@@ -1008,6 +1012,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   ("claim", toJson (claim.map Profile.toString)),
                   ("declarations", toJson declarations.size),
                   ("report", inspected.report.resultJson),
+                  ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
                   ("authorizedNativeAxioms", toJson native),
                   ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
                   ("frontendTranscripts", toJson inspected.transcripts),

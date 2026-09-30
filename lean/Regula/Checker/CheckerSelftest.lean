@@ -352,13 +352,9 @@ private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
   let .ok executionInventory := Policy.admitExecution roots
     | return ("invalid execution inventory", true)
   let executionViolations := Policy.executionFailures executionInventory execution
-  for root in roots do
-    if !root.boundaries.isEmpty || !root.unresolved.isEmpty then
-      lines := lines.push s!"  execution root {root.name}"
-      for boundary in root.boundaries do
-        lines := lines.push s!"    {Policy.describeBoundary boundary}"
-      for item in root.unresolved do
-        lines := lines.push s!"    unresolved {item}"
+  let toolchainBase := Policy.toolchainBase #[(fixture.source.toString, executionInventory)]
+  lines := lines ++ Policy.executionAccountLines executionInventory ++
+    Policy.toolchainBaseLines toolchainBase true
   for violation in executionViolations do
     let reason := (violation.splitOn ":").head?.getD "execution-unresolved"
     lines := lines.push s!"[VIOLATION[{reason}]] {violation}"

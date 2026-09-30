@@ -79,7 +79,7 @@ proved sound and complete against it:
 | `FoundationOK` (§7.5) | No owned logical axiom, no `sorryAx`, unknown or compiler axiom; every axiom in the surface's permitted set. |
 | `SafetyOK` (§7.4) | No unsafe or partial declaration unless the exact recursive-helper relation holds; a helper is never logical proof evidence. The helper of a `partial def` (an opaque declaration Lean compiles through it) never holds it, and its finding names that declaration. |
 | `ContractOK` (§7.5, §7.11) | Every registered contract targets the exact supported implementation and predicate, with completed admission. Registration adequacy is review. |
-| `ExecutionOK` (§7.6) | Every root's closure accounted for, no unresolved path; report mode permits reported trust, checked mode only checked evidence or origin-checked native runtime. |
+| `ExecutionOK` (§7.6) | Every root's closure accounted for, no unresolved path; report mode permits reported trust, checked mode only checked evidence or a boundary of the toolchain's origin-checked trusted base. |
 | `DocumentOK` (§7.7) | Complete structural scan; warning-free, admitted Standard-Logical positives; one effective-error match per negative; classified teaching that is never positive conformance. |
 | `DocumentationPresenceOK`, `MaterialDocumentationOK` (§5.1–§5.3) | A module docstring is present (`docstring ≠ none`); each registered material declaration's docstring has a nonempty Intent section. For a module's `documentationPresence` job the unproved adapter computes the RG5001 header decision (`RegulaPolicy.ModuleHeader.failures`, characterized by `failures_eq_nil_iff`: presence, placement first after the imports and no repeated import) as that evidence, and `checked_environmentEvidence` proves only the selection of that frozen record. Registration completeness and fidelity remain R-DOC, intent adequacy R-INTENT. |
 | `ExampleExpectationOK` | Exactly the configured positive, compiler-rejection, policy-rejection or trusted-teaching expectation for the exact source snapshot. Elaborated observations bind group modules and role transcripts to the fixed fences' original bytes, and policy assessment selects the current example unit. Expected policy diagnostics keep stable identity tokens, optional subreason, and exact primary and related locations; matching requires the configured ordered list with no additional diagnostics. The sole registry adapter validates the identity vocabulary and authentic locations, and a completed rejection observation is not itself proof that the external producer did that work. |
@@ -227,10 +227,12 @@ types whose parsers refuse unknown tags (pretty types and messages remain open t
 `admitClaim` refuses unsupported scope/mode combinations; `admitInventory` requires unique
 identities, structural references, canonical sets, agreeing safety fields and transcripts bound
 to source bytes, compiler identity and valid coordinates (an inventory is still not an independent
-census); `admitExecution` requires unique roots and boundary occurrences with valid native-origin
+census); `admitExecution` requires unique roots and boundary occurrences with valid toolchain-origin
 bindings; `BoundaryEvidence kind` keeps replacement equality, simplification equality and
-opaque-body admission distinct, and a trusted native-runtime observation carries matching origin
-data; `admitBoundaryEvidence` preserves correspondence, detail and native origin, refuses
+opaque-body admission distinct, a trusted native-runtime observation carries matching origin
+data, and only a trusted replacement or unsafe or partial computation can also carry one
+(`TrustedEvidence`, `correspondence_of_toolchainOrigin`); `admitBoundaryEvidence` preserves
+correspondence, detail and toolchain origin, refuses
 incompatible extra evidence, and every representable value round-trips. Accepted canonical
 external spellings re-encode identically. The pure codec proves
 `decode (encode x) = ok x` over a tagged tree; that is not a theorem about JSON text. Worker
@@ -256,7 +258,7 @@ interfaces do not imply a library-wide exemption.
 | Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. A conforming request requires its permitted foundation, safety relation and recorded contract obligations. |
 | Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` reads no transcript: it requires the regeneration observation (`unsafeRecRegenerated`), the helper's exact metadata, and a safe base of the same module and type whose axioms are within Standard-Logical, with the exact group mapping. `authorizedUnsafeRecHelpers_base` states those facts for every authorized helper; `partialParent_not_authorized` excludes the helper of an opaque (`partial def`) base. The observed replay and regeneration fields are inputs; the predicates do not prove them truthful. |
 | Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and Lean's three compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
-| Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. |
+| Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. A toolchain-owned boundary never fails; every boundary without an admitted toolchain origin or checked evidence has its own failure record, in every root whose account contains it, under a checked claim; the audit's toolchain trusted base has each toolchain-owned boundary (constant and kind) of every labeled environment account in exactly one entry, which lists exactly the environments and roots that reach it. |
 | Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. |
 | Expected diagnostics | `matchesPattern_iff`, `orderedLiterals_iff` | The restricted pattern's ordered leftmost-split match within one effective-error message. |
 
@@ -267,7 +269,7 @@ interfaces do not imply a library-wide exemption.
 | `Checker/Policy.admitScope`, with `Frontend.validateCoordinates` | `checked_scope` (first coordinate refusal in transcript order, then exactly `admitInventory` with `authorize`; success iff all coordinate checks and `InventoryValid` hold, retaining both input arrays); `checked_coordinates` (claimed `RegulaCore.Coordinates`: success iff `CoordinatesAgree`, refusal with the first unmet obligation in traversal order) | Lean's UTF-16 column function (`FileMap.leanPosToLspPos`) and `FileMap`; source and compiler observation acquisition. |
 | `request`, `ruleFor`/`reasonFor`, `ruleForMember` (claimed `RegulaCore.Policy`) | `checked_request`, `checked_rule`, `checked_memberRule` over `policyFor`; `ruleForFailure_injective`, `reasonFor_eq_some_iff` | Registry descriptor text; adequacy of the mapped rule set. |
 | `labelOf`, `labelOfMember`, `classify`, `classifyMember` | `foundationFor`; `checked_memberFoundation`, `labelOf_member`, `classifyMember_eq` | Transitive `Lean.collectAxioms` results and module ownership. |
-| `executionFailureRecords`, `executionFailures`, `executionSummary` | `checked_executionFailures` (line `k` renders record `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary` | Root and closure collection, retained compiler edges, correspondence admission, source history and runtime origins. |
+| `executionFailureRecords`, `executionFailures`, `executionSummary`, `toolchainBase` | `checked_executionFailures` (line `k` renders record `k`, none added or dropped, so the lines are empty iff `ExecutionOK`), `executionRule_injective`, `checked_summary`, `checked_toolchainBase` | Root and closure collection, retained compiler edges, correspondence admission, source history, module origins and the text and JSON rendering of the toolchain trusted base. |
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` (a comparison that did not complete is unresolved, never trusted) | Mapping the kernel result to the outcome, the kernel decision itself and the incomplete theorem-candidate search. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
 | `Checker/Documentation.matchesPattern` | `matchesPattern` | Structural fence scanning, pattern diagnostic text and effective-error extraction. |
@@ -302,7 +304,7 @@ the call through each success owner.
 | RG1006 | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the regeneration observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates or delay one under a binder, so the helper's termination trusts that preprocessing (standard §7.4). |
 | RG1007 | `ContractOK` through `ruleFor` | Recorded contract failures are enforced; Probe's extraction of the proposition and root, proof admission and adequacy are not proved by this relation. |
 | RG2004 | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
-| RG3001, RG3002 | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff` | The theorems cover the supplied unresolved paths and boundaries, not complete root and closure discovery or external runtime correctness. |
+| RG3001, RG3002 | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, or the correctness of the toolchain's or external runtime code. |
 | RG4003 | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
 | RG5002, RG5003 | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
 | RG2001–RG2005, RG4001–RG4004, RG5001–RG5003 | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
@@ -497,19 +499,20 @@ inferred from any pure proof.
   exactly the claimed modules and unique material selection; unique history requests with exactly
   one history per requested module; completed histories located, source-stable, bound to the
   owned snapshot when the module has one and free of anonymous edge endpoints; unavailable
-  histories leaving every requested root unresolved; requested runtime replacements whose
-  resolved edges appear in completed histories; root/boundary module attribution with exact
-  replacement-edge channels; and, for every current replacement reference, a reached,
-  attributed, requested and recorded module history, with the root's historical edges the
-  canonical form of exactly those completed-history edges); `validate_eq_ok` decomposes the guard
-  sequence, `validate_nonvacuous` exhibits an admitted report and `fromJson_admissible` extends
-  soundness to the decoder. Producers, documentation groups and acceptance call
-  `checked_validate.run`; the project report worker skips its own call: the coordinator's decoder
-  runs the same check once and keeps its success as a `ProducerReport.Admitted` proof
-  (`fromJson_admitted` shows it accepts and refuses exactly as the plain decoder), and
-  `Acceptance.freezeEnvironment` requires that proof instead of re-running the check and takes
-  the execution inventory from it (`Admitted.admitExecution_eq`). These do not authenticate the
-  observations; a direct interactive dump has no loader receipt and cannot pass the decoder.
+  histories leaving every requested root unresolved; requested runtime replacements the toolchain
+  does not own whose resolved edges appear in completed histories; root/boundary module
+  attribution with exact replacement-edge channels; and, for every current replacement reference
+  the toolchain does not own, a reached, attributed, requested and recorded module history, with
+  the root's historical edges the canonical form of exactly those completed-history edges);
+  `validate_eq_ok` decomposes the guard sequence, `validate_nonvacuous` exhibits an admitted
+  report and `fromJson_admissible` extends soundness to the decoder. Producers, documentation
+  groups and acceptance call `checked_validate.run`; the project report worker skips its own call:
+  the coordinator's decoder runs the same check once and keeps its success as a
+  `ProducerReport.Admitted` proof (`fromJson_admitted` shows it accepts and refuses exactly as the
+  plain decoder), and `Acceptance.freezeEnvironment` requires that proof instead of re-running the
+  check and takes the execution inventory from it (`Admitted.admitExecution_eq`). These do not
+  authenticate the observations; a direct interactive dump has no loader receipt and cannot pass
+  the decoder.
   Replay and source-evidence failures cross workers as typed
   `ProducerReport.Outcome.admissionFailed` (the shared `Environment.validateSourceEvidence` guard)
   and surface as RG2005, incomplete; initial setup failures stay RG2001. A transported refusal is
@@ -521,9 +524,12 @@ inferred from any pure proof.
   loader keeps the Lean-resolved path, the exact bytes before and after an isolated worker and the
   ordered replacement edges, so earlier choices overwritten by later attributes are kept. A
   changed source or unsupported evaluator yields `unavailable`, never a completed receipt. A
-  runtime-replacement boundary must have a registered request, and completed execution requires
-  its replacement edge in a completed history. Logical-only inspection has no execution roots,
-  requests or history receipts.
+  runtime-replacement boundary the toolchain does not own (`ExecutionBoundary.needsHistory`) must
+  have a registered request, and completed execution requires its replacement edge in a completed
+  history. A toolchain replacement, whose module has an admitted toolchain origin, requests no
+  history: the walk follows its current target, and `historyReplacementEdges` leaves its edge out
+  of the history account. Logical-only inspection has no execution roots, requests or history
+  receipts.
 - **Closure.** `ExecutionRoot.closure` records the actual `Probe.executionWalk`: each first visit
   with its owning module and the earlier visit that queued it, and separate edge channels
   (`logicalEdges`, constants used by the logical bodies the walk follows; `candidateEdges`, every

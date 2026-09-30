@@ -53,8 +53,13 @@ targets, and partial helpers. `@[extern]` constants are boundary leaves for
 their Lean bodies. The report distinguishes possible replacements from actual
 retained compiler edges and records every boundary in this closure:
 compiler simplifications, `@[implemented_by]` replacements, `@[extern]` declarations split into
-toolchain native-runtime primitives (origin-checked `Init` modules) and other external code,
-unsafe/partial/opaque computation, and compiler-trusting proof axioms. Each
+toolchain native-runtime primitives and other external code, unsafe/partial/opaque
+computation, and compiler-trusting proof axioms. A replacement, `extern`, or unsafe or partial
+computation declared in an origin-checked `Init`, `Std` or `Lean` module carries that
+module's toolchain origin: it is the toolchain's trusted base, and a toolchain replacement is
+followed through its current target without source history or correspondence. An unsafe
+constant whose type Lean's `Meta.isProp` finds to be a proposition, such as `lcProof`, is a
+proof the compiler erases and is no boundary. Each
 boundary is marked `checked` (kernel-definitional equality, a standard-logical
 correspondence theorem, or a kernel-checked opaque body), `trusted`, or
 `unresolved`; unresolved paths are listed per root. Imported boundary
@@ -422,7 +427,7 @@ Compiler metadata supplements source dependencies; neither alone retains all
 earlier replacements after inlining. Equality candidates are not a claim that
 the compiler selected them. Extern reference bodies remain boundary leaves. -/
 private def executionWalk (env : Environment) (ownedModules : List Name)
-    (nativeModules : NameMap RegulaPolicy.NativeOrigin)
+    (toolchainModules : NameMap RegulaPolicy.ToolchainOrigin)
     (loadReplacementHistory : Name → IO (Except String (Array (Name × Name))))
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
@@ -491,12 +496,17 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     | unresolved := unresolved.push s!"{name}: module attribution is unavailable"
       continue
     let owned := ownedModules.contains moduleName
+    -- The admitted origin of the constant's module when it is the toolchain's own compiled
+    -- `Init`, `Std` or `Lean` module. A trusted boundary of an ownable kind there belongs to
+    -- the toolchain's trusted base; `implemented_by` and `extern` data can only be set in the
+    -- declaring module, so the declaration's module decides who owns the boundary.
+    let toolchain := toolchainModules.find? moduleName
     let entry (boundary : BoundaryKind) (correspondence : Correspondence)
         (replacement : Option Name) (evidence : Option String) :
         CommandElabM Regula.Report.ExecutionBoundary := do
       let account ← match RegulaPolicy.admitBoundaryEvidence boundary correspondence evidence
-          (if boundary == .nativeRuntime && correspondence == .trusted then
-              nativeModules.find? moduleName else none) with
+          (if boundary.toolchainOwnable && correspondence == .trusted then toolchain
+            else none) with
         | .ok account => pure account
         | .error error => throwError "{error}"
       return {
@@ -521,12 +531,20 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
                 candidate={simplification.thmName}; {evidence.getD ""}"))
       queue := queue ++ enqueue #[target]
     if Lean.isExtern env name then
-      let native := nativeModules.contains moduleName
       boundaries := boundaries.push <|
-        (← entry (if native then .nativeRuntime else .external) .trusted none none)
+        (← entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none)
       continue
     if let some target := Lean.Compiler.getImplementedBy? env name then
       currentReplacementEdges := currentReplacementEdges.push (name, target)
+      -- Which implementation a toolchain replacement runs is part of the toolchain's trusted
+      -- base: it needs neither source history nor correspondence. Its current target is still
+      -- followed, so every boundary it reaches is classified in its own module.
+      if toolchain.isSome then
+        replacementEdges := replacementEdges.push (name, target)
+        boundaries := boundaries.push <|
+          (← entry .runtimeReplacement .trusted (some target) none)
+        queue := queue ++ enqueue #[target]
+        continue
       let history ← liftIO <| loadReplacementHistory moduleName
       let targets ← match history with
         | .error error =>
@@ -556,6 +574,10 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
         queue := queue ++ enqueue dependencies
       continue
     if info.isUnsafe then
+      -- A constant whose type is a proposition is a proof: the compiler erases it, so it never
+      -- runs. `lcProof`, the placeholder for erased proofs in unsafe code, is such an axiom.
+      if ← observing env name "proposition test" <| liftTermElabM <| Meta.isProp info.type then
+        continue
       boundaries := boundaries.push <| (← entry .unsafeComputation .trusted none none)
       if let some value := info.value? then
         let dependencies := value.getUsedConstants
@@ -688,22 +710,23 @@ def environmentReport (modules : List Name)
   let historyRequests ← liftIO <| IO.mkRef (#[] : Array (Name × Name))
   let execution ← if includeExecution then do
     -- Names alone do not establish toolchain ownership: an adopter or dependency
-    -- can supply Init.* modules. Resolve each candidate once, and require the
-    -- exact canonical artifact path in the pinned toolchain's library directory.
-    -- Missing origin evidence throws rather than granting a runtime exemption.
+    -- can supply Init.*, Std.* or Lean.* modules. Resolve each candidate once, and require
+    -- the exact canonical artifact path in the pinned toolchain's library directory.
+    -- Missing origin evidence leaves the module's boundaries owned by the project or a
+    -- dependency rather than granting a toolchain exemption.
     let toolchainLib ← liftIO <| Lean.getLibDir (← Lean.findSysroot)
-    let mut nativeModules : NameMap RegulaPolicy.NativeOrigin := {}
+    let mut toolchainModules : NameMap RegulaPolicy.ToolchainOrigin := {}
     for (moduleName, origin) in env.header.moduleNames.zip moduleOrigins do
-      if moduleName.getRoot == `Init then
+      if RegulaPolicy.ToolchainRoot moduleName.getRoot then
         let actual ← liftIO <| IO.FS.realPath origin.olean
         let expected := Lean.modToFilePath toolchainLib moduleName "olean"
         if ← liftIO expected.pathExists then
           if actual == (← liftIO <| IO.FS.realPath expected) then
-            let receipt ← match RegulaPolicy.admitNativeOrigin moduleName actual.toString
+            let receipt ← match RegulaPolicy.admitToolchainOrigin moduleName actual.toString
                 (← liftIO <| IO.FS.realPath expected).toString with
               | .ok receipt => pure receipt
               | .error error => throwError "{error}"
-            nativeModules := nativeModules.insert origin.name receipt
+            toolchainModules := toolchainModules.insert origin.name receipt
     let recursorHelpers := brecOnHelpers env own
     let candidates := simplificationCandidates env
     let proofCache ← liftIO <| IO.mkRef
@@ -712,7 +735,7 @@ def environmentReport (modules : List Name)
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
         observing env root "execution walk" <|
-          executionWalk env modules nativeModules (fun name => do
+          executionWalk env modules toolchainModules (fun name => do
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
             loadReplacementHistory name) candidates proofCache dependencyCache recursorHelpers root

@@ -267,11 +267,12 @@ def Environment.validateHistory (r : Environment) : Name × HistoryOutcome → E
         r.execution.any (fun e => e.name == root && !e.unresolved.isEmpty)) do
       throw "producer-history: unavailable history without unresolved execution"
 
-/-- A runtime replacement is requested, and a resolved root's replacement edge is in
-its module's completed history. -/
+/-- A runtime replacement the toolchain does not own is requested, and a resolved root's
+replacement edge is in its module's completed history. A toolchain replacement has no history
+obligation (`ExecutionBoundary.needsHistory`). -/
 def Environment.validateReplacementBoundary (r : Environment) (root : ExecutionRoot)
     (boundary : ExecutionBoundary) : Except String Unit := do
-  if boundary.boundary == .runtimeReplacement then
+  if boundary.needsHistory then
     unless r.census.historyRequests.contains (root.name, boundary.module) do
       throw "producer-history: unrequested runtime replacement"
     if root.unresolved.isEmpty then
@@ -303,6 +304,13 @@ def boundaryChannelsOK (root : ExecutionRoot) : Bool :=
     boundaryEdges root .runtimeReplacement == canonicalEdges
       (root.closure.historyEdges ++ root.closure.currentReplacementEdges)
 
+/-- The current replacement edges with a history obligation: every one except those whose
+reference is a runtime-replacement boundary the toolchain owns. -/
+def historyReplacementEdges (root : ExecutionRoot) : Array (Name × Name) :=
+  root.closure.currentReplacementEdges.filter fun edge =>
+    !root.boundaries.any fun b =>
+      b.boundary == .runtimeReplacement && b.name == edge.1 && b.toolchainOrigin?.isSome
+
 /-- The completed-history edges recorded for one current replacement edge. -/
 def Environment.recordedHistoryEdges (r : Environment) (root : ExecutionRoot)
     (edge : Name × Name) : Except String (Array (Name × Name)) := do
@@ -324,7 +332,7 @@ def Environment.validateRoot (r : Environment) (root : ExecutionRoot) : Except S
     throw "producer-closure: reached module attribution mismatch"
   unless boundaryChannelsOK root do
     throw "producer-closure: replacement boundary coverage mismatch"
-  let expectedHistory ← root.closure.currentReplacementEdges.foldlM
+  let expectedHistory ← (historyReplacementEdges root).foldlM
     (fun acc edge => return acc ++ (← r.recordedHistoryEdges root edge)) #[]
   unless canonicalEdges expectedHistory == root.closure.historyEdges do
     throw "producer-closure: historical edges differ from their source receipts"
@@ -442,10 +450,10 @@ def Environment.HistoriesSound (r : Environment) : Prop :=
     ∀ root, (root, mod) ∈ r.census.historyRequests →
       ∃ e ∈ r.execution, e.name = root ∧ e.unresolved ≠ #[])
 
-/-- Every runtime replacement is requested; for a resolved root its replacement edge is
-in its module's completed history. -/
+/-- Every runtime replacement the toolchain does not own is requested; for a resolved root its
+replacement edge is in its module's completed history. -/
 def Environment.ReplacementsSound (r : Environment) : Prop :=
-  ∀ root ∈ r.execution, ∀ b ∈ root.boundaries, b.boundary = .runtimeReplacement →
+  ∀ root ∈ r.execution, ∀ b ∈ root.boundaries, b.needsHistory = true →
     (root.name, b.module) ∈ r.census.historyRequests ∧
     (root.unresolved = #[] → ∃ mod path before after edges replacement,
       r.histories.find? (·.1 == b.module) = some (mod, .completed path before after edges) ∧
@@ -465,16 +473,17 @@ def Environment.ClosureAccountSound (r : Environment) : Prop :=
     boundaryEdges root .runtimeReplacement =
       canonicalEdges (root.closure.historyEdges ++ root.closure.currentReplacementEdges)
 
-/-- Every current replacement reference is reached in a module whose history its root
-requested and recorded, and the root's historical edges are the canonical form of
-exactly the completed-history edges leaving those references. -/
+/-- Every current replacement reference with a history obligation (`historyReplacementEdges`)
+is reached in a module whose history its root requested and recorded, and the root's
+historical edges are the canonical form of exactly the completed-history edges leaving those
+references. -/
 def Environment.HistoryEdgesSound (r : Environment) : Prop :=
   ∀ root ∈ r.execution,
-    (∀ edge ∈ root.closure.currentReplacementEdges, ∃ v mod entry,
+    (∀ edge ∈ historyReplacementEdges root, ∃ v mod entry,
       root.closure.visits.find? (·.name == edge.1) = some v ∧ v.moduleName = some mod ∧
       (root.name, mod) ∈ r.census.historyRequests ∧ r.histories.find? (·.1 == mod) = some entry) ∧
     ∃ recorded, canonicalEdges recorded = root.closure.historyEdges ∧
-      ∀ e, e ∈ recorded ↔ ∃ edge ∈ root.closure.currentReplacementEdges, e.1 = edge.1 ∧
+      ∀ e, e ∈ recorded ↔ ∃ edge ∈ historyReplacementEdges root, e.1 = edge.1 ∧
         ∃ v mod entryMod path before after edges,
           root.closure.visits.find? (·.name == edge.1) = some v ∧ v.moduleName = some mod ∧
           r.histories.find? (·.1 == mod) = some (entryMod, .completed path before after edges) ∧
@@ -617,7 +626,7 @@ theorem validateRoot_eq_ok (r : Environment) (root : ExecutionRoot)
     (h : r.validateRoot root = .ok ()) :
     (∀ b ∈ root.boundaries, r.validateReplacementBoundary root b = .ok ()) ∧
     r.attributionOK root = true ∧ boundaryChannelsOK root = true ∧
-    ∃ expected, root.closure.currentReplacementEdges.foldlM
+    ∃ expected, (historyReplacementEdges root).foldlM
         (fun acc edge => return acc ++ (← r.recordedHistoryEdges root edge)) #[] = .ok expected ∧
       canonicalEdges expected = root.closure.historyEdges := by
   unfold Environment.validateRoot at h
@@ -654,7 +663,7 @@ theorem recordedHistoryEdges_eq_ok (r : Environment) (root : ExecutionRoot) (edg
     simp [and_comm]
 
 theorem historyEdgesSound_of (r : Environment)
-    (h : ∀ root ∈ r.execution, ∃ expected, root.closure.currentReplacementEdges.foldlM
+    (h : ∀ root ∈ r.execution, ∃ expected, (historyReplacementEdges root).foldlM
         (fun acc edge => return acc ++ (← r.recordedHistoryEdges root edge)) #[] = .ok expected ∧
       canonicalEdges expected = root.closure.historyEdges) :
     r.HistoryEdgesSound := by
@@ -688,13 +697,13 @@ theorem historyEdgesSound_of (r : Environment)
 
 
 theorem replacementBoundary_sound (r : Environment) (root : ExecutionRoot) (b : ExecutionBoundary)
-    (h : r.validateReplacementBoundary root b = .ok ()) (hk : b.boundary = .runtimeReplacement) :
+    (h : r.validateReplacementBoundary root b = .ok ()) (hk : b.needsHistory = true) :
     (root.name, b.module) ∈ r.census.historyRequests ∧
     (root.unresolved = #[] → ∃ mod path before after edges replacement,
       r.histories.find? (·.1 == b.module) = some (mod, .completed path before after edges) ∧
       b.replacement = some replacement ∧ (b.name, replacement) ∈ edges) := by
   unfold Environment.validateReplacementBoundary at h
-  simp only [hk, beq_self_eq_true, ite_true] at h
+  simp only [hk, ite_true] at h
   by_cases hreq : r.census.historyRequests.contains (root.name, b.module) = true
   · refine ⟨Array.contains_iff_mem.mp hreq, fun hu => ?_⟩
     have hu : root.unresolved.isEmpty = true := by simp [hu]

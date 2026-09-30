@@ -197,11 +197,11 @@ neither an `IO` type nor recursion determines it. Compiler-trusting axioms (from
 | Mode | Meaning |
 | --- | --- |
 | `report` (default) | Every execution boundary reached from an owned executable root is reported with its kind and correspondence state; trusted boundaries are recorded, not failed. |
-| `checked` | Additionally fails on any trusted boundary other than the toolchain's own native-runtime primitives. |
+| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, or a compiler-trusting proof. The Lean toolchain's own replacements, externs, and unsafe and partial code (in `Init`, `Std` and `Lean`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
 
-In both modes an unresolved path blocks the execution claim. Native arithmetic and the Lean
-runtime remain trusted in every mode; the checker verifies Lean source, not the compiler or the
-machine.
+In both modes an unresolved path blocks the execution claim. Native arithmetic, the Lean runtime
+and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
+source, not the compiler or the machine.
 
 ## 4. Run `lake lint`
 
@@ -324,13 +324,13 @@ rule's scope, reason and a violating and corrected example produced by the real 
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 4, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 5, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `4`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `5`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges), `arguments`, `text`, `remedy` and `helpUrl`. |

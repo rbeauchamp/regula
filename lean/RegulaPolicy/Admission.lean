@@ -182,11 +182,11 @@ def admitInventory (decls : Array Declaration) (transcripts : Array Frontend.Tra
 theorem admitInventory_exact (ds : Array Declaration) (ts : Array Frontend.Transcript)
     (h : InventoryValid ds ts) : admitInventory ds ts = .ok ⟨ds, ts, h⟩ := by
   simp [admitInventory, h]
-/-- Boundary origin receipts must refer to this observation's module. -/
+/-- Boundary toolchain-origin receipts must refer to this observation's module. -/
 def ExecutionBoundary.Valid (b : ExecutionBoundary) : Prop :=
   Named b.name ∧ Named b.module ∧
   (∀ n ∈ b.replacement, Named n) ∧ (∀ n ∈ b.compilerCallers, Named n) ∧
-  (∀ o ∈ b.account.nativeOrigin?, o.moduleName = b.module)
+  (∀ o ∈ b.toolchainOrigin?, o.moduleName = b.module)
 instance instDecidableExecutionBoundaryValid (b : ExecutionBoundary) : Decidable b.Valid := by
   unfold ExecutionBoundary.Valid
   infer_instance

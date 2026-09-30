@@ -1,4 +1,5 @@
 import Regula.Checker.Common
+import RegulaPolicy.Domain
 
 /-!
 # Compiler-path coverage qualification
@@ -24,8 +25,10 @@ private structure Case where
   moduleSystem : Bool := false
   emittedSymbol : Option String := none
   importLean : Bool := false
+  extraImports : Array String := #[]
   supportModule : String := "Support"
   positiveExpected : Array String := #[]
+  absent : Array String := #[]
 
 private def externalAttribute := "@[extern \"compiler_path_external\"] "
 
@@ -37,6 +40,38 @@ private def cases : Array Case := #[
     before := "def target", after := externalAttribute ++ "def target"
     expected := #["CompilerPath.target [external]", "module Init.Adopter"]
     positiveExpected := #["Nat.add [native-runtime]"]
+    project := true },
+  { name := "lean-module-origin"
+    supportModule := "Lean.Adopter"
+    extraImports := #["Std.Sync.Mutex", "Lean.Data.Name"]
+    body := "/-- The identity, doubled. -/\ndef other (n : Nat) := n + n\n/-- The identity. -/\n" ++
+      "def target (n : Nat) := n\n/-- Under a fresh lock, prints the length of `target`'s " ++
+      "decimal spelling and a name and syntax comparison. -/\n" ++
+      "def entry (n : Nat) : IO Unit := do\n  let mutex ← Std.BaseMutex.new\n  mutex.lock\n" ++
+      "  IO.println (← #[toString (target n)].foldlM (fun acc s => pure (acc + s.length)) 0)\n" ++
+      "  IO.println (Lean.Name.quickCmp `a `b == .lt && Lean.Syntax.structEq .missing .missing)\n"
+    before := "def target", after := "@[implemented_by other] def target"
+    expected := #["CompilerPath.target [runtime-replacement]", "module Lean.Adopter"]
+    -- Real toolchain boundaries of `Init`, `Std` and `Lean` (the last resolved through the
+    -- lookalike's symlinked `Lean` prefix): replacements, an unsafe implementation, an extern
+    -- and a partial definition, each attributed to the toolchain.
+    positiveExpected := #["Nat.repr [runtime-replacement] correspondence=trusted " ++
+      "replacement=Nat.reprFast toolchain",
+      "Array.foldlMUnsafe [unsafe-computation] correspondence=trusted toolchain",
+      "Std.BaseMutex.lock [native-runtime] correspondence=trusted toolchain " ++
+        "(module Std.Sync.Mutex)",
+      "Lean.Name.quickCmp [runtime-replacement] correspondence=trusted " ++
+        "replacement=_private.Lean.Data.Name.0.Lean.Name.quickCmpImpl toolchain " ++
+        "(module Lean.Data.Name)",
+      "Lean.Syntax.structEq [partial-computation] correspondence=trusted toolchain " ++
+        "(module Init.Meta.Defs)",
+      "Array.foldlMUnsafe.fold [unsafe-computation] correspondence=trusted toolchain"]
+    -- `Array.foldlMUnsafe.fold`, reached above, passes the proof placeholder `lcProof`, an
+    -- `unsafe axiom` of `Init.Prelude`. Whether a constant's type is a proposition is Lean's
+    -- `Meta.isProp` observation, an external elaborator boundary: this qualifies it on the pin
+    -- (without the probe's erasure guard, `lcProof` is a toolchain unsafe-computation boundary),
+    -- and is not a proof that every proof-typed constant is erased.
+    absent := #["boundary lcProof ["]
     project := true },
   { name := "imported"
     body := "/-- The identity. -/\ndef target (n : Nat) := n\n" ++
@@ -164,8 +199,9 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     (Array String) := do
   let body := if negative then test.body.replace test.before test.after else test.body
   if negative && body == test.body then return #[s!"{test.name}: mutation anchor missing"]
-  let header := if test.moduleSystem then "module\npublic import Init\n"
-    else if test.importLean then "import Lean\n" else "import Init\n"
+  let header := (if test.moduleSystem then "module\npublic import Init\n"
+    else if test.importLean then "import Lean\n" else "import Init\n") ++
+    String.join (test.extraImports.toList.map fun name => s!"import {name}\n")
   let supportName := test.supportModule.toName
   let supportPath := Lean.modToFilePath scratch supportName "lean"
   if let some parent := supportPath.parent then IO.FS.createDirAll parent
@@ -191,23 +227,26 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
   let configured ← runProcess scratch "lake" #["update"]
   if !configured.succeeded then
     return #[s!"{test.name}: configuration setup failed:\n{configured.output}"]
-  -- Lean resolves an entire module prefix from one search directory. Supply
-  -- the unchanged toolchain Init artifacts by symlink alongside the isolated
-  -- adopter module; never write into the actual toolchain. Each phase starts
-  -- in a new scratch tree, including the restored control.
-  let initLookalike := supportName.getRoot == `Init
-  if initLookalike then
+  -- Lean resolves an entire module prefix from one search directory. Supply the unchanged
+  -- toolchain artifacts of the lookalike's root (`Init` or `Lean`) by symlink alongside the
+  -- isolated adopter module; never write into the actual toolchain. Each phase starts in a
+  -- new scratch tree, including the restored control.
+  let lookalikeRoot := supportName.getRoot
+  let lookalike := decide (RegulaPolicy.ToolchainRoot lookalikeRoot)
+  if lookalike then
     let toolchainLib ← Lean.getLibDir (← Lean.findSysroot)
     let output := scratch / ".lake" / "build" / "lib" / "lean"
-    IO.FS.createDirAll (output / "Init")
+    let prefixDirectory := lookalikeRoot.toString
+    IO.FS.createDirAll (output / prefixDirectory)
     let link (source destination : FilePath) := do
       let result ← runProcess scratch "ln" #["-s", source.toString, destination.toString]
       if !result.succeeded then
         throw <| IO.userError s!"could not expose toolchain control: {result.output}"
     for entry in ← toolchainLib.readDir do
-      if entry.fileName.startsWith "Init." then link entry.path (output / entry.fileName)
-    for entry in ← (toolchainLib / "Init").readDir do
-      link entry.path (output / "Init" / entry.fileName)
+      if entry.fileName.startsWith s!"{prefixDirectory}." then
+        link entry.path (output / entry.fileName)
+    for entry in ← (toolchainLib / prefixDirectory).readDir do
+      link entry.path (output / prefixDirectory / entry.fileName)
   IO.FS.writeFile (scratch / "foundation_manifest.json")
     ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"Wrapper\",\"claim\":\"standard-logical\","
         ++
@@ -226,6 +265,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
       if !result.succeeded then return #[s!"{test.name}: positive failed:\n{result.output}"]
       if let some missing := test.positiveExpected.find? (!result.output.contains ·) then
         return #[s!"{test.name}: positive missing {missing}:\n{result.output}"]
+    if let some present := test.absent.find? (result.output.contains ·) then
+      return #[s!"{test.name}: unexpectedly reported {present}:\n{result.output}"]
     return #[]
   let mut failures := check
       (← runProcess scratch binary
@@ -244,7 +285,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     IO.FS.writeFile (scratch / "foundation_manifest.json")
       ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"" ++ test.supportModule ++
           "\",\"claim\":\"standard-logical\"," ++
-        (if initLookalike then "\"execution\":\"checked\"," else "") ++
+        (if lookalike then "\"execution\":\"checked\"," else "") ++
         "\"rationale\":\"reported \
           support\"},{\"library\":\"Wrapper\",\"claim\":\"standard-logical\"," ++
         "\"execution\":\"checked\",\"rationale\":\"checked consumer\"}]," ++
@@ -252,7 +293,7 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     -- Preserve the toolchain-only symlink overlay in this case. The claimed
     -- adopter sources are still built afresh in each independent phase.
     -- Boundary evidence lines are printed only in verbose mode.
-    let args := (if initLookalike then #["--incremental"] else #[]) ++ #["--verbose"]
+    let args := (if lookalike then #["--incremental"] else #[]) ++ #["--verbose"]
     failures := failures ++ check (← runProcess scratch binary args)
   return failures
 

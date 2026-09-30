@@ -6,10 +6,11 @@ import RegulaCore.Policy
 Operational adapter over the claimed `RegulaCore.Policy` projections: it binds
 scope admission to the frontend's source-coordinate check and renders policy results
 as text. This file defines `admitScope` (running `checked_scope`), `executionSummary` (running
-`RegulaPolicy.checked_summary`) and the unproved renderers `describeBoundary`, `classify`,
-`classifyMember` and `subjectDetail`; `executionFailureRecords` is the claimed decision itself.
-The rules, member labels and `executionFailures` in this namespace are defined in claimed
-`RegulaCore.Policy`. -/
+`RegulaPolicy.checked_summary`), `toolchainBase` (running `RegulaPolicy.checked_toolchainBase`)
+and the unproved renderers `describeBoundary`, `describeToolchainBoundary`,
+`executionAccountLines`, `toolchainBaseLines`, `toolchainBaseJson`, `classify`, `classifyMember`
+and `subjectDetail`; `executionFailureRecords` is the claimed decision itself. The rules, member
+labels and `executionFailures` in this namespace are defined in claimed `RegulaCore.Policy`. -/
 
 namespace Regula.Checker.Policy
 
@@ -66,6 +67,73 @@ def describeBoundary (boundary : Regula.Report.ExecutionBoundary) : String :=
   s!"boundary {boundary.name} [{boundary.boundary}] " ++
     s!"correspondence={boundary.correspondence}{replacement}{evidence}{owned}{callers} " ++
     s!"(module {boundary.«module»})"
+
+/-- The toolchain trusted base of an audit's labeled execution accounts: each toolchain-owned
+boundary once, with every environment and root that reaches it, through
+`RegulaPolicy.checked_toolchainBase`. -/
+def toolchainBase (environments : Array (String × ExecutionInventory)) :
+    Array RegulaPolicy.ToolchainBoundary :=
+  RegulaPolicy.checked_toolchainBase.run environments
+
+/-- An entry's reaches grouped by environment, in their sorted order: each environment's label
+with the roots in it that reach the entry. -/
+private def reachGroups (entry : RegulaPolicy.ToolchainBoundary) : Array (String × Array Name) :=
+  entry.reachedBy.foldl (init := #[]) fun groups (label, root) =>
+    match groups.back? with
+    | some (last, roots) =>
+        if last == label then groups.pop.push (last, roots.push root)
+        else groups.push (label, #[root])
+    | none => groups.push (label, #[root])
+
+/-- One-line rendering of one toolchain trusted-base entry: always trusted, attributed to the
+toolchain, with the environments and roots that reach it. -/
+def describeToolchainBoundary (entry : RegulaPolicy.ToolchainBoundary) : String :=
+  let replacement := entry.replacement.map (fun value => s!" replacement={value}") |>.getD ""
+  let reached := (reachGroups entry).toList.map fun (label, roots) =>
+    s!"{label}: {", ".intercalate (roots.toList.map toString)}"
+  s!"boundary {entry.name} [{entry.boundary}] correspondence=trusted{replacement} toolchain " ++
+    s!"(module {entry.module}) reached-by={"; ".intercalate reached}"
+
+/-- The JSON form of one toolchain trusted-base entry, with its admitted origin and the
+environments and roots that reach it. -/
+def toolchainBoundaryJson (entry : RegulaPolicy.ToolchainBoundary) : Lean.Json :=
+  Lean.Json.mkObj [
+    ("name", Lean.toJson entry.name), ("module", Lean.toJson entry.module),
+    ("boundary", Lean.toJson entry.boundary), ("replacement", Lean.toJson entry.replacement),
+    ("toolchainOrigin", Lean.toJson entry.origin),
+    ("reachedBy", Lean.Json.arr <| (reachGroups entry).map fun (label, roots) =>
+      Lean.Json.mkObj [("environment", Lean.toJson label), ("roots", Lean.toJson roots)])]
+
+/-- A toolchain trusted base (`toolchainBase`) as JSON, in its order. -/
+def toolchainBaseJson (base : Array RegulaPolicy.ToolchainBoundary) : Lean.Json :=
+  Lean.Json.arr (base.map toolchainBoundaryJson)
+
+/-- The text lines of one execution account: each root with a boundary the toolchain does not
+own or an unresolved path, listing those boundaries and paths. Toolchain-owned boundaries are
+listed by `toolchainBaseLines` instead. -/
+def executionAccountLines (inventory : ExecutionInventory) : Array String := Id.run do
+  let mut lines : Array String := #[]
+  for root in inventory.roots do
+    let reported := root.boundaries.filter (·.toolchainOrigin?.isNone)
+    if !reported.isEmpty || !root.unresolved.isEmpty then
+      lines := lines.push s!"  execution root {root.name}"
+      for boundary in reported do
+        lines := lines.push s!"    {describeBoundary boundary}"
+      for item in root.unresolved do
+        lines := lines.push s!"    unresolved {item}"
+  return lines
+
+/-- The text lines of a toolchain trusted base (`toolchainBase`): its size, then, when `listed`,
+each entry once with the environments and roots that reach it. Otherwise the size line alone
+names where the entries are listed. -/
+def toolchainBaseLines (base : Array RegulaPolicy.ToolchainBoundary) (listed : Bool) :
+    Array String :=
+  if listed then
+    #[s!"toolchain trusted base: {base.size} boundary(ies), each listed once:"] ++
+      base.map fun entry => s!"  {describeToolchainBoundary entry}"
+  else
+    #[s!"toolchain trusted base: {base.size} boundary(ies) (listed once each with --verbose \
+      and in --json-out)"]
 
 /-- Execution-coverage counts, through `RegulaPolicy.checked_summary`. -/
 def executionSummary (inventory : ExecutionInventory) : RegulaPolicy.ExecutionSummary :=

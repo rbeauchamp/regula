@@ -13,8 +13,10 @@ Regula checks every declaration of the libraries you claim, on every run of `lak
   foundation you chose, found transitively, so "proved" means proved from Lean's kernel, your
   stated hypotheses and that foundation.
 - It names every `extern` and `implemented_by` boundary your executables reach and refuses a
-  path it cannot resolve; in `checked` mode it also rejects any boundary whose correspondence
-  you haven't proved.
+  path it cannot resolve; in `checked` mode it also rejects any boundary of your project or its
+  dependencies whose correspondence you haven't proved, while the Lean toolchain's own are
+  listed once as its trusted base. Code a program loads or evaluates by name at runtime is
+  outside that account.
 
 Every finding states what is wrong, where and how to fix it, in the terminal, the editor and
 versioned JSON, and `lake lint` adds, once per fired rule, why it matters and a checked

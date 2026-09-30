@@ -48,13 +48,13 @@ def transport : Array String := Id.run do
       ("malformed-name", "name", .str "sample", "array expected"),
       ("extra-field", "extra", .bool true, "unknown or missing JSON object fields")] do
     failures := failures ++ expectError label expected (decode (encoded.setObjVal! field value))
-  let .ok nativeOrigin := RegulaPolicy.admitNativeOrigin `Init
+  let .ok toolchainOrigin := RegulaPolicy.admitToolchainOrigin `Init
       "/toolchain/Init.olean" "/toolchain/Init.olean"
-    | return failures.push "native-origin positive admission failed"
-  let origin := toJson nativeOrigin
+    | return failures.push "toolchain-origin positive admission failed"
+  let origin := toJson toolchainOrigin
   failures := failures ++
       expectError "discarded-origin" "boundary evidence contains incompatible fields"
-    (decode (encoded.setObjVal! "nativeOrigin" origin))
+    (decode (encoded.setObjVal! "toolchainOrigin" origin))
   failures := failures ++ expectError "missing-category" "unknown or missing JSON object fields"
     (decode
         (Json.mkObj

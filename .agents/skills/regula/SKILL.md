@@ -8,7 +8,7 @@ description: Regula, the strict standard that this project's Lean code and proof
 This project's Lean code and proofs must meet the Regula standard. Apply these rules while writing Lean, not only after the linter runs. This is the complete mechanical rule set of the installed Regula version, ordered for writing code.
 
 - Check with `lake lint` (`lake lint -- --fresh` for a fresh-source audit). Exit codes: 0 ACCEPTED, 1 VIOLATION, 2 INVALID CONFIGURATION, 3 INCOMPLETE.
-- `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, remedy and rule guidance (result schema 4). When a stage did not complete, `complete` is false and `stagesNotRun` names the stages, so fixing these findings can reveal more.
+- `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, remedy and rule guidance (result schema 5). When a stage did not complete, `complete` is false and `stagesNotRun` names the stages, so fixing these findings can reveal more.
 - A finding names its rule ID, what is wrong and where, and the fix. The first finding of each rule adds why, common rewrites and a compliant example (or, where the checked files are qualification inputs, the correction). `lake exe regula explain <ID>` prints the full rule offline; `lake exe regula rules` lists all rules.
 - No option, attribute or flag waives a rule on a claimed surface. Do not disable a Lean warning, weaken a statement, or drop a registration to pass.
 - Follow the Lean community's style, naming and documentation conventions (standard §6.7). Every claimed target enables `linter.missingDocs` (document every definition) in its `leanOptions`, with the other options RG2006 checks; `lake lint` rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. Disable a community linter only for a single declaration, where its guidance allows, with the reason; that never discharges a rule.
@@ -171,7 +171,7 @@ theorem contract : Regula.ExecutableContract identity (fun f => ∀ n, f n = n) 
 
 ### RG3002 Checked execution requires admitted correspondence
 
-Under `"execution": "checked"`, every reachable replacement or `extern` boundary has a kernel-checked equality with its reference.
+Under `"execution": "checked"`, every reachable replacement or `extern` boundary outside the Lean toolchain's own trusted base has a kernel-checked equality with its reference.
 Fix: Prove the replacement equal to its reference on the complete domain, or remove the trusted boundary, or claim `report` execution instead and keep the boundary reported.
 
 ```lean
@@ -183,6 +183,8 @@ def alternative (n : Nat) : Nat := 0 + n
 /-- The identity on natural numbers; compiled code runs `alternative` instead. -/
 @[implemented_by alternative] def identity (n : Nat) : Nat := n
 theorem correspondence (n : Nat) : identity n = alternative n := (Nat.zero_add n).symm
+/-- Spells `n` through the toolchain's `Nat.repr`. -/
+def spell (n : Nat) := toString n
 ```
 
 ### RG3001 Execution closure must have no unresolved paths
