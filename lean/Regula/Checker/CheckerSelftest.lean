@@ -341,10 +341,11 @@ private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
   for h : decl in scope.inventory.declarations do
     let rule := Policy.ruleForMember decl fixture.claim scope h
     failed := failed || rule.isSome
-    let verdict := match rule with
-      | none => "OK"
-      | some id => s!"VIOLATION[{(Regula.descriptor id).applicability}]"
-    lines := lines.push s!"[{verdict}] {Policy.classifyMember decl scope h}"
+    let (verdict, classification) := match rule with
+      | none => ("OK", Policy.classifyMember decl scope h)
+      | some id => (s!"VIOLATION[{(Regula.descriptor id).applicability}]",
+          Policy.subjectDetail decl scope h)
+    lines := lines.push s!"[{verdict}] {classification}"
   let .ok executionInventory := Policy.admitExecution roots
     | return ("invalid execution inventory", true)
   let executionViolations := Policy.executionFailures executionInventory execution
@@ -395,8 +396,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
         -- only fixtures that can need a transcript pay for one. A divergence
         -- (post-load need with no worker transcript) fails closed below.
         wantsTranscript := moduleData.constants.any fun info =>
-          Policy.declarationNeedsTranscript info.isUnsafe info.isPartial
-            (Regula.Probe.kindOf info) info.name
+          Policy.declarationNeedsTranscript (Regula.Probe.kindOf info) info.name
       }
   -- Group by exact constant-name disjointness (the `Documentation.auditTasks`
   -- strategy): one environment load per collision group covers every fixture

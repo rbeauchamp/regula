@@ -1,9 +1,9 @@
 /-
 Mutation: `run_tac` nested inside an ordinary built-in `def` can use public
 environment APIs to add a range-less partial helper in the same frontend
-command. The checker must reject the helper because it has no exact built-in
-evaluator chain, even though the mutation also forges the complete accepted
-metadata, value transformation, and unfolding-equation evidence.
+command, with forged metadata, stored predefinition and a looping body.
+Rejected by exact match: rerunning Lean's recursion compiler on the forged
+helper's own recursion does not regenerate the forged base.
 -/
 import Lean
 import Lean.Elab.PreDefinition.Structural.Eqns

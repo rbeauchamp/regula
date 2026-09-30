@@ -8,8 +8,8 @@ public import Lean.Compiler.ExternAttr
 public import Lean.Compiler.CSimpAttr
 public import Lean.Compiler.IR.EmitUtil
 public import Lean.DeclarationRange
-public import Lean.Elab.PreDefinition.Structural.Eqns
-public import Lean.Elab.PreDefinition.WF.Eqns
+public import Lean.Elab.PreDefinition.Structural.Main
+public import Lean.Elab.PreDefinition.WF.Main
 public import Lean.Meta.Match.MatcherInfo
 public import Lean.Meta.Native
 public import RegulaPolicy.NativeAxiom
@@ -77,28 +77,6 @@ private def valueOf? : ConstantInfo → Option Expr
   | .opaqueInfo value => some value.value
   | _                 => none
 
-/-- Retrieve the original built-in recursion predefinition for a safe base. -/
-private def recursionPredefinition? (env : Environment) (baseName : Name) :
-    Option (RecursionOrigin × List Name × Expr × Array Name) :=
-    match Lean.Elab.Structural.eqnInfoExt.find? env baseName with
-    | some info => some (.structural, info.levelParams, info.value, info.declNames)
-    | none => match Lean.Elab.WF.eqnInfoExt.find? env baseName with
-      | some info => some (.wellFounded, info.levelParams, info.value, info.declNames)
-      | none => none
-
-/-- Reconstruct the exact executable body transformation used by Lean 4.34.0's
-`addAndCompilePartialRec` from the built-in recursion equation metadata. -/
-private def unsafeRecExpected? (env : Environment) (baseName : Name) :
-    Option (RecursionOrigin × Expr) := do
-  let (origin, _, value, group) ← recursionPredefinition? env baseName
-  let expected := value.replace fun expr => match expr with
-    | .const name levels =>
-        if group.contains name then
-          some <| mkConst (Lean.Compiler.mkUnsafeRecName name) levels
-        else none
-    | _ => none
-  return (origin, expected)
-
 /-- The pinned Lean v4.34.0 renderings (`Kernel.Exception.toMessageData`) of the kernel's resource
 limits, which `throwKernelException` throws as untagged errors, each with the limit it names. -/
 private def kernelLimits : Array (String × String) := #[
@@ -117,46 +95,202 @@ def checkerLimit? (ex : Exception) : BaseIO (Option String) := do
   return kernelLimits.findSome? fun (rendering, limit) =>
     if text.contains rendering then some limit else none
 
-/-- Independently require a kernel-checked unfolding theorem with exactly the
-one-step equation reconstructed from the same built-in predefinition. Its definitional
-observation is that syntactic equality, as in `unsafeRecValueEvidence`. A failure to obtain or
-build the equation leaves both observations `false`; a `checkerLimit?` reached while doing so is
-rethrown, since the limit is the checker's, not missing evidence. -/
-private def unsafeRecEquationEvidence (env : Environment) (name : Name) :
-    CommandElabM (Option (Bool × Bool × Array Name)) := do
-  let some baseName := Lean.Compiler.isUnsafeRecName? name | return none
-  let some (_, levelParams, value, _) := recursionPredefinition? env baseName
-    | return none
-  liftTermElabM <| withoutModifyingEnv do
-    try
-      let some equationName ← Meta.getUnfoldEqnFor? baseName
-        | return some (false, false, #[])
-      let some equationInfo := (← getEnv).find? equationName
-        | return some (false, false, #[])
-      let expectedType ← Meta.lambdaTelescope value fun args body => do
-        let lhs := mkAppN (mkConst baseName (levelParams.map mkLevelParam)) args
-        let equality ← Meta.mkEq lhs body
-        Meta.letToHave (← Meta.mkForallFVars args equality)
-      let exact := equationInfo.type == expectedType
-      let axioms ← collectAxioms equationName
-      return some (exact, exact, axioms)
-    catch ex =>
-      if (← checkerLimit? ex).isSome then throw ex
-      return some (false, false, #[])
+/-- The root under which a regeneration names the definitions it adds. -/
+private def regenerationRoot : Name := `_regula_regeneration
 
-/-- Whether a helper's entire value is the pinned compiler transformation of
-the built-in structural/well-founded predefinition stored for its safe base. Syntactic equality
-is both the exact and the definitional observation, since it implies definitional equality.
-`Meta.isDefEq` is not used: where the values differ under a recursive call, its lazy delta
-reduction unfolds the self-referential helper on both sides before comparing arguments, and each
-unfolding reproduces the same comparison one call deeper. -/
-private def unsafeRecValueEvidence (env : Environment) (name : Name)
-    (info : ConstantInfo) : Option (RecursionOrigin × Bool × Bool) := do
-  let baseName ← Lean.Compiler.isUnsafeRecName? name
-  let (origin, expected) ← unsafeRecExpected? env baseName
-  let .defnInfo helper := info | none
-  let exact := helper.value == expected
-  return (origin, exact, exact)
+/-- The arguments of a well-founded fixpoint application that carry its computation: for
+`WellFounded.fix α C r hwf F x…` and `WellFounded.Nat.fix α motive h F x…` (the two combinators
+Lean 4.34.0's well-founded recursion uses) the domain, the motive, the functional and the
+remaining arguments, without the relation `r`, its well-foundedness proof or the measure `h`. -/
+private def fixpointArguments? (e : Expr) : Option (Array Expr) :=
+  let args := e.getAppArgs
+  if e.isAppOf ``WellFounded.fix && args.size ≥ 5 then
+    some (#[args[0]!, args[1]!, args[4]!] ++ args.extract 5 args.size)
+  else if e.isAppOf ``WellFounded.Nat.fix && args.size ≥ 4 then
+    some (#[args[0]!, args[1]!, args[3]!] ++ args.extract 4 args.size)
+  else none
+
+/-- Whether `e` is a proof or a type in the current local context: what Lean's code generator
+erases. -/
+private def erasedByCompilation (e : Expr) : MetaM Bool := do
+  return (← Meta.isProof e) || (← Meta.isType e)
+
+/-- Whether `a` and `b` are equal up to compilation erasure: the same expression after every proof
+and every type of each side, decided in that side's own local context, is erased, with the
+variables they bind paired and each well-founded fixpoint reduced to `fixpointArguments?`. The two
+sides then compile to the same code; their recursion, relations and termination proofs may
+differ. `fuel` bounds the depth; exhausting it answers `false`. -/
+private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : Expr) :
+    MetaM Bool := do
+  match fuel with
+  | 0 => return false
+  | fuel + 1 =>
+    if a == b && !a.hasFVar && !b.hasFVar then return true
+    if (← erasedByCompilation a) && (← erasedByCompilation b) then return true
+    let all := fun (xs ys : Array Expr) => do
+      if xs.size != ys.size then return false
+      for i in [:xs.size] do
+        unless ← equalErased fuel pairs xs[i]! ys[i]! do return false
+      return true
+    match a, b with
+    | .mdata _ a', _ => equalErased fuel pairs a' b
+    | _, .mdata _ b' => equalErased fuel pairs a b'
+    | .fvar x, .fvar y => return x == y || pairs.contains (x, y)
+    | .const n us, .const m vs => return n == m && us == vs
+    | .lit l, .lit l' => return l == l'
+    | .sort u, .sort v => return u == v
+    | .proj s i e, .proj s' i' e' => return s == s' && i == i' && (← equalErased fuel pairs e e')
+    | .app .., .app .. =>
+      match fixpointArguments? a, fixpointArguments? b with
+      | some xs, some ys => all xs ys
+      | none, none =>
+        if ← equalErased fuel pairs a.getAppFn b.getAppFn then all a.getAppArgs b.getAppArgs
+        else return false
+      | _, _ => return false
+    | .lam n t body bi, .lam _ t' body' bi' | .forallE n t body bi, .forallE _ t' body' bi' =>
+      unless ← equalErased fuel pairs t t' do return false
+      Meta.withLocalDecl n bi t fun x => Meta.withLocalDecl n bi' t' fun y =>
+        equalErased fuel (pairs.push (x.fvarId!, y.fvarId!)) (body.instantiate1 x)
+          (body'.instantiate1 y)
+    | .letE n t v body _, .letE _ t' v' body' _ =>
+      unless (← equalErased fuel pairs t t') && (← equalErased fuel pairs v v') do return false
+      Meta.withLetDecl n t v fun x => Meta.withLetDecl n t' v' fun y =>
+        equalErased fuel (pairs.push (x.fvarId!, y.fvarId!)) (body.instantiate1 x)
+          (body'.instantiate1 y)
+    | _, _ => return false
+
+/-- The definitions a regeneration added to `before` to reach `after`, those named under
+`regenerationRoot`, each with its value and with every constant the regeneration added renamed
+back; a constant of `before`, under the root or not, keeps its name. -/
+private def regeneratedDefinitions (before after : Environment) : Array (Name × Expr) :=
+  let unregenerate := fun (n : Name) => n.replacePrefix regenerationRoot .anonymous
+  let added := after.constants.map₂.toList.filter fun (name, _) =>
+    name.getRoot == regenerationRoot && !before.contains name
+  let addedNames := NameSet.ofList (added.map (·.1))
+  added.toArray.filterMap fun (name, info) => do
+    let .defnInfo regenerated := info | none
+    return (unregenerate name, regenerated.value.replace fun
+      | .const n us => if addedNames.contains n then some (mkConst (unregenerate n) us) else none
+      | _ => none)
+
+/-- Whether each regenerated definition equals up to compilation erasure the observed definition of
+its name in the current environment; at least one must have been regenerated. -/
+private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Bool := do
+  if regenerated.isEmpty then return false
+  for (name, value) in regenerated do
+    let some (.defnInfo observed) := (← getEnv).find? name | return false
+    unless ← equalErased 100000 #[] value observed.value do return false
+  return true
+
+/-- The `wf_preprocess` rules of the running Lean toolchain: the global entries of the modules Lean
+loaded from the toolchain's own library directory, recognized by canonical path, since a module's
+name does not establish toolchain ownership. Rules a project or dependency adds are left out. -/
+private def toolchainPreprocessRules (env : Environment) : IO Meta.SimpTheorems := do
+  let ext := Lean.Elab.WF.wfPreprocessSimpExtension
+  let libDir ← Lean.getLibDir (← Lean.findSysroot)
+  let mut rules ← ext.descr.mkInitial
+  for (moduleName, index) in env.header.moduleNames.zipIdx do
+    let entries := ext.ext.getModuleEntries env index
+    if entries.isEmpty then continue
+    let expected := Lean.modToFilePath libDir moduleName "olean"
+    unless ← expected.pathExists do continue
+    unless (← IO.FS.realPath (← Lean.findOLean moduleName)) == (← IO.FS.realPath expected) do
+      continue
+    for entry in entries do
+      if let .global rule := entry then rules := ext.descr.addEntry rules rule
+  return ext.descr.finalizeImport rules
+
+/-- `env` with `registry` holding only the handlers built into the running executable (its
+`tableRef`), none that an imported module registered. -/
+private def builtinHandlersOnly {γ : Type} (registry : KeyedDeclsAttribute γ)
+    (env : Environment) : IO Environment := do
+  let builtin := KeyedDeclsAttribute.mkStateOfTable (← registry.tableRef.get)
+  return registry.ext.modifyState env fun _ => builtin
+
+/-- `toolchainPreprocessRules env`, computed once per `cache`: one inspection shares it across the
+helpers of its environment. -/
+private def cachedPreprocessRules (cache : IO.Ref (Option Meta.SimpTheorems)) (env : Environment) :
+    IO Meta.SimpTheorems := do
+  if let some rules ← cache.get then return rules
+  let rules ← toolchainPreprocessRules env
+  cache.set (some rules)
+  return rules
+
+/-- The environment a regeneration runs in: `env` with only the toolchain's `wf_preprocess` rules
+`rules` and only the checker executable's built-in macros, tactic and term elaborators, so that no
+rule or syntax handler of the audited modules or their dependencies takes part. The built-in tables
+are process state: an audited module's initializer, which the report worker runs, could add to them,
+a change inside the process boundary the standard leaves out of scope. -/
+private def regenerationEnvironment (env : Environment) (rules : Meta.SimpTheorems) :
+    IO Environment := do
+  let env := Lean.Elab.WF.wfPreprocessSimpExtension.modifyState env fun _ => rules
+  let env ← builtinHandlersOnly macroAttribute env
+  let env ← builtinHandlersOnly Lean.Elab.Tactic.tacticElabAttribute env
+  builtinHandlersOnly Lean.Elab.Term.termElabAttribute env
+
+/-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
+each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
+to the group's helpers standing for the recursive calls, and compare what it generates with the
+observed base and its auxiliary definitions (`regenerationMatches`). Structural recursion is tried
+first, with no hint; then well-founded recursion, with Lean's measure inference and every
+decreasing proof elided (`all_goals exact sorry`, on the raw goal), since the comparison erases
+proofs and the observed base's own kernel-checked value supplies them. The compiler runs in
+`regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is generated
+for them. A regeneration that reports an error does not count. Every change is undone before the
+comparison, which reads the observed definitions and decides erasure in the inspected environment:
+whatever code runs during a regeneration, only the definitions it adds are compared. A comparison
+that throws does not count either. A `checkerLimit?` reached is rethrown. -/
+private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo)
+    (preprocessRules : IO.Ref (Option Meta.SimpTheorems)) :
+    CommandElabM (Option RecursionOrigin) := do
+  let some _ := Lean.Compiler.isUnsafeRecName? name | return none
+  let .defnInfo helper := info | return none
+  let group := helper.all.toArray
+  let some bases := group.mapM (fun member => do
+      let base ← Lean.Compiler.isUnsafeRecName? member
+      guard <| (env.find? member).any (· matches ConstantInfo.defnInfo _)
+      guard <| (env.find? base).any (· matches ConstantInfo.defnInfo _)
+      pure base)
+    | return none
+  let rename := fun (value : Expr) => value.replace fun
+    | .const n us => (group.idxOf? n).map fun i => mkConst (regenerationRoot ++ bases[i]!) us
+    | _ => none
+  liftTermElabM do
+    let preDefs ← group.mapIdxM fun i member => do
+      let some (.defnInfo value) := env.find? member | throwError "missing helper {member}"
+      return ({ ref := .missing, kind := .def, levelParams := value.levelParams,
+                modifiers := { computeKind := .noncomputable },
+                declName := regenerationRoot ++ bases[i]!, binders := .missing, type := value.type,
+                value := rename value.value, termination := .none } : PreDefinition)
+    let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
+    let regenerating ← regenerationEnvironment (← getEnv)
+      (← cachedPreprocessRules preprocessRules env)
+    let attempt (run : TermElabM Unit) : TermElabM Bool := do
+      let saved ← saveState
+      try
+        Core.resetMessageLog
+        setEnv regenerating
+        withOptions (·.setBool `debug.rawDecreasingByGoal true) run
+        let failed := (← Core.getMessageLog).hasErrors
+        let after ← getEnv
+        saved.restore
+        if failed then return false
+        regenerationMatches (regeneratedDefinitions regenerating after)
+      catch ex =>
+        saved.restore
+        if (← checkerLimit? ex).isSome then throw ex
+        return false
+      finally
+        -- A runtime limit (heartbeats, recursion depth) bypasses `catch`; undo the run anyway.
+        saved.restore
+    let docCtx := (← getLCtx, ← Meta.getLocalInstances)
+    if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
+    let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)
+    let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
+      { preDef with termination := { TerminationHints.none with
+          decreasingBy? := some ({ ref := .missing, tactic := elided } : DecreasingBy) } }
+    if ← attempt (wfRecursion docCtx wfDefs noMeasures) then return some .wellFounded
+    return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/
 private def assertedBool? (type : Expr) : Option Expr := do
@@ -222,7 +356,8 @@ def returnsSort (type : Expr) : MetaM Bool :=
 memo of constants shown not to reach it. Lean admits a constant only when every constant its type
 and value mention is already in the environment, so no constant of a module that is neither
 `Regula.Contract` nor a transitive importer of it mentions the contract type, and neither does
-any constant such a constant mentions. -/
+any constant such a constant mentions. It also memoizes, for the same environment, the toolchain's
+`wf_preprocess` rules that recursion-helper regeneration uses. -/
 structure ContractScope where
   /-- For each imported module index: `Regula.Contract` or a module that transitively imports it. -/
   aware : Array Bool
@@ -231,6 +366,9 @@ structure ContractScope where
   mainAware : Bool
   /-- Constants whose closure under `unfoldReferences` was searched without reaching it. -/
   free : IO.Ref NameSet
+  /-- The toolchain's `wf_preprocess` rules once a recursion helper's regeneration has computed
+  them (`Collect.unsafeRecRegeneration`), shared by every helper of the environment. -/
+  preprocessRules : IO.Ref (Option Meta.SimpTheorems)
 
 /-- The scope of `env`. Awareness is the least fixed point of "is `Regula.Contract` or imports an
 aware module": a pass that marks nothing has reached it, and every other pass marks one of the
@@ -253,7 +391,8 @@ def ContractScope.new (env : Environment) : BaseIO ContractScope := do
   return { aware
            mainAware := (env.getModuleIdx? `Regula.Contract).isSome ||
              env.mainModule == `Regula.Contract
-           free := ← IO.mkRef {} }
+           free := ← IO.mkRef {}
+           preprocessRules := ← IO.mkRef none }
 
 /-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
 aware, so the search expands it. -/
@@ -352,8 +491,8 @@ inductive Stage where
   /-- A local editor snapshot of the current command: the record without the replay-only
   observations. -/
   | snapshot
-  /-- A declaration of the trusted environment probe: the record also gathers the
-  `unsafe rec` value and equation evidence and the native-decision evidence that replay needs. -/
+  /-- A declaration of the trusted environment probe: the record also carries the regeneration
+  of a recursion helper and the native-decision evidence that replay needs. -/
   | replayCandidate
   deriving DecidableEq, Inhabited
 
@@ -387,10 +526,8 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     return toString (← Meta.ppExpr info.type)
   let ranges? ← findDeclarationRangesCore? name
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
-  let unsafeRecValueEvidence? := if stage == .replayCandidate then
-      unsafeRecValueEvidence env name info else none
-  let unsafeRecEquationEvidence? ← if stage == .replayCandidate then
-      unsafeRecEquationEvidence env name else pure none
+  let unsafeRecRegenerated ← if stage == .replayCandidate then
+      unsafeRecRegeneration env name info scope.preprocessRules else pure none
   let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
   let nativeReplay? ← native?.mapM fun (_, _, asserted) => replayNative asserted
   let levelParams : List Name := info.levelParams
@@ -433,13 +570,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     all := all.toArray
     hints
     valueConstants := RegulaPolicy.canonicalNames valueConstants
-    unsafeRecValueOrigin := unsafeRecValueEvidence?.map fun (origin, _, _) => origin
-    unsafeRecValueExact := unsafeRecValueEvidence?.map fun (_, exact, _) => exact
-    unsafeRecValueDefeq := unsafeRecValueEvidence?.map fun (_, _, value) => value
-    unsafeRecEquationExact := unsafeRecEquationEvidence?.map fun (exact, _, _) => exact
-    unsafeRecEquationDefeq := unsafeRecEquationEvidence?.map fun (_, value, _) => value
-    unsafeRecEquationAxioms := unsafeRecEquationEvidence?.map fun (_, _, values) =>
-      RegulaPolicy.canonicalNames values
+    unsafeRecRegenerated
     nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
     ranges := ranges?.map rangesReport

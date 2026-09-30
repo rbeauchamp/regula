@@ -481,8 +481,7 @@ def localStageSubjects (i : EnvironmentCensus) : Stage → Array LocalJobSubject
   | .declarationPolicy => i.declarations.map .declaration
   | .execution => i.roots.map .root
   | .transcript => (i.modules.filter (fun m => i.policy.declarations.any (fun d =>
-      d.module == m.name.name && declarationNeedsTranscript d.isUnsafe d.isPartial d.kind
-          d.name))).map .module
+      d.module == m.name.name && declarationNeedsTranscript d.kind d.name))).map .module
   | .history => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any
       (fun b => b.module == m.name.name && b.boundary == .runtimeReplacement)))).map .module
   | .origin => (i.allModules.filter (fun m => i.execution.roots.any (fun r => r.boundaries.any

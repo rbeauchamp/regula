@@ -54,7 +54,6 @@ def Declaration.Valid (d : Declaration) : Prop :=
   Named d.name ∧ Named d.module ∧
   d.safety = (if d.isPartial then some .partial else if d.isUnsafe then some .unsafe else none) ∧
   canonicalNames d.axioms = d.axioms ∧ canonicalNames d.valueConstants = d.valueConstants ∧
-  (∀ ns ∈ d.unsafeRecEquationAxioms, canonicalNames ns = ns ∧ ∀ n ∈ ns, Named n) ∧
   (∀ n ∈ d.axioms, Named n) ∧ (∀ n ∈ d.valueConstants, Named n) ∧
   (∀ n ∈ d.all, Named n) ∧
   (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧
@@ -112,37 +111,14 @@ theorem Ranges.validForLines_eq (r : Ranges) (source : String) :
         positionLE r.range.start r.selectionRange.start &&
         positionLE r.selectionRange.end r.range.end) := rfl
 
-/-- Both ends select boundaries on existing lines and the start is not after the end. -/
-def Frontend.SyntaxRange.validForLines (r : Frontend.SyntaxRange) (lines : List String) : Bool :=
-  r.start.validForLines lines && r.end.validForLines lines && positionLE r.start r.end
-
-/-- `Frontend.SyntaxRange.validForLines` over the lines of `source`, split at each `\n`. -/
-def Frontend.SyntaxRange.validFor (r : Frontend.SyntaxRange) (source : String) : Bool :=
-  r.validForLines (source.splitOn "\n")
-
-/-- Split this immutable source once, shared by every command, evaluator and binding.
-The line list is derived here; a caller cannot supply an unrelated coordinate index. -/
+/-- Every command's `added` names are exactly its `addedDeclarations` names, none anonymous. -/
 def Frontend.Transcript.validCoordinates (t : Frontend.Transcript) : Bool :=
-  let lines := t.sourceContent.splitOn "\n"
   t.commands.all fun command =>
-    command.commandRange.all (·.validForLines lines) &&
-    command.evaluators.all (fun e => e.range.all (·.validForLines lines)) &&
-    command.bindings.all (fun b => b.range.all (·.validForLines lines)) &&
     command.added == command.addedDeclarations.map (·.name) &&
     command.added.all (· != .anonymous)
 
-/-- Sharing the source split preserves the original per-range check for every transcript,
-including missing ranges, invalid positions, reversed spans and declaration identities. -/
-theorem Frontend.Transcript.validCoordinates_eq (t : Frontend.Transcript) :
-    t.validCoordinates = (t.commands.all fun command =>
-      command.commandRange.all (·.validFor t.sourceContent) &&
-      command.evaluators.all (fun e => e.range.all (·.validFor t.sourceContent)) &&
-      command.bindings.all (fun b => b.range.all (·.validFor t.sourceContent)) &&
-      command.added == command.addedDeclarations.map (·.name) &&
-      command.added.all (· != .anonymous)) := rfl
-
 /-- Admitted inventories have one declaration per name and one transcript per module.
-Ordered evaluator and mutual-group sequences are intentionally not normalized. -/
+Ordered mutual-group sequences are intentionally not normalized. -/
 def InventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Transcript) : Prop :=
   UniqueNames (decls.map (·.name)) ∧
   (∀ d ∈ decls, d.Valid) ∧

@@ -122,10 +122,12 @@
   stronger than the exact Lean property established. Before review, check each new sentence that
   cites a theorem or check against its actual statement, hypotheses, and caller; name what it
   leaves uncovered.
-- Respect the assurance boundary stated in standard module 7: custom or ambiguous evaluator paths fail
-  the recursive-helper exception, a native-proof axiom rests on its natively replayed statement and
-  command provenance instead, and a modified Lean executable, compromised process, and arbitrary
-  trusted plugins are outside this Lean-source standard. Do not recursively expand reviews into
+- Respect the assurance boundary stated in standard module 7: a recursion helper is admitted only
+  when Lean's own recursion compiler regenerates its base from it, up to compilation erasure,
+  whatever evaluator produced it, a
+  native-proof axiom rests on its natively replayed statement and command provenance instead, and a
+  modified Lean executable, compromised process, and arbitrary trusted plugins are outside this
+  Lean-source standard. Do not recursively expand reviews into
   stronger threat models after the documented boundary has direct positive and negative evidence.
 - For a PR, establish the standard's module 8 rows affected by its changes and dependencies.
   A full repository-compliance claim requires every applicable row across all claimed surfaces

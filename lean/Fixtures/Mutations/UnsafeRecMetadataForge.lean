@@ -1,8 +1,9 @@
 /-
 Mutation: public environment APIs can synthesize every final-environment field
 that resembles Lean's range-less partial execution helper for safe recursion.
-The checker must reject this custom-command origin even though the base is
-tagged recursive and the helper has the expected type, group, body, and flags.
+The base is tagged recursive and the helper has the expected type, group, body,
+and flags, but the helper loops. Rejected by exact match: rerunning Lean's recursion compiler on the forged
+helper's own recursion does not regenerate the forged base.
 -/
 import Lean
 
@@ -25,7 +26,7 @@ elab "forge_unsafe_rec_metadata" : command => do
         all := [baseName]
       })
       -- Keep the safe base executable: missing code would be a second fault,
-      -- independent of the forged helper provenance this mutation isolates.
+      -- independent of the forged helper this mutation isolates.
       liftCoreM <| compileDecls #[baseName]
       liftCoreM <| Lean.Meta.markAsRecursive baseName
       addDeclarationRangesFromSyntax baseName stx

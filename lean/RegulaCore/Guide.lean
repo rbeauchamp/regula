@@ -341,41 +341,73 @@ def guide : RuleId → Guide
           ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
-      problem := "An owned declaration is marked `unsafe` or `partial` and is not the exactly \
-        authenticated code-generation helper of a safe recursive definition."
+      problem := "An owned declaration is marked `unsafe` or `partial` and is not the \
+        code-generation helper of a safe recursive definition that Lean's own recursion compiler \
+        regenerates from the helper, up to compilation erasure."
       trigger := [
         "Authored `unsafe` and `partial` declarations are escape hatches: an unsafe declaration is \
           checked only in Lean's unsafe mode, cannot be used by safe declarations or proofs and is \
           not replayed as logical evidence, and a partial definition has no termination proof. \
           They are rejected with applicability `escape-hatch`.",
         "The only exception is the range-less partial helper Lean generates for a safe, \
-          termination-checked recursive `def`, admitted when every condition of standard §7.4 \
-          holds, including fresh-frontend attribution of the exact source."]
+          termination-checked recursive `def` (structural or well-founded recursion, a `where` \
+          or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq`, `BEq`, \
+          `Hashable` or `Repr` function on a recursive inductive that is neither nested nor \
+          mutual). It is admitted by exact match (standard §7.4): rerunning Lean's recursion \
+          compiler on the helper's recursion, with only the toolchain's own preprocessing rules \
+          and the checker's built-in syntax handlers, regenerates the observed base, up to \
+          compilation erasure, and the base's axioms are within Standard-Logical. Which code added \
+          the helper does not matter.",
+        "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
+          The finding names the `partial def`, at its source range, not the helper; this includes \
+          the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
+          for a nested or mutual inductive (and deriving `Ord` for any recursive one).",
+        "A helper of a safe definition that the regeneration does not reproduce is reported \
+          under the helper's name (see the limitations below); its definition may be correct."]
       rationaleDetail := []
       proofShape := [
         "A total replacement keeps the same domain and result type; if it changes behavior, state \
           and prove the relation to the intended function."]
       established := [
-        "No authored unsafe or partial declaration is on the claimed surface; every admitted \
-          generated helper satisfied all §7.4 conditions."]
+        "No authored unsafe or partial declaration is on the claimed surface. Every admitted \
+          generated helper is Lean's compilation of a safe definition: its base, of the same \
+          module and type, is what Lean's own recursion compiler regenerates from the helper's \
+          recursion, up to compilation erasure, and is kernel-checked with Standard-Logical \
+          axioms; whenever the helper returns, it returns the base's value."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
+        "That the helper terminates whenever the base does. Lean compiles the base from a body \
+          its `wf_preprocess` rules rewrote and the helper from the original, and Lean documents \
+          that a rewrite can remove a subterm the compiled code still evaluates or delay one \
+          under a binder; a toolchain rule can, through a reducible definition that ignores an \
+          argument. The helper's termination trusts that preprocessing, as every well-founded \
+          definition Lean accepts does.",
+        "That the regeneration observation is truthful or that a helper's compiled code matches \
+          its value; these rest on the pinned Lean toolchain and on Regula's own unproved \
+          regeneration comparison.",
         "Termination proofs' adequacy for cost claims."]
       configuration := [
         "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
       limitations := [
-        "The helper exception is conservative: elaborators defined in the audited module, \
-          `run_tac` or `by_elab` in the recursion's proofs make the checker reject a definition \
-          Lean accepts.",
-        "Editor feedback may be pending until the project command completes the fresh-frontend \
-          check."]
+        "A helper is not admitted where the regeneration does not reproduce its base: a \
+          structural recursion on an argument other than the first one Lean's automatic choice \
+          accepts (selectable by `termination_by structural`), a `partial_fixpoint` definition, \
+          a base compiled through a fixpoint combinator other than `WellFounded.fix` and \
+          `WellFounded.Nat.fix`, a base whose compilation used a `wf_preprocess` rule registered \
+          outside the Lean toolchain, or one elaborated with `set_option wf.preprocess false` or \
+          with a toolchain rule removed by `attribute [-wf_preprocess]` when a rule so disabled \
+          would have rewritten its body.",
+        "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
-        characterizes the authenticated recursion helpers."
+        characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
+        each a regenerated, safe base with Standard-Logical axioms, and \
+        `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
+        `partial def`'s helper under the `partial def`."
       sources :=
-          ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Checker/Frontend.lean",
+          ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Collect.lean",
               "lean/RegulaCore/Policy.lean"] }
   | .executableContract => {
       problem := "A closed `ExecutableContract f R` registration does not have the supported \

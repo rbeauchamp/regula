@@ -4,9 +4,10 @@ public import RegulaPolicy.NativeAxiom
 
 /-! # Generated-role relations
 
-Generated-role relations over the complete observation inventory. Each component
-states exact metadata, value/equation observations, ordered attribution, and uniqueness.
-These finite decidable relations do not attest that a compiler observation is truthful. -/
+Generated-role relations over the complete observation inventory. A native-proof axiom needs
+exact metadata, replay and command provenance; a recursion helper needs exact metadata and the
+observation that Lean's own recursion compiler regenerates its base from it. These finite
+decidable relations do not attest that a compiler observation is truthful. -/
 
 @[expose] public section
 
@@ -14,46 +15,22 @@ namespace RegulaPolicy
 open Lean (Name)
 open Frontend
 
-/-- Only declaration kinds that could receive a generated-role exception need
-the extra fresh frontend transcript. This core works over primitive fields so
-a batched harness can apply the identical predicate to raw environment
+/-- Only a declaration that could receive the native-proof exception needs the extra fresh
+frontend transcript; the recursion-helper exception reads no transcript. This core works over
+primitive fields so a batched harness can apply the identical predicate to raw environment
 constant records before paying any environment load. -/
-def declarationNeedsTranscript (isUnsafe isPartial : Bool) (kind : DeclarationKind)
-    (name : Name) : Bool :=
-  isUnsafe || isPartial || (kind == .«axiom» && (nativeParent? name).isSome)
+def declarationNeedsTranscript (kind : DeclarationKind) (name : Name) : Bool :=
+  kind == .«axiom» && (nativeParent? name).isSome
 
 /-- Only declaration kinds that could receive a generated-role exception need
 the extra fresh frontend transcript. -/
 def needsFrontendTranscript (decls : Array Declaration) : Bool :=
   decls.any fun decl =>
-    declarationNeedsTranscript decl.isUnsafe decl.isPartial decl.kind decl.name
-
-/-- Lean's command elaborator for a declaration command. -/
-def declarationElaborator := `Lean.Elab.Command.elabDeclaration
-/-- Lean's macro that expands a declaration with a namespaced name into a `namespace` block. -/
-def namespacedDeclarationElaborator :=
-  `Lean.Elab.Command.expandNamespacedDeclaration
-/-- The syntax kind of a declaration command. -/
-def declarationKind := `Lean.Parser.Command.declaration
-
-/-- Source containment uses the lexicographic codepoint position order. -/
-def PositionLE (a b : Position) : Prop :=
-  a.line < b.line ∨ (a.line = b.line ∧ a.column ≤ b.column)
-instance (a b : Position) : Decidable (PositionLE a b) := by unfold PositionLE; infer_instance
-
-/-- The start and end of a declaration's full recorded range, when Lean recorded one. -/
-def declarationRange? (d : Declaration) : Option SyntaxRange :=
-  d.ranges.map fun r => ⟨r.range.start, r.range.end⟩
+    declarationNeedsTranscript decl.kind decl.name
 
 /-- Preserve command occurrence order and multiplicity, including duplicate observations. -/
 def moduleCommands (ts : Array Transcript) (m : Name) : Array Command :=
   (ts.filter (fun t => t.module == m)).flatMap (·.commands)
-
-/-- Exactly one occurrence introduces this declaration; identical duplicates are ambiguous. -/
-def IntroducingCommand (ts : Array Transcript) (m n : Name) (c : Command) : Prop :=
-  (moduleCommands ts m).filter (fun c => c.added.contains n) = #[c]
-instance (ts : Array Transcript) (m n : Name) (c : Command) :
-    Decidable (IntroducingCommand ts m n c) := by unfold IntroducingCommand; infer_instance
 
 /-- `c` is the one command of `a`'s module that adds an axiom of the generated origin `(pfx, t)`
 (the recognized prefix, in the same privacy form, and tactic) with `a`'s asserted statement. The
@@ -68,36 +45,6 @@ def NativeIntroducingCommand (ts : Array Transcript) (a : Declaration) (t : Nati
 instance (ts : Array Transcript) (a : Declaration) (t : NativeTactic) (pfx : Name) (c : Command) :
     Decidable (NativeIntroducingCommand ts a t pfx c) := by
         unfold NativeIntroducingCommand; infer_instance
-
-/-- Literal declaration origin, including the exact built-in dotted-name expansion. -/
-def LiteralDeclaration (c : Command) (r : SyntaxRange) : Prop :=
-  c.commandKind = declarationKind ∧ c.commandRange = some r ∧
-  (c.commandElaborator = declarationElaborator ∨
-    (c.commandElaborator = namespacedDeclarationElaborator ∧
-      (c.evaluators.filter (fun e => e.role == .command &&
-        e.elaborator == declarationElaborator && e.kind == declarationKind &&
-        e.range == some r)).size = 1))
-instance (c : Command) (r : SyntaxRange) : Decidable (LiteralDeclaration c r) := by
-  unfold LiteralDeclaration; infer_instance
-
-/-- Every recorded evaluator is pinned and excludes audited-source metaprogram execution. -/
-def PinnedEvaluator (e : Evaluator) : Prop :=
-  e.pinned = true ∧ e.elaborator ≠ `Lean.Elab.Tactic.evalRunTac ∧
-    e.elaborator ≠ `Lean.Elab.Term.elabRunElab
-instance (e : Evaluator) : Decidable (PinnedEvaluator e) := by
-    unfold PinnedEvaluator; infer_instance
-
-/-- Nested binders require exact selection attribution as well as source containment. -/
-def RecursiveCommand (c : Command) (base : Declaration) (r : SyntaxRange) : Prop :=
-  (LiteralDeclaration c r ∨
-    ∃ outer ∈ c.commandRange, ∃ ranges ∈ base.ranges,
-      LiteralDeclaration c outer ∧ PositionLE outer.start r.start ∧ PositionLE r.end outer.end ∧
-      ∃ b ∈ c.bindings, b.name = base.name ∧
-        b.range = some ⟨ranges.selectionRange.start, ranges.selectionRange.end⟩) ∧
-  ∀ e ∈ c.evaluators, PinnedEvaluator e
-instance (c : Command) (b : Declaration) (r : SyntaxRange) : Decidable
-    (RecursiveCommand c b r) := by
-  unfold RecursiveCommand; infer_instance
 
 /-- Native axiom shape, the asserted statement of its tactic and successful independent replay
 observations. -/
@@ -146,43 +93,40 @@ def NativeTeachingOK (ds : Array Declaration) (ts : Array Transcript) (a : Decla
 instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
 
-/-- Range-less generated partial helper with all value and equation checks retained. -/
+/-- Range-less generated partial helper whose group Lean's own recursion compiler regenerates into
+the observed base and its auxiliary definitions (`Declaration.unsafeRecRegenerated`). -/
 def RecursiveHelperShape (h : Declaration) : Prop :=
   h.kind = .definition ∧ h.internal = true ∧ h.ranges = none ∧ h.isPartial = true ∧
   h.isUnsafe = false ∧ h.hints = some .opaque ∧ h.implementedBy = none ∧ h.extern = false ∧
-  h.unsafeRecValueOrigin.isSome = true ∧ h.unsafeRecValueExact = some true ∧
-  h.unsafeRecValueDefeq = some true ∧ h.unsafeRecEquationExact = some true ∧
-  h.unsafeRecEquationDefeq = some true
+  h.unsafeRecRegenerated.isSome = true
 instance (h : Declaration) : Decidable (RecursiveHelperShape h) := by
     unfold RecursiveHelperShape; infer_instance
 
-/-- Safe recursive base, exact type/universes, and bounded helper/equation dependencies. -/
+/-- Safe base of the same module, type and universes, whose own axioms are all within
+Standard-Logical, so that the decreasing proofs its kernel-checked value carries are real (a base
+proved with `sorryAx` or a project axiom does not qualify), and whose axioms bound the helper's. -/
 def RecursiveBaseShape (h b : Declaration) : Prop :=
   b.kind = .definition ∧ h.module = b.module ∧ b.isPartial = false ∧ b.isUnsafe = false ∧
-  b.hints = some .regular ∧ b.recursive = true ∧ b.implementedBy = none ∧ b.extern = false ∧
-  h.type = b.type ∧ h.levelParams = b.levelParams ∧ (∀ n ∈ h.axioms, n ∈ b.axioms) ∧
-  ∃ eqAxioms ∈ h.unsafeRecEquationAxioms,
-    ∀ n ∈ eqAxioms, Permitted .standardLogical n ∨ n ∈ b.axioms
+  b.implementedBy = none ∧ b.extern = false ∧ h.type = b.type ∧ h.levelParams = b.levelParams ∧
+  (∀ n ∈ h.axioms, n ∈ b.axioms) ∧ ∀ n ∈ b.axioms, Permitted .standardLogical n
 instance (h b : Declaration) : Decidable (RecursiveBaseShape h b) := by
     unfold RecursiveBaseShape; infer_instance
 
-/-- Mutual-group order is preserved, with exact helper transformation and self-reference. -/
+/-- Mutual-group order is preserved, with Lean's exact `._unsafe_rec` helper transformation. -/
 def RecursiveGroup (h b : Declaration) : Prop :=
   b.all ≠ #[] ∧ h.all = b.all.map (fun n => Name.str n "_unsafe_rec") ∧
-  h.name ∈ b.all.map (fun n => Name.str n "_unsafe_rec") ∧ h.name ∈ h.valueConstants
+  h.name ∈ b.all.map (fun n => Name.str n "_unsafe_rec")
 instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by
     unfold RecursiveGroup; infer_instance
 
-/-- Every recursive-helper guard is required for one base and the same unique command. -/
-def RecursiveHelperOK (ds : Array Declaration) (ts : Array Transcript) (h : Declaration) : Prop :=
+/-- A recursion helper is admitted exactly when its record, its Lean-linked base's record and their
+group meet every component. No transcript, provenance or elaborator record is consulted: the
+regeneration observation makes the base, up to compilation erasure, what Lean's recursion compiler
+produces from the helper's own recursion, whoever added it. -/
+def RecursiveHelperOK (ds : Array Declaration) (h : Declaration) : Prop :=
   RecursiveHelperShape h ∧ h ∈ ds ∧ ∃ b ∈ ds,
-    h.unsafeRecBase = some b.name ∧ RecursiveBaseShape h b ∧ RecursiveGroup h b ∧
-    ∃ br ∈ declarationRange? b,
-      ExactlyOne ((moduleCommands ts h.module).filter (fun c => c.added.contains h.name)) (fun c =>
-        IntroducingCommand ts b.module b.name c ∧ RecursiveCommand c b br ∧
-        (∀ n ∈ b.all, n ∈ c.added) ∧
-        ∀ n ∈ b.all.map (fun n => Name.str n "_unsafe_rec"), n ∈ c.added)
-instance (ds : Array Declaration) (ts : Array Transcript) (h : Declaration) :
-    Decidable (RecursiveHelperOK ds ts h) := by unfold RecursiveHelperOK; infer_instance
+    h.unsafeRecBase = some b.name ∧ RecursiveBaseShape h b ∧ RecursiveGroup h b
+instance (ds : Array Declaration) (h : Declaration) : Decidable (RecursiveHelperOK ds h) := by
+  unfold RecursiveHelperOK; infer_instance
 
 end RegulaPolicy

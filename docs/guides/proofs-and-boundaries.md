@@ -77,7 +77,7 @@ proved sound and complete against it:
 | `ScopeOK` (§7.1–§7.4) | Exact classified targets and modules, required ownership, source and origin bindings; no excluded import or unattributed declaration. |
 | `AdmissionOK` (§7.3) | A completed logical-admission receipt matching the owned dependency census and snapshot; no skipped replay, unsupported admission or emitted warning on a positive fresh claim. |
 | `FoundationOK` (§7.5) | No owned logical axiom, no `sorryAx`, unknown or compiler axiom; every axiom in the surface's permitted set. |
-| `SafetyOK` (§7.4) | No unsafe or partial declaration unless the exact recursive-helper relation holds; a helper is never logical proof evidence. |
+| `SafetyOK` (§7.4) | No unsafe or partial declaration unless the exact recursive-helper relation holds; a helper is never logical proof evidence. The helper of a `partial def` (an opaque declaration Lean compiles through it) never holds it, and its finding names that declaration. |
 | `ContractOK` (§7.5, §7.11) | Every registered contract targets the exact supported implementation and predicate, with completed admission. Registration adequacy is review. |
 | `ExecutionOK` (§7.6) | Every root's closure accounted for, no unresolved path; report mode permits reported trust, checked mode only checked evidence or origin-checked native runtime. |
 | `DocumentOK` (§7.7) | Complete structural scan; warning-free, admitted Standard-Logical positives; one effective-error match per negative; classified teaching that is never positive conformance. |
@@ -179,7 +179,7 @@ environment share closure work, but each registration remains a required declara
 obligation. A job's identity is its claim, stage tag and exact subject key, including the
 requested environment for local stages; attempts are transport metadata, not new required jobs.
 Set-valued observations use canonical sorted duplicate-free collections from Std's extensional
-structures; evaluator chains and mutual groups stay ordered. Axiom lists, module sets and closure
+structures; mutual groups and transcript commands stay ordered. Axiom lists, module sets and closure
 edges have set semantics, with proved lookup and membership laws independent of storage order;
 canonicalization preserves membership. Duplicate observations are refused even when equal.
 `ResultState` carries unique keys, a subset of the fixed plan and valid payload bindings; empty
@@ -244,7 +244,7 @@ interfaces do not imply a library-wide exemption.
 | Least foundation | `leastFoundation_spec`, `leastFoundation_ext`, `foundationFor_least` | Every axiom set within Standard-Logical gets its least containing profile, invariant under order and duplicates. The actual public classifier (`foundationFor` with inventory-bound roles) uses this same result. Not the weakest possible proof of the proposition. |
 | Classification | `foundationFor_iff`, `declarationFailure_iff`, `policyFor_ordered`, `OrderedDecision.unique` | Each of the six foundation classes (three labels, hole, unknown axiom, compiler-trusting) has its exact meaning; a declaration's diagnostic is its first failed requirement (invalid membership, owned axiom, hole, unknown, escape hatch, compiler trust, contract failure, profile excess). For an axiom set outside Standard-Logical, classification keeps the diagnostic precedence hole, then unknown axiom, then compiler-trusting. Renderer strings are not proved. |
 | Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. A conforming request requires its permitted foundation, safety relation and recorded contract obligations. |
-| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` requires both the exactness and the definitional-equality observations for the helper's whole value and its generated equation, as separate conjuncts; the collector establishes both by syntactic equality, so they currently coincide. The observed replay, whole-value and equation fields are inputs; the predicates do not prove them truthful. |
+| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` reads no transcript: it requires the regeneration observation (`unsafeRecRegenerated`), the helper's exact metadata, and a safe base of the same module and type whose axioms are within Standard-Logical, with the exact group mapping. `authorizedUnsafeRecHelpers_base` states those facts for every authorized helper; `partialParent_not_authorized` excludes the helper of an opaque (`partial def`) base. The observed replay and regeneration fields are inputs; the predicates do not prove them truthful. |
 | Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and Lean's three compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. |
 | Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. |
@@ -289,7 +289,7 @@ the call through each success owner.
 | RG1001–RG1003 | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
 | RG1004 | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
 | RG1005 | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
-| RG1006 | `authorizedUnsafeRecHelpers_iff`, `policyFor_conforming_iff` | Exact helper observations are checked; acquisition authenticity and execution coverage are not. |
+| RG1006 | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the regeneration observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates or delay one under a binder, so the helper's termination trusts that preprocessing (standard §7.4). |
 | RG1007 | `ContractOK` through `ruleFor` | Recorded contract failures are enforced; Probe's extraction of the proposition and root, proof admission and adequacy are not proved by this relation. |
 | RG2004 | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | RG3001, RG3002 | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff` | The theorems cover the supplied unresolved paths and boundaries, not complete root and closure discovery or external runtime correctness. |
@@ -576,19 +576,27 @@ assembly belong to the project routes.
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
 the type's constants, closed under unfolding, and only modules that import `Regula.Contract`
-contribute constants. It establishes a recursion helper's two definitional observations by
-syntactic equality, which implies definitional equality, never by `Meta.isDefEq`: where the two
-values differ under a recursive call, its lazy unfolding of the self-referential helper does not
-terminate. The report's other elaborator observations (`Meta.isProp`, the pretty-printed type,
-and `Probe`'s executable-root classification) run under Lean's default limits. When one fails,
+contribute constants. For a recursion helper it reruns Lean's own recursion compiler on the
+helper's group (structural recursion first, then well-founded recursion with every decreasing proof
+elided), with only the toolchain's own `wf_preprocess` rules and the checker's built-in macros,
+tactic and term elaborators, generating no code for the fresh definitions, and compares each
+regenerated definition with the observed one up to compilation erasure: proofs and types, each
+classified in its own side's context, are erased and a well-founded fixpoint is compared without its
+relation or measure (`Declaration.unsafeRecRegenerated`). It never uses
+`Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of the
+self-referential helper does not terminate. The regeneration runs Lean's elaborator in the report
+worker and is undone before the comparison, which reads the observed definitions and decides erasure
+in the inspected environment; a comparison that throws counts as no regeneration. The report's
+other elaborator observations (`Meta.isProp`, the pretty-printed type, and `Probe`'s
+executable-root classification) run under Lean's default limits. When one fails,
 the report worker's error names the module, the declaration (for an execution walk, its root) and
 the failing stage: `declaration record` (any observation of `Collect.declaration`),
 `executable-root classification`, `proposition test` or `execution walk`. When the failure is one
 of those limits, or a kernel limit (deterministic timeout, deep recursion or excessive memory,
 recognized by its pinned Lean v4.34.0 message), it says the limit is the checker's own, that
 options set in the source, such as `maxRecDepth`, do not apply to the checker, and to report it
-as a Regula issue; the audit is still incomplete. The recursion helper's unfolding equation and
-native replay, which otherwise record their own failure as missing evidence, rethrow such a limit
+as a Regula issue; the audit is still incomplete. The recursion helper's regeneration and native
+replay, which otherwise record their own failure as missing evidence, rethrow such a limit
 instead. A replacement's correspondence search rethrows an elaborator limit, but its kernel check
 runs under its own budget and records exhaustion as an unresolved correspondence (standard §7.6).
 

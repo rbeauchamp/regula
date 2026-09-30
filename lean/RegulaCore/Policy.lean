@@ -248,6 +248,79 @@ theorem ruleForMember_eq (decl : Declaration) (claim : Option Profile) (scope : 
 theorem ruleFor_contract : RuleContract ruleFor :=
   checked_rule.evidence
 
+/-- Required subject of a member's declaration finding: the member's partial parent in the scope's
+inventory (`RegulaPolicy.PartialParent`), the `partial def` the author wrote or a deriving handler
+generated, when it has one, and otherwise the member itself. -/
+def SubjectContract
+    (subject : (decl : Declaration) → (scope : PolicyScope) →
+      decl ∈ scope.inventory.declarations → Declaration) : Prop :=
+  ∀ decl scope (member : decl ∈ scope.inventory.declarations) p,
+    subject decl scope member = p ↔
+      (p ∈ scope.inventory.declarations ∧ RegulaPolicy.PartialParent decl p) ∨
+      (p = decl ∧ ∀ q ∈ scope.inventory.declarations, ¬ RegulaPolicy.PartialParent decl q)
+
+private def subjectImpl (decl : Declaration) (scope : PolicyScope)
+    (_member : decl ∈ scope.inventory.declarations) : Declaration :=
+  (RegulaPolicy.partialParent? scope.inventory.declarations decl).getD decl
+
+/-- Registers `SubjectContract` about the executed projection; callers use `subject`. -/
+theorem checked_subject : Regula.ExecutableContract subjectImpl SubjectContract :=
+  ⟨fun decl scope _ p => by
+    have unique := scope.inventory.valid.1
+    have iff := RegulaPolicy.partialParent?_eq_some_iff unique decl
+    unfold subjectImpl
+    cases found : RegulaPolicy.partialParent? scope.inventory.declarations decl with
+    | some q =>
+      have hq := (iff q).mp found
+      simp only [Option.getD_some]
+      constructor
+      · rintro rfl; exact Or.inl hq
+      · rintro (parent | ⟨_, none⟩)
+        · exact Option.some.inj (found.symm.trans ((iff p).mpr parent))
+        · exact absurd hq.2 (none q hq.1)
+    | none =>
+      have none : ∀ q ∈ scope.inventory.declarations, ¬ RegulaPolicy.PartialParent decl q :=
+        fun q hq parent => by simp [(iff q).mpr ⟨hq, parent⟩] at found
+      simp only [Option.getD_none]
+      constructor
+      · rintro rfl; exact Or.inr ⟨rfl, none⟩
+      · rintro (⟨hp, parent⟩ | ⟨rfl, _⟩)
+        · exact absurd parent (none p hp)
+        · rfl⟩
+
+/-- The declaration a member's finding names, through `checked_subject`. -/
+def subject (decl : Declaration) (scope : PolicyScope)
+    (member : decl ∈ scope.inventory.declarations) : Declaration :=
+  checked_subject.run decl scope member
+
+/-- `SubjectContract` stated about `subject` itself. -/
+theorem subject_contract : SubjectContract subject :=
+  checked_subject.evidence
+
+/-- A member with a partial parent always has a finding, for every claim: it is `partial` and,
+by `RegulaPolicy.partialParent_not_authorized`, not an authorized recursion helper, so
+`SafetyOK` fails, and a native axiom (`NativeAxiomShape`) is never partial. Its finding names
+that parent (`subject_contract`). -/
+theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope : PolicyScope)
+    (member : decl ∈ scope.inventory.declarations) {p : Declaration}
+    (hp : p ∈ scope.inventory.declarations) (parent : RegulaPolicy.PartialParent decl p) :
+    ruleForMember decl claim scope member ≠ none := by
+  have unique := scope.inventory.valid.1
+  rw [ruleForMember_eq, Ne, (ruleFor_contract decl claim scope).1,
+    RegulaPolicy.policyFor_none_iff]
+  rintro ⟨_, ok⟩
+  have notHelper := RegulaPolicy.partialParent_not_authorized unique member hp parent
+  rw [← scope.roles.helpers_exact] at notHelper
+  rcases ok with ⟨_, native, _⟩ | ⟨_, _, _, safety, _⟩
+  · rw [scope.roles.native_exact] at native
+    obtain ⟨a, ha, hname, shape, _⟩ :=
+      (RegulaPolicy.authorizedNativeAxioms_iff _ _ _).mp native
+    cases RegulaPolicy.eq_of_name_eq unique ha member hname
+    exact absurd parent.1 (by simp [shape.2.2.2.2.1])
+  · rcases safety with ⟨_, hpartial⟩ | helper
+    · exact absurd parent.1 (by simp [hpartial])
+    · exact notHelper helper
+
 /-- The editor's request domain is the project request's without teaching: every value the
 editor option accepts selects `request claim` for a claim other than compiler-trusting. -/
 theorem editor_request_sound {value : String} {r : RegulaPolicy.InspectionRequest}

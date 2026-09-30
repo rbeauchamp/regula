@@ -34,11 +34,20 @@
   "label": "kernel-only"
  },
  "Fixtures.Positive.ProofCarryingWfRecursion": {
-  "expect": "fail",
-  "reason": "escape-hatch",
-  "output": [
-   "allSmall._unsafe_rec"
-  ]
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Positive.TerminatingHelpers": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Positive.DerivedRecursion": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
+ "Fixtures.Positive.RegenerationHandlerOverride": {
+  "expect": "pass",
+  "claim": "standard-logical"
  },
  "Fixtures.Positive.AliasedContract": {
   "expect": "pass",
@@ -166,7 +175,63 @@
  },
  "Fixtures.Mutations.PartialDef": {
   "expect": "fail",
-  "reason": "escape-hatch"
+  "reason": "escape-hatch",
+  "output": [
+   "fixtures_spin (opaque) type=Nat → Nat axioms=[] -> kernel-only is a `partial` definition"
+  ]
+ },
+ "Fixtures.Mutations.DerivedPartialBEq": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "instBEqFixturesTree.beq (opaque)"
+  ]
+ },
+ "Fixtures.Mutations.EarlierInstaller": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_by_handler._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.CommandElaboratorInstaller": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_by_command._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.AxiomTerminatedBase": {
+  "expect": "fail",
+  "reasons": [
+   "escape-hatch",
+   "project-axiom",
+   "unknown-axiom"
+  ],
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_axiom_loop._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.PreprocessDroppedCall": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_dropped._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.ForgedMatchElaborator": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_by_match._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.RegenerationRootCallee": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_under_root._unsafe_rec"
+  ]
  },
  "Fixtures.Mutations.UnsafeDef": {
   "expect": "fail",
@@ -314,9 +379,8 @@
   "expect": "pass",
   "claim": "kernel-only"
  },
- "Fixtures.Mutations.SpecializeHandlerReplacement": {
-  "expect": "fail",
-  "reason": "escape-hatch",
+ "Fixtures.Positive.SpecializeHandlerReplacement": {
+  "expect": "pass",
   "claim": "kernel-only"
  },
  "Fixtures.Positive.MutualAdmission": {

@@ -1,5 +1,7 @@
 /-
-Mutation: Module-local term elaboration cannot authorize forged recursive-helper metadata.
+Mutation: a module-local term elaborator forges recursive-helper metadata and a
+looping helper. Rejected by exact match: rerunning Lean's recursion compiler on the forged
+helper's own recursion does not regenerate the forged base.
 -/
 import Lean
 import Lean.Elab.PreDefinition.Structural.Eqns

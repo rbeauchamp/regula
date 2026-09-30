@@ -1,7 +1,10 @@
 import Lean
 
-/-! A source-local handler with the built-in navigation reference is not the
-pinned specialization handler, even when it delegates to that handler. -/
+/-! Positive control (issue #125): a source-local replacement of the `specialize`
+attribute runs while the definition below is elaborated, but the helper and base
+are still exactly what Lean's recursion compiler generates from the helper's
+recursion, so exact match admits the helper: admission does not depend on which
+code ran during elaboration. -/
 open Lean Elab Command
 
 run_cmd do

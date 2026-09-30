@@ -9,8 +9,8 @@ import Lean
 /-!
 # Fresh elaboration transcripts
 
-Fresh source-elaboration transcripts for the two narrowly allowed generated
-roles. The source is compared byte-for-byte before and after elaboration;
+Fresh source-elaboration transcripts for native-proof axiom provenance and
+source-bound replacement history. The source is compared byte-for-byte before and after elaboration;
 isolated callers release frontend imports before consuming the typed result.
 -/
 
@@ -36,32 +36,6 @@ instance : FromJson RegulaPolicy.Frontend.ImportRecord := ⟨fun j => do
     isMeta := ← j.getObjValAs? _ "isMeta"
   }⟩
 
-/-- A source range as line/column start and end positions (`RegulaPolicy.Frontend.SyntaxRange`),
-with its exact-field JSON codec. -/
-abbrev SyntaxRange := RegulaPolicy.Frontend.SyntaxRange
-deriving instance ToJson for RegulaPolicy.Frontend.SyntaxRange
-instance : FromJson RegulaPolicy.Frontend.SyntaxRange := ⟨fun j => do
-  exactFields j ["start", "end"]
-  return {
-    start := ← j.getObjValAs? _ "start"
-    «end» := ← j.getObjValAs? _ "end"
-  }⟩
-
-/-- One elaborator invocation read from a command's info tree: its role, elaborator, syntax
-kind, source range and whether it is pinned (`RegulaPolicy.Frontend.Evaluator`), with its
-exact-field JSON codec. -/
-abbrev Evaluator := RegulaPolicy.Frontend.Evaluator
-deriving instance ToJson for RegulaPolicy.Frontend.Evaluator
-instance : FromJson RegulaPolicy.Frontend.Evaluator := ⟨fun j => do
-  exactFields j ["role", "elaborator", "kind", "range", "pinned"]
-  return {
-    role := ← j.getObjValAs? _ "role"
-    elaborator := ← j.getObjValAs? _ "elaborator"
-    kind := ← j.getObjValAs? _ "kind"
-    range := ← j.getObjValAs? _ "range"
-    pinned := ← j.getObjValAs? _ "pinned"
-  }⟩
-
 /-- One constant a command added: its name, kind, printed type and native statement
 (`RegulaPolicy.Frontend.AddedDeclaration`), with its exact-field JSON codec. -/
 abbrev AddedDeclaration := RegulaPolicy.Frontend.AddedDeclaration
@@ -75,32 +49,15 @@ instance : FromJson RegulaPolicy.Frontend.AddedDeclaration := ⟨fun j => do
     nativeStatement := ← j.getObjValAs? _ "nativeStatement"
   }⟩
 
-/-- The binder site of a declared constant at its declaration identifier
-(`RegulaPolicy.Frontend.DeclarationBinding`), with its exact-field JSON codec. -/
-abbrev DeclarationBinding := RegulaPolicy.Frontend.DeclarationBinding
-deriving instance ToJson for RegulaPolicy.Frontend.DeclarationBinding
-instance : FromJson RegulaPolicy.Frontend.DeclarationBinding := ⟨fun j => do
-  exactFields j ["name", "range"]
-  return {
-    name := ← j.getObjValAs? _ "name"
-    range := ← j.getObjValAs? _ "range"
-  }⟩
-
-/-- One elaborated command that added constants, with its evaluators, binders and whether it
-declares an axiom (`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
+/-- One elaborated command that added constants, with what it added and whether it declares an
+axiom (`RegulaPolicy.Frontend.Command`), with its exact-field JSON codec. -/
 abbrev Command := RegulaPolicy.Frontend.Command
 deriving instance ToJson for RegulaPolicy.Frontend.Command
 instance : FromJson RegulaPolicy.Frontend.Command := ⟨fun j => do
-  exactFields j ["commandElaborator", "commandKind", "commandRange", "added", "addedDeclarations",
-      "evaluators", "bindings", "declaresAxiom"]
+  exactFields j ["added", "addedDeclarations", "declaresAxiom"]
   return {
-    commandElaborator := ← j.getObjValAs? _ "commandElaborator"
-    commandKind := ← j.getObjValAs? _ "commandKind"
-    commandRange := ← j.getObjValAs? _ "commandRange"
     added := ← j.getObjValAs? _ "added"
     addedDeclarations := ← j.getObjValAs? _ "addedDeclarations"
-    evaluators := ← j.getObjValAs? _ "evaluators"
-    bindings := ← j.getObjValAs? _ "bindings"
     declaresAxiom := ← j.getObjValAs? _ "declaresAxiom"
   }⟩
 
@@ -219,14 +176,6 @@ private def commandRecord? (tree : InfoTree) :
 termination_by tree
 decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
 
-private def position (p : Lean.Position) : Regula.Report.Position :=
-  { line := p.line, column := p.column }
-
-private def syntaxRange (fileMap : FileMap) (stx : Syntax) : Option SyntaxRange :=
-  stx.getRange? (canonicalOnly := true) |>.map fun range =>
-    { start := position <| fileMap.toPosition range.start
-      «end» := position <| fileMap.toPosition range.stop }
-
 /-- An evaluator is pinned when its elaborator is Lean's anonymous built-in
 scaffolding, a syntax macro registered in the command's own environment
 (macros are pure syntax transformations; their expansions produce their own
@@ -235,14 +184,8 @@ that exact syntax kind in the module's post-import environment, i.e. by the
 pinned toolchain or an explicitly imported library rather than by the audited
 module itself. -/
 private def pinnedElaborator (baselineEnv commandEnv : Environment)
-    (role : EvaluatorRole) (elaborator : Name) (kind : Name) (specializeSame := false) : Bool :=
+    (role : EvaluatorRole) (elaborator : Name) (kind : Name) : Bool :=
   if elaborator.isAnonymous then true
-  else if role == .command && elaborator == `Lean.Compiler.specializeAttr &&
-      #[`Lean.Parser.Attr.specialize, `specialize].contains kind then
-    let registered := fun env =>
-      (getAttributeImpl env `specialize).toOption.any (·.ref == elaborator)
-    specializeSame && registered baselineEnv && registered commandEnv &&
-      !(commandEnv.contains elaborator && (commandEnv.getModuleIdxFor? elaborator).isNone)
   else if (macroAttribute.getEntries commandEnv kind).any (·.declName == elaborator) then true
   else if role == .tactic then
     (Tactic.tacticElabAttribute.getEntries baselineEnv kind).any (·.declName == elaborator)
@@ -262,48 +205,6 @@ private def evaluatorInfo? : Info → Option (EvaluatorRole × ElabInfo)
   | .ofPartialTermInfo i => some (.term, i.toElabInfo)
   | .ofChoiceInfo i => some (.term, i.toElabInfo)
   | _ => none
-
-private def evaluatorRecords (baselineEnv commandEnv : Environment)
-    (fileMap : FileMap) (tree : InfoTree) (specializeSame : Bool) : Array Evaluator :=
-  match tree with
-  | .context _ child => evaluatorRecords baselineEnv commandEnv fileMap child specializeSame
-  | .node info children =>
-      let own := match evaluatorInfo? info with
-        | some (role, i) => #[{
-            role
-            elaborator := i.elaborator
-            kind := i.stx.getKind
-            range := syntaxRange fileMap i.stx
-            pinned := pinnedElaborator baselineEnv commandEnv role
-              i.elaborator i.stx.getKind specializeSame
-          }]
-        | none => #[]
-      (elems children).attach.foldl
-        (fun acc ⟨child, _⟩ =>
-          acc ++ evaluatorRecords baselineEnv commandEnv fileMap child specializeSame) own
-  | .hole _ => #[]
-termination_by tree
-decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
-
-/-- Pinned predefinition elaboration records the exact constant binder at its
-declaration identifier, including nested `where` definitions. -/
-private def declarationBindings (fileMap : FileMap) (tree : InfoTree) :
-    Array DeclarationBinding :=
-  match tree with
-  | .context _ child => declarationBindings fileMap child
-  | .node info children =>
-      let own := match info with
-        | .ofTermInfo i => match i.expr with
-          | .const name _ =>
-            if i.isBinder then #[{ name := name, range := syntaxRange fileMap i.stx }]
-            else #[]
-          | _ => #[]
-        | _ => #[]
-      (elems children).attach.foldl
-        (fun result ⟨child, _⟩ => result ++ declarationBindings fileMap child) own
-  | .hole _ => #[]
-termination_by tree
-decreasing_by all_goals first | exact sizeOf_child_lt ‹_› | (simp_wf; omega)
 
 /-- Whether a command's information tree records an `axiom` declaration: in the syntax of a
 command it elaborates or in the output of a macro expansion. Lean records both nodes in a
@@ -404,11 +305,12 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
     (history : Bool := false) : IO Transcript := do
   unsafe Lean.enableInitializersExecution
   let sourceBefore ← IO.FS.readFile sourcePath
-  -- A separate metadata environment identifies pinned elaborator helpers;
-  -- these imports are not added to the source being re-elaborated.
-  let compilerEnv ← Lean.importModules #[{ module := `Lean, importAll := true }] {} 0
-    (loadExts := true) (level := .private)
-  let compilerEnv? := if history then some compilerEnv else none
+  -- For replacement history, a separate metadata environment identifies pinned elaborator
+  -- helpers; these imports are not added to the source being re-elaborated.
+  let compilerEnv? ← if history then
+      some <$> Lean.importModules #[{ module := `Lean, importAll := true }] {} 0
+        (loadExts := true) (level := .private)
+    else pure none
   unsafe Lean.enableInitializersExecution
   let attributeRefs := (← Lean.attributeMapRef.get).toArray.map (·.2.ref)
   let inputCtx := Parser.mkInputContext sourceBefore sourcePath.toString
@@ -440,7 +342,7 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
   for snapshot in snapshots.getAll do
     if let some tree := snapshot.infoTree? then
       if history then runtimeReplacements := replacementRecords tree runtimeReplacements
-      if let some (commandCtx, info) := commandRecord? tree then
+      if let some (commandCtx, _) := commandRecord? tree then
         if baseline?.isNone then
           baseline? := some commandCtx.env
         if let some compilerEnv := compilerEnv? then
@@ -453,24 +355,9 @@ private unsafe def buildCore (moduleName : Name) (sourcePath : System.FilePath)
           if let some before := before? then
             let added := newConstants before after
             if !added.isEmpty then
-              -- Attribute refs are navigation metadata. Require the actual
-              -- immutable registered handler object from the compiler baseline,
-              -- not a source replacement retaining its name/ref.
-              let specializeSame := match (getAttributeImpl compilerEnv `specialize),
-                  (getAttributeImpl (baseline?.getD commandCtx.env) `specialize),
-                  (getAttributeImpl commandCtx.env `specialize) with
-                | .ok expected, .ok baseline, .ok current =>
-                    ptrEq expected baseline && ptrEq expected current
-                | _, _, _ => false
               commands := commands.push {
-                commandElaborator := info.elaborator
-                commandKind := info.stx.getKind
-                commandRange := syntaxRange commandCtx.fileMap info.stx
                 added := added
                 addedDeclarations := added.map (constantRecord after)
-                evaluators := evaluatorRecords (baseline?.getD commandCtx.env)
-                  commandCtx.env commandCtx.fileMap tree specializeSame
-                bindings := declarationBindings commandCtx.fileMap tree
                 declaresAxiom := declaresAxiom tree
               }
           before? := some after
