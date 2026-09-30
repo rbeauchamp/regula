@@ -160,15 +160,17 @@ private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : E
     | _, _ => return false
 
 /-- The definitions a regeneration added to `before` to reach `after`, those named under
-`regenerationRoot`, each with its value and with every constant under the root renamed back. -/
+`regenerationRoot`, each with its value and with every constant the regeneration added renamed
+back; a constant of `before`, under the root or not, keeps its name. -/
 private def regeneratedDefinitions (before after : Environment) : Array (Name × Expr) :=
   let unregenerate := fun (n : Name) => n.replacePrefix regenerationRoot .anonymous
-  after.constants.map₂.toList.toArray.filterMap fun (name, info) => do
-    guard <| name.getRoot == regenerationRoot && !before.contains name
+  let added := after.constants.map₂.toList.filter fun (name, _) =>
+    name.getRoot == regenerationRoot && !before.contains name
+  let addedNames := NameSet.ofList (added.map (·.1))
+  added.toArray.filterMap fun (name, info) => do
     let .defnInfo regenerated := info | none
     return (unregenerate name, regenerated.value.replace fun
-      | .const n us => if n.getRoot == regenerationRoot then some (mkConst (unregenerate n) us)
-        else none
+      | .const n us => if addedNames.contains n then some (mkConst (unregenerate n) us) else none
       | _ => none)
 
 /-- Whether each regenerated definition equals up to compilation erasure the observed definition of

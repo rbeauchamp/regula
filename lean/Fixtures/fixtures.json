@@ -226,6 +226,13 @@
    "[VIOLATION[escape-hatch]] fixtures_forged_by_match._unsafe_rec"
   ]
  },
+ "Fixtures.Mutations.RegenerationRootCallee": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_forged_under_root._unsafe_rec"
+  ]
+ },
  "Fixtures.Mutations.UnsafeDef": {
   "expect": "fail",
   "reason": "escape-hatch"
