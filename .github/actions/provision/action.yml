@@ -5,6 +5,12 @@ description: >-
   validation or test orchestration.
 
 inputs:
+  dependencies:
+    description: >-
+      Restore or provision the pinned Lake dependency artifacts (Mathlib and its dependencies).
+      A job that runs only toolchain scripts, such as the title check, turns it off.
+    required: false
+    default: 'true'
   verso:
     description: >-
       Also restore or provision the website package's pinned Verso dependencies, which share
@@ -48,6 +54,7 @@ runs:
         key: ${{ steps.toolchain.outputs.cache-primary-key }}
 
     - name: Restore pinned dependencies
+      if: inputs.dependencies == 'true'
       id: dependencies
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -62,13 +69,13 @@ runs:
     # relative to its working directory (`.lake/packages/<name>`), not the `audit/`
     # workspace's packages directory, so this lands them in the shared root one.
     - name: Provision Mathlib artifacts on cache miss
-      if: steps.dependencies.outputs.cache-hit != 'true'
+      if: inputs.dependencies == 'true' && steps.dependencies.outputs.cache-hit != 'true'
       shell: bash
       run: lake -d audit exe cache get
 
     # Save provisioned dependencies before verification, even if it later fails.
     - name: Save pinned dependencies
-      if: steps.dependencies.outputs.cache-hit != 'true'
+      if: inputs.dependencies == 'true' && steps.dependencies.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .lake/packages

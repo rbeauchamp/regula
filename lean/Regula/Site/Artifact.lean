@@ -145,7 +145,7 @@ asset exists and the state `tag` of the installed release's tag. Refuses a relea
 asset unless this build is that release's and its tag is absent or names this commit. -/
 def releaseSources (root : FilePath) (tag : TagState) :
     IO (List (ReleaseVersion × ReleaseSource)) :=
-  releases.mapM fun v => do
+  versions.mapM fun v => do
     match releaseSource installed v (← downloadRelease root v) tag with
     | some source => return (v, source)
     | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist \

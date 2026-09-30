@@ -14,7 +14,7 @@ run_cmd do
   unless supported == "leanprover/lean4:v" ++ Lean.versionString do
     Lean.logError m!"this Regula release supports only Lean {supported}, but Lake is running \
       Lean {Lean.versionString}. Move the project, and Mathlib if it uses it, to {supported} \
-      (its lean-toolchain, then `lake update`), or require the Regula release that supports \
+      (its lean-toolchain, then `lake update`), or require a Regula release that supports \
       your Lean: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
       #when-your-lean-release-has-no-regula-release"
 
@@ -22,8 +22,13 @@ run_cmd do
 -- editor linter, with no dependency beyond the Lean toolchain. Everything that imports Mathlib
 -- (the standard's Mathlib examples) is the separate `regula_audit` package in `audit/`.
 package «regula» where
-  -- Reservoir (https://reservoir.lean-lang.org) lists these; release versions are the tags
-  -- `v<Lean version>` (docs/guides/contributing.md#release).
+  -- Regula's semantic version: the latest release's, which only the release pull request
+  -- changes and CI checks against `Regula.releases` (docs/guides/contributing.md#release). Each
+  -- release is tagged `v<version>`. The first release, tagged `v4.34.0` for its Lean release,
+  -- declares no version, which Lake reads as this `0.0.0`.
+  version := v!"0.0.0"
+  -- Reservoir (https://reservoir.lean-lang.org) lists these, and each release tag with the version
+  -- its lakefile declares.
   description := "A strict linter for Lean: no holes, no hidden axioms, no unstated trust, and a \
     fix for every finding."
   keywords := #["linter", "devtool", "cli", "formal-verification", "software-verification"]

@@ -230,9 +230,10 @@ def versionsPage (ident : Identity) : Except String String := do
         "</code></dd>" ++
     "<dt>Verso revision</dt><dd><code>" ++ escape ident.versoRevision ++ "</code></dd>" ++
     "<dt>Releases</dt><dd>" ++ (if releases.isEmpty then "none yet" else
-      ", ".intercalate (releases.reverse.map fun v =>
-        "<a href=\"" ++ escape (basePath ++ (Edition.release v).root) ++ "\">" ++
-            escape v.spelling ++ "</a>")) ++ "</dd>" ++
+      ", ".intercalate (releases.reverse.map fun r =>
+        "<a href=\"" ++ escape (basePath ++ (Edition.release r.version).root) ++ "\">" ++
+            escape r.version.spelling ++ "</a> for Lean " ++ escape r.toolchain.spelling)) ++
+        "</dd>" ++
     "</dl>")
   return header [] "Versions" "versions" (some "versions") (split := false) ++
       notice ++ "\n" ++ identity ++ "\n" ++

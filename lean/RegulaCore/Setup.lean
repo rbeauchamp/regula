@@ -1394,8 +1394,9 @@ def Issue.fix (f : Lakefile) : Issue → String
       briefing (for example after `lake update regula`); init owns this file and keeps no local \
       edits"
   | .toolchain _ s => "  fix: move the project, and Mathlib if it uses it, to " ++ s ++
-      " (set lean-toolchain and run `lake update`), or require the Regula release that supports \
-      your toolchain; each release supports exactly one Lean release"
+      " (set lean-toolchain and run `lake update`), or require a Regula release that supports \
+      your toolchain (the adoption guide's compatibility table lists each release's toolchain); \
+      each release supports exactly one Lean release"
   | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
       (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
       modules)"

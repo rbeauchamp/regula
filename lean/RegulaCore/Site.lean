@@ -188,10 +188,10 @@ def rootEdition : Edition :=
   | none => .dev
 
 /-- The site root opens the development edition exactly while no release exists. -/
-theorem rootEdition_eq_dev_iff : rootEdition = .dev ↔ releases = [] := by
+theorem rootEdition_eq_dev_iff : rootEdition = .dev ↔ versions = [] := by
   rw [← List.getLast?_eq_none_iff]
   unfold rootEdition latest
-  cases releases.getLast? <;> simp
+  cases versions.getLast? <;> simp
 
 /-- Release order is asymmetric, without the classical order instances of `Nat`. -/
 private theorem releaseVersion_lt_asymm {a b : ReleaseVersion} (h : a < b) : ¬ b < a := by
@@ -208,7 +208,7 @@ private theorem releaseVersion_lt_asymm {a b : ReleaseVersion} (h : a < b) : ¬ 
 
 /-- The site root opens release `l`'s edition exactly when `l` is the greatest release. -/
 theorem rootEdition_eq_release_iff (l : ReleaseVersion) :
-    rootEdition = .release l ↔ l ∈ releases ∧ ∀ v ∈ releases, v = l ∨ v < l := by
+    rootEdition = .release l ↔ l ∈ versions ∧ ∀ v ∈ versions, v = l ∨ v < l := by
   unfold rootEdition
   cases hl : latest with
   | none =>

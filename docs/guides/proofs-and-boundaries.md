@@ -851,22 +851,64 @@ whose tag is absent or names the release commit (`tagAction_release_iff`), so pu
 creates the tag, never leaves it naming another commit; it changes nothing once the release is
 published (`tagAction_published`, `tagAction_skip_iff`), always proceeds on the head of `main` of
 an unpublished release that no tag names elsewhere (`tagAction_converges`), and
-`tagAction_refuse_iff` gives the remaining case. **Proved** in `RegulaCore.Edition`: a build
+`tagAction_refuse_iff` gives the remaining case. The derivation over the Conventional Commits
+headers of the commits of `main` since the previous release (`parseCommit`) alone, `derive`, is
+at least each commit's bump (`derive_ge`), calls for no release exactly when every commit's type
+calls for none (`derive_eq_none_bump`), and is undecided exactly when a subject is not a header
+(`derive_eq_none`). `nextVersion`, the version the open step derives from those headers,
+`lean-toolchain` and the workflow's requested bump, bumps from its predecessor at least as much
+as each header calls for, whatever was requested and also when the derivation is undecided
+(`nextVersion_ge`); its bump is never less than the headers' greatest bump or the requested bump
+(`nextBump_ge_called`, `nextBump_ge_requested`) and at least minor for a toolchain move
+(`nextBump_moved`), so a toolchain move or a request releases even when every commit's type calls
+for none, and an undecided derivation yields a version only for a requested bump
+(`nextBump_undecided`). The version it yields follows its predecessor (`nextVersion_follows`):
+later, on its toolchain for a patch release, with the lower components reset on a new line.
+`covers`, which the candidate step checks on the commits of `main` since the release listed
+before the one it releases up to the commit it releases, holds exactly when that release's bump
+from its predecessor (`Version.bumpTo`) is at least each such header's bump, and at least minor
+for a toolchain move (`covers_iff`); it holds for the release the open step derived from the same
+commits (`nextVersion_covers`, with `Version.bumpTo_bump`). `publishedExactly`, which the
+candidate step checks before it creates a release commit and the open step when it starts and
+again just before it pushes, holds exactly when every release listed before the one the step
+handles is published and every published release is one of them (`publishedExactly_iff`); when
+it holds, that release's listed predecessor is the latest published release
+(`publishedExactly_latest`), and a release whose listed predecessor is unpublished, or is earlier
+than a published release, is refused (`publishedExactly_refuses`), both given the releases before
+it listed in ascending order, which `releases_ascending` checks. So once a release is published,
+no release listed in its place is released. `admits`, which the open step also
+checks, characterizes a new release exactly (`admits_iff`); an admitted release's tag is new
+(`admits_new`), and once the legacy release `v4.34.0` is listed, Lake's order of the versions
+the releases' lakefiles declare puts an admitted release above every listed one
+(`admits_lake`, `Version.lakeLt_declared`). A release that follows its predecessor has patch `0`
+exactly when it starts a new line (`follows_patch_iff`), and a release on another toolchain
+starts one (`follows_toolchain`). **Proved** in `RegulaCore.Edition`: a build
 labelled a release is admitted exactly while its tag is absent or names its commit
 (`labelAdmitted_release_iff`), and an artifact is deployable exactly when no release edition in
-it was rendered from source (`publishable_iff`). The rest of `Release.lean` is operational,
-including its check that a commit of `main` or of a pull request is unreleased and `adopt`, which
-checks, with `git` trusted, that the release commit is the content CI derived from `main`'s
-commit before CI records it as that commit. Its edits of
-`RegulaCore/Edition.lean` are read back before use; its stamp of `RegulaCore/Rule.lean` is a
-convenience that reads text. The kernel checks the edited modules' theorems when the release pull
-request's checks and CI's checks of the release commit build them: `releases_ascending`,
-`installed_listed`, `release_attributes_rules` (when `installed` is a release, no lifecycle
-position of any rule is `.unreleased`; on the release commit this is the gate before anything is
-published) and `lifecycle_listed` (every release a rule's lifecycle names is in `releases`). What
-the steps observe (whether the release is published, the head of `main`, the tag), GitHub's
-signature verification, that publishing a release creates its tag at the given commit, tags,
-immutable releases, pull requests and workflow ordering are trusted.
+it was rendered from source (`publishable_iff`), and a release that follows its predecessor has
+patch `0` exactly when it starts a new line (`follows_startsLine_iff`). The rest of
+`Release.lean` is operational: the text reading of a Conventional Commits header (`parseHeader`)
+and of the edited files, its check that a commit of `main` or of a pull request is unreleased,
+`agree`, and `adopt`, which checks, with `git` trusted, that the release commit is the content CI
+derived from `main`'s commit before CI records it as that commit. Its edits of
+`RegulaCore/Edition.lean`, `lakefile.lean` and the adoption guide's compatibility table are read
+back before use; its stamps of `RegulaCore/Rule.lean` are a convenience that reads text. `agree`,
+a step of `verify` before acceptance, refuses a `lakefile.lean` version, as Lake reads it
+(`lake reservoir-config`), other than the latest listed release's, and a compatibility table
+other than the one `Regula.releases` gives. The kernel checks the edited modules' theorems when
+the release pull request's checks and CI's checks of the release commit build them:
+`releases_ascending`, `releases_follow`, `installed_listed`, `release_attributes_rules` (when
+`installed` is a release, no lifecycle position of any rule is `.unreleased`; on the release
+commit this is the gate before anything is published), `lifecycle_listed` (every release a rule's
+lifecycle names is in `versions`) and `introduced_startsLine` (the release that introduces a rule
+has patch `0`, so it is not a patch release). What the steps observe (whether the release is
+published, the versions of the published releases, read from the tags of the releases GitHub
+lists that are not drafts, the head of `main`, the tag, the commits since the previous release,
+a pull request's title and head), GitHub's signature verification, that publishing a release
+creates its tag at the given commit, tags, immutable releases, pull requests, squash merges
+taking the pull request's title and description, workflow ordering, and that Lake and Reservoir
+read and order versions as their source shows ([Reservoir](contributing.md#reservoir)) are
+trusted.
 
 ## Rule examples and the corpus runner
 

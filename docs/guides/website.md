@@ -195,10 +195,10 @@ Each run on `main` cancels older runs of `main`, the deploy job refuses to publi
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
 `github-pages` concurrency group. The `site` job and the corpus shards are not yet required
-status checks (only `verify` is); until the operator adds them, a change that breaks the site can
-merge and `main` stops deploying until it is fixed. The site can lag `main` while checks run or
-after they fail; each page states its commit. Repository Pages settings use **GitHub Actions**
-as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
+status checks (only `verify` and `title` are); until the operator adds them, a change that
+breaks the site can merge and `main` stops deploying until it is fixed. The site can lag `main`
+while checks run or after they fail; each page states its commit. Repository Pages settings use
+**GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 
 ## Versions and routes
 
@@ -210,8 +210,12 @@ as the source. There is no custom domain or paid hosting. Actions are pinned by 
 | any other path | The not-available page (HTTP 404). It never redirects to other rules. |
 
 `Regula.installed` is the version of a build: a release, or unreleased; `Regula.releases` lists
-every release, oldest first (`releases_ascending`), and a released build is one of them
-(`installed_listed`). Every deployment publishes `dev/` and the edition of every release
+every release with the one Lean toolchain it supports, oldest first, in release order
+(`releases_ascending`, `Regula.versions`), and a released build is one of them
+(`installed_listed`). Release order is by semantic version, in which the first release, `4.34.0`,
+counts as `0.1.0` and so precedes `0.2.0` ([release numbering](contributing.md#release)); its
+edition keeps its route `/regula/v/4.34.0/`. The versions page lists each release with its
+toolchain. Every deployment publishes `dev/` and the edition of every release
 (`published`). The site root's `index.html` (`landing`) opens `rootEdition`: its refresh, its link
 and its canonical link name that edition. `rootEdition` is derived from `Regula.releases` alone:
 the latest release's edition, whose release is the greatest (`rootEdition_eq_release_iff`), or
@@ -250,9 +254,11 @@ releases, a repository setting that is on, forbid changing a published release's
 A release takes these steps, in order ([release procedure](contributing.md#release)):
 
 1. The Release workflow pushes the branch of the release pull request, which a maintainer opens
-   from the link in the job summary. Its commit appends the release to `Regula.releases`
-   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) and stamps it into rule lifecycle
-   positions still `.unreleased`; `Regula.installed` stays `.unreleased`.
+   from the link in the job summary. Its commit appends the release, with the version the
+   workflow derives and its toolchain, to `Regula.releases`
+   ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)), sets `lakefile.lean`'s
+   `version`, adds it to the adoption guide's compatibility table and stamps it into rule
+   lifecycle positions still `.unreleased`; `Regula.installed` stays `.unreleased`.
 2. When it merges, CI on `main`, once acceptance and the rule-example shards pass, creates the
    release commit, a child of the head of `main` that is not on `main` and whose only change sets
    `Regula.installed` to the release, and runs both acceptance steps, both rule-example shards

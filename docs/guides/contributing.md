@@ -346,16 +346,88 @@ groups to every ordinary acceptance run. Existing CI builds transitively check a
 adapter modules; the required CI diagnostics and budgets are described above.
 After fixes, reuse a diagnostic only with an explicit unchanged-relevant-input argument.
 
+## Pull request titles
+
+Pull requests merge by squash, so a pull request's title becomes the subject of its one commit on
+`main` and its description that commit's body. The title is a
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) header,
+`type(scope)!: summary`: a type in lower case, an optional scope, `!` for a breaking change, then
+`: ` and a summary. The required `title` check ([`title.yml`](../../.github/workflows/title.yml),
+`lean --run lean/Regula/Release.lean title`) refuses any other title, and runs again when the
+title is edited. The type decides what the commit calls for in the next release:
+
+| Type | Use it for | Release |
+| --- | --- | --- |
+| `feat` | a new rule, a tightened rule (one that refuses what it accepted before), or a new feature | minor |
+| `fix` | a bug fix: more accurate findings, messages, CLI or report behaviour | patch |
+| `perf` | a performance improvement | patch |
+| `build` | the build or dependencies, including a move to another Lean toolchain | none; a toolchain move makes the release minor |
+| `docs`, `refactor`, `test`, `ci`, `chore`, `revert` | documentation, restructuring, checks, CI, maintenance, reverts | none |
+
+A breaking change, `type!:` or a `BREAKING CHANGE: <what breaks>` line in the description, calls
+for a major release, or a minor one before 1.0. A tightened rule is a `feat`, not a breaking
+change: before 1.0 both make a minor release. The Release workflow's own pull request is a
+`chore(release)`.
+
 ## Release
 
 A release is one action: run the **Release** workflow on `main` (**Actions → Release → Run
 workflow**, or `gh workflow run release.yml --ref main`), then open and merge the pull request it
-prepares. Its version is the Lean release in [`lean-toolchain`](../../lean-toolchain), the Lean
-ecosystem's tag convention (Batteries, Aesop, Plausible, import-graph and doc-gen4 tag `v4.34.0`
-for Lean 4.34.0; ProofWidgets instead numbers its own versions, such as `v0.0.114`). There is
-therefore one release per supported toolchain: move to the next Lean release before the next
-Regula release. Every step is a command of
-[`lean/Regula/Release.lean`](../../lean/Regula/Release.lean).
+prepares. Every step is a command of [`lean/Regula/Release.lean`](../../lean/Regula/Release.lean).
+
+Regula numbers its own releases by [Semantic Versioning](https://semver.org), in the `version`
+of [`lakefile.lean`](../../lakefile.lean) (whose Lake documentation reserves patch increments for
+bug fixes), and tags each release `v<version>`. A release supports exactly one Lean toolchain,
+the [`lean-toolchain`](../../lean-toolchain) of its release commit, and `Regula.releases`
+([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) records it with the release. A
+**patch** release carries fixes on the same toolchain, with no new or tightened rule; a **minor**
+release carries new or tightened rules, new features or a move to another Lean toolchain; the
+**major** version stays `0` until the maintainer declares 1.0 (the workflow's `bump` input set to
+`major`). So a fix reaches adopters on their toolchain whenever `main` has one, without waiting for
+the next Lean release.
+
+The version is derived, not chosen: from the [types](#pull-request-titles) of the commits of
+`main` since the previous release, the greatest bump any of them calls for, and at least minor
+when `lean-toolchain` differs from the previous release's. When the commits call for none and
+the toolchain is unchanged, there is nothing to release. The workflow's `bump` input (`derived`,
+`patch`, `minor` or `major`) may raise that bump and never lowers it; it is also how a release
+goes out when the commits call for none, or when a commit's subject is not a Conventional
+Commits header, which leaves the derivation undecided: the release's bump is then the greater of
+the requested one and the one the other commits and the toolchain call for.
+`Regula.Release.nextVersion` is that decision, and the kernel checks its theorems each time a
+step runs. The derivation over the commits alone
+(`derive`) calls for no release exactly when every commit's type calls for none
+(`derive_eq_none_bump`) and is undecided exactly when a subject is not a header
+(`derive_eq_none`). The release's bump from its predecessor is at least each header's, whatever
+was requested (`nextVersion_ge`), never below the requested bump (`nextBump_ge_requested`), and
+at least minor for a toolchain move (`nextBump_moved`); the derived version follows its
+predecessor (`nextVersion_follows`, `follows`): it is later than its predecessor, a patch
+release keeps its predecessor's toolchain, and a new line resets the lower components. **open**
+also refuses it unless it is later than every listed release before it, a pending release it
+replaces excepted (`admits`, `admits_iff`). `introduced_startsLine`
+([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)) refuses a patch release that introduces a
+rule, and `releases_ascending` and `releases_follow` check the listed releases themselves. The
+job summary of **open** lists each commit's bump.
+
+The Lean ecosystem is split on release numbering. Batteries, Aesop, Plausible, import-graph and
+doc-gen4 tag the toolchain they support (`v4.34.0` for Lean 4.34.0), which allows one release per
+toolchain; ProofWidgets numbers its own versions (such as `v0.0.114`), as Regula now does, and
+the compatibility table in the [adoption guide](adoption.md#1-require-regula) maps each release to
+its toolchain. Two alternatives were rejected. A tag `v4.34.1` for a fix on Lean 4.34.0 reads, by
+that convention, as a release for Lean 4.34.1, and collides with a real Lean point release. A tag
+`v4.34.0-1` sorts before `v4.34.0` in Lake's order, which ranks a version with a `-` suffix below
+the version without it.
+
+The first release, `v4.34.0`, predates this numbering: it was tagged with its Lean release, and it
+stays as published, immutable. Its semantic version is `0.1.0`, which orders it before every later
+release, so the first own-numbered release is `0.2.0`; its lifecycle stamps
+(`.release ⟨4, 34, 0⟩`) and its rule reference `/v/4.34.0/` keep its tag's number. Its
+`lakefile.lean` declares no version, which Lake reads as `0.0.0`, so Lake and Reservoir rank it
+below every later release too ([Reservoir](#reservoir)). `main`'s `lakefile.lean` declares the
+latest release's version (`0.0.0` until `0.2.0`), and a step of the required `verify` check,
+before acceptance (`lean --run lean/Regula/Release.lean agree`), refuses a version Lake reads
+that is not the latest listed release's, and an adoption-guide compatibility table that is not
+the one `Regula.releases` gives.
 
 `main` never carries a release label: `Regula.installed`
 ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)) is `.unreleased` on every commit of
@@ -365,27 +437,46 @@ release commit that CI creates beside `main`, and the site build refuses a relea
 the release's tag names another commit (`labelAdmitted_release_iff`). Nothing public exists
 until the release commit has passed the same checks as `main`:
 
-1. **open** ([`release.yml`](../../.github/workflows/release.yml)) creates the commit of the
-   release pull request, a child of the `main` commit the workflow runs on that appends the
-   release to `Regula.releases` and stamps it into rule lifecycle positions still `.unreleased`
+1. **open** ([`release.yml`](../../.github/workflows/release.yml)) derives the version and
+   creates the commit of the release pull request, a child of the `main` commit the workflow runs
+   on that appends the release with its toolchain to `Regula.releases`, sets `lakefile.lean`'s
+   `version` to it, adds its row to the adoption guide's compatibility table, and stamps it into
+   rule lifecycle positions still `.unreleased`
    ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)): each `.unreleased` on a line that
    starts `lifecycle :=`. `.unreleased` is the placeholder for both positions: a new rule states
    `lifecycle := .active .unreleased`, and a rule retired since the last release states
    `lifecycle := .retired (.release ⟨X, Y, Z⟩) .unreleased replacement` on one line. The stamp is
    a convenience that reads text; the guarantee is the kernel's check of
    `release_attributes_rules` on the release commit (step 2). `Regula.installed` stays
-   `.unreleased`. GitHub creates and signs the commit, and the step refuses unless GitHub verified
+   `.unreleased`. It refuses unless the releases GitHub reports published (its releases that are
+   not drafts) are exactly the releases it keeps listed before the one it lists
+   (`Regula.Release.publishedExactly`), and checks that again just before it pushes, so it never
+   lists a release in place of one published by then. GitHub creates and signs the commit, and
+   the step refuses unless GitHub verified
    the signature. It pushes the commit as `release/v<version>` and writes to its job summary the
-   link that opens the pull request `release: Regula v<version>`, title and description filled
-   in. A maintainer opens the pull request from that link, which starts its checks, and merging
-   it through normal review is the decision to release. Until the release is published, the
-   `site` check of this pull request, like the site build of every commit that lists the release,
-   refuses: the release's edition exists only once CI builds it from the release commit. Only
-   `verify` is a required check.
+   link that opens the pull request `chore(release): Regula v<version> for Lean <toolchain>`,
+   title and description filled in. A maintainer opens the pull request from that link, which
+   starts its checks, and merging it through normal review is the decision to release. Until the
+   release is published, the `site` check of this pull request, like the site build of every
+   commit that lists the release, refuses: the release's edition exists only once CI builds it
+   from the release commit. Only `verify` and `title` are required checks.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
-   shards pass on a commit of `main` that lists a release not yet published, it creates the
-   release commit, a signed child of that commit that is not on `main` and whose only change sets
-   `Regula.installed` to the release, and points the branch `release/v<version>-candidate` at it.
+   shards pass on a commit of `main` that lists a release not yet published, it refuses unless
+   the releases GitHub reports published are exactly the releases listed before it
+   (`publishedExactly`): its listed predecessor is then the latest published release
+   (`publishedExactly_latest`), and a release whose listed predecessor is not is refused
+   (`publishedExactly_refuses`), so every published release stays listed, in order. It derives
+   the bump again, over the commits of `main` since the release listed before it up to that
+   commit, which
+   are the commits the release contains, and refuses unless the release's bump from that
+   predecessor is at least the bump those commits and `lean-toolchain` call for
+   (`Regula.Release.covers`, which `covers_iff` characterizes exactly; the release **open**
+   derived passes on the commits it derived from, `nextVersion_covers`). So a pull request that
+   merged after **open** derived the version and calls for more, such as a `feat` after a patch
+   release was derived, stops the release; the refusal lists each commit's bump. Otherwise it
+   creates the release commit, a signed child of that commit that is not on `main` and whose
+   only change sets `Regula.installed` to the release, and points the branch
+   `release/v<version>-candidate` at it.
    The next jobs run on it, with its release label, the checks of `main`: `release-verify` both
    acceptance steps, and `release-site` both rule-example shards and the site build, which
    renders the release's edition and writes it as `regula-site-<version>.tar.gz`
@@ -401,7 +492,8 @@ until the release commit has passed the same checks as `main`:
 3. **publish** (`ci.yml`, the `publish` job), only once all of those checks pass and both
    adopted the release commit, creates the
    GitHub release with its notes (how to require, set up and update, then GitHub's generated list
-   of changes) and that edition as its asset, published only once the asset is attached.
+   of changes since the tag of the release listed before it) and that edition as its asset,
+   published only once the asset is attached.
    Publishing creates the tag `v<version>` at the release commit; no step writes the tag
    otherwise, so a failed check leaves no tag and no release. Immutable releases, a repository
    setting that is on, then freeze the tag and the asset. The site build of `main` runs after it
@@ -425,36 +517,68 @@ later merge cancelled needs no repair, and a re-run of CI on `main` finishes the
 the release is published, nothing changes. The decision of **candidate** and **publish** is
 `Regula.Release.tagAction`, whose theorems the kernel checks each time a step runs
 (`tagAction_converges`, `tagAction_published` and the exact cases of each action). If a pull
-request that adds or retires a rule merges to `main` before the release is published, its
+request that calls for a greater bump than the release's merges to `main` before the release is
+published, **candidate** refuses the release; if one that adds or retires a rule does, its
 `.unreleased` lifecycle position makes the release commit fail `release_attributes_rules` in
-`release-verify` and `release-site`, and nothing is published: run the Release workflow on
-`main` again as a new run, whose **open** stamps that rule too, rebuilding the release branch
-while its pull request is open, or preparing a new pull request from it once the first has
-merged. A re-run of the Release workflow reuses its original commit, so it stamps nothing new.
+`release-verify` and `release-site`. Either way nothing is published: run the Release workflow
+on `main` again as a new run, whose **open** derives the version the commits then call for and
+stamps that rule too. While the listed release is unpublished, that run lists that version in
+its place (a `feat` turns a pending patch release into a minor one) and restamps its lifecycle
+positions, in a new pull request. While the release pull request is still open, the run rebuilds
+its branch when the version is unchanged, and otherwise pushes the branch of the new version,
+whose pull request replaces it: close the stale one, whose release **candidate** refuses if it
+merges. A pull request that **open** prepared to list a release in place of a pending one is
+refused by **candidate** if the pending release was published before it merged: list the
+published release again, before the new one, with its stamps. A re-run of the Release workflow
+reuses its original commit, so it stamps nothing new.
 
 Each step resumes when its job is re-run: **open** rebuilds its branch on the commit its run
-started from; **candidate** creates a fresh release commit and refuses a `lean-toolchain` that is
-not the release's; and **publish** replaces an unpublished draft and skips a published release.
-While the release is unpublished, **candidate** and **publish** refuse a stale run whose commit
-is no longer the head of `main` and a tag that names another commit. **open** refuses a
-published release, an earlier listed release not yet published, and a `main` that already lists
-the release with nothing left to stamp.
+started from; **candidate** creates a fresh release commit and refuses published releases other
+than those listed before the release, a release that does not cover the commits it contains and
+a `lean-toolchain` other than the toolchain the release records; and **publish** replaces an
+unpublished draft and skips a published release. While the release is unpublished,
+**candidate** and **publish** refuse a stale run whose commit is no longer the head of `main`
+and a tag that names another commit. **open** refuses a derivation that releases nothing, a
+patch release that introduces a rule (a new rule, or one a pending release it replaces
+introduced), published releases other than those it keeps listed (an earlier listed release not
+yet published, or a published release not listed), and a `main` that already lists the release
+with nothing left to change.
 
 Who opens the pull request, and when its checks start: a maintainer opens it from the link in the
 job summary of **open**, and opening it starts its checks. No workflow creates a pull request,
 because the repository does not let GitHub Actions create one. When **open** rebuilds the branch
 of a pull request that is already open, its push with the workflow's token starts no checks, so
-it dispatches `ci.yml` on the branch, which runs them; only the `open` job has `actions: write`
-for that dispatch.
+it dispatches `ci.yml` and [`title.yml`](../../.github/workflows/title.yml) on the branch, which
+run them on its new head; the dispatched `title` check reads the pull request's title through
+GitHub's API and refuses unless the pull request's head is the commit it checked out. Only the
+`open` job has `actions: write` for that dispatch.
 
-Adopters update by changing the tag and `lean-toolchain`, then running `lake update regula` and
-`lake exe regula init` ([adoption guide](adoption.md#update-regula)).
+Adopters update by changing the tag, and `lean-toolchain` when the release supports another
+toolchain, then running `lake update regula` and `lake exe regula init`
+([adoption guide](adoption.md#update-regula)).
 
 ### Reservoir
 
 [Reservoir](https://reservoir.lean-lang.org), the Lean package index, lists a public, non-fork
 GitHub repository with a root `lake-manifest.json` and an OSI-approved license that GitHub
 recognizes once the repository has at least two stars, or when Reservoir's maintainers register
-it. It reads the package's versions from its `v`-prefixed tags and its description, keywords,
-homepage and license from the package configuration (`lake reservoir-config` prints them), and
-refreshes about daily.
+it. It reads the package's description, keywords, homepage and license from the package
+configuration (`lake reservoir-config` prints them), and refreshes about daily.
+
+Reservoir takes a package's version tags from the `versionTags` of `lake reservoir-config` on the
+default branch (by default every tag that starts with `v` and a digit), checks out each, and
+indexes it with the `version` that tag's own `lake reservoir-config` reports, `0.0.0` when its
+lakefile declares none; it orders the versions by that version (lexicographic in major, minor
+and patch), then by commit date, newest first, and shows a `0.0.0` version as belonging to no
+version track. Lake, resolving a `require` by version range from Reservoir, takes the first
+version in that order that the range matches.
+
+So Reservoir indexes `v4.34.0`, whose lakefile declares no version, as `0.0.0`, below every
+own-numbered release, and no `versionTags` pattern is needed to exclude it: the tag is
+immutable, every later release declares its version (`agree`), and `Regula.Release.admits_lake`
+proves that Lake's order of the declared versions puts every admitted release above every listed
+one. That Reservoir behaves so is an observation of its source at
+[`a5774ea`](https://github.com/leanprover/reservoir/tree/a5774ea3b51fef4a496f35c791cfa660c914454f/scripts)
+(`testbed-analyze.py`, `testbed-save.py`, `utils/manifest.py`) and of Lake 4.34.0's
+(`Lake/CLI/Main.lean`, `Lake/Load/Materialize.lean`), not a guarantee.
+Git requires such as `rev = "v0.2.0"` name the tag directly and involve no version order.
