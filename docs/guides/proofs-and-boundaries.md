@@ -468,8 +468,8 @@ inferred from any pure proof.
 - **Transport.** `Report.Collected` adds extraction keys to the pure policy report;
   `Checker.ProducerReport.Environment` adds the operational receipts and owns their JSON decoder:
   `census` (requested modules, declaration keys, optional execution root keys and root/module
-  history requests), `admission` (replay modules, required keys, observed admitted keys and
-  reused modules),
+  history requests), `admission` (replay modules, required keys, observed admitted keys, reused
+  modules and `shared` modules),
   `documentation` (every module's presence, including declaration-free modules, frozen material
   keys and exact optional docstrings), `histories` (one completed source receipt or explicit
   unavailable outcome for every requested module) and `sourceBindings` (exact loaded-owned
@@ -906,6 +906,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | open: a step-function scanner with proved problem coverage |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
+| checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec and source cases | registry, diagnostic and source codecs | Proved in part | round-trip theorems; open: state the remaining refusals as theorems |
