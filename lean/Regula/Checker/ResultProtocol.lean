@@ -24,8 +24,9 @@ for the whole audit, with the environments and roots that reach it. Schema 4 ins
 claimed executable's root in an environment of its own: a project `scope.surfaces[*]` entry's
 `modules` and `report` cover only its library's environment (the library's modules other than
 its claimed executables' roots), and each claimed executable has its own `executables[*]` entry
-with its own `modules` and `report`. A report's `admission` also lists as `reused` the modules its environment did not
-replay because a library's environment admitted them over the identical import closure.
+with its own `modules` and `report`. A report's `admission` also lists as `reused` the modules
+its environment did not replay because a library's environment admitted them over the identical
+import closure.
 Schema 3 added, for agents, each diagnostic's `remedy`, the top-level `rules` (the
 guidance of every rule that fired, once each), the stage evidence `stages` (the run's required
 stages) and `stagesCompleted` (those that completed), and their derivation `complete` (every
