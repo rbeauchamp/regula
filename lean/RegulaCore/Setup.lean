@@ -36,8 +36,9 @@ commands execute over what they observe of a project.
 - `Issue.message`, `Issue.fix`, `unimportedNote`, `Edit.summary`: the text `doctor` and `init`
   print; a note is not an issue and does not fail `doctor`. A finding about modules a library
   leaves out states their count and names at most `shownModules` of them, wrapped
-  (`moduleLines`): `moduleSummary_complete` shows it prints a prefix of them and counts exactly the
-  rest, and `wrapFrom_flatten` that wrapping keeps each printed name, in order.
+  (`moduleLines`, by definition `moduleSummary`'s names grouped by `wrapFrom`):
+  `moduleSummary_complete` shows those names are a prefix of the modules and the count exactly the
+  rest, and `wrapFrom_flatten` that grouping keeps each name, in order.
 
 ## Boundaries
 
@@ -1149,8 +1150,8 @@ def shownModules : Nat := 12
 def moduleSummary (modules : List String) : List String × Nat :=
   (modules.take shownModules, modules.length - shownModules)
 
-/-- A finding accounts for every module: it prints a prefix of them and counts exactly the
-rest. -/
+/-- `moduleSummary` accounts for every module: its names are a prefix of them and its count is
+exactly the rest. -/
 theorem moduleSummary_complete (modules : List String) :
     (moduleSummary modules).1 ++ modules.drop shownModules = modules ∧
       (moduleSummary modules).1.length + (moduleSummary modules).2 = modules.length := by

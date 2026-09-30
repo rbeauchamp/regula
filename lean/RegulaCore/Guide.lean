@@ -491,8 +491,8 @@ def guide : RuleId → Guide
           another surface, or claimed where the library is excluded, or the reverse) are \
           rejected (`manifest-schema`, `manifest-incomplete`, `manifest-conflict` and related \
           subreasons). A claimed executable whose root belongs to its own surface's library is \
-          accepted: the root is inspected once, in the executable's environment, unless every \
-          module of that library is such a root.",
+          accepted unless every module of that library is such a root; the root is then \
+          inspected once, in the executable's environment.",
         "In the editor, an invalid local request (for example an unknown `regula.localFoundation` \
           value) is reported under this rule for the current file only."]
       rationaleDetail := []
@@ -625,7 +625,7 @@ def guide : RuleId → Guide
         operational."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Probe.lean",
-              "lean/Regula/Checker/AxiomGate.lean"] }
+              "lean/Regula/Checker/AxiomGate.lean", "lean/RegulaPolicy/Plan.lean"] }
   | .admission => {
       problem := "Required evidence is missing, incomplete, unsupported or invalid: owned \
         declarations did not pass kernel admission, a frozen source or `.olean` file changed \

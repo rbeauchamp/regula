@@ -165,11 +165,13 @@ private def rootConflict (manifest : Manifest) (inventory : Lake.SurfaceInventor
     let libraries := inventory.libraries.filter (·.modules.contains exe.root)
     let exeClass := classOf .executable exe.executable
     let mismatched := libraries.filter fun library => classOf .library library.library != exeClass
+    let classes := libraries.map fun library => classOf .library library.library
     mismatched[0]?.map fun library =>
-      if libraries.size > 1 then
-        s!"executable '{exe.executable}' root {exe.root} is a module of more than one library \
-          ({", ".intercalate (libraries.map (·.library)).toList}), which the manifest classifies \
-          differently: keep the root in one library, and classify '{exe.executable}' with it"
+      if classes.any (fun c => some c != classes[0]?) then
+        s!"executable '{exe.executable}' root {exe.root} is a module of libraries \
+          ({", ".intercalate (libraries.map (·.library)).toList}) that the manifest classifies \
+          differently from each other: keep the root in one library, and classify \
+          '{exe.executable}' with it"
       else match exeClass, classOf .library library.library with
       | some (some surface), some (some owner) =>
           s!"claimed executable '{exe.executable}' root {exe.root} is a module of library \
@@ -193,8 +195,9 @@ manifest; every executable root is classified alike with each library containing
 `RegulaPolicy.RootsClassifiedAlike` over `Acceptance.configuredTargets` and
 `Acceptance.discoveredTargets`, the predicate the claimed acceptance decides again in
 `RegulaPolicy.TargetPartitionOK`; and every claimed library keeps a module besides its claimed
-executables' roots: the library of each executed `Acceptance.surfaceAssignments` entry is
-nonempty, as `RegulaPolicy.ClaimCandidate.Valid` requires. Shared by the audit, `doctor` and the
+executables' roots: `∀ s ∈ assignments, s.library.size > 0` over the executed
+`Acceptance.surfaceAssignments`, the library conjunct of `RegulaPolicy.ClaimCandidate.Valid`
+over the surfaces the audit's claim is admitted with. Shared by the audit, `doctor` and the
 read-only configuration explanation. -/
 def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory) : IO Unit := do
   let rootLibraries := inventory.libraries.map (·.library)
@@ -218,14 +221,15 @@ def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory
   unless decide (RegulaPolicy.RootsClassifiedAlike (Acceptance.configuredTargets manifest)
       (Acceptance.discoveredTargets inventory)) do
     throw <| IO.userError s!"manifest-conflict: {rootConflict manifest inventory}"
-  if let .ok assignments := Acceptance.surfaceAssignments manifest inventory then
-    for (surface, assignment) in manifest.surfaces.zip assignments do
-      if assignment.library.isEmpty then
-        throw <| IO.userError s!"manifest-conflict: every module of claimed library \
-          '{surface.library}' is the root of one of its claimed executables \
-          {repr surface.executables.toList}, so the library's own environment would have no \
-          module: add a module to '{surface.library}' that is not an executable root, such as \
-          its umbrella module"
+  let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
+  unless decide (∀ s ∈ assignments, s.library.size > 0) do
+    let surface := ((manifest.surfaces.zip assignments).find? (·.2.library.isEmpty)).map (·.1)
+    throw <| IO.userError <| "manifest-conflict: " ++ match surface with
+      | some surface => s!"every module of claimed library '{surface.library}' is the root of one \
+          of its claimed executables {repr surface.executables.toList}, so the library's own \
+          environment would have no module: add a module to '{surface.library}' that is not an \
+          executable root, such as its umbrella module"
+      | none => "a claimed library has no module besides its claimed executables' roots"
 
 private def manifestJson (manifest : Manifest) : Json :=
   Json.mkObj [

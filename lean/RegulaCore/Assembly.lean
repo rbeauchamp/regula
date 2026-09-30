@@ -439,7 +439,8 @@ def surfaceAssignments (manifest : Manifest) (inventory : Lake.SurfaceInventory)
 /-- No module of a claimed library escapes the executed assignment: every module of the Lake
 library of manifest surface `i` is assigned to an environment of that surface
 (`SurfaceAssigned.covers`, `SurfaceAssignment.flatten_environments`). The acceptance side proves
-the same of every accepted project census (`RegulaPolicy.census_covers_claimed_targets`). -/
+of every valid project census that each module of a claimed Lake target is one of its positive
+modules (`RegulaPolicy.census_covers_claimed_targets`). -/
 theorem surfaceAssignments_covers {manifest : Manifest} {inventory : Lake.SurfaceInventory}
     {out : Array SurfaceAssignment} (h : surfaceAssignments manifest inventory = .ok out)
     (i : Nat) (hi : i < manifest.surfaces.size) {library : Lake.LibraryInventory}

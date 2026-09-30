@@ -464,8 +464,9 @@ theorem census_executable_alone (c : Claim) (i : Census) (h : CensusOK c i)
 
 /-- No module of a claimed Lake target escapes a valid project census: every module of a
 discovered library or executable that the manifest assigns to a surface is a positive module of
-one of the census's environments, by `TargetPartitionOK`'s surface-module equality and
-`CensusOK`'s module partition. This includes an executable root inside its surface's library. -/
+the census (`Census.modules`, which `CensusOK` requires to be exactly its environments' modules),
+by `TargetPartitionOK`'s surface-module equality and `CensusOK`'s equality of the census modules
+with the surfaces' modules. This includes an executable root inside its surface's library. -/
 theorem census_covers_claimed_targets (c : Claim) (i : Census) (h : CensusOK c i)
     (scope : c.val.scope = .project) (t : DiscoveredTarget) (ht : t ∈ i.discoveredTargets)
     (a : TargetAssignment) (ha : a ∈ i.configuredTargets) (kind : a.kind = t.kind)
