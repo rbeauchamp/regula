@@ -363,8 +363,9 @@ inferred from any pure proof.
   that first needs them, so two modules that do not import each other can each contain the same
   one. Lean's import keeps one copy: `Environment.find?` returns the last one loaded, whose
   statement and value reports read, while the name is attributed to the first module, and
-  `collectAxioms` reports for it the axioms that module computed for its own copy when compiled
-  (observed on the pinned toolchain and read from `Lean.Util.CollectAxioms`).
+  `collectAxioms` reports for it the axioms that module computed for its own copy when compiled,
+  or walks the kept copy where that module did not export the name (observed on the pinned
+  toolchain and read from `Lean.Util.CollectAxioms`).
   `Kernel.Environment.replay` skips, unchecked, a theorem whose name and statement it already
   holds. Admission therefore reads each replayed module's own constants (`Admission.Copy`). It
   replays, under each such name the replay base lacks, the constant `find?` returns
@@ -406,17 +407,19 @@ inferred from any pure proof.
   the trusted base), because replay admits each declaration only after the constants its type and
   value use, and the replayed kernel agrees with the audited environment on the other owned names;
   the checks exclude a cycle through such a name, so the audited environment's constants form a
-  well-founded development. Every copy of a shared name reaches the same axioms in the replayed
-  kernel, so, by induction over the modules, each module's precomputed axioms for a declaration
-  equal those of its replayed kernel development whichever copy of a shared name the module's own
-  build used. **Trusted:** Lean's import and module data, including the axioms each module
-  precomputed; the kernel, and `replay` adding each map entry unchanged while leaving the base as
-  imported; that the kernel's theorem check consults the declaration's name only to require it
-  undeclared, so a renamed check is a check of the copy; and, as in Lean's own duplicate-theorem
-  design, that the value of a theorem does not change what typechecks where copies of one
-  statement are exchanged. Report attribution is unchanged: `Probe.ownedConstants` attributes a
-  shared name to the first module Lean's import loaded it from, so the name's claim is that
-  module's.
+  well-founded development. Every copy in a replayed module reaches the same axioms in the
+  replayed kernel as the constant held under its name, so, by induction over the modules, each
+  replayed module's precomputed axioms for a declaration equal those of its replayed kernel
+  development whichever copy of a shared name its own build used, given the trusted agreement
+  below for unreplayed modules. **Trusted:** Lean's import and module data, including the axioms
+  each module precomputed, and that an unreplayed module's precomputed axioms equal those of its
+  constants in the replay base (two unreplayed copies of one name are not compared); the kernel,
+  and `replay` adding each map entry unchanged while leaving the base as imported; that the
+  kernel's theorem check consults the declaration's name only to require it undeclared, so a
+  renamed check is a check of the copy; and, as in Lean's own duplicate-theorem design, that the
+  value of a theorem does not change what typechecks where copies of one statement are exchanged.
+  Report attribution is unchanged: `Probe.ownedConstants` attributes a shared name to the first
+  module Lean's import loaded it from, so the name's claim is that module's.
 - **Admission reuse.** The project audit inspects every library environment before any
   executable's, and hands the executables the libraries' completed admissions
   (`Admission.PriorAdmission`). An executable's environment keeps an owned module other than its
@@ -445,8 +448,9 @@ inferred from any pure proof.
   only on the declaration and the constants it consults, which its references and their values
   reach. By (3), (5) and the imported base's own references, a reused module's declarations
   consult only its closure; by (4) for each owned module of the closure (all reused by (5)), no
-  other module here declares their names, and any other copy here of a base module's name is
-  one this environment checks itself (`Admission.checkCopies`); by (1) and (2) that closure is
+  module here declares a different copy of their names, and another copy here of a base module's
+  name is checked by this environment when a replayed module holds it (`Admission.checkCopies`)
+  and trusted when another unreplayed module does; by (1) and (2) that closure is
   the same bytes in both environments, and by (1) none of its names had a second copy in the
   library environment, so the library environment's successful replay is the one this environment
   would repeat. This rests on the stated trusted boundary: authentic imported artifacts unchanged

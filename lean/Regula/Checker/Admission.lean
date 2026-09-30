@@ -161,9 +161,9 @@ reuses instead of replaying: an earlier environment of the same audit replayed a
 one over the identical import closure (`offeredClosure`), every declaration of every owned
 module in that closure refers only to constants of its own closure (`referencesWithin`), every
 constant of the module is attributed to it and is the copy this environment keeps
-(`uniquelyKept`), and every owned module the closure contains is reused too. When the last condition fails for the
-filtered set, nothing is reused. Every other owned module is replayed. `mem_reusedModules`
-states this contract. -/
+(`uniquelyKept`), and every owned module the closure contains is reused too. When the last
+condition fails for the filtered set, nothing is reused. Every other owned module is replayed.
+`mem_reusedModules` states this contract. -/
 def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
     (requested owned : Array Name) (priors : Array PriorAdmission) : Array Name :=
   let here := originIndex origins
@@ -253,9 +253,10 @@ match-equation lemmas, functional induction and case principles, congruence and 
 lemmas. Two modules that do not import each other can each contain the same one, and Lean's
 import (`Lean.finalizeImport`) keeps a single copy of the name when the two are theorems of the
 same statement: `Environment.find?` returns the last one loaded, while the name stays attributed
-to the first, whose own copy's precomputed axioms `collectAxioms` reports. The audited
-environment therefore shows one copy, and `Kernel.Environment.replay` skips a theorem whose name
-it already holds with that statement without checking its proof. Replay therefore reads each
+to the first, whose own copy's precomputed axioms `collectAxioms` reports (or, where that
+module did not export the name, the kept copy's, walked). The audited environment therefore
+shows one copy, and `Kernel.Environment.replay` skips a theorem whose name it already holds with
+that statement without checking its proof. Replay therefore reads each
 replayed module's own constants, replays the copy `find?` returns under each name the replay base
 lacks, and admits every other copy only under `sameTheorem` (`Regula.Checker.SharedName`) when it
 is identical to the held constant or its own proof is checked, does not reach its own name, and
@@ -395,8 +396,8 @@ fresh name, where its own name still denotes the held constant. The search below
 name its proof reaches, through the types and values of the constants it uses, so admission can
 refuse a proof that reaches its own name (a circular proof) or axioms other than the held
 constant's. `collectAxioms` reports, for an imported name, the axioms its attributed module
-computed for its own copy when compiled, so copies with equal axioms make that report right
-whichever copy a declaration used. -/
+computed for its own copy when compiled, so replayed copies with the held constant's axioms make
+that report right whichever of them a declaration used. -/
 
 /-- The constants the type and value of `info` use (`ConstantInfo.getUsedConstantsAsSet`). -/
 def successorsOf (info : ConstantInfo) : Array Name :=
