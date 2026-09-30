@@ -3,7 +3,7 @@ Positive control (issue #125): genuine recursive definitions followed by macros
 that make fail every tactic and term the well-founded regeneration would
 otherwise dispatch: the `sorry`, `exact`, `all_goals` and `clean_wf` tactics
 and the `sorry` term. The regeneration uses only the syntax handlers built into
-the Lean executable, so the module's own handlers never run there and the
+the checker executable, so the module's own handlers never run there and the
 helpers are still admitted.
 -/
 

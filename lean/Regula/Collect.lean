@@ -278,6 +278,9 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         saved.restore
         if (← checkerLimit? ex).isSome then throw ex
         return false
+      finally
+        -- A runtime limit (heartbeats, recursion depth) bypasses `catch`; undo the run anyway.
+        saved.restore
     let docCtx := (← getLCtx, ← Meta.getLocalInstances)
     if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
     let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)

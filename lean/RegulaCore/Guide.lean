@@ -379,9 +379,10 @@ def guide : RuleId → Guide
           not a claim that such code is wrong.",
         "That the helper terminates whenever the base does. Lean compiles the base from a body \
           its `wf_preprocess` rules rewrote and the helper from the original, and Lean documents \
-          that a rewrite can remove a subterm the compiled code still evaluates; a toolchain rule \
-          can, through a reducible definition that ignores an argument. The helper's termination \
-          trusts that preprocessing, as every well-founded definition Lean accepts does.",
+          that a rewrite can remove a subterm the compiled code still evaluates or delay one \
+          under a binder; a toolchain rule can, through a reducible definition that ignores an \
+          argument. The helper's termination trusts that preprocessing, as every well-founded \
+          definition Lean accepts does.",
         "That the regeneration observation is truthful or that a helper's compiled code matches \
           its value; these rest on the pinned Lean toolchain and on Regula's own unproved \
           regeneration comparison.",
@@ -393,9 +394,10 @@ def guide : RuleId → Guide
           structural recursion on an argument other than the first one Lean's automatic choice \
           accepts (selectable by `termination_by structural`), a `partial_fixpoint` definition, \
           a base compiled through a fixpoint combinator other than `WellFounded.fix` and \
-          `WellFounded.Nat.fix`, a base whose compilation used a `wf_preprocess` rule declared \
+          `WellFounded.Nat.fix`, a base whose compilation used a `wf_preprocess` rule registered \
           outside the Lean toolchain, or one elaborated with `set_option wf.preprocess false` or \
-          with a toolchain rule removed by `attribute [-wf_preprocess]`.",
+          with a toolchain rule removed by `attribute [-wf_preprocess]` when a rule so disabled \
+          would have rewritten its body.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
