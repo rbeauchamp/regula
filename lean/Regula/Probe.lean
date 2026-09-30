@@ -57,8 +57,9 @@ toolchain native-runtime primitives and other external code, unsafe/partial/opaq
 computation, and compiler-trusting proof axioms. A replacement, `extern`, or unsafe or partial
 computation declared in an origin-checked `Init`, `Std` or `Lean` module carries that
 module's toolchain origin: it is the toolchain's trusted base, and a toolchain replacement is
-followed through its current target without source history or correspondence. A proof-typed
-unsafe constant such as `lcProof` is erased by the compiler and is no boundary. Each
+followed through its current target without source history or correspondence. An unsafe
+constant whose type Lean's `Meta.isProp` finds to be a proposition, such as `lcProof`, is a
+proof the compiler erases and is no boundary. Each
 boundary is marked `checked` (kernel-definitional equality, a standard-logical
 correspondence theorem, or a kernel-checked opaque body), `trusted`, or
 `unresolved`; unresolved paths are listed per root. Imported boundary

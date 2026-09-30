@@ -28,6 +28,7 @@ private structure Case where
   extraImports : Array String := #[]
   supportModule : String := "Support"
   positiveExpected : Array String := #[]
+  absent : Array String := #[]
 
 private def externalAttribute := "@[extern \"compiler_path_external\"] "
 
@@ -63,7 +64,14 @@ private def cases : Array Case := #[
         "replacement=_private.Lean.Data.Name.0.Lean.Name.quickCmpImpl toolchain " ++
         "(module Lean.Data.Name)",
       "Lean.Syntax.structEq [partial-computation] correspondence=trusted toolchain " ++
-        "(module Init.Meta.Defs)"]
+        "(module Init.Meta.Defs)",
+      "Array.foldlMUnsafe.fold [unsafe-computation] correspondence=trusted toolchain"]
+    -- `Array.foldlMUnsafe.fold`, reached above, passes the proof placeholder `lcProof`, an
+    -- `unsafe axiom` of `Init.Prelude`. Whether a constant's type is a proposition is Lean's
+    -- `Meta.isProp` observation, an external elaborator boundary: this qualifies it on the pin
+    -- (without the probe's erasure guard, `lcProof` is a toolchain unsafe-computation boundary),
+    -- and is not a proof that every proof-typed constant is erased.
+    absent := #["boundary lcProof ["]
     project := true },
   { name := "imported"
     body := "/-- The identity. -/\ndef target (n : Nat) := n\n" ++
@@ -257,6 +265,8 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
       if !result.succeeded then return #[s!"{test.name}: positive failed:\n{result.output}"]
       if let some missing := test.positiveExpected.find? (!result.output.contains ·) then
         return #[s!"{test.name}: positive missing {missing}:\n{result.output}"]
+    if let some present := test.absent.find? (result.output.contains ·) then
+      return #[s!"{test.name}: unexpectedly reported {present}:\n{result.output}"]
     return #[]
   let mut failures := check
       (← runProcess scratch binary
