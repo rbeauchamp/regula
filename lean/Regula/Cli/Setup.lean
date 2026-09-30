@@ -142,7 +142,7 @@ def observe (root : FilePath) : IO Project := do
         unless missed.isEmpty do
           missedBy := missedBy.push (lib.name.toString, lib.roots.toList.map toString, missed)
       let imported ← importClosure sources claimed
-      let sorted (names : Array Name) := (names.qsort Name.quickLt).toList.map toString
+      let sorted (names : Array Name) := ((names.map toString).qsort (· < ·)).toList
       let mut uncovered := []
       let mut unimported := []
       for (library, roots, missed) in missedBy do
@@ -498,11 +498,14 @@ def starterRationale : String :=
   "the reason for the claim, and strengthen it where the library allows."
 
 /-- Every root `lean_lib` claimed `standard-logical` with `report` execution; every root
-`lean_exe` is claimed with the first library. -/
+`lean_exe` is claimed with the first library that contains its root module, as RG2002 requires
+(`RegulaPolicy.RootsClassifiedAlike`), and with the first library when none does. -/
 def starterManifest (inventory : Lake.SurfaceInventory) : Manifest :=
-  let exes := inventory.executables.map (·.executable)
+  let home (exe : Lake.ExecutableInventory) : Nat :=
+    (inventory.libraries.findIdx? (·.modules.contains exe.root)).getD 0
   { surfaces := inventory.libraries.mapIdx fun i library =>
-      { library := library.library, executables := if i == 0 then exes else #[]
+      { library := library.library
+        executables := (inventory.executables.filter (home · == i)).map (·.executable)
         claim := .standardLogical, execution := .report, rationale := starterRationale }
     excludedLibraries := #[], excludedExecutables := #[] }
 

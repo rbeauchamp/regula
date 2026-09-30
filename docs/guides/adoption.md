@@ -60,7 +60,7 @@ lake exe regula init            # or: lake exe regula init --skill
 | --- | --- |
 | Lint driver | `lintDriver = "regula/lint"` (`lakefile.toml`, top level) or `lintDriver := "regula/lint"` (`lakefile.lean`, in the `package` declaration), so `lake lint` runs Regula. |
 | Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value: in the package's configuration when every root target is claimed (as the starter manifest claims them all), and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes; while an existing manifest does not load or classify every root target, none, until `doctor`'s RG2002 finding is fixed. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
-| Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library ([step 3](#3-review-the-claimed-surface)). A manifest claims each surface per library, a `lean_exe` belonging to a library's surface, so a package with no `lean_lib` (such as Lake's `exe` template) gets none: `init` writes the other pieces and `doctor` asks you to add a library, after which `init` writes the starter. |
+| Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library that contains its root module, or with the first library when none does ([step 3](#3-review-the-claimed-surface)). A manifest claims each surface per library, a `lean_exe` belonging to a library's surface, so a package with no `lean_lib` (such as Lake's `exe` template) gets none: `init` writes the other pieces and `doctor` asks you to add a library, after which `init` writes the starter. |
 | Agent guidance | A short `## Lean standard: Regula` section in `AGENTS.md` (created if needed), or with `--skill` the briefing as `.agents/skills/regula/SKILL.md`. `init` also rewrites `.claude/skills/regula/SKILL.md`, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
 
 It never changes a value you set: a lint driver of your own, an option with another value and an
@@ -112,9 +112,22 @@ out:
 - `lakefile.lean`: ``globs := #[.andSubmodules `Widget]``
 - `lakefile.toml`: `globs = ["Widget", "Widget.+"]` (`"Widget.+"` alone omits `Widget` itself)
 
+When a library leaves out many modules, `doctor` states how many, names the first few and gives
+the glob that includes them all.
+
 `foundation_manifest.json` classifies every root `lean_lib` and `lean_exe`, claimed or excluded
 with a rationale. Review the starter: strengthen each `claim` where the library allows, write
 the real rationale, and exclude what you do not claim.
+
+An executable's root may live inside a library's namespace, such as ``root := `Widget.Cli` `` under
+the ``.andSubmodules `Widget`` glob, so no glob needs to leave executable roots out. List such an
+executable in the `executables` of that library's surface: its root keeps the library's claim
+and is inspected once, in the executable's own environment with its import closure, while the
+library's other modules stay in the library's environment. RG2002 rejects the other
+combinations: a claimed executable whose root is in an excluded library or in another surface's
+library, and an excluded executable whose root is in a claimed library. An excluded executable
+may keep its root in an excluded library. A claimed library still needs one module that is not
+such a root, such as its umbrella module, for its own environment.
 
 ```json
 {
@@ -166,7 +179,8 @@ lake lint -- --explain-config              # read-only: manifest, scope, profile
 
 The driver builds every manifested library and executable by its explicit Lake target, with
 warnings as failures, and inspects the completed environments: each library in one, and each
-claimed executable's root in one of its own, since every root defines `main`. The libraries'
+claimed executable's root in one of its own, since every root defines `main` (a root inside
+its library is inspected there, not in the library's environment). The libraries'
 environments come first; an executable's environment reuses their kernel check of the claimed
 library modules its root imports when those load from byte-identical `.olean` files (including
 `.olean.private` parts) in both, instead of repeating it. Library environments still repeat the

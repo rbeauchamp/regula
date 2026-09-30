@@ -251,6 +251,20 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     else if rule == "RG2002" then
       IO.FS.writeBinFile (project / "foundation_manifest.json")
           (← IO.FS.readBinFile (folder / s!"{case}.json"))
+      -- Both manifests classify the same layout: library `Example` globs its submodules,
+      -- among them `Example.Cli`, the root of `lean_exe cli`.
+      let config := project / "lakefile.lean"
+      let text ← IO.FS.readFile config
+      let declared := "lean_lib Example\n"
+      requireChecks
+          [⟨"RG2002 fixture library declaration", (text.splitOn declared).length == 2⟩]
+      IO.FS.writeFile config (text.replace declared
+        "lean_lib Example where\n  globs := #[.andSubmodules `Example]\n\
+          lean_exe cli where\n  root := `Example.Cli\n")
+      IO.FS.createDir (project / "Example")
+      IO.FS.writeBinFile (project / "Example/Cli.lean")
+          (← IO.FS.readBinFile (folder / "Cli.lean"))
+      paths := paths.push (project / "Example/Cli.lean")
     else if rule == "RG2006" then
       -- The case file is the package's `lakefile.lean`; the run adds its `require` of the
       -- slot's ROOT copy, as `Slot.prepareSlotProject` writes it.
@@ -364,18 +378,26 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
                               [("module", ← get s "moduleName"), ("path", ← get s "path"),
                                   ("source", ← get s "content")]
     let candidates ← account.filterM fun s => return (← get s "module") == nameJson "Example"
-    let #[item] := candidates | throw <| IO.userError "project example source account mismatch"
+    let #[_] := candidates | throw <| IO.userError "project example source account mismatch"
     let originalSources ← entries before "sources"
-    let some original := originalSources[0]? | throw <| IO.userError "missing frozen source"
-    let actualSource ← string item "source"
-    let actualPath ← string item "path"
-    requireChecks [⟨"project source binding", actualSource == (← string original "source")⟩,
-      ⟨"fresh project source belongs to owned copy", actualPath.startsWith
-          ((project / "tmp").toString ++ "/")⟩]
-    replacements := ("$SOURCE", actualPath) :: replacements.filter (·.1 != "$SOURCE")
-    let sourceAlias := Json.mkObj [("uri", .str actualPath), ("source", .str actualSource)]
-    before := before.setObjVal! "sources" (toJson (originalSources.push sourceAlias))
-    after := after.setObjVal! "sources" (toJson ((← entries after "sources").push sourceAlias))
+    -- Each audited source is the fresh copy of exactly one frozen source: the same bytes at
+    -- the same path relative to the project.
+    let mut aliases : Array Json := #[]
+    for item in account do
+      let actualSource ← string item "source"
+      let actualPath ← string item "path"
+      let originals ← originalSources.filterM fun original => do
+        let relative := ((← string original "uri").drop (project.toString.length + 1)).toString
+        return actualPath.endsWith ("/" ++ relative) &&
+          (← string original "source") == actualSource
+      requireChecks [⟨s!"project source binding {actualPath}", originals.size == 1⟩,
+        ⟨"fresh project source belongs to owned copy", actualPath.startsWith
+            ((project / "tmp").toString ++ "/")⟩]
+      if (← get item "module") == nameJson "Example" then
+        replacements := ("$SOURCE", actualPath) :: replacements.filter (·.1 != "$SOURCE")
+      aliases := aliases.push (Json.mkObj [("uri", .str actualPath), ("source", .str actualSource)])
+    before := before.setObjVal! "sources" (toJson (originalSources ++ aliases))
+    after := after.setObjVal! "sources" (toJson ((← entries after "sources") ++ aliases))
   if mode == "documentation" && case == "Violation" then
     if let .ok raw := field spec "snippet" then
       let values ← IO.ofExcept raw.getArr?

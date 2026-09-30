@@ -241,8 +241,25 @@ theorem infrastructure_disjoint (c : Claim) (i : EnvironmentCensus) (h : Infrast
     (m : ModuleKey) (hm : m ∈ i.infrastructureModules) : m ∉ i.modules ∧ m ∉ i.importedModules :=
   ⟨(h.1 m hm).1, (h.1 m hm).2.1⟩
 
-/-- Exact target partition, including excluded targets and standalone-executable conflicts.
-Each positive surface owns its library and any separately classified executable roots. -/
+/-- An executable's root module lies in a library only when the manifest classifies the two
+alike: the executable is claimed with that library's surface, or both are excluded. A claimed
+root inside a claimed library therefore keeps that library's claim, and no root is claimed with
+one surface while a library containing it is excluded or claimed with another, or excluded while
+such a library is claimed. -/
+def RootsClassifiedAlike (configured : Array TargetAssignment)
+    (discovered : Array DiscoveredTarget) : Prop :=
+  ∀ a ∈ configured, a.kind = .executable →
+    ∀ t ∈ discovered, t.kind = .executable → t.name = a.name →
+      ∀ n ∈ t.modules, ∀ lib ∈ discovered, lib.kind = .library → n ∈ lib.modules →
+        ∀ l ∈ configured, l.kind = .library → l.name = lib.name → l.surface = a.surface
+set_option synthInstance.maxSize 1024 in
+instance (configured : Array TargetAssignment) (discovered : Array DiscoveredTarget) :
+    Decidable (RootsClassifiedAlike configured discovered) := by
+  unfold RootsClassifiedAlike; infer_instance
+
+/-- Exact target partition, including excluded targets and executable roots classified alike
+with every library containing them (`RootsClassifiedAlike`). Each positive surface owns its
+library's modules and its claimed executables' root modules, a root inside the library once. -/
 def TargetPartitionOK (c : Claim) (i : Census) : Prop :=
   i.configuredTargets.toList.Pairwise (fun a b => (a.kind, a.name) ≠ (b.kind, b.name)) ∧
   i.discoveredTargets.toList.Pairwise (fun a b => (a.kind, a.name) ≠ (b.kind, b.name)) ∧
@@ -258,11 +275,7 @@ def TargetPartitionOK (c : Claim) (i : Census) : Prop :=
         a.kind == t.kind && a.name == t.name && a.surface == some s.target))).flatMap (·.modules)))
             ∧
   (∀ a ∈ i.configuredTargets, a.kind = .library → ∀ owner ∈ a.surface, a.name = owner) ∧
-  (∀ a ∈ i.configuredTargets, a.kind = .executable →
-    ∀ t ∈ i.discoveredTargets, t.kind = .executable → t.name = a.name →
-      ∀ n ∈ t.modules, ∀ lib ∈ i.discoveredTargets, lib.kind = .library →
-        (a.surface.isSome = true → n ∉ lib.modules) ∧
-        (∀ owner ∈ c.val.surfaces, lib.name = owner.target → n ∉ lib.modules))
+  RootsClassifiedAlike i.configuredTargets i.discoveredTargets
 set_option synthInstance.maxSize 1024 in
 instance (c : Claim) (i : Census) : Decidable (TargetPartitionOK c i) := by
   unfold TargetPartitionOK; infer_instance
@@ -448,6 +461,29 @@ theorem census_executable_alone (c : Claim) (i : Census) (h : CensusOK c i)
   rw [← census_project_partition c i h scope mode] at hin
   obtain ⟨r, hr', eq⟩ := Array.mem_map.mp hin
   exact ⟨r, hr', eq⟩
+
+/-- No module of a claimed Lake target escapes a valid project census: every module of a
+discovered library or executable that the manifest assigns to a surface is a positive module of
+the census (`Census.modules`, which `CensusOK` requires to be exactly its environments' modules),
+by `TargetPartitionOK`'s surface-module equality and `CensusOK`'s equality of the census modules
+with the surfaces' modules. This includes an executable root inside its surface's library. -/
+theorem census_covers_claimed_targets (c : Claim) (i : Census) (h : CensusOK c i)
+    (scope : c.val.scope = .project) (t : DiscoveredTarget) (ht : t ∈ i.discoveredTargets)
+    (a : TargetAssignment) (ha : a ∈ i.configuredTargets) (kind : a.kind = t.kind)
+    (name : a.name = t.name) (claimed : a.surface.isSome = true) :
+    ∀ m ∈ t.modules, m ∈ moduleNames i.modules := by
+  have hs := h.2.2.2.2.2.2.2.2.2
+  rw [scope] at hs
+  obtain ⟨tp, hmodules, -, -⟩ := hs
+  obtain ⟨owner, hown⟩ := Option.isSome_iff_exists.mp claimed
+  obtain ⟨s, hs, htarget⟩ := tp.2.2.2.2.1 a ha owner hown
+  intro m hm
+  have hsurface : m ∈ s.modules.map (·.name) := by
+    rw [← mem_canonicalNames, (tp.2.2.2.2.2.1 s hs).2, mem_canonicalNames]
+    refine Array.mem_flatMap.mpr ⟨t, Array.mem_filter.mpr ⟨ht, ?_⟩, hm⟩
+    exact Array.any_eq_true'.mpr ⟨a, ha, by simp [kind, name, hown, htarget]⟩
+  rw [← mem_canonicalNames, hmodules, mem_canonicalNames]
+  exact Array.mem_flatMap.mpr ⟨s, hs, hsurface⟩
 
 /-- A module's profile is derived from its positive assignment, never a result payload. -/
 def profileForModule (c : Claim) (m : Name) : Option ConformingProfile :=

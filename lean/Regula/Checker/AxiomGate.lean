@@ -120,7 +120,8 @@ structure LibraryInfo where
   /-- The Lake library name; for an executable's environment, the executable's name. -/
   name : String
   /-- Its modules as Lake reports them; for a surface environment, the modules that environment
-  owns: the library's modules, or one executable's root. -/
+  owns: the library's modules other than its claimed executables' roots, or one executable's
+  root. -/
   modules : Array Name
   /-- The source file Lake resolves for each of those modules. -/
   sources : Array Lake.SourceEntry
@@ -152,9 +153,52 @@ private def recordStatus (status : ResultProtocol.Status) (findings : Array Regu
     IO Unit :=
   terminalObservation.set (some ⟨status, !findings.isEmpty && findings.all (·.1 == .configuration)⟩)
 
+/-- The first executable whose root lies in a library the manifest classifies differently,
+described with its remedy, for the refusal `checkClassification` reports when
+`RegulaPolicy.RootsClassifiedAlike` fails. The description is diagnostic text; the decision is
+the predicate. -/
+private def rootConflict (manifest : Manifest) (inventory : Lake.SurfaceInventory) : String :=
+  let configured := Acceptance.configuredTargets manifest
+  let classOf (kind : RegulaPolicy.TargetKind) (name : String) : Option (Option String) :=
+    (configured.find? fun a => a.kind == kind && a.name == name).map (·.surface)
+  let conflicts := inventory.executables.filterMap fun exe =>
+    let libraries := inventory.libraries.filter (·.modules.contains exe.root)
+    let exeClass := classOf .executable exe.executable
+    let mismatched := libraries.filter fun library => classOf .library library.library != exeClass
+    let classes := libraries.map fun library => classOf .library library.library
+    mismatched[0]?.map fun library =>
+      if classes.any (fun c => some c != classes[0]?) then
+        s!"executable '{exe.executable}' root {exe.root} is a module of libraries \
+          ({", ".intercalate (libraries.map (·.library)).toList}) that the manifest classifies \
+          differently from each other: keep the root in one library, and classify \
+          '{exe.executable}' with it"
+      else match exeClass, classOf .library library.library with
+      | some (some surface), some (some owner) =>
+          s!"claimed executable '{exe.executable}' root {exe.root} is a module of library \
+            '{owner}', which its own surface claims: a root keeps its library's claim, so list \
+            '{exe.executable}' in the executables of surface '{owner}' instead of '{surface}'"
+      | some (some _), some none =>
+          s!"claimed executable '{exe.executable}' root {exe.root} is a module of excluded \
+            library '{library.library}': a root keeps its library's classification, so claim \
+            '{library.library}' as a surface listing '{exe.executable}', or exclude \
+            '{exe.executable}' too"
+      | some none, some (some owner) =>
+          s!"excluded executable '{exe.executable}' root {exe.root} is a module of claimed \
+            library '{owner}': a root keeps its library's claim, so list '{exe.executable}' in \
+            the executables of surface '{owner}'"
+      | _, _ => s!"executable '{exe.executable}' root {exe.root} is a module of library \
+          '{library.library}', which the manifest classifies differently"
+  conflicts[0]?.getD "an executable root is classified differently from a library containing it"
+
 /-- Every root-package Lean library and executable is classified exactly once by the
-manifest, and no executable root conflicts with library ownership. Shared by the audit and
-the read-only configuration explanation. -/
+manifest; every executable root is classified alike with each library containing it:
+`RegulaPolicy.RootsClassifiedAlike` over `Acceptance.configuredTargets` and
+`Acceptance.discoveredTargets`, the predicate the claimed acceptance decides again in
+`RegulaPolicy.TargetPartitionOK`; and every claimed library keeps a module besides its claimed
+executables' roots: `∀ s ∈ assignments, s.library.size > 0` over the executed
+`Acceptance.surfaceAssignments`, the library conjunct of `RegulaPolicy.ClaimCandidate.Valid`
+over the surfaces the audit's claim is admitted with. Shared by the audit, `doctor` and the
+read-only configuration explanation. -/
 def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory) : IO Unit := do
   let rootLibraries := inventory.libraries.map (·.library)
   let manifested := Manifest.libraries manifest
@@ -174,25 +218,18 @@ def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory
       #[s!"unclassified root Lean executables {repr missing.toList}"]) ++
       (if extra.isEmpty then #[] else #[s!"non-root Lean executables {repr extra.toList}"])
     throw <| IO.userError s!"manifest-incomplete: {"; ".intercalate details.toList}"
-  let modulesOf (library : String) : Array Name :=
-    ((inventory.libraries.find? (·.library == library)).map (·.modules)).getD #[]
-  let exeInfoFor (name : String) : IO Lake.ExecutableInventory :=
-    match inventory.executables.find? (·.executable == name) with
-    | some info => return info
-    | none => throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {name}"
-  let claimedModules := manifest.surfaces.foldl
-      (fun all surface => all ++ modulesOf surface.library) #[]
-  for surface in manifest.surfaces do
-    for exeName in surface.executables do
-      let exe ← exeInfoFor exeName
-      if let some owner := manifested.find? (modulesOf · |>.contains exe.root) then
-        throw <| IO.userError <| s!"manifest-conflict: claimed executable '{exeName}' " ++
-          s!"root {exe.root} is already a module of root library '{owner}'"
-  for excluded in manifest.excludedExecutables do
-    let exe ← exeInfoFor excluded.executable
-    if claimedModules.contains exe.root then
-      throw <| IO.userError <| s!"manifest-conflict: excluded executable " ++
-        s!"'{excluded.executable}' root {exe.root} is a module of a claimed library"
+  unless decide (RegulaPolicy.RootsClassifiedAlike (Acceptance.configuredTargets manifest)
+      (Acceptance.discoveredTargets inventory)) do
+    throw <| IO.userError s!"manifest-conflict: {rootConflict manifest inventory}"
+  let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
+  unless decide (∀ s ∈ assignments, s.library.size > 0) do
+    let surface := ((manifest.surfaces.zip assignments).find? (·.2.library.isEmpty)).map (·.1)
+    throw <| IO.userError <| "manifest-conflict: " ++ match surface with
+      | some surface => s!"every module of claimed library '{surface.library}' is the root of one \
+          of its claimed executables {repr surface.executables.toList}, so the library's own \
+          environment would have no module: add a module to '{surface.library}' that is not an \
+          executable root, such as its umbrella module"
+      | none => "a claimed library has no module besides its claimed executables' roots"
 
 private def manifestJson (manifest : Manifest) : Json :=
   Json.mkObj [

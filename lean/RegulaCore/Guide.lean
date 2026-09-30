@@ -486,16 +486,21 @@ def guide : RuleId → Guide
       trigger := [
         "The checker parses the manifest and reconciles it with Lake's elaborated root package. \
           Unknown keys, duplicates, a wrong schema version, an unknown `execution` value, an empty \
-          `surfaces` array, a missing rationale, an unclassified or unknown target, and \
-          claimed/excluded conflicts are rejected (`manifest-schema`, `manifest-incomplete` and \
-          related subreasons).",
+          `surfaces` array, a missing rationale, an unclassified or unknown target, and an \
+          executable whose root module belongs to a library classified differently (claimed in \
+          another surface, or claimed where the library is excluded, or the reverse) are \
+          rejected (`manifest-schema`, `manifest-incomplete`, `manifest-conflict` and related \
+          subreasons). A claimed executable whose root belongs to its own surface's library is \
+          accepted unless every module of that library is such a root; the root is then \
+          inspected once, in the executable's environment.",
         "In the editor, an invalid local request (for example an unknown `regula.localFoundation` \
           value) is reported under this rule for the current file only."]
       rationaleDetail := []
       proofShape := []
       established := [
         "The manifest has the exact schema and classifies every root-package library and \
-          executable exactly once."]
+          executable exactly once, each executable alike with every library that contains its \
+          root module."]
       notEstablished := [
         "That the chosen claims and exclusions are appropriate for the project; that is reviewed \
           with each rationale.",
@@ -507,15 +512,23 @@ def guide : RuleId → Guide
         "`lake lint` exits 2 (INVALID CONFIGURATION) when only this rule rejects."]
       limitations := [
         "Executable-only packages are valid Lean projects but unsupported by manifest schema 2.",
+        "A claimed library needs a module besides its claimed executables' roots: its own \
+          environment would otherwise be empty, which the checker does not support.",
         "The editor never guesses an omitted project scope."]
       residuals := [.qualify, .intent, .invariant]
       checklist := ["DECL-04", "SCOPE-05", "BUILD-04", "DECL-01", "BUILD-01"]
       linkage := "`Regula.Checker.Manifest.parse_sound` and `parseValue_complete` for the \
         manifest (kernel-checked in the excluded `Regula` library) and \
-        `Regula.Linter.checked_editorRequest` for the editor's request. Routing a failure to this \
-        rule by its `manifest-` prefix is not proved."
+        `Regula.Linter.checked_editorRequest` for the editor's request. An executable root's \
+        classification is `RegulaPolicy.RootsClassifiedAlike`: `AxiomGate.checkClassification` \
+        decides it before the build of the project audit, `lake lint` and the build linter, and \
+        in `doctor` and `--explain-config`, and every accepted project claim decides it again in \
+        `TargetPartitionOK`; the nonempty-library check decides `ClaimCandidate.Valid`'s \
+        condition over the executed surface assignment. Routing a failure to this rule by its \
+        `manifest-` prefix is not proved."
       sources :=
           ["lean/Regula/Checker/Manifest.lean", "lean/Regula/Checker/Lake.lean",
+              "lean/Regula/Checker/AxiomGate.lean", "lean/RegulaPolicy/Plan.lean",
               "lean/Regula/Findings.lean"] }
   | .sourceBuild => {
       problem := "The claimed source did not elaborate warning-free under the audit's build: the \
@@ -606,11 +619,13 @@ def guide : RuleId → Guide
           ["DECL-02", "DECL-03", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
               "BUILD-03", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.ScopeOK`, over \
-        the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`. The \
-        inventory checks are operational."
+        the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`, and \
+        `RegulaPolicy.census_covers_claimed_targets` shows that every module of a claimed Lake \
+        target is a positive module of the accepted census. The inventory checks are \
+        operational."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Probe.lean",
-              "lean/Regula/Checker/AxiomGate.lean"] }
+              "lean/Regula/Checker/AxiomGate.lean", "lean/RegulaPolicy/Plan.lean"] }
   | .admission => {
       problem := "Required evidence is missing, incomplete, unsupported or invalid: owned \
         declarations did not pass kernel admission, a frozen source or `.olean` file changed \

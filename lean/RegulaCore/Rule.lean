@@ -630,19 +630,24 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "configuration"
       evidenceModes := [.editorSnapshot, .incrementalProject, .freshProject, .freshFile]
       requirement := "`foundation_manifest.json` is valid schema 2 and classifies every root \
-        `lean_lib` and `lean_exe` exactly once."
+        `lean_lib` and `lean_exe` exactly once, each executable alike with any library that \
+        contains its root module."
       rationale := "Coverage is only meaningful against a complete, exact classification. Silently \
         ignoring an unknown key or an unclassified target would let modules escape the audit or \
         let a typo change the claim."
       remedy := "Fix the manifest: exactly the four top-level keys, one entry per root `lean_lib` \
-        and `lean_exe` (claimed or excluded with a rationale), and valid `claim` and `execution` \
-        values."
+        and `lean_exe` (claimed or excluded with a rationale), valid `claim` and `execution` \
+        values, and an executable whose root belongs to a library classified with that library: \
+        in its surface, or excluded with it."
       rewrites := [
         "Remove or correct unknown keys and invalid values; the diagnostic names them.",
         "Add each root library and executable to `surfaces` or to the matching exclusion array, \
           with a rationale.",
-        "A claimed executable must be a standalone root such as `Main`; its root module cannot \
-          belong to a manifested library.",
+        "An executable whose root module belongs to a library is classified with it: list it in \
+          the `executables` of that library's surface, where its root keeps the library's claim \
+          and is inspected in the executable's own environment with its import closure. Its root \
+          in an excluded library, or in the library of another surface, and an excluded \
+          executable whose root is in a claimed library, are manifest conflicts.",
         "Run `lake lint -- --explain-config` to see the manifest, scope, profiles and stages the \
           driver would use, without auditing."]
       examples := {
@@ -650,8 +655,11 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         audience := .adopter
         compliant := include_str "../../examples/rules/RG2002/Fixed.json"
         noncompliant := include_str "../../examples/rules/RG2002/Violation.json"
-        correction := "The examples are `foundation_manifest.json` files. The correction removes \
-          the unknown manifest key without changing the selected source, profile or execution \
+        correction := "The examples are `foundation_manifest.json` files for one layout: library \
+          `Example` globs its submodules (``globs := #[.andSubmodules `Example]``), among them \
+          `Example.Cli`, the root of `lean_exe cli`. Excluding the executable conflicts \
+          with the claimed library that contains its root; the correction claims it with that \
+          library's surface instead, without changing the library, profile or execution \
           requirement." } }
   | .sourceBuild => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)

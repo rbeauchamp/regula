@@ -208,8 +208,8 @@ Applies to `foundation_manifest.json`, the Lake options of claimed targets and t
 
 ### RG2002 Configuration must classify the complete Lake surface
 
-`foundation_manifest.json` is valid schema 2 and classifies every root `lean_lib` and `lean_exe` exactly once.
-Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean_lib` and `lean_exe` (claimed or excluded with a rationale), and valid `claim` and `execution` values.
+`foundation_manifest.json` is valid schema 2 and classifies every root `lean_lib` and `lean_exe` exactly once, each executable alike with any library that contains its root module.
+Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean_lib` and `lean_exe` (claimed or excluded with a rationale), valid `claim` and `execution` values, and an executable whose root belongs to a library classified with that library: in its surface, or excluded with it.
 
 ```json
 {
@@ -217,9 +217,10 @@ Fix: Fix the manifest: exactly the four top-level keys, one entry per root `lean
   "surfaces": [
     {
       "library": "Example",
-      "claim": "kernel-only",
-      "execution": "checked",
-      "rationale": "Exact fixture source claim."
+      "executables": ["cli"],
+      "claim": "standard-logical",
+      "execution": "report",
+      "rationale": "Exact fixture claim, with the executable whose root the library contains."
     }
   ],
   "excluded-libraries": [],

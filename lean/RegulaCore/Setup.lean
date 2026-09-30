@@ -34,7 +34,11 @@ commands execute over what they observe of a project.
 - `run_options_prefix`, `withAdded_prefix`: the plan never changes or removes an option the
   package or a claimed target already sets.
 - `Issue.message`, `Issue.fix`, `unimportedNote`, `Edit.summary`: the text `doctor` and `init`
-  print; a note is not an issue and does not fail `doctor`.
+  print; a note is not an issue and does not fail `doctor`. A finding about modules a library
+  leaves out states their count and names at most `shownModules` of them, wrapped
+  (`moduleLines`, by definition `moduleSummary`'s names grouped by `wrapFrom`):
+  `moduleSummary_complete` shows those names are a prefix of the modules and the count exactly the
+  rest, and `wrapFrom_flatten` that grouping keeps each name, in order.
 
 ## Boundaries
 
@@ -1060,7 +1064,8 @@ theorem issues_run (g : Guidance) (o : Observation) :
 /-! ## Finding text
 
 `doctor` prints each issue as the linter prints a finding: what is wrong and where on the first
-line, then the fix. -/
+line, the modules it names on indented lines (at most `shownModules` of them, wrapped, and the
+count of the rest), then the fix. -/
 
 /-- The two Lake configuration formats. -/
 inductive Lakefile where
@@ -1133,7 +1138,59 @@ def Lakefile.library : Lakefile → String
 private def pronoun (modules : List String) : String :=
   if modules.length == 1 then "it" else "them"
 
-/-- The first line of an issue's finding: `setup [FILE]: what is wrong`. -/
+/-- `1 module` or `N modules`. -/
+private def moduleCount (modules : List String) : String :=
+  toString modules.length ++ if modules.length == 1 then " module" else " modules"
+
+/-- The most module names one finding prints; it counts the rest, which the glob in its fix
+includes with them. -/
+def shownModules : Nat := 12
+
+/-- The names a finding prints of `modules`, in order, and how many more it only counts. -/
+def moduleSummary (modules : List String) : List String × Nat :=
+  (modules.take shownModules, modules.length - shownModules)
+
+/-- `moduleSummary` accounts for every module: its names are a prefix of them and its count is
+exactly the rest. -/
+theorem moduleSummary_complete (modules : List String) :
+    (moduleSummary modules).1 ++ modules.drop shownModules = modules ∧
+      (moduleSummary modules).1.length + (moduleSummary modules).2 = modules.length := by
+  refine ⟨List.take_append_drop _ _, ?_⟩
+  simp only [moduleSummary, List.length_take]
+  omega
+
+/-- `words` in order, greedily grouped into lines: a word joins the current line `line`, whose
+`", "`-joined text is taken to be `used` characters long, when the joined text stays within
+`width` characters, and otherwise starts a new line. `wrapFrom_flatten` proves that no word is
+lost or reordered; the width is layout, not a proved bound. -/
+def wrapFrom (width : Nat) (line : List String) (used : Nat) : List String → List (List String)
+  | [] => if line.isEmpty then [] else [line]
+  | w :: ws =>
+    if line.isEmpty then wrapFrom width [w] w.length ws
+    else if used + 2 + w.length ≤ width then wrapFrom width (line ++ [w]) (used + 2 + w.length) ws
+    else line :: wrapFrom width [w] w.length ws
+
+/-- Wrapping keeps every word, in order: the lines concatenate to the words. -/
+theorem wrapFrom_flatten (width : Nat) :
+    ∀ (words line : List String) (used : Nat),
+      (wrapFrom width line used words).flatten = line ++ words
+  | [], line, used => by cases line <;> simp [wrapFrom]
+  | w :: ws, line, used => by
+    by_cases h : line.isEmpty = true
+    · simp [wrapFrom, List.isEmpty_iff.mp h, wrapFrom_flatten width ws [w] w.length]
+    · by_cases hw : used + 2 + w.length ≤ width
+      · simp [wrapFrom, h, hw, wrapFrom_flatten width ws (line ++ [w]) (used + 2 + w.length)]
+      · simp [wrapFrom, h, hw, wrapFrom_flatten width ws [w] w.length]
+
+/-- The indented lines naming `modules`: the names `moduleSummary` prints, grouped by `wrapFrom`
+at 96 characters after a four-space indent, then how many more there are. -/
+def moduleLines (modules : List String) : String :=
+  let (shown, more) := moduleSummary modules
+  "\n".intercalate (((wrapFrom 96 [] 0 shown).map fun line => "    " ++ ", ".intercalate line) ++
+    if more == 0 then [] else ["    and " ++ toString more ++ " more"])
+
+/-- The first line of an issue's finding, `setup [FILE]: what is wrong`, followed for a library
+that leaves out modules by the `moduleLines` naming them. -/
 def Issue.message (f : Lakefile) : Issue → String
   | .driverUnset => "setup [" ++ f.name ++ "]: `lintDriver` is not set, so `lake lint` does \
       not run Regula"
@@ -1157,8 +1214,9 @@ def Issue.message (f : Lakefile) : Issue → String
   | .toolchain p s => "setup [lean-toolchain]: the project uses " ++ p ++
       ", but this Regula supports only " ++ s
   | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
-      ", ".intercalate ms ++ " below its roots, but a claimed module imports " ++ pronoun ms ++
-      ", so `lake lint` finds " ++ pronoun ms ++ " outside every library and fails"
+      moduleCount ms ++ " below its roots, but a claimed module imports " ++ pronoun ms ++
+      ", so `lake lint` finds " ++ pronoun ms ++ " outside every library and fails:\n" ++
+      moduleLines ms
 
 /-- The fix line of an issue's finding. -/
 def Issue.fix (f : Lakefile) : Issue → String
@@ -1185,16 +1243,17 @@ def Issue.fix (f : Lakefile) : Issue → String
       edits"
   | .toolchain _ s => "  fix: set lean-toolchain to " ++ s ++ " and run `lake update`, or require \
       the Regula release tagged for your toolchain"
-  | .uncovered l rs _ => "  fix: " ++ f.globs l rs ++ ", or remove the import (`init` never \
-      changes a library's modules)"
+  | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
+      (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
+      modules)"
 
 /-- The note `doctor` prints, without failing, for one library entry of
 `Observation.unimported`: what the library leaves out, then both remedies. -/
 def unimportedNote (f : Lakefile) (entry : String × List String × List String) : String :=
   let p := pronoun entry.2.2
   "note [" ++ f.name ++ "]: lean_lib `" ++ entry.1 ++ "` does not include " ++
-    ", ".intercalate entry.2.2 ++ " below its roots and no claimed module imports " ++ p ++
-    ", so `lake lint` does not audit " ++ p ++ "\n" ++
+    moduleCount entry.2.2 ++ " below its roots and no claimed module imports " ++ p ++
+    ", so `lake lint` does not audit " ++ p ++ ":\n" ++ moduleLines entry.2.2 ++ "\n" ++
   "  either " ++ f.globs entry.1 entry.2.1 ++ " to audit " ++ p ++ ", or leave " ++ p ++
     " out deliberately"
 

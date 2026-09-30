@@ -3,12 +3,13 @@
   "surfaces": [
     {
       "library": "Example",
-      "claim": "kernel-only",
-      "execution": "checked",
-      "rationale": "Exact fixture source claim."
+      "claim": "standard-logical",
+      "execution": "report",
+      "rationale": "Exact fixture claim, with the executable whose root the library contains."
     }
   ],
   "excluded-libraries": [],
-  "excluded-executables": [],
-  "unknown": true
+  "excluded-executables": [
+    { "executable": "cli", "rationale": "Entry point left out of the claim." }
+  ]
 }

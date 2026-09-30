@@ -695,7 +695,7 @@
       {
         "id": "RG2002",
         "subreason": "configuration",
-        "detailPattern": "manifest-schema:.*unknown key",
+        "detailPattern": "manifest-conflict:.*excluded executable 'cli' root Example.Cli is a module of claimed library 'Example'",
         "location": {
           "kind": "project",
           "identity": "$PROJECT"
@@ -709,7 +709,7 @@
     ],
     "source": "Example.lean",
     "unresolvedPatterns": [
-      "manifest-schema:.*unknown key"
+      "manifest-conflict:.*excluded executable 'cli' root Example.Cli is a module of claimed library 'Example'"
     ]
   },
   "RG2003": {
