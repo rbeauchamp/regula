@@ -322,8 +322,9 @@ theorem ConformingProfile.canonical (s : String) (x : ConformingProfile) (h : pa
 inductive ExecutionClaim where
   /-- Resolved execution boundaries pass whether checked or trusted; they are reported. -/
   | «report»
-  /-- A resolved boundary passes only with checked evidence or as an admitted native-runtime
-  boundary (`BoundaryOK`). -/
+  /-- A resolved boundary passes only with checked evidence or when its trusted evidence carries
+  an admitted toolchain origin (`BoundaryOK`), which only a runtime replacement, native-runtime
+  `extern`, or unsafe or partial computation can (`TrustedEvidence`). -/
   | «checked»
   deriving Repr, DecidableEq, Inhabited
 

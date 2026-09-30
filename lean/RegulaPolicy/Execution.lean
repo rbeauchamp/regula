@@ -4,7 +4,8 @@ import Regula.Contract
 /-! # Execution decisions
 
 Executable execution decisions and their exact finite-observation specification, and the
-toolchain trusted-base report that lists each toolchain-owned boundary once.
+toolchain trusted-base report that lists each toolchain-owned boundary once across an audit's
+environments.
 Neither policy equivalence nor admitted origin data proves extraction or native runtime
 correctness. -/
 namespace RegulaPolicy
@@ -251,7 +252,8 @@ theorem checked_summary : Regula.ExecutableContract executionSummary SummaryCont
 /-! ## The toolchain trusted base
 
 A toolchain-owned boundary passes every claim, so it never becomes a failure record. The
-account reports it instead once, with every root that reaches it, rather than once per root. -/
+report lists it instead once across every audited environment, with every environment and root
+that reaches it, rather than once per root or once per environment. -/
 
 /-- A toolchain boundary's identity in the trusted-base report: its constant and kind. -/
 abbrev ToolchainKey := Lean.Name × BoundaryKind
@@ -259,7 +261,11 @@ abbrev ToolchainKey := Lean.Name × BoundaryKind
 /-- The toolchain key of a boundary observation. -/
 def ExecutionBoundary.toolchainKey (b : ExecutionBoundary) : ToolchainKey := (b.name, b.boundary)
 
-/-- One toolchain-owned boundary of an execution account, reported once. -/
+/-- One root that reaches a toolchain boundary: the label of the environment whose account
+contains the root, and the root's name. -/
+abbrev ToolchainReach := String × Lean.Name
+
+/-- One toolchain-owned boundary of the audited execution accounts, reported once. -/
 structure ToolchainBoundary where
   /-- The constant at the boundary. -/
   name : Lean.Name
@@ -271,19 +277,20 @@ structure ToolchainBoundary where
   replacement : Option Lean.Name
   /-- The admitted origin that makes its module the toolchain's own. -/
   origin : ToolchainOrigin
-  /-- Every root whose closure reaches it, sorted and without duplicates. -/
-  roots : Array Lean.Name
+  /-- Every environment and root whose account reaches it, sorted and without duplicates. -/
+  reachedBy : Array ToolchainReach
   deriving Repr, DecidableEq
 
 /-- The report's key of an entry: its constant and kind. -/
 def ToolchainBoundary.key (t : ToolchainBoundary) : ToolchainKey := (t.name, t.boundary)
 
-/-- Every toolchain-owned boundary observation of the account, with its root's name and
-admitted origin, in root order. -/
-def ExecutionInventory.toolchainObservations (inventory : ExecutionInventory) :
-    Array (Lean.Name × ExecutionBoundary × ToolchainOrigin) :=
-  inventory.roots.flatMap fun root =>
-    root.boundaries.filterMap fun b => b.toolchainOrigin?.map fun o => (root.name, b, o)
+/-- Every toolchain-owned boundary observation of the labeled accounts, with the environment and
+root that reach it and its admitted origin, in environment and root order. -/
+def toolchainObservations (environments : Array (String × ExecutionInventory)) :
+    Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin) :=
+  environments.flatMap fun environment => environment.2.roots.flatMap fun root =>
+    root.boundaries.filterMap fun b =>
+      b.toolchainOrigin?.map fun o => ((environment.1, root.name), b, o)
 
 /-- Toolchain keys as a sorted array without duplicates. -/
 def canonicalToolchainKeys (keys : Array ToolchainKey) : Array ToolchainKey :=
@@ -301,46 +308,59 @@ theorem canonicalToolchainKeys_nodup (keys : Array ToolchainKey) :
   exact (CanonicalSet.unique (CanonicalSet.normalize keys.toList)).imp
     Std.ReflCmp.ne_of_cmp_ne_eq
 
+/-- Reaches as a sorted array without duplicates. -/
+def canonicalToolchainReaches (reaches : Array ToolchainReach) : Array ToolchainReach :=
+  letI : Ord ToolchainReach := lexOrd
+  (CanonicalSet.normalize reaches.toList).toList.toArray
+
+@[simp] theorem mem_canonicalToolchainReaches (reaches : Array ToolchainReach)
+    (x : ToolchainReach) : x ∈ canonicalToolchainReaches reaches ↔ x ∈ reaches := by
+  let : Ord ToolchainReach := lexOrd
+  simp [canonicalToolchainReaches, Std.ExtTreeSet.mem_toList]
+
 /-- The report entry of one key: the constant, module, kind, replacement and origin of the
-key's first observation, with every root that reaches the key; `none` when nothing is
-observed under the key. -/
-def toolchainEntry (observations : Array (Lean.Name × ExecutionBoundary × ToolchainOrigin))
+key's first observation, with every environment and root that reaches the key; `none` when
+nothing is observed under the key. -/
+def toolchainEntry (observations : Array (ToolchainReach × ExecutionBoundary × ToolchainOrigin))
     (key : ToolchainKey) : Option ToolchainBoundary :=
   let reaching := observations.filter (·.2.1.toolchainKey == key)
   reaching[0]?.map fun (_, b, origin) =>
     { name := b.name, «module» := b.module, boundary := b.boundary
-      replacement := b.replacement, origin, roots := canonicalNames (reaching.map (·.1)) }
+      replacement := b.replacement, origin
+      reachedBy := canonicalToolchainReaches (reaching.map (·.1)) }
 
-/-- The toolchain trusted base of an execution account: each toolchain-owned boundary once, in
-key order, with every root that reaches it (`checked_toolchainBase`). -/
-def toolchainBase (inventory : ExecutionInventory) : Array ToolchainBoundary :=
-  let observations := inventory.toolchainObservations
+/-- The toolchain trusted base of the labeled execution accounts of one audit: each
+toolchain-owned boundary once, in key order, with every environment and root that reaches it
+(`checked_toolchainBase`). -/
+def toolchainBase (environments : Array (String × ExecutionInventory)) :
+    Array ToolchainBoundary :=
+  let observations := toolchainObservations environments
   (canonicalToolchainKeys (observations.map (·.2.1.toolchainKey))).filterMap
     (toolchainEntry observations)
 
-theorem mem_toolchainObservations {inventory : ExecutionInventory}
-    {x : Lean.Name × ExecutionBoundary × ToolchainOrigin} :
-    x ∈ inventory.toolchainObservations ↔
-      ∃ r ∈ inventory.roots, x.1 = r.name ∧ x.2.1 ∈ r.boundaries ∧
+theorem mem_toolchainObservations {environments : Array (String × ExecutionInventory)}
+    {x : ToolchainReach × ExecutionBoundary × ToolchainOrigin} :
+    x ∈ toolchainObservations environments ↔
+      ∃ e ∈ environments, ∃ r ∈ e.2.roots, x.1 = (e.1, r.name) ∧ x.2.1 ∈ r.boundaries ∧
         x.2.1.toolchainOrigin? = some x.2.2 := by
-  rcases x with ⟨n, b, o⟩
-  simp only [ExecutionInventory.toolchainObservations, Array.mem_flatMap, Array.mem_filterMap,
+  rcases x with ⟨reach, b, o⟩
+  simp only [toolchainObservations, Array.mem_flatMap, Array.mem_filterMap,
     Option.map_eq_some_iff, Prod.mk.injEq]
   constructor
-  · rintro ⟨r, hr, b', hb', o', ho', rfl, rfl, rfl⟩
-    exact ⟨r, hr, rfl, hb', ho'⟩
-  · rintro ⟨r, hr, rfl, hb, ho⟩
-    exact ⟨r, hr, b, hb, o, ho, rfl, rfl, rfl⟩
+  · rintro ⟨e, he, r, hr, b', hb', o', ho', rfl, rfl, rfl⟩
+    exact ⟨e, he, r, hr, rfl, hb', ho'⟩
+  · rintro ⟨e, he, r, hr, rfl, hb, ho⟩
+    exact ⟨e, he, r, hr, b, hb, o, ho, rfl, rfl, rfl⟩
 
-/-- What an entry reports: its key, the fields of an observation under that key, and roots that
-each reach the key. -/
-theorem toolchainEntry_sound {observations : Array (Lean.Name × ExecutionBoundary ×
+/-- What an entry reports: its key, the fields of an observation under that key, and reaches
+that each reach the key. -/
+theorem toolchainEntry_sound {observations : Array (ToolchainReach × ExecutionBoundary ×
     ToolchainOrigin)} {key : ToolchainKey} {t : ToolchainBoundary}
     (h : toolchainEntry observations key = some t) :
     t.key = key ∧
       (∃ x ∈ observations, x.2.1.toolchainKey = key ∧ t.module = x.2.1.module ∧
         t.replacement = x.2.1.replacement ∧ t.origin = x.2.2) ∧
-      ∀ n ∈ t.roots, ∃ y ∈ observations, y.1 = n ∧ y.2.1.toolchainKey = key := by
+      ∀ reach ∈ t.reachedBy, ∃ y ∈ observations, y.1 = reach ∧ y.2.1.toolchainKey = key := by
   unfold toolchainEntry at h
   simp only [Option.map_eq_some_iff] at h
   obtain ⟨⟨n, b, o⟩, hfirst, rfl⟩ := h
@@ -348,15 +368,16 @@ theorem toolchainEntry_sound {observations : Array (Lean.Name × ExecutionBounda
   have hkey : b.toolchainKey = key := beq_iff_eq.mp hmem.2
   refine ⟨hkey, ⟨(n, b, o), hmem.1, hkey, rfl, rfl, rfl⟩, ?_⟩
   intro m hm
-  obtain ⟨y, hy, rfl⟩ := Array.mem_map.mp ((mem_canonicalNames _ _).mp hm)
+  obtain ⟨y, hy, rfl⟩ := Array.mem_map.mp ((mem_canonicalToolchainReaches _ _).mp hm)
   have hy := Array.mem_filter.mp hy
   exact ⟨y, hy.1, rfl, beq_iff_eq.mp hy.2⟩
 
-/-- Every observation under a key yields that key's entry, which lists the observation's root. -/
-theorem toolchainEntry_complete {observations : Array (Lean.Name × ExecutionBoundary ×
-    ToolchainOrigin)} {x : Lean.Name × ExecutionBoundary × ToolchainOrigin}
+/-- Every observation under a key yields that key's entry, which lists the observation's
+environment and root. -/
+theorem toolchainEntry_complete {observations : Array (ToolchainReach × ExecutionBoundary ×
+    ToolchainOrigin)} {x : ToolchainReach × ExecutionBoundary × ToolchainOrigin}
     (hx : x ∈ observations) :
-    ∃ t, toolchainEntry observations x.2.1.toolchainKey = some t ∧ x.1 ∈ t.roots := by
+    ∃ t, toolchainEntry observations x.2.1.toolchainKey = some t ∧ x.1 ∈ t.reachedBy := by
   have hreach : x ∈ observations.filter (·.2.1.toolchainKey == x.2.1.toolchainKey) :=
     Array.mem_filter.mpr ⟨hx, beq_self_eq_true _⟩
   obtain ⟨⟨n, b, o⟩, hfirst⟩ : ∃ y,
@@ -368,7 +389,7 @@ theorem toolchainEntry_complete {observations : Array (Lean.Name × ExecutionBou
         omega
     | some y => exact ⟨y, rfl⟩
   refine ⟨_, by simp only [toolchainEntry, hfirst, Option.map_some]; rfl, ?_⟩
-  exact (mem_canonicalNames _ _).mpr (Array.mem_map.mpr ⟨x, hreach, rfl⟩)
+  exact (mem_canonicalToolchainReaches _ _).mpr (Array.mem_map.mpr ⟨x, hreach, rfl⟩)
 
 private theorem nodup_map_filterMap {α β : Type} {f : α → Option β} {g : β → α} {l : List α}
     (hl : l.Nodup) (hf : ∀ a b, f a = some b → g b = a) : ((l.filterMap f).map g).Nodup := by
@@ -387,47 +408,74 @@ private theorem nodup_map_filterMap {α β : Type} {f : α → Option β} {g : �
       have : a' = a := by rw [← hf a' c hfa', hgc, hf a b h]
       exact hl.1 (this ▸ ha')
 
-/-- Required meaning of the toolchain trusted-base report: each toolchain-owned boundary of the
-account appears exactly once, under its constant and kind, with every root that reaches it;
-every entry is such a boundary with that boundary's module, replacement and origin, and every
-root it lists reaches it. -/
-def ToolchainBaseContract (base : ExecutionInventory → Array ToolchainBoundary) : Prop :=
-  ∀ inventory,
-    ((base inventory).map (·.key)).toList.Nodup ∧
-    (∀ r ∈ inventory.roots, ∀ b ∈ r.boundaries, b.toolchainOrigin?.isSome →
-      ∃ t ∈ base inventory, t.key = b.toolchainKey ∧ r.name ∈ t.roots) ∧
-    (∀ t ∈ base inventory, ∃ r ∈ inventory.roots, ∃ b ∈ r.boundaries,
+private theorem eq_of_nodup_map {α β : Type} {f : α → β} {l : List α} (h : (l.map f).Nodup)
+    {a b : α} (ha : a ∈ l) (hb : b ∈ l) (hab : f a = f b) : a = b := by
+  induction l with
+  | nil => cases ha
+  | cons x l ih =>
+    rw [List.map_cons, List.nodup_cons] at h
+    rcases List.mem_cons.mp ha with rfl | ha' <;> rcases List.mem_cons.mp hb with rfl | hb'
+    · rfl
+    · exact (h.1 (hab ▸ List.mem_map_of_mem hb')).elim
+    · exact (h.1 (hab ▸ List.mem_map_of_mem ha')).elim
+    · exact ih h.2 ha' hb'
+
+/-- No two entries of the toolchain trusted base share a constant and kind. -/
+theorem toolchainBase_keys_nodup (environments : Array (String × ExecutionInventory)) :
+    ((toolchainBase environments).map (·.key)).toList.Nodup := by
+  simp only [toolchainBase, Array.toList_map, Array.toList_filterMap]
+  exact nodup_map_filterMap (canonicalToolchainKeys_nodup _)
+    (fun _ _ h => (toolchainEntry_sound h).1)
+
+/-- Required meaning of the toolchain trusted-base report over the labeled execution accounts
+of one audit: each toolchain-owned boundary of every account appears in exactly one entry, under
+its constant and kind, which records the environment and root that reach it; every entry is such
+a boundary with that boundary's module, replacement and origin, and every environment and root
+it lists reaches it. -/
+def ToolchainBaseContract
+    (base : Array (String × ExecutionInventory) → Array ToolchainBoundary) : Prop :=
+  ∀ environments,
+    ((base environments).map (·.key)).toList.Nodup ∧
+    (∀ e ∈ environments, ∀ r ∈ e.2.roots, ∀ b ∈ r.boundaries, b.toolchainOrigin?.isSome →
+      ∃ t ∈ base environments, t.key = b.toolchainKey ∧ (e.1, r.name) ∈ t.reachedBy ∧
+        ∀ t' ∈ base environments, t'.key = b.toolchainKey → t' = t) ∧
+    (∀ t ∈ base environments, ∃ e ∈ environments, ∃ r ∈ e.2.roots, ∃ b ∈ r.boundaries,
       b.toolchainKey = t.key ∧ b.module = t.module ∧ b.replacement = t.replacement ∧
         b.toolchainOrigin? = some t.origin) ∧
-    (∀ t ∈ base inventory, ∀ n ∈ t.roots, ∃ r ∈ inventory.roots, r.name = n ∧
-      ∃ b ∈ r.boundaries, b.toolchainKey = t.key ∧ b.toolchainOrigin?.isSome)
+    (∀ t ∈ base environments, ∀ reach ∈ t.reachedBy, ∃ e ∈ environments, e.1 = reach.1 ∧
+      ∃ r ∈ e.2.roots, r.name = reach.2 ∧
+        ∃ b ∈ r.boundaries, b.toolchainKey = t.key ∧ b.toolchainOrigin?.isSome)
 
 /-- The gate reports the toolchain trusted base through this registration, whose `run` is
 exactly `toolchainBase`. It does not establish that the toolchain's code is correct. -/
 theorem checked_toolchainBase : Regula.ExecutableContract toolchainBase ToolchainBaseContract := by
-  refine ⟨fun inventory => ⟨?_, ?_, ?_, ?_⟩⟩
-  · simp only [toolchainBase, Array.toList_map, Array.toList_filterMap]
-    exact nodup_map_filterMap (canonicalToolchainKeys_nodup _)
-      (fun _ _ h => (toolchainEntry_sound h).1)
-  · intro r hr b hb ho
+  refine ⟨fun environments => ⟨toolchainBase_keys_nodup environments, ?_, ?_, ?_⟩⟩
+  · intro e he r hr b hb ho
     obtain ⟨o, ho⟩ := Option.isSome_iff_exists.mp ho
-    have hx : (r.name, b, o) ∈ inventory.toolchainObservations :=
-      mem_toolchainObservations.mpr ⟨r, hr, rfl, hb, ho⟩
-    obtain ⟨t, ht, hroot⟩ := toolchainEntry_complete hx
-    refine ⟨t, ?_, (toolchainEntry_sound ht).1, hroot⟩
-    refine Array.mem_filterMap.mpr ⟨b.toolchainKey, ?_, ht⟩
-    exact (mem_canonicalToolchainKeys _ _).mpr (Array.mem_map.mpr ⟨_, hx, rfl⟩)
+    have hx : ((e.1, r.name), b, o) ∈ toolchainObservations environments :=
+      mem_toolchainObservations.mpr ⟨e, he, r, hr, rfl, hb, ho⟩
+    obtain ⟨t, ht, hreach⟩ := toolchainEntry_complete hx
+    have hkey := (toolchainEntry_sound ht).1
+    have hmem : t ∈ toolchainBase environments :=
+      Array.mem_filterMap.mpr ⟨b.toolchainKey,
+        (mem_canonicalToolchainKeys _ _).mpr (Array.mem_map.mpr ⟨_, hx, rfl⟩), ht⟩
+    refine ⟨t, hmem, hkey, hreach, fun t' ht' hkey' => ?_⟩
+    have nodup := toolchainBase_keys_nodup environments
+    rw [Array.toList_map] at nodup
+    exact eq_of_nodup_map nodup (Array.mem_toList_iff.mpr ht') (Array.mem_toList_iff.mpr hmem)
+      (hkey'.trans hkey.symm)
   · intro t ht
     obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp ht
     obtain ⟨hkey, ⟨x, hx, hxkey, hmodule, hreplacement, horigin⟩, -⟩ := toolchainEntry_sound hentry
-    obtain ⟨r, hr, -, hb, ho⟩ := mem_toolchainObservations.mp hx
-    exact ⟨r, hr, x.2.1, hb, hxkey.trans hkey.symm, hmodule.symm, hreplacement.symm,
+    obtain ⟨e, he, r, hr, -, hb, ho⟩ := mem_toolchainObservations.mp hx
+    exact ⟨e, he, r, hr, x.2.1, hb, hxkey.trans hkey.symm, hmodule.symm, hreplacement.symm,
       horigin ▸ ho⟩
-  · intro t ht n hn
+  · intro t ht reach hreach
     obtain ⟨key, -, hentry⟩ := Array.mem_filterMap.mp ht
-    obtain ⟨hkey, -, hroots⟩ := toolchainEntry_sound hentry
-    obtain ⟨y, hy, rfl, hykey⟩ := hroots n hn
-    obtain ⟨r, hr, hname, hb, ho⟩ := mem_toolchainObservations.mp hy
-    exact ⟨r, hr, hname.symm, y.2.1, hb, hykey.trans hkey.symm, by simp [ho]⟩
+    obtain ⟨hkey, -, hreaches⟩ := toolchainEntry_sound hentry
+    obtain ⟨y, hy, rfl, hykey⟩ := hreaches reach hreach
+    obtain ⟨e, he, r, hr, hname, hb, ho⟩ := mem_toolchainObservations.mp hy
+    exact ⟨e, he, by rw [hname], r, hr, by rw [hname], y.2.1, hb, hykey.trans hkey.symm,
+      by simp [ho]⟩
 
 end RegulaPolicy

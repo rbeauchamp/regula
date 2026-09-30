@@ -811,13 +811,16 @@ def guide : RuleId → Guide
       trigger := [
         "Each reached boundary gets a kind and a correspondence state. Under checked execution, a \
           boundary that is `trusted` rather than `checked` is rejected with applicability \
-          `execution-trusted-boundary` in every root that reaches it, unless its module has an \
-          admitted toolchain origin.",
+          `execution-trusted-boundary` in every root that reaches it, unless the boundary itself \
+          carries an admitted toolchain origin. Only a replacement, `extern`, or unsafe or partial \
+          computation can: a `csimp` simplification or a compiler-trusting proof axiom never \
+          does, even on a constant declared in `Init`.",
         "The toolchain owns a replacement, `extern`, or unsafe or partial computation declared in \
           one of its own `Init`, `Std` or `Lean` modules, decided by where Lean loaded that module \
           from (the pinned toolchain's library, an observation of the probe), not by its name. \
-          Such a boundary is the toolchain's trusted base: it passes and is reported once, with \
-          every root that reaches it, in the execution account's toolchain trusted base.",
+          Such a boundary is the toolchain's trusted base: it passes and is reported once for the \
+          whole audit, with every environment and root that reaches it, in the audit's toolchain \
+          trusted base.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
           logical axioms and no extra premises."]
@@ -830,8 +833,9 @@ def guide : RuleId → Guide
         "Every reached boundary of a checked surface without an admitted toolchain origin has \
           kernel-admitted correspondence; each one without it has a failure record in every root \
           whose account contains it (`RegulaPolicy.project_boundary_reported`).",
-        "Each toolchain-owned boundary is listed exactly once in the toolchain trusted base, with \
-          exactly the roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]
+        "Each toolchain-owned boundary of every environment an audit inspects is in exactly one \
+          entry of the audit's toolchain trusted base, which lists exactly the environments and \
+          roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]
       notEstablished := [
         "Correctness of the toolchain's own replacements, unsafe code and native primitives, the \
           compiler or external code; a Lean equality does not prove external machine code. These \
