@@ -248,8 +248,9 @@ failed audit-worker build or an invalid argument, prints its error and the outco
 While the claimed targets build, the driver shows Lake's own progress line for each job that
 does work (`✔ [3/10] Built Widget (1.2s)`), including a cached module whose warnings Lake
 replays; an up-to-date module without warnings prints nothing. `--verbose` adds every classified
-declaration, each execution root with a boundary or an unresolved path, and the checker's timing
-spans (`verification phase …`, `diagnostic span: …`), which default output omits.
+declaration, each execution root with a boundary the toolchain does not own or an unresolved path,
+every entry of the toolchain trusted base, and the checker's timing spans (`verification phase …`,
+`diagnostic span: …`), which default output omits.
 
 **A first run usually stops at build warnings.** Rules are inspected only after a build without
 warnings (RG2003), so a warning, such as a missing docstring, makes the run `INCOMPLETE` (exit 3)

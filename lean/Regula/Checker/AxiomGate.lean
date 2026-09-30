@@ -76,7 +76,8 @@ private def usage : String :=
     policy over the project's incremental build instead; --build-lint does the same as the \
     enforcing build linter (the build-lint `policy` target) and implies --incremental.\n" ++
   "--verbose also prints every classified declaration, each project execution root with a \
-    boundary or an unresolved path, and timing spans.\n" ++
+    boundary the toolchain does not own or an unresolved path, every entry of the audit's \
+    toolchain trusted base, and timing spans.\n" ++
   "profiles: kernel-only, choice-free, standard-logical, compiler-trusting\n" ++
   "execution modes: report (default), checked\n" ++
   "exit codes: 0 accepted (or, for --file without a conforming claim, classified), 1 violation, \
