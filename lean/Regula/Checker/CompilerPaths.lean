@@ -46,8 +46,8 @@ private def cases : Array Case := #[
     extraImports := #["Std.Sync.Mutex", "Lean.Data.Name"]
     body := "/-- The identity, doubled. -/\ndef other (n : Nat) := n + n\n/-- The identity. -/\n" ++
       "def target (n : Nat) := n\n/-- Under a fresh lock, prints the length of `target`'s " ++
-      "decimal spelling and a name and syntax comparison. -/\ndef entry (n : Nat) : IO Unit := do\n" ++
-      "  let mutex ← Std.BaseMutex.new\n  mutex.lock\n" ++
+      "decimal spelling and a name and syntax comparison. -/\n" ++
+      "def entry (n : Nat) : IO Unit := do\n  let mutex ← Std.BaseMutex.new\n  mutex.lock\n" ++
       "  IO.println (← #[toString (target n)].foldlM (fun acc s => pure (acc + s.length)) 0)\n" ++
       "  IO.println (Lean.Name.quickCmp `a `b == .lt && Lean.Syntax.structEq .missing .missing)\n"
     before := "def target", after := "@[implemented_by other] def target"
