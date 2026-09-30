@@ -170,7 +170,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 5, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 6, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -185,7 +185,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 5:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 6:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -197,7 +197,7 @@ metadata, not authenticated binary identity.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
-- **Names:** since schema 5 every Lean name of a result, in `diagnostics`, `scope` and
+- **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does
   not read that text back as the name, its structural components as a JSON array.

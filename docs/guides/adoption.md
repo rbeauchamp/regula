@@ -385,13 +385,13 @@ deriving `DecidableEq`: Lean records no relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 5, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 6, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `5`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `6`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another. For a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range, with `related` naming the declaration's own module. |
@@ -402,7 +402,7 @@ way: as the text Lean prints for it (`Name.toString`, which escapes a component 
 can). Only where Lean's own parser (`String.toName`) would not read that text back as the same
 name, for example for a component containing `»`, is the name written instead as its structural
 components: an array, innermost first, of `["str", s]` and `["num", n]`. A string is therefore
-always the printed name, and schema 4's arrays remain only for such names.
+always the printed name, and earlier schemas' arrays remain only for such names.
 
 The exit status is the stable pass/fail contract; `status` and `complete` say why. Treat the
 report as observations, never as a Lean proof: its consistency checks catch writer regressions,

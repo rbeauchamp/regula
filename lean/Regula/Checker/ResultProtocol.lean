@@ -17,7 +17,7 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 5 writes every Lean name of the document, in `diagnostics`, `scope` and
+/-- Result schema 6 writes every Lean name of the document, in `diagnostics`, `scope` and
 `acceptance` alike, in one encoding (`RegistryCodec.printedNameJson`): the string Lean prints for
 it, and, only for a name whose printed text Lean's parser does not read back as the name, its
 structural components, an array of `["str", s]` and `["num", n]` innermost first
@@ -27,7 +27,7 @@ at the end of the chain it generated it from (`Findings.sourceName?`); such a fi
 range of its own declaration when it has one, and otherwise is located at that declaration's range
 when it has one and its module has a snapshot (`Findings.findingLocation`), and its `related` then
 names its own module.
-Result schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
+Schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
 module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
 each `axiomGate` project and file result's `scope.toolchainBase` lists every such boundary once
@@ -46,7 +46,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 5
+def schemaVersion : Nat := 6
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
