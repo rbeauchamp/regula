@@ -1356,7 +1356,8 @@ uses `Classical.choice`, a structure field's default, a matcher, the `_f` and `_
 structural recursion, the equation lemmas and auxiliary proof of a well-founded definition, the
 `_unary` and functional induction principle of one with two arguments, the compiled recursion
 helper `_unsafe_rec` of a computable one whose value carries a proof that uses `propext`, the
-action of an `initialize` whose value carries such a proof; and
+action of an `initialize` whose value carries such a proof, of a type no other proof here has, so
+Lean abstracts it into an auxiliary proof named under the action's hygienic name; and
 declarations Lean does not generate from the structure they are named under: a theorem a
 metaprogram adds without a source range, a user-written `ofNat`, a name Lean generates only for an
 enumeration deriving `DecidableEq`, and an elaborator Lean names `«_aux_…»` inside the
@@ -1398,7 +1399,7 @@ private def sourceAttributionSource : String :=
   "  if h : n = 0 then 0 else countUp (n - 1)\ntermination_by n\ndecreasing_by omega\n\n" ++
   "/-- A reference whose initialization action carries a proof that uses `propext`. -/\n" ++
   "initialize counter : IO.Ref Nat ← do\n" ++
-  "  have _ : True = True := propext (Iff.refl True)\n  IO.mkRef 0\n\n" ++
+  "  have _ : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n  IO.mkRef 0\n\n" ++
   "run_cmd liftTermElabM do\n  addDecl <| .thmDecl {\n" ++
   "    name := `Channel.fact, levelParams := []\n" ++
   "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
@@ -1408,8 +1409,9 @@ private def sourceAttributionSource : String :=
 `GeneratedFamily` (`Channel`'s constructor, projection, recursor, constructor lemmas and type
 constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
 `countdown`'s equation lemma and auxiliary proof, `countPair._unary` and `countPair.induct`, and
-the admitted recursion helper `countUp._unsafe_rec`) and the action of `initialize counter` is
-attributed to and located at the declaration Lean generated it from, with its own module as a
+the admitted recursion helper `countUp._unsafe_rec`), the action of `initialize counter` and that
+action's auxiliary proof, whose chain runs through the action, is attributed to and located at the
+declaration Lean generated it from, with its own module as a
 related location. `Rec`'s range is read from its own finding or, when it has none, from its
 constructor's finding, which is attributed to it: Lean's `exportedAxiomsExt`
 (`Lean/Util/CollectAxioms.lean:118-140` in the v4.34.0 toolchain source) computes a module's
@@ -1450,15 +1452,23 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
     let some d := find name | return some s!"no {name} finding"
     unless attributed d owner ownerName do
       return some s!"{name} is not attributed to and located at {ownerName}"
+  let userName? (d : Json) : Option Name :=
+    match Regula.RegistryCodec.parsePrintedNameJson
+        ((d.getObjValD "arguments").getObjValD "declaration") with
+    | .ok name => some (privateToUserName name.eraseMacroScopes)
+    | _ => none
   let some counter := find "counter" | return some "no counter finding"
-  let some action := diagnostics.find? fun d =>
-      match Regula.RegistryCodec.parsePrintedNameJson
-          ((d.getObjValD "arguments").getObjValD "declaration") with
-      | .ok name => (privateToUserName name.eraseMacroScopes).getString! == "initFn"
-      | _ => false
+  let some action := diagnostics.find? (userName? · == some `initFn)
     | return some "no finding for the action of initialize counter"
   unless attributed action counter "counter" do
     return some "the action of initialize counter is not attributed to and located at counter"
+  let some proof := diagnostics.find? fun d => match userName? d with
+      | some (.str (.str .anonymous "initFn") s) => s.startsWith "_proof_"
+      | _ => false
+    | return some "no finding for the auxiliary proof of initialize counter's action"
+  unless attributed proof counter "counter" do
+    return some "the auxiliary proof of initialize counter's action is not attributed to and \
+      located at counter"
   let some fact := find "Channel.fact" | return some "no Channel.fact finding"
   unless source fact == .null && kind fact == .str "module" do
     return some "Channel.fact, which Lean did not generate, was attributed"

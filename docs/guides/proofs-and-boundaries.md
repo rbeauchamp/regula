@@ -859,7 +859,7 @@ declaration related to one that is itself related (such as `T.c.injEq` to `T.c`,
 | `partial_fixpoint`'s `f.mutual` | `Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:193-217` | `wellFounded`: `PartialFixpoint.eqnInfoExt`'s `declNameNonRec` | |
 | `f.induct`, `.induct_unfolding`, `.mutual_induct`, `.fun_cases`, `partial_fixpoint`'s `.fixpoint_induct`, `.coinduct`, `.partial_correctness`, `f.congr_simp`, `f.hcongr_N`, `T.enumToBitVec` and its lemmas | `Lean/Meta/Tactic/FunInd.lean:910-1548`, `Lean/Elab/PreDefinition/PartialFixpoint/Induction.lean:105-426`, `Lean/Meta/CongrTheorems.lean:392-480`, `Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean:41-379` | `reservedName`: `isReservedName` | `countPair.induct` |
 | `f._unsafe_rec` | `Lean/Elab/PreDefinition/Basic.lean:255-295` | `recursionHelper`: the admitted helper authorization, which observed Lean's recursion compiler regenerate it (`Findings.stepOf`) | `countUp._unsafe_rec` |
-| `f._proof_N` | `Lean/Meta/Tactic/AuxLemma.lean:43-79`, `Lean/Meta/Closure.lean:457-460` | `auxiliaryLemma`: `f`'s value, its equation information's value, or the function its well-founded equation information names uses it; one nothing uses, as `GuessLex` can leave, keeps its own location | `countdown._proof_1` |
+| `f._proof_N` | `Lean/Meta/Tactic/AuxLemma.lean:43-79`, `Lean/Meta/Closure.lean:457-460` | `auxiliaryLemma`: `f`'s value, its equation information's value, or the function its well-founded equation information names uses it; one nothing uses, as `GuessLex` can leave, keeps its own location | `countdown._proof_1`, the `_proof_N` of `initialize counter`'s action |
 | `f._simp_N`, `f._cbv_eval_N` | `Lean/Meta/Tactic/Simp/SimpTheorems.lean:453-471`, `Lean/Meta/Tactic/Cbv/CbvEvalExt.lean:61-64` | `auxiliaryLemma`: `f`'s value uses it (a tactic's lemma), or it uses `f` (an attribute's lemma) | |
 | `f._private_N`, `f.grind_N`, `f._impossible_N`, `inst._aux_N`, `f.unsafe_impl_N`, `f._expr_def_N`, `f._cert_def_N`, `f._reflection_def_N` | `Lean/Elab/BuiltinTerm.lean:451-465`, `Lean/Meta/Tactic/Grind/Main.lean:497-498`, `Lean/Elab/Tactic/Impossible.lean:88-92`, `Lean/Meta/WrapInstance.lean:185-283`, `Lean/Elab/BuiltinNotation.lean:556-579`, `Lean/Meta/Tactic/BVDecide/TacticContext.lean:40-42` | `auxiliaryLemma`: `f`'s value uses it | |
 | `f.unsafe_N` | `Lean/Elab/BuiltinNotation.lean:556-579` | own location: recorded only as the `implemented_by` target of `f.unsafe_impl_N` | |
@@ -881,8 +881,8 @@ Not declarations of the environment: `_example` and `#eval` temporaries
 `_boxed`, `_lam_N`, `_elam_N`, `_redArg`, `_closed_N` and `_spec` names (`Lean/Compiler/LCNF/`),
 and the `_private.<Mod>.0.` and `._@.…_hyg.N` spellings of other declarations
 (`Lean/PrivateName.lean:27-64`, `Init/Prelude.lean:5756-5846`), which the clauses read through
-`privateToUserName`. Not generated in v4.34.0: `binductionOn`, `toCtorIdx`, `_binary`,
-`_auxLemma`, `_cstage1` and `_cstage2`.
+`extractMacroScopes` and `privateToUserName`. Not generated in v4.34.0: `binductionOn`,
+`toCtorIdx`, `_binary`, `_auxLemma`, `_cstage1` and `_cstage2`.
 
 ## Project setup and releases
 

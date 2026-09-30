@@ -548,9 +548,17 @@ private def ctorIdxGenerated (t : InductiveVal) : MetaM Bool := do
 
 /-- The declarations `name` is named under, as itself and as its user name
 (`privateToUserName`), the two spellings Lean's own `Meta.declFromEqLikeName` tries, and its last
-component. -/
-private def namedUnder? : Name → Option (List Name × String)
-  | .str p s => some ([p, privateToUserName p], s)
+component, both read past the macro scopes that Lean's `Name.append` and `appendIndexAfter` keep
+last when they derive a name from a hygienic one (`extractMacroScopes`), and with those scopes
+restored on the declaration it is named under. -/
+private def namedUnder? (name : Name) : Option (List Name × String) :=
+  let view := extractMacroScopes name
+  match view.name with
+  | .str p s =>
+    if p.isAnonymous then none
+    else
+      let p := { view with name := p }.review
+      some ([p, privateToUserName p], s)
   | _ => none
 
 /-- The kinds Lean's `mkAuxDeclName` names the auxiliary declarations it abstracts out of the
@@ -632,15 +640,15 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     return some value.induct
   | .projection =>
     if let some info := env.getProjectionFnInfo? name then return some info.ctorName
-    let .str p _ := name | return none
+    let some (p :: _, _) := namedUnder? name | return none
     return if (env.getAuxParentProjectionInfo? name).isSome && isStructure env p then some p
       else none
   | .recursor =>
-    if let .str p s := name then
-      if (s == "go" || s == "eq") && isBRecOnRecursor env p then return some p
+    let some (p :: _, s) := namedUnder? name | return none
+    if (s == "go" || s == "eq") && isBRecOnRecursor env p then return some p
     unless isRecCore env name || isAuxRecursor env name || isNoConfusion env name ||
         isSparseCasesOn env name do return none
-    return if name.getPrefix.isAnonymous then none else some name.getPrefix
+    return some p
   | .equationLemma => return (Meta.declFromEqLikeName env name).map (·.1)
   | .reservedName =>
     let some (spellings, _) := namedUnder? name | return none
@@ -677,7 +685,7 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
       (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
       ((kind == "_simp" || kind == "_cbv_eval") && valueUses env name f)
   | .constructorLemma =>
-    let .str p s := name | return none
+    let some (p :: _, s) := namedUnder? name | return none
     let some (.ctorInfo ctor) := env.find? p | return none
     if ((s == "inj" || s == "injEq") && (← injectivityGenerated ctor)) ||
         (s == "_flat_ctor" && isStructure env ctor.induct) then
@@ -685,7 +693,7 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     let some (.inductInfo t) := env.find? ctor.induct | return none
     return if s == "sizeOf_spec" && (← sizeOfGenerated t) then some p else none
   | .typeConstruction =>
-    let .str p s := name | return none
+    let some (p :: _, s) := namedUnder? name | return none
     let some (.inductInfo t) := env.find? p | return none
     if (s == "noConfusionType" && isNoConfusion env (p.str "noConfusion")) ||
         (s == "ctorElimType" && isAuxRecursor env (mkCtorElimName p)) ||
@@ -697,8 +705,9 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
   | .fieldDefault =>
     let some (spellings, s) := namedUnder? name | return none
     unless s == "_default" || s == "_inherited_default" do return none
-    return spellings.findSome? fun
-      | .str struct field =>
+    return spellings.findSome? fun projection =>
+      match namedUnder? projection with
+      | some (struct :: _, field) =>
         if isStructure env struct &&
             getEffectiveDefaultFnForField? env struct (.mkSimple field) == some name then
           some struct
