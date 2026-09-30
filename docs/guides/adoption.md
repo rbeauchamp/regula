@@ -23,6 +23,7 @@ supports. This table lists every release, newest first, with its one toolchain:
 
 | Regula tag | Lean toolchain | Rule reference |
 | --- | --- | --- |
+| `v0.2.0` | `leanprover/lean4:v4.34.0` | [v/0.2.0/](https://rbeauchamp.github.io/regula/v/0.2.0/) |
 | `v4.34.0` | `leanprover/lean4:v4.34.0` | [v/4.34.0/](https://rbeauchamp.github.io/regula/v/4.34.0/) |
 
 The release steps generate the table from the release data, and CI refuses a table that
