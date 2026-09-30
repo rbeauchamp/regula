@@ -292,11 +292,11 @@ Lake details that affect what ran:
   project coverage. Every `axiomGate` audit uses `lake lint`'s exit codes: 0 accepted (or, for
   `--file` without a conforming claim, classified), 1 violation, 2 invalid configuration or
   invocation, 3 incomplete. An audit that recorded a result exits with that result's code, and 3
-  when it recorded none, failed after recording a success
-  (`Regula.Checker.Lint.gateExitCode`) or stopped on an error; `lake lint` reports the code its
-  own audit returned (`Regula.Checker.Lint.classify_gateExitCode`). That audit builds with the
-  driver's audit-build marker, so a standalone `axiomGate` run can differ: there a live Regula
-  finding stops the warning-free build check as incomplete (3). `--file` prints only the declarations with a
+  when it recorded none, failed after recording a success (`Regula.Checker.Lint.gateExitCode`) or
+  stopped on an error; `lake lint` reports the code its own audit returned
+  (`Regula.Checker.Lint.classify_gateExitCode`). That audit builds with the driver's audit-build
+  marker, so a standalone `axiomGate` run can differ: there a live Regula finding stops the
+  warning-free build check as incomplete (3). `--file` prints only the declarations with a
   finding; `--verbose` lists every classified declaration. `lake exe docFenceAudit` checks Lean
   examples you keep in Markdown under `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).
 

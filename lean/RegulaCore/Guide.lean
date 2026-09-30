@@ -601,7 +601,8 @@ def guide : RuleId → Guide
         "A root-package module outside every manifested library that a claimed module imports \
           stops that environment's inspection, since kernel admission cannot classify it: the \
           finding names the module and the modules that import it. The single-file audit \
-          (`axiomGate --file`) reports such an import the same way.",
+          (`axiomGate --file`) reports such an import the same way, naming the audited file by \
+          its path where it is an importer.",
         "The impact depends on the subreason. A forbidden import or a module outside every \
           manifested library (`unexpected-project-module`) is a violation (`lake lint` exit 1 \
           unless the same run also has an incomplete finding). A configured module that was \

@@ -65,13 +65,13 @@ def runProcess (repo : FilePath) (cmd : String) (args : Array String)
   let result ← IO.Process.output { cmd, args, cwd := some repo, env }
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
-/-- The environment variable that turns timing output on in a worker process: `1` on, otherwise
+/-- The environment variable that turns timing output on in a checker process: `1` on, otherwise
 off. A coordinator passes it to the workers whose output it shows (`runTypedWorker`). -/
 def timingVariable : String := "REGULA_TIMING"
 
 /-- Whether this process prints timing spans (`timedPhase`, `timingSpan`): off by default, on
-with `--verbose` or when `timingVariable` is `1`. The spans measure the checker's own cost; they
-are never findings or results. -/
+with `axiomGate --verbose` (so also `lake lint -- --verbose`) or when `timingVariable` is `1`.
+The spans measure the checker's own cost; they are never findings or results. -/
 initialize timing : IO.Ref Bool ← do IO.mkRef ((← IO.getEnv timingVariable) == some "1")
 
 /-- Print one timing line when timing output is on. -/
