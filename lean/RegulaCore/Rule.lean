@@ -22,8 +22,9 @@ Each position of a rule's `lifecycle` (its introduction and, once retired, its r
 `open` step) stamps it on `main`. `lifecycle` has no default, so every rule states it.
 `release_attributes_rules` proves that when `Regula.installed` is a release, which only the release
 commit CI creates is, no lifecycle position of any rule is `.unreleased`, so a release commit that
-still has one does not build and nothing is published, and `lifecycle_listed` that every release
-a lifecycle names is in `Regula.releases`. -/
+still has one does not build and nothing is published, `lifecycle_listed` that every release a
+lifecycle names is in `Regula.versions`, and `introduced_startsLine` that no patch release
+introduces a rule. -/
 
 @[expose] public section
 
@@ -1052,9 +1053,18 @@ theorem release_attributes_rules (id : RuleId) :
     installed ≠ .unreleased → .unreleased ∉ (descriptor id).lifecycle.builds := by
   cases id <;> decide
 
-/-- Every release a rule's lifecycle names is in `releases`. -/
+/-- Every release a rule's lifecycle names is in `versions`. -/
 theorem lifecycle_listed (id : RuleId) :
-    ∀ b ∈ (descriptor id).lifecycle.builds, b.listedIn releases := by
+    ∀ b ∈ (descriptor id).lifecycle.builds, b.listedIn versions := by
+  cases id <;> decide
+
+/-- No rule is introduced by a patch release: the release that introduces a rule has patch version
+`0` (`Build.startsLine`), which, for a release that follows its predecessor, holds exactly when it
+starts a new line (`follows_startsLine_iff`). A release that adds a rule is therefore a minor or
+major release; a patch release whose release pull request stamps a new rule does not build, so it
+is not published. -/
+theorem introduced_startsLine (id : RuleId) :
+    (descriptor id).lifecycle.introduced.startsLine = true := by
   cases id <;> decide
 
 end Regula

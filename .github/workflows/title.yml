@@ -1,0 +1,36 @@
+name: Title
+
+# A pull request merges by squash, so its title becomes the subject of its commit on main, and the
+# Release workflow derives the next version from those subjects' Conventional Commits types
+# (docs/guides/contributing.md#pull-request-titles). This required check refuses a title that is
+# not a Conventional Commits header. It runs again when the title is edited and on every push, so
+# it always reports on the head commit. The check is lean/Regula/Release.lean's `title` step.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The check needs the pinned toolchain alone.
+      - uses: ./.github/actions/provision
+        with:
+          dependencies: 'false'
+
+      - name: Refuse a title that is not a Conventional Commits header
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: lean --run lean/Regula/Release.lean title

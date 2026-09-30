@@ -14,12 +14,22 @@ repository is required. The normative definitions behind them are in
 
 ## 1. Require Regula
 
-Regula is a Lake package named `regula`, like any other Lean tool. Its releases are tagged with
-the Lean release they support, the Lean ecosystem's convention: `v4.34.0` supports
-`leanprover/lean4:v4.34.0` and no other toolchain. The
-[releases page](https://github.com/rbeauchamp/regula/releases) lists them. Set your
-`lean-toolchain` to the release's Lean
-version, then require the tag.
+Regula is a Lake package named `regula`, like any other Lean tool. It numbers its own releases
+by [Semantic Versioning](https://semver.org) and tags each `v<version>`; each release supports
+exactly one Lean toolchain. Patch releases (`0.2.1` after `0.2.0`) carry fixes on the same
+toolchain; a new rule, a tightened rule or a move to another toolchain makes a minor release. The
+first release, `v4.34.0`, predates this numbering and is tagged with the Lean release it
+supports. This table lists every release, newest first, with its one toolchain:
+
+| Regula tag | Lean toolchain | Rule reference |
+| --- | --- | --- |
+| `v4.34.0` | `leanprover/lean4:v4.34.0` | [v/4.34.0/](https://rbeauchamp.github.io/regula/v/4.34.0/) |
+
+The release steps generate the table from the release data, and CI refuses a table that
+disagrees with it; a row is added when a release's pull request merges, shortly before CI
+publishes the release. The [releases page](https://github.com/rbeauchamp/regula/releases)
+has each release's notes. Choose the newest release for your `lean-toolchain`, set your
+`lean-toolchain` to its toolchain if you move, then require its tag (below, `v4.34.0`).
 
 `lakefile.toml`:
 
@@ -60,8 +70,9 @@ error: …/regula/lakefile.lean:…: this Regula release supports only Lean lean
 ```
 
 Move your project to the supported Lean release first: set `lean-toolchain`, move Mathlib (if you
-use it) to a revision for that release the usual way, and run `lake update`. Otherwise require the
-Regula release that supports your Lean, if there is one. When no other dependency pins a
+use it) to a revision for that release the usual way, and run `lake update`. Otherwise require a
+Regula release that supports your Lean from the [compatibility table](#1-require-regula), if there
+is one. When no other dependency pins a
 toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's release and restarts.
 When Mathlib pins another one, `lake update` prints `toolchain not updated; multiple toolchain
 candidates` and keeps yours, so the stop above follows.
@@ -266,7 +277,8 @@ Lake details that affect what ran:
 
 ## Update Regula
 
-To move to a new release, change the tag and your `lean-toolchain` together, then:
+To move to a new release, change the tag, and your `lean-toolchain` when the release supports
+another toolchain (the [compatibility table](#1-require-regula) lists each), then:
 
 ```sh
 lake update regula
@@ -458,7 +470,7 @@ not the linter alone.
 - Regula has run on small adopters only, including a Mathlib-importing library accepted
   incrementally and fresh; there is no Mathlib-scale adopter claim. These are bounded
   observations, not theorems about the tools.
-- Each release supports exactly one Lean release. The nine
+- Each release supports exactly one Lean toolchain. The nine
   [residual review obligations](architecture.md#coverage-of-the-standard) stay open; every
   accepted account lists them.
 

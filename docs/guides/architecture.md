@@ -88,7 +88,8 @@ lifecycle (the field has no default), and each lifecycle position is a `Build`: 
 next release, whose release pull request the Release workflow stamps with it
 ([release](contributing.md#release)). `release_attributes_rules` proves that when `installed` is
 a release no lifecycle position of any rule is `.unreleased`, so a release commit that misses one
-does not build, and `lifecycle_listed` that every release a lifecycle names is in `releases`.
+does not build, `lifecycle_listed` that every release a lifecycle names is in `versions`, and
+`introduced_startsLine` that no patch release introduces a rule.
 Checklist rows of the standard are not diagnostic IDs. No rule bans `Float`, `IO`, local mutation
 syntax, classical erased proofs, noncomputable mathematical definitions or arbitrary naming
 styles.

@@ -11,8 +11,13 @@ pages, and `dev/` only for an unreleased build.
 
 ## Main declarations
 
-- `ReleaseVersion`, `Build`, `installed`, `releases`, `releases_ascending`, `installed_listed`:
-  this build's version and every listed release, oldest first.
+- `ReleaseVersion`, `ReleaseVersion.legacy`, `ReleaseVersion.semver`, `LeanRelease`,
+  `ListedRelease`, `ListedRelease.follows`, `Build`, `installed`, `releases`, `versions`,
+  `releases_ascending`, `releases_follow`, `installed_listed`: this build's version and every
+  listed release with the one Lean toolchain it supports, oldest first, each following its
+  predecessor by the version rules.
+- `follows_startsLine_iff`: a release that follows its predecessor has patch version `0` exactly
+  when it is not a patch release.
 - `latest`, `latest_greatest`: the latest release is the greatest.
 - `Edition`, `Edition.root`, `Build.edition`, `published`, `mem_published`,
   `installed_published`: the editions a deployment publishes, which include the installed
@@ -32,6 +37,8 @@ pages, and `dev/` only for an unreleased build.
 ## Boundaries
 
 `installed` and `releases` are data that the release steps set (`lean/Regula/Release.lean`).
+That Lake and Reservoir read each release's version from its `lakefile.lean` is their
+behaviour, not a consequence of these definitions (`Regula.Release.Version.lakeLt_declared`).
 Whether a release asset exists and which commit a tag names are the site build's observations,
 which these decisions take as inputs; that the asset stays the copy attached at the release rests
 on GitHub. That a published release's edition is served is the deployment's observation, not a
@@ -42,7 +49,8 @@ consequence of these definitions.
 
 namespace Regula
 
-/-- A release version `major.minor.patch`. -/
+/-- A release version `major.minor.patch`: Regula's own semantic version, which its tag
+`v<version>` and its `lakefile.lean`'s `version` carry, except for the legacy release. -/
 structure ReleaseVersion where
   /-- The major version. -/
   major : Nat
@@ -52,18 +60,107 @@ structure ReleaseVersion where
   patch : Nat
   deriving DecidableEq, Repr
 
-/-- The version as it is written, such as `0.1.0`. -/
+/-- The version as it is written, such as `0.2.0`. -/
 def ReleaseVersion.spelling (v : ReleaseVersion) : String :=
   toString v.major ++ "." ++ toString v.minor ++ "." ++ toString v.patch
 
-/-- The components in significance order, which release order compares lexicographically. -/
-def ReleaseVersion.parts (v : ReleaseVersion) : List Nat := [v.major, v.minor, v.patch]
+/-- The legacy release `v4.34.0`, Regula's first: numbered by the Lean release it supports before
+Regula numbered its own releases. Its tag, its lifecycle stamps and its edition `v/4.34.0/` keep
+that number. -/
+def ReleaseVersion.legacy : ReleaseVersion := ⟨4, 34, 0⟩
 
-/-- Release order: lexicographic in major, minor and patch. -/
+/-- The semantic version of a release, which orders releases: its own version, and `0.1.0` for
+the legacy release, so that release precedes every own-numbered one, the first of which is
+`0.2.0`. -/
+def ReleaseVersion.semver (v : ReleaseVersion) : ReleaseVersion :=
+  if v = legacy then ⟨0, 1, 0⟩ else v
+
+/-- The components of the semantic version in significance order, which release order compares
+lexicographically. -/
+def ReleaseVersion.parts (v : ReleaseVersion) : List Nat :=
+  [v.semver.major, v.semver.minor, v.semver.patch]
+
+/-- The release line: the major and minor components of the semantic version, which a patch
+release keeps. -/
+def ReleaseVersion.line (v : ReleaseVersion) : List Nat := [v.semver.major, v.semver.minor]
+
+/-- Release order: lexicographic in the major, minor and patch components of the semantic
+versions. -/
 instance : LT ReleaseVersion := ⟨fun a b => a.parts < b.parts⟩
 
 instance (a b : ReleaseVersion) : Decidable (a < b) :=
   inferInstanceAs (Decidable (a.parts < b.parts))
+
+/-- Three-component lexicographic order with equal leading components compares the last. -/
+private theorem lex3 {m n p q : Nat} (h : List.Lex (· < ·) [m, n, p] [m, n, q]) : p < q := by
+  cases h with
+  | rel h => exact absurd h (Nat.lt_irrefl _)
+  | cons h => cases h with
+    | rel h => exact absurd h (Nat.lt_irrefl _)
+    | cons h => cases h with
+      | rel h => exact h
+      | cons h => cases h
+
+/-- A later release on the same line has a greater patch component. -/
+theorem ReleaseVersion.patch_lt_of_line {a b : ReleaseVersion} (hl : a.line = b.line)
+    (h : a < b) : a.semver.patch < b.semver.patch := by
+  have h' : List.Lex (· < ·) [a.semver.major, a.semver.minor, a.semver.patch]
+      [b.semver.major, b.semver.minor, b.semver.patch] := h
+  simp only [ReleaseVersion.line, List.cons.injEq, and_true] at hl
+  rw [hl.1, hl.2] at h'
+  exact lex3 h'
+
+/-- A stable Lean release `major.minor.patch`: the toolchain
+`leanprover/lean4:v<major>.<minor>.<patch>`. -/
+structure LeanRelease where
+  /-- The major version. -/
+  major : Nat
+  /-- The minor version. -/
+  minor : Nat
+  /-- The patch version. -/
+  patch : Nat
+  deriving DecidableEq, Repr
+
+/-- The Lean release as it is written, such as `4.34.0`. -/
+def LeanRelease.spelling (t : LeanRelease) : String :=
+  toString t.major ++ "." ++ toString t.minor ++ "." ++ toString t.patch
+
+/-- The `lean-toolchain` of the Lean release. -/
+def LeanRelease.toolchain (t : LeanRelease) : String := "leanprover/lean4:v" ++ t.spelling
+
+/-- A release of Regula: its version and the one Lean toolchain it supports, the
+`lean-toolchain` of its release commit. -/
+structure ListedRelease where
+  /-- The release version. -/
+  version : ReleaseVersion
+  /-- The Lean release of the one toolchain the release supports. -/
+  toolchain : LeanRelease
+  deriving DecidableEq, Repr
+
+/-- Whether release `next` may directly follow release `prev`, by Semantic Versioning over the
+semantic versions: `next` is later; a patch release (one that keeps `prev`'s line) keeps
+`prev`'s toolchain, so a release on another toolchain bumps at least the minor version; and a
+release that starts a new line has patch `0`, and minor `0` too when it bumps the major version.
+`Regula.Release.follows` is the decision the release steps execute. -/
+def ListedRelease.follows (prev next : ListedRelease) : Bool :=
+  decide (prev.version < next.version) &&
+    if prev.version.line = next.version.line then prev.toolchain == next.toolchain
+    else next.version.semver.patch == 0 &&
+      (next.version.semver.major == prev.version.semver.major || next.version.semver.minor == 0)
+
+/-- A release that follows its predecessor has patch version `0` exactly when it is not a patch
+release: when it starts a new line. -/
+theorem follows_startsLine_iff {prev next : ListedRelease} (h : prev.follows next = true) :
+    next.version.semver.patch = 0 ↔ prev.version.line ≠ next.version.line := by
+  unfold ListedRelease.follows at h
+  by_cases hl : prev.version.line = next.version.line
+  · simp only [hl, ite_true, Bool.and_eq_true, decide_eq_true_eq] at h
+    have := ReleaseVersion.patch_lt_of_line hl h.1
+    simp only [hl, ne_eq, not_true_eq_false, iff_false]
+    omega
+  · simp only [hl, ite_false, Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h
+    simp only [ne_eq, hl, not_false_eq_true, iff_true]
+    exact h.2.1
 
 /-- What a Regula build is: a release, or an unreleased development build. -/
 inductive Build where
@@ -87,6 +184,12 @@ def Build.listedIn (b : Build) (rs : List ReleaseVersion) : Prop :=
 instance (b : Build) (rs : List ReleaseVersion) : Decidable (b.listedIn rs) := by
   cases b <;> unfold Build.listedIn <;> infer_instance
 
+/-- Whether a build may introduce a rule: an unreleased build, or a release whose semantic version
+has patch `0`, which starts a release line (`follows_startsLine_iff`). -/
+def Build.startsLine : Build → Bool
+  | .release v => v.semver.patch == 0
+  | .unreleased => true
+
 /-- This build of Regula: always `.unreleased` on `main` and in every pull request, which CI's
 required `verify` job checks. The only build labelled `.release v` is the release commit that CI
 on `main` creates once `main` lists `v` unpublished: a child of the head of `main`, not on `main`,
@@ -101,22 +204,29 @@ frozen asset (`releaseSource`); and only an artifact with no rendered release ed
 deployed (`publishable`). -/
 def installed : Build := .unreleased
 
-/-- Every release, oldest first. The release pull request appends it; CI on `main` then publishes
-it. -/
-def releases : List ReleaseVersion := [⟨4, 34, 0⟩]
+/-- Every release with the one Lean toolchain it supports, oldest first. The release pull request
+appends it; CI on `main` then publishes it. -/
+def releases : List ListedRelease := [⟨⟨4, 34, 0⟩, ⟨4, 34, 0⟩⟩]
+
+/-- The version of every release, oldest first. -/
+def versions : List ReleaseVersion := releases.map (·.version)
 
 /-- Releases are listed oldest first, each once. -/
-theorem releases_ascending : releases.Pairwise (· < ·) := by decide
+theorem releases_ascending : versions.Pairwise (· < ·) := by decide
+
+/-- Every release follows its predecessor (`ListedRelease.follows`). -/
+theorem releases_follow : (releases.zip releases.tail).all (fun p => p.1.follows p.2) = true := by
+  decide
 
 /-- A released build is a listed release. -/
-theorem installed_listed : installed.listedIn releases := by decide
+theorem installed_listed : installed.listedIn versions := by decide
 
 /-- The latest release, if any. -/
-def latest : Option ReleaseVersion := releases.getLast?
+def latest : Option ReleaseVersion := versions.getLast?
 
 /-- The latest release is a release, and no release is later. -/
 theorem latest_greatest {l : ReleaseVersion} (h : latest = some l) :
-    l ∈ releases ∧ ∀ v ∈ releases, v = l ∨ v < l := by
+    l ∈ versions ∧ ∀ v ∈ versions, v = l ∨ v < l := by
   obtain ⟨ys, hys⟩ := List.getLast?_eq_some_iff.mp h
   have hp := releases_ascending
   rw [hys] at hp ⊢
@@ -239,11 +349,11 @@ theorem publishable_iff (sources : List ReleaseSource) :
   simp [publishable]
 
 /-- The editions every deployment publishes: the development edition and each release's. -/
-def published : List Edition := .dev :: releases.map .release
+def published : List Edition := .dev :: versions.map .release
 
 /-- An edition is published exactly when it is the development edition or a release's. -/
 theorem mem_published (e : Edition) :
-    e ∈ published ↔ e = .dev ∨ ∃ v ∈ releases, e = .release v := by
+    e ∈ published ↔ e = .dev ∨ ∃ v ∈ versions, e = .release v := by
   simp [published, eq_comm]
 
 /-- The edition describing the installed build is published. -/

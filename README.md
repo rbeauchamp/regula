@@ -51,10 +51,10 @@ with a checked violating and corrected example.
 
 ## Try it
 
-Regula is a Lake package, and each release is tagged with the one Lean release it supports:
-`v4.34.0` is for `leanprover/lean4:v4.34.0`. Use the
-[release](https://github.com/rbeauchamp/regula/releases) tag that matches your `lean-toolchain`;
-when none does, see
+Regula is a Lake package with its own semantic versions, tagged `v<version>`; each release
+supports exactly one Lean toolchain. Require the newest release for your `lean-toolchain` from
+the [compatibility table](docs/guides/adoption.md#1-require-regula); the first release,
+`v4.34.0`, is for `leanprover/lean4:v4.34.0`. When none matches, see
 [when your Lean release has no Regula release](docs/guides/adoption.md#when-your-lean-release-has-no-regula-release).
 
 1. **Require it** in `lakefile.toml`
@@ -79,8 +79,8 @@ when none does, see
    and give each library a glob covering all its modules (`globs = ["MyLib", "MyLib.+"]`), which
    `doctor` reports when a module is left out.
 
-**To update**, change the tag and `lean-toolchain`, then run `lake update regula` and
-`lake exe regula init` again.
+**To update**, change the tag, and `lean-toolchain` when the new release supports another
+toolchain, then run `lake update regula` and `lake exe regula init` again.
 
 **Why your first `sorry` shows RG2003 and INCOMPLETE.** Lean warns `declaration uses 'sorry'`,
 and `lake lint` inspects its rules only after a build without warnings (RG2003). A warning
@@ -142,7 +142,7 @@ toolchain version where useful.
 | Lean | [lean-toolchain](lean-toolchain) |
 | Mathlib (the `audit/` package and the website only) | The `mathlib` entry in [audit/lake-manifest.json](audit/lake-manifest.json) |
 
-Only the pinned Lean release is supported; a release's tag names it (`v4.34.0` for Lean 4.34.0). The `regula` package requires no other package and imports no Mathlib modules, so requiring it adds no Mathlib to your project; Mathlib is used only by the standard's mathematical examples in the separate `audit/` package. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
+Each release supports only the Lean toolchain pinned in its `lean-toolchain`; the [compatibility table](docs/guides/adoption.md#1-require-regula) lists each release's toolchain, and a move to another toolchain is a minor release. The `regula` package requires no other package and imports no Mathlib modules, so requiring it adds no Mathlib to your project; Mathlib is used only by the standard's mathematical examples in the separate `audit/` package. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
 
 ## License
 

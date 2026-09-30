@@ -1,14 +1,24 @@
 name: Release
 
 # One action starts a release: run this workflow on main (docs/guides/contributing.md#release).
-# Its version is the Lean release in lean-toolchain, the Lean ecosystem's tag convention. It pushes
-# the branch of the release pull request, which lists the release and stamps it into the rules; a
-# maintainer opens that pull request from the link in the job summary. Once it merges, ci.yml on
-# main creates the release commit, runs main's checks on it and, once they pass, publishes the
-# release, which creates its tag. No workflow creates a pull request. Every step is
+# It derives the version from the Conventional Commits types of main's commits since the previous
+# release and from lean-toolchain; its bump input may raise that bump, never lower it. It pushes
+# the branch of the release pull request, which lists the release with its toolchain, sets the
+# lakefile's version, adds it to the adoption guide's compatibility table and stamps it into the
+# rules; a maintainer opens that pull request from the link in the job summary. Once it merges,
+# ci.yml on main creates the release commit, runs main's checks on it and, once they pass,
+# publishes the release, which creates its tag. No workflow creates a pull request. Every step is
 # lean/Regula/Release.lean.
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: >-
+          Raise the derived bump (a patch for fix and perf, a minor bump for feat, a toolchain
+          move or, before 1.0, a breaking change); derived keeps it. It never lowers the bump.
+        type: choice
+        options: [derived, patch, minor, major]
+        default: derived
 
 permissions:
   contents: read
@@ -18,13 +28,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Create the commit of the release pull request (main's commit with the release appended to
-  # Regula.releases and stamped into each .unreleased on a `lifecycle :=` line;
+  # Derive the version, then create the commit of the release pull request (main's commit with
+  # the release appended to Regula.releases with its toolchain, the lakefile's version, the
+  # adoption guide's compatibility table and each .unreleased on a `lifecycle :=` line;
   # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, push it as
-  # release/v<version> and write the link that opens its pull request to the job summary. When that
-  # pull request is already open, dispatch ci.yml on the rebuilt branch, whose push with this
-  # job's token starts no checks; hence `actions: write`, on this job only. A re-run rebuilds the
-  # branch on the same commit; a new run rebuilds it on the current head of main.
+  # release/v<version> and write the link that opens its pull request to the job summary. When
+  # that pull request is already open, dispatch ci.yml on the rebuilt branch, whose push with
+  # this job's token starts no checks; hence `actions: write`, on this job only. A re-run
+  # rebuilds the branch on the same commit; a new run rebuilds it on the current head of main.
+  # The derivation reads main's history since the previous release's tag, hence the full clone.
   open:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -37,10 +49,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/provision
 
       - name: Push the branch of the release pull request
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_BUMP: ${{ inputs.bump }}
         run: lean --run lean/Regula/Release.lean open
