@@ -32,13 +32,14 @@ each commit of `main` is one pull request, whose title, a Conventional Commits h
 `title` step requires, is the commit's subject. Of the commits of `main` since the previous
 release, a breaking change (`type!:`, or a `BREAKING CHANGE:` footer) calls for a major bump, or
 a minor one before 1.0; `feat` for a minor bump; `fix` and `perf` for a patch; and every other
-type for none (`Header.bump`, `derive`). A `lean-toolchain` other than the previous release's
-calls for at least a minor bump. The Release workflow's `bump` input may raise the bump and never
-lowers it (`nextBump_ge_derived`, `nextBump_ge_requested`, `nextBump_moved`); a derivation over a
-commit whose subject is not such a header is undecided and needs that input (`derive_eq_none`).
-The derived version follows its predecessor (`nextVersion_follows`): it is later, a patch release
-keeps its predecessor's toolchain, and a release that starts a new line resets the lower
-components. `main`'s `lakefile.lean` declares the version of the latest listed release, and the
+type for none (`Header.bump`, `called`, `derive`). A `lean-toolchain` other than the previous
+release's calls for at least a minor bump (`leastBump`). The Release workflow's `bump` input may
+raise the bump and never lowers it (`nextBump_ge_called`, `nextBump_ge_requested`,
+`nextBump_moved`); a derivation over a commit whose subject is not such a header is undecided
+(`derive_eq_none`) and needs that input, and the bump is still at least each header's
+(`nextVersion_ge`). The derived version follows its predecessor (`nextVersion_follows`): it is
+later, a patch release keeps its predecessor's toolchain, and a release that starts a new line
+resets the lower components. `main`'s `lakefile.lean` declares the version of the latest listed release, and the
 adoption guide's compatibility table lists every listed release with its toolchain; `agree`
 checks both on every commit, the version as Lake itself reads it (`lake reservoir-config`).
 
@@ -59,11 +60,16 @@ place instead, restamping its stamps (`restampRules`). GitHub creates and signs 
 `release/v<version>` and writes the link that opens its pull request to the job summary; a
 maintainer opens the pull request from that link, which starts its checks, and merges it through
 normal review. When that pull request is already open, `open` starts the checks of the rebuilt
-branch by dispatching `ci.yml` on it, because a push with the workflow's token starts no workflow.
-No step creates a pull request: the repository does not let GitHub Actions create one.
+branch by dispatching `ci.yml` and `title.yml` on it, because a push with the workflow's token
+starts no workflow; the dispatched `title` step reads the pull request's title through GitHub's
+API. No step creates a pull request: the repository does not let GitHub Actions create one.
 
 On `main`, once acceptance and the rule-example shards pass on a commit that lists a release not
-yet published, `candidate` creates the release commit, a signed child of that commit that is not
+yet published, `candidate` derives the bump again, over the commits of `main` since the release
+listed before it up to that commit, which are the commits the release contains, and refuses
+unless the release's bump from that predecessor is at least that bump (`covers`, `covers_iff`);
+the release `open` derived passes on the commits it derived from (`nextVersion_covers`). It then
+creates the release commit, a signed child of that commit that is not
 on `main` and whose only change sets `Regula.installed` to the release, and points the branch
 `release/v<version>-candidate` at it. CI then runs on the release commit, with its release label,
 the same checks as on `main`: both acceptance steps, both rule-example shards and the site build,
@@ -81,28 +87,33 @@ takes the release's edition from the asset.
 Other pull requests still merge during a release. Until the release is published, each run of
 `candidate` on the head of `main` creates a fresh release commit on it (`tagAction_converges`),
 so a re-run of CI on `main` finishes a release that a later merge cancelled. Once it is
-published, no step changes anything (`tagAction_published`). If a pull request that adds or
-retires a rule merges to `main` before the release is published, the release commit fails
-`release_attributes_rules` and nothing is published; running the Release workflow on `main` again
-as a new run stamps that rule too, at the version the commits then call for (a re-run reuses its
-original commit).
+published, no step changes anything (`tagAction_published`). If a pull request that calls for a
+greater bump than the release's merges to `main` before the release is published, `candidate`
+refuses; if one that adds or retires a rule does, the release commit fails
+`release_attributes_rules`. Either way nothing is published, and running the Release workflow on
+`main` again as a new run lists the release the commits then call for in its place and stamps
+that rule too (a re-run reuses its original commit). While the release pull request is still
+open, a new run whose derived version differs pushes the branch of that version instead; the
+stale pull request is then to be closed, and `candidate` refuses its release if it merges.
 
 Every step resumes: `open` rebuilds its branch on the commit its run started from, `candidate`
 creates a fresh release commit, and `publish` replaces an unpublished draft and skips a published
 release. They refuse a toolchain that is not a stable release; `open` refuses a derivation that
 releases nothing, an earlier listed release not yet published, and a `main` with nothing left to
-change; `candidate` refuses a release commit whose `lean-toolchain` is not the toolchain the
-release records; and `candidate` and `publish` refuse, while the release is unpublished, a run
+change; `candidate` refuses a release that does not cover the commits it contains and a release
+commit whose `lean-toolchain` is not the toolchain the release records; and `candidate` and
+`publish` refuse, while the release is unpublished, a run
 whose commit is no longer the head of `main` and a tag that names another commit.
 
 ## Boundaries
 
 GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions) and `git` (the
 tree it writes, the history and objects it fetches and its resets) are trusted and observed, not
-proved. `tagAction` is the decision the candidate and publish steps execute, and `nextVersion` and
-`admits` the ones `open` executes; their theorems are checked by the kernel each time `lean --run`
-elaborates this file. What the steps observe (whether the release is published, the head of
-`main`, the tag, the commits since the previous release), that publishing a release creates its
+proved. `tagAction` is the decision the candidate and publish steps execute, `covers` another
+the candidate step executes, and `nextVersion` and `admits` the ones `open` executes; their
+theorems are checked by the kernel each time `lean --run` elaborates this file. What the steps
+observe (whether the release is published, the head of `main`, the tag, the commits since the
+previous release, a pull request's title and head), that publishing a release creates its
 tag at the given commit, and the order of CI's jobs are GitHub's; that Lake reads a package's
 version from its `lakefile.lean` and that Reservoir indexes each version tag with that version,
 ordering them by it, is Lake's and Reservoir's behaviour. The edits of `RegulaCore/Edition.lean`,
@@ -352,7 +363,7 @@ structure Header where
   breaking : Bool
   /-- The summary. -/
   summary : String
-  deriving Repr
+  deriving DecidableEq, Repr
 
 /-- The header `line` writes, if it is a Conventional Commits header `type(scope)!: summary`: a
 `CommitType` in lower case, an optional nonempty scope without parentheses, an optional `!` that
@@ -417,9 +428,16 @@ def Bump.max (a b : Bump) : Bump := if a.rank ≤ b.rank then b else a
 def Bump.spelling : Bump → String
   | .none => "none" | .patch => "patch" | .minor => "minor" | .major => "major"
 
-/-- The bump spelled `s`, if any. -/
-def Bump.ofSpelling (s : String) : Option Bump :=
-  [Bump.none, .patch, .minor, .major].find? (·.spelling == s)
+/-- `none` is the least bump. -/
+theorem Bump.none_le (b : Bump) : Bump.none ≤ b := Nat.zero_le _
+
+/-- Only `none` is at most `none`. -/
+theorem Bump.le_none_iff (b : Bump) : b ≤ .none ↔ b = .none := by
+  cases b <;> decide
+
+/-- The maximum of two bumps is at most a bump exactly when both are. -/
+theorem Bump.max_le_iff (a b c : Bump) : a.max b ≤ c ↔ a ≤ c ∧ b ≤ c := by
+  cases a <;> cases b <;> cases c <;> decide
 
 /-- A bump is at most its maximum with another. -/
 theorem Bump.le_max_left (a b : Bump) : a ≤ a.max b := by
@@ -437,10 +455,6 @@ theorem Bump.le_max_right (a b : Bump) : b ≤ a.max b := by
 theorem Bump.le_trans {a b c : Bump} (h : a ≤ b) (h' : b ≤ c) : a ≤ c :=
   Nat.le_trans h h'
 
-/-- The maximum of two bumps is `none` exactly when both are. -/
-theorem Bump.max_eq_none_iff (a b : Bump) : a.max b = .none ↔ a = .none ∧ b = .none := by
-  cases a <;> cases b <;> decide
-
 /-- The bump commit header `h` calls for, `initial` while the previous release is before 1.0: a
 breaking change a major bump (a minor one before 1.0), `feat` a minor one, `fix` and `perf` a
 patch, and every other type none. -/
@@ -451,98 +465,131 @@ def Header.bump (initial : Bool) (h : Header) : Bump :=
     | .fix | .perf => .patch
     | _ => .none
 
-/-- The bump the commits of `main` since the previous release call for, given their headers
-(`parseCommit`): the greatest any of them calls for, `none` when there is none; undecided (no
+/-- The greatest bump the commits of `main` since the previous release call for, given their
+headers (`parseCommit`): the greatest any commit whose subject is a Conventional Commits header
+calls for, `none` when there is none. A commit whose subject is not a header counts for nothing
+here, and leaves `derive` undecided. -/
+def called (initial : Bool) : List (Option Header) → Bump
+  | [] => .none
+  | none :: rest => called initial rest
+  | some h :: rest => (called initial rest).max (h.bump initial)
+
+/-- The greatest bump the headers call for is at most `b` exactly when each header's bump is. -/
+theorem called_le_iff (initial : Bool) (b : Bump) :
+    ∀ commits : List (Option Header),
+      called initial commits ≤ b ↔ ∀ h, some h ∈ commits → h.bump initial ≤ b
+  | [] => by simp [called, Bump.none_le]
+  | none :: rest => by simp [called, called_le_iff initial b rest]
+  | some h :: rest => by
+    simp [called, Bump.max_le_iff, called_le_iff initial b rest, and_comm]
+
+/-- The greatest bump the headers call for is at least each header's. -/
+theorem called_ge (initial : Bool) (commits : List (Option Header)) :
+    ∀ h, some h ∈ commits → h.bump initial ≤ called initial commits :=
+  (called_le_iff initial _ commits).mp (Nat.le_refl _)
+
+/-- The bump the commits of `main` since the previous release call for (`called`); undecided (no
 bump) when a commit's subject is not a Conventional Commits header. -/
-def derive (initial : Bool) : List (Option Header) → Option Bump
-  | [] => some .none
-  | none :: _ => none
-  | some h :: rest => (derive initial rest).map (·.max (h.bump initial))
+def derive (initial : Bool) (commits : List (Option Header)) : Option Bump :=
+  if none ∈ commits then none else some (called initial commits)
 
 /-- The derived bump is at least the bump of every commit. -/
-theorem derive_ge (initial : Bool) :
-    ∀ {commits : List (Option Header)} {d : Bump}, derive initial commits = some d →
-      ∀ h, some h ∈ commits → h.bump initial ≤ d
-  | [], _, _, _, hm => by simp at hm
-  | none :: _, _, hd, _, _ => by simp [derive] at hd
-  | some h' :: rest, d, hd, h, hm => by
-    simp only [derive, Option.map_eq_some_iff] at hd
-    obtain ⟨a, ha, rfl⟩ := hd
-    rcases List.mem_cons.mp hm with he | hm
-    · cases he
-      exact Bump.le_max_right _ _
-    · exact Bump.le_trans (derive_ge initial ha h hm) (Bump.le_max_left _ _)
+theorem derive_ge {initial : Bool} {commits : List (Option Header)} {d : Bump}
+    (hd : derive initial commits = some d) : ∀ h, some h ∈ commits → h.bump initial ≤ d := by
+  unfold derive at hd
+  split at hd
+  · cases hd
+  · simp only [Option.some.injEq] at hd
+    subst hd
+    exact called_ge initial commits
 
 /-- The derivation is undecided exactly when a commit's subject is not a Conventional Commits
 header. -/
-theorem derive_eq_none (initial : Bool) :
-    ∀ commits : List (Option Header), derive initial commits = none ↔ none ∈ commits
-  | [] => by simp [derive]
-  | none :: _ => by simp [derive]
-  | some h :: rest => by simp [derive, derive_eq_none initial rest]
+theorem derive_eq_none (initial : Bool) (commits : List (Option Header)) :
+    derive initial commits = none ↔ none ∈ commits := by
+  unfold derive
+  split <;> simp_all
 
 /-- The commits call for no release exactly when each is a Conventional Commits header whose
 type calls for none: no breaking change, `feat`, `fix` or `perf`. -/
-theorem derive_eq_none_bump (initial : Bool) :
-    ∀ commits : List (Option Header), derive initial commits = some .none ↔
-      ∀ c ∈ commits, ∃ h, c = some h ∧ h.bump initial = .none
-  | [] => by simp [derive]
-  | none :: _ => by simp [derive]
-  | some h :: rest => by
-    simp only [derive, Option.map_eq_some_iff, Bump.max_eq_none_iff, List.mem_cons,
-      forall_eq_or_imp, Option.some.injEq, exists_eq_left', ← derive_eq_none_bump initial rest]
-    constructor
-    · rintro ⟨a, ha, rfl, hb⟩; exact ⟨hb, ha⟩
-    · rintro ⟨hb, ha⟩; exact ⟨.none, ha, rfl, hb⟩
+theorem derive_eq_none_bump (initial : Bool) (commits : List (Option Header)) :
+    derive initial commits = some .none ↔
+      ∀ c ∈ commits, ∃ h, c = some h ∧ h.bump initial = .none := by
+  have hc := called_le_iff initial .none commits
+  simp only [Bump.le_none_iff] at hc
+  unfold derive
+  constructor
+  · intro hd c hm
+    split at hd
+    · cases hd
+    · rename_i hn
+      simp only [Option.some.injEq] at hd
+      match c, hm with
+      | none, hm => exact absurd hm hn
+      | some h, hm => exact ⟨h, rfl, hc.mp hd h hm⟩
+  · intro hall
+    have hn : none ∉ commits := fun hm => by
+      obtain ⟨h, he, _⟩ := hall none hm
+      cases he
+    simp only [hn, ↓reduceIte]
+    refine congrArg some (hc.mpr fun h hm => ?_)
+    obtain ⟨h', he, hb⟩ := hall _ hm
+    cases he
+    exact hb
 
-/-- The bump of the release: the `derived` bump raised to `requested` (the workflow's `bump`
-input) when that is greater, or `requested` alone when the derivation is undecided; then at
-least `minor` when `lean-toolchain` `moved` from the previous release's. `none` when the
-derivation is undecided and nothing was requested; `some .none` when nothing is released. -/
-def nextBump (moved : Bool) (derived requested : Option Bump) : Option Bump :=
-  let raised := match derived, requested with
-    | some d, some r => some (d.max r)
-    | some d, none => some d
-    | none, r => r
-  raised.map fun b => if moved then b.max .minor else b
+/-- The least bump of the release: the greatest bump the commits' headers call for (`called`),
+at least `minor` when `lean-toolchain` `moved` from the previous release's. -/
+def leastBump (moved : Bool) (called : Bump) : Bump :=
+  if moved then called.max .minor else called
 
-/-- The workflow never lowers the derived bump. -/
-theorem nextBump_ge_derived {moved : Bool} {d : Bump} {requested : Option Bump} {b : Bump}
-    (h : nextBump moved (some d) requested = some b) : d ≤ b := by
-  unfold nextBump at h
-  cases requested <;> cases moved <;> simp only [Option.map_some, Option.some.injEq,
-    Bool.false_eq_true, ↓reduceIte] at h <;> subst h
+/-- The least bump is at most `b` exactly when the headers' bump is, and `minor` is too after a
+toolchain move. -/
+theorem leastBump_le_iff (moved : Bool) (c b : Bump) :
+    leastBump moved c ≤ b ↔ c ≤ b ∧ (moved = true → Bump.minor ≤ b) := by
+  cases moved <;> simp [leastBump, Bump.max_le_iff]
+
+/-- The bump of the release: its least bump (`leastBump`) raised to `requested` (the workflow's
+`bump` input) when that is greater. `none` when the derivation is not `decided` and nothing was
+requested; `some .none` when nothing is released. -/
+def nextBump (moved decided : Bool) (called : Bump) (requested : Option Bump) : Option Bump :=
+  match requested with
+  | some r => some ((leastBump moved called).max r)
+  | none => if decided then some (leastBump moved called) else none
+
+/-- The bump is never below the least bump: a request raises the bump the headers and the
+toolchain call for and never lowers it, also when the derivation is undecided. -/
+theorem nextBump_ge_least {moved decided : Bool} {c : Bump} {requested : Option Bump} {b : Bump}
+    (h : nextBump moved decided c requested = some b) : leastBump moved c ≤ b := by
+  cases requested <;> cases decided <;>
+    simp only [nextBump, Option.some.injEq, Bool.false_eq_true, ↓reduceIte, reduceCtorEq] at h
+  all_goals subst h
   · exact Nat.le_refl _
   · exact Bump.le_max_left _ _
   · exact Bump.le_max_left _ _
-  · exact Bump.le_trans (Bump.le_max_left _ _) (Bump.le_max_left _ _)
+
+/-- The bump is never below the greatest bump the commits' headers call for. -/
+theorem nextBump_ge_called {moved decided : Bool} {c : Bump} {requested : Option Bump} {b : Bump}
+    (h : nextBump moved decided c requested = some b) : c ≤ b :=
+  ((leastBump_le_iff moved c b).mp (nextBump_ge_least h)).1
 
 /-- A requested bump is honoured: the bump is at least it. -/
-theorem nextBump_ge_requested {moved : Bool} {derived : Option Bump} {r b : Bump}
-    (h : nextBump moved derived (some r) = some b) : r ≤ b := by
-  unfold nextBump at h
-  cases derived <;> cases moved <;> simp only [Option.map_some, Option.some.injEq,
-    Bool.false_eq_true, ↓reduceIte] at h <;> subst h
-  · exact Nat.le_refl _
-  · exact Bump.le_max_left _ _
-  · exact Bump.le_max_right _ _
-  · exact Bump.le_trans (Bump.le_max_right _ _) (Bump.le_max_left _ _)
-
-/-- A release on another toolchain than the previous release's is at least a minor release. -/
-theorem nextBump_moved {derived requested : Option Bump} {b : Bump}
-    (h : nextBump true derived requested = some b) : Bump.minor ≤ b := by
-  unfold nextBump at h
-  simp only [↓reduceIte, Option.map_eq_some_iff] at h
-  obtain ⟨a, _, rfl⟩ := h
+theorem nextBump_ge_requested {moved decided : Bool} {c r b : Bump}
+    (h : nextBump moved decided c (some r) = some b) : r ≤ b := by
+  simp only [nextBump, Option.some.injEq] at h
+  subst h
   exact Bump.le_max_right _ _
 
-/-- Without a request, the bump is exactly the derived one, raised to `minor` for a toolchain
-move. -/
-theorem nextBump_derived (moved : Bool) (d : Bump) :
-    nextBump moved (some d) none = some (if moved then d.max .minor else d) := rfl
+/-- A release on another toolchain than the previous release's is at least a minor release. -/
+theorem nextBump_moved {decided : Bool} {c : Bump} {requested : Option Bump} {b : Bump}
+    (h : nextBump true decided c requested = some b) : Bump.minor ≤ b :=
+  ((leastBump_le_iff true c b).mp (nextBump_ge_least h)).2 rfl
+
+/-- Without a request, the bump of a decided derivation is exactly its least bump. -/
+theorem nextBump_decided (moved : Bool) (c : Bump) :
+    nextBump moved true c none = some (leastBump moved c) := rfl
 
 /-- An undecided derivation with nothing requested releases nothing. -/
-theorem nextBump_undecided (moved : Bool) : nextBump moved none none = none := rfl
+theorem nextBump_undecided (moved : Bool) (c : Bump) : nextBump moved false c none = none := rfl
 
 /-- The version after `v` for bump `b`; none for `none`. A patch bump increments the patch; a
 minor one the minor, resetting the patch; a major one the major, resetting both. -/
@@ -554,12 +601,13 @@ def Version.bump (v : Version) : Bump → Option Version
 
 /-- The version of the release after `prev` on toolchain `toolchain`, from the headers of the
 commits of `main` since `prev` (`parseCommit`) and the workflow's `requested` bump: `prev`'s
-semantic version bumped by `nextBump`. None when nothing is released, or when the derivation is
-undecided and nothing was requested. -/
+semantic version bumped by `nextBump`, whose derivation is decided unless a commit's subject is
+not a header. None when nothing is released, or when the derivation is undecided and nothing was
+requested. -/
 def nextVersion (prev : Release) (toolchain : Version) (commits : List (Option Header))
     (requested : Option Bump) : Option Version :=
-  (nextBump (prev.toolchain != toolchain) (derive (prev.version.semver.major == 0) commits)
-    requested).bind prev.version.semver.bump
+  (nextBump (prev.toolchain != toolchain) (decide (none ∉ commits))
+    (called (prev.version.semver.major == 0) commits) requested).bind prev.version.semver.bump
 
 /-- A version bumped from a release's semantic version follows it, provided it is not the legacy
 release's number and a patch bump keeps the release's toolchain. -/
@@ -601,6 +649,61 @@ theorem nextVersion_follows {prev : Release} {toolchain : Version}
   · rw [hm] at hb
     have := nextBump_moved hb
     exact absurd this (by decide)
+
+/-- The bump from release version `prev` to `next`, in their semantic versions: `major` when the
+major versions differ, otherwise `minor` when the minor ones do, otherwise `patch` when the patch
+ones do, otherwise `none`. -/
+def Version.bumpTo (prev next : Version) : Bump :=
+  if prev.semver.major != next.semver.major then .major
+  else if prev.semver.minor != next.semver.minor then .minor
+  else if prev.semver.patch != next.semver.patch then .patch
+  else .none
+
+/-- A release's semantic version bumped by `b` is a bump by `b` from the release, unless it is
+the legacy release's number. -/
+theorem Version.bumpTo_bump {v n : Version} {b : Bump} (h : v.semver.bump b = some n)
+    (hn : n ≠ legacy) : v.bumpTo n = b := by
+  have hs : n.semver = n := semver_of_ne hn
+  cases b <;> simp only [bump, Option.some.injEq, reduceCtorEq] at h <;> subst h <;>
+    simp [bumpTo, hs]
+
+/-- Whether listed release `next`, the release after `prev`, covers the commits of `main` since
+`prev` (`parseCommit`) that it contains: its bump from `prev` (`Version.bumpTo`) is at least the
+least bump those commits and its toolchain call for (`leastBump`). The candidate step checks it
+before it creates the release commit. -/
+def covers (prev next : Release) (commits : List (Option Header)) : Bool :=
+  decide (leastBump (prev.toolchain != next.toolchain)
+    (called (prev.version.semver.major == 0) commits) ≤ prev.version.bumpTo next.version)
+
+/-- A listed release covers the commits it contains exactly when its bump from its predecessor
+is at least the bump of each commit whose subject is a header, and at least minor when it moves
+to another toolchain. -/
+theorem covers_iff (prev next : Release) (commits : List (Option Header)) :
+    covers prev next commits = true ↔
+      (∀ h, some h ∈ commits →
+        h.bump (prev.version.semver.major == 0) ≤ prev.version.bumpTo next.version) ∧
+      (prev.toolchain ≠ next.toolchain → Bump.minor ≤ prev.version.bumpTo next.version) := by
+  simp only [covers, decide_eq_true_eq, leastBump_le_iff, called_le_iff, bne_iff_ne, ne_eq]
+
+/-- The release the open step derives from the commits covers them, whatever bump was requested:
+on those same commits, the candidate step's check (`covers`) holds for it. -/
+theorem nextVersion_covers {prev : Release} {toolchain : Version}
+    {commits : List (Option Header)} {requested : Option Bump} {n : Version}
+    (h : nextVersion prev toolchain commits requested = some n) (hn : n ≠ Version.legacy) :
+    covers prev ⟨n, toolchain⟩ commits = true := by
+  unfold nextVersion at h
+  obtain ⟨b, hb, hv⟩ := Option.bind_eq_some_iff.mp h
+  simp only [covers, decide_eq_true_eq, Version.bumpTo_bump hv hn]
+  exact nextBump_ge_least hb
+
+/-- The derived version's bump from its predecessor is at least the bump of every commit whose
+subject is a Conventional Commits header, whatever bump was requested, also when the derivation
+is undecided. -/
+theorem nextVersion_ge {prev : Release} {toolchain : Version}
+    {commits : List (Option Header)} {requested : Option Bump} {n : Version}
+    (h : nextVersion prev toolchain commits requested = some n) (hn : n ≠ Version.legacy) :
+    ∀ c, some c ∈ commits → c.bump (prev.version.semver.major == 0) ≤ prev.version.bumpTo n :=
+  ((covers_iff _ _ _).mp (nextVersion_covers h hn)).1
 
 /-! ## `RegulaCore/Edition.lean`, `RegulaCore/Rule.lean`, `lakefile.lean` and the adoption guide -/
 
@@ -669,14 +772,15 @@ def restampRules (rules : String) (old new : Version) : String :=
       line.replace s!"(.release {old.literal})" s!"(.release {new.literal})"
     else line
 
-/-- Whether `RegulaCore/Rule.lean` introduces a rule no release has: a line that starts
-`lifecycle := .active .unreleased` or `lifecycle := .retired .unreleased`. A convenience:
-`introduced_startsLine` is what refuses a patch release that introduces a rule. -/
-def introducesRules (rules : String) : Bool :=
+/-- Whether `RegulaCore/Rule.lean` introduces a rule in release `v`: a line that starts
+`lifecycle := .active (.release v)` or `lifecycle := .retired (.release v)`, as `stampRules` and
+`restampRules` write it. A convenience: `introduced_startsLine` is what refuses a patch release
+that introduces a rule. -/
+def introducesRules (rules : String) (v : Version) : Bool :=
   (rules.splitOn "\n").any fun line =>
     let text := line.trimAsciiStart.toString
-    text.startsWith "lifecycle := .active .unreleased" ||
-      text.startsWith "lifecycle := .retired .unreleased"
+    text.startsWith s!"lifecycle := .active (.release {v.literal})" ||
+      text.startsWith s!"lifecycle := .retired (.release {v.literal})"
 
 /-- `RegulaCore/Edition.lean` with `installed` set to `build` (`none` for `.unreleased`) and
 `releases` set to `releases`, written on one line when it fits in 100 characters. -/
@@ -988,17 +1092,19 @@ private def summarize (text : String) : IO Unit := do
     handle.putStr text
 
 /-- Point `branch` at `commit`; its pull request is a maintainer's to open. When one is already
-open, start the checks of the rebuilt branch by dispatching `ci.yml` on it, because a push with
-the workflow's token starts no workflow. Otherwise write the link that opens it, with `title` and
-`body` filled in, to the job summary and the log; opening it starts its checks. The workflow never
-creates a pull request: the repository does not let GitHub Actions create one. -/
+open, start the checks of the rebuilt branch by dispatching `ci.yml` and `title.yml` on it,
+because a push with the workflow's token starts no workflow. Otherwise write the link that opens
+it, with `title` and `body` filled in, to the job summary and the log; opening it starts its
+checks. The workflow never creates a pull request: the repository does not let GitHub Actions
+create one. -/
 private def pushBranch (repo branch commit title body : String) : IO Unit := do
   pointBranch repo branch commit
   if let some pull ← openPull repo branch then
-    discard <| gh #["workflow", "run", "ci.yml", "--repo", repo, "--ref", branch]
+    for workflow in ["ci.yml", "title.yml"] do
+      discard <| gh #["workflow", "run", workflow, "--repo", repo, "--ref", branch]
     let url := (pull.getObjValD "html_url").getStr?.toOption.getD branch
     IO.println s!"branch {branch} names {commit}; its pull request {url} is open, and the \
-      dispatched run of ci.yml checks it"
+      dispatched runs of ci.yml and title.yml check it"
     return
   let link := s!"https://github.com/{repo}/compare/main...{branch}?expand=1&title=\
     {percentEncode title}&body={percentEncode body}"
@@ -1065,23 +1171,24 @@ private def derivation (prev : Release) (messages : List String) : String :=
 
 /-- Push the branch of the release pull request. On the `main` commit the workflow runs on, derive
 the version of the next release (`nextVersion`) from the commits of `main` since the previous
-published release, `lean-toolchain` and the `RELEASE_BUMP` input (`derived`, `patch`, `minor` or
-`major`; `derived` raises nothing), and commit that release: appended with its toolchain to
-`Regula.releases` in place of a listed release not yet published, if any, whose stamps it
+published release, `lean-toolchain` and the `RELEASE_BUMP` input (exactly `derived`, `patch`,
+`minor` or `major`; `derived` raises nothing), and commit that release: appended with its
+toolchain to `Regula.releases` in place of a listed release not yet published, if any, whose stamps it
 restamps (`restampRules`); `lakefile.lean`'s `version` set to it; the adoption guide's
 compatibility table regenerated; and the release stamped into each `.unreleased` on a
 `lifecycle :=` line (`stampRules`), leaving `Regula.installed` unreleased. Refuses a derivation
-that releases nothing, a release `admits` refuses, a patch release when a rule is introduced, an
-earlier listed release not yet published, and a `main` that already lists the release with
-nothing left to change. -/
+that releases nothing, a release `admits` refuses, a patch release that introduces a rule
+(`introducesRules`, after stamping and restamping), an earlier listed release not yet published,
+and a `main` that already lists the release with nothing left to change. -/
 def openRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
-  let requested ← match (← IO.getEnv "RELEASE_BUMP").getD "derived" with
+  let requested : Option Bump ← match (← IO.getEnv "RELEASE_BUMP").getD "derived" with
     | "derived" => pure none
-    | s => match Bump.ofSpelling s with
-      | some b => pure (some b)
-      | none => fail s!"RELEASE_BUMP is {s}; it is derived, patch, minor or major"
+    | "patch" => pure (some .patch)
+    | "minor" => pure (some .minor)
+    | "major" => pure (some .major)
+    | s => fail s!"RELEASE_BUMP is {s}; it is derived, patch, minor or major"
   let toolchainText ← IO.FS.readFile "lean-toolchain"
   let some toolchain := toolchainVersion toolchainText
     | fail s!"lean-toolchain is {toolchainText.trimAscii}; a release needs a stable Lean release"
@@ -1102,8 +1209,11 @@ def openRelease : IO Unit := do
   let initial := prev.version.semver.major == 0
   let moved := prev.toolchain != toolchain
   let derived := derive initial commits
+  let derivedText := match derived with
+    | some d => d.spelling
+    | none => s!"undecided, and at least {(called initial commits).spelling}"
   let explained := s!"The {messages.length} commits of main since {prev.version.tag} call for:\n\n\
-    {derivation prev messages}\n\nDerived bump: {(derived.map (·.spelling)).getD "undecided"}; \
+    {derivation prev messages}\n\nDerived bump: {derivedText}; \
     requested: {(requested.map (·.spelling)).getD "none"}; lean-toolchain \
     {if moved then s!"moved from {prev.toolchain.spelling} to {toolchain.spelling}, which calls \
       for at least minor" else s!"unchanged at {toolchain.spelling}"}.\n"
@@ -1112,7 +1222,8 @@ def openRelease : IO Unit := do
   let some v := nextVersion prev toolchain commits requested
     | fail (if derived.isNone && requested.isNone then s!"the derivation is undecided: a commit \
         of main since {prev.version.tag} is not a Conventional Commits header; run the Release \
-        workflow again with its bump input set to patch, minor or major"
+        workflow again with its bump input set to patch, minor or major, which raises the bump \
+        the other commits call for and never lowers it"
       else s!"nothing to release: the commits of main since {prev.version.tag} call for no \
         release and lean-toolchain is unchanged; run the Release workflow again with its bump \
         input set to release anyway")
@@ -1126,11 +1237,11 @@ def openRelease : IO Unit := do
   let restamped := match pending with
     | some p => if p.version == v then rules else restampRules rules p.version v
     | none => rules
-  if v.semver.patch != 0 && introducesRules restamped then
-    fail s!"{tag} is a patch release, but main introduces a rule, which only a minor or major \
+  let stamped := stampRules restamped v
+  if v.semver.patch != 0 && introducesRules stamped v then
+    fail s!"{tag} is a patch release, but it introduces a rule, which only a minor or major \
       release may (introduced_startsLine); the pull request that added it should have been a \
       feat: run the Release workflow again with its bump input set to minor"
-  let stamped := stampRules restamped v
   let releases := prior ++ [next]
   let ready ← IO.ofExcept (withEdition edition none releases)
   let lakefile ← IO.FS.readFile lakefileFile
@@ -1160,10 +1271,12 @@ def openRelease : IO Unit := do
       stamps it into each `.unreleased` on a `lifecycle :=` line. `Regula.installed` stays \
       `.unreleased`: `main` never carries a release label.\n\n\
       The Release workflow derived the version from the {messages.length} commits of `main` \
-      since {prev.version.tag} (derived bump {(derived.map (·.spelling)).getD "undecided"}, \
+      since {prev.version.tag} (derived bump {derivedText}, \
       requested {(requested.map (·.spelling)).getD "none"}); its job summary lists each \
       commit's bump.\n\n\
-      Once this merges and acceptance and the rule-example shards pass on `main`, CI creates \
+      Once this merges and acceptance and the rule-example shards pass on `main`, CI checks \
+      that {tag} still bumps at least as much as the commits of `main` since \
+      {prev.version.tag} call for, and then creates \
       the release commit, a signed child of the head of `main` that is not on `main` and whose \
       only change sets `Regula.installed` to the release. It runs both acceptance steps, both \
       rule-example shards and the site build on that commit with its release label, and only \
@@ -1172,18 +1285,20 @@ def openRelease : IO Unit := do
       https://rbeauchamp.github.io/regula/v/{v.spelling}/ from that asset. Other pull requests \
       still merge meanwhile: until the release is published, each run on the head of `main` \
       creates a fresh release commit on it.\n\n\
-      If a pull request that adds or retires a rule merges to `main` before the release is \
-      published, the release commit fails `release_attributes_rules` and nothing is published: \
-      run the Release workflow on `main` again as a new run (a re-run reuses its \
-      original commit): it stamps that rule too, at the version the commits then call for, on \
-      this branch while this pull request is open, and in a new pull request from it once this \
-      one has merged.\n\n\
+      If a pull request that calls for a greater bump than {tag}'s, or adds or retires a rule, \
+      merges to `main` before the release is published, CI refuses the release and nothing \
+      is published: run the Release workflow on `main` again as a new run (a re-run \
+      reuses its original commit). It derives the version the commits then call for and stamps \
+      that rule too: on this branch while this pull request is open and the version is \
+      unchanged, on the branch of that version otherwise (then close this pull request), and in \
+      a new pull request from it once this one has merged.\n\n\
       Until the release is published, the `site` check of this branch refuses: the release's \
-      edition exists only once CI builds it from the release commit. `verify` is the required \
-      check.\n\n\
+      edition exists only once CI builds it from the release commit. `verify` and `title` are \
+      the required checks.\n\n\
       The Release workflow pushed this signed branch, and a maintainer opened this pull request \
       from the link in the job summary, which started its checks; when the workflow rebuilds \
-      the branch while this pull request is open, it starts them by dispatching `ci.yml`."
+      the branch while this pull request is open, it starts them by dispatching `ci.yml` and \
+      `title.yml`."
 
 /-- Refuse unless the checked-out commit is unreleased: no commit of `main` or of a pull request
 carries a release label; only the release commit that `candidate` creates does, and publication
@@ -1215,11 +1330,30 @@ def agree : IO Unit := do
   IO.println s!"lakefile.lean declares {lake.spelling}, the version of {latest.version.tag}, and \
     the compatibility table lists the {listed.length} listed releases"
 
-/-- Refuse unless the pull request title `TITLE` is a Conventional Commits header
+/-- The title of the pull request the `title` step checks. On a `pull_request` event, `TITLE`,
+the event's own title. On `workflow_dispatch`, which the Release workflow starts on a branch it
+rebuilds (`pushBranch`), the title of the open pull request from that branch, `GITHUB_REF_NAME`,
+read through GitHub's API; refused unless that pull request's head is the checked-out commit. -/
+private def pullTitle : IO String := do
+  match ← env "GITHUB_EVENT_NAME" with
+  | "pull_request" => env "TITLE"
+  | "workflow_dispatch" =>
+    let repo ← repository
+    let branch ← env "GITHUB_REF_NAME"
+    let some pull ← openPull repo branch | fail s!"no pull request from {branch} is open"
+    let head ← str (← IO.ofExcept (pull.getObjVal? "head")) "sha"
+    let checked ← git #["rev-parse", "HEAD"]
+    unless head == checked do
+      fail s!"the head of the pull request from {branch} is {head}, not the checked-out \
+        commit {checked}"
+    str pull "title"
+  | event => fail s!"the title step runs on pull_request and workflow_dispatch, not {event}"
+
+/-- Refuse unless the pull request's title (`pullTitle`) is a Conventional Commits header
 (`parseHeader`): squash merges make it the subject of the pull request's commit on `main`, from
 which the Release workflow derives the next version. -/
 def requireTitle : IO Unit := do
-  let title ← env "TITLE"
+  let title ← pullTitle
   match parseHeader title with
   | some h =>
     IO.println s!"the title is a Conventional Commits header of type {h.type.spelling}\
@@ -1322,11 +1456,13 @@ def releaseCommit (repo head edition : String) (listed : List Release) (r : Rele
       main, and publishing the release {tag} after CI has checked it creates the tag here."
 
 /-- The candidate step, on the checked-out commit of `main` for its latest listed release: when
-`tagAction` proceeds, create a fresh release commit on it (`releaseCommit`) and point the branch
-`release/v<version>-candidate` at it, of which `adopt` fetches only that one commit (depth 1);
-leave a published release alone, and otherwise fail. Neither the tag nor the release exists yet.
-Writes the step outputs `commit`, the release commit, and `tree`, its tree, both empty when there
-is nothing to release. -/
+`tagAction` proceeds, and the release covers the commits of `main` since the release listed
+before it up to this commit (`covers`), which are the commits the release contains, create a
+fresh release commit on it (`releaseCommit`) and point the branch `release/v<version>-candidate`
+at it, of which `adopt` fetches only that one commit (depth 1); leave a published release alone,
+and otherwise fail. Needs the checkout's full history and tags. Neither the tag nor the release
+exists yet. Writes the step outputs `commit`, the release commit, and `tree`, its tree, both empty
+when there is nothing to release. -/
 def candidate : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
@@ -1348,6 +1484,21 @@ def candidate : IO Unit := do
         creates the tag"
     fail s!"{head} is no longer the head of main; the run on main's head releases {tag}"
   | .release =>
+    let some prev := listed.dropLast.getLast?
+      | fail s!"{tag} is the only listed release; no earlier release bounds the commits it \
+          contains"
+    let messages ← messagesSince prev.version
+    let commits := messages.map parseCommit
+    unless covers prev r commits do
+      let least := leastBump (prev.toolchain != r.toolchain)
+        (called (prev.version.semver.major == 0) commits)
+      fail s!"{tag} is a {(prev.version.bumpTo r.version).spelling} release after \
+        {prev.version.tag}, but the {messages.length} commits of main since {prev.version.tag} \
+        and its toolchain call for at least a {least.spelling} release:\n\n\
+        {derivation prev messages}\n\n\
+        A pull request merged after the Release workflow derived {tag}. Run the Release \
+        workflow again on main: its open step lists the release those commits call for in \
+        place of {tag}, restamping its stamps"
     let commit ← releaseCommit repo head edition listed r
     let tree ← commitTree repo commit
     let branch := s!"release/{tag}-candidate"

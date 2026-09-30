@@ -851,15 +851,24 @@ whose tag is absent or names the release commit (`tagAction_release_iff`), so pu
 creates the tag, never leaves it naming another commit; it changes nothing once the release is
 published (`tagAction_published`, `tagAction_skip_iff`), always proceeds on the head of `main` of
 an unpublished release that no tag names elsewhere (`tagAction_converges`), and
-`tagAction_refuse_iff` gives the remaining case. `nextVersion`, the version the open step derives
-from the Conventional Commits headers of the commits of `main` since the previous release
-(`parseCommit`), `lean-toolchain` and the workflow's requested bump, bumps at least as much as
-each commit calls for (`derive_ge`), never less than the derived or requested bump
-(`nextBump_ge_derived`, `nextBump_ge_requested`), at least minor for a toolchain move
-(`nextBump_moved`), releases nothing when every commit's type calls for none
-(`derive_eq_none_bump`), and is undecided when a subject is not a header (`derive_eq_none`); the
-version it yields follows its predecessor (`nextVersion_follows`): later, on its toolchain for a
-patch release, with the lower components reset on a new line. `admits`, which the open step also
+`tagAction_refuse_iff` gives the remaining case. The derivation over the Conventional Commits
+headers of the commits of `main` since the previous release (`parseCommit`) alone, `derive`, is
+at least each commit's bump (`derive_ge`), calls for no release exactly when every commit's type
+calls for none (`derive_eq_none_bump`), and is undecided exactly when a subject is not a header
+(`derive_eq_none`). `nextVersion`, the version the open step derives from those headers,
+`lean-toolchain` and the workflow's requested bump, bumps from its predecessor at least as much
+as each header calls for, whatever was requested and also when the derivation is undecided
+(`nextVersion_ge`); its bump is never less than the headers' greatest bump or the requested bump
+(`nextBump_ge_called`, `nextBump_ge_requested`) and at least minor for a toolchain move
+(`nextBump_moved`), so a toolchain move or a request releases even when every commit's type calls
+for none, and an undecided derivation yields a version only for a requested bump
+(`nextBump_undecided`). The version it yields follows its predecessor (`nextVersion_follows`):
+later, on its toolchain for a patch release, with the lower components reset on a new line.
+`covers`, which the candidate step checks on the commits of `main` since the release listed
+before the one it releases up to the commit it releases, holds exactly when that release's bump
+from its predecessor (`Version.bumpTo`) is at least each such header's bump, and at least minor
+for a toolchain move (`covers_iff`); it holds for the release the open step derived from the same
+commits (`nextVersion_covers`, with `Version.bumpTo_bump`). `admits`, which the open step also
 checks, characterizes a new release exactly (`admits_iff`); an admitted release's tag is new
 (`admits_new`), and once the legacy release `v4.34.0` is listed, Lake's order of the versions
 the releases' lakefiles declare puts an admitted release above every listed one
@@ -885,11 +894,11 @@ the release pull request's checks and CI's checks of the release commit build th
 commit this is the gate before anything is published), `lifecycle_listed` (every release a rule's
 lifecycle names is in `versions`) and `introduced_startsLine` (the release that introduces a rule
 has patch `0`, so it is not a patch release). What the steps observe (whether the release is
-published, the head of `main`, the tag, the commits since the previous release), GitHub's
-signature verification, that publishing a release creates its tag at the given commit, tags,
-immutable releases, pull requests, squash merges taking the pull request's title and description,
-workflow ordering, and that Lake and Reservoir read and order versions as their source shows
-([Reservoir](contributing.md#reservoir)) are trusted.
+published, the head of `main`, the tag, the commits since the previous release, a pull request's
+title and head), GitHub's signature verification, that publishing a release creates its tag at
+the given commit, tags, immutable releases, pull requests, squash merges taking the pull
+request's title and description, workflow ordering, and that Lake and Reservoir read and order
+versions as their source shows ([Reservoir](contributing.md#reservoir)) are trusted.
 
 ## Rule examples and the corpus runner
 

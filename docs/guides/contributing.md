@@ -388,19 +388,24 @@ the next Lean release.
 
 The version is derived, not chosen: from the [types](#pull-request-titles) of the commits of
 `main` since the previous release, the greatest bump any of them calls for, and at least minor
-when `lean-toolchain` differs from the previous release's. Commits that call for none release
-nothing. The workflow's `bump` input (`derived`, `patch`, `minor` or `major`) may raise the
-derived bump and never lowers it; it is also how a release goes out when the commits call for
-none, or when a commit's subject is not a Conventional Commits header, which leaves the
-derivation undecided. `Regula.Release.nextVersion` is that decision, and the kernel checks its
-theorems each time a step runs: the bump is at least each commit's (`derive_ge`), never below the
-derived or requested bump (`nextBump_ge_derived`, `nextBump_ge_requested`), at least minor for a
-toolchain move (`nextBump_moved`), and the derived version follows its predecessor
-(`nextVersion_follows`, `follows`): it is later than every listed release, a patch release keeps
-its predecessor's toolchain, and a new line resets the lower components. `introduced_startsLine`
-([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)) refuses a patch release that introduces a
-rule, and `releases_ascending` and `releases_follow` check the listed releases themselves. The
-job summary of **open** lists each commit's bump.
+when `lean-toolchain` differs from the previous release's. When the commits call for none and
+the toolchain is unchanged, there is nothing to release. The workflow's `bump` input (`derived`,
+`patch`, `minor` or `major`) may raise that bump and never lowers it; it is also how a release
+goes out when the commits call for none, or when a commit's subject is not a Conventional
+Commits header, which leaves the derivation undecided: the release's bump is then the greater of
+the requested one and the one the other commits and the toolchain call for.
+`Regula.Release.nextVersion` is that decision, and the kernel checks its theorems each time a
+step runs. The derivation over the commits alone
+(`derive`) calls for no release exactly when every commit's type calls for none
+(`derive_eq_none_bump`) and is undecided exactly when a subject is not a header
+(`derive_eq_none`). The release's bump from its predecessor is at least each header's, whatever
+was requested (`nextVersion_ge`), never below the requested bump (`nextBump_ge_requested`), and
+at least minor for a toolchain move (`nextBump_moved`); the derived version follows its
+predecessor (`nextVersion_follows`, `follows`): it is later than every listed release, a patch
+release keeps its predecessor's toolchain, and a new line resets the lower components.
+`introduced_startsLine` ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)) refuses a patch
+release that introduces a rule, and `releases_ascending` and `releases_follow` check the listed
+releases themselves. The job summary of **open** lists each commit's bump.
 
 The Lean ecosystem is split on release numbering. Batteries, Aesop, Plausible, import-graph and
 doc-gen4 tag the toolchain they support (`v4.34.0` for Lean 4.34.0), which allows one release per
@@ -450,9 +455,17 @@ until the release commit has passed the same checks as `main`:
    commit that lists the release, refuses: the release's edition exists only once CI builds it
    from the release commit. Only `verify` and `title` are required checks.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
-   shards pass on a commit of `main` that lists a release not yet published, it creates the
-   release commit, a signed child of that commit that is not on `main` and whose only change sets
-   `Regula.installed` to the release, and points the branch `release/v<version>-candidate` at it.
+   shards pass on a commit of `main` that lists a release not yet published, it derives the bump
+   again, over the commits of `main` since the release listed before it up to that commit, which
+   are the commits the release contains, and refuses unless the release's bump from that
+   predecessor is at least the bump those commits and `lean-toolchain` call for
+   (`Regula.Release.covers`, which `covers_iff` characterizes exactly; the release **open**
+   derived passes on the commits it derived from, `nextVersion_covers`). So a pull request that
+   merged after **open** derived the version and calls for more, such as a `feat` after a patch
+   release was derived, stops the release; the refusal lists each commit's bump. Otherwise it
+   creates the release commit, a signed child of that commit that is not on `main` and whose
+   only change sets `Regula.installed` to the release, and points the branch
+   `release/v<version>-candidate` at it.
    The next jobs run on it, with its release label, the checks of `main`: `release-verify` both
    acceptance steps, and `release-site` both rule-example shards and the site build, which
    renders the release's edition and writes it as `regula-site-<version>.tar.gz`
@@ -492,32 +505,36 @@ later merge cancelled needs no repair, and a re-run of CI on `main` finishes the
 the release is published, nothing changes. The decision of **candidate** and **publish** is
 `Regula.Release.tagAction`, whose theorems the kernel checks each time a step runs
 (`tagAction_converges`, `tagAction_published` and the exact cases of each action). If a pull
-request that adds or retires a rule merges to `main` before the release is published, its
+request that calls for a greater bump than the release's merges to `main` before the release is
+published, **candidate** refuses the release; if one that adds or retires a rule does, its
 `.unreleased` lifecycle position makes the release commit fail `release_attributes_rules` in
-`release-verify` and `release-site`, and nothing is published: run the Release workflow on
-`main` again as a new run, whose **open** stamps that rule too, rebuilding the release branch
-while its pull request is open, or preparing a new pull request from it once the first has
-merged. While the listed release is unpublished, that run lists the version the commits then
-call for in its place (a `feat` that adds a rule turns a pending patch release into a minor
-one) and restamps its lifecycle positions. A re-run of the Release workflow reuses its original
-commit, so it stamps nothing new.
+`release-verify` and `release-site`. Either way nothing is published: run the Release workflow
+on `main` again as a new run, whose **open** derives the version the commits then call for and
+stamps that rule too. While the listed release is unpublished, that run lists that version in
+its place (a `feat` turns a pending patch release into a minor one) and restamps its lifecycle
+positions, in a new pull request. While the release pull request is still open, the run rebuilds
+its branch when the version is unchanged, and otherwise pushes the branch of the new version,
+whose pull request replaces it: close the stale one, whose release **candidate** refuses if it
+merges. A re-run of the Release workflow reuses its original commit, so it stamps nothing new.
 
 Each step resumes when its job is re-run: **open** rebuilds its branch on the commit its run
-started from; **candidate** creates a fresh release commit and refuses a `lean-toolchain` other
-than the toolchain the release records; and **publish** replaces an unpublished draft and skips
-a published release. While the release is unpublished, **candidate** and **publish** refuse a
-stale run whose commit is no longer the head of `main` and a tag that names another commit.
-**open** refuses a
-derivation that releases nothing, a patch release when `main` introduces a rule, an earlier
-listed release not yet published, and a `main` that already lists the release with nothing left
-to change.
+started from; **candidate** creates a fresh release commit and refuses a release that does not
+cover the commits it contains and a `lean-toolchain` other than the toolchain the release
+records; and **publish** replaces an unpublished draft and skips a published release. While the
+release is unpublished, **candidate** and **publish** refuse a stale run whose commit is no
+longer the head of `main` and a tag that names another commit. **open** refuses a derivation
+that releases nothing, a patch release that introduces a rule (a new rule, or one a pending
+release it replaces introduced), an earlier listed release not yet published, and a `main` that
+already lists the release with nothing left to change.
 
 Who opens the pull request, and when its checks start: a maintainer opens it from the link in the
 job summary of **open**, and opening it starts its checks. No workflow creates a pull request,
 because the repository does not let GitHub Actions create one. When **open** rebuilds the branch
 of a pull request that is already open, its push with the workflow's token starts no checks, so
-it dispatches `ci.yml` on the branch, which runs them; only the `open` job has `actions: write`
-for that dispatch.
+it dispatches `ci.yml` and [`title.yml`](../../.github/workflows/title.yml) on the branch, which
+run them on its new head; the dispatched `title` check reads the pull request's title through
+GitHub's API and refuses unless the pull request's head is the commit it checked out. Only the
+`open` job has `actions: write` for that dispatch.
 
 Adopters update by changing the tag, and `lean-toolchain` when the release supports another
 toolchain, then running `lake update regula` and `lake exe regula init`

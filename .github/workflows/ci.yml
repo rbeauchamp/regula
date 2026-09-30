@@ -86,12 +86,15 @@ jobs:
           retention-days: 30
 
   # On main, once acceptance and the corpus shards pass: when main lists a release that is not
-  # yet published, create the release commit (a signed child of this commit, not on main, whose
-  # only change sets Regula.installed to the release) and point release/v<version>-candidate at
-  # it. Nothing public exists yet: the jobs below run main's checks on the release commit, and
-  # only once they all pass does `publish` publish the release, which creates tag v<version> at
-  # it. Once the release is published this job releases nothing (Regula.Release.tagAction,
-  # docs/guides/contributing.md#release).
+  # yet published, and its bump from the release listed before it is at least the bump the
+  # commits of main since that release call for (Regula.Release.covers), create the release
+  # commit (a signed child of this commit, not on main, whose only change sets Regula.installed
+  # to the release) and point release/v<version>-candidate at it. Nothing public exists yet: the
+  # jobs below run main's checks on the release commit, and only once they all pass does
+  # `publish` publish the release, which creates tag v<version> at it. Once the release is
+  # published this job releases nothing (Regula.Release.tagAction,
+  # docs/guides/contributing.md#release). The derivation reads main's history since the earlier
+  # release's tag, hence the full clone.
   candidate:
     needs: [verify, rule-examples]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -107,6 +110,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: ./.github/actions/provision
 
