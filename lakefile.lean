@@ -1,6 +1,23 @@
 import Lake
 open Lake DSL
 
+-- Regula compiles only with the Lean release in its `lean-toolchain`. Loading this package with
+-- any other Lean (`lake update`, `lake build`, `lake exe regula …`, `lake lint`) stops here, with
+-- the remedy, before Lake compiles a module. The check uses only long-stable core API, so it
+-- elaborates on the other Lean releases it reports. Lake reuses an elaborated configuration while
+-- this file's text and the running Lean are unchanged, and `lake update` elaborates it again, so
+-- the check runs whenever either changes or a revision is resolved.
+run_cmd do
+  let file ← IO.FS.readFile (__dir__ / "lean-toolchain")
+  let supported := ((file.splitOn "\n").headD "").replace "\r" ""
+  let running := "leanprover/lean4:v" ++ Lean.versionString
+  unless supported == running do
+    Lean.logError m!"this Regula release supports only Lean {supported}, but Lake is running \
+      Lean {running}. Move the project, and Mathlib if it uses it, to {supported} (its \
+      lean-toolchain, then `lake update`), or require the Regula release that supports \
+      {running}: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
+      #when-your-lean-release-has-no-regula-release"
+
 -- The package adopters require: the checker, lint driver, `regula` CLI, rule registry and
 -- editor linter, with no dependency beyond the Lean toolchain. Everything that imports Mathlib
 -- (the standard's Mathlib examples) is the separate `regula_audit` package in `audit/`.

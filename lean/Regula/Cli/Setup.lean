@@ -10,12 +10,15 @@ import Lean.Elab.Frontend
 with its fix. Both execute the proved decision of `RegulaCore.Setup` over what they observe:
 `init` writes exactly the edits of `Regula.Setup.plan` (so `plan_idempotent` says what a second
 run writes: nothing), and `doctor` prints `Regula.Setup.issues` together with the linter's own
-RG2002 manifest validation and RG2006 option decision, in the linter's finding text.
+RG2002 manifest validation and RG2006 option decision, in the linter's finding text, one RG2006
+finding for the targets that share a claim and failures.
 
 ## Main declarations
 
 - `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
   package, the files and the import headers of the root package's modules.
+- `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
+  agent-guidance section, searched from the Lake root up to the Git repository root.
 - `lakefileText`: the lakefile with the planned `lintDriver` and `leanOptions` edits written into
   it, located with Lake's own TOML grammar or Lean's parser over the `package`, `lean_lib` and
   `lean_exe` declarations.
@@ -34,9 +37,10 @@ frontend that locates the `package`, `lean_lib` and `lean_exe` declarations are 
 text edit realizes `Regula.Setup.apply` is not proved: `init` observes the project again after
 writing and refuses, restoring the files it wrote, unless the plan of the new observation is
 empty. `init` never changes a value the project already gives: it inserts text only, into the
-package's configuration when every root target is claimed and otherwise into each claimed
-target's, located the same way. RG2006 in `doctor` applies Mathlib's options when the workspace
-contains Mathlib, where the linter applies them to a target whose modules import Mathlib; by
+package's configuration and each claimed target's as the plan decides, located the same way. A
+`.git` entry marks the repository root for the agent guidance; Git itself is not run. RG2006 in
+`doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
+them to a target whose modules import Mathlib; by
 `RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
 linter's decision. -/
 
@@ -47,6 +51,22 @@ open Regula.Setup
 open Regula.Checker
 open RegulaPolicy.Community (OptionValue)
 
+/-- The agent-guidance file of a project, as `guidanceFile` finds it. -/
+structure GuidanceFile where
+  /-- The file. -/
+  path : FilePath
+  /-- The file relative to the project root, such as `../AGENTS.md`. -/
+  name : String
+  /-- The project root relative to the file's directory, such as `lean`; empty when they are the
+  same directory. -/
+  project : String
+  /-- The file exists. -/
+  present : Bool
+  /-- The file has the `agentsHeading` line. -/
+  hasSection : Bool
+  /-- A Git repository contains the project root (`guidanceDirs`). -/
+  repository : Bool
+
 /-- What the commands read of a project in one observation. -/
 structure Project where
   /-- The project root. -/
@@ -55,12 +75,53 @@ structure Project where
   lakefile : Lakefile
   /-- The root package's configuration file. -/
   configFile : FilePath
+  /-- The agent-guidance file `Observation.agentsFile` names. -/
+  guidance : GuidanceFile
   /-- The facts the setup decision reads. -/
   observation : Observation
 
 /-- Whether `text` has `agentsHeading` as one of its lines. -/
 def hasAgentsHeading (text : String) : Bool :=
   (text.splitOn "\n").any fun line => line == agentsHeading || line == agentsHeading ++ "\r"
+
+/-- The directories from `root` up to the root of the Git repository that contains it, nearest
+first, with whether there is one: the walk ends at the first directory holding `.git` (the
+directory, or the file of a worktree or submodule), and is `root` alone when no ancestor holds
+one. The upward walk terminates on the byte length of the path, as `findRepoRoot`'s does. -/
+def guidanceDirs (root : FilePath) : IO (List FilePath × Bool) := do
+  let rec loop (path : FilePath) (walked : List FilePath) : IO (Option (List FilePath)) := do
+    let walked := path :: walked
+    if ← (path / ".git").pathExists then return some walked.reverse
+    match path.parent with
+    | some parent =>
+      if parent.toString.utf8ByteSize < path.toString.utf8ByteSize then loop parent walked
+      else return none
+    | none => return none
+  termination_by path.toString.utf8ByteSize
+  match ← loop root [] with
+  | some dirs => return (dirs, true)
+  | none => return ([root], false)
+
+/-- The agent-guidance file of the project at `root`, the repository's rather than a nested Lake
+project's own: among the `AGENTS.md` files of `guidanceDirs root`, the nearest with the
+`agentsHeading` line, else the nearest that exists, else the repository root's. -/
+def guidanceFile (root : FilePath) : IO GuidanceFile := do
+  let (dirs, repository) ← guidanceDirs root
+  -- The file in the directory `i` levels above `root`.
+  let file (i : Nat) (present hasSection : Bool) : GuidanceFile :=
+    { path := (dirs.getD i root) / "AGENTS.md"
+      name := String.join (List.replicate i "../") ++ "AGENTS.md"
+      project := "/".intercalate (root.components.drop (root.components.length - i))
+      present, hasSection, repository }
+  let mut found : List GuidanceFile := []
+  for (dir, i) in dirs.zipIdx do
+    let path := dir / "AGENTS.md"
+    if ← path.pathExists then
+      found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
+  match found.find? (·.hasSection), found.head? with
+  | some f, _ => return f
+  | none, some f => return f
+  | none, none => return file (dirs.length - 1) false false
 
 private def readTrimmed (path : FilePath) : IO String := do
   if ← path.pathExists then return (← IO.FS.readFile path).trimAscii.toString
@@ -94,9 +155,10 @@ def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := 
 
 /-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
 `leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
-their own `leanOptions`), whether the workspace contains Mathlib, the required Regula's
-`lean-toolchain`, the manifest and agent-guidance files, and the modules below a library root that
-no library includes, split by whether a claimed module imports them. -/
+their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
+Mathlib, the required Regula's `lean-toolchain`, the manifest and agent-guidance files, and the
+modules below a library root that no library includes, split by whether a claimed module imports
+them. -/
 def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
@@ -153,11 +215,16 @@ def observe (root : FilePath) : IO Project := do
         (Lake.buildOptions (.ofArray options) #[] #[]).options
       let libs := pkg.leanLibs.filter fun lib => !excludedLibraries.contains lib.name.toString
       let exes := pkg.leanExes.filter fun exe => !excludedExecutables.contains exe.name.toString
-      let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption) :
-          Regula.Setup.Target := ⟨exe, name.toString, own options⟩
+      -- A target's extra `lean` arguments as the audit's inventory reads them for RG2006.
+      let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption)
+          (weakArgs args : Array String) : Regula.Setup.Target :=
+        ⟨exe, name.toString, own options,
+          (Lake.buildOptions (.ofArray #[]) weakArgs args).arguments⟩
       let targets := if invalid then [] else
-        (libs.map (fun lib => target false lib.name lib.config.leanOptions) ++
-          exes.map (fun exe => target true exe.name exe.config.leanOptions)).toList
+        (libs.map (fun lib => target false lib.name lib.config.leanOptions lib.weakLeanArgs
+            lib.leanArgs) ++
+          exes.map (fun exe => target true exe.name exe.config.leanOptions exe.root.weakLeanArgs
+            exe.root.leanArgs)).toList
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
       let regulaDir := match ws.packages.find? (·.baseName == `regula) with
         | some regula => regula.dir
@@ -167,20 +234,18 @@ def observe (root : FilePath) : IO Project := do
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
         ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered, unimported)
-  let agents := root / "AGENTS.md"
-  let agentsSection ← if ← agents.pathExists then pure (hasAgentsHeading (← IO.FS.readFile agents))
-    else pure false
+  let guidance ← guidanceFile root
   let skills ← skillPaths.filterMapM fun (p : String) => do
     let path := root / p
     if ← path.pathExists then
       return some (p, (← IO.FS.readFile path) == Regula.Guidance.skill)
     return none
   return {
-    root, lakefile, configFile
+    root, lakefile, configFile, guidance
     observation := {
       driver, options, targets, allClaimed, libraries, mathlib
       manifest := ← (Manifest.defaultPath root).pathExists
-      agentsSection, skills
+      agentsFile := guidance.name, agentsSection := guidance.hasSection, skills
       toolchain := ← readTrimmed (root / "lean-toolchain")
       supported := ← readTrimmed (regulaDir / "lean-toolchain")
       uncovered, unimported } }
@@ -539,13 +604,16 @@ def manifestText (m : Manifest) : String :=
 
 /-- The linter's configuration findings for a project with a manifest: RG2002 when the manifest
 does not parse or does not classify every root target, and otherwise RG2006 for each claimed
-target, decided by `RegulaPolicy.Community.failures` exactly as the audit decides it. -/
+target, decided by `RegulaPolicy.Community.failures` exactly as the audit decides it. Targets with
+the same claim and the same failures share one finding naming them all, in manifest order, where
+the linter prints one per target: a `-D` in the package's arguments fails every target alike. -/
 def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
   let root := project.root
   let mode : EvidenceMode := .incrementalProject
   try
     let (manifest, inventory) ← validManifest root
-    let mut findings := #[]
+    -- Each distinct claim and finding detail, with the targets that have it.
+    let mut groups : Array (String × String × Array String) := #[]
     for surface in manifest.surfaces do
       let some library := inventory.libraries.find? (·.library == surface.library)
         | continue
@@ -556,11 +624,16 @@ def configurationFindings (project : Project) : IO (Array Regula.Finding) := do
       for (target, options) in targets do
         let failed := RegulaPolicy.Community.failures options project.observation.mathlib
         unless failed.isEmpty do
-          let d ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
-            ⟨target, RegulaPolicy.Community.detail failed⟩ (.project root.toString) mode
-            (some surface.claim.toString) .violation
-          findings := findings.push ⟨.communityConfiguration, d⟩
-    return findings
+          let claim := surface.claim.toString
+          let detail := RegulaPolicy.Community.detail failed
+          match groups.findIdx? fun g => g.1 == claim && g.2.1 == detail with
+          | some i => groups := groups.modify i fun g => (g.1, g.2.1, g.2.2.push target)
+          | none => groups := groups.push (claim, detail, #[target])
+    groups.mapM fun (claim, detail, targets) => do
+      let d ← IO.ofExcept <| Regula.makeDiagnostic .communityConfiguration
+        ⟨", ".intercalate targets.toList, detail⟩ (.project root.toString) mode (some claim)
+        .violation
+      return ⟨.communityConfiguration, d⟩
   catch error =>
     let configuration := error.toString.startsWith "manifest-"
     let finding ← IO.ofExcept <| Regula.Findings.contextFinding
@@ -630,12 +703,12 @@ private def realize (written : IO.Ref (Array Written)) (project : Project) (edit
       unless (Manifest.toJson parsed).compress == (Manifest.toJson manifest).compress do
         throw <| IO.userError "the starter manifest text does not read back as the starter"
       write written (Manifest.defaultPath root) text
-    | .agentsSection =>
-      let path := root / "AGENTS.md"
+    | .agentsSection _ =>
+      let path := project.guidance.path
       let previous ← if ← path.pathExists then IO.FS.readFile path else pure ""
       let separator := if previous.isEmpty then "" else
         if previous.endsWith "\n\n" then "" else if previous.endsWith "\n" then "\n" else "\n\n"
-      write written path (previous ++ separator ++ agentsSection)
+      write written path (previous ++ separator ++ agentsSectionFor project.guidance.project)
     | .skill p => write written (root / p) Regula.Guidance.skill
     | _ => pure ()
 
@@ -666,6 +739,14 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
           IO.println s!"regula init: replaced {p} with the installed Regula's skill (init owns \
             this file; local edits are not kept)"
         else IO.println s!"regula init: wrote {edit.summary project.lakefile}"
+      | .agentsSection a =>
+        let created :=
+          if project.guidance.present then ""
+          else if project.guidance.repository then
+            s!", creating {a} at the repository root: no AGENTS.md exists from the Lake project \
+              up to it"
+          else s!", creating {a}: no AGENTS.md exists and no Git repository contains the project"
+        IO.println s!"regula init: wrote {edit.summary project.lakefile}{created}"
       | _ => IO.println s!"regula init: wrote {edit.summary project.lakefile}"
   doctor root
 

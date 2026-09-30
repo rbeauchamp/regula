@@ -22,17 +22,23 @@ commands execute over what they observe of a project.
   has a `lean_lib` for it to claim; a package with none has an issue `init` does not fix.
 - `Target`, `Observation.targets`, `Observation.allClaimed`: the option check covers exactly the
   claimed targets, as RG2006 does.
-- `Observation.lacks`, `missing`, `targetMissing`, `optionEdits`: the options `init` adds. When
-  every root target is claimed, it adds to the package those neither the package nor some claimed
-  target gives a value; otherwise it adds to each claimed target those neither the package nor
-  that target gives a value, so no option reaches a target the manifest excludes
+- `Target.argues`, `Observation.without`: a `-D` among a target's extra `lean` arguments sets an
+  option, read as RG2006 reads them; a target builds without a required option when neither
+  `leanOptions` nor such a `-D` gives it one.
+- `Observation.lacks`, `missing`, `targetMissing`, `optionEdits`: the options `init` adds. It adds
+  a required option to the package when every root target is claimed, some claimed target builds
+  without it and no claimed target's `-D` sets it; otherwise it adds the option to each claimed
+  target that builds without it, so no option reaches a target the manifest excludes
   (`run_options_unclaimed`).
+- `added_unargued`: no option the plan adds reaches a target whose `-D` also sets it, so the
+  plan never creates a second setting beside a `-D`; `argued` lists the required options a
+  claimed target sets only with a `-D`, which `doctor` reports once and `init` leaves to the user.
 - `run_plan_targets`, `run_sets`, `resolved_run`: after the plan, a claimed target that built
   without a required option builds with its required value (`RegulaPolicy.Community.sets`, which
   meets RG2006's requirement on that option by `meets_of_sets`), and every claimed target has a
-  value for every required option.
+  value for every required option or a `-D` of its own sets it.
 - `run_options_prefix`, `withAdded_prefix`: the plan never changes or removes an option the
-  package or a claimed target already sets.
+  package or a claimed target already sets, nor a target's extra `lean` arguments.
 - `Issue.message`, `Issue.fix`, `unimportedNote`, `Edit.summary`: the text `doctor` and `init`
   print; a note is not an issue and does not fail `doctor`. A finding about modules a library
   leaves out states their count and names at most `shownModules` of them, wrapped
@@ -43,25 +49,28 @@ commands execute over what they observe of a project.
 ## Boundaries
 
 The observation is supplied by the operational `regula` command: Lake's loaded root package
-(its `lintDriver`, package-level `leanOptions` and the own `leanOptions` of each root target the
-manifest does not exclude), whether the workspace contains Mathlib, whether
-`foundation_manifest.json` and the agent guidance exist, whether the root package has a
-`lean_lib` for a starter manifest to claim, whether each skill file equals the
-installed skill, the project's and the required Regula's `lean-toolchain`, and the modules below
-a library root that no library includes, split by whether a claimed module imports them as Lean's
-import-header parser reads the package's sources (not a build). The command writes each edit into
-the lakefile, the manifest and the guidance files, then observes the project again and refuses
-unless the new plan is empty; that the file edits realize `apply` is that runtime check, not a
-theorem. RG2006 itself is decided per claimed target over Lake's resolved options by
-`RegulaPolicy.Community.failures`; `init` writes package-level options only when every root
-target is claimed, options of the claimed targets otherwise, and never changes a value the
-package or a target already gives. -/
+(its `lintDriver`, package-level `leanOptions`, and the own `leanOptions` and resolved extra
+`lean` arguments of each root target the manifest does not exclude), whether the workspace
+contains Mathlib, whether `foundation_manifest.json` and the agent guidance exist and which
+`AGENTS.md` holds or receives the section, whether the root package has a `lean_lib` for a starter
+manifest to claim, whether each skill file equals the installed skill, the project's and the
+required Regula's `lean-toolchain`, and the modules below a library root that no library includes,
+split by whether a claimed module imports them as Lean's import-header parser reads the package's
+sources (not a build). The command writes each edit into the lakefile, the manifest and the
+guidance files, then observes the project again and refuses unless the new plan is empty; that the
+file edits realize `apply` is that runtime check, not a theorem. RG2006 itself is decided per
+claimed target over Lake's resolved options by `RegulaPolicy.Community.failures`, reading the
+same `-D` candidates as `Target.argues`; `init` writes package-level options only when every root
+target is claimed, options of the claimed targets otherwise, never an option a claimed target's
+`-D` sets where it reaches that target, and never changes a value the package or a target already
+gives. Which of Lean's inputs wins when `leanOptions` and a `-D` both set an option is not modelled:
+the plan avoids the situation. -/
 
 namespace Regula.Setup
 
 open Lean (Name)
 open RegulaPolicy.Community (OptionValue BuildOptions required baseline mathlibBaseline valuesOf
-  sets optionOf)
+  sets optionOf argumentSettings)
 
 /-- The `lintDriver` value that makes `lake lint` run Regula. -/
 def lintDriver : String := "regula/lint"
@@ -100,6 +109,13 @@ def agentsSection : String :=
   "or remove a registration to make a check pass; disable a community linter only for one\n" ++
   "declaration, where its guidance allows, with the reason.\n"
 
+/-- The section for an `AGENTS.md` whose directory holds the Lake project at relative path `dir`:
+`agentsSection`, followed, when `dir` is not the file's own directory, by where its `lake`
+commands run. -/
+def agentsSectionFor (dir : String) : String :=
+  if dir.isEmpty then agentsSection
+  else agentsSection ++ "Run these `lake` commands in `" ++ dir ++ "`, the Lake project.\n"
+
 /-- A claimed root target: a `lean_lib` or `lean_exe` the manifest does not exclude (every root
 target before a manifest exists, since the starter manifest claims them all, and none while a
 manifest exists that does not load or classify every root target). -/
@@ -112,7 +128,16 @@ structure Target where
   the target's own, a later value for a key replacing an earlier one; the build type adds only
   `debugAssertions`. -/
   options : List (Name × OptionValue)
+  /-- The extra `lean` arguments Lake passes when it builds the target, as RG2006 reads them: the
+  package's and the target's own `weakLeanArgs`, then the build type's, the package's and the
+  target's own `moreLeanArgs`. -/
+  arguments : List String
   deriving DecidableEq, Repr
+
+/-- A `-D` among target `t`'s extra `lean` arguments sets option `name`, under either spelling: some
+candidate of `RegulaPolicy.Community.argumentSettings`, the `-D` reading of RG2006, names it. -/
+def Target.argues (t : Target) (name : Name) : Bool :=
+  (argumentSettings t.arguments).any fun s => decide (optionOf s.1 = name)
 
 /-- What `init` and `doctor` observe of a project. -/
 structure Observation where
@@ -133,7 +158,11 @@ structure Observation where
   /-- The root package has a `lean_lib`. A manifest claims each surface per library, an executable
   belonging to a library's surface, so without one there is nothing for the starter to claim. -/
   libraries : Bool
-  /-- `AGENTS.md` contains the `agentsHeading` line. -/
+  /-- The agent-guidance file, relative to the project root: among the `AGENTS.md` files from the
+  project root up to the repository root, the nearest with the `agentsHeading` line, else the
+  nearest that exists, else the repository root's (the project root outside a Git repository). -/
+  agentsFile : String
+  /-- `agentsFile` contains the `agentsHeading` line. -/
   agentsSection : Bool
   /-- Each recognized skill file that exists, and whether it equals the installed skill. -/
   skills : List (String × Bool)
@@ -158,25 +187,36 @@ in a module that does not import Mathlib, and every other option as it is. -/
 def key (name : Name) : Name :=
   if (mathlibBaseline.map Prod.fst).contains name then `weak ++ name else name
 
-/-- A required option `init` adds to the package when every root target is claimed: one the
-package gives no value under either spelling while some claimed target gives it none either, so
-that target builds without it. -/
-def Observation.lacks (o : Observation) (r : Name × OptionValue) : Bool :=
-  (valuesOf o.build r.1).isEmpty &&
-    o.targets.any fun t => (valuesOf ⟨t.options, []⟩ r.1).isEmpty
+/-- Claimed target `t` builds without required option `r`: neither the package's nor its own
+`leanOptions` give it a value under either spelling, and no `-D` among its extra `lean` arguments
+sets it. -/
+def Observation.without (o : Observation) (t : Target) (r : Name × OptionValue) : Bool :=
+  (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty && !t.argues r.1
 
-/-- The options `init` adds to the package when every root target is claimed: every required
-option the observation `lacks`, with its required value, keyed by `key`. An option given a wrong
-value is left for its owner to change (`doctor` reports it through RG2006). -/
+/-- A required option `init` adds to the package: every root target is claimed, so the package's
+options reach only claimed targets; some claimed target builds without it; and no claimed target's
+`-D` sets it, so the entry reaches no target where a `-D` also sets the option. -/
+def Observation.lacks (o : Observation) (r : Name × OptionValue) : Bool :=
+  o.allClaimed && o.targets.any (o.without · r) && !o.targets.any (·.argues r.1)
+
+/-- The options `init` adds to the package: every required option the observation `lacks`, with
+its required value, keyed by `key`. An option given a wrong value is left for its owner to change
+(`doctor` reports it through RG2006). -/
 def missing (o : Observation) : List (Name × OptionValue) :=
   ((required o.mathlib).filter o.lacks).map fun r => (key r.1, r.2)
 
-/-- The options `init` adds to claimed target `t` when some root target is excluded: every
-required option neither the package nor `t` gives a value, with its required value, keyed by
-`key`. -/
+/-- The options `init` adds to claimed target `t`: every required option `t` builds without that
+the package does not receive (`lacks`), with its required value, keyed by `key`. When every root
+target is claimed, these are the options some other claimed target sets with a `-D`. -/
 def targetMissing (o : Observation) (t : Target) : List (Name × OptionValue) :=
-  ((required o.mathlib).filter fun r => (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty).map
-    fun r => (key r.1, r.2)
+  ((required o.mathlib).filter fun r => o.without t r && !o.lacks r).map fun r => (key r.1, r.2)
+
+/-- The required options some claimed target sets only with a `-D`: the package's and its own
+`leanOptions` give the option no value, and a `-D` among its extra `lean` arguments sets it.
+RG2006 requires the value in `leanOptions`, and `init` adds none beside the `-D`. -/
+def argued (o : Observation) : List Name :=
+  ((required o.mathlib).filter fun r => o.targets.any fun t =>
+    (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty && t.argues r.1).map (·.1)
 
 /-- One missing or wrong piece of setup. -/
 inductive Issue where
@@ -188,17 +228,21 @@ inductive Issue where
   | optionsMissing (entries : List (Name × OptionValue))
   /-- Claimed target `name`, a `lean_exe` when `exe` and otherwise a `lean_lib`, builds without
   these required options, which neither the package nor the target sets (the entries `init` adds
-  to the target, because some root target is excluded). -/
+  to the target, because some root target is excluded or another claimed target's `-D` sets
+  them). -/
   | targetOptionsMissing (exe : Bool) (name : String) (entries : List (Name × OptionValue))
+  /-- A claimed target sets these required options only with a `-D` among its extra `lean`
+  arguments, where RG2006 requires them in `leanOptions`; `init` adds no second setting. -/
+  | argued (names : List Name)
   /-- There is no `foundation_manifest.json`. -/
   | manifestMissing
   /-- The root package has no `lean_lib`, so no surface can be claimed. -/
   | noLibrary
-  /-- There is neither an `AGENTS.md` section nor a skill file. -/
-  | guidanceMissing
+  /-- There is neither an `agentsHeading` section in `file` nor a skill file. -/
+  | guidanceMissing (file : String)
   /-- The skill file at `path` differs from the installed Regula's skill. -/
   | skillStale (path : String)
-  /-- The project uses toolchain `project`, but Regula supports only `supported`. -/
+  /-- The project uses toolchain `project`, but this Regula release supports only `supported`. -/
   | toolchain (project supported : String)
   /-- `lean_lib` `library`, with roots `roots`, includes none of `modules`, which lie below them. -/
   | uncovered (library : String) (roots modules : List String)
@@ -210,9 +254,10 @@ def Issue.fixable : Issue → Bool
   | .driverOther _ => false
   | .optionsMissing _ => true
   | .targetOptionsMissing _ _ _ => true
+  | .argued _ => false
   | .manifestMissing => true
   | .noLibrary => false
-  | .guidanceMissing => true
+  | .guidanceMissing _ => true
   | .skillStale _ => true
   | .toolchain _ _ => false
   | .uncovered _ _ _ => false
@@ -236,21 +281,25 @@ def driverIssues (o : Observation) : List Issue :=
 def uncoveredIssue (entry : String × List String × List String) : Issue :=
   .uncovered entry.1 entry.2.1 entry.2.2
 
-/-- The option issues: when every root target is claimed, the options the package must add, and
-otherwise each claimed target's own. -/
+/-- The option issues: the options the package must add, then each claimed target's own. -/
 def optionIssues (o : Observation) : List Issue :=
-  if o.allClaimed then (if missing o = [] then [] else [.optionsMissing (missing o)])
-  else o.targets.filterMap fun t =>
+  (if missing o = [] then [] else [.optionsMissing (missing o)]) ++
+  o.targets.filterMap fun t =>
     if targetMissing o t = [] then none
     else some (.targetOptionsMissing t.exe t.name (targetMissing o t))
+
+/-- The issue of the required options claimed targets set only with a `-D`, reported once. -/
+def arguedIssues (o : Observation) : List Issue :=
+  if argued o = [] then [] else [.argued (argued o)]
 
 /-- Every setup issue of an observation, in a fixed order. -/
 def issues (o : Observation) : List Issue :=
   driverIssues o ++
   optionIssues o ++
+  arguedIssues o ++
   (if o.starter then [.manifestMissing] else []) ++
   (if o.libraries then [] else [.noLibrary]) ++
-  (if o.guided then [] else [.guidanceMissing]) ++
+  (if o.guided then [] else [.guidanceMissing o.agentsFile]) ++
   (staleSkills o).map .skillStale ++
   (if o.toolchain = o.supported then [] else [.toolchain o.toolchain o.supported]) ++
   o.uncovered.map uncoveredIssue
@@ -266,8 +315,9 @@ inductive Edit where
   | targetOptions (added : List Target)
   /-- Write the starter `foundation_manifest.json`. -/
   | manifest
-  /-- Append `agentsSection` to `AGENTS.md`, creating the file if needed. -/
-  | agentsSection
+  /-- Append `agentsSectionFor` the Lake project's directory to the agent-guidance file `file`,
+  creating it if needed. -/
+  | agentsSection (file : String)
   /-- Write the installed skill at `path`. -/
   | skill (path : String)
   deriving DecidableEq, Repr
@@ -276,14 +326,14 @@ inductive Edit where
 def guidanceEdits (g : Guidance) (o : Observation) : List Edit :=
   if o.guided then [] else
     match g with
-    | .agentsMd => [.agentsSection]
+    | .agentsMd => [.agentsSection o.agentsFile]
     | .skill => [.skill skillPath]
 
-/-- The option edit: the package's missing options when every root target is claimed, and
-otherwise each claimed target's own, so that no option reaches a target the manifest excludes. -/
+/-- The option edits: the package's missing options, then each claimed target's own, so that no
+option reaches a target the manifest excludes or a target whose `-D` sets it. -/
 def optionEdits (o : Observation) : List Edit :=
-  if o.allClaimed then (if missing o = [] then [] else [.options (missing o)])
-  else if o.targets.all (fun t => targetMissing o t = []) then []
+  (if missing o = [] then [] else [.options (missing o)]) ++
+  if o.targets.all (fun t => targetMissing o t = []) then []
   else [.targetOptions (o.targets.map fun t => { t with options := targetMissing o t })]
 
 /-- The edits that fix `o`'s fixable issues, each writing only what is missing. -/
@@ -309,7 +359,7 @@ def apply (o : Observation) : Edit → Observation
   | .options entries => { o with options := o.options ++ entries }
   | .targetOptions added => { o with targets := addTargets o.targets added }
   | .manifest => { o with manifest := true }
-  | .agentsSection => { o with agentsSection := true }
+  | .agentsSection _ => { o with agentsSection := true }
   | .skill path => { o with skills := markCurrent path o.skills }
 
 /-- The observation after applying `edits` in order. -/
@@ -331,6 +381,11 @@ def Edit.skillFile? : Edit → Option String
 def Edit.added? : Edit → Option (List Target)
   | .targetOptions added => some added
   | _ => none
+
+/-- The edit appends the agent-guidance section. -/
+def Edit.writesSection : Edit → Bool
+  | .agentsSection _ => true
+  | _ => false
 
 /-- Mark each of `paths` current, in order. -/
 def markAll (skills : List (String × Bool)) (paths : List String) : List (String × Bool) :=
@@ -409,13 +464,13 @@ theorem run_manifest (o : Observation) (es : List Edit) :
     cases e <;> simp [apply]
 
 theorem run_agentsSection (o : Observation) (es : List Edit) :
-    (run o es).agentsSection = (o.agentsSection || decide (Edit.agentsSection ∈ es)) := by
+    (run o es).agentsSection = (o.agentsSection || es.any Edit.writesSection) := by
   induction es generalizing o with
   | nil => simp [run]
   | cons e es ih =>
     simp only [run, List.foldl_cons] at ih ⊢
     rw [ih]
-    cases e <;> simp [apply]
+    cases e <;> simp [apply, Edit.writesSection]
 
 theorem run_skills (o : Observation) (es : List Edit) :
     (run o es).skills = markAll o.skills (es.filterMap Edit.skillFile?) := by
@@ -538,12 +593,41 @@ theorem valuesOf_missing (o : Observation) (r : Name × OptionValue)
   valuesOf_filter o.mathlib o.lacks r hr
 
 /-- The values the entries of claimed target `t` give a required option: its required value when
-neither the package nor `t` gives it one, and nothing otherwise. -/
+`t` builds without it and the package does not receive it, and nothing otherwise. -/
 theorem valuesOf_targetMissing (o : Observation) (t : Target) (r : Name × OptionValue)
     (hr : r ∈ required o.mathlib) :
     valuesOf ⟨targetMissing o t, []⟩ r.1 =
-      if (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty then [r.2] else [] :=
+      if o.without t r && !o.lacks r then [r.2] else [] :=
   valuesOf_filter o.mathlib _ r hr
+
+/-- The package receives no option that a claimed target's `-D` sets. -/
+theorem lacks_argues (o : Observation) (r : Name × OptionValue) (h : o.lacks r = true)
+    (t : Target) (ht : t ∈ o.targets) : t.argues r.1 = false := by
+  simp only [Observation.lacks, Bool.and_eq_true, Bool.not_eq_true', List.any_eq_false] at h
+  simpa using h.2 t ht
+
+/-- When some root target is excluded, the package receives no option. -/
+theorem missing_unclaimed (o : Observation) (h : o.allClaimed = false) : missing o = [] := by
+  simp [missing, Observation.lacks, h]
+
+/-- No option the plan adds reaches a claimed target whose `-D` sets it: the package's entries
+and `t`'s own name only options that no `-D` among `t`'s extra `lean` arguments sets. With
+`run_plan_resolved`, which states that these are exactly the entries `t`'s options gain, the plan
+never gives an option a second setting beside a `-D`. -/
+theorem added_unargued (o : Observation) (t : Target) (ht : t ∈ o.targets) :
+    ∀ e ∈ missing o ++ targetMissing o t, t.argues (optionOf e.1) = false := by
+  intro e he
+  rcases List.mem_append.mp he with he | he
+  · obtain ⟨r, hr, rfl⟩ := List.mem_map.mp he
+    obtain ⟨hreq, hl⟩ := List.mem_filter.mp hr
+    rw [optionOf_key o.mathlib r hreq]
+    exact lacks_argues o r hl t ht
+  · obtain ⟨r, hr, rfl⟩ := List.mem_map.mp he
+    obtain ⟨hreq, hw⟩ := List.mem_filter.mp hr
+    rw [optionOf_key o.mathlib r hreq]
+    cases ha : t.argues r.1
+    · rfl
+    · simp [Observation.without, ha] at hw
 
 /-! ## The plan, part by part -/
 
@@ -584,13 +668,9 @@ theorem guidanceEdits_added (g : Guidance) (o : Observation) :
   · cases g <;> rfl
 
 theorem optionEdits_entries (o : Observation) :
-    (optionEdits o).flatMap Edit.entries = if o.allClaimed then missing o else [] := by
+    (optionEdits o).flatMap Edit.entries = missing o := by
   unfold optionEdits
-  split
-  · split
-    · simp_all
-    · simp_all [Edit.entries]
-  · split <;> simp_all [Edit.entries]
+  split <;> split <;> simp_all [Edit.entries]
 
 theorem driver_not_mem_optionEdits (o : Observation) : Edit.driver ∉ optionEdits o := by
   unfold optionEdits
@@ -612,10 +692,9 @@ theorem skills_added (paths : List String) :
   obtain ⟨p, -, rfl⟩ := List.mem_map.mp he
   rfl
 
-/-- The plan's package entries: the missing ones when every root target is claimed, and none
-otherwise. -/
+/-- The plan's package entries: the missing ones. -/
 theorem plan_entries (g : Guidance) (o : Observation) :
-    (plan g o).flatMap Edit.entries = if o.allClaimed then missing o else [] := by
+    (plan g o).flatMap Edit.entries = missing o := by
   simp only [plan, List.flatMap_append, guidanceEdits_entries, optionEdits_entries]
   by_cases hd : o.driver = "" <;> cases hf : o.starter <;>
     simp [hd, Edit.entries, List.flatMap_map]
@@ -651,18 +730,16 @@ theorem plan_added (g : Guidance) (o : Observation) :
 
 /-! ## Main theorems -/
 
-/-- The package's options after the plan: its own, then its missing ones when every root target
-is claimed. -/
+/-- The package's options after the plan: its own, then its missing ones. -/
 theorem run_plan_options (g : Guidance) (o : Observation) :
-    (run o (plan g o)).options = o.options ++ if o.allClaimed then missing o else [] := by
+    (run o (plan g o)).options = o.options ++ missing o := by
   rw [run_options, plan_entries]
 
 /-- When some root target is excluded, the plan leaves the package's options unchanged, so no
 option reaches a target the manifest excludes. -/
 theorem run_options_unclaimed (g : Guidance) (o : Observation) (h : o.allClaimed = false) :
     (run o (plan g o)).options = o.options := by
-  rw [run_plan_options, h]
-  simp
+  rw [run_plan_options, missing_unclaimed o h, List.append_nil]
 
 /-- The plan never changes or removes an option the package already gives. -/
 theorem run_options_prefix (g : Guidance) (o : Observation) :
@@ -670,131 +747,125 @@ theorem run_options_prefix (g : Guidance) (o : Observation) :
   rw [run_plan_options]
   exact List.prefix_append _ _
 
-/-- Claimed target `t` with the options the plan adds to it: its missing ones when some root
-target is excluded, and none otherwise. -/
+/-- Claimed target `t` with the options the plan adds to it. -/
 def withAdded (o : Observation) (t : Target) : Target :=
-  { t with options := t.options ++ if o.allClaimed then [] else targetMissing o t }
+  { t with options := t.options ++ targetMissing o t }
 
-/-- The plan keeps a claimed target's kind, name and every option it already gives. -/
+/-- The plan keeps a claimed target's kind, name, extra `lean` arguments and every option it
+already gives. -/
 theorem withAdded_prefix (o : Observation) (t : Target) :
     (withAdded o t).exe = t.exe ∧ (withAdded o t).name = t.name ∧
-      t.options <+: (withAdded o t).options :=
-  ⟨rfl, rfl, List.prefix_append _ _⟩
+      (withAdded o t).arguments = t.arguments ∧ t.options <+: (withAdded o t).options :=
+  ⟨rfl, rfl, rfl, List.prefix_append _ _⟩
 
-/-- When every root target is claimed, the plan adds no option to a target. -/
-theorem withAdded_allClaimed (o : Observation) (ha : o.allClaimed = true) (t : Target) :
+/-- A target the plan adds nothing to is unchanged. -/
+theorem withAdded_eq_self (o : Observation) (t : Target) (h : targetMissing o t = []) :
     withAdded o t = t := by
   cases t
-  simp [withAdded, ha]
+  simp [withAdded, h]
 
 /-- The claimed targets after the plan: each with the options the plan adds to it. -/
 theorem run_plan_targets (g : Guidance) (o : Observation) :
     (run o (plan g o)).targets = o.targets.map (withAdded o) := by
   rw [run_targets, plan_added]
-  cases ha : o.allClaimed
-  · have hwith : ∀ t, withAdded o t = { t with options := t.options ++ targetMissing o t } := by
-      intro t
-      simp [withAdded, ha]
-    by_cases hall : ∀ t ∈ o.targets, targetMissing o t = []
-    · have hopt : optionEdits o = [] := by simpa [optionEdits, ha] using hall
-      have hid : ∀ t ∈ o.targets, withAdded o t = t := by
-        intro t ht
-        rw [hwith, hall t ht, List.append_nil]
-      rw [hopt]
-      exact ((List.map_congr_left hid).trans (List.map_id' _)).symm
-    · have hopt : optionEdits o =
-          [.targetOptions (o.targets.map fun t => { t with options := targetMissing o t })] := by
-        simp [optionEdits, ha, hall]
-      rw [hopt]
-      simp only [List.filterMap_cons, Edit.added?, List.filterMap_nil, List.foldl_cons,
-        List.foldl_nil, addTargets, List.zipWith_map_right, List.zipWith_self]
-      exact List.map_congr_left fun t _ => (hwith t).symm
-  · have hopt : (optionEdits o).filterMap Edit.added? = [] := by
-      unfold optionEdits
-      simp only [ha, ↓reduceIte]
-      split <;> rfl
-    rw [hopt, funext (withAdded_allClaimed o ha), List.map_id']
+  unfold optionEdits
+  have hpkg : ((if missing o = [] then [] else [Edit.options (missing o)]) : List Edit).filterMap
+      Edit.added? = [] := by
+    split <;> rfl
+  rw [List.filterMap_append, hpkg, List.nil_append]
+  split
+  · rename_i hall
+    have hid : ∀ t ∈ o.targets, withAdded o t = t := fun t ht =>
+      withAdded_eq_self o t (by simpa using List.all_eq_true.mp hall t ht)
+    simp only [List.filterMap_nil, List.foldl_nil]
+    exact ((List.map_congr_left hid).trans (List.map_id' _)).symm
+  · simp only [List.filterMap_cons, Edit.added?, List.filterMap_nil, List.foldl_cons,
+      List.foldl_nil, addTargets, List.zipWith_map_right, List.zipWith_self]
     rfl
 
 /-- The options claimed target `t` builds with after the plan: the package's after the plan,
 then its own after the plan. -/
 theorem run_plan_resolved (g : Guidance) (o : Observation) (t : Target) :
     (run o (plan g o)).options ++ (withAdded o t).options =
-      (o.options ++ if o.allClaimed then missing o else []) ++
-        (t.options ++ if o.allClaimed then [] else targetMissing o t) := by
+      (o.options ++ missing o) ++ (t.options ++ targetMissing o t) := by
   rw [run_plan_options]
   rfl
 
+/-- The values the options of claimed target `t` give option `n` after the plan: the package's,
+its missing ones, `t`'s own, then those the plan adds to `t`. -/
+theorem valuesOf_run (g : Guidance) (o : Observation) (t : Target) (n : Name) :
+    valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options, []⟩ n =
+      (valuesOf ⟨o.options, []⟩ n ++ valuesOf ⟨missing o, []⟩ n) ++
+        (valuesOf ⟨t.options, []⟩ n ++ valuesOf ⟨targetMissing o t, []⟩ n) := by
+  rw [run_plan_resolved, valuesOf_append, valuesOf_append, valuesOf_append]
+
 /-- A claimed target that built without a required option builds with exactly its required value
 after the plan. -/
-theorem valuesOf_withAdded (g : Guidance) (o : Observation) (t : Target) (ht : t ∈ o.targets)
-    (r : Name × OptionValue) (hr : r ∈ required o.mathlib)
-    (h : valuesOf ⟨o.options ++ t.options, []⟩ r.1 = []) :
+theorem valuesOf_withAdded (g : Guidance) (o : Observation) (t : Target)
+    (r : Name × OptionValue) (hr : r ∈ required o.mathlib) (h : o.without t r = true) :
     valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options, []⟩ r.1 = [r.2] := by
-  have hv := valuesOf_targetMissing o t r hr
-  simp only [h, List.isEmpty_nil, ↓reduceIte] at hv
-  rw [valuesOf_append, List.append_eq_nil_iff] at h
-  have hl : o.lacks r = true := by
-    simp only [Observation.lacks, Observation.build, h.1, List.isEmpty_nil, Bool.true_and,
-      List.any_eq_true]
-    exact ⟨t, ht, by simp [h.2]⟩
-  have hm := valuesOf_missing o r hr
-  simp only [hl, ↓reduceIte] at hm
-  rw [run_plan_resolved]
-  cases o.allClaimed <;> simp [valuesOf_append, h.1, h.2, hm, hv]
+  have hnil : valuesOf ⟨o.options ++ t.options, []⟩ r.1 = [] := by
+    simp only [Observation.without, Bool.and_eq_true, List.isEmpty_iff] at h
+    exact h.1
+  rw [valuesOf_append, List.append_eq_nil_iff] at hnil
+  rw [valuesOf_run, hnil.1, hnil.2, valuesOf_missing o r hr, valuesOf_targetMissing o t r hr, h]
+  cases o.lacks r <;> simp
 
 /-- A claimed target that built without a required option builds with it after the plan, set to
 its required value, as the RG2006 decision reads the options Lake resolves for the target: the
 package's, then the target's own. -/
 theorem run_sets (g : Guidance) (o : Observation) (t : Target) (ht : t ∈ o.targets)
-    (r : Name × OptionValue) (hr : r ∈ required o.mathlib)
-    (h : valuesOf ⟨o.options ++ t.options, []⟩ r.1 = []) :
+    (r : Name × OptionValue) (hr : r ∈ required o.mathlib) (h : o.without t r = true) :
     withAdded o t ∈ (run o (plan g o)).targets ∧
       sets ⟨(run o (plan g o)).options ++ (withAdded o t).options, []⟩ r.1 r.2 = true := by
   refine ⟨?_, ?_⟩
   · rw [run_plan_targets]
     exact List.mem_map_of_mem ht
-  · simp [sets, valuesOf_withAdded g o t ht r hr h, readsAs_self]
+  · simp [sets, valuesOf_withAdded g o t r hr h, readsAs_self]
 
-/-- After the plan, every claimed target builds with a value for every required option. -/
+/-- After the plan, every claimed target builds with a value for every required option, or a `-D`
+among its extra `lean` arguments sets the option. -/
 theorem resolved_run (g : Guidance) (o : Observation) (t' : Target)
     (ht' : t' ∈ (run o (plan g o)).targets) (r : Name × OptionValue)
     (hr : r ∈ required o.mathlib) :
-    valuesOf ⟨(run o (plan g o)).options ++ t'.options, []⟩ r.1 ≠ [] := by
+    valuesOf ⟨(run o (plan g o)).options ++ t'.options, []⟩ r.1 ≠ [] ∨ t'.argues r.1 = true := by
   rw [run_plan_targets, List.mem_map] at ht'
-  obtain ⟨t, ht, rfl⟩ := ht'
-  by_cases h : valuesOf ⟨o.options ++ t.options, []⟩ r.1 = []
-  · rw [valuesOf_withAdded g o t ht r hr h]
-    simp
-  · intro hnil
-    apply h
-    simp only [run_plan_resolved, valuesOf_append, List.append_eq_nil_iff] at hnil
-    simp [valuesOf_append, hnil.1.1, hnil.2.1]
+  obtain ⟨t, -, rfl⟩ := ht'
+  cases ha : t.argues r.1
+  · by_cases hv : valuesOf ⟨o.options ++ t.options, []⟩ r.1 = []
+    · have hw : o.without t r = true := by simp [Observation.without, hv, ha]
+      left
+      rw [valuesOf_withAdded g o t r hr hw]
+      simp
+    · left
+      intro hnil
+      apply hv
+      rw [valuesOf_run, List.append_eq_nil_iff, List.append_eq_nil_iff,
+        List.append_eq_nil_iff] at hnil
+      rw [valuesOf_append, hnil.1.1, hnil.2.1, List.append_nil]
+  · right
+    exact ha
 
-/-- When every root target is claimed, no required option is missing from the package after the
-plan. -/
-theorem missing_run (g : Guidance) (o : Observation) (ha : o.allClaimed = true) :
-    missing (run o (plan g o)) = [] := by
+/-- After the plan, no claimed target builds without a required option. -/
+theorem without_run (g : Guidance) (o : Observation) (t' : Target)
+    (ht' : t' ∈ (run o (plan g o)).targets) (r : Name × OptionValue)
+    (hr : r ∈ required o.mathlib) : (run o (plan g o)).without t' r = false := by
+  rcases resolved_run g o t' ht' r hr with h | h
+  · have he : (valuesOf ⟨(run o (plan g o)).options ++ t'.options, []⟩ r.1).isEmpty = false :=
+      Bool.eq_false_iff.mpr fun he => h (List.isEmpty_iff.mp he)
+    simp [Observation.without, he]
+  · simp [Observation.without, h]
+
+/-- After the plan, no required option is missing from the package. -/
+theorem missing_run (g : Guidance) (o : Observation) : missing (run o (plan g o)) = [] := by
   unfold missing
   rw [List.map_eq_nil_iff, List.filter_eq_nil_iff]
-  intro r hr
+  intro r hr h
   rw [run_mathlib] at hr
-  have hpkg : valuesOf (run o (plan g o)).build r.1 =
-      valuesOf o.build r.1 ++ valuesOf ⟨missing o, []⟩ r.1 := by
-    simp only [Observation.build, run_plan_options, ha, ↓reduceIte, valuesOf_append]
-  have htargets : (run o (plan g o)).targets = o.targets := by
-    rw [run_plan_targets, funext (withAdded_allClaimed o ha), List.map_id']
-  have hv := valuesOf_missing o r hr
-  cases hl : o.lacks r
-  · rw [hl] at hv
-    unfold Observation.lacks at hl ⊢
-    rw [hpkg, hv, htargets]
-    simp only [Bool.and_eq_false_iff] at hl
-    rcases hl with hl | hl <;> simp [hl]
-  · rw [hl] at hv
-    unfold Observation.lacks
-    rw [hpkg, hv]
-    simp
+  simp only [Observation.lacks, Bool.and_eq_true, List.any_eq_true] at h
+  obtain ⟨⟨-, t', ht', hw⟩, -⟩ := h
+  rw [without_run g o t' ht' r hr] at hw
+  exact Bool.noConfusion hw
 
 /-- After the plan, no claimed target is missing a required option. -/
 theorem targetMissing_run (g : Guidance) (o : Observation) :
@@ -804,24 +875,40 @@ theorem targetMissing_run (g : Guidance) (o : Observation) :
   rw [List.map_eq_nil_iff, List.filter_eq_nil_iff]
   intro r hr
   rw [run_mathlib] at hr
-  simpa using resolved_run g o t' ht' r hr
+  simp [without_run g o t' ht' r hr]
 
 /-- After the plan, no option edit is left. -/
 theorem optionEdits_run (g : Guidance) (o : Observation) :
     optionEdits (run o (plan g o)) = [] := by
   unfold optionEdits
-  rw [run_allClaimed]
-  split
-  · rename_i ha
-    rw [missing_run g o ha]
+  simp only [missing_run g o, ↓reduceIte, List.nil_append, ite_eq_left_iff]
+  intro h
+  exact absurd (List.all_eq_true.mpr fun t' ht' => by simp [targetMissing_run g o t' ht']) h
+
+/-- The plan leaves the required options that claimed targets set only with a `-D` as they
+were: it adds none of them. -/
+theorem argued_run (g : Guidance) (o : Observation) : argued (run o (plan g o)) = argued o := by
+  unfold argued
+  rw [run_mathlib, run_plan_targets]
+  congr 1
+  apply List.filter_congr
+  intro r hr
+  rw [List.any_map, Bool.eq_iff_iff, List.any_eq_true, List.any_eq_true]
+  refine exists_congr fun t => and_congr_right fun ht => ?_
+  change ((valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options, []⟩ r.1).isEmpty &&
+      t.argues r.1) = true ↔ ((valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty &&
+      t.argues r.1) = true
+  cases ha : t.argues r.1
+  · simp
+  · have hl : o.lacks r = false := by
+      cases hl : o.lacks r
+      · rfl
+      · rw [lacks_argues o r hl t ht] at ha
+        exact Bool.noConfusion ha
+    have hw : o.without t r = false := by simp [Observation.without, ha]
+    rw [valuesOf_run, valuesOf_missing o r hr, valuesOf_targetMissing o t r hr, hl, hw,
+      valuesOf_append]
     simp
-  · split
-    · rfl
-    · rename_i hc
-      exfalso
-      apply hc
-      simp only [List.all_eq_true, decide_eq_true_eq]
-      exact targetMissing_run g o
 
 /-- After the plan, every skill file equals the installed skill. -/
 theorem staleSkills_run (g : Guidance) (o : Observation) :
@@ -853,8 +940,8 @@ theorem guided_run (g : Guidance) (o : Observation) : (run o (plan g o)).guided 
       simp [this]
   · have hg' : o.guided = false := by simpa using hg
     cases g
-    · have hmem : Edit.agentsSection ∈ plan .agentsMd o := by
-        simp [plan, guidanceEdits, hg']
+    · have hmem : (plan .agentsMd o).any Edit.writesSection = true := by
+        simp [plan, guidanceEdits, hg', Edit.writesSection]
       simp [hmem]
     · have := markAll_ne_nil (skills := o.skills) (skillPath :: staleSkills o) (.inr (by simp))
       simp [hg', this]
@@ -921,7 +1008,7 @@ theorem plan_eq_nil_iff_settled (g : Guidance) (o : Observation) :
 theorem optionIssues_fixable (o : Observation) : ∀ i ∈ optionIssues o, i.fixable = true := by
   intro i hi
   unfold optionIssues at hi
-  split at hi
+  rcases List.mem_append.mp hi with hi | hi
   · split at hi
     · simp at hi
     · rw [List.mem_singleton] at hi
@@ -933,19 +1020,29 @@ theorem optionIssues_fixable (o : Observation) : ∀ i ∈ optionIssues o, i.fix
     · rw [← Option.some.inj ht]
       rfl
 
+/-- The issue of the options set only with a `-D` is not one `init` writes a fix for. -/
+theorem arguedIssues_unfixable (o : Observation) : ∀ i ∈ arguedIssues o, i.fixable = false := by
+  intro i hi
+  unfold arguedIssues at hi
+  split at hi
+  · simp at hi
+  · rw [List.mem_singleton] at hi
+    rw [hi]
+    rfl
+
 /-- No option issue is left exactly when no option edit is. -/
 theorem optionIssues_eq_nil_iff (o : Observation) : optionIssues o = [] ↔ optionEdits o = [] := by
   unfold optionIssues optionEdits
-  split
-  · split <;> simp
-  · have hf : ∀ t : Target, ((if targetMissing o t = [] then none
-        else some (Issue.targetOptionsMissing t.exe t.name (targetMissing o t))) = none) ↔
-          targetMissing o t = [] := by
-      intro t
-      split <;> simp_all
-    rw [List.filterMap_eq_nil_iff]
-    simp only [hf]
+  have hf : ∀ t : Target, ((if targetMissing o t = [] then none
+      else some (Issue.targetOptionsMissing t.exe t.name (targetMissing o t))) = none) ↔
+        targetMissing o t = [] := by
+    intro t
     split <;> simp_all
+  rw [List.append_eq_nil_iff, List.append_eq_nil_iff, List.filterMap_eq_nil_iff]
+  simp only [hf]
+  apply and_congr
+  · split <;> simp
+  · split <;> simp_all
 
 /-- No fixable issue is left exactly when the observation is settled. -/
 theorem issues_unfixable_iff_settled (o : Observation) :
@@ -965,7 +1062,7 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       · have := h .manifestMissing (by simp [issues, hm])
         exact Bool.noConfusion this
     · cases hg : o.guided
-      · have := h .guidanceMissing (by simp [issues, hg])
+      · have := h (.guidanceMissing o.agentsFile) (by simp [issues, hg])
         exact Bool.noConfusion this
       · rfl
     · rw [List.eq_nil_iff_forall_not_mem]
@@ -1004,8 +1101,9 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       rfl
     simp only [issues, hopt, hf, hg, hs, Bool.false_eq_true, ↓reduceIte, List.map_nil,
       List.append_nil, List.mem_append] at hi
-    rcases hi with ((hi | hi) | hi) | hi
+    rcases hi with (((hi | hi) | hi) | hi) | hi
     · exact hdrv i hi
+    · exact arguedIssues_unfixable o i hi
     · exact hlib i hi
     · exact htc i hi
     · exact hun i hi
@@ -1026,6 +1124,9 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have h5 := staleSkills_run g o
   have ⟨h6, h7, h8⟩ := run_toolchain o (plan g o)
   have h9 := run_libraries o (plan g o)
+  have h10 : arguedIssues (run o (plan g o)) = arguedIssues o := by
+    unfold arguedIssues
+    rw [argued_run]
   have hu : (o.uncovered.map uncoveredIssue).filter (!·.fixable) =
       o.uncovered.map uncoveredIssue := by
     rw [List.filter_eq_self]
@@ -1042,15 +1143,19 @@ theorem issues_run (g : Guidance) (o : Observation) :
     rw [List.filter_eq_nil_iff]
     intro i hi
     simp [optionIssues_fixable o i hi]
+  have ha : (arguedIssues o).filter (!·.fixable) = arguedIssues o := by
+    rw [List.filter_eq_self]
+    intro i hi
+    simp [arguedIssues_unfixable o i hi]
   have hl : (if o.libraries = true then [] else [Issue.noLibrary]).filter (!·.fixable) =
       if o.libraries = true then [] else [Issue.noLibrary] := by
     split <;> rfl
-  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8 h9
-  simp only [issues, h2, h3, h4, h5, h6, h7, h8, h9, Bool.false_eq_true, ↓reduceIte, List.map_nil,
-    List.append_nil, List.filter_append, hs, ht, hu, hl, hopt]
+  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8 h9 h10
+  simp only [issues, h2, h3, h4, h5, h6, h7, h8, h9, h10, Bool.false_eq_true, ↓reduceIte,
+    List.map_nil, List.append_nil, List.filter_append, hs, ht, hu, hl, hopt, ha]
   have hf : (if o.starter = true then [Issue.manifestMissing] else []).filter
       (!·.fixable) = [] := by split <;> rfl
-  have hg : (if o.guided = true then [] else [Issue.guidanceMissing]).filter
+  have hg : (if o.guided = true then [] else [Issue.guidanceMissing o.agentsFile]).filter
       (!·.fixable) = [] := by split <;> rfl
   rw [hf, hg]
   unfold driverIssues
@@ -1203,16 +1308,22 @@ def Issue.message (f : Lakefile) : Issue → String
       (if exe then "lean_exe" else "lean_lib") ++ " `" ++ n ++ "` builds without " ++
       ", ".intercalate (es.map fun e => "`" ++ toString (optionOf e.1) ++ "`") ++
       ", which neither the package's nor its own `leanOptions` set"
+  | .argued ns => "setup [" ++ f.name ++ "]: a `-D` among the extra `lean` arguments \
+      (`weakLeanArgs`, `moreLeanArgs`) of a claimed target sets " ++
+      ", ".intercalate (ns.map fun n => "`" ++ toString n ++ "`") ++
+      ", which its `leanOptions` do not; RG2006 requires " ++
+      (if ns.length == 1 then "it" else "them") ++ " in `leanOptions`, and `init` adds no second \
+      setting beside a `-D`"
   | .manifestMissing => "setup [foundation_manifest.json]: the file does not exist, so `lake lint` \
       has no claimed surface"
   | .noLibrary => "setup [" ++ f.name ++ "]: the package has no `lean_lib`, so a foundation \
       manifest has no surface to claim: Regula claims each surface per library, an executable \
       belonging to a library's surface"
-  | .guidanceMissing => "setup [AGENTS.md]: no agent guidance: AGENTS.md has no `" ++
+  | .guidanceMissing a => "setup [" ++ a ++ "]: no agent guidance: " ++ a ++ " has no `" ++
       agentsHeading ++ "` section and there is no " ++ skillPath
   | .skillStale p => "setup [" ++ p ++ "]: the skill is not the installed Regula's briefing"
   | .toolchain p s => "setup [lean-toolchain]: the project uses " ++ p ++
-      ", but this Regula supports only " ++ s
+      ", but this Regula release supports only " ++ s
   | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
       moduleCount ms ++ " below its roots, but a claimed module imports " ++ pronoun ms ++
       ", so `lake lint` finds " ++ pronoun ms ++ " outside every library and fails:\n" ++
@@ -1229,20 +1340,24 @@ def Issue.fix (f : Lakefile) : Issue → String
       ", or run `lake exe regula init`"
   | .targetOptionsMissing exe n es => "  fix: add " ++
       ", ".intercalate (es.map fun e => "`" ++ f.entry e ++ "`") ++ " to the `leanOptions` of " ++
-      f.target exe n ++ " (the package's would also reach the targets the manifest excludes), \
-      or run `lake exe regula init`"
+      f.target exe n ++ " (the package's would also reach a target the manifest excludes or \
+      one whose `-D` sets them), or run `lake exe regula init`"
+  | .argued ns => "  fix: set " ++ (if ns.length == 1 then "it" else "them") ++ " in \
+      `leanOptions` instead, as RG2006 states for each claimed target, and remove the `-D` \
+      (`init` never adds an option that a `-D` also sets)"
   | .manifestMissing => "  fix: run `lake exe regula init`, which writes a starter claiming every \
       `lean_lib` as `standard-logical`; then review each claim and rationale"
   | .noLibrary => "  fix: add a " ++ f.library ++ " for the modules your executables import, \
       then run `lake exe regula init`, which writes a starter manifest claiming it with every \
       `lean_exe`"
-  | .guidanceMissing => "  fix: run `lake exe regula init` (adds the AGENTS.md section) or \
-      `lake exe regula init --skill` (writes the skill)"
+  | .guidanceMissing a => "  fix: run `lake exe regula init` (adds the section to " ++ a ++
+      ") or `lake exe regula init --skill` (writes the skill)"
   | .skillStale _ => "  fix: run `lake exe regula init`, which replaces it with the installed \
       briefing (for example after `lake update regula`); init owns this file and keeps no local \
       edits"
-  | .toolchain _ s => "  fix: set lean-toolchain to " ++ s ++ " and run `lake update`, or require \
-      the Regula release tagged for your toolchain"
+  | .toolchain _ s => "  fix: move the project, and Mathlib if it uses it, to " ++ s ++
+      " (set lean-toolchain and run `lake update`), or require the Regula release that supports \
+      your toolchain; each release supports exactly one Lean release"
   | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
       (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
       modules)"
@@ -1266,7 +1381,7 @@ def Edit.summary (f : Lakefile) : Edit → String
       ", ".intercalate (t.options.map fun e => "`" ++ f.entry e ++ "`") ++ " in the `leanOptions` \
         of " ++ f.target t.exe t.name) ++ " of " ++ f.name
   | .manifest => "a starter foundation_manifest.json (review each claim and rationale)"
-  | .agentsSection => "the `" ++ agentsHeading ++ "` section in AGENTS.md"
+  | .agentsSection a => "the `" ++ agentsHeading ++ "` section in " ++ a
   | .skill p => p ++ ", the installed Regula's skill"
 
 end Regula.Setup

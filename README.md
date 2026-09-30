@@ -92,7 +92,8 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
 
 ## For coding agents
 
-- `lake exe regula init` adds a short `AGENTS.md` section that tells your agent to run
+- `lake exe regula init` adds a short section to your repository's `AGENTS.md` (the nearest one
+  from the Lake project up to the repository root) that tells your agent to run
   `lake exe regula agent-guide`, a compact briefing of every rule ordered for writing code, before
   it writes Lean; `lake exe regula init --skill` installs the briefing as an agent skill instead,
   and running `init` after an update refreshes it.

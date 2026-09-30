@@ -48,6 +48,24 @@ requires nothing beyond the Lean toolchain (no Mathlib, no Batteries) and import
 core libraries, so it never pins a package your project also uses, and a project with Mathlib
 keeps the Mathlib revision it pins.
 
+### When your Lean release has no Regula release
+
+Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
+patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
+runs, and with any other Lean Regula's `lakefile.lean` stops before anything compiles, naming both
+releases:
+
+```text
+error: …/regula/lakefile.lean:…: this Regula release supports only Lean leanprover/lean4:v4.34.0, but Lake is running Lean leanprover/lean4:v4.33.0. …
+```
+
+Move your project to the supported Lean release first: set `lean-toolchain`, move Mathlib (if you
+use it) to a revision for that release the usual way, and run `lake update`. Otherwise require the
+Regula release that supports your Lean, if there is one. When no other dependency pins a
+toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's release and restarts.
+When Mathlib pins another one, `lake update` prints `toolchain not updated; multiple toolchain
+candidates` and keeps yours, so the stop above follows.
+
 ## 2. Run `lake exe regula init`
 
 ```sh
@@ -59,12 +77,15 @@ lake exe regula init            # or: lake exe regula init --skill
 | Piece | What `init` writes when it is missing |
 | --- | --- |
 | Lint driver | `lintDriver = "regula/lint"` (`lakefile.toml`, top level) or `lintDriver := "regula/lint"` (`lakefile.lean`, in the `package` declaration), so `lake lint` runs Regula. |
-| Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value: in the package's configuration when every root target is claimed (as the starter manifest claims them all), and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes; while an existing manifest does not load or classify every root target, none, until `doctor`'s RG2002 finding is fixed. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
+| Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value and no `-D` in the target's `weakLeanArgs` or `moreLeanArgs` (its own or the package's) sets it: in the package's configuration when every root target is claimed (as the starter manifest claims them all) and no claimed target's `-D` sets the option, and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes or a target whose `-D` sets it; while an existing manifest does not load or classify every root target, none, until `doctor`'s RG2002 finding is fixed. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
 | Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library that contains its root module, or with the first library when none does ([step 3](#3-review-the-claimed-surface)). A manifest claims each surface per library, a `lean_exe` belonging to a library's surface, so a package with no `lean_lib` (such as Lake's `exe` template) gets none: `init` writes the other pieces and `doctor` asks you to add a library, after which `init` writes the starter. |
-| Agent guidance | A short `## Lean standard: Regula` section in `AGENTS.md` (created if needed), or with `--skill` the briefing as `.agents/skills/regula/SKILL.md`. `init` also rewrites `.claude/skills/regula/SKILL.md`, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
+| Agent guidance | A short `## Lean standard: Regula` section in your repository's `AGENTS.md`, or with `--skill` the briefing as `.agents/skills/regula/SKILL.md` in the Lake project. `init` looks for `AGENTS.md` from the Lake project's directory up to the root of the Git repository that contains it, and adds the section to the nearest one, so a Lake project in a subdirectory such as `lean/` uses the repository's root `AGENTS.md`; there the section ends by naming the directory its `lake` commands run in. When there is none, it creates `AGENTS.md` at the repository root (at the Lake project outside a Git repository) and says so; `doctor` and `init` print the file's path. `init` also rewrites `.claude/skills/regula/SKILL.md`, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
 
 It never changes a value you set: a lint driver of your own, an option with another value and an
-existing manifest stay as they are, and `lake exe regula doctor` reports each with its fix. It
+existing manifest stay as they are, and `lake exe regula doctor` reports each with its fix. A
+required option that a `-D` extra `lean` argument sets counts as set: `init` adds no second
+setting beside it (`Regula.Setup.added_unargued`), and `doctor` reports once that RG2006 requires
+those options in `leanOptions`, naming them. It
 edits the lakefile in place, in its own format, then reads the project again and restores every
 file it wrote unless nothing is left to write. A second run therefore writes nothing:
 `Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
@@ -75,7 +96,9 @@ setup, and that runtime check confirms the files as written match it. `init` end
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
 guidance, toolchain and any module below a library root that no library includes but a claimed
 module imports (which `lake lint` rejects), and, once a manifest exists, the linter's own
-manifest validation (RG2002) and option decision (RG2006) for every claimed target. It exits 0
+manifest validation (RG2002) and option decision (RG2006) for every claimed target, one RG2006
+finding naming every target with the same claim and failures, where `lake lint` prints one per
+target. It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out
 of every library that no claimed module imports is only a `note`, which does not affect the exit
 status: include it to audit it, or leave it out deliberately.
@@ -336,7 +359,8 @@ core-only code.
   ([standard §7.1](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#71-declare-the-elaboration-environment))
   and, in a project that depends on Mathlib, enables the syntax linters Mathlib builds with,
   except the three that enforce policies of the Mathlib repository itself. `init` writes these
-  (into each claimed target's own configuration instead when the manifest excludes a root target):
+  (into each claimed target's own configuration instead when the manifest excludes a root target,
+  and none that a `-D` of the target already sets):
 
   ```toml
   [leanOptions]
