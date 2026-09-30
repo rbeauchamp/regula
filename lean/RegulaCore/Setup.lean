@@ -217,10 +217,12 @@ def targetMissing (o : Observation) (t : Target) : List (Name × OptionValue) :=
 
 /-- The required options some claimed target sets only with a `-D`: the package's and its own
 `leanOptions` give the option no value, and a `-D` among its extra `lean` arguments sets it.
-RG2006 requires the value in `leanOptions`, and `init` adds none beside the `-D`. -/
-def argued (o : Observation) : List Name :=
+RG2006 requires the value in `leanOptions`, and `init` adds none beside the `-D`. Each comes with
+its required value, keyed by `key`: the entry to write in `leanOptions` instead. -/
+def argued (o : Observation) : List (Name × OptionValue) :=
   ((required o.mathlib).filter fun r => o.targets.any fun t =>
-    (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty && t.argues r.1).map (·.1)
+    (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty && t.argues r.1).map
+    fun r => (key r.1, r.2)
 
 /-- One missing or wrong piece of setup. -/
 inductive Issue where
@@ -236,8 +238,9 @@ inductive Issue where
   them). -/
   | targetOptionsMissing (exe : Bool) (name : String) (entries : List (Name × OptionValue))
   /-- A claimed target sets these required options only with a `-D` among its extra `lean`
-  arguments, where RG2006 requires them in `leanOptions`; `init` adds no second setting. -/
-  | argued (names : List Name)
+  arguments, where RG2006 requires them in `leanOptions`; `init` adds no second setting. The
+  entries are the ones to write there instead. -/
+  | argued (entries : List (Name × OptionValue))
   /-- There is no `foundation_manifest.json`. -/
   | manifestMissing
   /-- The root package has no `lean_lib`, so no surface can be claimed. -/
@@ -1312,11 +1315,11 @@ def Issue.message (f : Lakefile) : Issue → String
       (if exe then "lean_exe" else "lean_lib") ++ " `" ++ n ++ "` builds without " ++
       ", ".intercalate (es.map fun e => "`" ++ toString (optionOf e.1) ++ "`") ++
       ", which neither the package's nor its own `leanOptions` set"
-  | .argued ns => "setup [" ++ f.name ++ "]: a `-D` among the extra `lean` arguments \
+  | .argued es => "setup [" ++ f.name ++ "]: a `-D` among the extra `lean` arguments \
       (`weakLeanArgs`, `moreLeanArgs`) of one or more claimed targets sets " ++
-      ", ".intercalate (ns.map fun n => "`" ++ toString n ++ "`") ++
+      ", ".intercalate (es.map fun e => "`" ++ toString (optionOf e.1) ++ "`") ++
       ", which its `leanOptions` do not; RG2006 requires " ++
-      (if ns.length == 1 then "it" else "them") ++ " in `leanOptions`, and `init` adds no second \
+      (if es.length == 1 then "it" else "them") ++ " in `leanOptions`, and `init` adds no second \
       setting beside a `-D`"
   | .manifestMissing => "setup [foundation_manifest.json]: the file does not exist, so `lake lint` \
       has no claimed surface"
@@ -1346,9 +1349,10 @@ def Issue.fix (f : Lakefile) : Issue → String
       ", ".intercalate (es.map fun e => "`" ++ f.entry e ++ "`") ++ " to the `leanOptions` of " ++
       f.target exe n ++ " (the package's would also reach a target the manifest excludes or \
       one whose `-D` sets them), or run `lake exe regula init`"
-  | .argued ns => "  fix: set " ++ (if ns.length == 1 then "it" else "them") ++ " in \
-      `leanOptions` instead, as RG2006 states for each claimed target, and remove the `-D` \
-      (`init` adds no option to a target whose `-D` sets it)"
+  | .argued es => "  fix: set " ++
+      ", ".intercalate (es.map fun e => "`" ++ f.entry e ++ "`") ++ " in `leanOptions` instead, \
+      as RG2006 states for each claimed target, and remove the `-D` (`init` adds no option to a \
+      target whose `-D` sets it)"
   | .manifestMissing => "  fix: run `lake exe regula init`, which writes a starter claiming every \
       `lean_lib` as `standard-logical`; then review each claim and rationale"
   | .noLibrary => "  fix: add a " ++ f.library ++ " for the modules your executables import, \

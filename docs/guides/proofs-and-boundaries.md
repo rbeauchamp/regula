@@ -821,7 +821,7 @@ prints one RG2006 finding for the claimed targets that share a claim and the sam
 detail, where the audit prints one per target. The agent-guidance file is found operationally:
 from the Lake root up to the nearest directory holding a `.git` entry (Git itself is not run),
 the nearest `AGENTS.md` with the section, else the nearest that exists, else the repository
-root's; `doctor` notes a section in a nested file when a farther `AGENTS.md` lacks it.
+root's.
 
 Regula's own `lakefile.lean` refuses to load, before any module compiles, when the running Lean's
 `Lean.versionString` is not the release its `lean-toolchain` names. This is an elaboration-time

@@ -18,8 +18,7 @@ finding for the targets that share a claim and failures.
 - `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
   package, the files and the import headers of the root package's modules.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
-  agent-guidance section, searched from the Lake root up to the Git repository root, and
-  `unreachedNote` for a section a farther `AGENTS.md` lacks.
+  agent-guidance section, searched from the Lake root up to the Git repository root.
 - `lakefileText`: the lakefile with the planned `lintDriver` and `leanOptions` edits written into
   it, located with Lake's own TOML grammar or Lean's parser over the `package`, `lean_lib` and
   `lean_exe` declarations.
@@ -29,7 +28,7 @@ finding for the targets that share a claim and failures.
   empty and the options claimed targets set only with a `-D` are unchanged; then run `doctor`.
 - `doctor`: print the findings and the edits `init` would write, exiting 0 only when there is
   none, and a note, which does not count, for each module outside every library that no claimed
-  module imports and for a section a farther `AGENTS.md` lacks.
+  module imports.
 
 ## Boundaries
 
@@ -67,10 +66,6 @@ structure GuidanceFile where
   hasSection : Bool
   /-- A Git repository contains the project root (`guidanceDirs`). -/
   repository : Bool
-  /-- When the file has the section, the farthest `AGENTS.md` up to the repository root that
-  exists without it, relative to the project root: an agent working there does not read the
-  section. -/
-  unreached : Option String
 
 /-- What the commands read of a project in one observation. -/
 structure Project where
@@ -117,28 +112,13 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
     { path := (dirs.getD i root) / "AGENTS.md"
       name := String.join (List.replicate i "../") ++ "AGENTS.md"
       project := "/".intercalate (root.components.drop (root.components.length - i))
-      present, hasSection, repository, unreached := none }
+      present, hasSection, repository }
   let mut found : List GuidanceFile := []
   for (dir, i) in dirs.zipIdx do
     let path := dir / "AGENTS.md"
     if ← path.pathExists then
       found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
-  match found.find? (·.hasSection), found.head? with
-  | some f, _ =>
-    return { f with unreached := (found.filter (!·.hasSection)).getLast?.bind fun g =>
-      if g.name.length > f.name.length then some g.name else none }
-  | none, some f => return f
-  | none, none => return file (dirs.length - 1) false false
-
-/-- The note `doctor` prints, without failing, when the section is in a nested `AGENTS.md` and
-the repository's farther `file` lacks it, as an earlier `init` left a Lake project in a
-subdirectory. -/
-def unreachedNote (g : GuidanceFile) (file : String) : String :=
-  "note [" ++ g.name ++ "]: the `" ++ agentsHeading ++ "` section is here, but " ++ file ++
-    " has none, so an agent working there does not read it\n" ++
-  "  either remove the section here (the whole file, if an earlier `init` created it) and run \
-    `lake exe regula init`, which adds it to " ++ file ++ " with this Lake project's directory, \
-    or keep it here deliberately"
+  return (found.find? (·.hasSection) <|> found.head?).getD (file (dirs.length - 1) false false)
 
 private def readTrimmed (path : FilePath) : IO String := do
   if ← path.pathExists then return (← IO.FS.readFile path).trimAscii.toString
@@ -672,8 +652,6 @@ def doctor (root : FilePath) : IO UInt32 := do
   let findings ← if o.manifest then configurationFindings project else pure #[]
   RunFeedback.emitAll IO.println findings
   for entry in o.unimported do IO.println (unimportedNote project.lakefile entry)
-  if let some file := project.guidance.unreached then
-    IO.println (unreachedNote project.guidance file)
   let count := setup.length + findings.size
   if count == 0 then
     IO.println "regula doctor: the setup is complete; run `lake lint`"
