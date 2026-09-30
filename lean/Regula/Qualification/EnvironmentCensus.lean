@@ -71,29 +71,30 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let mut refusals : Array String := #[]
   for (environment, outcome) in inspections do
     let packetPath := path.addExtension s!"packet-{packets.size}.json"
-    let refusal? : Option String := match outcome with
+    let refused (detail : String) : Json × Except String Acceptance.RequestedInspection :=
+      (Json.mkObj [("expectedModules", toJson environment.info.modules),
+        ("refusal", toJson detail)], .error detail)
+    let (packet, inspection) : Json × Except String Acceptance.RequestedInspection :=
+      match outcome with
       | .ok (.ok inspected) =>
-          if inspected.frontendFailures.isEmpty then none
-          else some ("; ".intercalate inspected.frontendFailures.toList)
-      | .ok (.error failure) => some failure.detail
-      | .error error => some error.toString
-    match outcome, refusal? with
-    | .ok (.ok inspected), none =>
-        let requested : Acceptance.RequestedInspection :=
-          ⟨environment.info.modules, inspected.admitted, inspected.transcripts⟩
-        atomicWrite packetPath (toJson requested)
-        reports := reports.push requested
-        let _ ← IO.ofExcept <| Policy.admitScope requested.report.declarations
-          requested.transcripts
-    | _, refusal =>
-        let detail := refusal.getD "unreachable inspection outcome"
-        atomicWrite packetPath (Json.mkObj [("expectedModules", toJson environment.info.modules),
-          ("refusal", toJson detail)])
-        refusals := refusals.push s!"{environment.label}: {detail}"
+          let requested : Acceptance.RequestedInspection :=
+            ⟨environment.info.modules, inspected.admitted, inspected.transcripts⟩
+          if inspected.frontendFailures.isEmpty then (toJson requested, .ok requested)
+          else
+            let detail := "; ".intercalate inspected.frontendFailures.toList
+            ((toJson requested).setObjVal! "refusal" (toJson detail), .error detail)
+      | .ok (.error failure) => refused failure.detail
+      | .error error => refused error.toString
+    atomicWrite packetPath packet
+    match inspection with
+    | .ok requested => reports := reports.push requested
+    | .error detail => refusals := refusals.push s!"{environment.label}: {detail}"
     packets := packets.push (toJson packetPath.toString)
     save attempt path packets records "incomplete"
   unless refusals.isEmpty do
     throw <| IO.userError s!"environment inspection refused: {"; ".intercalate refusals.toList}"
+  for requested in reports do
+    let _ ← IO.ofExcept <| Policy.admitScope requested.report.declarations requested.transcripts
   SourceBinding.unchanged sources
   SourceBinding.configurationUnchanged configuration
   if let some name ← Inspection.changedArtifact? frozenArtifacts then
