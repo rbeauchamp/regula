@@ -148,12 +148,14 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
         "imported by Widget", "FAIL: 1 violation(s), 0 incomplete finding(s)",
         "regula lint: VIOLATION (exit 1)"],
       excludes := #["RG2001", "declaration-report-worker"] })
-  -- The file audit reports the same import as the same violation, not as a compiler failure.
+  -- The file audit reports the same import as the same violation, not as a compiler failure,
+  -- naming the audited file, not the module it compiles the file as, as the importer.
   failures := failures ++ (← assess {
       label := "lean/file-unowned-module", exitCode := 1,
-      contains := #["RG2004", "Widget.Additional is outside every", "imported by",
+      contains := #["RG2004", "Widget.Additional is outside every",
+        s!"imported by {(← IO.FS.realPath adopter) / "Widget.lean"}",
         "FAIL: 1 violation(s), 0 incomplete finding(s)"],
-      excludes := #["does not elaborate", "RG2003", "RG2001"] }
+      excludes := #["does not elaborate", "RG2003", "RG2001", "AuditFile_"] }
     (← fileAudit adopter "Widget.lean"))
   restore adopter originals
   -- Two library modules that both declare `main` cannot share one environment, so the audit

@@ -58,9 +58,9 @@ structure Options where
   incremental : Bool := false
   /-- `--build-lint`: run as the enforcing build linter, which also sets `incremental`. -/
   buildLint : Bool := false
-  /-- `--verbose`: also print every classified declaration, every execution root with a
-  boundary the toolchain does not own or an unresolved path, and every entry of the audit's
-  toolchain trusted base. -/
+  /-- `--verbose`: also print every classified declaration, timing spans and, for a project
+  audit, every execution root with a boundary the toolchain does not own or an unresolved path
+  and every entry of the toolchain trusted base, which the file audit always lists. -/
   verbose : Bool := false
   /-- `--help` or `-h`: print the usage text and exit. -/
   help : Bool := false
@@ -75,9 +75,10 @@ private def usage : String :=
   "The project audit builds an isolated fresh copy by default. --incremental inspects current \
     policy over the project's incremental build instead; --build-lint does the same as the \
     enforcing build linter (the build-lint `policy` target) and implies --incremental.\n" ++
-  "--verbose also prints every classified declaration, each project execution root with a \
-    boundary the toolchain does not own or an unresolved path, every entry of the audit's \
-    toolchain trusted base, and timing spans.\n" ++
+  "--verbose also prints every classified declaration, timing spans and, for a project audit, \
+    each execution root with a boundary the toolchain does not own or an unresolved path and \
+    every entry of the toolchain trusted base; the file audit always lists its execution account \
+    and toolchain trusted base.\n" ++
   "profiles: kernel-only, choice-free, standard-logical, compiler-trusting\n" ++
   "execution modes: report (default), checked\n" ++
   "exit codes: 0 accepted (or, for --file without a conforming claim, classified), 1 violation, \
@@ -424,16 +425,20 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       -- order: a refused admission is incomplete (RG2005), owned output outside every owned
       -- module is a coverage violation (RG2004, each module once, with its importers in every
       -- environment whose inspection reached that check), and a failed worker or inspection is
-      -- incomplete with its own error (RG2001). Configuration, discovery and the build completed
-      -- before any inspection.
+      -- incomplete with its own error (RG2001). A finding identical to one already gathered
+      -- (same rule and detail), such as one refused declaration that several environments
+      -- replay, is gathered once. Configuration, discovery and the build completed before any
+      -- inspection.
       let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
+      let gather (found : Array Regula.Finding) (finding : Regula.Finding) :=
+        if found.any (·.entry == finding.entry) then found else found.push finding
       let mut stopped : Array Regula.Finding := #[]
       let mut unownedModules : Array ProducerReport.UnownedModule := #[]
       for (environment, outcome) in inspections do
         match outcome with
         | .ok (.ok _) => pure ()
         | .ok (.error (.admission failure)) =>
-            stopped := stopped.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
+            stopped := gather stopped (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
               reportRoot.toString failure.detail mode .incomplete)
         | .ok (.error (.unowned modules)) =>
             for unowned in modules do
@@ -444,7 +449,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
                       unowned.importers.filter (!known.importers.contains ·) }
               | none => unownedModules := unownedModules.push unowned
         | .error error =>
-            stopped := stopped.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .environment
+            stopped := gather stopped (← IO.ofExcept <| RuleDiagnostics.contextFinding .environment
               reportRoot.toString s!"declaration inspection of {environment.label} failed: {error}"
               mode .incomplete)
       for unowned in unownedModules do
@@ -972,9 +977,11 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                 [.discovery, .build] failure.detail composed resultOut sources
             return 1
         | some (.ok (.error (.unowned modules))) =>
+            let importer (name : Name) :=
+              if name == moduleName.toName then path.toString else name.toString
             let findings ← modules.mapM fun unowned => IO.ofExcept <|
-              RuleDiagnostics.contextFinding .coverage path.toString unowned.detail .freshFile
-                .violation
+              RuleDiagnostics.contextFinding .coverage path.toString (unowned.detail importer)
+                .freshFile .violation
             reportContextFindings findings path.toString .freshFile [.discovery, .build] composed
               resultOut sources
             return 1

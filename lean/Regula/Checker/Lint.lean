@@ -47,9 +47,9 @@ def usage : String :=
   "       lake lint -- --explain-config [--fresh] [--project DIR] [--manifest PATH]\n" ++
   "Checks every manifested Lake surface: incremental elaboration with current policy\n" ++
   "inspection by default, or an isolated fresh build with --fresh.\n" ++
-  "--verbose also prints every classified declaration, each execution root with a boundary the \
-    toolchain does not own or an unresolved path, every entry of the audit's toolchain trusted \
-    base, and timing spans.\n" ++
+  "--verbose also prints every classified declaration, timing spans, each execution root with a \
+    boundary the toolchain does not own or an unresolved path and every entry of the toolchain \
+    trusted base.\n" ++
   "exit codes: 0 accepted, 1 violation, 2 invalid configuration or invocation, 3 incomplete\n" ++
   "--explain-config and --help run no audit, establish no result and exit 2."
 

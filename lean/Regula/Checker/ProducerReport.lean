@@ -876,12 +876,14 @@ instance : FromJson UnownedModule := ⟨fun j => do
   return {
     «module» := ← j.getObjValAs? _ "module", importers := ← j.getObjValAs? _ "importers" }⟩
 
-/-- The RG2004 detail of one unowned module: the module and the modules that import it. -/
-def UnownedModule.detail (unowned : UnownedModule) : String :=
+/-- The RG2004 detail of one unowned module: the module and the modules that import it, each
+named by `importer` (its module name unless given). -/
+def UnownedModule.detail (unowned : UnownedModule) (importer : Name → String := toString) :
+    String :=
   s!"unexpected-project-module: root-owned module {unowned.module} is outside every Lake \
     library" ++
   (if unowned.importers.isEmpty then ""
-  else s!"; imported by {", ".intercalate (unowned.importers.map toString).toList}")
+  else s!"; imported by {", ".intercalate (unowned.importers.map importer).toList}")
 
 /-- Why a producer completed without a report. The two refusals have different impacts, so
 they are distinct constructors, never distinguished by their text. -/
