@@ -728,7 +728,10 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Remove uses of `debug.skipKernelTC`, `addDecl` with unchecked values, or other \
           metaprograms that add unchecked declarations; state and prove the theorem normally.",
         "Do not edit sources while an audit runs; rerun it.",
-        "For an editor pending result, run `lake lint` (or `lake lint -- --fresh`)."]
+        "For an editor pending result, run `lake lint` (or `lake lint -- --fresh`).",
+        "Rename an owned axiom that shares its name with another module's constant: admission \
+          accepts a shared name only for theorems of one statement, such as an equation lemma \
+          Lean realizes in each module that needs it, and checks each copy's proof."]
       examples := {
         language := .lean
         audience := .adopter

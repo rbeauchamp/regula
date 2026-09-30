@@ -521,7 +521,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         if let .error failure := SourceBinding.validateAgainst sourceBindings report then
           return .error failure
         unless Admission.reuseJustified priors report do
-          return .error ⟨s!"[VIOLATION[kernel-admission]] {environment.label} reused an \
+          return .error ⟨s!"{Admission.failureTag} {environment.label} reused an \
             admission no library environment offered over the same import closure"⟩
         -- `mapWorkQueue` returns results in module order, so transcripts and failures
         -- keep the order of the former sequential loop.

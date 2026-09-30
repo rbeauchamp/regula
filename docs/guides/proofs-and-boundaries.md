@@ -348,13 +348,42 @@ inferred from any pure proof.
   registrations add executable roots, and all registrations remain in the declaration observations
   even when several registrations share one root.
 - **Admission.** `Admission.validate` replays safe, nonpartial owned declarations and their owned
-  dependencies with the pinned `Environment.replay`, checks every required entry is in the
+  dependencies with the pinned `Kernel.Environment.replay`, checks every required entry is in the
   resulting kernel and returns a typed receipt. It returns
   `IO (Except ProducerReport.AdmissionFailure ProducerReport.AdmissionReceipt)`: a successful
-  receipt's required keys come from safe, nonpartial original kernel entries in the replay scope,
-  and it records the admitted keys. Replay scope includes owned dependencies and the existing
-  reporter closure where required; it may exceed the reported surface. Imported unowned modules
-  remain trusted; the receipt records the completed operation and does not authenticate replay.
+  receipt's required keys are the safe, nonpartial constants of the replayed modules' own
+  `.olean` data, one key per module and name, and it records the admitted keys. Replay scope
+  includes owned dependencies and the existing reporter closure where required; it may exceed the
+  reported surface. Imported unowned modules remain trusted; the receipt records the completed
+  operation and does not authenticate replay. Admission failures carry the
+  `[INCOMPLETE[kernel-admission]]` tag (`Admission.failureTag`), since RG2005 reports them as
+  incomplete.
+- **Several copies of one name.** Lean realizes equation, unfolding and match-equation lemmas,
+  functional induction and case principles, and congruence and injectivity lemmas in the module
+  that first needs them, so two modules that do not import each other can each contain the same
+  one. Lean's import keeps a single copy, and `Kernel.Environment.replay` skips, unchecked, a
+  theorem whose name and statement it already holds. Admission therefore reads each replayed
+  module's own constants (`Admission.Copy`); `Admission.planReplay` replays the first copy of each
+  name absent from the replay base and pairs every other copy with the constant the replayed
+  kernel holds under its name, and `Admission.checkDuplicates` admits such a copy only when the two
+  are theorems of the same name, type (`Expr.eqv`, in either direction), universe parameters and
+  mutual block (`Admission.sameTheorem`) and the kernel accepts the copy's own proof renamed to
+  `Admission.proofCheckName`. **Proved** about the executed definitions:
+  `Admission.sameTheorem_iff_subsumesInfo` (private in the `module` file
+  `Regula.Checker.SharedName`, whose `import all Lean.Environment` reaches Lean's private
+  `subsumesInfo`: on two theorems the condition equals `subsumesInfo` in either direction, which
+  the pinned `Lean.finalizeImport` requires of a second constant of one name, as read from its
+  source; every other pair it accepts involves an axiom, which admission refuses),
+  `Admission.planReplay_sound` (no replayed name is in the base; every copy is a duplicate or the
+  one replayed under its name; every duplicate is paired with the base constant of its name or,
+  when the base has none, the replayed copy) and `Admission.checkDuplicates_sound` (a success
+  means every duplicate met `sameTheorem` and the kernel added its renamed copy). **Argued, not
+  machine-checked:** `validate` passes these checks the replayed module data, the base's
+  `find?` and the replayed kernel, and admits no key when either fails (read from its code).
+  **Trusted:** Lean's import and module data, and the kernel, including that its theorem check
+  consults the declaration's name only to require it undeclared, so the renamed check is a check
+  of the copy. Report attribution is unchanged: `Probe.ownedConstants` still attributes a shared
+  name to the first module Lean's import loaded it from.
 - **Admission reuse.** The project audit inspects every library environment before any
   executable's, and hands the executables the libraries' completed admissions
   (`Admission.PriorAdmission`). An executable's environment keeps an owned module other than its

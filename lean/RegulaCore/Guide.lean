@@ -621,9 +621,12 @@ def guide : RuleId → Guide
           its owned dependencies through Lean's kernel (`Admission.validate`); an executable's \
           environment reuses, instead of repeating, a library environment's replay of a module \
           over the identical import closure and frozen `.olean` parts (including \
-          `.olean.private`). A declaration that fails replay, source or `.olean` bytes that \
-          changed after they were frozen, or a required \
-          authentication that failed is reported here with impact `incomplete`.",
+          `.olean.private`). Each replayed module's own copy of a name is checked, so a lemma \
+          Lean realizes in two modules, such as an equation lemma, is admitted when both copies \
+          are theorems of one statement and each owned copy's proof passes the kernel. A \
+          declaration that fails replay, source or `.olean` bytes that changed after they were \
+          frozen, or a required authentication that failed is reported here with impact \
+          `incomplete`.",
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
           incomplete, when its own analysis of a declaration fails or the module has elaboration \

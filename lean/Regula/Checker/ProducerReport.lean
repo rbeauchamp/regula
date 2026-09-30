@@ -41,16 +41,18 @@ instance : FromJson Census := ⟨fun j => do
            executionRoots := ← j.getObjValAs? _ "executionRoots"
            historyRequests := ← j.getObjValAs? _ "historyRequests" }⟩
 
-/-- Replay scope can exceed report scope. Required keys come from the original environment;
-admitted keys are observed in the separately replayed kernel after `Environment.replay`. -/
+/-- Replay scope can exceed report scope. Required keys come from the replayed modules' own data
+in the original environment; admitted keys are observed in the separately replayed kernel after
+`Environment.replay` and the duplicate-copy checks (`Admission.validate`). -/
 structure AdmissionReceipt where
   /-- The modules whose owned declarations were replayed: the owned modules other than `reused`
   and the checker reporter modules that import one of them, without duplicates. -/
   modules : Array Name
-  /-- The `(module, declaration)` key of every owned declaration that is neither `unsafe` nor
-  `partial`, taken from the original environment. -/
+  /-- The `(module, declaration)` key of every constant a replayed module's own data contains
+  that is neither `unsafe` nor `partial`; a name several replayed modules contain has one key per
+  module. -/
   required : Array (Name × Name)
-  /-- The required keys found in the kernel environment after replay, in the same order. -/
+  /-- The required keys admitted by replay and the duplicate-copy checks, in the same order. -/
   admitted : Array (Name × Name)
   /-- The owned, unrequested modules not replayed here because an earlier environment of the same
   audit admitted them over the identical import closure (`Admission.reusedModules`). -/

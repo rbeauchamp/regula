@@ -67,8 +67,8 @@ structure FixtureSpec where
   source : FilePath
   /-- Whether the checker must accept or reject the fixture. -/
   expectation : Expectation
-  /-- For a rejection, the exact set of `VIOLATION[...]` reasons expected, or
-  `#["compile-error"]` for a fixture that must fail to compile. -/
+  /-- For a rejection, the exact set of `VIOLATION[...]` and `INCOMPLETE[...]` reasons expected,
+  or `#["compile-error"]` for a fixture that must fail to compile. -/
   reasons : Array String := #[]
   /-- The foundation profile passed as `--claim`, when the entry sets one. -/
   claim : Option Profile := none
@@ -254,13 +254,16 @@ private def uniqueSorted (values : Array String) : Array String :=
   values.foldl (fun found value => if found.contains value then found else found.push value) #[]
     |>.qsort (· < ·)
 
+/-- The reasons of every `VIOLATION[...]` and `INCOMPLETE[...]` tag, the latter a kernel-admission
+failure's (`Admission.failureTag`). -/
 private def violationReasons (output : String) : Array String := Id.run do
   let mut reasons : Array String := #[]
   for line in output.splitOn "\n" do
-    match line.splitOn "VIOLATION[" with
-    | _ :: suffix :: _ =>
-        if let some reason := (suffix.splitOn "]").head? then reasons := reasons.push reason
-    | _ => pure ()
+    for tag in #["VIOLATION[", "INCOMPLETE["] do
+      match line.splitOn tag with
+      | _ :: suffix :: _ =>
+          if let some reason := (suffix.splitOn "]").head? then reasons := reasons.push reason
+      | _ => pure ()
   uniqueSorted reasons
 
 private def runBinary (repo : FilePath) (name : String)
@@ -1240,14 +1243,75 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
     failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
   failures.get
 
-/-- Structural mutation cluster: fresh-checker coverage of an added module and
-the final restored-state control. -/
+/-- A claimed module in which `simp` realizes `Except.mapError.eq_1`, which the toolchain's
+`Std.Do.WP.SimpLemmas` also contains (issue #128). -/
+private def realizedLemmaSource : String :=
+  "/-! Realizes `Except.mapError.eq_1`, which `Std.Do.WP.SimpLemmas` also contains. -/\n\n" ++
+  "/-- Mapping the error of a success keeps the value. -/\n" ++
+  "theorem selftestMapErrorOk (value : Nat) :\n" ++
+  "    (Except.ok value : Except String Nat).mapError String.length = .ok value := by\n" ++
+  "  simp [Except.mapError]\n"
+
+/-- A file importing the realizing module before the toolchain module with the same lemma. -/
+private def realizedDuplicateSource : String :=
+  "import AuditApp.RealizedLemma\nimport Std.Do.WP.SimpLemmas\n\n" ++
+  "/-! Imports two modules that both contain `Except.mapError.eq_1`. -/\n\n" ++
+  "/-- The claimed module's theorem, restated. -/\n" ++
+  "theorem selftestRealizedDuplicate (value : Nat) :\n" ++
+  "    (Except.ok value : Except String Nat).mapError String.length = .ok value :=\n" ++
+  "  selftestMapErrorOk value\n"
+
+/-- A checked theorem of which `uncheckedDuplicateSource` adds an unchecked copy. -/
+private def checkedDuplicateSource : String :=
+  "/-! A checked theorem that `AuditApp.DuplicateUnchecked` duplicates without checking. -/\n\n" ++
+  "/-- A checked proof of `True`. -/\ntheorem selftestDuplicateFact : True := trivial\n"
+
+/-- The same theorem statement with an ill-typed proof, added without kernel checking. -/
+private def uncheckedDuplicateSource : String :=
+  "import Lean\nopen Lean Elab Command\n" ++
+  "run_cmd do\n  let d := Declaration.thmDecl { name := `selftestDuplicateFact, " ++
+  "levelParams := [], type := mkConst ``True, value := mkConst ``False }\n" ++
+  "  match (← getEnv).addDeclCore 200000 1000 d none false with\n" ++
+  "  | .ok env => setEnv env\n  | .error _ => throwError \"construction failed\"\n"
+
+/-- External-boundary controls for a name several owned or imported modules contain, where the
+copies Lean realizes, imports and kernel-checks are the external mechanism
+(`Admission.planReplay_sound` and `Admission.checkDuplicates_sound` state the admission
+decision). The positive control is issue #128's shape and must pass. The two mutations import an
+unchecked copy of a checked theorem before and after it; before the fix, admission replayed only
+the copy the merged environment kept, and so silently skipped the unchecked copy in the first
+order. -/
+private def duplicateAdmissionControls (sources copy : FilePath)
+    (gate : Array String → IO ProcessResult) : IO (Array String) := do
+  let failures ← IO.mkRef (#[] : Array String)
+  withNewFile (sources / "AuditApp" / "RealizedLemma.lean") realizedLemmaSource do
+    withNewFile (copy / "RealizedDuplicate.lean") realizedDuplicateSource do
+      let result ← gate #["--file", "RealizedDuplicate.lean"]
+      if !result.succeeded then
+        failures.modify
+          (·.push s!"structural/realized-duplicate: expected PASS:\n{result.output}")
+  withNewFile (sources / "AuditApp" / "DuplicateChecked.lean") checkedDuplicateSource do
+    withNewFile (sources / "AuditApp" / "DuplicateUnchecked.lean") uncheckedDuplicateSource do
+      for (name, first, second) in #[("unchecked-duplicate-first", "Unchecked", "Checked"),
+          ("unchecked-duplicate-second", "Checked", "Unchecked")] do
+        withNewFile (copy / "DuplicateAdmission.lean")
+            s!"import AuditApp.Duplicate{first}\nimport AuditApp.Duplicate{second}\n" do
+          if let some failure := expectedFailure name
+              (← gate #["--file", "DuplicateAdmission.lean"])
+              #["kernel-admission", "selftestDuplicateFact"] then
+            failures.modify (·.push failure)
+  failures.get
+
+/-- Structural mutation cluster: fresh-checker coverage of an added module, controls for several
+copies of one name, and the final restored-state control. -/
 private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let sources := copy / layout.relativeDir
   let failures ← IO.mkRef (#[] : Array String)
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
+  for failure in ← duplicateAdmissionControls sources copy (fun args => gate args) do
+    failures.modify (·.push failure)
   withNewFile (sources / "AuditApp" / "UnimportedSafe.lean")
       "namespace AuditApp.UnimportedSafe\ndef value : Nat := 1\nend AuditApp.UnimportedSafe\n" do
     let plan ← runBinaryFrom repo copy "freshChecker" #["--plan-only"]
@@ -1668,7 +1732,8 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     " (discovery, warning, contamination, exact ownership, unlisted root module, " ++
     "library and exe classification, claimed exe root, exe contamination, app exe omission, " ++
     "app missing/trivial/weakened update evidence, missing proof field, weakened admission, " ++
-    "fresh coverage, conditional correspondence, restore; " ++
+    "fresh coverage, realized and unchecked duplicate copies, conditional correspondence, " ++
+    "restore; " ++
     "isolated copies, bounded parallelism)"
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged
