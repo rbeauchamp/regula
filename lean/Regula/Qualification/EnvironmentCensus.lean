@@ -7,9 +7,10 @@ import Regula.Checker.Inspection
 Native, source-bound environment composition qualification. Every environment's packet is
 written before the census's own admission checks: its admitted report and transcripts, with a
 refusal when frontend attribution failed, or only the refusal detail for an inspection that
-`Inspection.inspect` refused (report admission, source binding, admission reuse or transcript
-binding) or failed. Observed process/filesystem/compiler behavior is
-not a universal proof; the separate shared-name theorem establishes the pure collision class. -/
+`Inspection.inspect` refused (report admission, root-package output outside every owned module,
+source binding, admission reuse or transcript binding) or failed. Observed
+process/filesystem/compiler behavior is not a universal proof; the separate shared-name theorem
+establishes the pure collision class. -/
 namespace Regula.Qualification.EnvironmentCensus
 open Lean System Regula.Checker RegulaPolicy
 open scoped Regula.Report

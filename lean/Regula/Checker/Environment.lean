@@ -212,7 +212,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option (FilePath × String) := none)
     (priors : Array Admission.PriorAdmission := #[]) :
-    IO (Except ProducerReport.AdmissionFailure ProducerReport.Environment) := do
+    IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
   let mut resolvedSources := moduleSources
@@ -223,7 +223,8 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
       let source := (← Lean.findOLean name).withExtension "lean"
       resolvedSources := resolvedSources.push (name, source)
   let sourceBindings ← SourceBinding.capture resolvedSources
-  return (← SourceBinding.withUnchanged sourceBindings #[] do
+  return (← SourceBinding.withUnchanged
+      (α := Except ProducerReport.Refusal ProducerReport.Environment) sourceBindings #[] do
     unsafe Lean.enableInitializersExecution
     let requested := modules
     let importNames :=
@@ -235,18 +236,26 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
         (level := .private)
     let ownedModules := requested ++ moduleSources.map (·.1) |>.filter
       (fun name => !probeModuleNames.contains name.toString)
+    -- Kernel admission cannot classify a module loaded from the owned output that no requested
+    -- module or source binding owns, so the environment is refused with those modules and their
+    -- direct importers: a coverage violation, not a failed inspection.
     if let some root := ownedOutput then
+      let mut unowned : Array Name := #[]
       for name in env.header.moduleNames do
         if !ownedModules.contains name && !probeModuleNames.contains name.toString then
-          if ← pathWithin (← Lean.findOLean name) root then
-            throw <|
-                IO.userError s!"unexpected-project-module: kernel-admission cannot classify {name}"
+          if ← pathWithin (← Lean.findOLean name) root then unowned := unowned.push name
+      unless unowned.isEmpty do
+        let loaded := env.header.moduleNames.zip env.header.moduleData
+        return .error (.unowned (unowned.map fun name => {
+          «module» := name
+          importers := loaded.filterMap fun (importer, data) =>
+            if data.imports.any (·.module == name) then some importer else none }))
     let reused ← if priors.isEmpty then pure #[] else do
       let origins ← Regula.Probe.loadedModuleOrigins env
       pure (Admission.reusedModules env origins requested ownedModules priors)
     let admissionResult ← timedPhase "kernel admission" <|
       Admission.validate env ownedModules reused
-    if let .error failure := admissionResult then return .error failure
+    if let .error failure := admissionResult then return .error (.admission failure)
     let .ok admission := admissionResult
       | throw <| IO.userError "unreachable admission outcome"
     -- Freeze the selector from the completed environment before reading docstrings.
@@ -301,13 +310,13 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
         sourceBindings := sourceBindings.filter (fun s => report.modules.contains s.moduleName)
       }
       SourceBinding.unchanged report.sourceBindings
-      if let .error failure := report.validateSourceEvidence then return .error failure
+      if let .error failure := report.validateSourceEvidence then return .error (.admission failure)
       -- The project coordinator's decoder runs this exact check once and keeps its success as a
       -- `ProducerReport.Admitted` proof for `Acceptance.freezeEnvironment`; only that caller opts
       -- out.
       if validateReport then IO.ofExcept (ProducerReport.checked_validate.run report)
       return .ok report
-  ).bind id
+  ).mapError ProducerReport.Refusal.admission |>.bind id
 
 /-- Lean resolves a whole module prefix at the first matching directory.
 A fresh project that builds only `Contract` must not mask the trusted probe,
@@ -318,7 +327,7 @@ private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array Fi
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
     (priors : Array Admission.PriorAdmission := #[]) :
-    IO (Except ProducerReport.AdmissionFailure ProducerReport.Environment) := do
+    IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   let some selfLib ← checkerPackageLibDir
     | throw <| IO.userError "trusted checker library directory unavailable"
   withScratch (← IO.currentDir) "probe-search" fun overlay => do
@@ -344,7 +353,7 @@ search-path scope. -/
 unsafe def loadReportCurrentSearchPathOutcome (modules : Array Name)
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
-    IO (Except ProducerReport.AdmissionFailure ProducerReport.Environment) :=
+    IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
   loadReportCore modules #[] moduleSources ownedOutput includeExecution includeModuleOrigins
 
 /-- Load exact modules through Lean's import semantics and return their typed
@@ -356,7 +365,7 @@ unsafe def loadReportOutcome (modules : Array Name)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
     (priors : Array Admission.PriorAdmission := #[]) :
-    IO (Except ProducerReport.AdmissionFailure ProducerReport.Environment) := do
+    IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   let selfLib ← checkerPackageLibDir
   let oldSearchPath ← Lean.searchPathRef.get
   Lean.searchPathRef.set (extraSearchRoots.toList ++ selfLib.toList ++ oldSearchPath)
@@ -365,8 +374,8 @@ unsafe def loadReportOutcome (modules : Array Name)
       includeModuleOrigins validateReport historyMemo priors
   finally Lean.searchPathRef.set oldSearchPath
 
-/-- Compatibility wrapper for callers that report all incomplete inspection failures
-at their own stage. Public rule adapters use the typed outcome variant above. -/
+/-- Compatibility wrapper for callers that report every refusal as an inspection failure at their
+own stage. Public rule adapters use the typed outcome variant above. -/
 unsafe def loadReportCurrentSearchPath (modules : Array Name)
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
@@ -374,7 +383,7 @@ unsafe def loadReportCurrentSearchPath (modules : Array Name)
   IO.ofExcept <| (← loadReportCurrentSearchPathOutcome modules moduleSources ownedOutput
     includeExecution includeModuleOrigins).mapError (·.detail)
 
-/-- `loadReportOutcome` with any admission failure raised as an `IO` error carrying its detail. -/
+/-- `loadReportOutcome` with any refusal raised as an `IO` error carrying its detail. -/
 unsafe def loadReport (modules : Array Name)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)

@@ -144,14 +144,17 @@ snapshot never becomes a project result. Source compilation is distinct from lat
 normal pinned-compiler exit with a source-located error or warning can establish an emitted
 diagnostic, while crashes, termination and inspection exceptions are incomplete, and flattened
 Lake build failures stay incomplete with the original text kept; neither permits acceptance.
-RG2001 reports setup failures in fresh, incremental and file audits; documentation-audit setup
-failures print `FAIL` without a finding. Combined project and documentation output stays
-incomplete while its documentation stage is pending, and configuration that has not been
-admitted has null `scope` and `mode` and an incomplete status. Recognizable output destinations
-are invalidated before argument parsing where their paths can be resolved: absolute destinations
-first, without requiring valid project configuration, and relative destinations once the project
-root is resolved. Callers must require the current invocation's successful completion, never
-reuse a previous report after a failed command.
+RG2001 reports setup failures in fresh, incremental and file audits, and a failed inspection
+worker with the worker's own error text; in a project or file audit, an inspected environment
+that loads a root-package module outside every library is refused as RG2004, a violation, naming
+the module and its importers, while a documentation audit leaves that fence incomplete;
+documentation-audit setup failures print `FAIL` without a finding. Combined project
+and documentation output stays incomplete while its documentation stage is pending, and
+configuration that has not been admitted has null `scope` and `mode` and an incomplete status.
+Recognizable output destinations are invalidated before argument parsing where their paths can
+be resolved: absolute destinations first, without requiring valid project configuration, and
+relative destinations once the project root is resolved. Callers must require the current
+invocation's successful completion, never reuse a previous report after a failed command.
 
 ## Output schemas
 
@@ -243,8 +246,13 @@ metadata, not authenticated binary identity.
   `linter.all`) and `regula.localFoundation` (`classification-only` by default, or a profile)
   control local feedback only; Lean's `withSetOptionIn` restores scoped `set_option … in` options.
 - **`lake lint`.** `lintDriver := "regula/lint"`, in either lakefile format, runs the same
-  `axiomGate` project audit, incrementally or with `--fresh`, and maps its recorded status to exit
-  codes (claimed `RegulaCore.Lint`).
+  `axiomGate` project audit, incrementally or with `--fresh`, and maps its recorded result to exit
+  codes (claimed `RegulaCore.Lint`). An audit keeps at most one `Lint.Observation` (a later
+  record replaces an earlier one), from which its result status, its summary counts by impact
+  and the exit code `axiomGate` itself returns are derived (`gateExitCode`), and the driver
+  reports the exit code its own audit returned (`classify_gateExitCode`). A standalone
+  `axiomGate` run builds without the driver's audit-build marker, so it can record another result
+  for the same project.
 - **Enforcing build.** The sample's uncached sole-default `policy` target runs `axiomGate
   --build-lint` on plain `lake build`
   (standard [§7.11](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#711-opt-in-enforcing-build-linter)).

@@ -4,6 +4,7 @@ import Regula.Website
 import Regula.Checker.Producer
 import Regula.Checker.RuleDiagnostics
 import Regula.DiagnosticCodec
+import Regula.Checker.Common
 
 /-! # Versioned result protocol
 
@@ -104,11 +105,13 @@ theorem withDocs_ordered :
       (fun a b => stageRank a < stageRank b) := by
   decide
 
-/-- The stage a finding of `id` in `mode` that stops its run (`stops`) leaves unfinished for the
-evidence it concerns; that stage and every later one cannot have completed. RG3001 has none:
-its verdict comes from the execution stage, which completed. -/
+/-- The earliest stage every finding of `id` in `mode` that stops its run (`stops`) leaves
+unfinished for the evidence it concerns; that stage and every later one cannot have completed.
+RG2001 blocks admission: an environment the audit cannot run in fails discovery, the build or the
+loading of the built environment for inspection, and the writer records only the earlier stages
+that completed. RG3001 has none: its verdict comes from the execution stage, which completed. -/
 def blockedStage (mode : EvidenceMode) : RuleId → Option Stage
-  | .environment => some .discovery
+  | .environment => some .admission
   | .configuration | .communityConfiguration => some .configuration
   | .sourceBuild => some .build
   | .coverage => some .admission
@@ -285,7 +288,8 @@ def requestJson (kind project subject : String) (claim execution : Option String
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
 /-- Write the `resultJson` of these arguments as compact JSON and a final newline to `path`,
-creating its parent directories, and print how long encoding and writing took. -/
+creating its parent directories, and report how long encoding and writing took when timing output
+is on (`timingSpan`). -/
 def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status : Status)
     (findings : Array Finding) (expected completed : List Stage)
     (unresolved : Array String := #[]) :
@@ -294,10 +298,10 @@ def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status 
   let spanStart ← IO.monoMsNow
   let encoded := Json.compress
       (resultJson scope mode status findings expected completed unresolved) ++ "\n"
-  IO.println s!"diagnostic span: ResultProtocol.write encode: {(← IO.monoMsNow) - spanStart}ms"
+  timingSpan s!"diagnostic span: ResultProtocol.write encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded
-  IO.println s!"diagnostic span: ResultProtocol.write write: {(← IO.monoMsNow) - writeStart}ms"
+  timingSpan s!"diagnostic span: ResultProtocol.write write: {(← IO.monoMsNow) - writeStart}ms"
 
 private def sourceJson (source : RegulaPolicy.SourceSnapshot) : Json :=
   Json.mkObj [("uri", toJson source.uri), ("source", toJson source.source)]
@@ -467,17 +471,18 @@ def acceptedValue {claim : RegulaPolicy.Claim}
     "acceptance" (acceptedJson accepted)
 
 /-- Write `acceptedValue accepted scope` as compact JSON and a final newline to `path`,
-creating its parent directories, and print how long encoding and writing took. -/
+creating its parent directories, and report how long encoding and writing took when timing output
+is on (`timingSpan`). -/
 def writeAccepted {claim : RegulaPolicy.Claim} (path : System.FilePath)
     (accepted : RegulaPolicy.AcceptedRun claim) (scope : Json) : IO Unit := do
   let spanStart ← IO.monoMsNow
   let value := acceptedValue accepted scope
   if let some parent := path.parent then IO.FS.createDirAll parent
   let encoded := Json.compress value ++ "\n"
-  IO.println s!"diagnostic span: writeAccepted encode: {(← IO.monoMsNow) - spanStart}ms"
+  timingSpan s!"diagnostic span: writeAccepted encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded
-  IO.println s!"diagnostic span: writeAccepted write: {(← IO.monoMsNow) - writeStart}ms"
+  timingSpan s!"diagnostic span: writeAccepted write: {(← IO.monoMsNow) - writeStart}ms"
 
 /-- The historical parse/compress normalization hop, retained verbatim:
 roundtrip identity over arbitrary `Json`/`JsonNumber` is not assumed. The

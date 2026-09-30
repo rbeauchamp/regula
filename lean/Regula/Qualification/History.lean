@@ -64,7 +64,7 @@ def check : IO Unit := do
             failure := true, mode := some mode, status := "incomplete", ids := ["RG2005"], reason,
             impact := some "incomplete", diagnosticMode := some mode }
             result.exitCode.toNat (result.stdout ++ result.stderr) (some report))
-          requireChecks [⟨"exact history evidence exit", result.exitCode == 1⟩]
+          requireChecks [⟨"exact history evidence exit", result.exitCode == 3⟩]
           if phase == "admission" then
             let ds ← IO.ofExcept (report.getObjValAs? (Array Json) "diagnostics")
             for d in ds do

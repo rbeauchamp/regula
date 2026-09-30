@@ -642,11 +642,15 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
                 moduleName := item.compilation.spec.module.toName
                 path := item.compilation.sourcePath.toString
                 content := item.compilation.spec.source })
-            if let .error failure := outcome then
+            if let .error refusal := outcome then
+              -- Unowned imported modules are not an admission failure; they stay an incomplete
+              -- inspection here, as the documentation mode has no coverage finding.
+              let (detail, admissionFailure) := match refusal with
+                | .admission failure => (failure.detail, some failure)
+                | .unowned _ => (s!"checker inspection failed: {refusal.detail}", none)
               return group.items.map fun item =>
                 let result : Result := {
-                  task := item.task, status := .fail, detail := failure.detail
-                  incomplete := true, admissionFailure := some failure }
+                  task := item.task, status := .fail, detail, incomplete := true, admissionFailure }
                 (item.index, result)
             let .ok inspected := outcome
               | throw <| IO.userError "unreachable admission outcome"

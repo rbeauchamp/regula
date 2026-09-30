@@ -93,6 +93,16 @@ inductive Severity where
 def Severity.spelling : Severity → String
   | .error => "error" | .warning => "warning" | .information => "information"
 
+/-- Whether a finding shows the rule violated or leaves the check incomplete. Display severity
+cannot change it. -/
+inductive Impact where
+  /-- The checked source or configuration violates the rule. -/
+  | violation
+  /-- Evidence the rule needs is missing or could not be obtained, so the check did not
+  complete. -/
+  | incomplete
+  deriving Repr, BEq, DecidableEq
+
 /-- What one finding of a rule is about. -/
 inductive RuleScope where
   /-- One owned declaration. -/
@@ -698,7 +708,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       title := "Owned coverage must match the exact Lake inventory", category := .coverage
       normativeClauses := [.lakeSurfaces]
       applicability := "coverage"
-      evidenceModes := [.incrementalProject, .freshProject]
+      evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Every owned module belongs to exactly one manifested library, and no claimed \
         module imports an excluded or checker-probe module."
       rationale := "A conformance claim covers an exact set of modules. A module imported into a \

@@ -182,7 +182,7 @@ reuse them: each offers the modules it replayed, except those containing a copy 
 `.olean` path whose parts `frozen` records for it. -/
 private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
     (inspections : Array (Except IO.Error
-      (Except ProducerReport.AdmissionFailure SurfaceInspection))) :
+      (Except ProducerReport.Refusal SurfaceInspection))) :
     Array Admission.PriorAdmission :=
   inspections.filterMap fun
     | .ok (.ok inspected) =>
@@ -210,14 +210,15 @@ private def withSlot {β : Type} (slots : Std.Mutex Nat) (act : IO β) : IO β :
 return the frozen library artifacts with each environment's outcome, in `environments` order.
 Every library's environment completes before any executable's, which reuses the admissions they
 offer (`Admission.reusedModules`) only over the `.olean` parts frozen here; the caller compares
-those parts again after the inspections (`changedArtifact?`). A worker's admission failure is an
-`.error` outcome; an IO failure is kept as a value, so every started worker is joined. -/
+those parts again after the inspections (`changedArtifact?`). A refusal (an admission failure, or
+root-package output outside every owned module) is an `.error` outcome; an IO failure is kept as
+a value, so every started worker is joined. -/
 def inspect (inventory : Lake.SurfaceInventory)
     (sourceBindings : Array ProducerReport.SourceBinding)
     (assignments : Array RegulaPolicy.SurfaceAssignment)
     (environments : Array SurfaceEnvironment) :
     IO (Array FrozenArtifact × Array (SurfaceEnvironment ×
-      Except IO.Error (Except ProducerReport.AdmissionFailure SurfaceInspection))) := do
+      Except IO.Error (Except ProducerReport.Refusal SurfaceInspection))) := do
   -- At most three slot holders (surface report workers and frontend attributions) run
   -- at once, as before; each report worker may still run its history helper. A surface's
   -- frontend attributions share
@@ -227,7 +228,7 @@ def inspect (inventory : Lake.SurfaceInventory)
   let slots ← Std.Mutex.new (3 : Nat)
   let inspectEnvironment (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
       (environment : SurfaceEnvironment) :
-      IO (Except ProducerReport.AdmissionFailure SurfaceInspection) := do
+      IO (Except ProducerReport.Refusal SurfaceInspection) := do
     let info := environment.info
     let request : ReportWorkerRequest := {
       modules := info.modules
@@ -247,10 +248,10 @@ def inspect (inventory : Lake.SurfaceInventory)
       | throw <| IO.userError "unreachable admission outcome"
     let report := admitted.report
     if let .error failure := SourceBinding.validateAgainst sourceBindings report then
-      return .error failure
+      return .error (.admission failure)
     unless Admission.reuseJustified priors report do
-      return .error ⟨s!"{Admission.failureTag} {environment.label} reused an \
-        admission no library environment offered over the same import closure"⟩
+      return .error (.admission ⟨s!"{Admission.failureTag} {environment.label} reused an \
+        admission no library environment offered over the same import closure"⟩)
     -- `mapWorkQueue` returns results in module order, so transcripts and failures
     -- keep the order of the former sequential loop.
     let modules := candidateModules report.declarations
@@ -269,7 +270,7 @@ def inspect (inventory : Lake.SurfaceInventory)
       | .inl failure => frontendFailures := frontendFailures.push failure
       | .inr transcript => transcripts := transcripts.push transcript
     if let .error failure := SourceBinding.transcriptsMatch sourceBindings transcripts then
-      return .error failure
+      return .error (.admission failure)
     return .ok { info, admitted, transcripts, frontendFailures }
   -- An executable's environment reuses a library module's admission only over the `.olean`
   -- parts frozen here, and every frozen part is compared again after the last inspection.

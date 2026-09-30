@@ -862,6 +862,43 @@ theorem fromJson_admitted (j : Json) :
     simp only [bind, Except.bind, admit, Regula.ExecutableContract.run]
     split <;> rename_i h <;> simp [h, Except.map, pure, Except.pure]
 
+/-- A module the audited environment loads from the owned build output although no requested
+module or source binding owns it, with the loaded modules that import it directly. -/
+structure UnownedModule where
+  /-- The module outside every owned module. -/
+  «module» : Name
+  /-- The loaded modules whose direct imports name it. -/
+  importers : Array Name
+  deriving Repr, ToJson
+
+instance : FromJson UnownedModule := ⟨fun j => do
+  exactFields j ["module", "importers"]
+  return {
+    «module» := ← j.getObjValAs? _ "module", importers := ← j.getObjValAs? _ "importers" }⟩
+
+/-- The RG2004 detail of one unowned module: the module and the modules that import it. -/
+def UnownedModule.detail (unowned : UnownedModule) : String :=
+  s!"unexpected-project-module: root-owned module {unowned.module} is outside every Lake \
+    library" ++
+  (if unowned.importers.isEmpty then ""
+  else s!"; imported by {", ".intercalate (unowned.importers.map toString).toList}")
+
+/-- Why a producer completed without a report. The two refusals have different impacts, so
+they are distinct constructors, never distinguished by their text. -/
+inductive Refusal where
+  /-- Required admission or source evidence was unavailable or invalid: incomplete evidence
+  (RG2005). -/
+  | admission (failure : AdmissionFailure)
+  /-- The environment loads owned build output that belongs to no owned module: the owned
+  coverage does not match the Lake inventory, a violation (RG2004). -/
+  | unowned (modules : Array UnownedModule)
+  deriving Repr
+
+/-- The refusal's text: the admission failure's detail, or each unowned module's. -/
+def Refusal.detail : Refusal → String
+  | .admission failure => failure.detail
+  | .unowned modules => "; ".intercalate (modules.map (·.detail)).toList
+
 /-- Successful transport completion is distinct from successful logical admission. -/
 inductive Outcome where
   /-- The producer completed and returned its report. -/
@@ -869,33 +906,42 @@ inductive Outcome where
   /-- The producer completed without a report because required admission or source evidence
   was unavailable or invalid. -/
   | admissionFailed (failure : AdmissionFailure)
+  /-- The producer completed without a report because the environment loads owned build output
+  that belongs to no owned module. -/
+  | unowned (modules : Array UnownedModule)
 
-/-- A report as `.reported` and an admission failure as `.admissionFailed`. -/
-def Outcome.ofExcept : Except AdmissionFailure Environment → Outcome
+/-- A report as `.reported`, and each refusal as its own constructor. -/
+def Outcome.ofExcept : Except Refusal Environment → Outcome
   | .ok report => .reported report
-  | .error failure => .admissionFailed failure
+  | .error (.admission failure) => .admissionFailed failure
+  | .error (.unowned modules) => .unowned modules
 
 instance : ToJson Outcome := ⟨fun
   | .reported report => Json.mkObj [("kind", toJson "reported"), ("report", toJson report)]
   | .admissionFailed failure =>
-      Json.mkObj [("kind", toJson "admissionFailed"), ("failure", toJson failure)]⟩
+      Json.mkObj [("kind", toJson "admissionFailed"), ("failure", toJson failure)]
+  | .unowned modules => Json.mkObj [("kind", toJson "unowned"), ("modules", toJson modules)]⟩
 
 /-- One outcome grammar for every report decoder `ρ`. -/
-def decodeOutcome (ρ : Type) [FromJson ρ] (j : Json) : Except String
-    (Except AdmissionFailure ρ) := do
+def decodeOutcome (ρ : Type) [FromJson ρ] (j : Json) : Except String (Except Refusal ρ) := do
   match ← j.getObjValAs? String "kind" with
   | "reported" =>
     exactFields j ["kind", "report"]
     return .ok (← j.getObjValAs? ρ "report")
   | "admissionFailed" =>
     exactFields j ["kind", "failure"]
-    return .error (← j.getObjValAs? _ "failure")
+    return .error (.admission (← j.getObjValAs? _ "failure"))
+  | "unowned" =>
+    exactFields j ["kind", "modules"]
+    let modules : Array UnownedModule ← j.getObjValAs? _ "modules"
+    if modules.isEmpty then throw "empty unowned-module refusal"
+    return .error (.unowned modules)
   | _ => throw "unknown environment producer outcome"
 
 instance : FromJson Outcome := ⟨fun j => Outcome.ofExcept <$> decodeOutcome Environment j⟩
 
 /-- The same `Outcome` wire format decoded once into an admitted report. -/
-abbrev AdmittedOutcome := Except AdmissionFailure Admitted
+abbrev AdmittedOutcome := Except Refusal Admitted
 
 instance : FromJson AdmittedOutcome := ⟨decodeOutcome Admitted⟩
 

@@ -38,9 +38,11 @@ private def optionalText (j : Json) (key fallback : String) : IO String :=
 
 /-- Producer-window environment: the scrub plus no-optional-write Git and a
 disabled Lake artifact cache (fail-closed), so producer children take no shared
-optional locks and restore no shared cache artifacts. -/
+optional locks and restore no shared cache artifacts, and timing output on
+(`Regula.Checker.timingVariable`), whose phase lines the driver totals. -/
 def corpusEnv : Array (String × Option String) :=
-  cleanEnv ++ #[("GIT_OPTIONAL_LOCKS", some "0"), ("LAKE_CACHE_DIR", some "")]
+  cleanEnv ++ #[("GIT_OPTIONAL_LOCKS", some "0"), ("LAKE_CACHE_DIR", some ""),
+    (Regula.Checker.timingVariable, some "1")]
 
 /-- Pure snapshot entry construction; the exact `Json.mkObj` request shape. -/
 def snapshotEntry (uri source : String) : Json :=

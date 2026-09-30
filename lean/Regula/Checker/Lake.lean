@@ -145,6 +145,11 @@ build resolves modules only through the workspace being built. -/
 def buildTargets (repo : FilePath) (targets : Array String) : IO ProcessResult :=
   runProcess repo "lake" (#["build"] ++ targets) scrubbedLeanPathEnv
 
+/-- `buildTargets`, also showing Lake's own progress line for each job (`isLakeProgressLine`) as
+the build runs; the captured output is the same. -/
+def buildTargetsShowing (repo : FilePath) (targets : Array String) : IO ProcessResult :=
+  runProcessShowing repo "lake" (#["build"] ++ targets) scrubbedLeanPathEnv isLakeProgressLine
+
 /-- Root-package Lean options of the `lint` driver's audit build: the audit-build marker
 (`Regula.Linter.auditBuildOption`), which turns Regula's local feedback off in every module that
 imports `Regula.Linter` whatever its source sets `linter.regula` to (`liveFeedback_auditBuild`).
@@ -161,10 +166,11 @@ def auditLeanOptions : LeanOptions := .ofArray #[⟨Regula.Linter.auditBuildOpti
 /-- `buildTargets` with `auditLeanOptions` on the root package, run in-process through Lake's
 build API because the `lake build` command line sets no Lean options. The inherited search
 paths are ignored as in `buildTargets`; the build monitor's text is the output, and a failed
-build exits 1. -/
+build exits 1. Lake's progress line for each job is also shown as the build runs, as by
+`buildTargetsShowing`. -/
 def buildAuditTargets (repo : FilePath) (targets : Array String) : IO ProcessResult := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
-  let out := IO.FS.Stream.ofBuffer buffer
+  let out ← showingStream (IO.FS.Stream.ofBuffer buffer) isLakeProgressLine
   let exitCode ← try
       Workspace.withRootWorkspace repo (scrubSearchPath := true) fun ws => do
         let specs ← match ← (_root_.Lake.parseTargetSpecs ws targets.toList).toBaseIO with

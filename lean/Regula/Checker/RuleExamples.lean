@@ -159,13 +159,18 @@ unsafe def run (args : List String) : IO UInt32 := do
         --documentation PROJECT DOCS) OUTPUT"
 end Regula.Checker.RuleExamples
 
+/-- The exit code of an incomplete production: outside `axiomGate`'s exit codes 0 to 3, so the
+qualifier (`RuleExampleQualification.qualify`, which admits only 0 to 3) never mistakes it for an
+audit's own result. -/
+private def productionIncomplete : UInt32 := 4
+
 private unsafe def ruleExamplesEntry (args : List String) : IO UInt32 := do
   try
     Regula.Checker.initializeLeanSearchPath
     Regula.Checker.RuleExamples.run args
   catch error =>
     IO.eprintln s!"rule example production incomplete: {error}"
-    return 2
+    return productionIncomplete
 
 /-- Qualification-only binary. `--injected-git-facts FACTS` is the internal
 corpus-producer entry: it installs the runner's once-captured shared-dependency
@@ -183,7 +188,7 @@ unsafe def main (args : List String) : IO UInt32 := do
     match loaded with
     | .error error =>
       IO.eprintln s!"rule example production incomplete: injected git facts: {error}"
-      return 2
+      return productionIncomplete
     | .ok table =>
       -- An empty table, from a project with no dependency, answers no capture request: every
       -- capture then observes Git itself.
@@ -194,7 +199,7 @@ unsafe def main (args : List String) : IO UInt32 := do
             (gateArgs.dropWhile (· != "--json-out")).drop 1 |>.head?)
         | "--injected-git-facts" :: _ =>
           IO.eprintln "rule example production incomplete: repeated injected git facts"
-          return 2
+          return productionIncomplete
         | _ => pure (← ruleExamplesEntry rest, rest.getLast?)
       -- Mark the result so it cannot be mistaken for Git-observed output. The
       -- qualification-only result view keeps this field and admission ignores it.
@@ -206,6 +211,6 @@ unsafe def main (args : List String) : IO UInt32 := do
               ((value.setObjVal! "gitFacts" (.str "injected")).compress ++ "\n")).toBaseIO
         if let .error error := marked then
           IO.eprintln s!"rule example production incomplete: injected-facts marker: {error}"
-          return 2
+          return productionIncomplete
       return code
   | _ => ruleExamplesEntry args

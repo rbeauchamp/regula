@@ -456,7 +456,11 @@ def guide : RuleId → Guide
           with impact `incomplete`.",
         "RG2001 is also the finding for any other error that escapes the audit before a more \
           specific rule classifies it (for example a malformed Lake query result). Read the \
-          detail: it names the failing step. Such an error is INCOMPLETE, never a pass."]
+          detail: it names the failing step. Such an error is INCOMPLETE, never a pass.",
+        "A checker worker that loads a built environment for inspection and fails (for example \
+          an import conflict, or Lean's maximum recursion depth) is RG2001 too: the detail names \
+          the environment it was inspecting and carries the worker's own error text, and the \
+          result lists the stages that completed before it."]
       rationaleDetail := []
       proofShape := []
       established := [
@@ -594,6 +598,10 @@ def guide : RuleId → Guide
           root-package module's origin and rejects unexpected project modules, imports of excluded \
           modules into claimed ones, and unknown ownership (`unexpected-project-module` and \
           related subreasons).",
+        "A root-package module outside every manifested library that a claimed module imports \
+          stops that environment's inspection, since kernel admission cannot classify it: the \
+          finding names the module and the modules that import it. The single-file audit \
+          (`axiomGate --file`) reports such an import the same way.",
         "The impact depends on the subreason. A forbidden import or a module outside every \
           manifested library (`unexpected-project-module`) is a violation (`lake lint` exit 1 \
           unless the same run also has an incomplete finding). A configured module that was \
@@ -603,8 +611,10 @@ def guide : RuleId → Guide
       proofShape := [
         "The removed import must not have supplied evidence the claim still relies on."]
       established := [
-        "The claimed modules are exactly Lake's configured modules for the claimed targets, and \
-          every owned constant is attributed to one of them."]
+        "For a project audit, the claimed modules are exactly Lake's configured modules for the \
+          claimed targets, and every owned constant is attributed to one of them.",
+        "For a single-file audit, every module the file loads from the root package's build \
+          output is a module of one of the package's Lake libraries or an executable's root."]
       notEstablished := [
         "That the chosen library boundaries are the ones the project intends to claim; that is \
           reviewed with the manifest rationale."]
@@ -612,8 +622,9 @@ def guide : RuleId → Guide
         "An exclusion in the manifest never permits a claimed module to import the excluded \
           one."]
       limitations := [
-        "Whole-project scope only: the editor is explicitly partial and does not report this rule, \
-          and a single-file audit does not either."]
+        "The editor is explicitly partial and does not report this rule. A single-file audit \
+          reports only a module outside every Lake library that the file imports, not the whole \
+          project's inventory coverage."]
       residuals := [.qualify]
       checklist :=
           ["DECL-02", "DECL-03", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",

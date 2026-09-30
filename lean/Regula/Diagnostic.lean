@@ -43,15 +43,6 @@ inductive Location where
   /-- The project or its configuration, identified by text such as its root path. -/
   | project (identity : String)
 
-/-- Whether a finding shows the rule violated or leaves the check incomplete. -/
-inductive Impact where
-  /-- The checked source or configuration violates the rule. -/
-  | violation
-  /-- Evidence the rule needs is missing or could not be obtained, so the check did not
-  complete. -/
-  | incomplete
-  deriving Repr, BEq, DecidableEq
-
 /-- The payload of a declaration-scoped rule's finding. -/
 structure DeclarationArguments where
   /-- The declaration the finding concerns. -/

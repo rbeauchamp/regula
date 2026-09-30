@@ -228,13 +228,28 @@ is not the workspace that dispatched it. Its exit status separates the outcome:
 | Exit | Outcome |
 | --- | --- |
 | 0 | `ACCEPTED`: the audit constructed its accepted result for the selected mode. |
-| 1 | `VIOLATION`: completed policy rejections, for example RG1001–RG1007 or RG3002. |
+| 1 | `VIOLATION`: completed policy rejections, for example RG1001–RG1007, RG3002, or RG2004 for a claimed import of a module outside every library. |
 | 2 | `INVALID CONFIGURATION`: only RG2002 manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
-| 3 | `INCOMPLETE`: an incomplete finding, for example RG2001, RG2003, RG2005 or RG3001, a failed audit-worker build, a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
+| 3 | `INCOMPLETE`: an incomplete finding, for example RG2001, RG2003, RG2005 or RG3001, a failed audit-worker build, a failed audit worker (RG2001, whose detail carries the worker's error), a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
 
 The success line names its coverage: an incremental run is "incremental project acceptance over
 existing build state, not a fresh-source audit"; only `--fresh` is fresh whole-project
-acceptance.
+acceptance. An audit that records a result without accepting it prints its findings, then one
+summary line that counts them by impact, for example
+`FAIL: 1 violation(s), 25 incomplete finding(s)`, and the driver prints the outcome line
+`regula lint: INCOMPLETE (exit 3)`. The report's `status`, the summary counts and the exit code
+are all derived from that one recorded result (`Regula.Checker.Lint.Observation`), which holds the
+rule and `impact` of each reported diagnostic: each count is the number of findings of that
+impact (`tally_eq`), an incomplete finding makes the run `INCOMPLETE` whatever violations it also
+counts (`Observation.exitCode_incomplete`), and `VIOLATION` requires a violation and no incomplete
+finding (`Observation.exitCode_violation`). A run that fails before recording a result, such as a
+failed audit-worker build or an invalid argument, prints its error and the outcome line only.
+
+While the claimed targets build, the driver shows Lake's own progress line for each job that
+does work (`✔ [3/10] Built Widget (1.2s)`), including a cached module whose warnings Lake
+replays; an up-to-date module without warnings prints nothing. `--verbose` adds every classified
+declaration, each execution root with a boundary or an unresolved path, and the checker's timing
+spans (`verification phase …`, `diagnostic span: …`), which default output omits.
 
 **A first run usually stops at build warnings.** Rules are inspected only after a build without
 warnings (RG2003), so a warning, such as a missing docstring, makes the run `INCOMPLETE` (exit 3)
@@ -273,8 +288,16 @@ Lake details that affect what ran:
   build with `--incremental`, and as the build-lint `policy` target runs it with `--build-lint`
   (`lake exe axiomGate -- --help` lists every option);
   `lake exe axiomGate --file F.lean --claim standard-logical` audits one file, which is never
-  project coverage. `lake exe docFenceAudit` checks Lean examples you keep in Markdown under
-  `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).
+  project coverage. Every `axiomGate` audit uses `lake lint`'s exit codes: 0 accepted (or, for
+  `--file` without a conforming claim, classified), 1 violation, 2 invalid configuration or
+  invocation, 3 incomplete. An audit that recorded a result exits with that result's code, and 3
+  when it recorded none, failed after recording a success
+  (`Regula.Checker.Lint.gateExitCode`) or stopped on an error; `lake lint` reports the code its
+  own audit returned (`Regula.Checker.Lint.classify_gateExitCode`). That audit builds with the
+  driver's audit-build marker, so a standalone `axiomGate` run can differ: there a live Regula
+  finding stops the warning-free build check as incomplete (3). `--file` prints only the declarations with a
+  finding; `--verbose` lists every classified declaration. `lake exe docFenceAudit` checks Lean
+  examples you keep in Markdown under `docs/` with the [fence protocol](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#77-check-lean-documentation-verbatim).
 
 ## Update Regula
 
@@ -331,8 +354,8 @@ run's. Its main members:
 | Member | Meaning |
 | --- | --- |
 | `schemaVersion` | `5`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
-| `status` | `completed` (accepted), `rejected` (a violation was established), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). |
-| `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
+| `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
+| `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges), `arguments`, `text`, `remedy` and `helpUrl`. |
 | `rules` | Once per fired rule: `requirement`, `rationale`, `remedy`, `rewrites`, `compliantExample`, `correction`, `helpUrl` and the offline `explain` command. |
 
