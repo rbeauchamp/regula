@@ -53,7 +53,9 @@ with a checked violating and corrected example.
 
 Regula is a Lake package, and each release is tagged with the one Lean release it supports:
 `v4.34.0` is for `leanprover/lean4:v4.34.0`. Use the
-[release](https://github.com/rbeauchamp/regula/releases) tag that matches your `lean-toolchain`.
+[release](https://github.com/rbeauchamp/regula/releases) tag that matches your `lean-toolchain`;
+when none does, see
+[when your Lean release has no Regula release](docs/guides/adoption.md#when-your-lean-release-has-no-regula-release).
 
 1. **Require it** in `lakefile.toml`
    (`lakefile.lean`: `require regula from git "https://github.com/rbeauchamp/regula" @ "v4.34.0"`):
@@ -92,7 +94,8 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
 
 ## For coding agents
 
-- `lake exe regula init` adds a short `AGENTS.md` section that tells your agent to run
+- `lake exe regula init` adds a short section to your repository's `AGENTS.md` (the nearest one
+  from the Lake project up to the repository root) that tells your agent to run
   `lake exe regula agent-guide`, a compact briefing of every rule ordered for writing code, before
   it writes Lean; `lake exe regula init --skill` installs the briefing as an agent skill instead,
   and running `init` after an update refreshes it.

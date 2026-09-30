@@ -50,6 +50,14 @@ def buildOptions (options : Lean.LeanOptions) (weakArgs args : Array String) :
     | .ofString s => .string s | .ofBool b => .bool b | .ofNat n => .nat n)
   arguments := (weakArgs ++ args).toList
 
+/-- The options and extra `lean` arguments Lake builds the modules of library `lib` with. -/
+def libraryOptions (lib : _root_.Lake.LeanLib) : RegulaPolicy.Community.BuildOptions :=
+  buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs
+
+/-- The options and extra `lean` arguments Lake builds the root of executable `exe` with. -/
+def executableOptions (exe : _root_.Lake.LeanExe) : RegulaPolicy.Community.BuildOptions :=
+  buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs
+
 /-- Obtain every root-package Lean library and executable, exact module, and
 exact source from Lake's own elaborated package model. This loads the checked
 project's workspace in-process, so `lakefile.lean` and `lakefile.toml`
@@ -76,7 +84,7 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
         throw <| IO.userError s!"lake-query-malformed: invalid library {library}"
       libraries := libraries.push {
         library, modules, sources
-        options := buildOptions lib.leanOptions lib.weakLeanArgs lib.leanArgs }
+        options := libraryOptions lib }
     if libraries.isEmpty then
       throw <| IO.userError "lake-query-malformed: no root Lean libraries"
     let mut executables : Array ExecutableInventory := #[]
@@ -90,7 +98,7 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
         throw <| IO.userError s!"lake-query-malformed: invalid executable {executable}"
       executables := executables.push {
         executable, root, source
-        options := buildOptions exe.root.leanOptions exe.root.weakLeanArgs exe.root.leanArgs }
+        options := executableOptions exe }
     let leanPath := #[leanLibDir] ++ ws.leanPath.toArray
     let leanSrcPath := ws.leanSrcPath.toArray
     let dependencies ← (ws.packages.extract 1 ws.packages.size).mapM fun package => do

@@ -773,18 +773,34 @@ exactly the claimed targets (the root targets the manifest does not exclude, and
 existing manifest fails RG2002), as RG2006 does: `run_sets`, every required option a claimed
 target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
 it, which meets RG2006's requirement on that option (`meets_of_sets`); `resolved_run`, every
-claimed target then has a value for every required option; `run_options_unclaimed`, when a root target is excluded the package's options
-are unchanged, the options going into each claimed target's own configuration
-(`run_plan_targets`), so none reaches an excluded target; and `run_options_prefix` and
-`withAdded_prefix`, the options the package and each claimed target already give are kept. An
-edit adds a missing piece and has no form that replaces a lint driver or an option value. The
-starter manifest is planned exactly when there is no manifest and the package has a `lean_lib`
-for it to claim (`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
+claimed target then has a value for every required option or a `-D` candidate of its own extra
+`lean` arguments names it; `added_unargued`, no option the plan adds to the package or to a
+claimed target's own configuration names an option that a `-D` candidate of that target sets
+(the candidates of `RegulaPolicy.Community.argumentSettings`, RG2006's own reading, which
+includes every `-D` that `lean` reads only under the command-line assumption stated in
+`RegulaPolicy.Community`); `argued_run`, the plan leaves unchanged the required options that
+claimed targets set only with such a `-D`, which `doctor` reports once as a setup issue `init`
+does not fix, and `arguedBy_run` those of each claimed target; `run_options_unclaimed`, when a
+root target is excluded the package's options are unchanged, the options going into each claimed
+target's own configuration (`run_plan_targets`), so none reaches an excluded target, and an option
+some claimed target's `-D` sets likewise goes only into the configuration of each target that
+builds without it; and `run_options_prefix` and `withAdded_prefix`, the options and extra `lean`
+arguments the package and each claimed target already give are kept. An edit adds a missing
+piece and has no form that replaces a lint driver or an option value. The starter manifest is
+planned exactly when there is no manifest and the package has a `lean_lib` for it to claim
+(`plan_manifest_mem`); a package with none has a setup issue `init` does not fix.
 
 **Checked when it runs:** `init` observes the project again after writing and restores every
-file it wrote unless the new plan is empty, and it writes the starter manifest only after
-`Manifest.parse` reads the text back as exactly that manifest. That the lakefile edits realize
-the model's `apply` is this check, not a theorem. `doctor` runs the audit's own RG2002 functions
+file it wrote unless the new plan is empty and each claimed target of both observations, matched
+by kind and name, sets the same required options only with a `-D` as before (`arguedBy_run`'s
+executable counterpart, which catches an added option that reaches such a target; a target the
+new observation does not claim, as while a starter manifest fails RG2002, is not compared), and it
+writes the starter manifest only after `Manifest.parse` reads the text back as exactly that
+manifest. That the lakefile edits realize
+the model's `apply` is this check, not a theorem. That `allClaimed` holds only when the observed
+targets are every root `lean_lib` and `lean_exe` is how `observe` builds the observation, and the
+extra `lean` arguments it reads are those of the audit's inventory, read by the same
+`Lake.libraryOptions` and `Lake.executableOptions`. `doctor` runs the audit's own RG2002 functions
 (`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and RG2006
 decision (`Community.failures`) over Lake's resolved options of each claimed target. It applies
 Mathlib's options when the workspace contains Mathlib, where the audit applies them to a target
@@ -802,7 +818,18 @@ count is exactly the rest, and `wrapFrom_flatten` that grouping keeps each name,
 the finding text is `moduleLines` is by definition, and the line width is layout. The starter
 manifest lists each `lean_exe` with the first library containing its root module, so, by its
 definition rather than a theorem, it meets `RootsClassifiedAlike` unless a root lies in two
-libraries; a library whose modules are all such roots is refused as RG2002 by `doctor`.
+libraries; a library whose modules are all such roots is refused as RG2002 by `doctor`. `doctor`
+prints one RG2006 finding for the claimed targets that share a claim and the same failure
+detail, where the audit prints one per target. The agent-guidance file is found operationally:
+from the Lake root up to the nearest directory holding a `.git` entry (Git itself is not run),
+the nearest `AGENTS.md` with the section, else the nearest that exists, else the repository
+root's; the skill files are read and written at that repository root (the Lake root outside a Git
+repository).
+
+Regula's own `lakefile.lean` refuses to load, before any module compiles, when the running Lean's
+`Lean.versionString` is not the release its `lean-toolchain` names. This is an elaboration-time
+check, not a theorem; Lake reuses an elaborated configuration while the file's text and the
+running Lean are unchanged, and `lake update` elaborates it again.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
 which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and
@@ -810,8 +837,12 @@ which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_l
 both formats (fresh, template, inline-table, structure-instance, bare-`package` and
 computed-`leanOptions` shapes, another driver, a contradicting option, a stale skill, a library
 without globs, left-out modules that a claimed module does and does not import, a library the
-manifest excludes, with options written into bare and configured claimed targets, and a package
-with no `lean_lib`) are bounded observations.
+manifest excludes, with options written into bare and configured claimed targets, a package
+with no `lean_lib`, a package-level `-D` setting Mathlib's options as in the first adopter, a
+`-D` in one library's own `moreLeanArgs` in both formats, and a Lake project in a subdirectory of
+a Git repository with and without a root `AGENTS.md`) are bounded observations, as are the
+lakefile's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command line and when a checker
+executable loads the workspace.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
