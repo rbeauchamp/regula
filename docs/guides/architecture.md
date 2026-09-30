@@ -218,20 +218,19 @@ metadata, not authenticated binary identity.
   `f`, such as `f._proof_n`, when `f`'s value, equation information or `f.eq_def`'s statement uses
   them, or, with the chain running through the recursion helper below, `f._unsafe_rec`'s value
   does, and an RPC wrapper or `initialize` action by the extension that records it; constructor
-  lemmas and type
-  constructions where the environment shows their generator ran on the type (its precondition,
-  under Lean's default options, or the mark it leaves on a sibling it generates in the same run);
-  and field defaults by Lean's own lookup (`getEffectiveDefaultFnForField?`). A compiled recursion
-  helper `f._unsafe_rec`, which the environment ties to `f` only by its name, is related to `f` when
-  the admitted scope authorizes it (`Findings.stepOf` over `authorizedUnsafeRecHelpers`), and
-  `Findings.helperStep_base` proves `f` is then an audited definition in the helper's module with
-  its type, and that Lean's recursion compiler was observed to regenerate the helper. No clause
-  rests on a name alone, so an elaborator or macro Lean names `«_aux_…»` inside a namespace is not
-  related. The RG1005 rewrite names the families from `GeneratedFamily.all` and
-  `GeneratedFamily.text`, and `RegistryChecks` requires the adoption guide to quote it verbatim,
-  so the guidance and the guide name exactly the families the checker relates; the
-  [enumeration](proofs-and-boundaries.md#generated-declaration-families) records every family
-  Lean v4.34.0 generates and why each is related or not. A declaration finding's
+  lemmas and type constructions where the environment shows their generator ran on the type (its
+  precondition, under Lean's default options, or the mark it leaves on a sibling it generates in
+  the same run); and field defaults by Lean's own lookup (`getEffectiveDefaultFnForField?`). A
+  compiled recursion helper `f._unsafe_rec`, which the environment ties to `f` only by its name, is
+  related to `f` when the admitted scope authorizes it (`Findings.stepOf` over
+  `authorizedUnsafeRecHelpers`), and `Findings.helperStep_base` proves `f` is then an audited
+  definition in the helper's module with its type, and that Lean's recursion compiler was observed
+  to regenerate the helper. No clause rests on a name alone, so an elaborator or macro Lean names
+  `«_aux_…»` inside a namespace is not related. The RG1005 rewrite names the families from
+  `GeneratedFamily.all` and `GeneratedFamily.text`, and `RegistryChecks` requires the adoption
+  guide to quote it verbatim, so the guidance and the guide name exactly the families the checker
+  relates; the [enumeration](proofs-and-boundaries.md#generated-declaration-families) records
+  every family Lean v4.34.0 generates and why each is related or not. A declaration finding's
   `arguments.sourceDeclaration` is the end of that chain over the audited declarations
   (`Findings.sourceName?`), and `sourceName?_eq_some_iff` proves it is exactly the name the
   recorded relation leads to from the declaration and relates to nothing further: a declaration

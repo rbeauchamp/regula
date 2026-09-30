@@ -768,14 +768,14 @@ inventory search it replaces (`declarationIndex_get`), and an RG1005 finding bui
 attribution groups under it (`declarationFinding_groupUnder?`). Which declaration Lean generated a
 declaration from is read from the environment by `Collect.generatedFrom?`, one clause per family
 of `GeneratedFamily`: from the marks Lean's generators leave, from a recursive definition's
-equation information, from the uses in a definition's value, from Lean's own field-default
-lookup, and, for constructor lemmas and type constructions, from their generator's precondition or
-a sibling's mark, checked under Lean's default options. No clause rests on a name alone. A compiled
-recursion helper `f._unsafe_rec`, which the environment ties to `f` only by its name, is related to
-`f` only when the admitted scope authorizes it (`authorizedUnsafeRecHelpers`), and
-`helperStep_base` proves `f` is then an audited definition of the helper's module and type, and
-that Lean's recursion compiler was observed to regenerate the helper; the observation itself is
-the boundary module 7 states, not proved.
+equation information, from the uses in a definition's value or in the statement of its `eq_def`,
+from Lean's own field-default lookup, and, for constructor lemmas and type constructions, from
+their generator's precondition or a sibling's mark, checked under Lean's default options. No
+clause rests on a name alone. A compiled recursion helper `f._unsafe_rec`, which the environment
+ties to `f` only by its name, is related to `f` only when the admitted scope authorizes it
+(`authorizedUnsafeRecHelpers`), and `helperStep_base` proves `f` is then an audited definition of
+the helper's module and type, and that Lean's recursion compiler was observed to regenerate the
+helper; the observation itself is the boundary module 7 states, not proved.
 `GeneratedFamily.mem_all` proves the list the checker tries and the RG1005 guidance names holds
 every family, `generatedBy?` matches every family by construction (Lean's exhaustiveness check),
 and `RegistryChecks` requires the adoption guide to quote the guidance verbatim. That the clauses
