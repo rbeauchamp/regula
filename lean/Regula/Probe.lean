@@ -88,8 +88,9 @@ open RegulaPolicy (DeclarationKind BoundaryKind Correspondence DefeqComparison S
 abbrev kindOf := Regula.Collect.kindOf
 
 /-- Select the intersection of current kernel constants and Lean's exact
-import ownership map. For the imported environments used by admission and
-reporting, the base and checked kernel share this map. Enumerating ownership
+import ownership map, which attributes a name several modules declare to the first of them
+while the kernel entry is the copy Lean's import kept. Reporting uses it; kernel admission
+reads each module's own constants instead (`Admission.validate`). Enumerating ownership
 first avoids an ownership hash
 lookup for every dependency constant; IR-only names without constants are
 ignored, and the current kernel entry retains subsumption semantics. -/

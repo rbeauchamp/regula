@@ -729,9 +729,10 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           metaprograms that add unchecked declarations; state and prove the theorem normally.",
         "Do not edit sources while an audit runs; rerun it.",
         "For an editor pending result, run `lake lint` (or `lake lint -- --fresh`).",
-        "Rename an owned axiom that shares its name with another module's constant: admission \
-          accepts a shared name only for theorems of one statement, such as an equation lemma \
-          Lean realizes in each module that needs it, and checks each copy's proof."]
+        "Rename an owned declaration that shares its name with another module's constant unless \
+          both are theorems of the same statement, universe parameters and mutual block, such as \
+          an equation lemma Lean realizes in each module that needs it; admission checks the \
+          proof of each owned copy."]
       examples := {
         language := .lean
         audience := .adopter

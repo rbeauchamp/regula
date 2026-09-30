@@ -325,8 +325,9 @@ private def oleanParts (olean : FilePath) : IO (Array (Option ByteArray)) :=
     if ← part.pathExists then some <$> IO.FS.readBinFile part else pure none
 
 /-- The completed admissions of the library environments, as an executable's environment may
-reuse them: each offers the modules it replayed whose import closure loads every `owned` module
-from the canonical `.olean` path whose parts `frozen` records for it. -/
+reuse them: each offers the modules it replayed, except those containing a copy of a shared name
+(the receipt's `shared`), whose import closure loads every `owned` module from the canonical
+`.olean` path whose parts `frozen` records for it. -/
 private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
     (inspections : Array (Except IO.Error
       (Except ProducerReport.AdmissionFailure SurfaceInspection))) :
@@ -335,8 +336,9 @@ private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
     | .ok (.ok inspected) =>
         let report := inspected.admitted.report
         let index := Admission.originIndex report.moduleOrigins
+        let shared := (report.admission.map (·.shared)).getD #[]
         let offered := ((report.admission.map (·.modules)).getD #[]).filter fun m =>
-          match Admission.importClosure index m with
+          !shared.contains m && match Admission.importClosure index m with
           | none => false
           | some closure => closure.all fun origin =>
               !owned.contains origin.name || frozen[origin.name]? == some origin.olean

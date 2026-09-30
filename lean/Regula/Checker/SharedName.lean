@@ -12,7 +12,7 @@ lemmas), so two modules that do not import each other can each contain the same 
 import keeps one copy of such a name when the two copies pass its private `subsumesInfo` test in
 one of the two directions. `sameTheorem` is that test restricted to two theorems, and
 `sameTheorem_iff_subsumesInfo` proves the correspondence against Lean's own definition, which
-`import all Lean.Environment` makes available. Kernel admission (`Admission.checkDuplicates`)
+`import all Lean.Environment` makes available. Kernel admission (`Admission.checkCopies`)
 admits a shared name only under `sameTheorem`. -/
 
 namespace Regula.Checker.Admission

@@ -361,35 +361,57 @@ inferred from any pure proof.
 - **Several copies of one name.** Lean realizes equation, unfolding and match-equation lemmas,
   functional induction and case principles, and congruence and injectivity lemmas in the module
   that first needs them, so two modules that do not import each other can each contain the same
-  one. Lean's import keeps a single copy, and `Kernel.Environment.replay` skips, unchecked, a
+  one. Lean's import keeps one copy, the last loaded, while attributing the name to the first
+  module; every report reads that kept copy, and `Kernel.Environment.replay` skips, unchecked, a
   theorem whose name and statement it already holds. Admission therefore reads each replayed
-  module's own constants (`Admission.Copy`); `Admission.planReplay` replays the first copy of each
-  name absent from the replay base and pairs every other copy with the constant the replayed
-  kernel holds under its name, and `Admission.checkDuplicates` admits such a copy only when the two
-  are theorems of the same name, type (`Expr.eqv`, in either direction), universe parameters and
-  mutual block (`Admission.sameTheorem`) and the kernel accepts the copy's own proof renamed to
-  `Admission.proofCheckName`. **Proved** about the executed definitions:
+  module's own constants (`Admission.Copy`). It replays, under each such name the replay base
+  lacks, the constant the audited environment keeps (`Admission.replayMap`), so there the replayed
+  kernel holds exactly the constants reports read, and replay itself rejects a kept copy whose
+  proof is circular. `Admission.checkCopies` then checks every copy against the constant the
+  replayed kernel holds under its name: a copy of a name the base or another replayed module
+  also declares must form, with the held constant, two theorems of the same name, type
+  (`Expr.eqv`, in either direction), universe parameters and mutual block
+  (`Admission.sameTheorem`); a copy that is not the held constant must have its own proof accepted
+  by the kernel under `Admission.proofCheckName`, and that proof must not reach its own name in
+  the replayed kernel (`Admission.reaches`); and where the audited environment keeps an owned copy
+  over a different base constant, that copy must also pass these checks and its proof must not
+  reach its own name in the audited environment. A copy the audited environment discards is
+  checked in the replayed kernel, where the names its proof uses denote that environment's
+  admitted constants. Modules containing any copy of such a shared name are listed in the
+  receipt's `shared` and never offered for reuse, since their admission depends on which copy an
+  environment keeps. **Proved** about the executed definitions:
   `Admission.sameTheorem_iff_subsumesInfo` (private in the `module` file
   `Regula.Checker.SharedName`, whose `import all Lean.Environment` reaches Lean's private
   `subsumesInfo`: on two theorems the condition equals `subsumesInfo` in either direction, which
   the pinned `Lean.finalizeImport` requires of a second constant of one name, as read from its
-  source; every other pair it accepts involves an axiom, which admission refuses),
-  `Admission.planReplay_sound` (no replayed name is in the base; every copy is a duplicate or the
-  one replayed under its name; every duplicate is paired with the base constant of its name or,
-  when the base has none, the replayed copy) and `Admission.checkDuplicates_sound` (a success
-  means every duplicate met `sameTheorem` and the kernel added its renamed copy). **Argued, not
-  machine-checked:** `validate` passes these checks the replayed module data, the base's
-  `find?` and the replayed kernel, and admits no key when either fails (read from its code).
-  **Trusted:** Lean's import and module data, and the kernel, including that its theorem check
-  consults the declaration's name only to require it undeclared, so the renamed check is a check
-  of the copy. Report attribution is unchanged: `Probe.ownedConstants` still attributes a shared
-  name to the first module Lean's import loaded it from.
+  source; every other pair it accepts involves an axiom, which admission refuses);
+  `Admission.replayMap_sound` and `Admission.replayMap_complete` (the replayed constants are
+  exactly the audited environment's constants of the copies' names the base lacks);
+  `Admission.reaches_false` (a search that returns `false` found that no constant the start uses
+  reaches the target along `Admission.successors`, the constants each type and value use); and
+  `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
+  conditions above). **Argued, not machine-checked:** `validate` passes these checks the replayed
+  module data, the base's and the audited environment's `find?` and the replayed kernel, admits no
+  key when one fails, and filters `shared` modules from the offered admissions
+  (`AxiomGate.libraryPriors`), all read from the code. Every cycle among the audited
+  environment's constants that involves an owned name passes through a name whose kept constant
+  differs from the replayed one (or through the trusted base), because the replayed kernel is
+  acyclic and agrees with the audited environment on the other owned names; the checks
+  exclude a cycle through such a name, so the constants reports read form a well-founded
+  development. **Trusted:** Lean's import and module data, the kernel, and `replay` adding each map
+  entry unchanged while leaving the base as imported; that the kernel's theorem check consults the
+  declaration's name only to require it undeclared, so a renamed check is a check of the copy; and,
+  as in Lean's own duplicate-theorem design, that the value of a theorem does not change what
+  typechecks where copies of one statement are exchanged. Report attribution is unchanged:
+  `Probe.ownedConstants` attributes a shared name to the first module Lean's import loaded it
+  from, with the kept constant.
 - **Admission reuse.** The project audit inspects every library environment before any
   executable's, and hands the executables the libraries' completed admissions
   (`Admission.PriorAdmission`). An executable's environment keeps an owned module other than its
   root in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's
-  `reused`) only when (1) a handed-out library admission replayed it over the identical import
-  closure (`Admission.importClosure`: the same modules, canonical `.olean` paths and import
+  `reused`) only when (1) a handed-out library admission replayed it, did not list it as
+  `shared` (a module containing a copy of a name another loaded module declares), over the
+  identical import closure (`Admission.importClosure`: the same modules, canonical `.olean` paths and import
   edges); (2) every owned module of that closure is a claimed library module all of whose
   `.olean` parts (the `.olean` and, for a module-system file, the `.olean.server` and the
   `.olean.private` Lean takes its kernel constants from) the coordinator read before the first
@@ -402,8 +424,8 @@ inferred from any pure proof.
   (a reused module is owned, unrequested and satisfies (1), (3) and (4)) and
   `Admission.reuseJustified_sound` (the coordinator's recheck of a report accepts only
   unrequested modules a handed-out admission offers over the report's own closure). **Checked
-  at run time, not proved:** that the handed-out admissions list only replayed modules whose
-  closures are frozen, (2), and that a closure contains every module its members import
+  at run time, not proved:** that the handed-out admissions list only replayed modules outside
+  `shared` whose closures are frozen, (2), and that a closure contains every module its members import
   (`Admission.validate` still refuses a base module that imports a replayed one). **Derived, not
   machine-checked:** the kernel's check of a declaration depends only on the declaration and the
   constants it consults, which its references and their values reach. By (3), (4) and the

@@ -1252,10 +1252,10 @@ private def realizedLemmaSource : String :=
   "    (Except.ok value : Except String Nat).mapError String.length = .ok value := by\n" ++
   "  simp [Except.mapError]\n"
 
-/-- A file importing the realizing module before the toolchain module with the same lemma. -/
+/-- The body of a file importing the realizing module and the toolchain module with the same
+lemma, in the order its caller writes before it. -/
 private def realizedDuplicateSource : String :=
-  "import AuditApp.RealizedLemma\nimport Std.Do.WP.SimpLemmas\n\n" ++
-  "/-! Imports two modules that both contain `Except.mapError.eq_1`. -/\n\n" ++
+  "\n/-! Imports two modules that both contain `Except.mapError.eq_1`. -/\n\n" ++
   "/-- The claimed module's theorem, restated. -/\n" ++
   "theorem selftestRealizedDuplicate (value : Nat) :\n" ++
   "    (Except.ok value : Except String Nat).mapError String.length = .ok value :=\n" ++
@@ -1266,34 +1266,43 @@ private def checkedDuplicateSource : String :=
   "/-! A checked theorem that `AuditApp.DuplicateUnchecked` duplicates without checking. -/\n\n" ++
   "/-- A checked proof of `True`. -/\ntheorem selftestDuplicateFact : True := trivial\n"
 
-/-- The same theorem statement with an ill-typed proof, added without kernel checking. -/
-private def uncheckedDuplicateSource : String :=
+/-- The same theorem statement with the proof `value`, added without kernel checking. -/
+private def uncheckedDuplicateSource (value : String) : String :=
   "import Lean\nopen Lean Elab Command\n" ++
   "run_cmd do\n  let d := Declaration.thmDecl { name := `selftestDuplicateFact, " ++
-  "levelParams := [], type := mkConst ``True, value := mkConst ``False }\n" ++
+  s!"levelParams := [], type := mkConst ``True, value := {value} }\n" ++
   "  match (← getEnv).addDeclCore 200000 1000 d none false with\n" ++
   "  | .ok env => setEnv env\n  | .error _ => throwError \"construction failed\"\n"
 
 /-- External-boundary controls for a name several owned or imported modules contain, where the
-copies Lean realizes, imports and kernel-checks are the external mechanism
-(`Admission.planReplay_sound` and `Admission.checkDuplicates_sound` state the admission
-decision). The positive control is issue #128's shape and must pass. The two mutations import an
-unchecked copy of a checked theorem before and after it; before the fix, admission replayed only
-the copy the merged environment kept, and so silently skipped the unchecked copy in the first
-order. -/
+copies Lean realizes, imports, keeps and kernel-checks are the external mechanism
+(`Admission.replayMap_sound`, `Admission.replayMap_complete` and `Admission.checkCopies_sound`
+state the admission decision). The positive controls are issue #128's shape in both import
+orders: the toolchain's copy is kept, or the claimed module's copy is kept and checked. The
+mutations import an unchecked copy of a checked theorem: an ill-typed one first (the kernel
+rejects it under a fresh name), the same one last (the audited environment keeps it, so replay
+rejects it), and a circular one, `selftestDuplicateFact := selftestDuplicateFact`, first (its
+proof reaches its own name). Before this check, admission replayed only the copy the audited
+environment kept, and so silently skipped a bogus copy imported first. -/
 private def duplicateAdmissionControls (sources copy : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
   withNewFile (sources / "AuditApp" / "RealizedLemma.lean") realizedLemmaSource do
-    withNewFile (copy / "RealizedDuplicate.lean") realizedDuplicateSource do
-      let result ← gate #["--file", "RealizedDuplicate.lean"]
-      if !result.succeeded then
-        failures.modify
-          (·.push s!"structural/realized-duplicate: expected PASS:\n{result.output}")
+    for (name, imports) in #[
+        ("realized-duplicate", "import AuditApp.RealizedLemma\nimport Std.Do.WP.SimpLemmas\n"),
+        ("realized-duplicate-kept",
+          "import Std.Do.WP.SimpLemmas\nimport AuditApp.RealizedLemma\n")] do
+      withNewFile (copy / "RealizedDuplicate.lean") (imports ++ realizedDuplicateSource) do
+        let result ← gate #["--file", "RealizedDuplicate.lean"]
+        if !result.succeeded then
+          failures.modify (·.push s!"structural/{name}: expected PASS:\n{result.output}")
   withNewFile (sources / "AuditApp" / "DuplicateChecked.lean") checkedDuplicateSource do
-    withNewFile (sources / "AuditApp" / "DuplicateUnchecked.lean") uncheckedDuplicateSource do
-      for (name, first, second) in #[("unchecked-duplicate-first", "Unchecked", "Checked"),
-          ("unchecked-duplicate-second", "Checked", "Unchecked")] do
+    for (name, bogus, first, second) in #[
+        ("unchecked-duplicate-first", "mkConst ``False", "Unchecked", "Checked"),
+        ("unchecked-duplicate-last", "mkConst ``False", "Checked", "Unchecked"),
+        ("circular-duplicate-first", "mkConst `selftestDuplicateFact", "Unchecked", "Checked")] do
+      withNewFile (sources / "AuditApp" / "DuplicateUnchecked.lean")
+          (uncheckedDuplicateSource bogus) do
         withNewFile (copy / "DuplicateAdmission.lean")
             s!"import AuditApp.Duplicate{first}\nimport AuditApp.Duplicate{second}\n" do
           if let some failure := expectedFailure name
