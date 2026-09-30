@@ -19,6 +19,8 @@ public import Lean.Meta.SameCtorUtils
 public import Lean.Meta.Constructions.CtorElim
 public import Lean.Class
 public import Lean.Elab.PreDefinition.Structural.Eqns
+public import Lean.Elab.PreDefinition.PartialFixpoint.Eqns
+public import Lean.Server.Rpc.RequestHandling
 public import RegulaCore.GeneratedFamily
 public import Lean.Meta.RecExt
 public import Lean.ProjFns
@@ -551,33 +553,62 @@ private def namedUnder? : Name → Option (List Name × String)
   | .str p s => some ([p, privateToUserName p], s)
   | _ => none
 
+/-- The kinds Lean's `mkAuxDeclName` names the auxiliary declarations it abstracts out of the
+declaration it elaborates with, as `kind_N` under that declaration: proofs (`Meta.mkAuxLemma`,
+`Meta.abstractNestedProofs`), `simp` and `cbv_eval` rewrite lemmas, `private_decl%`, `grind` and
+`impossible` terms, `inferInstanceAs` wrappers, the safe side `unsafe_impl` of an `unsafe` term, and
+`bv_decide`'s reflection definitions. -/
+private def auxiliaryKinds : List String :=
+  ["_proof", "_simp", "_cbv_eval", "_private", "grind", "_impossible", "_aux", "unsafe_impl",
+    "_expr_def", "_cert_def", "_reflection_def"]
+
+/-- The kind of a last name component `kind_N`, or `kind_N_M` from a nested elaboration, when
+`kind` is one of `auxiliaryKinds`. -/
+private def auxiliaryKind? (s : String) : Option String :=
+  auxiliaryKinds.find? fun kind =>
+    let rest := s.toList.drop (kind.length + 1)
+    s.startsWith (kind ++ "_") && !rest.isEmpty && rest.all fun c => c.isDigit || c == '_'
+
 /-- Whether the kernel value of the declaration `f` uses `name`. -/
 private def valueUses (env : Environment) (f name : Name) : Bool :=
   ((env.find? f).bind valueOf?).any (·.getUsedConstants.contains name)
 
 /-- The declaration Lean generated `name` from, one step, if `name` belongs to `family`, as the
-environment records it. Each clause rests on (a) a mark Lean's generator leaves in the environment,
-or on (c) the generator's own precondition, checked on the environment; none rests on a name
-alone:
+environment records it. Each clause rests on (a) a fact Lean's generator records in the
+environment: a mark or extension entry, an equation information, or a use in a kernel value; or on
+(c) the generator's own precondition, checked on the environment, for a declaration Lean generates
+whenever that precondition holds, so that no other declaration can have its name. None rests on a
+name alone; the name only says which declaration a marked one is named under, as Lean's own
+`findDeclarationRanges?` reads it. The enumeration of the families Lean v4.34.0 generates, with
+their generators, is in `docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
 - `constructor` (a): its inductive type (`ConstructorVal.induct`);
-- `projection` (a): its structure's constructor (`ProjectionFunctionInfo.ctorName`);
+- `projection` (a): a structure projection's constructor (`ProjectionFunctionInfo.ctorName`), or,
+  for a parent projection that is not a subobject (`getAuxParentProjectionInfo?`), the structure it
+  is named under;
 - `recursor` (a): a recursor (`isRecCore`), an auxiliary recursor (`isAuxRecursor`: `casesOn`,
-  `recOn`, `below`, `brecOn`, `ctorElim` and a constructor's `elim`) or a `noConfusion`, the
-  type's or a constructor's (`isNoConfusion`): the name it is named under, whose range Lean's own
-  `findDeclarationRanges?` gives it;
+  `recOn`, `below`, `brecOn`, `ctorElim` and a constructor's `elim`), a `noConfusion`, the type's
+  or a constructor's (`isNoConfusion`), or a sparse `casesOn` (`isSparseCasesOn`): the name it is
+  named under, whose range Lean's own `findDeclarationRanges?` gives the first three; and the `go`
+  and `eq` Lean's `brecOn` generator adds under a marked `brecOn` (`isBRecOnRecursor`): that
+  `brecOn`;
 - `equationLemma` (a): its definition (`Meta.declFromEqLikeName`);
 - `reservedName` (a): a name Lean reserves for a declaration it generates on demand
   (`isReservedName`), which no user declaration can take (`checkNotAlreadyDeclared`): the name it
   is named under;
 - `matcher` (a): a matcher (`Meta.isMatcherCore`), or an equation or splitter of one, the names
   Lean's own `isMatchEqName?` gives them: the name it is named under;
-- `wellFounded` (a): `f`, when its well-founded equation information names `name` as the function
-  it is compiled through (`Elab.WF.eqnInfoExt`);
+- `wellFounded` (a): `f`, when its well-founded or `partial_fixpoint` equation information names
+  `name` as the function it is compiled through (`Elab.WF.eqnInfoExt`,
+  `Elab.PartialFixpoint.eqnInfoExt`);
 - `structural` (a): `f` for `f._sunfold`, when its structural equation information records it
   (`Elab.Structural.eqnInfoExt`), and for `f._f`, when that records it or `f`'s value uses `f._f`;
-- `auxiliaryLemma` (a): `f` for an auxiliary lemma Lean abstracts out of it and names under it,
-  `f._proof_1`, `f._simp_1` or `f._cbv_eval_1` (`Meta.mkAuxLemma`), when `f`'s value or the value
-  its well-founded or structural equation information records uses it;
+- `auxiliaryLemma` (a): `f` for a declaration `mkAuxDeclName` names `f.kind_N` for one of the
+  `auxiliaryKinds`, when `f`'s value, the value its well-founded or structural equation information
+  records, or the value of the function its well-founded equation information names uses it, or,
+  for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; `f` for the wrapper
+  `f._rpc_wrapped` Lean records for an RPC method `f` (`Server.userRpcProcedures`); and `id` for
+  the action of an `initialize id : T ← e` declaration, which Lean records on `id`
+  (`getInitFnNameFor?`);
 - `constructorLemma` (c): `c` for `c.inj` and `c.injEq` (`injectivityGenerated`) and
   `c.sizeOf_spec` (`sizeOfGenerated`), and for `c._flat_ctor` when `c` constructs a registered
   structure (`isStructure`), which the `structure` command generates with it. Lean's generator runs
@@ -587,18 +618,27 @@ alone:
   `t._sizeOf_inst` (`sizeOfGenerated`), and `t.noConfusionType` and `t.ctorElimType` when
   `t.noConfusion` is marked (`isNoConfusion`) or `t.ctorElim` is marked (`isAuxRecursor`), since
   the one generator run that marks it also generates them;
-- `fieldDefault` (a): the structure `S` for `S.x._default` or `S.x._inherited_default`, when
-  Lean's own lookup of the default of `S`'s field `x` (`getEffectiveDefaultFnForField?`) is
-  `name`. -/
+- `fieldDefault`: the structure `S` for `S.x._default` or `S.x._inherited_default`, when Lean's
+  own lookup of the default of `S`'s field `x` (`getEffectiveDefaultFnForField?`) is `name`. That
+  lookup goes by name, so a declaration of that name is the field's default to Lean itself;
+- `recursionHelper`: none here. The environment ties `f._unsafe_rec` to `f` only by its name, so
+  the admitted helper authorization relates it (`Findings.stepOf`). -/
 def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) := do
   let env ← getEnv
   match family with
   | .constructor =>
     let some (.ctorInfo value) := env.find? name | return none
     return some value.induct
-  | .projection => return (env.getProjectionFnInfo? name).map (·.ctorName)
+  | .projection =>
+    if let some info := env.getProjectionFnInfo? name then return some info.ctorName
+    let .str p _ := name | return none
+    return if (env.getAuxParentProjectionInfo? name).isSome && isStructure env p then some p
+      else none
   | .recursor =>
-    unless isRecCore env name || isAuxRecursor env name || isNoConfusion env name do return none
+    if let .str p s := name then
+      if (s == "go" || s == "eq") && isBRecOnRecursor env p then return some p
+    unless isRecCore env name || isAuxRecursor env name || isNoConfusion env name ||
+        isSparseCasesOn env name do return none
     return if name.getPrefix.isAnonymous then none else some name.getPrefix
   | .equationLemma => return (Meta.declFromEqLikeName env name).map (·.1)
   | .reservedName =>
@@ -612,18 +652,26 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
   | .wellFounded =>
     let some (spellings, _) := namedUnder? name | return none
     return spellings.find? fun f =>
-      (Elab.WF.eqnInfoExt.find? env f).any (·.declNameNonRec == name)
+      (Elab.WF.eqnInfoExt.find? env f).any (·.declNameNonRec == name) ||
+        (Elab.PartialFixpoint.eqnInfoExt.find? env f).any (·.declNameNonRec == name)
   | .structural =>
     let some (spellings, s) := namedUnder? name | return none
     unless s == "_f" || s == "_sunfold" do return none
     return spellings.find? fun f => (Elab.Structural.eqnInfoExt.find? env f).isSome ||
       (s == "_f" && valueUses env f name)
   | .auxiliaryLemma =>
+    if let .str _ "initFn" := privateToUserName name.eraseMacroScopes then
+      return env.constants.map₂.foldl (init := none) fun found id _ =>
+        found.or (if getInitFnNameFor? env id == some name then some id else none)
     let some (spellings, s) := namedUnder? name | return none
-    unless ["_proof_", "_simp_", "_cbv_eval_"].any (s.startsWith ·) do return none
+    if s == "_rpc_wrapped" then
+      return spellings.find? fun f => Server.userRpcProcedures.find? env f == some name
+    let some kind := auxiliaryKind? s | return none
     return spellings.find? fun f => valueUses env f name ||
-      (Elab.WF.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
-      (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name)
+      (Elab.WF.eqnInfoExt.find? env f).any (fun info =>
+        info.value.getUsedConstants.contains name || valueUses env info.declNameNonRec name) ||
+      (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
+      ((kind == "_simp" || kind == "_cbv_eval") && valueUses env name f)
   | .constructorLemma =>
     let .str p s := name | return none
     let some (.ctorInfo ctor) := env.find? p | return none
@@ -652,6 +700,12 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
           some struct
         else none
       | _ => none
+  | .recursionHelper =>
+    -- The environment ties `f._unsafe_rec` to `f` by its name alone
+    -- (`Compiler.isUnsafeRecName?`); the relation is the admitted authorization of the helper,
+    -- which observed Lean's recursion compiler regenerate it (`Findings.stepOf`,
+    -- `Findings.helperStep_base`).
+    return none
 
 /-- The declaration Lean generated `name` from, one step, as the environment records it: the one
 the first family of `GeneratedFamily.all` that `name` belongs to relates it to (`generatedBy?`),

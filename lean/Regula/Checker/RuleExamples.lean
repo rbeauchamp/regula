@@ -47,14 +47,15 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
         let scope ← IO.ofExcept <| Policy.admitScope declarations inspected.transcripts
         let mut findings := #[]
         let index := Regula.Findings.declarationIndex declarations
+        let helpers := scope.helpers
         -- The admitted inventory is exactly `declarations` (`ScopeContract`).
         for h : decl in scope.inventory.declarations do
           if let some id := Policy.ruleForMember decl (some .standardLogical) scope h then
             -- The finding names the declaration the author wrote (`Policy.subject_contract`).
             let named := Policy.subject decl scope h
-            let location ← IO.ofExcept <| Regula.Findings.findingLocation index named
+            let location ← IO.ofExcept <| Regula.Findings.findingLocation index helpers named
                 fun _ => some ⟨path.toString, source⟩
-            let (sourceDeclaration, related) := Regula.Findings.attribution index named
+            let (sourceDeclaration, related) := Regula.Findings.attribution index helpers named
             findings := findings.push
                 (← IO.ofExcept <| RuleDiagnostics.declarationFinding id named.name
               (Policy.subjectDetail decl scope h) location .freshFile (some "standard-logical")

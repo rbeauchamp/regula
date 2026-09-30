@@ -24,6 +24,7 @@ run_cmd do
       ``Regula.groupFindings_perm, ``Regula.groupEntry_alone,
       ``Regula.Findings.declarationIndex_get, ``Regula.Findings.chainEnd_eq_some_iff,
       ``Regula.Findings.sourceName?_eq_some_iff, ``Regula.Findings.sourceName?_source,
+      ``Regula.Findings.stepOf_eq_some_iff, ``Regula.Findings.helperStep_base,
       ``Regula.Findings.declarationFinding_groupUnder?, ``Regula.Feedback.flatten_runs_go,
       ``Regula.GeneratedFamily.mem_all,
       ``Regula.Checker.ResultProtocol.stagesOf_required,
@@ -76,6 +77,12 @@ def main : IO Unit := do
   -- The committed agent skill is the generated briefing of this build.
   require ((← IO.FS.readFile ".agents/skills/regula/SKILL.md") == Regula.Guidance.skill)
     "committed .agents/skills/regula/SKILL.md is current (regenerate with `lake exe regula skill`)"
+  -- The adoption guide quotes, on one line, the RG1005 guidance that names the families of
+  -- declarations Lean generates, rendered from the list the checker runs (`GeneratedFamily.all`).
+  let some families := (descriptor .profileExceeded).rewrites.getLast?
+    | throw <| IO.userError "registry qualification failed: RG1005 names no generated families"
+  require (((← IO.FS.readFile "docs/guides/adoption.md").splitOn s!"\n> {families}\n").length == 2)
+    "docs/guides/adoption.md quotes the RG1005 generated-family guidance once, verbatim"
   require
       (!succeeded (validateRegistry producer (manifest.setObjVal! "sourceRevision" (.str "stale"))))
     "stale revision"

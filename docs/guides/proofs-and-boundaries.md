@@ -759,9 +759,10 @@ entry to `render`. A finding alone in its group that is not attributed to anothe
 declaration prints exactly its own entry (`groupEntry_alone`); that a group's text lists every
 member's subject and detail holds by construction and is inspected, not proved. The declaration
 a finding is attributed to (`Findings.sourceName?`) is exactly the name the generation relation the
-audited declarations record (`Declaration.generatedFrom`) leads to from it and relates to nothing
-further (`sourceName?_eq_some_iff`, over `chainEnd_eq_some_iff`: the executed walk is bounded by the
-number of declarations, which the proof shows no such chain exceeds), so the declaration it names
+audited declarations record (`Declaration.generatedFrom`, or for an admitted recursion helper its
+base: `stepOf`, `stepOf_eq_some_iff`) leads to from it and relates to nothing further
+(`sourceName?_eq_some_iff`, over `chainEnd_eq_some_iff`: the executed walk is bounded by the number
+of declarations, which the proof shows no such chain exceeds), so the declaration it names
 is not itself attributed to another (`sourceName?_source`); the executed index equals the
 inventory search it replaces (`declarationIndex_get`), and an RG1005 finding built with that
 attribution groups under it (`declarationFinding_groupUnder?`). Which declaration Lean generated a
@@ -769,18 +770,25 @@ declaration from is read from the environment by `Collect.generatedFrom?`, one c
 of `GeneratedFamily`: from the marks Lean's generators leave, from a recursive definition's
 equation information, from the uses in a definition's value, from Lean's own field-default
 lookup, and, for constructor lemmas and type constructions, from their generator's precondition or
-a sibling's mark, checked under Lean's default options. No clause rests on a name alone.
+a sibling's mark, checked under Lean's default options. No clause rests on a name alone. A compiled
+recursion helper `f._unsafe_rec`, which the environment ties to `f` only by its name, is related to
+`f` only when the admitted scope authorizes it (`authorizedUnsafeRecHelpers`), and
+`helperStep_base` proves `f` is then an audited definition of the helper's module and type, and
+that Lean's recursion compiler was observed to regenerate the helper; the observation itself is
+the boundary module 7 states, not proved.
 `GeneratedFamily.mem_all` proves the list the checker tries and the RG1005 guidance names holds
-every family, and `generatedBy?` matches every family by construction (Lean's exhaustiveness
-check). That the clauses match Lean's generators is read from Lean's source and observed, not
-proved: the `cli` self-test's source-attribution controls attribute a declaration of every family
-and keep a metaprogram theorem, a user-written `ofNat` and an elaborator named `«_aux_…»` in a
-structure's namespace on their own. They do not exercise `f._mutual`, `S.x._inherited_default`,
-`t.ctorElimType`, a matcher's equations or splitter, or an auxiliary lemma used only by equation
-information. Derived instances, whose relation Lean does not record, are not related.
-`RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula` parser admits exactly its documented commands
-(`parseCommand_arguments`, `parseCommand_sound`, `parseInvocation_arguments`,
-`parseInvocation_sound`). Result stages: `stagesOf_required`,
+every family, `generatedBy?` matches every family by construction (Lean's exhaustiveness check),
+and `RegistryChecks` requires the adoption guide to quote the guidance verbatim. That the clauses
+match Lean's generators is read from Lean's source and observed, not proved: the `cli` self-test's
+source-attribution controls attribute a declaration of every family and keep a metaprogram
+theorem, a user-written `ofNat` and an elaborator named `«_aux_…»` in a structure's namespace on
+their own. They do not exercise every member of every family: for example, not `f._mutual`,
+`S.x._inherited_default`, `t.ctorElimType` or a matcher's splitter; the
+[enumeration](#generated-declaration-families) marks the members they observe. Derived instances,
+whose relation Lean does not record, are not related.
+`RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula`
+parser admits exactly its documented commands (`parseCommand_arguments`, `parseCommand_sound`,
+`parseInvocation_arguments`, `parseInvocation_sound`). Result stages: `stagesOf_required`,
 `stagesOf_ordered`, `withDocs_ordered`, `notRun_completedStages_eq_nil_iff`,
 `completedStages_idem`, `guidanceFields_recorded`, `parseStage_stageName`. Snapshot size:
 `snapshotJson_configuration_independent`, `environmentJson_imports_independent` and
@@ -800,6 +808,81 @@ routes, unsupported modes, Unicode/CRLF coordinates, native/text agreement and i
 negative outcomes as observations of those boundaries, not sampled evidence for the universal
 theorems. JSON text parsing, `FileMap`, and the compiler's collection of names, ranges and source
 identity are trusted.
+
+## Generated declaration families
+
+Every family of declarations Lean v4.34.0 adds to the environment on its own, read from its source
+(`src/lean` of the toolchain; paths below are relative to it), with the `GeneratedFamily` that
+relates it to the declaration it was generated from and the environment fact that clause reads
+(`Collect.generatedBy?`), or why it is reported at its own location. `Std/`, `Init/` and `lake/`
+add no generator of their own: no `addDecl`, `mkAuxName`, `mkAuxDeclName` or `mkAuxLemma` call.
+"Control" marks the members the `cli` self-test's source-attribution controls observe. A
+declaration related to one that is itself related (such as `T.c.injEq` to `T.c`, or
+`f._unary.eq_def` to `f._unary`) follows the chain to its end (`sourceName?`).
+
+| Declarations | Generator | Related by | Control |
+| --- | --- | --- | --- |
+| constructor `T.c`, structure `S.mk` | kernel `inductDecl`, `Lean/Elab/MutualInductive.lean:1429` | `constructor`: `ConstructorVal.induct` | `Channel.mk` |
+| `T.rec`, nested `T.rec_N` | kernel; `Lean/Elab/MutualInductive.lean:1241-1252` | `recursor`: `isRecCore` | `Channel.rec` |
+| `T.recOn`, `T.casesOn`, `T.below[_N]`, `T.brecOn[_N]`, `T.ctorElim`, `T.c.elim` | `Lean/Meta/Constructions/RecOn.lean:18-39`, `CasesOn.lean:19-26`, `BRecOn.lean:59-326`, `CtorElim.lean:108-210` | `recursor`: `isAuxRecursor` | `Channel.casesOn` |
+| `T.brecOn.go`, `T.brecOn.eq` | `Lean/Meta/Constructions/BRecOn.lean:193-308` | `recursor`: generated with the marked `T.brecOn` (`isBRecOnRecursor`) | |
+| `T.noConfusion`, `T.c.noConfusion` | `Lean/Meta/Constructions/NoConfusion.lean:210-354, 402-430` | `recursor`: `isNoConfusion` | |
+| `T.noConfusionType` | `Lean/Meta/Constructions/NoConfusion.lean:72-145, 375-400` | `typeConstruction`: `T.noConfusion` is marked | `Channel.noConfusionType` |
+| `T.ctorIdx` | `Lean/Meta/Constructions/CtorIdx.lean:41-96` | `typeConstruction`: its precondition (`ctorIdxGenerated`) | `Channel.ctorIdx` |
+| `T.ctorElimType` | `Lean/Meta/Constructions/CtorElim.lean:80-106` | `typeConstruction`: `T.ctorElim` is marked | |
+| `T._sizeOf_N`, `T._sizeOf_inst` | `Lean/Meta/SizeOf.lean:126-187, 513-528` | `typeConstruction`: its precondition (`sizeOfGenerated`) | `Channel._sizeOf_1`, `Channel._sizeOf_inst` |
+| `T.c.sizeOf_spec` | `Lean/Meta/SizeOf.lean:424-473` | `constructorLemma`: its precondition (`sizeOfGenerated`) | `Channel.mk.sizeOf_spec` |
+| `T._sizeOf_N_eq` | `Lean/Meta/SizeOf.lean:350-388` | own location: generated only for some nested types while proving the spec theorems, and nothing records which | |
+| `T.c.inj`, `T.c.injEq` | `Lean/Meta/Injective.lean:108-178` | `constructorLemma`: its precondition (`injectivityGenerated`) | `Channel.mk.injEq` |
+| `T.c.hinj`, `T.ctorIdx.hinj` | `Lean/Meta/Injective.lean:280-303`, `Lean/Meta/CtorIdxHInj.lean:14-71` | `reservedName`: `isReservedName` | |
+| field projection `S.x`, subobject parent projection `S.toP` | `Lean/Meta/Structure.lean:50-119` | `projection`: `getProjectionFnInfo?` | `Channel.value` |
+| parent projection `S.toP` that is not a subobject | `Lean/Elab/Structure.lean:1409-1440` | `projection`: `getAuxParentProjectionInfo?` | |
+| `S.mk._flat_ctor` | `Lean/Elab/Structure.lean:1229-1240` | `constructorLemma`: its precondition (a registered structure) | `Channel.mk._flat_ctor` |
+| `S.x._default`, `S.x._inherited_default` | `Lean/Elab/Structure.lean:1354-1392` | `fieldDefault`: Lean's own lookup (`getEffectiveDefaultFnForField?`) | `Rec.x._default` |
+| `S.x._autoParam` | `Lean/Elab/Structure.lean:1120-1123` | own location: a `Syntax` value, which uses no axiom, so it has no RG1005 finding | |
+| an inductive predicate's `T.below` (an inductive type) and `T.brecOn` (a theorem) | `Lean/Meta/IndPredBelow.lean:83-234` | own location: Lean marks only `T.below.casesOn`; `T.below`'s constructors and recursors are related to `T.below` | |
+| computed fields: `T._impl` and its constructions, `T.casesOn._override`, `T.c._override`, `T.f._override` | `Lean/Elab/ComputedFields.lean:107-205` | own location: `T._impl` is tied to `T` by its name alone; an `_override` is recorded only as an `implemented_by` target, which an author can write too | |
+| coinductive `T._functor`, its constructions and `T.functor_unfold` | `Lean/Elab/MutualInductive.lean:1359-1409`, `Lean/Elab/Coinductive.lean:118-495` | own location: tied to `T` by its name alone | |
+| `S.ext`, `S.ext_iff` | `Lean/Elab/Tactic/Ext.lean:104-176` | own location: requested by the `@[ext]` attribute the author writes, which records the theorem, not the structure; it has the attribute's range | |
+| derived instance `instCT` and its handler functions (`instCT.decEq`, `.beq`, `.repr`, `.hash`, `.ord`, `.toJson`, `.fromJson`, `.default`, `.toExpr`) | `Lean/Elab/Deriving/Util.lean:95-163`, `Lean/Elab/Deriving/Basic.lean:178-272` | own location: Lean records the instance, not the type it derives it for | |
+| enumeration `T.ofNat`, `T.ofNat_ctorIdx` | `Lean/Elab/Deriving/DecEq.lean:222-262` | own location: tied to `T` by its name alone | `Word.ofNat` (a user-written one, not related) |
+| `T.match_on_same_ctor` and its `.het` | `Lean/Meta/Constructions/CasesOnSameCtor.lean:29-229` | `matcher` (`isMatcherCore`) and `recursor` (`isAuxRecursor`) | |
+| `instBEqT.beq_spec`, `instOrdT.ord_spec`, `inst.field_spec` | `Lean/Meta/MethodSpecs.lean:126-227` | `reservedName`, to the instance | |
+| `TypeName`'s `instImpl`, `RpcEncodable`'s packet type | `Lean/Elab/Deriving/TypeName.lean:17-27`, `Lean/Server/Rpc/Deriving.lean:100-141` | own location: hygienic names that nothing records a relation for | |
+| matcher `f.match_N` | `Lean/Meta/Match/Match.lean:1087-1125` | `matcher`: `isMatcherCore` | `firstIndex.match_1` |
+| `f.match_N.eq_K`, `.splitter`, `.congr_eq_K` | `Lean/Meta/Match/MatchEqs.lean:151-322` | `reservedName` or `matcher`: `isMatchEqName?` | |
+| `f.match_N._arg_pusher` | `Lean/Elab/PreDefinition/WF/Unfold.lean:98-165` | own location: tied to the matcher by its name alone | |
+| `f._sparseCasesOn_N`, its `.else_eq` | `Lean/Meta/Constructions/SparseCasesOn.lean:65-145`, `SparseCasesOnEq.lean:86-92` | `recursor`: `isSparseCasesOn`; `.else_eq` by `reservedName` | |
+| `f.eq_K`, `f.eq_def`, `f.eq_unfold` | `Lean/Elab/PreDefinition/Eqns.lean:366-399`, `Lean/Meta/Eqns.lean:326-327`, `Lean/Elab/PreDefinition/EqUnfold.lean:26-70` | `equationLemma`: `Meta.declFromEqLikeName` | `countdown.eq_1` |
+| `f._f`, `f._sunfold` | `Lean/Elab/PreDefinition/Structural/Main.lean:95-106`, `SmartUnfolding.lean:17-74` | `structural`: `Structural.eqnInfoExt`, or `f`'s value uses `f._f` | `walkDown._f`, `walkDown._sunfold` |
+| `f._unary`, `f._mutual` | `Lean/Elab/PreDefinition/WF/PackMutual.lean:66-104` | `wellFounded`: `WF.eqnInfoExt`'s `declNameNonRec` | `countPair._unary` |
+| `partial_fixpoint`'s `f.mutual` | `Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:193-217` | `wellFounded`: `PartialFixpoint.eqnInfoExt`'s `declNameNonRec` | |
+| `f.induct`, `.induct_unfolding`, `.mutual_induct`, `.fun_cases`, `partial_fixpoint`'s `.fixpoint_induct`, `.coinduct`, `.partial_correctness`, `f.congr_simp`, `f.hcongr_N`, `T.enumToBitVec` and its lemmas | `Lean/Meta/Tactic/FunInd.lean:910-1548`, `Lean/Elab/PreDefinition/PartialFixpoint/Induction.lean:105-426`, `Lean/Meta/CongrTheorems.lean:392-480`, `Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean:41-379` | `reservedName`: `isReservedName` | `countPair.induct` |
+| `f._unsafe_rec` | `Lean/Elab/PreDefinition/Basic.lean:255-295` | `recursionHelper`: the admitted helper authorization, which observed Lean's recursion compiler regenerate it (`Findings.stepOf`) | `countUp._unsafe_rec` |
+| `f._proof_N` | `Lean/Meta/Tactic/AuxLemma.lean:43-79`, `Lean/Meta/Closure.lean:457-460` | `auxiliaryLemma`: `f`'s value, its equation information's value, or the function its well-founded equation information names uses it; one nothing uses, as `GuessLex` can leave, keeps its own location | `countdown._proof_1` |
+| `f._simp_N`, `f._cbv_eval_N` | `Lean/Meta/Tactic/Simp/SimpTheorems.lean:453-471`, `Lean/Meta/Tactic/Cbv/CbvEvalExt.lean:61-64` | `auxiliaryLemma`: `f`'s value uses it (a tactic's lemma), or it uses `f` (an attribute's lemma) | |
+| `f._private_N`, `f.grind_N`, `f._impossible_N`, `inst._aux_N`, `f.unsafe_impl_N`, `f._expr_def_N`, `f._cert_def_N`, `f._reflection_def_N` | `Lean/Elab/BuiltinTerm.lean:451-465`, `Lean/Meta/Tactic/Grind/Main.lean:497-498`, `Lean/Elab/Tactic/Impossible.lean:88-92`, `Lean/Meta/WrapInstance.lean:185-283`, `Lean/Elab/BuiltinNotation.lean:556-579`, `Lean/Meta/Tactic/BVDecide/TacticContext.lean:40-42` | `auxiliaryLemma`: `f`'s value uses it | |
+| `f.unsafe_N` | `Lean/Elab/BuiltinNotation.lean:556-579` | own location: recorded only as the `implemented_by` target of `f.unsafe_impl_N` | |
+| RPC wrapper `f._rpc_wrapped` | `Lean/Server/Rpc/RequestHandling.lean:113-139` | `auxiliaryLemma`: `Server.userRpcProcedures` | |
+| the action `initFn` of `initialize id : T ← e` | `Lean/Elab/Declaration.lean:342-369` | `auxiliaryLemma`: `id`'s init attribute (`getInitFnNameFor?`); an unnamed `initialize` keeps its own location | |
+| `native_decide`'s and `bv_decide`'s axiom `f._native.….ax_N` | `Lean/Meta/Native.lean:75-84` | own location: it has the tactic's range | |
+| `f._auto_N` | `Lean/Elab/Binders.lean:92-105` | own location: a `Syntax` value, which uses no axiom | |
+| `let rec` and `where` helper `f.go` | `Lean/Elab/LetRec.lean:49-63` | own location: the author wrote it, and it has its own range | |
+| parser declarations of `syntax`, `macro`, `notation`, mixfix and `declare_syntax_cat` | `Lean/Elab/Syntax.lean:293-451` | own location: generated by a command, not from a declaration; it has the command's range | |
+| `_aux_…___macroRules_…`, `…___elabRules_…`, `…___unexpand_…` | `Lean/Elab/AuxDef.lean:26-39`, `Lean/Elab/MacroRules.lean:46-70`, `Lean/Elab/ElabRules.lean:48-84`, `Lean/Elab/Notation.lean:106-161` | own location: named in the current namespace only (an unexpander is keyed by the constant it prints, but generated by the `notation` command); it has the command's range | the `vzero` elaborator in `Channel` (not related) |
+| `p.formatter`, `p.parenthesizer` | `Lean/ParserCompiler.lean:93-125` | own location: the combinator attributes that record them are declared `unsafe`, so the checker's safe code cannot read them | |
+| `decl._regBuiltin.…` | `Lean/Compiler/InitAttr.lean:149-157` | own location: only Lean's own builtin attributes create it | |
+| declarations of `register_option`, `register_simp_attr`, `register_label_attr`, `register_linter_set` | `Lean/Data/Options.lean:230-255`, `Lean/Meta/Tactic/Simp/RegisterCommand.lean:15-30`, `Lean/LabelAttribute.lean:84-91`, `Lean/Linter/Sets.lean:35-37` | own location: generated by a command, not from a declaration | |
+| doc role wrappers `decl.getArgs`, `decl.mdRenderer` | `Lean/Elab/DocString.lean:601-654, 1120-1148` | own location: its extension records it under the role it implements, not the declaration it wraps | |
+| `show_panel_widgets`, `set_library_suggestions`, `register_try?_tactic`, unnamed `unif_hint`, `declare_config_elab`, `store_traces_as`, `reprove` and `init_quot` declarations | `Lean/Widget/Commands.lean:79-94`, `Lean/LibrarySuggestions/Basic.lean:441-447`, `Lean/Elab/Tactic/Try.lean:316-347`, `Init/NotationExtra.lean:69-82`, `Lean/Elab/ConfigEval/DeriveEvalTerm.lean:100-125`, `Lean/PostprocessTraces/StoredTraces.lean:127-155`, `Lean/Util/Reprove.lean:28-50`, `Lean/Elab/BuiltinCommand.lean:286-287` | own location: generated by a command, not from a declaration | |
+
+Not declarations of the environment: `_example` and `#eval` temporaries
+(`Lean/Elab/MutualDef.lean:1196-1204`, `Lean/Elab/BuiltinEvalCommand.lean:232`), the compiler's
+`_boxed`, `_lam_N`, `_elam_N`, `_redArg`, `_closed_N` and `_spec` names (`Lean/Compiler/LCNF/`),
+and the `_private.<Mod>.0.` and `._@.…_hyg.N` spellings of other declarations
+(`Lean/PrivateName.lean:27-64`, `Init/Prelude.lean:5756-5846`), which the clauses read through
+`privateToUserName`. Not generated in v4.34.0: `binductionOn`, `toCtorIdx`, `_binary`,
+`_auxLemma`, `_cstage1` and `_cstage2`.
 
 ## Project setup and releases
 

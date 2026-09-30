@@ -346,20 +346,20 @@ release (`…/regula/v/<version>/rules/<ID>/`; an unreleased build links the dev
 under `/dev/`), where the [rule index](https://rbeauchamp.github.io/regula/dev/rules/) shows each
 rule's scope, reason and a violating and corrected example produced by the real checker.
 
-Lean also generates declarations from the ones you write. A finding about one of these families
-is reported at the declaration Lean generated it from, following the chain to its end, and
-located at that declaration's range: a constructor, a structure projection, a recursor,
-auxiliary recursor such as `casesOn` or `noConfusion`, an equation lemma (`f.eq_1`), a
-declaration Lean generates on demand under a reserved name (`f.induct`), a matcher (`f.match_1`)
-with its equations and splitter, a well-founded definition's `f._unary` or `f._mutual`, a
-structural recursion's `f._f` and `f._sunfold`, an auxiliary lemma such as `f._proof_1` that `f`
-or its equation information uses, a constructor's `inj`, `injEq`, `sizeOf_spec` and `_flat_ctor`,
-a type's `ctorIdx`, `noConfusionType`, `ctorElimType`, `_sizeOf_1` and `_sizeOf_inst`, and a
-structure field's default `S.x._default` or `S.x._inherited_default`. Any other declaration,
-generated or not, is reported at its own location. So `Channel.mk.injEq`, generated from the
-constructor `Channel.mk`, is reported at the structure `Channel`. The RG1005 findings under one declaration print as one block,
-which lists each declaration's axioms and says where to fix them, and the closing `FAIL` summary
-counts the attributed ones in one line; the JSON report keeps one diagnostic per declaration:
+Lean also generates declarations from the ones you write. A finding about one of them is reported
+at the declaration Lean generated it from, following the chain to its end, and located at that
+declaration's range, when it belongs to one of the families the RG1005 guidance names (`lake exe
+regula explain RG1005`), from the same list the checker runs:
+
+> `lake lint` groups a declaration Lean generated under the one it came from if it is a constructor; projection; recursor such as `casesOn`; equation lemma; reserved name such as `f.induct`; matcher; fixpoint helper; structural helper; auxiliary declaration such as `f._proof_1`; constructor lemma; type construction; field default; recursion helper `f._unsafe_rec`. Other declarations keep their own location. Fix the one reported or a definition it uses that adds the axiom.
+
+Each family is named by an example, not by every member; the
+[enumeration of the declarations Lean v4.34.0 generates](proofs-and-boundaries.md#generated-declaration-families)
+lists them all, with the family that covers each or why it keeps its own location. So
+`Channel.mk.injEq`, generated from the constructor `Channel.mk`, is reported at the structure
+`Channel`. The RG1005 findings under one declaration print as one block, which lists each
+declaration's axioms and says where to fix them, and the closing `FAIL` summary counts the
+attributed ones in one line; the JSON report keeps one diagnostic per declaration:
 
 ```text
 RG1005 [violation; freshProject; claim=kernel-only; Widget/Basic.lean:4:4]: countdown: it and 3 declarations Lean generated from it exceed the claim
@@ -373,10 +373,10 @@ RG1005 [violation; freshProject; claim=kernel-only; Widget/Basic.lean:4:4]: coun
 
 Which family a declaration belongs to, and what it was generated from, is read from what Lean's
 environment records about it, never from its name alone: the marks Lean's generators leave, the
-equation information of a recursive definition, the uses in a definition's value, and, where a
-generator runs on every type it applies to, its precondition checked on the environment. The
-RG1005 guidance (`lake exe regula explain RG1005`) names the same families, from the same list
-the checker runs. A declaration named under another that Lean did not generate from it is
+equation information of a recursive definition, the uses in a definition's value, where a
+generator runs on every type it applies to, its precondition checked on the environment, and,
+for a recursion helper `f._unsafe_rec`, Regula's own observation that Lean's recursion compiler
+regenerates it from `f`. A declaration named under another that Lean did not generate from it is
 reported on its own, whether or not it has a source range, such as a theorem a metaprogram adds,
 a `Word.ofNat` you write for a structure, or an elaborator Lean names `«_aux_…»` inside a
 namespace; so is a derived instance, or an enumeration's `ofNat` from deriving `DecidableEq`:

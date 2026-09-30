@@ -211,24 +211,34 @@ metadata, not authenticated binary identity.
   `RegulaCore.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of
   the exhaustive match `Collect.generatedBy?`: constructors, projections, recursors (the relation
   Lean's `findDeclarationRanges?` uses), equation lemmas (`Meta.declFromEqLikeName`), reserved
-  names (`isReservedName`) and matchers by a mark Lean's generator leaves; a well-founded
-  definition's `_unary` or `_mutual` and a structural recursion's `_f` and `_sunfold` by its
-  equation information; auxiliary lemmas `f._proof_n`, `f._simp_n` or `f._cbv_eval_n` when `f`'s
-  value or equation information uses them; constructor lemmas and type constructions where the
-  environment shows their generator ran on the type (its precondition, under Lean's default
-  options, or the mark it leaves on a sibling it generates in the same run); and field defaults
-  by Lean's own lookup (`getEffectiveDefaultFnForField?`). No clause rests on a name alone, so an
-  elaborator or macro Lean names `«_aux_…»` inside a namespace is not related. The RG1005
-  rewrite names the families from `GeneratedFamily.all` and `GeneratedFamily.text`, so the
-  guidance lists exactly the families the checker tries. A declaration finding's `arguments.sourceDeclaration` is the end
-  of that chain over the audited declarations (`Findings.sourceName?`), and
-  `sourceName?_eq_some_iff` proves it is exactly the name the recorded relation leads to from the
-  declaration and relates to nothing further: a declaration Lean did not generate from another, or
-  one outside the audited declarations. The finding is located at that declaration's range when it has one
-  and its module has a snapshot (`Findings.findingLocation`), and its `related` names the
-  declaration's own module. Which clause records which declaration is Lean's behavior, read from
-  its environment, not proved; derived instances and the declarations deriving handlers add, such
-  as an enumeration's `ofNat`, are not related, since Lean records no such relation. The `lake lint` text prints the RG1005 findings under one declaration as one block
+  names (`isReservedName`) and matchers by a mark Lean's generator leaves; a well-founded or
+  `partial_fixpoint` definition's `_unary`, `_mutual` or `mutual` and a structural recursion's `_f`
+  and `_sunfold` by its equation information; auxiliary declarations `mkAuxDeclName` names under
+  `f`, such as `f._proof_n`, when `f`'s value or equation information uses them, and an RPC
+  wrapper or `initialize` action by the extension that records it; constructor lemmas and type
+  constructions where the environment shows their generator ran on the type (its precondition,
+  under Lean's default options, or the mark it leaves on a sibling it generates in the same run);
+  and field defaults by Lean's own lookup (`getEffectiveDefaultFnForField?`). A compiled recursion
+  helper `f._unsafe_rec`, which the environment ties to `f` only by its name, is related to `f` when
+  the admitted scope authorizes it (`Findings.stepOf` over `authorizedUnsafeRecHelpers`), and
+  `Findings.helperStep_base` proves `f` is then an audited definition in the helper's module with
+  its type, and that Lean's recursion compiler was observed to regenerate the helper. No clause
+  rests on a name alone, so an elaborator or macro Lean names `«_aux_…»` inside a namespace is not
+  related. The RG1005 rewrite names the families from `GeneratedFamily.all` and
+  `GeneratedFamily.text`, and `RegistryChecks` requires the adoption guide to quote it verbatim,
+  so the guidance and the guide name exactly the families the checker relates; the
+  [enumeration](proofs-and-boundaries.md#generated-declaration-families) records every family
+  Lean v4.34.0 generates and why each is related or not. A declaration finding's
+  `arguments.sourceDeclaration` is the end of that chain over the audited declarations
+  (`Findings.sourceName?`), and `sourceName?_eq_some_iff` proves it is exactly the name the
+  recorded relation leads to from the declaration and relates to nothing further: a declaration
+  Lean did not generate from another, or one outside the audited declarations. The finding is
+  located at that declaration's range when it has one and its module has a snapshot
+  (`Findings.findingLocation`), and its `related` names the declaration's own module. Which clause
+  records which declaration is Lean's behavior, read from its environment, not proved; derived
+  instances and the declarations deriving handlers add, such as an enumeration's `ofNat`, are not
+  related, since Lean records no such relation. The `lake lint` text prints the RG1005 findings
+  under one declaration as one block
   (`groupFindings`, `groupEntry`; `declarationFinding_groupUnder?` proves such a finding groups
   under the declaration it is attributed to) and folds their lines in its closing `FAIL` summary
   into one count; the JSON keeps them one per declaration, in the same order

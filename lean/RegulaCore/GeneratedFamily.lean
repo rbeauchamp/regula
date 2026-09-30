@@ -3,10 +3,14 @@ module
 /-! # Generated declaration families
 
 The families of declarations Lean generates from another declaration that a finding is attributed
-to. The checker's collector relates a declaration to the one Lean generated it from by one clause
-per family (`Regula.Collect.generatedBy?`), trying them in the order of `GeneratedFamily.all`, and
-the RG1005 guidance names exactly these families (`GeneratedFamily.text`), so the documented list
-and the executed clauses are the same closed set. -/
+to. Each family has one relating clause: the checker's collector reads most of them from the
+environment (`Regula.Collect.generatedBy?`, trying them in the order of `GeneratedFamily.all`),
+and a compiled recursion helper is related by the admitted helper authorization
+(`Regula.Findings.stepOf`). The RG1005 guidance names these families from the same list
+(`GeneratedFamily.text`), each by its family name, with an example where one helps; it does not
+list every member. The enumeration of the declarations Lean v4.34.0 generates, with the family
+that covers each or the reason it is reported at its own location, is in
+`docs/guides/proofs-and-boundaries.md#generated-declaration-families`. -/
 
 @[expose] public section
 
@@ -20,49 +24,54 @@ inductive GeneratedFamily where
   | projection
   /-- A recursor, an auxiliary recursor such as `casesOn`, or a `noConfusion`. -/
   | recursor
-  /-- An equation lemma `f.eq_1`, `f.eq_def` or `f.eq_unfold`. -/
+  /-- An equation lemma such as `f.eq_1`, `f.eq_def` or `f.eq_unfold`. -/
   | equationLemma
   /-- A declaration Lean generates on demand under a name it reserves, such as `f.induct`. -/
   | reservedName
   /-- A matcher `f.match_1`, and its equations and splitter. -/
   | matcher
-  /-- The `f._unary` or `f._mutual` function a well-founded definition `f` is compiled through. -/
+  /-- The function a well-founded or `partial_fixpoint` definition `f` is compiled through, such as
+  `f._unary`. -/
   | wellFounded
-  /-- The functional `f._f` and smart-unfolding definition `f._sunfold` of a structurally
-  recursive definition `f`. -/
+  /-- A helper of a structurally recursive definition `f`, such as its functional `f._f`. -/
   | structural
-  /-- An auxiliary lemma such as `f._proof_1` that `f`'s value or equation information uses. -/
+  /-- An auxiliary declaration Lean abstracts out of `f` or generates for it, such as
+  `f._proof_1`. -/
   | auxiliaryLemma
-  /-- A constructor's `inj`, `injEq`, `sizeOf_spec` and `_flat_ctor`. -/
+  /-- A lemma Lean generates for a constructor, such as `c.injEq`. -/
   | constructorLemma
-  /-- An inductive type's `ctorIdx`, `noConfusionType`, `ctorElimType`, `_sizeOf_1` and
-  `_sizeOf_inst`. -/
+  /-- A construction Lean generates for an inductive type, such as `t.ctorIdx`. -/
   | typeConstruction
-  /-- A structure field's default `S.x._default` or `S.x._inherited_default`. -/
+  /-- A structure field's default, such as `S.x._default`. -/
   | fieldDefault
+  /-- The helper `f._unsafe_rec` Lean compiles a recursive definition `f` through. -/
+  | recursionHelper
   deriving DecidableEq, Repr
 
 /-- Every family, in the order the collector tries them. -/
 def GeneratedFamily.all : List GeneratedFamily :=
   [.constructor, .projection, .recursor, .equationLemma, .reservedName, .matcher, .wellFounded,
-    .structural, .auxiliaryLemma, .constructorLemma, .typeConstruction, .fieldDefault]
+    .structural, .auxiliaryLemma, .constructorLemma, .typeConstruction, .fieldDefault,
+    .recursionHelper]
 
 theorem GeneratedFamily.mem_all (family : GeneratedFamily) : family ∈ GeneratedFamily.all := by
   cases family <;> simp [GeneratedFamily.all]
 
-/-- The family's short name in the RG1005 guidance, whose whole rewrite fits its byte budget. -/
+/-- The family's name in the RG1005 guidance, with an example where one helps; the whole rewrite
+fits its byte budget. It names the family, not every member. -/
 def GeneratedFamily.text : GeneratedFamily → String
   | .constructor => "constructor"
   | .projection => "projection"
-  | .recursor => "recursor or `casesOn`"
+  | .recursor => "recursor such as `casesOn`"
   | .equationLemma => "equation lemma"
-  | .reservedName => "reserved `f.induct`"
+  | .reservedName => "reserved name such as `f.induct`"
   | .matcher => "matcher"
-  | .wellFounded => "`f._unary`"
-  | .structural => "`f._f` or `f._sunfold`"
-  | .auxiliaryLemma => "`f._proof_1` used by `f`"
-  | .constructorLemma => "`c.injEq`, `c.sizeOf_spec` or `c._flat_ctor`"
-  | .typeConstruction => "`t.ctorIdx` or `t._sizeOf_1`"
-  | .fieldDefault => "default `S.x._default`"
+  | .wellFounded => "fixpoint helper"
+  | .structural => "structural helper"
+  | .auxiliaryLemma => "auxiliary declaration such as `f._proof_1`"
+  | .constructorLemma => "constructor lemma"
+  | .typeConstruction => "type construction"
+  | .fieldDefault => "field default"
+  | .recursionHelper => "recursion helper `f._unsafe_rec`"
 
 end Regula

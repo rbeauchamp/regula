@@ -622,8 +622,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             id key.2 (Regula.materialDocumentationDetail failure)
             location mode (some surface.claim.toString))
           failures := failures.push s!"{(Regula.descriptor id).applicability}: {key.2}"
-        -- A declaration Lean generated is located at, and names, the declaration it generated it
-        -- from (`Findings.sourceName?_eq_some_iff`).
+        -- A declaration Lean generated, or an admitted recursion helper, is located at, and names,
+        -- the declaration it was generated from (`Findings.sourceName?_eq_some_iff`).
         let index := Regula.Findings.declarationIndex report.declarations
         -- `ScopeContract` retains `report.declarations` as the inventory, so iterating the
         -- inventory visits the same sequence and supplies each membership proof.
@@ -633,12 +633,14 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             -- The finding names the declaration the author wrote (`Policy.subject_contract`).
             let named := Policy.subject decl scope h
             let classification := Policy.subjectDetail decl scope h
-            let (sourceDeclaration, related) := Regula.Findings.attribution index named
+            let (sourceDeclaration, related) :=
+              Regula.Findings.attribution index unsafeHelpers named
             if id == .profileExceeded && sourceDeclaration.isSome then
               attributedFailures := attributedFailures.insert failures.size
             failures :=
                 failures.push s!"{reason}: {named.name} [claim: {surface.claim}] {classification}"
-            let location ← IO.ofExcept <| Regula.Findings.findingLocation index named snapshotFor
+            let location ← IO.ofExcept <|
+              Regula.Findings.findingLocation index unsafeHelpers named snapshotFor
             let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
                 (← IO.ofExcept (RuleDiagnostics.declarationName named))
               classification location
@@ -1024,9 +1026,11 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                 reasons := reasons.push (Regula.descriptor id).applicability
                 -- The finding names the declaration the author wrote (`Policy.subject_contract`).
                 let named := Policy.subject decl scope h
-                let location ← IO.ofExcept <| Regula.Findings.findingLocation index named
-                  fun _ => some ⟨path.toString, source⟩
-                let (sourceDeclaration, related) := Regula.Findings.attribution index named
+                let location ← IO.ofExcept <|
+                  Regula.Findings.findingLocation index unsafeHelpers named
+                    fun _ => some ⟨path.toString, source⟩
+                let (sourceDeclaration, related) :=
+                  Regula.Findings.attribution index unsafeHelpers named
                 let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
                     (← IO.ofExcept (RuleDiagnostics.declarationName named))
                   (Policy.subjectDetail decl scope h) location .freshFile (claim.map Profile.toString)

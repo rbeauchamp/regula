@@ -1,6 +1,7 @@
 module
 
 public import Regula.Diagnostic
+public import RegulaPolicy.Decision
 public import Std.Data.HashMap.Basic
 import Std.Data.HashMap.Lemmas
 
@@ -108,10 +109,47 @@ theorem declarationIndex_get (ds : Array RegulaPolicy.Declaration) (n : Name) :
     cases hn : (p.name == n) <;>
       simp only [Bool.false_eq_true, ↓reduceIte, Std.HashMap.getElem?_insert, hn]
 
-/-- One step of the generation relation a report records: the declaration Lean generated the
-declaration named `n` from (`Declaration.generatedFrom`), when `index` holds one named `n`. -/
-def generatedStep (index : Std.HashMap Name RegulaPolicy.Declaration) (n : Name) : Option Name :=
-  (index[n]?).bind (·.generatedFrom)
+/-- One step of the generation relation for the declaration `d`: the declaration Lean generated it
+from as the collector read it from the environment (`Declaration.generatedFrom`); otherwise, when
+`d` is one of the admitted recursion helpers `helpers` (callers pass the admitted scope's,
+`RegulaPolicy.authorizedUnsafeRecHelpers`), the definition `f` its `f._unsafe_rec` compiles
+(`Declaration.unsafeRecBase`, which `helperStep_base` ties to Lean's observed regeneration of the
+helper). -/
+def stepOf (helpers : Array Name) (d : RegulaPolicy.Declaration) : Option Name :=
+  d.generatedFrom.or (if helpers.contains d.name then d.unsafeRecBase else none)
+
+/-- `stepOf` relates `d` to `b` exactly when the collector recorded that Lean generated `d` from
+`b`, or recorded no such declaration and `d` is an admitted recursion helper whose base is `b`. -/
+theorem stepOf_eq_some_iff (helpers : Array Name) (d : RegulaPolicy.Declaration) (b : Name) :
+    stepOf helpers d = some b ↔ d.generatedFrom = some b ∨
+      (d.generatedFrom = none ∧ d.name ∈ helpers ∧ d.unsafeRecBase = some b) := by
+  unfold stepOf
+  cases d.generatedFrom with
+  | some g => simp
+  | none => by_cases hmem : d.name ∈ helpers <;> simp [hmem]
+
+/-- The recursion-helper step leads from an admitted helper `d` of an inventory `ds` with distinct
+names to a definition of `ds` in `d`'s module with `d`'s type, and Lean's own recursion compiler
+was observed to regenerate `d` (`RegulaPolicy.authorizedUnsafeRecHelpers_base`); that observation,
+not the name `f._unsafe_rec`, is what makes `f` the declaration Lean generated `d` from. -/
+theorem helperStep_base {ds : Array RegulaPolicy.Declaration}
+    (unique : RegulaPolicy.UniqueNames (ds.map (·.name))) {d : RegulaPolicy.Declaration}
+    (hd : d ∈ ds) (hn : d.name ∈ RegulaPolicy.authorizedUnsafeRecHelpers ds) {b : Name}
+    (hb : d.unsafeRecBase = some b) :
+    d.unsafeRecRegenerated.isSome = true ∧ ∃ base ∈ ds, base.name = b ∧
+      base.kind = .definition ∧ base.module = d.module ∧ base.type = d.type := by
+  obtain ⟨h, hh, hname, hregen, base, hbase, hub, hkind, hmod, htype, -⟩ :=
+    RegulaPolicy.authorizedUnsafeRecHelpers_base ds d.name hn
+  obtain rfl := RegulaPolicy.eq_of_name_eq unique hh hd hname
+  refine ⟨hregen, base, hbase, ?_, hkind, hmod, htype⟩
+  rw [hb] at hub
+  exact (Option.some.inj hub).symm
+
+/-- One step of the generation relation a report records: `stepOf` for the declaration named `n`,
+when `index` holds one. -/
+def generatedStep (index : Std.HashMap Name RegulaPolicy.Declaration) (helpers : Array Name)
+    (n : Name) : Option Name :=
+  (index[n]?).bind (stepOf helpers)
 
 /-- The name `k` steps of `step` lead to from `n`, when each of them exists. -/
 def walk (step : Name → Option Name) : Nat → Name → Option Name
@@ -223,8 +261,9 @@ private theorem walk_length_le {step : Name → Option Name} {keys : List Name}
     exact List.mem_map_of_mem (hkeys a b hs)
   simpa using (walk_nodup hw hr).length_le_of_subset hsub
 
-private theorem generatedStep_mem (index : Std.HashMap Name RegulaPolicy.Declaration) (a b : Name)
-    (h : generatedStep index a = some b) : a ∈ index.keys := by
+private theorem generatedStep_mem (index : Std.HashMap Name RegulaPolicy.Declaration)
+    (helpers : Array Name) (a b : Name) (h : generatedStep index helpers a = some b) :
+    a ∈ index.keys := by
   rw [Std.HashMap.mem_keys]
   unfold generatedStep at h
   cases hi : index[a]? with
@@ -233,40 +272,41 @@ private theorem generatedStep_mem (index : Std.HashMap Name RegulaPolicy.Declara
 
 /-- The name of the declaration a finding about `decl` is attributed to: the end of the chain of
 declarations Lean generated `decl` from, one step at a time, as the declarations `index` holds
-record it (`generatedStep`); `none` when Lean did not generate `decl` from another declaration.
-The chain ends at a declaration Lean did not generate from another or at a name `index` does not
-hold. It follows at most as many steps as `index` holds declarations, never fewer than such a
-chain has (`sourceName?_eq_some_iff`). -/
-def sourceName? (index : Std.HashMap Name RegulaPolicy.Declaration)
+record it (`generatedStep`, `stepOf`); `none` when Lean did not generate `decl` from another
+declaration. The chain ends at a declaration Lean did not generate from another or at a name
+`index` does not hold. It follows at most as many steps as `index` holds declarations, never fewer
+than such a chain has (`sourceName?_eq_some_iff`). -/
+def sourceName? (index : Std.HashMap Name RegulaPolicy.Declaration) (helpers : Array Name)
     (decl : RegulaPolicy.Declaration) : Option Name :=
-  decl.generatedFrom.bind (chainEnd (generatedStep index) (index.size + 1))
+  (stepOf helpers decl).bind (chainEnd (generatedStep index helpers) (index.size + 1))
 
 /-- A finding about `decl` is attributed to `r` exactly when the recorded generation relation
 leads from `decl` to `r` and relates `r` to nothing further: Lean generated `decl` from a
 declaration `m`, and `m` from another, and so on, `k` times, to `r`, which it did not generate
 from another declaration `index` holds. -/
 theorem sourceName?_eq_some_iff (index : Std.HashMap Name RegulaPolicy.Declaration)
-    (decl : RegulaPolicy.Declaration) (r : Name) :
-    sourceName? index decl = some r ↔ ∃ m k, decl.generatedFrom = some m ∧
-      walk (generatedStep index) k m = some r ∧ generatedStep index r = none := by
+    (helpers : Array Name) (decl : RegulaPolicy.Declaration) (r : Name) :
+    sourceName? index helpers decl = some r ↔ ∃ m k, stepOf helpers decl = some m ∧
+      walk (generatedStep index helpers) k m = some r ∧ generatedStep index helpers r = none := by
   unfold sourceName?
-  cases decl.generatedFrom with
+  cases stepOf helpers decl with
   | none => simp
   | some m =>
     rw [Option.bind_some, chainEnd_eq_some_iff]
     constructor
     · rintro ⟨k, _, hw, hr⟩; exact ⟨m, k, rfl, hw, hr⟩
     · rintro ⟨_, k, ⟨⟩, hw, hr⟩
-      have := walk_length_le (generatedStep_mem index) hw hr
+      have := walk_length_le (generatedStep_mem index helpers) hw hr
       rw [Std.HashMap.length_keys] at this
       exact ⟨k, by omega, hw, hr⟩
 
 /-- The declaration a finding is attributed to is not itself attributed to another: its finding
 groups under its own name, with those attributed to it. -/
 theorem sourceName?_source {index : Std.HashMap Name RegulaPolicy.Declaration}
-    {decl p : RegulaPolicy.Declaration} {r : Name} (h : sourceName? index decl = some r)
-    (hp : index[r]? = some p) : sourceName? index p = none := by
-  obtain ⟨_, _, _, _, hr⟩ := (sourceName?_eq_some_iff index decl r).mp h
+    {helpers : Array Name} {decl p : RegulaPolicy.Declaration} {r : Name}
+    (h : sourceName? index helpers decl = some r) (hp : index[r]? = some p) :
+    sourceName? index helpers p = none := by
+  obtain ⟨_, _, _, _, hr⟩ := (sourceName?_eq_some_iff index helpers decl r).mp h
   simp only [generatedStep, hp, Option.bind_some] at hr
   simp [sourceName?, hr]
 
@@ -288,10 +328,10 @@ theorem declarationFinding_groupUnder? {name : Name} {detail : String} {location
 (`sourceName?`) when `index` holds that declaration with a recorded range and its module has a
 snapshot, else its own (`declarationLocation`). `snapshotFor` gives the source of a module whose
 ranges can be admitted. -/
-def findingLocation (index : Std.HashMap Name RegulaPolicy.Declaration)
+def findingLocation (index : Std.HashMap Name RegulaPolicy.Declaration) (helpers : Array Name)
     (decl : RegulaPolicy.Declaration) (snapshotFor : Name → Option SourceSnapshot) :
     Except String Location := do
-  match (sourceName? index decl).bind (index[·]?) with
+  match (sourceName? index helpers decl).bind (index[·]?) with
   | some p => match p.ranges, snapshotFor p.module with
     | some ranges, some source => return .source (← sourceFromReport source ranges)
     | _, _ => declarationLocation decl (snapshotFor decl.module)
@@ -300,9 +340,9 @@ def findingLocation (index : Std.HashMap Name RegulaPolicy.Declaration)
 /-- The attribution of a finding about `decl`: the declaration it is attributed to
 (`sourceName?`), and then a related location naming the module `decl` belongs to, which the
 finding's location no longer states when it is that declaration's range (`findingLocation`). -/
-def attribution (index : Std.HashMap Name RegulaPolicy.Declaration)
+def attribution (index : Std.HashMap Name RegulaPolicy.Declaration) (helpers : Array Name)
     (decl : RegulaPolicy.Declaration) : Option Name × Array RelatedLocation :=
-  match sourceName? index decl with
+  match sourceName? index helpers decl with
   | some source =>
       (some source, #[{ relation := "declared in module", location := .module decl.module }])
   | none => (none, #[])

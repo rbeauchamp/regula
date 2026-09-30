@@ -533,10 +533,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           claim.",
         "If the stronger foundation is intended, change the surface's `claim` and rationale \
           explicitly; this changes the published claim and needs review.",
-        "In `lake lint` and `axiomGate`, a declaration Lean generated is grouped at the one it \
-          came from if it is a " ++ "; ".intercalate (GeneratedFamily.all.map (·.text)) ++
-          ". Others keep their own location. Fix the declaration reported or a definition it \
-          uses that adds the axiom."]
+        "`lake lint` groups a declaration Lean generated under the one it came from if it is a " ++
+          "; ".intercalate (GeneratedFamily.all.map (·.text)) ++ ". Other declarations keep their \
+          own location. Fix the one reported or a definition it uses that adds the axiom."]
       examples := {
         language := .lean
         audience := .adopter
