@@ -1274,16 +1274,45 @@ private def uncheckedDuplicateSource (value : String) : String :=
   "  match (← getEnv).addDeclCore 200000 1000 d none false with\n" ++
   "  | .ok env => setEnv env\n  | .error _ => throwError \"construction failed\"\n"
 
+/-- The same theorem statement proved by `sorry`, which the kernel accepts. -/
+private def sorryDuplicateSource : String :=
+  "/-! A copy of `selftestDuplicateFact` whose proof is `sorry`. -/\n\n" ++
+  "set_option warn.sorry false in\n/-- An unproved copy. -/\n" ++
+  "theorem selftestDuplicateFact : True := sorry\n"
+
+/-- Unchecked copies of the toolchain's `Except.mapError.eq_1` and `Except.mapError.eq_2`, each
+proved through the other, so the audited environment keeps a cycle over two base theorems while
+each copy alone is fine in the replayed kernel, where the other name denotes the toolchain's. -/
+private def keptCycleSource : String :=
+  "import Lean\nopen Lean Elab Command\n" ++
+  "run_cmd do\n" ++
+  "  let env ← getEnv\n" ++
+  "  let some (.thmInfo one) := env.find? `Except.mapError.eq_1 | throwError \"no eq_1\"\n" ++
+  "  let some (.thmInfo two) := env.find? `Except.mapError.eq_2 | throwError \"no eq_2\"\n" ++
+  "  let use (target other : TheoremVal) : Expr := mkApp (.lam `h other.type target.value " ++
+  ".default) (mkConst other.name (other.levelParams.map mkLevelParam))\n" ++
+  "  let mut env := env\n" ++
+  "  for (target, other) in [(one, two), (two, one)] do\n" ++
+  "    match env.addDeclCore 200000 1000 (.thmDecl { target with value := use target other }) " ++
+  "none false with\n" ++
+  "    | .ok next => env := next\n" ++
+  "    | .error _ => throwError \"construction failed\"\n" ++
+  "  setEnv env\n"
+
 /-- External-boundary controls for a name several owned or imported modules contain, where the
 copies Lean realizes, imports, keeps and kernel-checks are the external mechanism
 (`Admission.replayMap_sound`, `Admission.replayMap_complete` and `Admission.checkCopies_sound`
 state the admission decision). The positive controls are issue #128's shape in both import
-orders: the toolchain's copy is kept, or the claimed module's copy is kept and checked. The
-mutations import an unchecked copy of a checked theorem: an ill-typed one first (the kernel
-rejects it under a fresh name), the same one last (the audited environment keeps it, so replay
-rejects it), and a circular one, `selftestDuplicateFact := selftestDuplicateFact`, first (its
-proof reaches its own name). Before this check, admission replayed only the copy the audited
-environment kept, and so silently skipped a bogus copy imported first. -/
+orders; on the pinned toolchain the two realized copies are identical, so they exercise the
+identical-copy path and would catch an over-strict check. The mutations import an unchecked copy
+of a checked theorem: an ill-typed one first (the kernel rejects it under a fresh name), the same
+one last (the audited environment keeps it, so replay rejects it), a circular one first (its
+proof reaches its own name), and a `sorry` one last: the audited environment keeps it while the
+name is attributed to the checked copy, whose axioms the report would show, so the copies must
+have equal axioms. The last mutation keeps two unchecked toolchain-lemma copies that prove each
+other over the toolchain's copies; only the check of the audited environment's kept copies
+refuses it.
+Each refusal is asserted by its own message. -/
 private def duplicateAdmissionControls (sources copy : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
@@ -1297,18 +1326,30 @@ private def duplicateAdmissionControls (sources copy : FilePath)
         if !result.succeeded then
           failures.modify (·.push s!"structural/{name}: expected PASS:\n{result.output}")
   withNewFile (sources / "AuditApp" / "DuplicateChecked.lean") checkedDuplicateSource do
-    for (name, bogus, first, second) in #[
-        ("unchecked-duplicate-first", "mkConst ``False", "Unchecked", "Checked"),
-        ("unchecked-duplicate-last", "mkConst ``False", "Checked", "Unchecked"),
-        ("circular-duplicate-first", "mkConst `selftestDuplicateFact", "Unchecked", "Checked")] do
-      withNewFile (sources / "AuditApp" / "DuplicateUnchecked.lean")
-          (uncheckedDuplicateSource bogus) do
+    for (name, bogus, first, second, needle) in #[
+        ("unchecked-duplicate-first", uncheckedDuplicateSource "mkConst ``False", "Unchecked",
+          "Checked", "checked as"),
+        ("unchecked-duplicate-last", uncheckedDuplicateSource "mkConst ``False", "Checked",
+          "Unchecked", "while replaying declaration"),
+        ("circular-duplicate-first", uncheckedDuplicateSource "mkConst `selftestDuplicateFact",
+          "Unchecked", "Checked", "uses the name"),
+        ("sorry-duplicate-last", sorryDuplicateSource, "Checked", "Unchecked",
+          "axioms differ")] do
+      withNewFile (sources / "AuditApp" / "DuplicateUnchecked.lean") bogus do
         withNewFile (copy / "DuplicateAdmission.lean")
             s!"import AuditApp.Duplicate{first}\nimport AuditApp.Duplicate{second}\n" do
           if let some failure := expectedFailure name
               (← gate #["--file", "DuplicateAdmission.lean"])
-              #["kernel-admission", "selftestDuplicateFact"] then
+              #["kernel-admission", "selftestDuplicateFact", needle] then
             failures.modify (·.push failure)
+  withNewFile (sources / "AuditApp" / "KeptCycle.lean") keptCycleSource do
+    withNewFile (copy / "KeptCycle.lean")
+        "import Std.Do.WP.SimpLemmas\nimport AuditApp.KeptCycle\n" do
+      if let some failure := expectedFailure "kept-cycle"
+          (← gate #["--file", "KeptCycle.lean"])
+          #["kernel-admission", "Except.mapError.eq_", "audited environment keeps",
+            "uses the name"] then
+        failures.modify (·.push failure)
   failures.get
 
 /-- Structural mutation cluster: fresh-checker coverage of an added module, controls for several

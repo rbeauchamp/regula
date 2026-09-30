@@ -624,7 +624,8 @@ def guide : RuleId → Guide
           `.olean.private`). Each replayed module's own copy of a name is checked: a lemma \
           Lean realizes in two modules, such as an equation lemma, is admitted when the copies \
           are theorems of the same statement, universe parameters and mutual block and each \
-          owned copy's proof passes the kernel without reaching its own name. A \
+          owned copy that is not identical to the replayed or trusted one passes the kernel \
+          with a proof that does not reach its own name and reaches the same axioms. A \
           declaration that fails replay, source or `.olean` bytes that changed after they were \
           frozen, or a required authentication that failed is reported here with impact \
           `incomplete`.",
@@ -638,8 +639,9 @@ def guide : RuleId → Guide
           value."]
       established := [
         "Every owned logical declaration and its owned dependencies passed kernel replay (every \
-          other copy of a theorem that another loaded module also declares passed the kernel's \
-          check under a fresh name, without its proof reaching its own name), and the frozen \
+          other copy of a theorem that another loaded module also declares is identical to the \
+          replayed or trusted one, or passed the kernel's check under a fresh name with a \
+          proof that does not reach its own name and reaches the same axioms), and the frozen \
           sources were unchanged during the audit. A failed admission or changed source is \
           incomplete and never accepted."]
       notEstablished := [

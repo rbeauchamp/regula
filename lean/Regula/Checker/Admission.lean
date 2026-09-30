@@ -64,6 +64,35 @@ def importClosure (origins : Std.HashMap Name RegulaPolicy.ModuleOrigin) (m : Na
   unless pending.isEmpty do return none
   return some (closure.qsort fun a b => Name.quickLt a.name b.name)
 
+-- Structural equality for the constant records Lean derives none for, so that `identical`
+-- covers every kind of constant.
+deriving instance BEq for QuotKind, QuotVal, InductiveVal
+
+/-- Whether two constants are the same constant: the same kind with equal fields, expressions
+compared by `Expr.eqv`. -/
+def identical : ConstantInfo → ConstantInfo → Bool
+  | .axiomInfo a, .axiomInfo b => a == b
+  | .defnInfo a, .defnInfo b => a == b
+  | .thmInfo a, .thmInfo b => a == b
+  | .opaqueInfo a, .opaqueInfo b => a == b
+  | .quotInfo a, .quotInfo b => a == b
+  | .inductInfo a, .inductInfo b => a == b
+  | .ctorInfo a, .ctorInfo b => a == b
+  | .recInfo a, .recInfo b => a == b
+  | _, _ => false
+
+/-- Whether every constant of module `m` is attributed to `m` in `env` and is the constant `env`
+keeps under its name (`identical`). Lean's import attributes a name to the first module declaring
+it and keeps the last copy that replaces the others (read from `Lean.finalizeImport`), so this
+fails when another module of `env` declares a copy of one of `m`'s names that is not identical. -/
+def uniquelyKept (env : Environment) (m : Name) : Bool := Id.run do
+  let some owner := env.getModuleIdx? m | return false
+  for info in env.header.moduleData[(owner : Nat)]!.constants do
+    unless env.getModuleIdxFor? info.name == some owner do return false
+    let some keptInfo := env.find? info.name | return false
+    unless identical keptInfo info do return false
+  return true
+
 /-- Whether every constant a declaration of `m` refers to (`ConstantInfo.getUsedConstantsAsSet`,
 the dependencies `Kernel.Environment.replay` replays first) is declared in a module of
 `closure`. -/
@@ -130,8 +159,9 @@ def closureWithin (owned names : Std.HashSet Name)
 /-- The owned modules of `env` outside `requested` whose kernel admission this environment
 reuses instead of replaying: an earlier environment of the same audit replayed and offers each
 one over the identical import closure (`offeredClosure`), every declaration of every owned
-module in that closure refers only to constants of its own closure (`referencesWithin`), and
-every owned module the closure contains is reused too. When the last condition fails for the
+module in that closure refers only to constants of its own closure (`referencesWithin`), every
+constant of the module is attributed to it and is the copy this environment keeps
+(`uniquelyKept`), and every owned module the closure contains is reused too. When the last condition fails for the
 filtered set, nothing is reused. Every other owned module is replayed. `mem_reusedModules`
 states this contract. -/
 def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
@@ -140,7 +170,7 @@ def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin
   let earlier := indexPriors priors
   let settled := owned.filterMap fun m =>
     (offeredClosure earlier here requested m).bind fun closure =>
-      if referencesWithin env m closure then some (m, closure) else none
+      if referencesWithin env m closure && uniquelyKept env m then some (m, closure) else none
   let ownedSet := Std.HashSet.ofList owned.toList
   let kept := settled.filter
     (closureWithin ownedSet (Std.HashSet.ofList (settled.map (·.1)).toList))
@@ -149,14 +179,15 @@ def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin
   else #[]
 
 /-- Every reused module is an owned, unrequested module that some prior offers over the
-import closure it has here, whose declarations refer only to that closure, and whose closure's
-owned modules are all reused too, so reuse never leaves an owned import to replay. -/
+import closure it has here, whose declarations refer only to that closure, whose constants are
+uniquely kept here, and whose closure's owned modules are all reused too, so reuse never leaves
+an owned import to replay. -/
 theorem mem_reusedModules {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
     {requested owned : Array Name} {priors : Array PriorAdmission} {m : Name}
     (h : m ∈ reusedModules env origins requested owned priors) :
     m ∈ owned ∧ m ∉ requested ∧ ∃ closure,
       importClosure (originIndex origins) m = some closure ∧
-      referencesWithin env m closure = true ∧
+      referencesWithin env m closure = true ∧ uniquelyKept env m = true ∧
       (∃ prior ∈ priors, m ∈ prior.modules ∧
         importClosure (originIndex prior.origins) m = some closure) ∧
       ∀ origin ∈ closure, origin.name ∈ owned →
@@ -175,11 +206,12 @@ theorem mem_reusedModules {env : Environment} {origins : Array RegulaPolicy.Modu
       simp only [ho, Option.bind_some] at hf
       split at hf
       · rename_i hrefs
+        obtain ⟨hrefs, hunique⟩ := Bool.and_eq_true_iff.mp hrefs
         simp only [Option.some.injEq, Prod.mk.injEq] at hf
         obtain ⟨rfl, rfl⟩ := hf
         obtain ⟨hreq, hclosure, entry, hentry, hm, hc⟩ := offeredClosure_eq_some.mp ho
         obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hentry
-        refine ⟨ha, hreq, found, hclosure, hrefs, ⟨prior, hprior, hm, hc⟩, ?_⟩
+        refine ⟨ha, hreq, found, hclosure, hrefs, hunique, ⟨prior, hprior, hm, hc⟩, ?_⟩
         intro origin horigin howned
         have hw := Array.all_eq_true'.mp hall _ hkept
         simp only [closureWithin, Array.all_eq_true', Bool.or_eq_true, Bool.not_eq_eq_eq_not,
@@ -220,12 +252,14 @@ Lean realizes some constants in the module that first needs them: equation, unfo
 match-equation lemmas, functional induction and case principles, congruence and injectivity
 lemmas. Two modules that do not import each other can each contain the same one, and Lean's
 import (`Lean.finalizeImport`) keeps a single copy of the name when the two are theorems of the
-same statement: the last one loaded replaces the earlier ones, while the name stays attributed
-to the first. The audited environment, which every report reads, therefore shows one copy, and
-`Kernel.Environment.replay` skips a theorem whose name it already holds with that statement
-without checking its proof. Replay therefore reads each replayed module's own constants, replays
-the copy the audited environment keeps under each name the replay base lacks, and admits every
-other copy only under `sameTheorem` (`Regula.Checker.SharedName`) with its own proof checked. -/
+same statement: `Environment.find?` returns the last one loaded, while the name stays attributed
+to the first, whose own copy's precomputed axioms `collectAxioms` reports. The audited
+environment therefore shows one copy, and `Kernel.Environment.replay` skips a theorem whose name
+it already holds with that statement without checking its proof. Replay therefore reads each
+replayed module's own constants, replays the copy `find?` returns under each name the replay base
+lacks, and admits every other copy only under `sameTheorem` (`Regula.Checker.SharedName`) when it
+is identical to the held constant or its own proof is checked, does not reach its own name, and
+reaches exactly the held constant's axioms. -/
 
 /-- A constant that a replayed module's own `.olean` data contains, with that module. -/
 structure Copy where
@@ -237,29 +271,13 @@ structure Copy where
 /-- The name the copy declares, which Lean's import and the kernel key it by. -/
 abbrev Copy.name (copy : Copy) : Name := copy.info.name
 
--- Structural equality for the constant records Lean derives none for, so that `identical`
--- covers every kind of constant.
-deriving instance BEq for QuotKind, QuotVal, InductiveVal
-
-/-- Whether two constants are the same constant: the same kind with equal fields, expressions
-compared by `Expr.eqv`. -/
-def identical : ConstantInfo → ConstantInfo → Bool
-  | .axiomInfo a, .axiomInfo b => a == b
-  | .defnInfo a, .defnInfo b => a == b
-  | .thmInfo a, .thmInfo b => a == b
-  | .opaqueInfo a, .opaqueInfo b => a == b
-  | .quotInfo a, .quotInfo b => a == b
-  | .inductInfo a, .inductInfo b => a == b
-  | .ctorInfo a, .ctorInfo b => a == b
-  | .recInfo a, .recInfo b => a == b
-  | _, _ => false
-
 /-! ### The replayed constants -/
 
 /-- The constants replayed under their own names: every name of a copy that the replay base
 `base` lacks, mapped to the constant the audited environment `kept` holds under it. That is the
-copy Lean's import kept (the last one loaded, `Lean.finalizeImport`), which every report reads,
-so on these names the replayed kernel holds exactly the audited environment's constants. -/
+copy `Environment.find?` returns (the last one loaded, `Lean.finalizeImport`), whose statement
+and value reports read, so on these names the replayed kernel holds exactly the audited
+environment's constants. -/
 def replayMap (base kept : Name → Option ConstantInfo) (copies : Array Copy) :
     Std.HashMap Name ConstantInfo :=
   copies.foldl (init := {}) fun replay copy =>
@@ -370,12 +388,15 @@ def nameCounts (copies : Array Copy) : Std.HashMap Name Nat :=
   copies.foldl (init := {}) fun counts copy =>
     counts.insert copy.name (counts.getD copy.name 0 + 1)
 
-/-! ### Reaching a name
+/-! ### The names a proof reaches
 
 A copy that is not the constant the replayed kernel holds under its name is checked there under a
-fresh name, where its own name still denotes the held constant. The search below establishes
-that the copy's proof does not use its own name, even through other constants, so it is not
-circular. -/
+fresh name, where its own name still denotes the held constant. The search below computes every
+name its proof reaches, through the types and values of the constants it uses, so admission can
+refuse a proof that reaches its own name (a circular proof) or axioms other than the held
+constant's. `collectAxioms` reports, for an imported name, the axioms its attributed module
+computed for its own copy when compiled, so copies with equal axioms make that report right
+whichever copy a declaration used. -/
 
 /-- The constants the type and value of `info` use (`ConstantInfo.getUsedConstantsAsSet`). -/
 def successorsOf (info : ConstantInfo) : Array Name :=
@@ -387,13 +408,19 @@ def successors (find : Name → Option ConstantInfo) (n : Name) : Array Name :=
   | some info => successorsOf info
   | none => #[]
 
-/-- `target` is reachable from `n` along `successors find`. -/
-inductive ReachesFrom (find : Name → Option ConstantInfo) (target : Name) : Name → Prop
-  /-- `target` reaches itself. -/
-  | refl : ReachesFrom find target target
-  /-- A constant reaches `target` when one it uses does. -/
-  | step {n m : Name} : m ∈ successors find n → ReachesFrom find target m →
-      ReachesFrom find target n
+/-- `x` is reachable from `n` along `successors find`, in zero or more steps. -/
+inductive Reach (find : Name → Option ConstantInfo) : Name → Name → Prop
+  /-- Every name reaches itself. -/
+  | refl (n : Name) : Reach find n n
+  /-- A name reaches whatever a constant it uses reaches. -/
+  | step {n m x : Name} : m ∈ successors find n → Reach find m x → Reach find n x
+
+/-- Reachability extends by one more used constant. -/
+theorem Reach.tail {find : Name → Option ConstantInfo} {n x y : Name} (h : Reach find n x)
+    (hy : y ∈ successors find x) : Reach find n y := by
+  induction h with
+  | refl => exact .step hy (.refl y)
+  | step hm _ ih => exact .step hm (ih hy)
 
 /-- Push `m` onto the pending names unless it was seen before. -/
 private def pushNew (acc : List Name × Std.HashSet Name) (m : Name) :
@@ -463,138 +490,169 @@ private theorem foldl_pushNew (names p : List Name) (s : Std.HashSet Name) :
           · exact .inl hx
         · exact .inr hx
 
-/-- Search for `target` from the `pending` names, with `seen` every name ever pushed. It returns
-`false` only after expanding every pending name without meeting `target`; running out of `fuel`
-returns `true`. -/
-def reachesSearch (find : Name → Option ConstantInfo) (target : Name) :
-    Nat → List Name → Std.HashSet Name → Bool
-  | 0, pending, _ => !pending.isEmpty
-  | _ + 1, [], _ => false
+/-- Expand the `pending` names, recording in `seen` every name ever pushed. It returns the seen
+names once nothing is pending, or `none` when `fuel` runs out first. -/
+def reachLoop (find : Name → Option ConstantInfo) :
+    Nat → List Name → Std.HashSet Name → Option (Std.HashSet Name)
+  | _, [], seen => some seen
+  | 0, _ :: _, _ => none
   | fuel + 1, n :: rest, seen =>
-    if n == target then true
-    else
-      let next := (successors find n).toList.foldl pushNew (rest, seen)
-      reachesSearch find target fuel next.1 next.2
+    let next := (successors find n).toList.foldl pushNew (rest, seen)
+    reachLoop find fuel next.1 next.2
 
-/-- Whether `target` is reachable from the constants `start` uses, within `fuel` expansions;
-running out of fuel counts as reachable. -/
-def reaches (find : Name → Option ConstantInfo) (fuel : Nat) (target : Name)
-    (start : ConstantInfo) : Bool :=
+/-- Every name reachable from the constants `start` uses, within `fuel` expansions, or `none`
+when the fuel runs out. -/
+def reachSet (find : Name → Option ConstantInfo) (fuel : Nat) (start : ConstantInfo) :
+    Option (Std.HashSet Name) :=
   let first := (successorsOf start).toList.foldl pushNew ([], {})
-  reachesSearch find target fuel first.1 first.2
+  reachLoop find fuel first.1 first.2
 
-/-- The search invariant: pending names were seen, and every seen name is pending or was
-expanded, is not `target`, and has every successor seen. -/
-private def SearchInv (find : Name → Option ConstantInfo) (target : Name) (pending : List Name)
-    (seen : Std.HashSet Name) : Prop :=
+/-- The loop invariant: pending names were seen; every seen name is pending or has every
+successor seen; and every seen name is reachable from a constant `start` uses. -/
+private def LoopInv (find : Name → Option ConstantInfo) (start : ConstantInfo)
+    (pending : List Name) (seen : Std.HashSet Name) : Prop :=
   (∀ x ∈ pending, x ∈ seen) ∧
-    ∀ x ∈ seen, x ∈ pending ∨ (x ≠ target ∧ ∀ m ∈ successors find x, m ∈ seen)
+    (∀ x ∈ seen, x ∈ pending ∨ ∀ m ∈ successors find x, m ∈ seen) ∧
+    ∀ x ∈ seen, ∃ m ∈ successorsOf start, Reach find m x
 
-/-- When nothing is pending, no seen name reaches `target`. -/
-private theorem not_reaches_of_closed {find : Name → Option ConstantInfo} {target : Name}
-    {seen : Std.HashSet Name}
-    (h : ∀ x ∈ seen, x ≠ target ∧ ∀ m ∈ successors find x, m ∈ seen) :
-    ∀ x ∈ seen, ¬ ReachesFrom find target x := by
-  intro x hx hr
-  induction hr with
-  | refl => exact (h _ hx).1 rfl
-  | step hm _ ih => exact ih ((h _ hx).2 _ hm)
-
-/-- A search that returns `false` from an invariant state leaves no seen name reaching
-`target`. -/
-private theorem reachesSearch_false {find : Name → Option ConstantInfo} {target : Name} :
-    ∀ (fuel : Nat) (pending : List Name) (seen : Std.HashSet Name),
-      SearchInv find target pending seen → reachesSearch find target fuel pending seen = false →
-      ∀ x ∈ seen, ¬ ReachesFrom find target x := by
+/-- A loop that returns from an invariant state returns a set closed under `successors`,
+containing every seen name, and holding only names reachable from `start`'s constants. -/
+private theorem reachLoop_some {find : Name → Option ConstantInfo} {start : ConstantInfo} :
+    ∀ (fuel : Nat) (pending : List Name) (seen result : Std.HashSet Name),
+      LoopInv find start pending seen → reachLoop find fuel pending seen = some result →
+      (∀ x ∈ result, ∀ m ∈ successors find x, m ∈ result) ∧ (∀ x ∈ seen, x ∈ result) ∧
+        ∀ x ∈ result, ∃ m ∈ successorsOf start, Reach find m x := by
   intro fuel
   induction fuel with
   | zero =>
-    intro pending seen hinv hfalse
+    intro pending seen result hinv h
     cases pending with
     | nil =>
-      refine not_reaches_of_closed fun x hx => ?_
-      rcases hinv.2 x hx with hx | hx
+      simp only [reachLoop, Option.some.injEq] at h
+      subst h
+      refine ⟨fun x hx => ?_, fun _ hx => hx, hinv.2.2⟩
+      rcases hinv.2.1 x hx with hx | hx
       · simp at hx
       · exact hx
-    | cons n rest => simp [reachesSearch] at hfalse
+    | cons n rest => simp [reachLoop] at h
   | succ fuel ih =>
-    intro pending seen hinv hfalse
+    intro pending seen result hinv h
     cases pending with
     | nil =>
-      refine not_reaches_of_closed fun x hx => ?_
-      rcases hinv.2 x hx with hx | hx
+      simp only [reachLoop, Option.some.injEq] at h
+      subst h
+      refine ⟨fun x hx => ?_, fun _ hx => hx, hinv.2.2⟩
+      rcases hinv.2.1 x hx with hx | hx
       · simp at hx
       · exact hx
     | cons n rest =>
-      by_cases hn : n = target
-      · simp [reachesSearch, hn] at hfalse
-      · have hstep : reachesSearch find target (fuel + 1) (n :: rest) seen =
-            reachesSearch find target fuel
-              ((successors find n).toList.foldl pushNew (rest, seen)).1
-              ((successors find n).toList.foldl pushNew (rest, seen)).2 := by
-          simp [reachesSearch, hn]
-        rw [hstep] at hfalse
-        obtain ⟨f1, f2, f3, f4⟩ := foldl_pushNew (successors find n).toList rest seen
-        have inv : SearchInv find target
-            ((successors find n).toList.foldl pushNew (rest, seen)).1
-            ((successors find n).toList.foldl pushNew (rest, seen)).2 := by
-          refine ⟨fun x hx => ?_, fun x hx => ?_⟩
-          · rcases f2 x hx with hx | hx
-            · exact (f1 x).mpr (.inl (hinv.1 x (List.mem_cons_of_mem _ hx)))
-            · exact (f1 x).mpr (.inr hx)
-          · rcases f4 x hx with hx | hx
-            · rcases hinv.2 x hx with hp | ⟨hne, hsucc⟩
-              · rcases List.mem_cons.mp hp with rfl | hp
-                · exact .inr ⟨hn, fun m hm => (f1 m).mpr (.inr (Array.mem_toList_iff.mpr hm))⟩
-                · exact .inl (f3 x hp)
-              · exact .inr ⟨hne, fun m hm => (f1 m).mpr (.inl (hsucc m hm))⟩
-            · exact .inl hx
-        intro x hx
-        exact ih _ _ inv hfalse x ((f1 x).mpr (.inl hx))
+      simp only [reachLoop] at h
+      obtain ⟨f1, f2, f3, f4⟩ := foldl_pushNew (successors find n).toList rest seen
+      have hn : n ∈ seen := hinv.1 n List.mem_cons_self
+      obtain ⟨m₀, hm₀, hreach⟩ := hinv.2.2 n hn
+      have inv : LoopInv find start ((successors find n).toList.foldl pushNew (rest, seen)).1
+          ((successors find n).toList.foldl pushNew (rest, seen)).2 := by
+        refine ⟨fun x hx => ?_, fun x hx => ?_, fun x hx => ?_⟩
+        · rcases f2 x hx with hx | hx
+          · exact (f1 x).mpr (.inl (hinv.1 x (List.mem_cons_of_mem _ hx)))
+          · exact (f1 x).mpr (.inr hx)
+        · rcases f4 x hx with hx | hx
+          · rcases hinv.2.1 x hx with hp | hsucc
+            · rcases List.mem_cons.mp hp with rfl | hp
+              · exact .inr fun m hm => (f1 m).mpr (.inr (Array.mem_toList_iff.mpr hm))
+              · exact .inl (f3 x hp)
+            · exact .inr fun m hm => (f1 m).mpr (.inl (hsucc m hm))
+          · exact .inl hx
+        · rcases (f1 x).mp hx with hx | hx
+          · exact hinv.2.2 x hx
+          · exact ⟨m₀, hm₀, hreach.tail (Array.mem_toList_iff.mp hx)⟩
+      obtain ⟨r1, r2, r3⟩ := ih _ _ result inv h
+      exact ⟨r1, fun x hx => r2 x ((f1 x).mpr (.inl hx)), r3⟩
 
-/-- A search that returns `false` found that no constant `start` uses reaches `target` along
-`successors find`. -/
-theorem reaches_false {find : Name → Option ConstantInfo} {fuel : Nat} {target : Name}
-    {start : ConstantInfo} (h : reaches find fuel target start = false) :
-    ∀ m ∈ successorsOf start, ¬ ReachesFrom find target m := by
+/-- A completed `reachSet` holds exactly the names reachable from the constants `start` uses:
+every such name is in it, and every name in it is such a name. -/
+theorem reachSet_some {find : Name → Option ConstantInfo} {fuel : Nat} {start : ConstantInfo}
+    {result : Std.HashSet Name} (h : reachSet find fuel start = some result) :
+    (∀ m ∈ successorsOf start, ∀ x, Reach find m x → x ∈ result) ∧
+      ∀ x ∈ result, ∃ m ∈ successorsOf start, Reach find m x := by
   obtain ⟨f1, f2, -, f4⟩ := foldl_pushNew (successorsOf start).toList [] {}
-  have inv : SearchInv find target ((successorsOf start).toList.foldl pushNew ([], {})).1
+  have inv : LoopInv find start ((successorsOf start).toList.foldl pushNew ([], {})).1
       ((successorsOf start).toList.foldl pushNew ([], {})).2 := by
-    refine ⟨fun x hx => ?_, fun x hx => ?_⟩
+    refine ⟨fun x hx => ?_, fun x hx => ?_, fun x hx => ?_⟩
     · rcases f2 x hx with hx | hx
       · simp at hx
       · exact (f1 x).mpr (.inr hx)
     · rcases f4 x hx with hx | hx
       · simp at hx
       · exact .inl hx
-  intro m hm
-  exact reachesSearch_false fuel _ _ inv h m ((f1 m).mpr (.inr (Array.mem_toList_iff.mpr hm)))
+    · rcases (f1 x).mp hx with hx | hx
+      · simp at hx
+      · exact ⟨x, Array.mem_toList_iff.mp hx, .refl x⟩
+  obtain ⟨closed, contains, sound⟩ := reachLoop_some fuel _ _ result inv h
+  refine ⟨fun m hm x hx => ?_, sound⟩
+  have hm' : m ∈ result := contains m ((f1 m).mpr (.inr (Array.mem_toList_iff.mpr hm)))
+  clear hm
+  induction hx with
+  | refl => exact hm'
+  | step hs _ ih => exact ih (closed _ hm' _ hs)
+
+/-- Whether `find` holds an axiom under `n`. -/
+def isAxiomIn (find : Name → Option ConstantInfo) (n : Name) : Bool :=
+  match find n with
+  | some (.axiomInfo _) => true
+  | _ => false
+
+/-- The names of `seen` that `find` holds as axioms and `bound` lacks. -/
+def extraAxioms (find : Name → Option ConstantInfo) (seen bound : Std.HashSet Name) : List Name :=
+  seen.toList.filter fun a => isAxiomIn find a && !bound.contains a
+
+/-- An empty `extraAxioms` puts every axiom of `seen` in `bound`. -/
+theorem extraAxioms_nil {find : Name → Option ConstantInfo} {seen bound : Std.HashSet Name}
+    (h : extraAxioms find seen bound = []) :
+    ∀ a ∈ seen, isAxiomIn find a = true → a ∈ bound := by
+  intro a ha hax
+  have := List.filter_eq_nil_iff.mp h a (Std.HashSet.mem_toList.mpr ha)
+  simp only [hax, Bool.true_and, Bool.not_eq_eq_eq_not, Bool.not_true] at this
+  exact Std.HashSet.mem_iff_contains.mpr (by simpa using this)
 
 /-! ### Checking every copy -/
 
-/-- Why a copy is not admitted. -/
+/-- Why a copy is not admitted; `subject` names the constant at fault. -/
 inductive CopyFailure where
   /-- The replayed kernel or the audited environment holds no constant of the copy's name. -/
   | missing (copy : Copy)
-  /-- The copy (or the audited environment's constant of its name) and the constant the
-  replayed kernel holds under that name are not theorems Lean's import accepts together. -/
-  | differs (copy : Copy)
-  /-- The kernel rejected a theorem checked under its `proofCheckName`. -/
-  | rejected (copy : Copy) (name : Name) (error : Kernel.Exception)
-  /-- A proof reaches its own name, directly or through other constants. -/
-  | circular (copy : Copy)
+  /-- The subject and the constant the replayed kernel holds under its name are not theorems
+  Lean's import accepts together. -/
+  | differs (subject : String)
+  /-- The kernel rejected the subject, checked as the theorem `name`. -/
+  | rejected (subject : String) (name : Name) (error : Kernel.Exception)
+  /-- The subject's proof reaches its own name `name`, directly or through other constants. -/
+  | circular (subject : String) (name : Name)
+  /-- The subject's proof and the constant the replayed kernel holds under its name reach
+  different axioms, the names `extra` reached by only one of them. -/
+  | axioms (subject : String) (extra : List Name)
+  /-- The search of the names the subject's proof reaches ran out of fuel. -/
+  | exhausted (subject : String)
+
+/-- The subject text of an owned copy. -/
+def Copy.subject (copy : Copy) : String :=
+  s!"owned declaration {copy.name} of module {copy.module}"
+
+/-- The subject text of the constant the audited environment keeps under a copy's name. -/
+def Copy.keptSubject (copy : Copy) : String :=
+  s!"the constant {copy.name} that the audited environment keeps"
 
 /-- The fresh name under which a theorem is checked while its own name denotes another copy. -/
 def proofCheckName (n : Name) : Name := .num (.str n "regula_copy_proof") 0
 
 /-- The kernel's theorem check of `info`, renamed to `proofCheckName`, in `checked`, with the zero
 heartbeat and recursion limits `Kernel.Environment.replay` uses. -/
-def checkRenamed (checked : Kernel.Environment) (copy : Copy) (info : ConstantInfo) :
+def checkRenamed (checked : Kernel.Environment) (subject : String) (info : ConstantInfo) :
     Except CopyFailure Unit := do
-  let .thmInfo val := info | throw (.differs copy)
+  let .thmInfo val := info | throw (.differs subject)
   match checked.addDeclCore 0 0 (.thmDecl { val with name := proofCheckName val.name }) none with
   | .ok _ => pure ()
-  | .error error => throw (.rejected copy (proofCheckName val.name) error)
+  | .error error => throw (.rejected subject (proofCheckName val.name) error)
 
 /-- The kernel accepted `info`, a theorem, renamed to `proofCheckName`, in `checked`. -/
 def RenamedOK (checked : Kernel.Environment) (info : ConstantInfo) : Prop :=
@@ -602,8 +660,8 @@ def RenamedOK (checked : Kernel.Environment) (info : ConstantInfo) : Prop :=
     checked.addDeclCore 0 0 (.thmDecl { val with name := proofCheckName val.name }) none = .ok env
 
 /-- A successful `checkRenamed` is a kernel acceptance. -/
-theorem checkRenamed_ok {checked : Kernel.Environment} {copy : Copy} {info : ConstantInfo}
-    (h : checkRenamed checked copy info = .ok ()) : RenamedOK checked info := by
+theorem checkRenamed_ok {checked : Kernel.Environment} {subject : String} {info : ConstantInfo}
+    (h : checkRenamed checked subject info = .ok ()) : RenamedOK checked info := by
   unfold checkRenamed at h
   cases info with
   | thmInfo val =>
@@ -615,11 +673,69 @@ theorem checkRenamed_ok {checked : Kernel.Environment} {copy : Copy} {info : Con
     | error e => simp [ha] at h
   | _ => simp at h
 
+/-- The proof of `info`, a copy of `name`, must be accepted by the kernel under a fresh name in
+`checked`, must not reach `name` in `find`, and must reach in `find` exactly the axioms that `held`
+reaches in `checked`. -/
+def checkProof (checked : Kernel.Environment) (find : Name → Option ConstantInfo) (fuel : Nat)
+    (subject : String) (name : Name) (held info : ConstantInfo) : Except CopyFailure Unit := do
+  checkRenamed checked subject info
+  let some seen := reachSet find fuel info | throw (.exhausted subject)
+  if seen.contains name then throw (.circular subject name)
+  let some bound := reachSet checked.find? fuel held | throw (.exhausted subject)
+  let extra := extraAxioms find seen bound ++ extraAxioms checked.find? bound seen
+  if !extra.isEmpty then throw (.axioms subject extra)
+
+/-- What a successful `checkProof` establishes. -/
+def ProofOK (checked : Kernel.Environment) (find : Name → Option ConstantInfo) (name : Name)
+    (held info : ConstantInfo) : Prop :=
+  RenamedOK checked info ∧ (∀ m ∈ successorsOf info, ¬ Reach find m name) ∧
+    (∀ m ∈ successorsOf info, ∀ a, Reach find m a → isAxiomIn find a = true →
+      ∃ m' ∈ successorsOf held, Reach checked.find? m' a) ∧
+    ∀ m' ∈ successorsOf held, ∀ a, Reach checked.find? m' a → isAxiomIn checked.find? a = true →
+      ∃ m ∈ successorsOf info, Reach find m a
+
+/-- A successful `checkProof` gives `ProofOK`. -/
+theorem checkProof_ok {checked : Kernel.Environment} {find : Name → Option ConstantInfo}
+    {fuel : Nat} {subject : String} {name : Name} {held info : ConstantInfo}
+    (h : checkProof checked find fuel subject name held info = .ok ()) :
+    ProofOK checked find name held info := by
+  unfold checkProof at h
+  cases hr : checkRenamed checked subject info with
+  | error e => simp [hr] at h
+  | ok u =>
+    cases u
+    simp only [hr] at h
+    cases hs : reachSet find fuel info with
+    | none => simp [hs] at h
+    | some seen =>
+      simp only [hs] at h
+      cases hc : seen.contains name
+      · simp only [hc, Bool.false_eq_true, ↓reduceIte] at h
+        cases hb : reachSet checked.find? fuel held with
+        | none => simp [hb] at h
+        | some bound =>
+          simp only [hb] at h
+          have hx : extraAxioms find seen bound = [] ∧
+              extraAxioms checked.find? bound seen = [] := by
+            cases hx : extraAxioms find seen bound ++ extraAxioms checked.find? bound seen with
+            | nil => exact List.append_eq_nil_iff.mp hx
+            | cons a rest => simp [hx] at h
+          obtain ⟨complete, sound⟩ := reachSet_some hs
+          obtain ⟨completeHeld, soundHeld⟩ := reachSet_some hb
+          refine ⟨checkRenamed_ok hr, fun m hm hreach => ?_, fun m hm a ha hax => ?_,
+            fun m hm a ha hax => ?_⟩
+          · have := complete m hm _ hreach
+            rw [Std.HashSet.mem_iff_contains, hc] at this
+            cases this
+          · exact soundHeld a (extraAxioms_nil hx.1 a (complete m hm a ha) hax)
+          · exact sound a (extraAxioms_nil hx.2 a (completeHeld m hm a ha) hax)
+      · simp [hc] at h
+
 /-- A copy of a `shared` name and the constant `held` under it must be theorems Lean's import
 accepts together. -/
 def checkShared (shared : Copy → Bool) (held : ConstantInfo) (copy : Copy) :
     Except CopyFailure Unit :=
-  if shared copy && !sameTheorem held copy.info then throw (.differs copy) else pure ()
+  if shared copy && !sameTheorem held copy.info then throw (.differs copy.subject) else pure ()
 
 /-- A successful `checkShared` gives `sameTheorem` for a shared name. -/
 theorem checkShared_ok {shared : Copy → Bool} {held : ConstantInfo} {copy : Copy}
@@ -630,68 +746,47 @@ theorem checkShared_ok {shared : Copy → Bool} {held : ConstantInfo} {copy : Co
   · simp [hs, hst] at h
   · rfl
 
-/-- A copy that is not the constant `held` must have its own proof accepted by the kernel under a
-fresh name in `checked`, and that proof must not reach its own name there. -/
+/-- A copy that is not the constant `held` must pass `checkProof` in the replayed kernel. -/
 def checkOwn (checked : Kernel.Environment) (fuel : Nat) (held : ConstantInfo) (copy : Copy) :
     Except CopyFailure Unit :=
   if identical held copy.info then pure ()
-  else do
-    checkRenamed checked copy copy.info
-    if reaches checked.find? fuel copy.name copy.info then throw (.circular copy)
+  else checkProof checked checked.find? fuel copy.subject copy.name held copy.info
 
-/-- A successful `checkOwn`: the copy is the held constant, or a theorem the kernel accepts under
-a fresh name whose proof does not reach its own name in the replayed kernel. -/
+/-- A successful `checkOwn`: the copy is the held constant, or it passed `checkProof` in the
+replayed kernel. -/
 theorem checkOwn_ok {checked : Kernel.Environment} {fuel : Nat} {held : ConstantInfo}
     {copy : Copy} (h : checkOwn checked fuel held copy = .ok ()) :
-    identical held copy.info = true ∨ RenamedOK checked copy.info ∧
-      ∀ m ∈ successorsOf copy.info, ¬ ReachesFrom checked.find? copy.name m := by
+    identical held copy.info = true ∨ ProofOK checked checked.find? copy.name held copy.info := by
   unfold checkOwn at h
   cases hi : identical held copy.info
   · simp only [hi, Bool.false_eq_true, ↓reduceIte] at h
-    right
-    cases hr : checkRenamed checked copy copy.info with
-    | error e => simp [hr] at h
-    | ok u =>
-      cases u
-      refine ⟨checkRenamed_ok hr, reaches_false (fuel := fuel) ?_⟩
-      cases hc : reaches checked.find? fuel copy.name copy.info
-      · rfl
-      · simp [hr, hc] at h
+    exact .inr (checkProof_ok h)
   · exact .inl rfl
 
 /-- When the audited environment's constant `keptInfo` of the copy's name is not `held`, it must
-be a theorem Lean's import accepts beside `held`, accepted by the kernel under a fresh name, whose
-proof does not reach its own name in the audited environment `kept`. -/
+be a theorem Lean's import accepts beside `held` and pass `checkProof` in the audited environment
+`kept`. -/
 def checkKept (checked : Kernel.Environment) (kept : Name → Option ConstantInfo) (fuel : Nat)
     (held keptInfo : ConstantInfo) (copy : Copy) : Except CopyFailure Unit :=
   if identical held keptInfo then pure ()
   else do
-    if !sameTheorem held keptInfo then throw (.differs copy)
-    checkRenamed checked copy keptInfo
-    if reaches kept fuel copy.name keptInfo then throw (.circular copy)
+    if !sameTheorem held keptInfo then throw (.differs copy.keptSubject)
+    checkProof checked kept fuel copy.keptSubject copy.name held keptInfo
 
-/-- A successful `checkKept`: the audited environment holds `held`, or an accepted theorem of the
-same statement whose proof does not reach its own name there. -/
+/-- A successful `checkKept`: the audited environment holds `held`, or a theorem Lean's import
+accepts beside it that passed `checkProof` in the audited environment. -/
 theorem checkKept_ok {checked : Kernel.Environment} {kept : Name → Option ConstantInfo}
     {fuel : Nat} {held keptInfo : ConstantInfo} {copy : Copy}
     (h : checkKept checked kept fuel held keptInfo copy = .ok ()) :
-    identical held keptInfo = true ∨ sameTheorem held keptInfo = true ∧
-      RenamedOK checked keptInfo ∧ ∀ m ∈ successorsOf keptInfo, ¬ ReachesFrom kept copy.name m := by
+    identical held keptInfo = true ∨
+      sameTheorem held keptInfo = true ∧ ProofOK checked kept copy.name held keptInfo := by
   unfold checkKept at h
   cases hi : identical held keptInfo
   · simp only [hi, Bool.false_eq_true, ↓reduceIte] at h
-    right
     cases hst : sameTheorem held keptInfo
     · simp [hst] at h
     · simp only [hst, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at h
-      cases hr : checkRenamed checked copy keptInfo with
-      | error e => simp [hr] at h
-      | ok u =>
-        cases u
-        refine ⟨rfl, checkRenamed_ok hr, reaches_false (fuel := fuel) ?_⟩
-        cases hc : reaches kept fuel copy.name keptInfo
-        · rfl
-        · simp [hr, hc] at h
+      exact .inr ⟨rfl, checkProof_ok h⟩
   · exact .inl rfl
 
 /-- Check one safe, total copy against the replayed kernel `checked` and the audited environment
@@ -710,7 +805,7 @@ copy passes `checkSafeCopy`. -/
 def checkCopy (checked : Kernel.Environment) (kept : Name → Option ConstantInfo) (fuel : Nat)
     (shared : Copy → Bool) (copy : Copy) : Except CopyFailure Unit :=
   if copy.info.isUnsafe || copy.info.isPartial then
-    if shared copy then throw (.differs copy) else pure ()
+    if shared copy then throw (.differs copy.subject) else pure ()
   else checkSafeCopy checked kept fuel shared copy
 
 /-- What a successful `checkCopy` establishes for one copy. -/
@@ -719,10 +814,9 @@ def CopyAdmitted (checked : Kernel.Environment) (kept : Name → Option Constant
   (copy.info.isUnsafe || copy.info.isPartial) = true ∧ shared copy = false ∨
   ∃ held keptInfo, checked.find? copy.name = some held ∧ kept copy.name = some keptInfo ∧
     (shared copy = true → sameTheorem held copy.info = true) ∧
-    (identical held copy.info = true ∨ RenamedOK checked copy.info ∧
-      ∀ m ∈ successorsOf copy.info, ¬ ReachesFrom checked.find? copy.name m) ∧
-    (identical held keptInfo = true ∨ sameTheorem held keptInfo = true ∧
-      RenamedOK checked keptInfo ∧ ∀ m ∈ successorsOf keptInfo, ¬ ReachesFrom kept copy.name m)
+    (identical held copy.info = true ∨ ProofOK checked checked.find? copy.name held copy.info) ∧
+    (identical held keptInfo = true ∨
+      sameTheorem held keptInfo = true ∧ ProofOK checked kept copy.name held keptInfo)
 
 /-- A successful `checkCopy` admits its copy. -/
 theorem checkCopy_ok {checked : Kernel.Environment} {kept : Name → Option ConstantInfo}
@@ -765,17 +859,20 @@ theorem checkCopies_sound {checked : Kernel.Environment} {kept : Name → Option
 /-- The detail of a copy failure. -/
 def CopyFailure.describe : CopyFailure → IO String
   | .missing copy => pure s!"no constant {copy.name} of module {copy.module} after replay"
-  | .differs copy => pure s!"owned declaration {copy.name} of module {copy.module} shares its \
-      name with another constant of the replay base, of a replayed module or of the audited \
-      environment, and the two are not theorems of the same statement, universe parameters and \
-      mutual block, the only shared name admission admits"
-  | .rejected copy name error => do
-    return s!"the kernel rejected a copy of theorem {copy.name} (owned by module {copy.module}), \
-      checked as {name} because the replay base or another replayed module also contains that \
-      name: {← (error.toMessageData {}).toString}"
-  | .circular copy => pure s!"a copy of theorem {copy.name} (owned by module {copy.module}) has \
-      a proof that uses the name {copy.name} itself, directly or through other constants, where \
-      another copy of that name takes its place"
+  | .differs subject => pure s!"{subject} shares its name with another constant of the replay \
+      base, of a replayed module or of the audited environment, and the two are not theorems of \
+      the same statement, universe parameters and mutual block, the only shared name admission \
+      admits"
+  | .rejected subject name error => do
+    return s!"the kernel rejected {subject}, checked as {name} because another copy of that name \
+      takes its place: {← (error.toMessageData {}).toString}"
+  | .circular subject name => pure s!"{subject} has a proof that uses the name {name} itself, \
+      directly or through other constants, while another copy of that name takes its place"
+  | .axioms subject extra => pure s!"{subject} has a proof whose axioms differ from those of the \
+      constant of its name in the replayed kernel, by {extra}, so a report of that name, which \
+      shows one copy's axioms, would not show another's"
+  | .exhausted subject => pure s!"the search of the names that the proof of {subject} reaches \
+      did not finish"
 
 /-- The tag of every kernel-admission failure detail. An admission failure leaves the affected
 claim incomplete (RG2005), so the tag does not call it a violation. -/
@@ -784,8 +881,8 @@ def failureTag : String := "[INCOMPLETE[kernel-admission]]"
 /-- Replay the completed owned logical declarations against trusted imports, except those of
 the `reused` modules, which stay in the replay base with the trusted imports. The declarations
 are the constants of each replayed module's own data (`Copy`). Every name of a copy that the base
-lacks is replayed with the constant the audited environment `env` holds under it, the copy Lean's
-import kept and every report reads (`replayMap_sound`, `replayMap_complete`); every copy is then
+lacks is replayed with the constant the audited environment `env` holds under it, the copy whose
+statement and value reports read (`replayMap_sound`, `replayMap_complete`); every copy is then
 checked against the replayed kernel and `env` (`checkCopies_sound`). The receipt's `shared`
 modules contain a copy of a name that the base or another replayed module also declares; their
 admission depends on which copy this environment keeps, so they are not offered for reuse. The
