@@ -126,7 +126,8 @@ and is inspected once, in the executable's own environment with its import closu
 library's other modules stay in the library's environment. RG2002 rejects the other
 combinations: a claimed executable whose root is in an excluded library or in another surface's
 library, and an excluded executable whose root is in a claimed library. An excluded executable
-may keep its root in an excluded library.
+may keep its root in an excluded library. A claimed library still needs one module that is not
+such a root, such as its umbrella module, for its own environment.
 
 ```json
 {

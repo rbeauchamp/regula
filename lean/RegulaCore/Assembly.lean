@@ -239,8 +239,9 @@ theorem SurfaceAssigned.covers {inventory : Lake.SurfaceInventory} {surface : Ma
     rw [← Array.mem_toList_iff, Array.toList_map, hlib, List.mem_filter]
     exact ⟨Array.mem_toList_iff.mpr hm, by simpa using hr⟩
 
-/-- The library's environment and the executables' roots are disjoint, so a root inside the
-library is not inspected in two environments. -/
+/-- The library's assigned modules and the executables' roots are disjoint, so a root inside
+the library is assigned once, to its executable's environment. A library module that imports
+the root still loads it, as an import, in the library's environment. -/
 theorem SurfaceAssigned.disjoint {inventory : Lake.SurfaceInventory} {surface : Manifest.Surface}
     {assigned : SurfaceAssignment} (h : SurfaceAssigned inventory surface assigned) :
     ∀ m ∈ assigned.library.map (·.name), m ∉ assigned.executables.map (·.name) := by
@@ -436,9 +437,9 @@ def surfaceAssignments (manifest : Manifest) (inventory : Lake.SurfaceInventory)
   checked_surfaceAssignments.run manifest inventory
 
 /-- No module of a claimed library escapes the executed assignment: every module of the Lake
-library of manifest surface `i` is assigned to an environment of that surface, the library's
-own or, for the root of one of its claimed executables, that executable's
-(`SurfaceAssigned.covers`, `SurfaceAssignment.flatten_environments`). -/
+library of manifest surface `i` is assigned to an environment of that surface
+(`SurfaceAssigned.covers`, `SurfaceAssignment.flatten_environments`). The acceptance side proves
+the same of every accepted project census (`RegulaPolicy.census_covers_claimed_targets`). -/
 theorem surfaceAssignments_covers {manifest : Manifest} {inventory : Lake.SurfaceInventory}
     {out : Array SurfaceAssignment} (h : surfaceAssignments manifest inventory = .ok out)
     (i : Nat) (hi : i < manifest.surfaces.size) {library : Lake.LibraryInventory}

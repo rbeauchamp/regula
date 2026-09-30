@@ -462,6 +462,28 @@ theorem census_executable_alone (c : Claim) (i : Census) (h : CensusOK c i)
   obtain ⟨r, hr', eq⟩ := Array.mem_map.mp hin
   exact ⟨r, hr', eq⟩
 
+/-- No module of a claimed Lake target escapes a valid project census: every module of a
+discovered library or executable that the manifest assigns to a surface is a positive module of
+one of the census's environments, by `TargetPartitionOK`'s surface-module equality and
+`CensusOK`'s module partition. This includes an executable root inside its surface's library. -/
+theorem census_covers_claimed_targets (c : Claim) (i : Census) (h : CensusOK c i)
+    (scope : c.val.scope = .project) (t : DiscoveredTarget) (ht : t ∈ i.discoveredTargets)
+    (a : TargetAssignment) (ha : a ∈ i.configuredTargets) (kind : a.kind = t.kind)
+    (name : a.name = t.name) (claimed : a.surface.isSome = true) :
+    ∀ m ∈ t.modules, m ∈ moduleNames i.modules := by
+  have hs := h.2.2.2.2.2.2.2.2.2
+  rw [scope] at hs
+  obtain ⟨tp, hmodules, -, -⟩ := hs
+  obtain ⟨owner, hown⟩ := Option.isSome_iff_exists.mp claimed
+  obtain ⟨s, hs, htarget⟩ := tp.2.2.2.2.1 a ha owner hown
+  intro m hm
+  have hsurface : m ∈ s.modules.map (·.name) := by
+    rw [← mem_canonicalNames, (tp.2.2.2.2.2.1 s hs).2, mem_canonicalNames]
+    refine Array.mem_flatMap.mpr ⟨t, Array.mem_filter.mpr ⟨ht, ?_⟩, hm⟩
+    exact Array.any_eq_true'.mpr ⟨a, ha, by simp [kind, name, hown, htarget]⟩
+  rw [← mem_canonicalNames, hmodules, mem_canonicalNames]
+  exact Array.mem_flatMap.mpr ⟨s, hs, hsurface⟩
+
 /-- A module's profile is derived from its positive assignment, never a result payload. -/
 def profileForModule (c : Claim) (m : Name) : Option ConformingProfile :=
   match c.val.scope with

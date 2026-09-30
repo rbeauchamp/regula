@@ -5,9 +5,10 @@ registry embeds each rule's `Fixed` and `Violation` file verbatim as its complia
 noncompliant example, so diagnostics, `lake exe regula` and the agent briefing show these exact
 bytes, except that RG1003's stand-in dependency and RG2001's runner requests are qualification
 inputs, for which they state the correction instead; editing a file rebuilds the registry.
-RG2002's `Cli.lean` is the root of the `lean_exe cli` that both of its manifests classify; the
-runner places it in the fixture's `Example` library as `Example.Cli`. They are intentionally
-outside every positive Lake library. A violation can elaborate successfully;
+Every file here is intentionally outside every positive Lake library of this repository.
+RG2002's `Cli.lean` is the root of the `lean_exe cli` that both of its manifests classify; only
+inside the runner's scratch fixture project does it become the module `Example.Cli` of that
+project's `Example` library. A violation can elaborate successfully;
 the actual registered detector must produce its advertised result.
 
 [`corpus.json`](corpus.json) fixes expected rule IDs, reasons, modes, subjects and locations.

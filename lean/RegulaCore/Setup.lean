@@ -1158,8 +1158,10 @@ theorem moduleSummary_complete (modules : List String) :
   simp only [moduleSummary, List.length_take]
   omega
 
-/-- `words` greedily in lines separated by `", "`, each line up to `width` characters unless its
-one word is longer, continuing the line `line` whose text is `used` characters long. -/
+/-- `words` in order, greedily grouped into lines: a word joins the current line `line`, whose
+`", "`-joined text is taken to be `used` characters long, when the joined text stays within
+`width` characters, and otherwise starts a new line. `wrapFrom_flatten` proves that no word is
+lost or reordered; the width is layout, not a proved bound. -/
 def wrapFrom (width : Nat) (line : List String) (used : Nat) : List String → List (List String)
   | [] => if line.isEmpty then [] else [line]
   | w :: ws =>
@@ -1179,8 +1181,8 @@ theorem wrapFrom_flatten (width : Nat) :
       · simp [wrapFrom, h, hw, wrapFrom_flatten width ws (line ++ [w]) (used + 2 + w.length)]
       · simp [wrapFrom, h, hw, wrapFrom_flatten width ws [w] w.length]
 
-/-- The indented lines naming `modules`: the names `moduleSummary` prints, wrapped to fit a
-100-column line, then how many more there are. -/
+/-- The indented lines naming `modules`: the names `moduleSummary` prints, grouped by `wrapFrom`
+at 96 characters after a four-space indent, then how many more there are. -/
 def moduleLines (modules : List String) : String :=
   let (shown, more) := moduleSummary modules
   "\n".intercalate (((wrapFrom 96 [] 0 shown).map fun line => "    " ++ ", ".intercalate line) ++

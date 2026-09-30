@@ -197,10 +197,12 @@ claimed executables' roots, then each claimed executable's root alone (`census_e
 `acceptedRun_executable_alone` for every accepted ordinary project run), because two roots that
 each define `main` cannot share one environment. A root inside its library is thus assigned once
 (`SurfaceAssigned.disjoint`), and `surfaceAssignments_covers` proves of the executed assignment
-that every module of a claimed library is assigned to one of its surface's environments. An
+that every module of a claimed library is assigned to one of its surface's environments, and
+`census_covers_claimed_targets` proves of every valid project census that each module of a claimed
+Lake target is one of its positive modules. An
 executable's root may lie in a library only when the manifest classifies the two alike
-(`RootsClassifiedAlike`, a conjunct of `TargetPartitionOK` that `checkClassification` decides
-before the build). `InventoryValid`
+(`RootsClassifiedAlike`, a conjunct of `TargetPartitionOK` that `checkClassification` also decides
+before the project audit's build, and in `doctor`). `InventoryValid`
 requires unique names within each Lean environment; different environments may each define
 `main`, and their inventories are never merged. Each
 `EnvironmentCensus` retains its complete admitted policy inventory, transcripts, execution roots,
@@ -787,10 +789,13 @@ the manifest does not exclude) reaches it by import through the package's module
 audit rejects as outside every library; any other such module is a `note` that does not count
 toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
 from a build. Each such finding states how many modules the library leaves out and names at most
-`shownModules` of them, wrapped: `moduleSummary_complete` proves it prints a prefix of them and
-counts exactly the rest, and `wrapFrom_flatten` that wrapping keeps each printed name, in order.
-The starter manifest lists each `lean_exe` with the first library containing its root module, so
-it meets `RootsClassifiedAlike` unless a root lies in two libraries.
+`shownModules` of them, wrapped (`moduleLines`, which prints `moduleSummary`'s names grouped by
+`wrapFrom`): `moduleSummary_complete` proves those names are a prefix of the modules and the
+count is exactly the rest, and `wrapFrom_flatten` that grouping keeps each name, in order; that
+the finding text is `moduleLines` is by definition, and the line width is layout. The starter
+manifest lists each `lean_exe` with the first library containing its root module, so, by its
+definition rather than a theorem, it meets `RootsClassifiedAlike` unless a root lies in two
+libraries; a library whose modules are all such roots is refused as RG2002 by `doctor`.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
 which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and

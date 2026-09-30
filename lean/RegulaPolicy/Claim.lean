@@ -221,7 +221,8 @@ without the others. -/
 structure SurfaceAssignment where
   /-- The claimed Lake library's name. -/
   target : String
-  /-- The claimed library's modules. -/
+  /-- The claimed library's modules other than its claimed executables' roots, which
+  `executables` holds. -/
   library : Array Identity
   /-- The root module of each claimed executable, in manifest order. -/
   executables : Array Identity
@@ -231,15 +232,16 @@ structure SurfaceAssignment where
   execution : ExecutionClaim
   deriving Repr, DecidableEq
 
-/-- The surface's modules: its library's modules, then its executables' root modules. -/
+/-- The surface's modules: its library's modules other than its executables' roots, then
+those roots. -/
 def SurfaceAssignment.modules (s : SurfaceAssignment) : Array Identity :=
   s.library ++ s.executables
 
 /-- The module assignment of each Lean environment a project audit loads for the surface: the
-library's modules in one, then each executable's root module alone in one of its own. Lean
-refuses to import two modules that declare the same name, and an executable's root module
-declares its `main`, so two roots cannot share an environment; nor can a root and a library
-module that declares `main`. -/
+library's modules other than its executables' roots in one, then each executable's root module
+alone in one of its own. Lean refuses to import two modules that declare the same name, and an
+executable's root module declares its `main`, so two roots cannot share an environment; nor can a
+root and a library module that declares `main`. -/
 def SurfaceAssignment.environments (s : SurfaceAssignment) : Array (Array Identity) :=
   #[s.library] ++ s.executables.map (#[·])
 
@@ -258,7 +260,7 @@ theorem SurfaceAssignment.flatten_environments (s : SurfaceAssignment) :
   · generalize s.executables.toList = roots
     induction roots <;> simp_all
 
-/-- An environment of the surface is exactly its library's modules or one executable root
+/-- An environment of the surface is exactly its library's assigned modules or one executable root
 alone. -/
 theorem SurfaceAssignment.mem_environments (s : SurfaceAssignment) (e : Array Identity) :
     e ∈ s.environments ↔ e = s.library ∨ ∃ r ∈ s.executables, e = #[r] := by
@@ -293,8 +295,9 @@ def scopeModeCompatible : Scope → EvidenceMode → Bool
   | .editor .., .editorSnapshot => true
   | _, _ => false
 
-/-- Functional source maps and disjoint positive module ownership; empty project libraries
-remain unsupported. This does not assert completeness of an external Lake inventory. -/
+/-- Functional source maps and disjoint positive module ownership; an empty library environment,
+including a library whose modules are all its claimed executables' roots, remains
+unsupported. This does not assert completeness of an external Lake inventory. -/
 def ClaimCandidate.Valid (c : ClaimCandidate) : Prop :=
   scopeModeCompatible c.scope c.mode = true ∧
   c.snapshot.Valid ∧
