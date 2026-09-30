@@ -55,7 +55,10 @@ required `verify` job.
 and the release stamped into each `.unreleased` on a line that starts `lifecycle :=`
 (`RegulaCore/Rule.lean`, `stampRules`, a convenience); `Regula.installed` stays `.unreleased`.
 While the last listed release is not published yet, `open` lists the release it derives in its
-place instead, restamping its stamps (`restampRules`). GitHub creates and signs the commit, and
+place instead, restamping its stamps (`restampRules`). `open` refuses unless the releases GitHub
+reports published are exactly the releases it keeps listed before the one it lists
+(`publishedExactly`), and checks that again just before it pushes, so it never lists a release
+in place of one published by then. GitHub creates and signs the commit, and
 `open` refuses unless GitHub reports its signature verified. It pushes it as the branch
 `release/v<version>` and writes the link that opens its pull request to the job summary; a
 maintainer opens the pull request from that link, which starts its checks, and merges it through
@@ -65,8 +68,11 @@ starts no workflow; the dispatched `title` step reads the pull request's title t
 API. No step creates a pull request: the repository does not let GitHub Actions create one.
 
 On `main`, once acceptance and the rule-example shards pass on a commit that lists a release not
-yet published, `candidate` derives the bump again, over the commits of `main` since the release
-listed before it up to that commit, which are the commits the release contains, and refuses
+yet published, `candidate` refuses unless the releases GitHub reports published are exactly the
+releases listed before it (`publishedExactly`), so that its listed predecessor is the latest
+published release (`publishedExactly_latest`, `publishedExactly_refuses`) and every published
+release stays listed, in order. It derives the bump again, over the commits of `main` since that
+predecessor up to that commit, which are the commits the release contains, and refuses
 unless the release's bump from that predecessor is at least that bump (`covers`, `covers_iff`);
 the release `open` derived passes on the commits it derived from (`nextVersion_covers`). It then
 creates the release commit, a signed child of that commit that is not
@@ -94,14 +100,19 @@ refuses; if one that adds or retires a rule does, the release commit fails
 `main` again as a new run lists the release the commits then call for in its place and stamps
 that rule too (a re-run reuses its original commit). While the release pull request is still
 open, a new run whose derived version differs pushes the branch of that version instead; the
-stale pull request is then to be closed, and `candidate` refuses its release if it merges.
+stale pull request is then to be closed, and `candidate` refuses its release if it merges. A
+pull request that lists a release in place of one that was published after `open` prepared it
+is refused by `candidate` too (`publishedExactly_refuses`): the published release must be listed
+again, before it, with its stamps.
 
 Every step resumes: `open` rebuilds its branch on the commit its run started from, `candidate`
 creates a fresh release commit, and `publish` replaces an unpublished draft and skips a published
 release. They refuse a toolchain that is not a stable release; `open` refuses a derivation that
-releases nothing, an earlier listed release not yet published, and a `main` with nothing left to
-change; `candidate` refuses a release that does not cover the commits it contains and a release
-commit whose `lean-toolchain` is not the toolchain the release records; and `candidate` and
+releases nothing, published releases other than those it keeps listed (an earlier listed release
+not yet published, or a published release not listed), and a `main` with nothing left to
+change; `candidate` refuses published releases other than those listed before its release, a
+release that does not cover the commits it contains and a release commit whose
+`lean-toolchain` is not the toolchain the release records; and `candidate` and
 `publish` refuse, while the release is unpublished, a run
 whose commit is no longer the head of `main` and a tag that names another commit.
 
@@ -110,10 +121,12 @@ whose commit is no longer the head of `main` and a tag that names another commit
 GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions) and `git` (the
 tree it writes, the history and objects it fetches and its resets) are trusted and observed, not
 proved. `tagAction` is the decision the candidate and publish steps execute, `covers` another
-the candidate step executes, and `nextVersion` and `admits` the ones `open` executes; their
-theorems are checked by the kernel each time `lean --run` elaborates this file. What the steps
-observe (whether the release is published, the head of `main`, the tag, the commits since the
-previous release, a pull request's title and head), that publishing a release creates its
+the candidate step executes, `publishedExactly` one the candidate and open steps execute, and
+`nextVersion` and `admits` the ones `open` executes; their theorems are checked by the kernel
+each time `lean --run` elaborates this file. What the steps observe (whether the release is
+published, the versions of the published releases, which GitHub lists as its releases that are
+not drafts, the head of `main`, the tag, the commits since the previous release, a pull
+request's title and head), that publishing a release creates its
 tag at the given commit, and the order of CI's jobs are GitHub's; that Lake reads a package's
 version from its `lakefile.lean` and that Reservoir indexes each version tag with that version,
 ordering them by it, is Lake's and Reservoir's behaviour. The edits of `RegulaCore/Edition.lean`,
@@ -952,6 +965,59 @@ theorem tagAction_converges (tag : Tag) (h : tag ≠ .other) :
     tagAction false true tag = .release := by
   cases tag <;> simp_all [tagAction]
 
+/-- Whether the releases GitHub reports published, by version, are exactly the releases `before`
+listed before the release a step handles: each of them is published, and each published release
+is one of them. The candidate step checks it before it creates a release commit, and the open
+step before it lists a release and again before it pushes it, so every published release stays
+listed, in order, and no release is listed in place of a published one. -/
+def publishedExactly (published : List Version) (before : List Release) : Bool :=
+  before.all (fun r => published.contains r.version) &&
+    published.all fun v => before.any (·.version == v)
+
+/-- The published releases are exactly those listed before a release: every release listed before
+it is published, and every published release is listed before it. -/
+theorem publishedExactly_iff (published : List Version) (before : List Release) :
+    publishedExactly published before = true ↔
+      (∀ r ∈ before, r.version ∈ published) ∧ ∀ v ∈ published, ∃ r ∈ before, r.version = v := by
+  simp [publishedExactly]
+
+/-- No release precedes a release that precedes it. -/
+theorem Version.lt_asymm {a b : Version} (h : a < b) : ¬ b < a := by
+  rw [lt_iff] at h ⊢
+  unfold lex at h ⊢
+  omega
+
+/-- When a step proceeds, the release listed last before the one it handles, its predecessor, is
+the latest published release: published, and later than every other published release, given
+the releases before it listed in ascending order (which `Regula.releases_ascending` checks). -/
+theorem publishedExactly_latest {published : List Version} {before : List Release}
+    {prev : Release} (h : publishedExactly published before = true)
+    (hl : before.getLast? = some prev)
+    (ha : ∀ r ∈ before, r.version = prev.version ∨ r.version < prev.version) :
+    prev.version ∈ published ∧ ∀ v ∈ published, v = prev.version ∨ v < prev.version := by
+  obtain ⟨hb, hp⟩ := (publishedExactly_iff _ _).mp h
+  refine ⟨hb prev (List.mem_of_getLast? hl), fun v hv => ?_⟩
+  obtain ⟨r, hr, rfl⟩ := hp v hv
+  exact ha r hr
+
+/-- A step refuses a release whose listed predecessor is not the latest published release: one
+that is not published, or that a published release is later than, given the releases before it
+listed in ascending order. So once a release is published, a release listed in its place is
+refused. -/
+theorem publishedExactly_refuses {published : List Version} {before : List Release}
+    {prev : Release} (hl : before.getLast? = some prev)
+    (ha : ∀ r ∈ before, r.version = prev.version ∨ r.version < prev.version)
+    (hn : prev.version ∉ published ∨ ∃ v ∈ published, prev.version < v) :
+    publishedExactly published before = false := by
+  cases h : publishedExactly published before
+  · rfl
+  · obtain ⟨hm, hlatest⟩ := publishedExactly_latest h hl ha
+    rcases hn with hn | ⟨v, hv, hlt⟩
+    · exact absurd hm hn
+    · rcases hlatest v hv with rfl | hlt'
+      · exact absurd hlt (Version.lt_irrefl _)
+      · exact absurd hlt' (Version.lt_asymm hlt)
+
 /-! ## GitHub and `git` -/
 
 /-- The repository `owner/name` the workflow runs in. -/
@@ -1005,18 +1071,35 @@ def taggedCommit (repo tag : String) : IO (Option String) := do
       "object")) "sha")
   return some sha
 
-/-- The release of `tag` among all releases (drafts included), if any. -/
-def releaseOf (repo tag : String) : IO (Option Json) := do
+/-- Every release of the repository, drafts included, as GitHub lists them. -/
+private def githubReleases (repo : String) : IO (List Json) := do
   let pages ← gh #["api", "--paginate", "--slurp", s!"repos/{repo}/releases?per_page=100"]
   let pages ← IO.ofExcept ((← IO.ofExcept (Json.parse pages)).getArr?)
-  for page in pages do
-    for release in ← IO.ofExcept page.getArr? do
-      if (← str release "tag_name") == tag then return some release
-  return none
+  return (← pages.toList.mapM fun page => return (← IO.ofExcept page.getArr?).toList).flatten
+
+/-- The release of `tag` among all releases (drafts included), if any. -/
+def releaseOf (repo tag : String) : IO (Option Json) := do
+  (← githubReleases repo).findM? fun r => return (← str r "tag_name") == tag
 
 /-- Whether the release of `tag` is published: it exists and is not a draft. -/
 def published (repo tag : String) : IO Bool := do
   return (← releaseOf repo tag).any fun r => r.getObjValD "draft" != .bool true
+
+/-- The versions of the published releases (not drafts), read from their tags `v<version>`;
+refused when a published release's tag is not one. -/
+def publishedVersions (repo : String) : IO (List Version) := do
+  ((← githubReleases repo).filter (·.getObjValD "draft" != .bool true)).mapM fun r => do
+    let tag ← str r "tag_name"
+    let some v := (tag.dropPrefix? "v").bind (parseVersion ·.toString)
+      | fail s!"the published release {tag} is not tagged v<major>.<minor>.<patch>"
+    return v
+
+/-- The refusal when the published releases are not exactly those listed before `tag`. -/
+private def unlisted (published : List Version) (before : List Release) (tag : String) :
+    String :=
+  s!"GitHub reports the releases {published.map (·.tag)} published, but main lists \
+    {before.map (·.version.tag)} before {tag}: they must be the same, so that every published \
+    release stays listed, in order (publishedExactly)"
 
 /-- The tree of commit `sha`, as GitHub reads it back. -/
 def commitTree (repo sha : String) : IO String := do
@@ -1173,13 +1256,14 @@ private def derivation (prev : Release) (messages : List String) : String :=
 the version of the next release (`nextVersion`) from the commits of `main` since the previous
 published release, `lean-toolchain` and the `RELEASE_BUMP` input (exactly `derived`, `patch`,
 `minor` or `major`; `derived` raises nothing), and commit that release: appended with its
-toolchain to `Regula.releases` in place of a listed release not yet published, if any, whose stamps it
-restamps (`restampRules`); `lakefile.lean`'s `version` set to it; the adoption guide's
+toolchain to `Regula.releases` in place of a listed release not yet published, if any, whose
+stamps it restamps (`restampRules`); `lakefile.lean`'s `version` set to it; the adoption guide's
 compatibility table regenerated; and the release stamped into each `.unreleased` on a
 `lifecycle :=` line (`stampRules`), leaving `Regula.installed` unreleased. Refuses a derivation
 that releases nothing, a release `admits` refuses, a patch release that introduces a rule
-(`introducesRules`, after stamping and restamping), an earlier listed release not yet published,
-and a `main` that already lists the release with nothing left to change. -/
+(`introducesRules`, after stamping and restamping), published releases other than those it keeps
+listed before the release (`publishedExactly`), observed when it starts and again just before it
+pushes, and a `main` that already lists the release with nothing left to change. -/
 def openRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
@@ -1196,14 +1280,15 @@ def openRelease : IO Unit := do
   let listed ← IO.ofExcept (releasesOf edition)
   let some last := listed.getLast?
     | fail "RegulaCore/Edition.lean lists no release; the legacy release v4.34.0 is always listed"
+  let released ← publishedVersions repo
   -- A listed release that is not published yet is pending: the derived release takes its place.
-  let pending ← if ← published repo last.version.tag then pure none else pure (some last)
+  let pending := if released.contains last.version then none else some last
   let prior := if pending.isSome then listed.dropLast else listed
   let some prev := prior.getLast?
     | fail s!"release {last.version.tag} is the only listed release, and it is not published"
-  unless ← published repo prev.version.tag do
-    fail s!"release {prev.version.tag} is listed on main but not published yet; CI on main \
-      publishes it"
+  unless publishedExactly released prior do
+    fail s!"{unlisted released prior "the release this run prepares"}; CI on main publishes \
+      each listed release, and a published release main omits must be listed again"
   let messages ← messagesSince prev.version
   let commits := messages.map parseCommit
   let initial := prev.version.semver.major == 0
@@ -1232,7 +1317,6 @@ def openRelease : IO Unit := do
   unless admits prior next do
     fail s!"{tag} for Lean {toolchain.spelling} does not follow the listed releases: it must be \
       later than each, and follow {prev.version.tag} by the version rules"
-  if ← published repo tag then fail s!"release {tag} is published"
   let rules ← IO.FS.readFile rulesFile
   let restamped := match pending with
     | some p => if p.version == v then rules else restampRules rules p.version v
@@ -1264,6 +1348,10 @@ def openRelease : IO Unit := do
       stays unreleased. Once this is on main, CI creates the release commit, which sets \
       Regula.installed to the release, runs main's checks on it and, once they pass, publishes \
       the release, which tags it {tag}."
+  let releasedNow ← publishedVersions repo
+  unless publishedExactly releasedNow prior do
+    fail s!"{unlisted releasedNow prior tag}; a release was published while this run prepared \
+      {tag}, so it pushes nothing: run the Release workflow on main again"
   pushBranch repo s!"release/{tag}" commit title
     s!"Prepares Regula {tag} for Lean {toolchain.spelling} (`leanprover/lean4:{toolchain.tag}`)\
       {replaced}: lists it with its toolchain in `Regula.releases`, sets `lakefile.lean`'s \
@@ -1390,10 +1478,11 @@ def notes (r : Release) (repo : String) : String :=
 
 /-- Publish release `v<version>` of the release commit `RELEASE_COMMIT` once CI has checked it:
 attach the release edition its site build wrote and publish the release, which creates tag
-`v<version>` at that commit, as `tagAction` decides; a published release is left as it is.
-Refuses unless `VERIFIED_COMMIT` and `SITE_COMMIT`, the commits `adopt` adopted in
-`release-verify` and `release-site`, are `RELEASE_COMMIT`, so the tag names the commit the
-checked edition records. -/
+`v<version>` at that commit, as `tagAction` decides; a published release is left as it is. Its
+generated notes start at the tag of the release the commit lists before it, the release whose
+commits `candidate` checked it against. Refuses unless `VERIFIED_COMMIT` and `SITE_COMMIT`, the
+commits `adopt` adopted in `release-verify` and `release-site`, are `RELEASE_COMMIT`, so the tag
+names the commit the checked edition records. -/
 def publish : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
@@ -1405,8 +1494,11 @@ def publish : IO Unit := do
   let edition ← editionAt repo commit
   let some v ← IO.ofExcept (installedOf edition)
     | fail s!"{commit} is unreleased; there is nothing to publish"
-  let some r := (← IO.ofExcept (releasesOf edition)).find? (·.version == v)
+  let listed ← IO.ofExcept (releasesOf edition)
+  let some r := listed.find? (·.version == v)
     | fail s!"{commit} installs {v.tag}, which its Regula.releases does not list"
+  let some prev := (listed.takeWhile (·.version != v)).getLast?
+    | fail s!"{commit} lists no release before {v.tag}, where its generated notes start"
   let tag := v.tag
   let state : Tag := match ← taggedCommit repo tag with
     | none => .absent
@@ -1430,7 +1522,7 @@ def publish : IO Unit := do
   -- tag at `commit` unless it already names it.
   discard <| gh #["release", "create", tag, asset.toString, "--repo", repo, "--target", commit,
     "--title", s!"Regula {tag}", "--notes-file", "tmp/release-notes.md", "--generate-notes",
-    "--latest"]
+    "--notes-start-tag", prev.version.tag, "--latest"]
   let some release ← releaseOf repo tag | fail s!"release {tag} was not created"
   let assets ← IO.ofExcept ((release.getObjValD "assets").getArr?)
   unless release.getObjValD "draft" == .bool false &&
@@ -1456,7 +1548,8 @@ def releaseCommit (repo head edition : String) (listed : List Release) (r : Rele
       main, and publishing the release {tag} after CI has checked it creates the tag here."
 
 /-- The candidate step, on the checked-out commit of `main` for its latest listed release: when
-`tagAction` proceeds, and the release covers the commits of `main` since the release listed
+`tagAction` proceeds, the releases GitHub reports published are exactly those listed before it
+(`publishedExactly`), and the release covers the commits of `main` since the release listed
 before it up to this commit (`covers`), which are the commits the release contains, create a
 fresh release commit on it (`releaseCommit`) and point the branch `release/v<version>-candidate`
 at it, of which `adopt` fetches only that one commit (depth 1); leave a published release alone,
@@ -1484,7 +1577,12 @@ def candidate : IO Unit := do
         creates the tag"
     fail s!"{head} is no longer the head of main; the run on main's head releases {tag}"
   | .release =>
-    let some prev := listed.dropLast.getLast?
+    let before := listed.dropLast
+    let released ← publishedVersions repo
+    unless publishedExactly released before do
+      fail s!"{unlisted released before tag}; a release pull request listed {tag} in place of a \
+        release published since: list that release again, before {tag}, with its stamps"
+    let some prev := before.getLast?
       | fail s!"{tag} is the only listed release; no earlier release bounds the commits it \
           contains"
     let messages ← messagesSince prev.version

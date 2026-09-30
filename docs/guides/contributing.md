@@ -401,11 +401,13 @@ step runs. The derivation over the commits alone
 (`derive_eq_none`). The release's bump from its predecessor is at least each header's, whatever
 was requested (`nextVersion_ge`), never below the requested bump (`nextBump_ge_requested`), and
 at least minor for a toolchain move (`nextBump_moved`); the derived version follows its
-predecessor (`nextVersion_follows`, `follows`): it is later than every listed release, a patch
-release keeps its predecessor's toolchain, and a new line resets the lower components.
-`introduced_startsLine` ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)) refuses a patch
-release that introduces a rule, and `releases_ascending` and `releases_follow` check the listed
-releases themselves. The job summary of **open** lists each commit's bump.
+predecessor (`nextVersion_follows`, `follows`): it is later than its predecessor, a patch
+release keeps its predecessor's toolchain, and a new line resets the lower components. **open**
+also refuses it unless it is later than every listed release before it, a pending release it
+replaces excepted (`admits`, `admits_iff`). `introduced_startsLine`
+([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)) refuses a patch release that introduces a
+rule, and `releases_ascending` and `releases_follow` check the listed releases themselves. The
+job summary of **open** lists each commit's bump.
 
 The Lean ecosystem is split on release numbering. Batteries, Aesop, Plausible, import-graph and
 doc-gen4 tag the toolchain they support (`v4.34.0` for Lean 4.34.0), which allows one release per
@@ -446,7 +448,11 @@ until the release commit has passed the same checks as `main`:
    `lifecycle := .retired (.release ⟨X, Y, Z⟩) .unreleased replacement` on one line. The stamp is
    a convenience that reads text; the guarantee is the kernel's check of
    `release_attributes_rules` on the release commit (step 2). `Regula.installed` stays
-   `.unreleased`. GitHub creates and signs the commit, and the step refuses unless GitHub verified
+   `.unreleased`. It refuses unless the releases GitHub reports published (its releases that are
+   not drafts) are exactly the releases it keeps listed before the one it lists
+   (`Regula.Release.publishedExactly`), and checks that again just before it pushes, so it never
+   lists a release in place of one published by then. GitHub creates and signs the commit, and
+   the step refuses unless GitHub verified
    the signature. It pushes the commit as `release/v<version>` and writes to its job summary the
    link that opens the pull request `chore(release): Regula v<version> for Lean <toolchain>`,
    title and description filled in. A maintainer opens the pull request from that link, which
@@ -455,8 +461,13 @@ until the release commit has passed the same checks as `main`:
    commit that lists the release, refuses: the release's edition exists only once CI builds it
    from the release commit. Only `verify` and `title` are required checks.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
-   shards pass on a commit of `main` that lists a release not yet published, it derives the bump
-   again, over the commits of `main` since the release listed before it up to that commit, which
+   shards pass on a commit of `main` that lists a release not yet published, it refuses unless
+   the releases GitHub reports published are exactly the releases listed before it
+   (`publishedExactly`): its listed predecessor is then the latest published release
+   (`publishedExactly_latest`), and a release whose listed predecessor is not is refused
+   (`publishedExactly_refuses`), so every published release stays listed, in order. It derives
+   the bump again, over the commits of `main` since the release listed before it up to that
+   commit, which
    are the commits the release contains, and refuses unless the release's bump from that
    predecessor is at least the bump those commits and `lean-toolchain` call for
    (`Regula.Release.covers`, which `covers_iff` characterizes exactly; the release **open**
@@ -481,7 +492,8 @@ until the release commit has passed the same checks as `main`:
 3. **publish** (`ci.yml`, the `publish` job), only once all of those checks pass and both
    adopted the release commit, creates the
    GitHub release with its notes (how to require, set up and update, then GitHub's generated list
-   of changes) and that edition as its asset, published only once the asset is attached.
+   of changes since the tag of the release listed before it) and that edition as its asset,
+   published only once the asset is attached.
    Publishing creates the tag `v<version>` at the release commit; no step writes the tag
    otherwise, so a failed check leaves no tag and no release. Immutable releases, a repository
    setting that is on, then freeze the tag and the asset. The site build of `main` runs after it
@@ -515,17 +527,22 @@ its place (a `feat` turns a pending patch release into a minor one) and restamps
 positions, in a new pull request. While the release pull request is still open, the run rebuilds
 its branch when the version is unchanged, and otherwise pushes the branch of the new version,
 whose pull request replaces it: close the stale one, whose release **candidate** refuses if it
-merges. A re-run of the Release workflow reuses its original commit, so it stamps nothing new.
+merges. A pull request that **open** prepared to list a release in place of a pending one is
+refused by **candidate** if the pending release was published before it merged: list the
+published release again, before the new one, with its stamps. A re-run of the Release workflow
+reuses its original commit, so it stamps nothing new.
 
 Each step resumes when its job is re-run: **open** rebuilds its branch on the commit its run
-started from; **candidate** creates a fresh release commit and refuses a release that does not
-cover the commits it contains and a `lean-toolchain` other than the toolchain the release
-records; and **publish** replaces an unpublished draft and skips a published release. While the
-release is unpublished, **candidate** and **publish** refuse a stale run whose commit is no
-longer the head of `main` and a tag that names another commit. **open** refuses a derivation
-that releases nothing, a patch release that introduces a rule (a new rule, or one a pending
-release it replaces introduced), an earlier listed release not yet published, and a `main` that
-already lists the release with nothing left to change.
+started from; **candidate** creates a fresh release commit and refuses published releases other
+than those listed before the release, a release that does not cover the commits it contains and
+a `lean-toolchain` other than the toolchain the release records; and **publish** replaces an
+unpublished draft and skips a published release. While the release is unpublished,
+**candidate** and **publish** refuse a stale run whose commit is no longer the head of `main`
+and a tag that names another commit. **open** refuses a derivation that releases nothing, a
+patch release that introduces a rule (a new rule, or one a pending release it replaces
+introduced), published releases other than those it keeps listed (an earlier listed release not
+yet published, or a published release not listed), and a `main` that already lists the release
+with nothing left to change.
 
 Who opens the pull request, and when its checks start: a maintainer opens it from the link in the
 job summary of **open**, and opening it starts its checks. No workflow creates a pull request,
