@@ -331,11 +331,12 @@ most 3 GiB above those workers' first-check peaks; that increment does not by it
 audit's total memory. Because the allowance is per process, a process that has inspected one
 environment is not fresh for the next, whose checks may then exhaust at once; the audit and the
 `qualify environments` census therefore acquire every claimed environment's report through the same
-code, `Inspection.inspect`, each in its own report worker. Supplied and then discovered theorem candidates are tried before the
-kernel-defeq check, to keep a kernel-exhausting unfolding within one comparison from consuming the
-headroom a supplied proof needs, so a replacement with both reports `proved:` evidence; kernel
-resource exhaustion is never conflated with rejection; a theorem candidate whose admission exhausts
-the kernel supplies no evidence, like any candidate the deliberately incomplete search cannot use.
+code, `Inspection.inspect`, each in its own report worker. Supplied and then discovered theorem
+candidates are tried before the kernel-defeq check, to keep a kernel-exhausting unfolding within one
+comparison from consuming the headroom a supplied proof needs, so a replacement with both reports
+`proved:` evidence; kernel resource exhaustion is never conflated with rejection; a theorem
+candidate whose admission exhausts the kernel supplies no evidence, like any candidate the
+deliberately incomplete search cannot use.
 The correspondence cache in `Probe.environmentReport` stores checked results by name pair within one
 fixed environment, and replacement-history worker output is shared within one audit only under
 identical inputs (standard §7.6); no cache crosses environments. A cross-environment cache would
