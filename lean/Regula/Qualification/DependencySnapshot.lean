@@ -262,7 +262,7 @@ def check (group : String) : IO Unit := do
             ⟨"history diagnostic present", !historyFindings.isEmpty⟩,
             ⟨"identity root", historyFindings.any (fun d => (do
               let args ← d.getObjVal? "arguments"
-              args.getObjVal? "root").toOption == some (nameJson "identity"))⟩,
+              args.getObjVal? "root").toOption == some (.str "identity"))⟩,
             ⟨"exact source location", historyFindings.all (fun d => (do
               let loc ← d.getObjVal? "location"
               pure ((← loc.getObjValAs? String "kind") == "source" &&

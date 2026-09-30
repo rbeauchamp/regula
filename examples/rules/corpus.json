@@ -42,12 +42,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "reflexive"
-            ]
-          ]
+          "declaration": "reflexive",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -97,12 +93,8 @@
           }
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "reflexive"
-            ]
-          ]
+          "declaration": "reflexive",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "standard-logical"
@@ -153,12 +145,8 @@
           }
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "reflexive"
-            ]
-          ]
+          "declaration": "reflexive",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -209,12 +197,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "equal"
-            ]
-          ]
+          "declaration": "equal",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -257,24 +241,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "ax_1_1"
-            ],
-            [
-              "str",
-              "native_decide"
-            ],
-            [
-              "str",
-              "_native"
-            ],
-            [
-              "str",
-              "equal"
-            ]
-          ]
+          "declaration": "equal._native.native_decide.ax_1_1",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -317,12 +285,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "gcdValue"
-            ]
-          ]
+          "declaration": "gcdValue",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -365,24 +329,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "ax_1_1"
-            ],
-            [
-              "str",
-              "decide"
-            ],
-            [
-              "str",
-              "_native"
-            ],
-            [
-              "str",
-              "gcdValue"
-            ]
-          ]
+          "declaration": "gcdValue._native.decide.ax_1_1",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -425,12 +373,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "commute"
-            ]
-          ]
+          "declaration": "commute",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -473,24 +417,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "ax_1_5"
-            ],
-            [
-              "str",
-              "bv_decide"
-            ],
-            [
-              "str",
-              "_native"
-            ],
-            [
-              "str",
-              "commute"
-            ]
-          ]
+          "declaration": "commute._native.bv_decide.ax_1_5",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -540,12 +468,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "reflexive"
-            ]
-          ]
+          "declaration": "reflexive",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -595,12 +519,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "identity"
-            ]
-          ]
+          "declaration": "identity",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -650,12 +570,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "contract"
-            ]
-          ]
+          "declaration": "contract",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -840,12 +756,7 @@
           "kind": "source"
         },
         "subject": {
-          "root": [
-            [
-              "str",
-              "identity"
-            ]
-          ]
+          "root": "identity"
         },
         "impact": "incomplete",
         "claim": "checked"
@@ -895,12 +806,7 @@
           "kind": "source"
         },
         "subject": {
-          "root": [
-            [
-              "str",
-              "identity"
-            ]
-          ]
+          "root": "identity"
         },
         "impact": "violation",
         "claim": "checked"
@@ -986,12 +892,8 @@
           "kind": "source"
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "reflexive"
-            ]
-          ]
+          "declaration": "reflexive",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "standard-logical"
@@ -1059,12 +961,7 @@
         "detailPattern": "module-documentation",
         "location": {
           "kind": "module",
-          "name": [
-            [
-              "str",
-              "Example"
-            ]
-          ]
+          "name": "Example"
         },
         "subject": {
           "subject": "Example"
@@ -1117,12 +1014,8 @@
           }
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "reflexive"
-            ]
-          ]
+          "declaration": "reflexive",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"
@@ -1172,12 +1065,8 @@
           }
         },
         "subject": {
-          "declaration": [
-            [
-              "str",
-              "reflexive"
-            ]
-          ]
+          "declaration": "reflexive",
+          "sourceDeclaration": null
         },
         "impact": "violation",
         "claim": "kernel-only"

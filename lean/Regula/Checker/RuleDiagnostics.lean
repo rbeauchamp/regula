@@ -10,7 +10,7 @@ open Lean
 (`Regula.Findings.declarationName`). -/
 abbrev declarationName := Regula.Findings.declarationName
 /-- The violation finding of a declaration-scoped rule (`Regula.Findings.declarationFinding`). -/
-abbrev declarationFinding := Regula.Findings.declarationFinding
+abbrev declarationFinding := @Regula.Findings.declarationFinding
 /-- A project-scoped finding of a context rule (`Regula.Findings.contextFinding`). -/
 abbrev contextFinding := Regula.Findings.contextFinding
 /-- The source location of a declaration's ranges in a snapshot, or its module when either is

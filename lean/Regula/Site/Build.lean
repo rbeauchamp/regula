@@ -121,15 +121,12 @@ def inputs (record : Json) : IO (List (String × Option String)) := do
 private def lookup (xs : List (String × Option String)) (p : String) : Option String :=
   (xs.find? (·.1 == p)).bind (·.2)
 
-/-- Name of a Lean `Name` in the registry's structural JSON encoding (innermost first). -/
+/-- The text of a Lean `Name` as a result diagnostic writes it: the name as Lean prints it
+(`RegistryCodec.nameFields`). -/
 def nameText (j : Json) : String :=
-  match j.getArr? with
-  | .ok parts => String.intercalate "." (parts.toList.reverse.map fun part =>
-      match part.getArr? with
-      | .ok #[_, .str s] => s
-      | .ok #[_, n] => n.compress
-      | _ => part.compress)
-  | .error _ => j.compress
+  match j with
+  | .str s => s
+  | _ => j.compress
 
 private def ruleOf (s : String) : IO RuleId := do
   match RuleId.parse? s with

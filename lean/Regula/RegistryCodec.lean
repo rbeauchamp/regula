@@ -145,10 +145,10 @@ def validateRegistry (p : ProducerIdentity) (j : Json) : Except String Unit :=
 private def rangeJson (r : ByteRange) : Json :=
   Json.mkObj [("startByte", toJson r.start), ("endByte", toJson r.stop)]
 
-/-- A location's JSON: its kind with the module name, the project identity, or the source's
-URI, text, byte ranges and LSP ranges. -/
+/-- A location's JSON: its kind with the module name (`nameFields`), the project identity, or
+the source's URI, text, byte ranges and LSP ranges. -/
 def locationJson : Location → Json
-  | .module n => Json.mkObj [("kind", .str "module"), ("name", nameJson n)]
+  | .module n => Json.mkObj (("kind", .str "module") :: nameFields "name" n)
   | .project s => Json.mkObj [("kind", .str "project"), ("identity", .str s)]
   | .source s => Json.mkObj [
       ("kind", .str "source"), ("uri", .str s.val.snapshot.uri),
@@ -156,13 +156,20 @@ def locationJson : Location → Json
       ("selectionRange", rangeJson s.val.selection),
       ("lspRange", toJson s.fullLsp), ("lspSelectionRange", toJson s.selectionLsp)]
 
+/-- The `sourceDeclaration` member of a declaration finding: `null`, or the name of the
+declaration its subject is attributed to (`nameFields`). -/
+def sourceFields : Option Name → List (String × Json)
+  | none => [("sourceDeclaration", .null)]
+  | some n => nameFields "sourceDeclaration" n
+
 private def argumentsJson : (id : RuleId) → Payload id → Json
   | .projectAxiom, a | .proofHole, a | .unknownAxiom, a | .compilerTrusting, a
   | .profileExceeded, a | .escapeHatch, a | .executableContract, a
   | .materialDocumentation, a | .materialIntent, a =>
-      Json.mkObj [("declaration", nameJson a.declaration), ("detail", toJson a.detail)]
+      Json.mkObj (nameFields "declaration" a.declaration ++ sourceFields a.sourceDeclaration ++
+        [("detail", toJson a.detail)])
   | .executionUnresolved, a | .executionBoundary, a =>
-      Json.mkObj [("root", nameJson a.root), ("detail", toJson a.detail)]
+      Json.mkObj (nameFields "root" a.root ++ [("detail", toJson a.detail)])
   | .environment, a | .configuration, a | .sourceBuild, a | .coverage, a
   | .admission, a | .communityConfiguration, a | .fenceStructure, a | .positiveExample, a
   | .negativeExample, a

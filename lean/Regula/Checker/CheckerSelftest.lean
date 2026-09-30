@@ -88,7 +88,8 @@ inductive Partition where
   | fixtures
   /-- Structural, compiler-path and manifest controls. -/
   | structural
-  /-- Every fixture through a real `axiomGate --file` invocation. -/
+  /-- Every fixture through a real `axiomGate --file` invocation, and the source-attribution
+  controls. -/
   | cli
   /-- The end-to-end fence corpus and the external-adopter and clean-checkout controls. -/
   | environments
@@ -1349,6 +1350,89 @@ private def duplicateAdmissionControls (sources copy : FilePath)
         failures.modify (·.push failure)
   failures.get
 
+/-- A file whose declarations Lean records no source range for: the equation lemmas and
+auxiliary proof of a well-founded definition, the recursor of a structure whose field type uses
+`Classical.choice`, and a theorem a metaprogram adds under a name with no enclosing declaration.
+Every one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
+private def sourceAttributionSource : String :=
+  "import Lean\n\n/-! # Source attribution control\n\nDeclarations without a source range. -/\n\n" ++
+  "open Lean Elab Command\n\n" ++
+  "/-- A value chosen with `Classical.choice`. -/\n" ++
+  "noncomputable def pick : Nat := Classical.choose (⟨0, rfl⟩ : ∃ n : Nat, n = n)\n\n" ++
+  "/-- A structure whose field type uses `pick`. -/\nstructure Channel where\n" ++
+  "  /-- The bounded value. -/\n  value : Fin (pick + 1)\n\n" ++
+  "/-- A definition by well-founded recursion. -/\n" ++
+  "def countdown (n : Nat) : Nat := if h : n = 0 then 0 else countdown (n - 1)\n" ++
+  "termination_by n\ndecreasing_by omega\n\n" ++
+  "/-- Unfolding `countdown` realizes its equation lemmas. -/\n" ++
+  "theorem countdown_zero : countdown 0 = 0 := by\n  simp [countdown]\n\n" ++
+  "run_cmd liftTermElabM do\n  addDecl <| .thmDecl {\n" ++
+  "    name := `unattributed.fact, levelParams := []\n" ++
+  "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
+  "    value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkConst ``pick) }\n"
+
+/-- The first failed expectation of the source-attribution report, if any: the equation lemma and
+auxiliary proof of `countdown` and the recursor of `Channel` are attributed to and located at
+their declaration, with their own module as a related location; the projection `Channel.value`,
+which has its own range, and `unattributed.fact`, which has no enclosing declaration, are not
+attributed, the latter keeping module attribution. -/
+private def sourceAttributionFailure (report : Json) : Option String := Id.run do
+  let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
+    | return some "no diagnostics"
+  let find (name : String) : Option Json := diagnostics.find? fun d =>
+    (d.getObjValD "arguments").getObjValD "declaration" == .str name
+  let selection (d : Json) : Json := (d.getObjValD "location").getObjValD "selectionRange"
+  let kind (d : Json) : Json := (d.getObjValD "location").getObjValD "kind"
+  let source (d : Json) : Json := (d.getObjValD "arguments").getObjValD "sourceDeclaration"
+  let relation (d : Json) : Option Json :=
+    ((d.getObjValD "related").getArrVal? 0).toOption.map (·.getObjValD "relation")
+  let some countdown := find "countdown" | return some "no countdown finding"
+  let some channel := find "Channel" | return some "no Channel finding"
+  for (name, owner, ownerName) in #[("countdown.eq_1", countdown, "countdown"),
+      ("countdown._proof_1", countdown, "countdown"), ("Channel.rec", channel, "Channel")] do
+    let some d := find name | return some s!"no {name} finding"
+    unless source d == .str ownerName && kind d == .str "source" &&
+        selection d == selection owner && relation d == some (.str "declared in module") do
+      return some s!"{name} is not attributed to and located at {ownerName}"
+  let some value := find "Channel.value" | return some "no Channel.value finding"
+  unless source value == .null && value.getObjValD "related" == Json.arr #[] &&
+      selection value != selection channel do
+    return some "Channel.value, which has its own range, was attributed"
+  let some fact := find "unattributed.fact" | return some "no unattributed.fact finding"
+  unless source fact == .null && kind fact == .str "module" do
+    return some "unattributed.fact, which has no enclosing declaration, was attributed"
+  return none
+
+/-- External-boundary controls for source attribution through the public `axiomGate --file`
+audit. Which declarations Lean records no source range for, and how it names them, is the
+compiler's behavior; `Findings.sourceDeclaration?_spec` states the attribution decision over
+those observations and `groupFindings_flatten` the grouping. The positive controls are the
+attributed findings and their printed block; the negative controls are a declaration with its
+own range and a rangeless one under a name with no enclosing declaration
+(`sourceAttributionFailure`). -/
+private def sourceAttributionControls (dir : FilePath)
+    (gate : Array String → IO ProcessResult) : IO (Array String) := do
+  let report := dir / "source-attribution.json"
+  let source := dir / "SourceAttribution.lean"
+  withNewFile source sourceAttributionSource do
+    try
+      let result ← gate #["--file", source.toString, "--claim", "kernel-only",
+        "--json-out", report.toString]
+      let failed (detail : String) :=
+        #[s!"cli/source-attribution: {detail}:\n{result.output}"]
+      if result.succeeded then return failed "expected RG1005 findings"
+      let json ← match Json.parse (← IO.FS.readFile report) with
+        | .ok json => pure json
+        | .error error => return failed s!"unreadable report: {error}"
+      if let some detail := sourceAttributionFailure json then return failed detail
+      unless result.output.contains
+            "countdown: it and 3 declarations without a source range under its name" &&
+          result.output.contains "  attributed: 3 declarations of these have no source range" do
+        return failed "the attributed findings did not print as one block under countdown"
+      return #[]
+    finally
+      if ← report.pathExists then IO.FS.removeFile report
+
 /-- Structural mutation cluster: fresh-checker coverage of an added module, controls for several
 copies of one name, and the final restored-state control. -/
 private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath) : IO
@@ -1799,6 +1883,15 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
     s!" ({cliFixtures.size} real axiomGate --file invocations)"
+  if fullCli then
+    let attribution ← timedPhase "source attribution" <|
+      withScratch repo "checker-source-attribution" fun scratch =>
+        sourceAttributionControls scratch (runBinary repo "axiomGate" ·)
+    for failure in attribution do failures.modify (·.push failure)
+    IO.println <| "self-test source attribution: " ++
+      (if attribution.isEmpty then "PASS" else "FAIL") ++
+      " (rangeless declarations attributed and printed in one block; a ranged projection and an \
+        unenclosed metaprogram theorem not attributed)"
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. -/

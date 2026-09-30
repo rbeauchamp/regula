@@ -740,13 +740,30 @@ editor acceptance.
 
 **Proved:** `RuleId.parse_spelling`, `spelling_injective`, `mem_all`, `all_nodup` and
 `route_injective` (the closed vocabulary and its routes); `RegistryCodec.mode_roundtrip`,
-`rule_roundtrip`, `nameParts_roundtrip` and `name_roundtrip`. `RegulaCore.Feedback`: every
-finding is printed exactly once (`sortEntries_perm`, `render_length`) in run order
-(`sortEntries_sorted`, `sortEntries_eq_of_perm`), carrying its rule's guidance exactly when no
-earlier finding has that rule (`tag_of_prefix`, `mem_firsts`, `firsts_nodup`, `firsts_length_le`);
-the streaming emitter executes `Feedback.step` (`renderFrom_cons`) and JSON lists findings in the
-same order (`sortFindings_entries`). `RegulaCore.Guidance`: the briefing lists every rule once
-(`writingSections_perm`) and the `regula` parser admits exactly its documented commands
+`rule_roundtrip`, `nameParts_roundtrip` and `name_roundtrip`; `printedName_roundtrip`: every name
+survives its printed form, the text Lean's `Name.toString` prints and, exactly where Lean's
+`String.toName` does not read that text back as the name (`printsExactly_iff`,
+`printedName_parts_eq_none_iff`), its structural components. Which names Lean's printer and
+parser agree on is decided per name by executing them, not proved. `RegulaCore.Feedback`:
+`render` prints every entry exactly once (`sortEntries_perm`, `render_length`) in run order
+(`sortEntries_sorted`, `sortEntries_eq_of_perm`), and the entries it or the streaming emitter,
+which executes `Feedback.step` (`renderFrom_cons`), prints carry their rule's guidance exactly
+when no earlier entry has that rule (`tag_of_prefix`, `mem_firsts`, `firsts_nodup`,
+`firsts_length_le`). The emitter prints one entry per group of findings, in the order of
+`sortFindings` (`sortFindings_entries`), and grouping loses no finding: flattened, the groups are
+exactly the findings in that order (`flatten_runs`, `groupFindings_flatten`,
+`groupFindings_perm`), the order the JSON lists them in. No theorem relates a group's printed
+entry to `render`. A finding alone in its group that is not attributed to another
+declaration prints exactly its own entry (`groupEntry_alone`); that a group's text lists every
+member's subject and detail holds by construction and is inspected, not proved. The declaration
+a finding is attributed to (`Findings.sourceDeclaration?`) is a recorded-range declaration of the
+same environment named by one of its candidates, so it is never itself attributed to another
+(`sourceDeclaration?_spec`); the executed index equals the inventory search it replaces
+(`rangedIndex_get`, `sourceDeclaration?_rangedIndex`). That Lean records no range for most
+declarations it generates, and names them inside the declaration it generates them from, is
+observed Lean behavior (the `cli` self-test's source-attribution controls), not proved; a
+rangeless declaration a metaprogram adds is attributed by name all the same.
+`RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula` parser admits exactly its documented commands
 (`parseCommand_arguments`, `parseCommand_sound`, `parseInvocation_arguments`,
 `parseInvocation_sound`). Result stages: `stagesOf_required`,
 `stagesOf_ordered`, `withDocs_ordered`, `notRun_completedStages_eq_nil_iff`,

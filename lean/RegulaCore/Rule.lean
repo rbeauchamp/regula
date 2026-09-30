@@ -531,7 +531,13 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Prove the statement constructively or with a narrower lemma so the exact set fits the \
           claim.",
         "If the stronger foundation is intended, change the surface's `claim` and rationale \
-          explicitly; this changes the published claim and needs review."]
+          explicitly; this changes the published claim and needs review.",
+        "In `lake lint` and `axiomGate`, a declaration Lean records no source range for, usually \
+          one it generates (an equation lemma `f.eq_1`, a matcher, an auxiliary proof \
+          `f._proof_1`, a recursor or `casesOn`), is reported at the nearest enclosing \
+          declaration with one, in one block with each declaration's axioms. Where Lean \
+          generated them from it, change that declaration or a definition it uses that \
+          introduces the axiom."]
       examples := {
         language := .lean
         audience := .adopter

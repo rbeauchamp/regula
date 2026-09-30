@@ -110,11 +110,13 @@ context and is not an independent policy decision.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
-bounds, character boundaries, ordering and containment; missing ranges fall back to module
-attribution, and an inconsistent supplied range fails rather than acquiring an invented
-location. `sourceFromReport` additionally requires the recorded code-point and UTF-16 coordinates
-to agree with that text. Report lines are one-based and columns count Unicode code points; `startUtf16` and
-`endUtf16` are zero-based UTF-16 columns within their lines, computed with Lean's
+bounds, character boundaries, ordering and containment; a declaration without a recorded range
+is located at the range of the declaration it is attributed to (`Findings.findingLocation`) and
+otherwise falls back to module attribution, and an inconsistent supplied range fails rather than
+acquiring an invented location. `sourceFromReport` additionally requires the recorded code-point
+and UTF-16 coordinates to agree with that text. Report lines are one-based and columns count
+Unicode code points; `startUtf16` and `endUtf16` are zero-based UTF-16 columns within their
+lines, computed with Lean's
 `leanPosToLspPos`. Native messages use Lean code-point positions, and the same validated
 selection supplies both the JSON LSP range and the native position. Fence declaration findings
 use labelled virtual snippet locations whose snapshot is the exact verbatim snippet, never
@@ -193,6 +195,23 @@ metadata, not authenticated binary identity.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
+- **Diagnostic names:** since schema 5 a diagnostic writes each Lean name as Lean prints it
+  (`RegistryCodec.nameFields`), adding a `…Parts` member with the structural components only
+  where Lean's parser does not read the printed text back as the name; `printedName_roundtrip`
+  proves the pair denotes the name for every name, and `DiagnosticCodec.parseDiagnostic` refuses
+  a diagnostic unequal to its canonical re-encoding, so a missing or unneeded `…Parts` member is
+  refused. A declaration finding's `arguments.sourceDeclaration` is the declaration it is
+  attributed to (`Findings.sourceDeclaration?`: none for a declaration with a recorded range,
+  otherwise the nearest enclosing name, also under its user name, of a declaration of the same
+  environment with one). The finding is located at that declaration's range when its module has
+  a snapshot (`Findings.findingLocation`), and its `related` names the declaration's own module.
+  Lean records no range for most declarations it generates and names them inside the one it
+  generates them from; that convention is assumed, not established, and a rangeless declaration
+  a metaprogram adds is attributed by name all the same. The `lake lint` text prints the RG1005
+  findings under one declaration as one block (`groupFindings`, `groupEntry`) and folds their
+  lines in its closing `FAIL` summary into one count; the JSON keeps them one per declaration, in
+  the same order (`groupFindings_flatten`). `scope` and `acceptance` keep the structural name
+  encoding.
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,

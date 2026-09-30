@@ -17,7 +17,17 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
+/-- Result schema 5 writes every Lean name of a diagnostic as Lean prints it
+(`RegistryCodec.nameFields`): `arguments.declaration`, `arguments.root`,
+`arguments.sourceDeclaration` and a module location's `name` are strings, and a sibling
+`declarationParts`, `rootParts`, `sourceDeclarationParts` or `nameParts` gives the structural
+components only for a name whose printed text Lean's parser does not read back exactly
+(`printedName_roundtrip`). A declaration finding's `arguments.sourceDeclaration` is `null`, or,
+for a declaration Lean recorded no source range for, the nearest enclosing declaration with one
+(`Findings.sourceDeclaration?`); such a finding is located at that declaration's range when its
+module has a snapshot (`Findings.findingLocation`), and its `related` names its own module. The
+`scope` and `acceptance` evidence keep the structural encoding of earlier schemas.
+Result schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
 module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
 each `axiomGate` project and file result's `scope.toolchainBase` lists every such boundary once

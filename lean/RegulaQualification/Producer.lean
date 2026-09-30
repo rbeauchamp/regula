@@ -105,7 +105,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     if rule == "RG5001" then
       checks := checks ++ [
         ⟨"exact module location", location == Json.mkObj
-            [("kind", .str "module"), ("name", nameJson "Example")]⟩,
+            [("kind", .str "module"), ("name", .str "Example")]⟩,
         ⟨"module arguments", (← field finding "arguments") == Json.mkObj
             [("subject", .str "Example"),
           ("detail",
@@ -117,7 +117,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
         ⟨"source contains expected selection", source.contains "theorem reflexive" &&
             source.contains "@["⟩,
         ⟨"material arguments", (← field finding "arguments") == Json.mkObj
-            [("declaration", nameJson "reflexive"),
+            [("declaration", .str "reflexive"), ("sourceDeclaration", .null),
           ("detail", .str "material-documentation: document the claim, assumptions and evidence at \
             this declaration")]⟩,
         ⟨"location binds source", (← text location "source") == source⟩,
