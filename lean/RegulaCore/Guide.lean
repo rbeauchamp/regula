@@ -621,9 +621,14 @@ def guide : RuleId → Guide
           its owned dependencies through Lean's kernel (`Admission.validate`); an executable's \
           environment reuses, instead of repeating, a library environment's replay of a module \
           over the identical import closure and frozen `.olean` parts (including \
-          `.olean.private`). A declaration that fails replay, source or `.olean` bytes that \
-          changed after they were frozen, or a required \
-          authentication that failed is reported here with impact `incomplete`.",
+          `.olean.private`). Each replayed module's own copy of a name is checked: a lemma \
+          Lean realizes in two modules, such as an equation lemma, is admitted when the copies \
+          are theorems of the same statement, universe parameters and mutual block and each \
+          owned copy that is not identical to the replayed or trusted one passes the kernel \
+          with a proof that does not reach its own name and reaches the same axioms. A \
+          declaration that fails replay, source or `.olean` bytes that changed after they were \
+          frozen, or a required authentication that failed is reported here with impact \
+          `incomplete`.",
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
           incomplete, when its own analysis of a declaration fails or the module has elaboration \
@@ -633,8 +638,11 @@ def guide : RuleId → Guide
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
           value."]
       established := [
-        "Every owned logical declaration and its owned dependencies passed kernel replay, and the \
-          frozen sources were unchanged during the audit. A failed admission or changed source is \
+        "Every owned logical declaration and its owned dependencies passed kernel replay (every \
+          other copy of a theorem that another loaded module also declares is identical to the \
+          replayed or trusted one, or passed the kernel's check under a fresh name with a \
+          proof that does not reach its own name and reaches the same axioms), and the frozen \
+          sources were unchanged during the audit. A failed admission or changed source is \
           incomplete and never accepted."]
       notEstablished := [
         "Imported, unowned dependencies are not replayed; they remain the declared trusted base.",

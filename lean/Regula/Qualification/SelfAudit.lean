@@ -40,7 +40,9 @@ structure ModuleObservation where
   «module» : Name
   /-- The collected record of every constant the module owns, in `ownedConstants` order. -/
   declarations : Array RegulaPolicy.Declaration
-  /-- Owned declarations of this module that kernel replay admitted. -/
+  /-- The constants of this module's own data, neither `unsafe` nor `partial`, that kernel
+  admission admitted; a realized copy that `ownedConstants` attributes to an imported module is
+  counted here too. -/
   admitted : Nat
   /-- Axioms reached from this module that a toolchain `Lake` module declares. -/
   toolchain : Array Name
@@ -108,7 +110,7 @@ structure ModuleResult where
   «module» : String
   /-- How many constants the module owns. -/
   declarations : Nat
-  /-- How many of its owned declarations kernel replay admitted. -/
+  /-- How many constants of its own data kernel admission admitted (`ModuleObservation`). -/
   admitted : Nat
   /-- How many of its declarations carry an executable-contract registration. -/
   contracts : Nat
@@ -208,8 +210,9 @@ def check (jobs : Nat := 4) : IO Unit := do
   let partialDefinitions := union (·.partialDefinitions)
   let dependents := union (·.toolchainDependents)
   IO.println s!"operational self-audit of library {library}: {results.size}/{info.modules.size} \
-    module(s), {declarations} declaration(s) inspected, {admitted} (every one neither unsafe nor \
-    partial) kernel-admitted, {contracts} executable contract registration(s)"
+    module(s), {declarations} declaration(s) inspected, {admitted} constant(s) of the \
+    modules' own data (every one neither unsafe nor partial) kernel-admitted, \
+    {contracts} executable contract registration(s)"
   IO.println s!"reported, not failed: {unsafeDeclarations.size} unsafe \
     declaration(s): {unsafeDeclarations.toList}"
   IO.println s!"reported, not failed: {partialDefinitions.size} partial \

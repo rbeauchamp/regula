@@ -348,44 +348,117 @@ inferred from any pure proof.
   registrations add executable roots, and all registrations remain in the declaration observations
   even when several registrations share one root.
 - **Admission.** `Admission.validate` replays safe, nonpartial owned declarations and their owned
-  dependencies with the pinned `Environment.replay`, checks every required entry is in the
+  dependencies with the pinned `Kernel.Environment.replay`, checks every required entry is in the
   resulting kernel and returns a typed receipt. It returns
   `IO (Except ProducerReport.AdmissionFailure ProducerReport.AdmissionReceipt)`: a successful
-  receipt's required keys come from safe, nonpartial original kernel entries in the replay scope,
-  and it records the admitted keys. Replay scope includes owned dependencies and the existing
-  reporter closure where required; it may exceed the reported surface. Imported unowned modules
-  remain trusted; the receipt records the completed operation and does not authenticate replay.
+  receipt's required keys are the safe, nonpartial constants of the replayed modules' own
+  `.olean` data, one key per module and name, and it records the admitted keys. Replay scope
+  includes owned dependencies and the existing reporter closure where required; it may exceed the
+  reported surface. Imported unowned modules remain trusted; the receipt records the completed
+  operation and does not authenticate replay. Admission failures carry the
+  `[INCOMPLETE[kernel-admission]]` tag (`Admission.failureTag`), since RG2005 reports them as
+  incomplete.
+- **Several copies of one name.** Lean realizes equation, unfolding and match-equation lemmas,
+  functional induction and case principles, and congruence and injectivity lemmas in the module
+  that first needs them, so two modules that do not import each other can each contain the same
+  one. Lean's import keeps one copy: `Environment.find?` returns the last one loaded, whose
+  statement and value reports read, while the name is attributed to the first module, and
+  `collectAxioms` reports for it the axioms that module computed for its own copy when compiled,
+  or walks the kept copy where that module did not export the name (observed on the pinned
+  toolchain and read from `Lean.Util.CollectAxioms`).
+  `Kernel.Environment.replay` skips, unchecked, a theorem whose name and statement it already
+  holds. Admission therefore reads each replayed module's own constants (`Admission.Copy`). It
+  replays, under each such name the replay base lacks, the constant `find?` returns
+  (`Admission.replayMap`), so there the replayed kernel holds exactly the audited environment's
+  constants, and replay itself rejects a kept copy whose proof uses its own name.
+  `Admission.checkCopies` then checks every copy against the constant the replayed kernel holds
+  under its name. An `unsafe` or `partial` copy, which `replay` does not check and the receipt does
+  not require, only must not share its name. For every other copy: a copy of a name the base or
+  another replayed module also declares must form, with the held constant, two theorems of the
+  same name, type (`Expr.eqv`, in either direction), universe parameters and mutual block
+  (`Admission.sameTheorem`). A copy `identical` to the held constant (same kind and fields, proof
+  included) needs nothing more: it is that replayed constant or that trusted base constant. Any
+  other copy must pass `Admission.checkProof` in the replayed kernel: the kernel accepts it under
+  `Admission.proofCheckName`, and the names its proof reaches (`Admission.reachSet`, through the
+  types and values of the constants used) exclude its own name and include exactly the axioms the
+  held constant reaches. Equal axioms make the reported axioms right whichever copy a declaration
+  or the attribution used. Where the audited environment keeps an owned copy over a different base
+  constant, that kept copy must also pass `checkProof`, its reach computed in the audited
+  environment. A copy the audited environment discards is checked in the replayed kernel, where
+  the names its proof uses denote the replayed kernel's constants (the base's, where the base
+  declares them). Modules containing any copy of such a shared name are listed in the receipt's
+  `shared` and never offered for reuse, since their admission depends on which copy an environment
+  keeps. **Proved** about the executed definitions: `Admission.sameTheorem_iff_subsumesInfo`
+  (private in the `module` file `Regula.Checker.SharedName`, whose `import all Lean.Environment`
+  reaches Lean's private `subsumesInfo`: on two theorems the condition equals `subsumesInfo` in
+  either direction, which the pinned `Lean.finalizeImport` requires of a second constant of one
+  name, as read from its source; every other pair it accepts involves an axiom, which admission
+  refuses); `Admission.replayMap_sound` and `Admission.replayMap_complete` (the replayed constants
+  are exactly the audited environment's constants of the copies' names the base lacks);
+  `Admission.reachSet_some` (a completed search holds exactly the names reachable from the
+  constants the start uses, along `Admission.successors`); `Admission.checkProof_ok`; and
+  `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
+  conditions above, stated with the reachability relation `Admission.Reach`). **Argued, not
+  machine-checked:** `validate` passes these checks the replayed module data, the base's and the
+  audited environment's `find?` and the replayed kernel, admits no key when one fails, and filters
+  `shared` modules from the offered admissions (`AxiomGate.libraryPriors`), all read from the
+  code. Every cycle among the audited environment's non-inductive constants that involves an
+  owned name passes through a name whose kept constant differs from the replayed one (or through
+  the trusted base), because replay admits each declaration only after the constants its type and
+  value use, and the replayed kernel agrees with the audited environment on the other owned names;
+  the checks exclude a cycle through such a name, so the audited environment's constants form a
+  well-founded development. Every copy in a replayed module reaches the same axioms in the
+  replayed kernel as the constant held under its name, so, by induction over the modules, each
+  replayed module's precomputed axioms for a declaration equal those of its replayed kernel
+  development whichever copy of a shared name its own build used, given the trusted agreement
+  below for unreplayed modules. **Trusted:** Lean's import and module data, including the axioms
+  each module precomputed, and that an unreplayed module's precomputed axioms equal those of its
+  constants in the replay base (two unreplayed copies of one name are not compared); the kernel,
+  and `replay` adding each map entry unchanged while leaving the base as imported; that the
+  kernel's theorem check consults the declaration's name only to require it undeclared, so a
+  renamed check is a check of the copy; and, as in Lean's own duplicate-theorem design, that the
+  value of a theorem does not change what typechecks where copies of one statement are exchanged.
+  Report attribution is unchanged: `Probe.ownedConstants` attributes a shared name to the first
+  module Lean's import loaded it from, so the name's claim is that module's.
 - **Admission reuse.** The project audit inspects every library environment before any
   executable's, and hands the executables the libraries' completed admissions
   (`Admission.PriorAdmission`). An executable's environment keeps an owned module other than its
   root in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's
   `reused`) only when (1) a handed-out library admission replayed it over the identical import
   closure (`Admission.importClosure`: the same modules, canonical `.olean` paths and import
-  edges); (2) every owned module of that closure is a claimed library module all of whose
-  `.olean` parts (the `.olean` and, for a module-system file, the `.olean.server` and the
-  `.olean.private` Lean takes its kernel constants from) the coordinator read before the first
-  inspection and compares, presence and bytes, after the last (a change is RG2005, incomplete);
-  (3) each declaration of each owned module of the closure refers only to constants of its own
-  closure (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the
-  dependencies `Kernel.Environment.replay` replays first); and (4) every owned module of the
-  closure is reused too. If the filtered set misses (4), nothing is reused. Every other owned
-  module is replayed. **Proved** about the executed definitions: `Admission.mem_reusedModules`
-  (a reused module is owned, unrequested and satisfies (1), (3) and (4)) and
-  `Admission.reuseJustified_sound` (the coordinator's recheck of a report accepts only
-  unrequested modules a handed-out admission offers over the report's own closure). **Checked
-  at run time, not proved:** that the handed-out admissions list only replayed modules whose
-  closures are frozen, (2), and that a closure contains every module its members import
-  (`Admission.validate` still refuses a base module that imports a replayed one). **Derived, not
-  machine-checked:** the kernel's check of a declaration depends only on the declaration and the
-  constants it consults, which its references and their values reach. By (3), (4) and the
-  imported base's own references, a reused module's declarations consult only its closure; by
-  (1) and (2) that closure is the same bytes in both environments, so the library environment's
-  successful replay is the one this environment would repeat. This rests on the stated trusted
-  boundary: authentic imported artifacts unchanged during the audit (as the history memo already
-  assumes), filesystem reads, and no change restored between the two byte observations. No
-  theorem models the kernel. Reuse is scoped to executable environments: library environments
-  still replay every owned module they load, including one another library environment also
-  replays, a cost that predates per-executable environments and this reuse does not address.
+  edges) and did not list it as `shared` (a module containing a copy of a name another module of
+  that environment declares); (2) every owned module of that closure is a claimed library module
+  all of whose `.olean` parts (the `.olean` and, for a module-system file, the `.olean.server`
+  and the `.olean.private` Lean takes its kernel constants from) the coordinator read before the
+  first inspection and compares, presence and bytes, after the last (a change is RG2005,
+  incomplete); (3) each declaration of each owned module of the closure refers only to constants
+  of its own closure (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the
+  dependencies `Kernel.Environment.replay` replays first); (4) every constant of the module is
+  attributed to it in this environment and is the copy this environment keeps
+  (`Admission.uniquelyKept`), so no module here declares a different copy of its names; and (5)
+  every owned module of the closure is reused too. If the filtered set misses (5), nothing is
+  reused. Every other owned module is replayed. **Proved** about the executed definitions:
+  `Admission.mem_reusedModules` (a reused module is owned, unrequested and satisfies the offer of
+  (1), (3), (4) and (5)) and `Admission.reuseJustified_sound` (the coordinator's recheck of a
+  report accepts only unrequested modules a handed-out admission offers over the report's own
+  closure). **Checked at run time, not proved:** that the handed-out admissions list only
+  replayed modules outside `shared` whose closures are frozen, (2), and that a closure contains
+  every module its members import (`Admission.validate` still refuses a base module that imports
+  a replayed one). **Derived, not machine-checked:** the kernel's check of a declaration depends
+  only on the declaration and the constants it consults, which its references and their values
+  reach. By (3), (5) and the imported base's own references, a reused module's declarations
+  consult only its closure; by (4) for each owned module of the closure (all reused by (5)), no
+  module here declares a different copy of their names, and another copy here of a base module's
+  name is checked by this environment when a replayed module holds it (`Admission.checkCopies`)
+  and trusted when another unreplayed module does; by (1) and (2) that closure is
+  the same bytes in both environments, and by (1) none of its names had a second copy in the
+  library environment, so the library environment's successful replay is the one this environment
+  would repeat. This rests on the stated trusted boundary: authentic imported artifacts unchanged
+  during the audit (as the history memo already assumes), filesystem reads, and no change
+  restored between the two byte observations. No theorem models the kernel. Reuse is scoped to
+  executable environments: library environments still replay every owned module they load,
+  including one another library environment also replays, a cost that predates per-executable
+  environments and this reuse does not address.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
@@ -395,8 +468,8 @@ inferred from any pure proof.
 - **Transport.** `Report.Collected` adds extraction keys to the pure policy report;
   `Checker.ProducerReport.Environment` adds the operational receipts and owns their JSON decoder:
   `census` (requested modules, declaration keys, optional execution root keys and root/module
-  history requests), `admission` (replay modules, required keys, observed admitted keys and
-  reused modules),
+  history requests), `admission` (replay modules, required keys, observed admitted keys, reused
+  modules and `shared` modules),
   `documentation` (every module's presence, including declaration-free modules, frozen material
   keys and exact optional docstrings), `histories` (one completed source receipt or explicit
   unavailable outcome for every requested module) and `sourceBindings` (exact loaded-owned
@@ -833,6 +906,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest fixtures | 12 scanner cases | `Documentation.scan` marker and fence problems | Counterexample aid | open: a step-function scanner with proved problem coverage |
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
+| checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec and source cases | registry, diagnostic and source codecs | Proved in part | round-trip theorems; open: state the remaining refusals as theorems |
