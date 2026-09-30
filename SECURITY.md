@@ -31,13 +31,10 @@ recorded in [proofs and boundaries](docs/guides/proofs-and-boundaries.md). A vul
 to break one of them on purpose:
 
 - **A violating project that passes.** Lean source makes `lake lint` exit 0, or an audit report a
-  `completed` account, while a claimed declaration breaks a rule's stated guarantee: for example,
-  a `sorryAx`, project axiom, unknown axiom or axiom outside the claimed foundation in its
-  transitive dependencies (RG1001–RG1003, RG1005); a native-proof axiom, a `partial` or `unsafe`
-  definition or a recursion helper admitted outside the conditions of standard §7.4–§7.5 (RG1004,
-  RG1006); or an unresolved `extern` or `implemented_by` path (RG3001), or in `checked` mode an
-  unproved one (RG3002), that the audit accepts. This includes declarations the project's own
-  macros, elaborators, tactics or evaluators produce (§7.5).
+  `completed` account, while a claimed declaration breaks a guarantee the
+  [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) states, within the boundary
+  [proofs and boundaries](docs/guides/proofs-and-boundaries.md) records. This includes
+  declarations the project's own macros, elaborators, tactics or evaluators produce.
 - **Regula acting outside what it documents.** Regula runs external programs with argument
   arrays, never through a generated shell program, and keeps scratch work under the checked
   project's `tmp/`. An input, such as a path or a module or file name, that makes Regula's own
@@ -53,11 +50,11 @@ to break one of them on purpose:
 
 - **Code the audit builds.** Auditing a project runs its code with your permissions: Lake runs a
   `lakefile.lean`, elaboration runs the project's macros, elaborators and tactics, and Regula's
-  report worker runs its modules' initializers. Regula is not a sandbox. The standard's boundary
-  assumes the pinned Lean process and the libraries it imports are not compromised (§7.5), so code
-  that attacks the checker process or your machine this way is outside it. Audit only code you
-  would build; to check an untrusted proof against a fixed statement, use
-  [comparator](https://github.com/leanprover/comparator).
+  report worker runs its modules' initializers. Regula is not a sandbox. The boundary
+  [proofs and boundaries](docs/guides/proofs-and-boundaries.md) records trusts the pinned Lean
+  process and the libraries it imports, so code that attacks the checker process or your machine
+  this way is outside it. Audit only code you would build; to check an untrusted proof against a
+  fixed statement, use [comparator](https://github.com/leanprover/comparator).
 - **What Regula trusts.** Lean's kernel, elaborator, compiler and runtime, Lake, Git, the
   filesystem, the operating system, GNU timeout and imported libraries such as Mathlib are trusted;
   report their vulnerabilities to their maintainers. So are the GitHub services the release relies
