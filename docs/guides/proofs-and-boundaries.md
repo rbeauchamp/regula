@@ -864,7 +864,7 @@ declaration related to one that is itself related (such as `T.c.injEq` to `T.c`,
 | `f._private_N`, `f.grind_N`, `f._impossible_N`, `inst._aux_N`, `f.unsafe_impl_N`, `f._expr_def_N`, `f._cert_def_N`, `f._reflection_def_N` | `Lean/Elab/BuiltinTerm.lean:451-465`, `Lean/Meta/Tactic/Grind/Main.lean:497-498`, `Lean/Elab/Tactic/Impossible.lean:88-92`, `Lean/Meta/WrapInstance.lean:185-283`, `Lean/Elab/BuiltinNotation.lean:556-579`, `Lean/Meta/Tactic/BVDecide/TacticContext.lean:40-42` | `auxiliaryLemma`: `f`'s value uses it | |
 | `f.unsafe_N` | `Lean/Elab/BuiltinNotation.lean:556-579` | own location: recorded only as the `implemented_by` target of `f.unsafe_impl_N` | |
 | RPC wrapper `f._rpc_wrapped` | `Lean/Server/Rpc/RequestHandling.lean:113-139` | `auxiliaryLemma`: `Server.userRpcProcedures` | |
-| the action `initFn` of `initialize id : T ← e` | `Lean/Elab/Declaration.lean:342-369` | `auxiliaryLemma`: `id`'s init attribute (`getInitFnNameFor?`); an unnamed `initialize` keeps its own location | |
+| the action `initFn` of `initialize id : T ← e` | `Lean/Elab/Declaration.lean:342-369` | `auxiliaryLemma`: `id`'s init attribute (`getInitFnNameFor?`); an unnamed `initialize` keeps its own location | `counter`'s action |
 | `native_decide`'s and `bv_decide`'s axiom `f._native.….ax_N` | `Lean/Meta/Native.lean:75-84` | own location: it has the tactic's range | |
 | `f._auto_N` | `Lean/Elab/Binders.lean:92-105` | own location: a `Syntax` value, which uses no axiom | |
 | `let rec` and `where` helper `f.go` | `Lean/Elab/LetRec.lean:49-63` | own location: the author wrote it, and it has its own range | |

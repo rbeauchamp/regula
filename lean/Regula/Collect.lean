@@ -608,7 +608,8 @@ their generators, is in `docs/guides/proofs-and-boundaries.md#generated-declarat
   for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; `f` for the wrapper
   `f._rpc_wrapped` Lean records for an RPC method `f` (`Server.userRpcProcedures`); and `id` for
   the action of an `initialize id : T ← e` declaration, which Lean records on `id`
-  (`getInitFnNameFor?`);
+  (`getInitFnNameFor?`), among the declarations of the action's own module, where the command
+  declares both;
 - `constructorLemma` (c): `c` for `c.inj` and `c.injEq` (`injectivityGenerated`) and
   `c.sizeOf_spec` (`sizeOfGenerated`), and for `c._flat_ctor` when `c` constructs a registered
   structure (`isStructure`), which the `structure` command generates with it. Lean's generator runs
@@ -661,8 +662,11 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
       (s == "_f" && valueUses env f name)
   | .auxiliaryLemma =>
     if let .str _ "initFn" := privateToUserName name.eraseMacroScopes then
-      return env.constants.map₂.foldl (init := none) fun found id _ =>
-        found.or (if getInitFnNameFor? env id == some name then some id else none)
+      let initializes (id : Name) := getInitFnNameFor? env id == some name
+      return match env.getModuleIdxFor? name with
+        | some idx => env.header.moduleData[(idx : Nat)]?.bind (·.constNames.find? initializes)
+        | none => env.constants.map₂.foldl (init := none) fun found id _ =>
+            found.or (if initializes id then some id else none)
     let some (spellings, s) := namedUnder? name | return none
     if s == "_rpc_wrapped" then
       return spellings.find? fun f => Server.userRpcProcedures.find? env f == some name

@@ -1355,7 +1355,8 @@ projection, recursors, constructor lemmas and type constructions of a structure 
 uses `Classical.choice`, a structure field's default, a matcher, the `_f` and `_sunfold` of a
 structural recursion, the equation lemmas and auxiliary proof of a well-founded definition, the
 `_unary` and functional induction principle of one with two arguments, the compiled recursion
-helper `_unsafe_rec` of a computable one whose value carries a proof that uses `propext`; and
+helper `_unsafe_rec` of a computable one whose value carries a proof that uses `propext`, the
+action of an `initialize` whose value carries such a proof; and
 declarations Lean does not generate from the structure they are named under: a theorem a
 metaprogram adds without a source range, a user-written `ofNat`, a name Lean generates only for an
 enumeration deriving `DecidableEq`, and an elaborator Lean names `«_aux_…»` inside the
@@ -1395,6 +1396,9 @@ private def sourceAttributionSource : String :=
     `propext`. -/\n" ++
   "def countUp (n : Nat) : Nat :=\n  have _ : True = True := propext (Iff.refl True)\n" ++
   "  if h : n = 0 then 0 else countUp (n - 1)\ntermination_by n\ndecreasing_by omega\n\n" ++
+  "/-- A reference whose initialization action carries a proof that uses `propext`. -/\n" ++
+  "initialize counter : IO.Ref Nat ← do\n" ++
+  "  have _ : True = True := propext (Iff.refl True)\n  IO.mkRef 0\n\n" ++
   "run_cmd liftTermElabM do\n  addDecl <| .thmDecl {\n" ++
   "    name := `Channel.fact, levelParams := []\n" ++
   "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
@@ -1404,10 +1408,15 @@ private def sourceAttributionSource : String :=
 `GeneratedFamily` (`Channel`'s constructor, projection, recursor, constructor lemmas and type
 constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
 `countdown`'s equation lemma and auxiliary proof, `countPair._unary` and `countPair.induct`, and
-the admitted recursion helper `countUp._unsafe_rec`) is attributed to and located at the
-declaration Lean generated it from, with its own module as a related location. `Rec` has no
-finding of its own in this run, so its range is read from its constructor's finding, which is
-attributed to it. None of
+the admitted recursion helper `countUp._unsafe_rec`) and the action of `initialize counter` is
+attributed to and located at the declaration Lean generated it from, with its own module as a
+related location. `Rec`'s range is read from its own finding or, when it has none, from its
+constructor's finding, which is attributed to it: Lean's `exportedAxiomsExt`
+(`Lean/Util/CollectAxioms.lean:118-140` in the v4.34.0 toolchain source) computes a module's
+axioms in one shared cache, and when it reaches an inductive first through its constructor, it
+caches the inductive with that constructor's in-progress empty entry, so the inductive can record
+no axiom while its constructor records `Classical.choice`. The claim is still rejected, because
+the constructor is flagged. None of
 `Channel.fact`, which has no source range, `Word.ofNat` and the `vzero` elaborator in `Channel`'s
 namespace is attributed, though each is named under a structure: Lean did not generate them from
 it. `Channel.fact` keeps module attribution, and `Word.ofNat` and the elaborator their own
@@ -1422,6 +1431,9 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   let source (d : Json) : Json := (d.getObjValD "arguments").getObjValD "sourceDeclaration"
   let relation (d : Json) : Option Json :=
     ((d.getObjValD "related").getArrVal? 0).toOption.map (·.getObjValD "relation")
+  let attributed (d owner : Json) (ownerName : String) : Bool :=
+    source d == .str ownerName && kind d == .str "source" && selection d == selection owner &&
+      relation d == some (.str "declared in module")
   let some channel := find "Channel" | return some "no Channel finding"
   for (name, ownerName) in #[("Channel.mk", "Channel"), ("Channel.value", "Channel"),
       ("Channel.rec", "Channel"), ("Channel.casesOn", "Channel"), ("countdown.eq_1", "countdown"),
@@ -1436,9 +1448,17 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
     let some owner := find ownerName <|> find (ownerName ++ ".mk")
       | return some s!"no {ownerName} finding"
     let some d := find name | return some s!"no {name} finding"
-    unless source d == .str ownerName && kind d == .str "source" &&
-        selection d == selection owner && relation d == some (.str "declared in module") do
+    unless attributed d owner ownerName do
       return some s!"{name} is not attributed to and located at {ownerName}"
+  let some counter := find "counter" | return some "no counter finding"
+  let some action := diagnostics.find? fun d =>
+      match Regula.RegistryCodec.parsePrintedNameJson
+          ((d.getObjValD "arguments").getObjValD "declaration") with
+      | .ok name => (privateToUserName name.eraseMacroScopes).getString! == "initFn"
+      | _ => false
+    | return some "no finding for the action of initialize counter"
+  unless attributed action counter "counter" do
+    return some "the action of initialize counter is not attributed to and located at counter"
   let some fact := find "Channel.fact" | return some "no Channel.fact finding"
   unless source fact == .null && kind fact == .str "module" do
     return some "Channel.fact, which Lean did not generate, was attributed"
