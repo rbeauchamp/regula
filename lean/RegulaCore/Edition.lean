@@ -202,7 +202,7 @@ renders `v<version>`'s edition from source only in a build of `v` while the tag 
 names its commit, and only before the release asset exists, and every other build takes the
 frozen asset (`releaseSource`); and only an artifact with no rendered release edition is
 deployed (`publishable`). -/
-def installed : Build := .unreleased
+def installed : Build := .release ⟨0, 2, 0⟩
 
 /-- Every release with the one Lean toolchain it supports, oldest first. The release pull request
 appends it; CI on `main` then publishes it. -/
