@@ -644,11 +644,11 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     return if (env.getAuxParentProjectionInfo? name).isSome && isStructure env p then some p
       else none
   | .recursor =>
-    let some (p :: _, s) := namedUnder? name | return none
+    let some (spellings@(p :: _), s) := namedUnder? name | return none
     if (s == "go" || s == "eq") && isBRecOnRecursor env p then return some p
     unless isRecCore env name || isAuxRecursor env name || isNoConfusion env name ||
         isSparseCasesOn env name do return none
-    return some p
+    return spellings.find? env.contains
   | .equationLemma => return (Meta.declFromEqLikeName env name).map (·.1)
   | .reservedName =>
     let some (spellings, _) := namedUnder? name | return none
@@ -722,11 +722,15 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
 
 /-- The declaration Lean generated `name` from, one step, as the environment records it: the one
 the first family of `GeneratedFamily.all` that `name` belongs to relates it to (`generatedBy?`),
-and `none` when it belongs to none, whatever its name. So an elaborator or macro Lean names
-`«_aux_…»` inside a namespace, a declaration a metaprogram adds, a derived instance, or a
-declaration a deriving handler adds such as an enumeration's `ofNat` is not related. -/
-def generatedFrom? (name : Name) : MetaM (Option Name) :=
-  GeneratedFamily.all.findSomeM? (generatedBy? · name)
+kept only when the environment contains a declaration of that name, and `none` when no family
+relates it to one, whatever its name. So it never names a declaration that does not exist, and an
+elaborator or macro Lean names `«_aux_…»` inside a namespace, a declaration a metaprogram adds, a
+derived instance, or a declaration a deriving handler adds such as an enumeration's `ofNat` is not
+related. -/
+def generatedFrom? (name : Name) : MetaM (Option Name) := do
+  let env ← getEnv
+  GeneratedFamily.all.findSomeM? fun family =>
+    return (← generatedBy? family name).filter env.contains
 
 /-- Construct the canonical record from this command's actual environment.
 Replay candidates still require the existing fresh transcript and admission guards;
