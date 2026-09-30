@@ -11,8 +11,12 @@ namespace Regula.Report
 open Lean RegulaPolicy
 open Regula.Checker.PolicyCodec (exactFields)
 
-scoped instance : ToJson Name := ⟨Regula.RegistryCodec.nameJson⟩
-scoped instance : FromJson Name := ⟨Regula.RegistryCodec.parseName⟩
+/-- A name as Lean prints it, or its structural components where Lean's parser would not read
+that text back (`RegistryCodec.printedNameJson`), in producer reports and the result documents
+that render them. -/
+scoped instance : ToJson Name := ⟨Regula.RegistryCodec.printedNameJson⟩
+/-- Read a name `RegistryCodec.printedNameJson` wrote (`printedNameJson_roundtrip`). -/
+scoped instance : FromJson Name := ⟨Regula.RegistryCodec.parsePrintedNameJson⟩
 open scoped Regula.Report
 
 instance : ToJson DeclarationKind := ⟨fun x => .str x.spelling⟩
@@ -148,7 +152,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecRegenerated", "nativeStatement", "nativeReplay",
-                  "ranges", "axioms", "executableContract"]
+                  "ranges", "generatedFrom", "axioms", "executableContract"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -177,6 +181,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     nativeStatement := ← j.getObjValAs? _ "nativeStatement"
     nativeReplay := ← j.getObjValAs? _ "nativeReplay"
     ranges := ← j.getObjValAs? _ "ranges"
+    generatedFrom := ← j.getObjValAs? _ "generatedFrom"
     axioms := ← j.getObjValAs? _ "axioms"
     executableContract := ← j.getObjValAs? _ "executableContract"
   }⟩

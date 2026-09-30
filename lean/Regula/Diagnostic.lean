@@ -34,9 +34,9 @@ def sourceFromReport (snapshot : SourceSnapshot) (ranges : RegulaPolicy.Ranges) 
     Except String SourceLocation :=
   sourceFromReportWith lspUtf16Column snapshot ranges
 
-/-- Where a finding is. A declaration Lean recorded no source range for is located at the
-declaration it is attributed to (`Regula.Findings.findingLocation`), and otherwise keeps honest
-module attribution. -/
+/-- Where a finding is. A declaration Lean generated is located at the range of the declaration
+it generated it from (`Regula.Findings.findingLocation`), and a declaration without a range
+otherwise keeps honest module attribution. -/
 inductive Location where
   /-- A range of an admitted source snapshot. -/
   | source (value : SourceLocation)
@@ -49,9 +49,9 @@ inductive Location where
 structure DeclarationArguments where
   /-- The declaration the finding concerns. -/
   declaration : Name
-  /-- The declaration the finding is attributed to (`Regula.Findings.sourceDeclaration?`): the
-  nearest enclosing declaration with a recorded source range, when Lean recorded none for this
-  one. `none` when it has its own range or no enclosing declaration has one. -/
+  /-- The declaration the finding is attributed to (`Regula.Findings.sourceName?`): the end of the
+  chain of declarations Lean generated this one from, as the environment records it. `none` when
+  Lean did not generate it from another declaration. -/
   sourceDeclaration : Option Name
   /-- What is wrong with it. -/
   detail : String
@@ -250,11 +250,11 @@ def groupMessage (f : Finding) (members : List Finding) : String :=
   let own := members.length - attributed
   let summary :=
     if own == 0 then
-      Feedback.countText attributed "declaration" ++ " without a source range under its name " ++
+      Feedback.countText attributed "declaration" ++ " Lean generated from it " ++
         (if attributed == 1 then "exceeds" else "exceed") ++ " the claim"
     else if attributed == 0 then Feedback.countText own "finding" ++ " exceed the claim"
     else "it and " ++ Feedback.countText attributed "declaration" ++
-      " without a source range under its name exceed the claim"
+      " Lean generated from it exceed the claim"
   let impact := if f.2.impact == .violation then "violation" else "incomplete"
   messageLine f.1 impact f.2.mode.spelling (f.2.claim.getD "classification-only")
       f.2.location.text under summary ++ "\n" ++

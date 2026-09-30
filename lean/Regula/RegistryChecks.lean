@@ -17,13 +17,14 @@ universe u v
 run_cmd do
   for name in #[``RuleId.parse_spelling, ``RuleId.spelling_injective, ``RuleId.mem_all,
       ``RuleId.all_nodup, ``RuleId.route_injective, ``mode_roundtrip, ``rule_roundtrip,
-      ``nameParts_roundtrip, ``name_roundtrip, ``printsExactly_iff, ``printedName_roundtrip,
-      ``printedName_parts_eq_none_iff, ``mem_firedRules, ``firedRules_nodup,
-      ``Regula.sortFindings_entries, ``Regula.sortFindings_perm,
+      ``nameParts_roundtrip, ``name_roundtrip, ``printsExactly_iff, ``printedNameJson_roundtrip,
+      ``printedNameJson_eq_str_iff, ``parsePrintedNameJson_str, ``mem_firedRules,
+      ``firedRules_nodup, ``Regula.sortFindings_entries, ``Regula.sortFindings_perm,
       ``Regula.Feedback.flatten_runs, ``Regula.groupFindings_flatten,
       ``Regula.groupFindings_perm, ``Regula.groupEntry_alone,
-      ``Regula.Findings.rangedIndex_get, ``Regula.Findings.sourceDeclaration?_rangedIndex,
-      ``Regula.Findings.sourceDeclaration?_spec, ``Regula.Feedback.flatten_runs_go,
+      ``Regula.Findings.declarationIndex_get, ``Regula.Findings.chainEnd_eq_some_iff,
+      ``Regula.Findings.sourceName?_eq_some_iff, ``Regula.Findings.sourceName?_source,
+      ``Regula.Findings.declarationFinding_groupUnder?, ``Regula.Feedback.flatten_runs_go,
       ``Regula.Checker.ResultProtocol.stagesOf_required,
       ``Regula.Checker.ResultProtocol.notRun_completedStages_eq_nil_iff,
       ``Regula.Checker.ResultProtocol.stagesOf_ordered,
@@ -116,30 +117,30 @@ def main : IO Unit := do
     (.source source) .freshFile (some "standard-logical") .violation
   let json := diagnosticJson ⟨.projectAxiom, d⟩
   -- Printed names: Lean's printer and parser agree on an escaped component, so the text stands
-  -- alone; a component containing `»` cannot be escaped, so its parts are written beside it.
-  require ((json.getObjValD "arguments").getObjValD "declaration" == .str "«a.b».2" &&
-    ((json.getObjValD "arguments").getObjVal? "declarationParts").toOption.isNone)
-    "escaped printed name without parts"
+  -- for the name; a component containing `»` cannot be escaped, so its parts stand for it.
+  require ((json.getObjValD "arguments").getObjValD "declaration" == .str "«a.b».2")
+    "escaped name as its printed text"
   let unescapable := Name.str (.str .anonymous "Acorn") "a»b"
   let generated ← IO.ofExcept <| makeDiagnostic .profileExceeded
     ({ declaration := unescapable, sourceDeclaration := some `Acorn, detail := "choice-free" } :
       DeclarationArguments) (.module `Acorn.Admission) .freshProject (some "kernel-only") .violation
   let generatedJson := diagnosticJson ⟨.profileExceeded, generated⟩
-  require (((generatedJson.getObjValD "arguments").getObjVal? "declarationParts").toOption.isSome &&
-    ((generatedJson.getObjValD "arguments").getObjVal? "sourceDeclarationParts").toOption.isNone &&
+  require ((generatedJson.getObjValD "arguments").getObjValD "declaration" == nameJson unescapable &&
+    (generatedJson.getObjValD "arguments").getObjValD "sourceDeclaration" == .str "Acorn" &&
     (generatedJson.getObjValD "location").getObjValD "name" == .str "Acorn.Admission")
-    "parts only for a name Lean's parser does not read back"
+    "components only for a name Lean's parser does not read back"
   let reparsed ← IO.ofExcept <| DiagnosticCodec.parseDiagnostic generatedJson
   require (diagnosticJson reparsed == generatedJson && reparsed.sourceDeclaration? == some `Acorn)
     "generated finding transport control"
-  let withoutParts := generatedJson.setObjVal! "arguments" (Json.mkObj [
+  let printedOnly := generatedJson.setObjVal! "arguments" (Json.mkObj [
     ("declaration", .str unescapable.toString), ("sourceDeclaration", .str "Acorn"),
     ("detail", .str "choice-free")])
-  require (!succeeded (DiagnosticCodec.parseDiagnostic withoutParts))
-    "parts dropped from a name its text does not denote"
-  let extraParts := json.setObjVal! "arguments" ((json.getObjValD "arguments").setObjVal!
-    "declarationParts" (nameJson name))
-  require (!succeeded (DiagnosticCodec.parseDiagnostic extraParts)) "unneeded parts"
+  require (!succeeded (DiagnosticCodec.parseDiagnostic printedOnly))
+    "printed text for a name it does not denote"
+  let structural := json.setObjVal! "arguments" ((json.getObjValD "arguments").setObjVal!
+    "declaration" (nameJson name))
+  require (!succeeded (DiagnosticCodec.parseDiagnostic structural))
+    "components for a name its printed text denotes"
   let fileStages := Regula.Checker.ResultProtocol.stagesOf .freshFile
   -- Every writer records the request of a result with a mode.
   let requested (kind : String) (j : Json) : Json := j.setObjVal! "request"

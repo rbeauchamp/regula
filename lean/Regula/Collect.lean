@@ -507,6 +507,59 @@ def moduleOf (env : Environment) (name : Name) : Except String Name := do
     throw s!"declaration {name} has no established module ownership"
   return env.mainModule
 
+/-- The suffixes Lean's own `isAutoDeclOrPrivate_Internal` classifies as generated for a
+constructor `c` in a name `c.s`: `inj` and `injEq` (`Meta.mkInjectiveTheoremNameFor`,
+`Meta.mkInjectiveEqTheoremNameFor`), `sizeOf_spec` (`Meta.mkSizeOfSpecLemmaName`), `elim` and
+`noConfusion`. -/
+private def constructorSuffixes : List String :=
+  ["inj", "injEq", "sizeOf_spec", "elim", "noConfusion"]
+
+/-- The suffixes Lean's own `isAutoDeclOrPrivate_Internal` classifies as generated for an
+inductive type `t` in a name `t.s`, besides those it also starts with `brecOn_` or `below_`. -/
+private def inductiveSuffixes : List String :=
+  ["casesOn", "recOn", "brecOn", "below", "ndrec", "ndrecOn", "noConfusionType", "noConfusion",
+    "ofNat", "toCtorIdx", "ctorIdx", "ctorElim", "ctorElimType"]
+
+/-- The declaration Lean generated `name` from, one step, as the environment records it; `none`
+when Lean did not generate `name` from another declaration:
+- a constructor: its inductive type (`ConstructorVal.induct`);
+- a structure projection: its structure's constructor (`ProjectionFunctionInfo.ctorName`);
+- a recursor, an auxiliary recursor such as `casesOn` (`isAuxRecursor`), or a `noConfusion`
+  (`isNoConfusion`): the inductive type it is named under, which Lean's own
+  `findDeclarationRanges?` gives it the range of;
+- an equation lemma `f.eq_1`, `f.eq_def` or `f.eq_unfold`: its definition
+  (`Meta.declFromEqLikeName`);
+- a name `c.s` or `t.s` that `isAutoDeclOrPrivate_Internal` classifies as generated for a
+  constructor `c` (`constructorSuffixes`) or an inductive type `t` (`inductiveSuffixes`): `c` or
+  `t`;
+- a matcher `f.match_1` (`Meta.isMatcherCore`), a declaration named under a matcher, such as its
+  equations and splitter, a name Lean reserves for a declaration it generates on demand
+  (`isReservedName`), such as `f.induct`, and a name whose last component Lean marks internal with
+  a leading `_`, as the auxiliary declarations `f._proof_1`, `f._unary` and `T._sizeOf_1` Lean
+  names under the declaration it generates them for (`Name.isInternal`): the declaration it is
+  named under, as itself or its user name (`privateToUserName`), whichever the environment
+  contains, the two spellings Lean's own `Meta.declFromEqLikeName` tries.
+Derived instances are not related: Lean records no relation between an instance and the
+declaration it derives it for. -/
+def generatedFrom? (env : Environment) (name : Name) : Option Name :=
+  match env.find? name with
+  | some (.ctorInfo value) => some value.induct
+  | _ =>
+    if let some info := env.getProjectionFnInfo? name then some info.ctorName
+    else if isRecCore env name || isAuxRecursor env name || isNoConfusion env name then
+      if name.getPrefix.isAnonymous then none else some name.getPrefix
+    else if let some (definition, _) := Meta.declFromEqLikeName env name then some definition
+    else match name with
+      | .str p s =>
+        if env.isConstructor p && constructorSuffixes.contains s then some p
+        else if isInductiveCore env p && (inductiveSuffixes.contains s ||
+            s.startsWith "brecOn_" || s.startsWith "below_") then some p
+        else if Meta.isMatcherCore env name || Meta.isMatcherCore env p ||
+            isReservedName env name || s.startsWith "_" then
+          [p, privateToUserName p].find? env.contains
+        else none
+      | _ => none
+
 /-- Construct the canonical record from this command's actual environment.
 Replay candidates still require the existing fresh transcript and admission guards;
 these observations alone never authorize a generated role. A caller recording several declarations
@@ -574,6 +627,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
     ranges := ranges?.map rangesReport
+    generatedFrom := generatedFrom? env name
     axioms := RegulaPolicy.canonicalNames axioms
     executableContract := ← executableContract? env scope info
   }

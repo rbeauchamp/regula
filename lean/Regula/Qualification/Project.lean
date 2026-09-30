@@ -1,4 +1,5 @@
 import Regula.Qualification.Support
+import Regula.StructuralName
 import RegulaQualification.Json
 
 /-! # Disposable adopter project setup
@@ -12,8 +13,8 @@ open Lean System RegulaQualification
 /-- Remove inherited paths for commands running in isolated adopters. -/
 def cleanEnv : Array (String × Option String) := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none)]
 
-/-- A structural Lean name represented with the public tagged-name transport. -/
-def nameJson (name : String) : Json := toJson (name.splitOn "." |>.map fun part => #["str", part])
+/-- A dotted Lean name as result documents write it (`RegistryCodec.printedNameJson`). -/
+def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 
 /-- Fresh source-bound adopter sharing only pinned dependency artifacts. -/
 def prepareProject (root project : FilePath) (packageName claim rationale : String) : IO Unit := do

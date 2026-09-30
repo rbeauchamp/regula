@@ -740,11 +740,13 @@ editor acceptance.
 
 **Proved:** `RuleId.parse_spelling`, `spelling_injective`, `mem_all`, `all_nodup` and
 `route_injective` (the closed vocabulary and its routes); `RegistryCodec.mode_roundtrip`,
-`rule_roundtrip`, `nameParts_roundtrip` and `name_roundtrip`; `printedName_roundtrip`: every name
-survives its printed form, the text Lean's `Name.toString` prints and, exactly where Lean's
-`String.toName` does not read that text back as the name (`printsExactly_iff`,
-`printedName_parts_eq_none_iff`), its structural components. Which names Lean's printer and
-parser agree on is decided per name by executing them, not proved. `RegulaCore.Feedback`:
+`rule_roundtrip`, `nameParts_roundtrip` and `name_roundtrip`; `printedNameJson_roundtrip`: every
+name survives the one form a result document and a producer report write it in, the text Lean's
+`Name.toString` prints where Lean's `String.toName` reads that text back as the name and its
+structural components otherwise (`printsExactly_iff`, `printedNameJson_eq_str_iff`), and the reader
+admits a string only as the printed text of the name it reads (`parsePrintedNameJson_str`). Which
+names Lean's printer and parser agree on is decided per name by executing them, not proved.
+`RegulaCore.Feedback`:
 `render` prints every entry exactly once (`sortEntries_perm`, `render_length`) in run order
 (`sortEntries_sorted`, `sortEntries_eq_of_perm`), and the entries it or the streaming emitter,
 which executes `Feedback.step` (`renderFrom_cons`), prints carry their rule's guidance exactly
@@ -756,13 +758,18 @@ exactly the findings in that order (`flatten_runs`, `groupFindings_flatten`,
 entry to `render`. A finding alone in its group that is not attributed to another
 declaration prints exactly its own entry (`groupEntry_alone`); that a group's text lists every
 member's subject and detail holds by construction and is inspected, not proved. The declaration
-a finding is attributed to (`Findings.sourceDeclaration?`) is a recorded-range declaration of the
-same environment named by one of its candidates, so it is never itself attributed to another
-(`sourceDeclaration?_spec`); the executed index equals the inventory search it replaces
-(`rangedIndex_get`, `sourceDeclaration?_rangedIndex`). That Lean records no range for most
-declarations it generates, and names them inside the declaration it generates them from, is
-observed Lean behavior (the `cli` self-test's source-attribution controls), not proved; a
-rangeless declaration a metaprogram adds is attributed by name all the same.
+a finding is attributed to (`Findings.sourceName?`) is exactly the name the generation relation the
+audited declarations record (`Declaration.generatedFrom`) leads to from it and relates to nothing
+further (`sourceName?_eq_some_iff`, over `chainEnd_eq_some_iff`: the executed walk is bounded by the
+number of declarations, which the proof shows no such chain exceeds), so the declaration it names
+is not itself attributed to another (`sourceName?_source`); the executed index equals the
+inventory search it replaces (`declarationIndex_get`), and an RG1005 finding built with that
+attribution groups under it (`declarationFinding_groupUnder?`). Which declaration Lean generated a
+declaration from is read from the environment by `Collect.generatedFrom?`, clause by clause from
+what Lean records (constructor, projection, recursor, equation-lemma, matcher, reserved-name and
+internal-name facts); that those facts describe Lean's generation is observed Lean behavior (the
+`cli` self-test's source-attribution controls), not proved, and derived instances, whose relation
+Lean does not record, are not related.
 `RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula` parser admits exactly its documented commands
 (`parseCommand_arguments`, `parseCommand_sound`, `parseInvocation_arguments`,
 `parseInvocation_sound`). Result stages: `stagesOf_required`,

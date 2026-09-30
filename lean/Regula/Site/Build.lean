@@ -121,12 +121,12 @@ def inputs (record : Json) : IO (List (String × Option String)) := do
 private def lookup (xs : List (String × Option String)) (p : String) : Option String :=
   (xs.find? (·.1 == p)).bind (·.2)
 
-/-- The text of a Lean `Name` as a result diagnostic writes it: the name as Lean prints it
-(`RegistryCodec.nameFields`). -/
+/-- The text Lean prints for a name a result diagnostic writes (`RegistryCodec.printedNameJson`),
+or the JSON itself when it is not such a name. -/
 def nameText (j : Json) : String :=
-  match j with
-  | .str s => s
-  | _ => j.compress
+  match Regula.RegistryCodec.parsePrintedNameJson j with
+  | .ok n => n.toString
+  | .error _ => j.compress
 
 private def ruleOf (s : String) : IO RuleId := do
   match RuleId.parse? s with

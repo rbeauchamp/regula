@@ -110,10 +110,10 @@ context and is not an independent policy decision.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
-bounds, character boundaries, ordering and containment; a declaration without a recorded range
-is located at the range of the declaration it is attributed to (`Findings.findingLocation`) and
-otherwise falls back to module attribution, and an inconsistent supplied range fails rather than
-acquiring an invented location. `sourceFromReport` additionally requires the recorded code-point
+bounds, character boundaries, ordering and containment; a declaration Lean generated is located
+at the range of the declaration it is attributed to (`Findings.findingLocation`), a declaration
+without a recorded range otherwise falls back to module attribution, and an inconsistent supplied
+range fails rather than acquiring an invented location. `sourceFromReport` additionally requires the recorded code-point
 and UTF-16 coordinates to agree with that text. Report lines are one-based and columns count
 Unicode code points; `startUtf16` and `endUtf16` are zero-based UTF-16 columns within their
 lines, computed with Lean's
@@ -124,9 +124,10 @@ Markdown coordinates; aggregate fence errors keep their document and fence origi
 attribution. Filesystem paths stay native diagnostic filenames; project reports may keep
 disposable source-copy paths as evidence beside the actual source text, without asserting that
 those paths stay live after the run, and no textual path substitution is applied. Names are
-encoded structurally (tagged string and numeric components, outermost first) by
-`Regula.StructuralName`, never through printed forms, and display-only worker records cannot
-supply a declaration diagnostic. `parseDiagnostic` reconstructs the indexed payload and admitted
+written by `Regula.StructuralName` as the text Lean prints only where Lean's parser reads that text
+back as the same name, and otherwise structurally (tagged string and numeric components,
+innermost first; `printedNameJson_roundtrip`), and display-only worker records cannot supply a
+declaration diagnostic. `parseDiagnostic` reconstructs the indexed payload and admitted
 source location and compares the input with its canonical re-encoding, refusing unknown fields,
 unsupported modes and IDs, invalid coordinates and altered redundant text or help URLs; the
 proved name, ID and mode codec laws are not a proof of Lean's JSON parser, `FileMap` or the
@@ -195,23 +196,35 @@ metadata, not authenticated binary identity.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
-- **Diagnostic names:** since schema 5 a diagnostic writes each Lean name as Lean prints it
-  (`RegistryCodec.nameFields`), adding a `…Parts` member with the structural components only
-  where Lean's parser does not read the printed text back as the name; `printedName_roundtrip`
-  proves the pair denotes the name for every name, and `DiagnosticCodec.parseDiagnostic` refuses
-  a diagnostic unequal to its canonical re-encoding, so a missing or unneeded `…Parts` member is
-  refused. A declaration finding's `arguments.sourceDeclaration` is the declaration it is
-  attributed to (`Findings.sourceDeclaration?`: none for a declaration with a recorded range,
-  otherwise the nearest enclosing name, also under its user name, of a declaration of the same
-  environment with one). The finding is located at that declaration's range when its module has
-  a snapshot (`Findings.findingLocation`), and its `related` names the declaration's own module.
-  Lean records no range for most declarations it generates and names them inside the one it
-  generates them from; that convention is assumed, not established, and a rangeless declaration
-  a metaprogram adds is attributed by name all the same. The `lake lint` text prints the RG1005
-  findings under one declaration as one block (`groupFindings`, `groupEntry`) and folds their
-  lines in its closing `FAIL` summary into one count; the JSON keeps them one per declaration, in
-  the same order (`groupFindings_flatten`). `scope` and `acceptance` keep the structural name
-  encoding.
+- **Names:** since schema 5 every Lean name of a result, in `diagnostics`, `scope` and
+  `acceptance` alike, and of the producer report it renders, is written one way
+  (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does
+  not read that text back as the name, its structural components as a JSON array.
+  `printedNameJson_roundtrip` proves the reader (`parsePrintedNameJson`) recovers every name,
+  `printedNameJson_eq_str_iff` that a name is a string exactly when Lean's parser reads its printed
+  text back, and `parsePrintedNameJson_str` that the reader admits a string only as that text.
+  Admission reads names back with that reader: producer reports through `Regula.Report`'s
+  instances and diagnostics through `DiagnosticCodec.parseDiagnostic`, which also refuses a
+  diagnostic unequal to its canonical re-encoding.
+- **Attribution:** the collector records, for each declaration, the declaration Lean generated it
+  from, one step (`Collect.generatedFrom?`): a constructor's inductive type, a projection's
+  structure constructor, the type a recursor, auxiliary recursor or `noConfusion` is named under
+  (the relation Lean's `findDeclarationRanges?` uses), a definition's equation lemmas
+  (`Meta.declFromEqLikeName`), the constructor and type lemmas Lean's `isAutoDeclOrPrivate_Internal`
+  recognizes, matchers, names Lean reserves (`isReservedName`), and auxiliary declarations whose
+  last component begins with `_`. A declaration finding's `arguments.sourceDeclaration` is the end
+  of that chain over the audited declarations (`Findings.sourceName?`), and
+  `sourceName?_eq_some_iff` proves it is exactly the name the recorded relation leads to from the
+  declaration and relates to nothing further: a declaration Lean did not generate from another, or
+  one outside the audited declarations. The finding is located at that declaration's range when it has one
+  and its module has a snapshot (`Findings.findingLocation`), and its `related` names the
+  declaration's own module. Which clause records which declaration is Lean's behavior, read from
+  its environment, not proved; derived instances are not related, since Lean records no such
+  relation. The `lake lint` text prints the RG1005 findings under one declaration as one block
+  (`groupFindings`, `groupEntry`; `declarationFinding_groupUnder?` proves such a finding groups
+  under the declaration it is attributed to) and folds their lines in its closing `FAIL` summary
+  into one count; the JSON keeps them one per declaration, in the same order
+  (`groupFindings_flatten`).
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,

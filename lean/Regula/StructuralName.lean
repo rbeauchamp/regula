@@ -5,8 +5,9 @@ import RegulaPolicy.Codec
 
 Public structural-name transport. The policy decoder is the pure wire decoder;
 JSON scalar admission is the operational bridge. Names retain every constructor.
-Result diagnostics write a name as Lean prints it, adding its structural components only where
-Lean's own parser would not read that text back exactly (`printedName_roundtrip`). -/
+Result documents and producer reports write a name as the text Lean prints for it, and as its
+structural components only where Lean's own parser would not read that text back exactly
+(`printedNameJson_roundtrip`). -/
 namespace Regula.RegistryCodec
 open Lean
 
@@ -67,49 +68,64 @@ itself. It does not for some names, such as one with a component containing `»`
 scopes, which Lean prints without escaping. -/
 def printsExactly (n : Name) : Bool := n.toString.toName == n
 
-/-- A name as result JSON writes it: the text Lean prints for it, and its structural components
-(`nameJson`) exactly when Lean's parser would not read that text back as the name
-(`printsExactly`). -/
-def printedName (n : Name) : String × Option Json :=
-  (n.toString, if printsExactly n then none else some (nameJson n))
-
-/-- The name a `printedName` denotes: the structural components when present, and otherwise what
-Lean's parser reads from the text. -/
-def parsePrintedName : String × Option Json → Except String Name
-  | (text, none) => .ok text.toName
-  | (_, some parts) => parseName parts
-
 /-- `printsExactly` decides exactly that Lean's parser reads the printed text back as the name. -/
 theorem printsExactly_iff (n : Name) : printsExactly n = true ↔ n.toString.toName = n :=
   beq_iff_eq
 
-/-- Every name survives its printed form, whatever it is: the text alone where Lean's printer and
-parser agree on it, its structural components otherwise. The parser is executed Lean code whose
-agreement `printsExactly` decides for each name; no claim is made about which names it reads
+/-- A name as result JSON writes it, wherever it occurs: the text Lean prints for it when Lean's
+parser reads that text back as the name (`printsExactly`), and otherwise its structural
+components (`nameJson`), a JSON array. -/
+def printedNameJson (n : Name) : Json :=
+  if printsExactly n then .str n.toString else nameJson n
+
+/-- Read a name `printedNameJson` wrote: a string is read with Lean's parser and must be the text
+Lean prints for the name it reads (`parsePrintedNameJson_str`); anything else is read as structural
+components (`parseName`) and must be of a name whose printed text Lean's parser does not read
 back. -/
-theorem printedName_roundtrip (n : Name) : parsePrintedName (printedName n) = .ok n := by
-  unfold printedName
+def parsePrintedNameJson : Json → Except String Name
+  | .str text =>
+    let n := text.toName
+    if n.toString == text then .ok n else .error s!"not a Lean name as Lean prints it: {text}"
+  | j => do
+    let n ← parseName j
+    if printsExactly n then .error s!"structural components of {n}, which its printed text denotes"
+    else .ok n
+
+/-- Every name survives its written form: the printed text where Lean's printer and parser agree
+on it, its structural components otherwise. The parser is executed Lean code whose agreement
+`printsExactly` decides for each name; no claim is made about which names it reads back. -/
+theorem printedNameJson_roundtrip (n : Name) :
+    parsePrintedNameJson (printedNameJson n) = .ok n := by
+  unfold printedNameJson
   cases h : printsExactly n with
-  | true => exact congrArg Except.ok ((printsExactly_iff n).mp h)
-  | false => exact name_roundtrip n
+  | true =>
+    have e := (printsExactly_iff n).mp h
+    simp [parsePrintedNameJson, e]
+  | false =>
+    simp only [Bool.false_eq_true, ↓reduceIte]
+    have := name_roundtrip n
+    unfold nameJson at this ⊢
+    simp only [parsePrintedNameJson, this]
+    simp [bind, Except.bind, h]
 
-/-- The structural components are written exactly for the names whose printed text alone does
-not denote them. -/
-theorem printedName_parts_eq_none_iff (n : Name) :
-    (printedName n).2 = none ↔ n.toString.toName = n := by
+/-- A name is written as a string exactly when Lean's parser reads its printed text back as the
+name, and the string is then that text. -/
+theorem printedNameJson_eq_str_iff (n : Name) (text : String) :
+    printedNameJson n = .str text ↔ n.toString.toName = n ∧ text = n.toString := by
   rw [← printsExactly_iff]
-  unfold printedName
-  cases printsExactly n <;> simp
+  unfold printedNameJson nameJson
+  cases printsExactly n <;> simp [eq_comm]
 
-/-- The members of a name in a JSON object under `key`: `key` with its printed text and, only when
-that text does not denote it, `key ++ "Parts"` with its structural components (`printedName`). -/
-def nameFields (key : String) (n : Name) : List (String × Json) :=
-  let (text, parts) := printedName n
-  (key, .str text) :: (parts.map fun parts => (key ++ "Parts", parts)).toList
-
-/-- Read the name `nameFields key` wrote into `j` (`parsePrintedName`); callers compare `j` with
-its canonical re-encoding, which refuses parts that are not needed and text that does not match. -/
-def parseNameFields (j : Json) (key : String) : Except String Name := do
-  let text ← (← j.getObjVal? key).getStr?
-  parsePrintedName (text, (j.getObjVal? (key ++ "Parts")).toOption)
+/-- A string is read only as the name whose written form it is, so each name has one written form
+that the reader admits. -/
+theorem parsePrintedNameJson_str {text : String} {n : Name}
+    (h : parsePrintedNameJson (.str text) = .ok n) : printedNameJson n = .str text := by
+  simp only [parsePrintedNameJson] at h
+  split at h
+  · next hp =>
+    cases h
+    have e : text.toName.toString = text := beq_iff_eq.mp hp
+    have hx : printsExactly text.toName = true := (printsExactly_iff _).mpr (by rw [e])
+    simp [printedNameJson, hx, e]
+  · cases h
 end Regula.RegistryCodec

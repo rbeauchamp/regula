@@ -1,15 +1,15 @@
 module
 
 public import Regula.Diagnostic
-public import Lean.PrivateName
 public import Std.Data.HashMap.Basic
 import Std.Data.HashMap.Lemmas
 
 /-! # Diagnostic finding adapters
 
 Import-safe adapters to the canonical diagnostic schema. Policy decisions
-remain in the policy core; these functions preserve identity and mode, and locate a declaration
-without a source range at the declaration it is attributed to (`findingLocation`). -/
+remain in the policy core; these functions preserve identity and mode, and attribute a declaration
+Lean generated to the declaration it generated it from (`sourceName?`), locating it there
+(`findingLocation`). -/
 
 public section
 
@@ -23,7 +23,7 @@ def declarationName (decl : RegulaPolicy.Declaration) : Except String Name := do
 
 /-- The violation finding of a declaration-scoped rule `id` for declaration `name`, with its
 detail, location, mode and claim, the declaration it is attributed to, if any
-(`sourceDeclaration?`), and related locations. A rule outside the declaration domain, or a mode
+(`sourceName?`), and related locations. A rule outside the declaration domain, or a mode
 the rule does not support, is refused. -/
 def declarationFinding (id : RuleId) (name : Name) (detail : String)
     (location : Location) (mode : EvidenceMode) (claim : Option String)
@@ -88,39 +88,16 @@ def declarationLocation (decl : RegulaPolicy.Declaration) (snapshot : Option Sou
   | some ranges, some source => return .source (← sourceFromReport source ranges)
   | _, _ => return .module decl.module
 
-/-- The proper prefixes of a name, nearest first, without the anonymous name. -/
-def properPrefixes : Name → List Name
-  | .anonymous => []
-  | .str p _ | .num p _ => if p.isAnonymous then [] else p :: properPrefixes p
-
-/-- The names a declaration without a source range is attributed to, nearest first: at each
-depth, the proper prefix of `name` and then that of its user name (`Lean.privateToUserName`), the
-two spellings Lean's own equation-lemma lookup tries (`Lean.Meta.declFromEqLikeName`), since a
-declaration's equation lemmas can be private when it is not. A private name's nearest prefixes
-correspond one for one to its user name's, so interleaving them keeps the nearest first. Lean
-names most declarations it generates inside the one it generates them from, such as `f.eq_1`,
-`f.match_1`, `f._proof_1`, `T.rec` and `T.casesOn`; that naming is Lean's convention, assumed
-here, not established. -/
-def sourceCandidates (name : Name) : List Name :=
-  interleave (properPrefixes name) (properPrefixes (privateToUserName name))
-where
-  /-- The elements of both lists, alternately, then the rest of the longer one. -/
-  interleave : List Name → List Name → List Name
-    | a :: as, b :: bs => a :: b :: interleave as bs
-    | as, [] => as
-    | [], bs => bs
-
-/-- The declarations of `ds` that Lean recorded a declaration range for, by name; the first wins
-(`rangedIndex_get`). -/
-def rangedIndex (ds : Array RegulaPolicy.Declaration) :
+/-- The declarations of `ds` by name; the first of a name wins (`declarationIndex_get`). -/
+def declarationIndex (ds : Array RegulaPolicy.Declaration) :
     Std.HashMap Name RegulaPolicy.Declaration :=
-  ds.foldr (fun p index => if p.ranges.isSome then index.insert p.name p else index) {}
+  ds.foldr (fun p index => index.insert p.name p) {}
 
-/-- Looking a name up in `rangedIndex ds` is finding the first declaration of `ds` with that name
-and a recorded range. -/
-theorem rangedIndex_get (ds : Array RegulaPolicy.Declaration) (n : Name) :
-    (rangedIndex ds)[n]? = ds.find? fun p => p.ranges.isSome && p.name == n := by
-  unfold rangedIndex
+/-- Looking a name up in `declarationIndex ds` is finding the first declaration of `ds` with that
+name. -/
+theorem declarationIndex_get (ds : Array RegulaPolicy.Declaration) (n : Name) :
+    (declarationIndex ds)[n]? = ds.find? fun p => p.name == n := by
+  unfold declarationIndex
   rw [← Array.foldr_toList, ← Array.find?_toList]
   generalize ds.toList = l
   induction l with
@@ -128,71 +105,206 @@ theorem rangedIndex_get (ds : Array RegulaPolicy.Declaration) (n : Name) :
   | cons p ps ih =>
     simp only [List.foldr_cons, List.find?_cons]
     rw [← ih]
-    cases p.ranges.isSome <;> cases hn : (p.name == n) <;>
-      simp only [Bool.false_eq_true, ↓reduceIte, Std.HashMap.getElem?_insert, hn, Bool.true_and,
-        Bool.false_and]
+    cases hn : (p.name == n) <;>
+      simp only [Bool.false_eq_true, ↓reduceIte, Std.HashMap.getElem?_insert, hn]
 
-/-- The declaration a finding about `decl` is attributed to, among those `index` holds
-(`rangedIndex`): none when Lean recorded a declaration range for `decl` itself; otherwise the
-declaration named by the nearest of its `sourceCandidates` that has a recorded range. Lean records
-no range for most declarations it generates, such as equation lemmas, matchers, auxiliary proofs,
-recursors and `casesOn`; under the naming convention `sourceCandidates` assumes, this is the
-declaration they were generated from. A metaprogram can also add a declaration without a range;
-it is attributed to the nearest enclosing name all the same. Lean-generated declarations with a
-range, such as a structure's default constructor, projections and derived instances, keep their
-own. -/
-def sourceDeclaration? (index : Std.HashMap Name RegulaPolicy.Declaration)
-    (decl : RegulaPolicy.Declaration) : Option RegulaPolicy.Declaration :=
-  if decl.ranges.isSome then none else (sourceCandidates decl.name).findSome? (index[·]?)
+/-- One step of the generation relation a report records: the declaration Lean generated the
+declaration named `n` from (`Declaration.generatedFrom`), when `index` holds one named `n`. -/
+def generatedStep (index : Std.HashMap Name RegulaPolicy.Declaration) (n : Name) : Option Name :=
+  (index[n]?).bind (·.generatedFrom)
 
-/-- Over `rangedIndex ds`, the source is the first declaration of `ds` that has a recorded range
-and is named by the nearest candidate that names one. -/
-theorem sourceDeclaration?_rangedIndex (ds : Array RegulaPolicy.Declaration)
-    (decl : RegulaPolicy.Declaration) :
-    sourceDeclaration? (rangedIndex ds) decl =
-      if decl.ranges.isSome then none
-      else (sourceCandidates decl.name).findSome? fun n =>
-        ds.find? fun p => p.ranges.isSome && p.name == n := by
-  simp only [sourceDeclaration?, rangedIndex_get]
+/-- The name `k` steps of `step` lead to from `n`, when each of them exists. -/
+def walk (step : Name → Option Name) : Nat → Name → Option Name
+  | 0, n => some n
+  | k + 1, n => (step n).bind (walk step k)
 
-/-- The declaration a finding is attributed to is a declaration of `ds` with a recorded range,
-named by one of the candidates of a declaration that has none; having a range, it is never itself
-attributed to another. -/
-theorem sourceDeclaration?_spec {ds : Array RegulaPolicy.Declaration}
-    {decl p : RegulaPolicy.Declaration} (h : sourceDeclaration? (rangedIndex ds) decl = some p) :
-    decl.ranges = none ∧ p ∈ ds ∧ p.ranges.isSome ∧ p.name ∈ sourceCandidates decl.name ∧
-      sourceDeclaration? (rangedIndex ds) p = none := by
-  rw [sourceDeclaration?_rangedIndex] at h
-  by_cases hd : decl.ranges.isSome = true
-  · simp [hd] at h
-  · simp only [hd, Bool.false_eq_true, ↓reduceIte] at h
-    obtain ⟨n, hn, hfind⟩ := List.exists_of_findSome?_eq_some h
-    have hp := Array.mem_of_find?_eq_some hfind
-    have hpred := Array.find?_some hfind
-    simp only [Bool.and_eq_true, beq_iff_eq] at hpred
-    refine ⟨Option.not_isSome_iff_eq_none.mp hd, hp, hpred.1, hpred.2 ▸ hn, ?_⟩
-    simp [sourceDeclaration?, hpred.1]
+/-- The first name on the way `step` leads from `n` that it relates to no other, within `fuel`
+steps (`chainEnd_eq_some_iff`); `none` when there is no such name that near. -/
+def chainEnd (step : Name → Option Name) : Nat → Name → Option Name
+  | 0, _ => none
+  | fuel + 1, n => match step n with
+    | none => some n
+    | some m => chainEnd step fuel m
 
-/-- The location of a finding about `decl`: its own recorded range, else the range of the
-declaration it is attributed to (`sourceDeclaration?`) when that declaration's module has a
-snapshot, else its module. `snapshotFor` gives the source of a module whose ranges can be
-admitted. -/
+/-- `chainEnd step fuel n` is `r` exactly when fewer than `fuel` steps lead from `n` to `r` and
+`step` relates `r` to no other name. -/
+theorem chainEnd_eq_some_iff (step : Name → Option Name) (fuel : Nat) (n r : Name) :
+    chainEnd step fuel n = some r ↔ ∃ k < fuel, walk step k n = some r ∧ step r = none := by
+  induction fuel generalizing n with
+  | zero => simp [chainEnd]
+  | succ fuel ih =>
+    unfold chainEnd
+    cases h : step n with
+    | none =>
+      constructor
+      · rintro ⟨⟩; exact ⟨0, by omega, rfl, h⟩
+      · rintro ⟨k, _, hk, hr⟩
+        cases k with
+        | zero => simpa [walk] using hk
+        | succ k => simp [walk, h] at hk
+    | some m =>
+      simp only
+      rw [ih]
+      constructor
+      · rintro ⟨k, hk, hw, hr⟩; exact ⟨k + 1, by omega, by simp [walk, h, hw], hr⟩
+      · rintro ⟨k, hk, hw, hr⟩
+        cases k with
+        | zero =>
+          simp only [walk, Option.some.injEq] at hw
+          subst hw; simp [h] at hr
+        | succ k => exact ⟨k, by omega, by simpa [walk, h] using hw, hr⟩
+
+private theorem walk_add (step : Name → Option Name) (i j : Nat) (n : Name) :
+    walk step (i + j) n = (walk step i n).bind (walk step j) := by
+  induction i generalizing n with
+  | zero => simp [walk]
+  | succ i ih =>
+    rw [Nat.add_right_comm]
+    simp only [walk]
+    cases step n with
+    | none => rfl
+    | some m => simp [ih]
+
+/-- Every name a walk passes before its last has a step. -/
+private theorem walk_before_end {step : Name → Option Name} {k : Nat} {n r : Name}
+    (hw : walk step k n = some r) {i : Nat} (hi : i < k) :
+    ∃ a b, walk step i n = some a ∧ step a = some b := by
+  have := walk_add step i (k - i) n
+  rw [Nat.add_sub_cancel' (Nat.le_of_lt hi), hw] at this
+  cases hwi : walk step i n with
+  | none => simp [hwi] at this
+  | some a =>
+    rw [hwi] at this
+    obtain ⟨j, hj⟩ : ∃ j, k - i = j + 1 := ⟨k - i - 1, by omega⟩
+    rw [hj] at this
+    simp only [Option.bind_some, walk] at this
+    cases hs : step a with
+    | none => simp [hs] at this
+    | some b => exact ⟨a, b, rfl, hs⟩
+
+/-- A walk to a name `step` relates to no other visits no name twice before it: a repeated name
+would lead to the end sooner, where the walk still has a step. -/
+private theorem walk_nodup {step : Name → Option Name} {k : Nat} {n r : Name}
+    (hw : walk step k n = some r) (hr : step r = none) :
+    ((List.range k).map fun i => walk step i n).Nodup := by
+  unfold List.Nodup
+  rw [List.pairwise_map]
+  refine List.nodup_range.imp_of_mem ?_
+  intro i j hi hj hne heq
+  simp only [List.mem_range] at hi hj
+  rcases Nat.lt_trichotomy i j with h | h | h
+  · have e1 := walk_add step i (k - j) n
+    have e2 := walk_add step j (k - j) n
+    rw [Nat.add_sub_cancel' (Nat.le_of_lt hj), hw, ← heq] at e2
+    rw [← e2] at e1
+    obtain ⟨_, b, hb, hs⟩ := walk_before_end hw (i := i + (k - j)) (by omega)
+    rw [e1] at hb
+    cases hb; simp [hs] at hr
+  · exact hne h
+  · have e1 := walk_add step j (k - i) n
+    have e2 := walk_add step i (k - i) n
+    rw [Nat.add_sub_cancel' (Nat.le_of_lt hi), hw, heq] at e2
+    rw [← e2] at e1
+    obtain ⟨_, b, hb, hs⟩ := walk_before_end hw (i := j + (k - i)) (by omega)
+    rw [e1] at hb
+    cases hb; simp [hs] at hr
+
+/-- A walk to a name `step` relates to no other is no longer than any list of the names `step`
+relates to another. -/
+private theorem walk_length_le {step : Name → Option Name} {keys : List Name}
+    (hkeys : ∀ a b, step a = some b → a ∈ keys) {k : Nat} {n r : Name}
+    (hw : walk step k n = some r) (hr : step r = none) : k ≤ keys.length := by
+  have hsub : ((List.range k).map fun i => walk step i n) ⊆ keys.map some := by
+    intro x hx
+    simp only [List.mem_map, List.mem_range] at hx
+    obtain ⟨i, hi, rfl⟩ := hx
+    obtain ⟨a, b, ha, hs⟩ := walk_before_end hw hi
+    rw [ha]
+    exact List.mem_map_of_mem (hkeys a b hs)
+  simpa using (walk_nodup hw hr).length_le_of_subset hsub
+
+private theorem generatedStep_mem (index : Std.HashMap Name RegulaPolicy.Declaration) (a b : Name)
+    (h : generatedStep index a = some b) : a ∈ index.keys := by
+  rw [Std.HashMap.mem_keys]
+  unfold generatedStep at h
+  cases hi : index[a]? with
+  | none => simp [hi] at h
+  | some _ => exact Std.HashMap.mem_iff_isSome_getElem?.mpr (by simp [hi])
+
+/-- The name of the declaration a finding about `decl` is attributed to: the end of the chain of
+declarations Lean generated `decl` from, one step at a time, as the declarations `index` holds
+record it (`generatedStep`); `none` when Lean did not generate `decl` from another declaration.
+The chain ends at a declaration Lean did not generate from another or at a name `index` does not
+hold. It follows at most as many steps as `index` holds declarations, never fewer than such a
+chain has (`sourceName?_eq_some_iff`). -/
+def sourceName? (index : Std.HashMap Name RegulaPolicy.Declaration)
+    (decl : RegulaPolicy.Declaration) : Option Name :=
+  decl.generatedFrom.bind (chainEnd (generatedStep index) (index.size + 1))
+
+/-- A finding about `decl` is attributed to `r` exactly when the recorded generation relation
+leads from `decl` to `r` and relates `r` to nothing further: Lean generated `decl` from a
+declaration `m`, and `m` from another, and so on, `k` times, to `r`, which it did not generate
+from another declaration `index` holds. -/
+theorem sourceName?_eq_some_iff (index : Std.HashMap Name RegulaPolicy.Declaration)
+    (decl : RegulaPolicy.Declaration) (r : Name) :
+    sourceName? index decl = some r ↔ ∃ m k, decl.generatedFrom = some m ∧
+      walk (generatedStep index) k m = some r ∧ generatedStep index r = none := by
+  unfold sourceName?
+  cases decl.generatedFrom with
+  | none => simp
+  | some m =>
+    rw [Option.bind_some, chainEnd_eq_some_iff]
+    constructor
+    · rintro ⟨k, _, hw, hr⟩; exact ⟨m, k, rfl, hw, hr⟩
+    · rintro ⟨_, k, ⟨⟩, hw, hr⟩
+      have := walk_length_le (generatedStep_mem index) hw hr
+      rw [Std.HashMap.length_keys] at this
+      exact ⟨k, by omega, hw, hr⟩
+
+/-- The declaration a finding is attributed to is not itself attributed to another: its finding
+groups under its own name, with those attributed to it. -/
+theorem sourceName?_source {index : Std.HashMap Name RegulaPolicy.Declaration}
+    {decl p : RegulaPolicy.Declaration} {r : Name} (h : sourceName? index decl = some r)
+    (hp : index[r]? = some p) : sourceName? index p = none := by
+  obtain ⟨_, _, _, _, hr⟩ := (sourceName?_eq_some_iff index decl r).mp h
+  simp only [generatedStep, hp, Option.bind_some] at hr
+  simp [sourceName?, hr]
+
+/-- An RG1005 finding built for a subject `name` attributed to `source` groups under `source`, or
+under `name` itself when it is attributed to none. The checkers pass the attribution of the
+subject (`attribution`), so such a finding groups under a declaration other than its subject
+exactly when the recorded generation relation leads to it (`sourceName?_eq_some_iff`). -/
+theorem declarationFinding_groupUnder? {name : Name} {detail : String} {location : Location}
+    {mode : EvidenceMode} {claim : Option String} {source : Option Name}
+    {related : Array RelatedLocation} {f : Finding}
+    (h : declarationFinding .profileExceeded name detail location mode claim source related =
+      .ok f) : f.groupUnder? = some (source.getD name) := by
+  simp only [declarationFinding, makeDiagnostic] at h
+  split at h
+  · cases h; rfl
+  · cases h
+
+/-- The location of a finding about `decl`: the range of the declaration it is attributed to
+(`sourceName?`) when `index` holds that declaration with a recorded range and its module has a
+snapshot, else its own (`declarationLocation`). `snapshotFor` gives the source of a module whose
+ranges can be admitted. -/
 def findingLocation (index : Std.HashMap Name RegulaPolicy.Declaration)
     (decl : RegulaPolicy.Declaration) (snapshotFor : Name → Option SourceSnapshot) :
     Except String Location := do
-  match sourceDeclaration? index decl with
+  match (sourceName? index decl).bind (index[·]?) with
   | some p => match p.ranges, snapshotFor p.module with
     | some ranges, some source => return .source (← sourceFromReport source ranges)
     | _, _ => declarationLocation decl (snapshotFor decl.module)
   | none => declarationLocation decl (snapshotFor decl.module)
 
 /-- The attribution of a finding about `decl`: the declaration it is attributed to
-(`sourceDeclaration?`), and then a related location naming the module `decl` belongs to, which the
+(`sourceName?`), and then a related location naming the module `decl` belongs to, which the
 finding's location no longer states when it is that declaration's range (`findingLocation`). -/
 def attribution (index : Std.HashMap Name RegulaPolicy.Declaration)
     (decl : RegulaPolicy.Declaration) : Option Name × Array RelatedLocation :=
-  match sourceDeclaration? index decl with
-  | some p => (some p.name, #[{ relation := "declared in module", location := .module decl.module }])
+  match sourceName? index decl with
+  | some source =>
+      (some source, #[{ relation := "declared in module", location := .module decl.module }])
   | none => (none, #[])
 
 end Regula.Findings

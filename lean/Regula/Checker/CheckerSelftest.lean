@@ -1350,12 +1350,13 @@ private def duplicateAdmissionControls (sources copy : FilePath)
         failures.modify (·.push failure)
   failures.get
 
-/-- A file whose declarations Lean records no source range for: the equation lemmas and
-auxiliary proof of a well-founded definition, the recursor of a structure whose field type uses
-`Classical.choice`, and a theorem a metaprogram adds under a name with no enclosing declaration.
-Every one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
+/-- A file with declarations Lean generates: the equation lemmas and auxiliary proof of a
+well-founded definition, and the constructor, projection, recursor and constructor lemmas of a
+structure whose field type uses `Classical.choice`; and a theorem a metaprogram adds, without a
+source range, under the structure's name. Every one exceeds a Kernel-only claim, so each has an
+RG1005 finding. -/
 private def sourceAttributionSource : String :=
-  "import Lean\n\n/-! # Source attribution control\n\nDeclarations without a source range. -/\n\n" ++
+  "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
   "open Lean Elab Command\n\n" ++
   "/-- A value chosen with `Classical.choice`. -/\n" ++
   "noncomputable def pick : Nat := Classical.choose (⟨0, rfl⟩ : ∃ n : Nat, n = n)\n\n" ++
@@ -1367,15 +1368,16 @@ private def sourceAttributionSource : String :=
   "/-- Unfolding `countdown` realizes its equation lemmas. -/\n" ++
   "theorem countdown_zero : countdown 0 = 0 := by\n  simp [countdown]\n\n" ++
   "run_cmd liftTermElabM do\n  addDecl <| .thmDecl {\n" ++
-  "    name := `unattributed.fact, levelParams := []\n" ++
+  "    name := `Channel.fact, levelParams := []\n" ++
   "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
   "    value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkConst ``pick) }\n"
 
 /-- The first failed expectation of the source-attribution report, if any: the equation lemma and
-auxiliary proof of `countdown` and the recursor of `Channel` are attributed to and located at
-their declaration, with their own module as a related location; the projection `Channel.value`,
-which has its own range, and `unattributed.fact`, which has no enclosing declaration, are not
-attributed, the latter keeping module attribution. -/
+auxiliary proof of `countdown`, and the recursor, constructor, constructor lemma `mk.injEq` and
+projection of `Channel`, are attributed to and located at the declaration Lean generated them
+from, with their own module as a related location; `Channel.fact`, which Lean did not generate
+though it is named under `Channel` and has no source range, is not attributed and keeps module
+attribution. -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
@@ -1389,26 +1391,24 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   let some countdown := find "countdown" | return some "no countdown finding"
   let some channel := find "Channel" | return some "no Channel finding"
   for (name, owner, ownerName) in #[("countdown.eq_1", countdown, "countdown"),
-      ("countdown._proof_1", countdown, "countdown"), ("Channel.rec", channel, "Channel")] do
+      ("countdown._proof_1", countdown, "countdown"), ("Channel.rec", channel, "Channel"),
+      ("Channel.mk", channel, "Channel"), ("Channel.mk.injEq", channel, "Channel"),
+      ("Channel.value", channel, "Channel")] do
     let some d := find name | return some s!"no {name} finding"
     unless source d == .str ownerName && kind d == .str "source" &&
         selection d == selection owner && relation d == some (.str "declared in module") do
       return some s!"{name} is not attributed to and located at {ownerName}"
-  let some value := find "Channel.value" | return some "no Channel.value finding"
-  unless source value == .null && value.getObjValD "related" == Json.arr #[] &&
-      selection value != selection channel do
-    return some "Channel.value, which has its own range, was attributed"
-  let some fact := find "unattributed.fact" | return some "no unattributed.fact finding"
+  let some fact := find "Channel.fact" | return some "no Channel.fact finding"
   unless source fact == .null && kind fact == .str "module" do
-    return some "unattributed.fact, which has no enclosing declaration, was attributed"
+    return some "Channel.fact, which Lean did not generate, was attributed"
   return none
 
 /-- External-boundary controls for source attribution through the public `axiomGate --file`
-audit. Which declarations Lean records no source range for, and how it names them, is the
-compiler's behavior; `Findings.sourceDeclaration?_spec` states the attribution decision over
-those observations and `groupFindings_flatten` the grouping. The positive controls are the
-attributed findings and their printed block; the negative controls are a declaration with its
-own range and a rangeless one under a name with no enclosing declaration
+audit. Which declarations Lean generates, and what the environment records about them, is the
+compiler's behavior; `Findings.sourceName?_eq_some_iff` states the attribution decision over the
+recorded relation and `groupFindings_flatten` the grouping. The positive controls are the
+attributed findings and their printed blocks; the negative control is a theorem a metaprogram
+adds without a source range under a declaration's name, which Lean did not generate from it
 (`sourceAttributionFailure`). -/
 private def sourceAttributionControls (dir : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
@@ -1426,9 +1426,12 @@ private def sourceAttributionControls (dir : FilePath)
         | .error error => return failed s!"unreadable report: {error}"
       if let some detail := sourceAttributionFailure json then return failed detail
       unless result.output.contains
-            "countdown: it and 3 declarations without a source range under its name" &&
-          result.output.contains "  attributed: 3 declarations of these have no source range" do
+            "countdown: it and 3 declarations Lean generated from it exceed the claim" &&
+          result.output.contains
+            "  attributed: 3 declarations of these are generated by Lean from countdown" do
         return failed "the attributed findings did not print as one block under countdown"
+      unless result.output.contains "Channel: it and " && !result.output.contains "]: Channel.mk:" do
+        return failed "the findings Lean generated from Channel did not print as one block"
       return #[]
     finally
       if ← report.pathExists then IO.FS.removeFile report
@@ -1890,8 +1893,8 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
     for failure in attribution do failures.modify (·.push failure)
     IO.println <| "self-test source attribution: " ++
       (if attribution.isEmpty then "PASS" else "FAIL") ++
-      " (rangeless declarations attributed and printed in one block; a ranged projection and an \
-        unenclosed metaprogram theorem not attributed)"
+      " (declarations Lean generated attributed and printed in one block; a metaprogram theorem \
+        under a declaration's name not attributed)"
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. -/

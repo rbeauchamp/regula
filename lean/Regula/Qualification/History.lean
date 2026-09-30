@@ -80,7 +80,7 @@ def check : IO Unit := do
           let scope ← IO.ofExcept (report.getObjVal? "scope")
           let account ← IO.ofExcept (scope.getObjVal? "report")
           let execution ← IO.ofExcept (account.getObjValAs? (Array Json) "execution")
-          let importedName := toJson #[#["str", "add"], #["str", "Nat"]]
+          let importedName := nameJson "Nat.add"
           let imported := execution.filter
               (fun entry => (entry.getObjVal? "name").toOption == some importedName)
           requireChecks

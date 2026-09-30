@@ -1,5 +1,6 @@
 import RegulaQualification.Json
 import RegulaPolicy.Guards
+import Regula.StructuralName
 
 /-! # History observation requirements
 
@@ -14,8 +15,8 @@ private def field (value : Json) (name : String) : Except String Json := value.g
 private def array (value : Json) (name : String) : Except String (Array Json) :=
     value.getObjValAs? _ name
 private def text (value : Json) (name : String) : Except String String := value.getObjValAs? _ name
-private def nameJson (name : String) : Json := toJson
-    (name.splitOn "." |>.map fun part => #["str", part])
+/-- A dotted Lean name as result documents write it (`Regula.RegistryCodec.printedNameJson`). -/
+private def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 
 /-- The report account the public protocol selects: the file report, or the first
 surface's report for a project invocation. -/
@@ -36,7 +37,7 @@ def ownModule (account : Json) : Except String Json := do
 the audited one. -/
 def importedRootExecuted (execution : Array Json) (ownModule : Json) : Bool :=
   execution.any fun entry =>
-    (entry.getObjVal? "name").toOption == some (toJson #[#["str", "add"], #["str", "Nat"]]) &&
+    (entry.getObjVal? "name").toOption == some (nameJson "Nat.add") &&
       (entry.getObjVal? "module").toOption.any (fun moduleName => moduleName != ownModule)
 
 /-- Every root requested from the audited module has an execution entry with nonempty
@@ -113,8 +114,8 @@ def closureRequirements (account ownModule : Json) (source : String) (unsupporte
   let privateRoot ← field (← field contract "executableContract") "root"
   let census ← array (← field account "census") "declarations"
   let unregistered ← declarations.toList.filterMapM fun entry => do
-    let names ← array entry "name"
-    return if names[0]? == some (toJson #["str", "unregistered"]) then some entry else none
+    let name ← Regula.RegistryCodec.parsePrintedNameJson (← field entry "name")
+    return if name matches .str _ "unregistered" then some entry else none
   let [unregistered] := unregistered | throw "missing or repeated private unregistered root"
   let hidden ← field unregistered "name"
   let execution ← array account "execution"

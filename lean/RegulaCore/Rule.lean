@@ -532,12 +532,11 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           claim.",
         "If the stronger foundation is intended, change the surface's `claim` and rationale \
           explicitly; this changes the published claim and needs review.",
-        "In `lake lint` and `axiomGate`, a declaration Lean records no source range for, usually \
-          one it generates (an equation lemma `f.eq_1`, a matcher, an auxiliary proof \
-          `f._proof_1`, a recursor or `casesOn`), is reported at the nearest enclosing \
-          declaration with one, in one block with each declaration's axioms. Where Lean \
-          generated them from it, change that declaration or a definition it uses that \
-          introduces the axiom."]
+        "In `lake lint` and `axiomGate`, a declaration Lean generates from another (an equation \
+          lemma `f.eq_1`, a matcher, an auxiliary proof `f._proof_1`, a recursor, `casesOn`, a \
+          constructor, a projection or a constructor lemma such as `mk.injEq`) is reported at \
+          the declaration Lean generated it from, in one block with each declaration's axioms. \
+          Change that declaration or a definition it uses that introduces the axiom."]
       examples := {
         language := .lean
         audience := .adopter
