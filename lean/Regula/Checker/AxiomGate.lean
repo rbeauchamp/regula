@@ -638,8 +638,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let toolchainBase := Policy.toolchainBase executionAccounts
       -- Each toolchain-owned boundary once for the whole audit; its size always, its entries
       -- only on request.
-      let toolchainLines := Policy.toolchainBaseLines toolchainBase
-      for line in (if verbose then toolchainLines else toolchainLines.extract 0 1) do
+      for line in Policy.toolchainBaseLines toolchainBase verbose do
         IO.println line
       let ownedModules := environments.foldl (fun count environment =>
         count + environment.info.modules.size) 0
@@ -961,7 +960,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                 trusted), " ++
               s!"{summary.unresolved} unresolved"
             for line in Policy.executionAccountLines executionInventory ++
-                Policy.toolchainBaseLines toolchainBase do
+                Policy.toolchainBaseLines toolchainBase true do
               IO.println line
             for violation in executionViolations do
               let reason := (violation.splitOn ":").head?.getD "execution-unresolved"

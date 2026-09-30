@@ -123,11 +123,17 @@ def executionAccountLines (inventory : ExecutionInventory) : Array String := Id.
         lines := lines.push s!"    unresolved {item}"
   return lines
 
-/-- The text lines of a toolchain trusted base (`toolchainBase`): its size, then each entry once,
-with the environments and roots that reach it. -/
-def toolchainBaseLines (base : Array RegulaPolicy.ToolchainBoundary) : Array String :=
-  #[s!"toolchain trusted base: {base.size} boundary(ies), each listed once"] ++
-    base.map fun entry => s!"  {describeToolchainBoundary entry}"
+/-- The text lines of a toolchain trusted base (`toolchainBase`): its size, then, when `listed`,
+each entry once with the environments and roots that reach it. Otherwise the size line alone
+names where the entries are listed. -/
+def toolchainBaseLines (base : Array RegulaPolicy.ToolchainBoundary) (listed : Bool) :
+    Array String :=
+  if listed then
+    #[s!"toolchain trusted base: {base.size} boundary(ies), each listed once:"] ++
+      base.map fun entry => s!"  {describeToolchainBoundary entry}"
+  else
+    #[s!"toolchain trusted base: {base.size} boundary(ies) (listed once each with --verbose \
+      and in --json-out)"]
 
 /-- Execution-coverage counts, through `RegulaPolicy.checked_summary`. -/
 def executionSummary (inventory : ExecutionInventory) : RegulaPolicy.ExecutionSummary :=

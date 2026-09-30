@@ -354,7 +354,7 @@ private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
   let executionViolations := Policy.executionFailures executionInventory execution
   let toolchainBase := Policy.toolchainBase #[(fixture.source.toString, executionInventory)]
   lines := lines ++ Policy.executionAccountLines executionInventory ++
-    Policy.toolchainBaseLines toolchainBase
+    Policy.toolchainBaseLines toolchainBase true
   for violation in executionViolations do
     let reason := (violation.splitOn ":").head?.getD "execution-unresolved"
     lines := lines.push s!"[VIOLATION[{reason}]] {violation}"
