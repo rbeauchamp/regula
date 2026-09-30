@@ -665,9 +665,10 @@ def ToolchainRoot (root : Lean.Name) : Prop := root = `Init ∨ root = `Std ∨ 
 instance : DecidablePred ToolchainRoot := fun _ => by unfold ToolchainRoot; infer_instance
 
 /-- Origin observations are admitted only when the resolved and expected canonical paths agree
-for a module under a toolchain root (`ToolchainRoot`), so the module is the toolchain's own
-compiled artifact whatever its name. The filesystem meaning of those paths remains IO
-evidence. -/
+for a module under a toolchain root (`ToolchainRoot`), whatever the module's name. That the
+paths are the module's loaded `.olean` and its copy in the pinned toolchain's library, and so
+identify the toolchain's own artifact, is the probe's filesystem observation, not a property
+of this type. -/
 structure ToolchainOrigin where
   /-- The module that declares the toolchain-owned boundary. -/
   moduleName : Lean.Name
@@ -705,11 +706,12 @@ inductive CheckedEvidence : BoundaryKind → Type where
   deriving Repr, DecidableEq
 
 /-- Trusted evidence by kind. A native-runtime `extern` always carries the admitted origin of
-its toolchain module. A runtime replacement or an unsafe or partial computation carries one
-exactly when the toolchain owns it, and is owned by the project or a dependency otherwise. No
-other kind can be toolchain-owned: a compiler simplification is registered by its equality's
-module, an `external` is by definition outside the toolchain, an opaque constant is checked or
-unresolved, and a compiler-trusting proof axiom is the project's use of the compiler. -/
+its toolchain module. A runtime replacement or an unsafe or partial computation may carry one,
+which the probe attaches exactly when the declaring module has an admitted toolchain origin;
+without one it is the project's or a dependency's. No other kind can carry one: a compiler
+simplification is registered by its equality's module, an `external` is by definition outside
+the toolchain, the probe reports an opaque constant as checked, unresolved, or through its
+partial helper, and a compiler-trusting proof axiom is the project's use of the compiler. -/
 def TrustedEvidence : BoundaryKind → Type
   | .nativeRuntime => ToolchainOrigin
   | .runtimeReplacement | .unsafeComputation | .partialComputation => Option ToolchainOrigin

@@ -598,15 +598,16 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
               |>.qsort fun left right => Name.quickLt left.name right.name
             for decl in declarations do IO.println s!"  {Policy.classify decl scope}"
         let summary := Policy.executionSummary executionInventory
+        let toolchainBase := Policy.toolchainBase executionInventory
         IO.println <| s!"execution coverage for {environment.label} " ++
           s!"[claim: {surface.execution}]: {summary.roots} root(s), " ++
           s!"{summary.boundaries} boundary(ies) ({summary.checked} checked, " ++
           s!"{summary.trusted} trusted), {summary.unresolved} unresolved; toolchain trusted " ++
-          s!"base: {(Policy.toolchainBase executionInventory).size} boundary(ies)"
+          s!"base: {toolchainBase.size} boundary(ies)"
         -- Every root and boundary is always in `--json-out`; text lists them only on request,
         -- each toolchain-owned boundary once in the toolchain trusted base.
         if verbose then
-          for line in Policy.executionAccountLines executionInventory do
+          for line in Policy.executionAccountLines executionInventory toolchainBase do
             IO.println line
         let environmentFields (report : Json) : List (String × Json) := [
           ("modules", Json.arr <| info.modules.map (fun n => Json.str n.toString)),
@@ -614,7 +615,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           ("authorizedUnsafeRecHelpers", Json.arr <| unsafeHelpers.map (Json.str ∘ Name.toString)),
           ("frontendTranscripts", Json.arr <| transcripts.map toJson),
           ("report", report),
-          ("toolchainBase", Policy.toolchainBaseJson executionInventory)
+          ("toolchainBase", Policy.toolchainBaseJson toolchainBase)
         ]
         -- Built only for the result output, which omits the import closure; it affects no
         -- decision. A library's entry opens its surface, and each executable's environment
@@ -945,12 +946,13 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
               findings := findings.push finding
             RunFeedback.emitAll IO.println findings
             let summary := Policy.executionSummary executionInventory
+            let toolchainBase := Policy.toolchainBase executionInventory
             IO.println <| s!"execution coverage [claim: {execution}]: {summary.roots} root(s), " ++
               s!"{summary.boundaries} boundary(ies) ({summary.checked} checked, {summary.trusted} \
                 trusted), " ++
               s!"{summary.unresolved} unresolved; toolchain trusted base: " ++
-              s!"{(Policy.toolchainBase executionInventory).size} boundary(ies)"
-            for line in Policy.executionAccountLines executionInventory do
+              s!"{toolchainBase.size} boundary(ies)"
+            for line in Policy.executionAccountLines executionInventory toolchainBase do
               IO.println line
             for violation in executionViolations do
               let reason := (violation.splitOn ":").head?.getD "execution-unresolved"
@@ -1002,7 +1004,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   ("claim", toJson (claim.map Profile.toString)),
                   ("declarations", toJson declarations.size),
                   ("report", inspected.report.resultJson),
-                  ("toolchainBase", Policy.toolchainBaseJson executionInventory),
+                  ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
                   ("authorizedNativeAxioms", toJson native),
                   ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
                   ("frontendTranscripts", toJson inspected.transcripts),

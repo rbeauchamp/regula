@@ -811,13 +811,13 @@ def guide : RuleId → Guide
       trigger := [
         "Each reached boundary gets a kind and a correspondence state. Under checked execution, a \
           boundary that is `trusted` rather than `checked` is rejected with applicability \
-          `execution-trusted-boundary`, once for each root that reaches it, unless the toolchain \
-          owns it.",
+          `execution-trusted-boundary` in every root that reaches it, unless its module has an \
+          admitted toolchain origin.",
         "The toolchain owns a replacement, `extern`, or unsafe or partial computation declared in \
           one of its own `Init`, `Std` or `Lean` modules, decided by where Lean loaded that module \
-          from (the pinned toolchain's library), not by its name. Such a boundary is the \
-          toolchain's trusted base: it passes and is reported once, with every root that reaches \
-          it, in the execution account's toolchain trusted base.",
+          from (the pinned toolchain's library, an observation of the probe), not by its name. \
+          Such a boundary is the toolchain's trusted base: it passes and is reported once, with \
+          every root that reaches it, in the execution account's toolchain trusted base.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
           logical axioms and no extra premises."]
@@ -827,16 +827,20 @@ def guide : RuleId → Guide
           with no additional hypotheses, admitted by the kernel. An actual domain hypothesis is \
           legitimate; an extra premise such as `False` is not."]
       established := [
-        "Every reached boundary of a checked surface outside the toolchain's trusted base has \
-          kernel-admitted correspondence, and each boundary the project or a dependency owns \
-          without it is reported for every root that reaches it \
-          (`RegulaPolicy.project_boundary_reported`).",
+        "Every reached boundary of a checked surface without an admitted toolchain origin has \
+          kernel-admitted correspondence; each one without it has a failure record in every root \
+          whose account contains it (`RegulaPolicy.project_boundary_reported`).",
         "Each toolchain-owned boundary is listed exactly once in the toolchain trusted base, with \
           exactly the roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]
       notEstablished := [
         "Correctness of the toolchain's own replacements, unsafe code and native primitives, the \
           compiler or external code; a Lean equality does not prove external machine code. These \
           stay trusted and reported.",
+        "Anything about code the program selects at runtime rather than references: a constant \
+          it evaluates by name (`Lean.Environment.evalConst`, `Lean.Meta.reduceBoolNative`), a \
+          dynamic library or plugin it loads, the initializers of modules it imports, or a \
+          process it spawns. The account is the static closure; such code is data to it, and the \
+          toolchain primitive that runs it is trusted base.",
         "That the executable roots are the ones the project intends to cover (R-INVARIANT)."]
       configuration := [
         "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \

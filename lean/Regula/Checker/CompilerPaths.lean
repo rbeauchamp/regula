@@ -25,6 +25,7 @@ private structure Case where
   moduleSystem : Bool := false
   emittedSymbol : Option String := none
   importLean : Bool := false
+  extraImports : Array String := #[]
   supportModule : String := "Support"
   positiveExpected : Array String := #[]
 
@@ -41,13 +42,21 @@ private def cases : Array Case := #[
     project := true },
   { name := "lean-module-origin"
     supportModule := "Lean.Adopter"
+    extraImports := #["Std.Sync.Mutex"]
     body := "/-- The identity, doubled. -/\ndef other (n : Nat) := n + n\n/-- The identity. -/\n" ++
-      "def target (n : Nat) := n\n/-- The length of `target`'s decimal spelling. -/\n" ++
-      "def entry (n : Nat) := (toString (target n)).length\n"
+      "def target (n : Nat) := n\n/-- Under a fresh lock, prints the length of `target`'s " ++
+      "decimal spelling. -/\ndef entry (n : Nat) : IO Unit := do\n" ++
+      "  let mutex ← Std.BaseMutex.new\n  mutex.lock\n" ++
+      "  IO.println (← #[toString (target n)].foldlM (fun acc s => pure (acc + s.length)) 0)\n"
     before := "def target", after := "@[implemented_by other] def target"
     expected := #["CompilerPath.target [runtime-replacement]", "module Lean.Adopter"]
+    -- Real toolchain boundaries of `Init` and `Std`: a replacement, an unsafe implementation and
+    -- an extern, each attributed to the toolchain.
     positiveExpected := #["Nat.repr [runtime-replacement] correspondence=trusted " ++
-      "replacement=Nat.reprFast toolchain"]
+      "replacement=Nat.reprFast toolchain",
+      "Array.foldlMUnsafe [unsafe-computation] correspondence=trusted toolchain",
+      "Std.BaseMutex.lock [native-runtime] correspondence=trusted toolchain " ++
+        "(module Std.Sync.Mutex)"]
     project := true },
   { name := "imported"
     body := "/-- The identity. -/\ndef target (n : Nat) := n\n" ++
@@ -175,8 +184,9 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     (Array String) := do
   let body := if negative then test.body.replace test.before test.after else test.body
   if negative && body == test.body then return #[s!"{test.name}: mutation anchor missing"]
-  let header := if test.moduleSystem then "module\npublic import Init\n"
-    else if test.importLean then "import Lean\n" else "import Init\n"
+  let header := (if test.moduleSystem then "module\npublic import Init\n"
+    else if test.importLean then "import Lean\n" else "import Init\n") ++
+    String.join (test.extraImports.toList.map fun name => s!"import {name}\n")
   let supportName := test.supportModule.toName
   let supportPath := Lean.modToFilePath scratch supportName "lean"
   if let some parent := supportPath.parent then IO.FS.createDirAll parent

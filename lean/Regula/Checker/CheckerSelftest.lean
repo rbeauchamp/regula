@@ -353,6 +353,7 @@ private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
     | return ("invalid execution inventory", true)
   let executionViolations := Policy.executionFailures executionInventory execution
   lines := lines ++ Policy.executionAccountLines executionInventory
+    (Policy.toolchainBase executionInventory)
   for violation in executionViolations do
     let reason := (violation.splitOn ":").head?.getD "execution-unresolved"
     lines := lines.push s!"[VIOLATION[{reason}]] {violation}"

@@ -87,14 +87,16 @@ def toolchainBoundaryJson (entry : RegulaPolicy.ToolchainBoundary) : Lean.Json :
     ("boundary", Lean.toJson entry.boundary), ("replacement", Lean.toJson entry.replacement),
     ("toolchainOrigin", Lean.toJson entry.origin), ("roots", Lean.toJson entry.roots)]
 
-/-- The toolchain trusted base of an account as JSON, in `toolchainBase` order. -/
-def toolchainBaseJson (inventory : ExecutionInventory) : Lean.Json :=
-  Lean.Json.arr ((toolchainBase inventory).map toolchainBoundaryJson)
+/-- A toolchain trusted base (`toolchainBase`) as JSON, in its order. -/
+def toolchainBaseJson (base : Array RegulaPolicy.ToolchainBoundary) : Lean.Json :=
+  Lean.Json.arr (base.map toolchainBoundaryJson)
 
 /-- The text lines of an execution account: each root with the boundaries the toolchain does not
 own and its unresolved paths, then the toolchain trusted base, each toolchain-owned boundary
-once with the roots that reach it. -/
-def executionAccountLines (inventory : ExecutionInventory) : Array String := Id.run do
+once with the roots that reach it. `base` is the account's `toolchainBase`, computed once by the
+caller. -/
+def executionAccountLines (inventory : ExecutionInventory)
+    (base : Array RegulaPolicy.ToolchainBoundary) : Array String := Id.run do
   let mut lines : Array String := #[]
   for root in inventory.roots do
     let reported := root.boundaries.filter (·.toolchainOrigin?.isNone)
@@ -104,7 +106,6 @@ def executionAccountLines (inventory : ExecutionInventory) : Array String := Id.
         lines := lines.push s!"    {describeBoundary boundary}"
       for item in root.unresolved do
         lines := lines.push s!"    unresolved {item}"
-  let base := toolchainBase inventory
   unless base.isEmpty do
     lines := lines.push s!"  toolchain trusted base: {base.size} boundary(ies), each once"
     for entry in base do

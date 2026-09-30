@@ -196,11 +196,11 @@ metadata, not authenticated binary identity.
   and no consumer reads it there. File `scope.report`, project `scope.surfaces[*].report` (the
   library's environment) and `scope.surfaces[*].executables[*].report` (each claimed
   executable's root, inspected alone) keep the complete observed declaration and execution
-  inventories, including trusted boundaries and correspondence evidence, and beside each report its
-  `toolchainBase`, every boundary the toolchain owns listed once with the roots that reach it;
-  project scope also keeps its source snapshots, Lake library inventory and completed stage
-  names. File scope keeps its nullable foundation claim, execution claim and exact source even
-  without findings.
+  inventories, including trusted boundaries and correspondence evidence; in `axiomGate` results
+  each report has beside it its `toolchainBase`, every boundary the toolchain owns listed once
+  with the roots that reach it; project scope also keeps its source snapshots, Lake library
+  inventory and completed stage names. File scope keeps its nullable foundation claim, execution
+  claim and exact source even without findings.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
