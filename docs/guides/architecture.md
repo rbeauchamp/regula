@@ -215,8 +215,10 @@ metadata, not authenticated binary identity.
   names (`isReservedName`) and matchers by a mark Lean's generator leaves; a well-founded or
   `partial_fixpoint` definition's `_unary`, `_mutual` or `mutual` and a structural recursion's `_f`
   and `_sunfold` by its equation information; auxiliary declarations `mkAuxDeclName` names under
-  `f`, such as `f._proof_n`, when `f`'s value or equation information uses them, and an RPC
-  wrapper or `initialize` action by the extension that records it; constructor lemmas and type
+  `f`, such as `f._proof_n`, when `f`'s value, equation information or `f.eq_def`'s statement uses
+  them, or, with the chain running through the recursion helper below, `f._unsafe_rec`'s value
+  does, and an RPC wrapper or `initialize` action by the extension that records it; constructor
+  lemmas and type
   constructions where the environment shows their generator ran on the type (its precondition,
   under Lean's default options, or the mark it leaves on a sibling it generates in the same run);
   and field defaults by Lean's own lookup (`getEffectiveDefaultFnForField?`). A compiled recursion

@@ -1355,9 +1355,11 @@ projection, recursors, constructor lemmas and type constructions of a structure 
 uses `Classical.choice`, a structure field's default, a matcher, the `_f` and `_sunfold` of a
 structural recursion, the equation lemmas and auxiliary proof of a well-founded definition, the
 `_unary` and functional induction principle of one with two arguments, the compiled recursion
-helper `_unsafe_rec` of a computable one whose value carries a proof that uses `propext`, the
-action of an `initialize` whose value carries such a proof, of a type no other proof here has, so
-Lean abstracts it into an auxiliary proof named under the action's hygienic name; and
+helper `_unsafe_rec` of a computable one whose value carries a proof that uses `propext`, and the
+auxiliary proof only its `eq_def` states, the auxiliary index proof only the `_unsafe_rec` of
+another uses, the action of an `initialize` whose value carries such a proof, of a type no other
+proof here has, so Lean abstracts it into an auxiliary proof named under the action's hygienic
+name; and
 declarations Lean does not generate from the structure they are named under: a theorem a
 metaprogram adds without a source range, a user-written `ofNat`, a name Lean generates only for an
 enumeration deriving `DecidableEq`, and an elaborator Lean names `«_aux_…»` inside the
@@ -1397,6 +1399,10 @@ private def sourceAttributionSource : String :=
     `propext`. -/\n" ++
   "def countUp (n : Nat) : Nat :=\n  have _ : True = True := propext (Iff.refl True)\n" ++
   "  if h : n = 0 then 0 else countUp (n - 1)\ntermination_by n\ndecreasing_by omega\n\n" ++
+  "/-- A computable definition by well-founded recursion whose index proof uses `propext`. -/\n" ++
+  "def sumButLast (a : Array Nat) (i : Nat) : Nat :=\n" ++
+  "  if h : i + 1 < a.size then a[i]'(by omega) + sumButLast a (i + 1) else 0\n" ++
+  "termination_by a.size - i\n\n" ++
   "/-- A reference whose initialization action carries a proof that uses `propext`. -/\n" ++
   "initialize counter : IO.Ref Nat ← do\n" ++
   "  have _ : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n  IO.mkRef 0\n\n" ++
@@ -1409,15 +1415,17 @@ private def sourceAttributionSource : String :=
 `GeneratedFamily` (`Channel`'s constructor, projection, recursor, constructor lemmas and type
 constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
 `countdown`'s equation lemma and auxiliary proof, `countPair._unary` and `countPair.induct`, and
-the admitted recursion helper `countUp._unsafe_rec`), the action of `initialize counter` and that
-action's auxiliary proof, whose chain runs through the action, is attributed to the declaration
-Lean generated it from. One without a range of its own is located at that declaration's range,
-with its own module as a related location; one with a range of its own keeps it, with no related
-location: `Channel.value` at its field and the action at its `initialize` command, both other than
-their source's, and `Channel.mk` at the structure's name, where Lean records an implicit
-constructor (`expandCtor`, `Lean/Elab/Structure.lean:235-246`). `Rec`'s range is read from its
-own finding or, when it has none, from its implicit constructor's finding, at the same name: Lean's
-`exportedAxiomsExt`
+the admitted recursion helper `countUp._unsafe_rec`), the auxiliary proofs `countUp._proof_3`,
+which only `countUp.eq_def` states, and `sumButLast._proof_1`, which only the admitted helper
+`sumButLast._unsafe_rec` uses and whose chain runs through it, the action of `initialize counter`
+and that action's auxiliary proof, whose chain runs through the action, is attributed to the
+declaration Lean generated it from. One without a range of its own is located at that
+declaration's range, with its own module as a related location; one with a range of its own keeps
+it, with no related location: `Channel.value` at its field and the action at its `initialize`
+command, both other than their source's, and `Channel.mk` at the structure's name, where Lean
+records an implicit constructor (`expandCtor`, `Lean/Elab/Structure.lean:235-246`). `Rec`'s
+range is read from its own finding or, when it has none, from its implicit constructor's finding,
+at the same name: Lean's `exportedAxiomsExt`
 (`Lean/Util/CollectAxioms.lean:118-140` in the v4.34.0 toolchain source) computes a module's
 axioms in one shared cache, and when it reaches an inductive first through its constructor, it
 caches the inductive with that constructor's in-progress empty entry, so the inductive can record
@@ -1457,7 +1465,8 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
       ("Channel.mk._flat_ctor", "Channel"), ("Channel.ctorIdx", "Channel"),
       ("Channel.noConfusionType", "Channel"), ("Channel._sizeOf_1", "Channel"),
       ("Channel._sizeOf_inst", "Channel"), ("Rec.x._default", "Rec"),
-      ("countUp._unsafe_rec", "countUp")] do
+      ("countUp._unsafe_rec", "countUp"), ("countUp._proof_3", "countUp"),
+      ("sumButLast._proof_1", "sumButLast")] do
     let some owner := find ownerName <|> find (ownerName ++ ".mk")
       | return some s!"no {ownerName} finding"
     let some d := find name | return some s!"no {name} finding"

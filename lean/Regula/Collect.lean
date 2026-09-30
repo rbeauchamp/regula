@@ -613,7 +613,12 @@ their generators, is in `docs/guides/proofs-and-boundaries.md#generated-declarat
 - `auxiliaryLemma` (a): `f` for a declaration `mkAuxDeclName` names `f.kind_N` for one of the
   `auxiliaryKinds`, when `f`'s value, the value its well-founded or structural equation information
   records, or the value of the function its well-founded equation information names uses it, or,
-  for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; `f` for the wrapper
+  for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; otherwise the
+  definition of `f.eq_def` (`Meta.declFromEqLikeName`) when that theorem's statement uses it, as
+  the statement `WF.mkUnfoldEq` gives it from the pre-definition it cleans separately; otherwise
+  `f._unsafe_rec` when its value uses it, the recursion helper `addAndCompilePartialRec` compiles
+  from `f`'s pre-definition, whose own step to `f` is its admitted authorization
+  (`Findings.stepOf`), not its name; `f` for the wrapper
   `f._rpc_wrapped` Lean records for an RPC method `f` (`Server.userRpcProcedures`); and `id` for
   the action of an `initialize id : T ← e` declaration, which Lean records on `id`
   (`getInitFnNameFor?`), among the declarations of the action's own module, where the command
@@ -679,11 +684,21 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     if s == "_rpc_wrapped" then
       return spellings.find? fun f => Server.userRpcProcedures.find? env f == some name
     let some kind := auxiliaryKind? s | return none
-    return spellings.find? fun f => valueUses env f name ||
-      (Elab.WF.eqnInfoExt.find? env f).any (fun info =>
-        info.value.getUsedConstants.contains name || valueUses env info.declNameNonRec name) ||
-      (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
-      ((kind == "_simp" || kind == "_cbv_eval") && valueUses env name f)
+    if let some f := spellings.find? fun f => valueUses env f name ||
+        (Elab.WF.eqnInfoExt.find? env f).any (fun info =>
+          info.value.getUsedConstants.contains name || valueUses env info.declNameNonRec name) ||
+        (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
+        ((kind == "_simp" || kind == "_cbv_eval") && valueUses env name f) then
+      return some f
+    if let some f := spellings.findSome? fun f =>
+        let unfold := f.str Meta.unfoldThmSuffix
+        if (env.find? unfold).any (·.type.getUsedConstants.contains name) then
+          (Meta.declFromEqLikeName env unfold).map (·.1)
+        else none then
+      return some f
+    return spellings.findSome? fun f =>
+      let helper := Compiler.mkUnsafeRecName f
+      if valueUses env helper name then some helper else none
   | .constructorLemma =>
     let some (p :: _, s) := namedUnder? name | return none
     let some (.ctorInfo ctor) := env.find? p | return none
