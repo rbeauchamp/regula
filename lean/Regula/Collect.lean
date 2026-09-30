@@ -205,11 +205,22 @@ private def builtinHandlersOnly {γ : Type} (registry : KeyedDeclsAttribute γ)
   let builtin := KeyedDeclsAttribute.mkStateOfTable (← registry.tableRef.get)
   return registry.ext.modifyState env fun _ => builtin
 
-/-- The environment a regeneration runs in: `env` with only the toolchain's `wf_preprocess` rules
-and only the executable's built-in macros, tactic and term elaborators, so that no rule or syntax
-handler of the audited modules or their dependencies takes part. -/
-private def regenerationEnvironment (env : Environment) : IO Environment := do
+/-- `toolchainPreprocessRules env`, computed once per `cache`: one inspection shares it across the
+helpers of its environment. -/
+private def cachedPreprocessRules (cache : IO.Ref (Option Meta.SimpTheorems)) (env : Environment) :
+    IO Meta.SimpTheorems := do
+  if let some rules ← cache.get then return rules
   let rules ← toolchainPreprocessRules env
+  cache.set (some rules)
+  return rules
+
+/-- The environment a regeneration runs in: `env` with only the toolchain's `wf_preprocess` rules
+`rules` and only the checker executable's built-in macros, tactic and term elaborators, so that no
+rule or syntax handler of the audited modules or their dependencies takes part. The built-in tables
+are process state: an audited module's initializer, which the report worker runs, could add to them,
+a change inside the process boundary the standard leaves out of scope. -/
+private def regenerationEnvironment (env : Environment) (rules : Meta.SimpTheorems) :
+    IO Environment := do
   let env := Lean.Elab.WF.wfPreprocessSimpExtension.modifyState env fun _ => rules
   let env ← builtinHandlersOnly macroAttribute env
   let env ← builtinHandlersOnly Lean.Elab.Tactic.tacticElabAttribute env
@@ -222,11 +233,13 @@ observed base and its auxiliary definitions (`regenerationMatches`). Structural 
 first, with no hint; then well-founded recursion, with Lean's measure inference and every
 decreasing proof elided (`all_goals exact sorry`, on the raw goal), since the comparison erases
 proofs and the observed base's own kernel-checked value supplies them. The compiler runs in
-`regenerationEnvironment`. A regeneration that reports an error does not count. Every change is
-undone before the comparison, which reads the observed definitions and decides erasure in the
-inspected environment: whatever code runs during a regeneration, only the definitions it adds are
-compared. A `checkerLimit?` reached is rethrown. -/
-private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo) :
+`regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is generated
+for them. A regeneration that reports an error does not count. Every change is undone before the
+comparison, which reads the observed definitions and decides erasure in the inspected environment:
+whatever code runs during a regeneration, only the definitions it adds are compared. A comparison
+that throws does not count either. A `checkerLimit?` reached is rethrown. -/
+private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo)
+    (preprocessRules : IO.Ref (Option Meta.SimpTheorems)) :
     CommandElabM (Option RecursionOrigin) := do
   let some _ := Lean.Compiler.isUnsafeRecName? name | return none
   let .defnInfo helper := info | return none
@@ -243,26 +256,28 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
   liftTermElabM do
     let preDefs ← group.mapIdxM fun i member => do
       let some (.defnInfo value) := env.find? member | throwError "missing helper {member}"
-      return ({ ref := .missing, kind := .def, levelParams := value.levelParams, modifiers := {},
+      return ({ ref := .missing, kind := .def, levelParams := value.levelParams,
+                modifiers := { computeKind := .noncomputable },
                 declName := regenerationRoot ++ bases[i]!, binders := .missing, type := value.type,
                 value := rename value.value, termination := .none } : PreDefinition)
     let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
     let regenerating ← regenerationEnvironment (← getEnv)
+      (← cachedPreprocessRules preprocessRules env)
     let attempt (run : TermElabM Unit) : TermElabM Bool := do
       let saved ← saveState
-      let regenerated ← try
-          Core.resetMessageLog
-          setEnv regenerating
-          withOptions (·.setBool `debug.rawDecreasingByGoal true) run
-          let failed := (← Core.getMessageLog).hasErrors
-          let after ← getEnv
-          saved.restore
-          pure (if failed then #[] else regeneratedDefinitions regenerating after)
-        catch ex =>
-          saved.restore
-          if (← checkerLimit? ex).isSome then throw ex
-          pure #[]
-      regenerationMatches regenerated
+      try
+        Core.resetMessageLog
+        setEnv regenerating
+        withOptions (·.setBool `debug.rawDecreasingByGoal true) run
+        let failed := (← Core.getMessageLog).hasErrors
+        let after ← getEnv
+        saved.restore
+        if failed then return false
+        regenerationMatches (regeneratedDefinitions regenerating after)
+      catch ex =>
+        saved.restore
+        if (← checkerLimit? ex).isSome then throw ex
+        return false
     let docCtx := (← getLCtx, ← Meta.getLocalInstances)
     if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
     let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)
@@ -336,7 +351,8 @@ def returnsSort (type : Expr) : MetaM Bool :=
 memo of constants shown not to reach it. Lean admits a constant only when every constant its type
 and value mention is already in the environment, so no constant of a module that is neither
 `Regula.Contract` nor a transitive importer of it mentions the contract type, and neither does
-any constant such a constant mentions. -/
+any constant such a constant mentions. It also memoizes, for the same environment, the toolchain's
+`wf_preprocess` rules that recursion-helper regeneration uses. -/
 structure ContractScope where
   /-- For each imported module index: `Regula.Contract` or a module that transitively imports it. -/
   aware : Array Bool
@@ -345,6 +361,9 @@ structure ContractScope where
   mainAware : Bool
   /-- Constants whose closure under `unfoldReferences` was searched without reaching it. -/
   free : IO.Ref NameSet
+  /-- The toolchain's `wf_preprocess` rules once a recursion helper's regeneration has computed
+  them (`Collect.unsafeRecRegeneration`), shared by every helper of the environment. -/
+  preprocessRules : IO.Ref (Option Meta.SimpTheorems)
 
 /-- The scope of `env`. Awareness is the least fixed point of "is `Regula.Contract` or imports an
 aware module": a pass that marks nothing has reached it, and every other pass marks one of the
@@ -367,7 +386,8 @@ def ContractScope.new (env : Environment) : BaseIO ContractScope := do
   return { aware
            mainAware := (env.getModuleIdx? `Regula.Contract).isSome ||
              env.mainModule == `Regula.Contract
-           free := ← IO.mkRef {} }
+           free := ← IO.mkRef {}
+           preprocessRules := ← IO.mkRef none }
 
 /-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
 aware, so the search expands it. -/
@@ -502,7 +522,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
   let ranges? ← findDeclarationRangesCore? name
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
   let unsafeRecRegenerated ← if stage == .replayCandidate then
-      unsafeRecRegeneration env name info else pure none
+      unsafeRecRegeneration env name info scope.preprocessRules else pure none
   let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
   let nativeReplay? ← native?.mapM fun (_, _, asserted) => replayNative asserted
   let levelParams : List Name := info.levelParams

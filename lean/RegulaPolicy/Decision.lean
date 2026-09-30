@@ -40,8 +40,9 @@ theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration) (n : Name) :
 regenerates (`Declaration.unsafeRecRegenerated`), whose Lean-linked base
 (`Declaration.unsafeRecBase`) is an inventory definition of the same module and type, neither
 `partial` nor `unsafe`, with every axiom within Standard-Logical. The regeneration observation makes
-that base, up to compilation erasure, Lean's compilation of the helper's own recursion, so its kernel-checked value carries the
-decreasing proofs of that recursion; those proofs rest on no `sorryAx` or project axiom. This states
+that base, up to compilation erasure, Lean's compilation of the helper's own recursion, so its
+kernel-checked value carries the decreasing proofs of the recursion Lean compiled, after its
+well-founded preprocessing; those proofs rest on no `sorryAx` or project axiom. This states
 the recorded observations; it does not prove the regeneration truthful or relate compiled code to
 kernel values. -/
 theorem authorizedUnsafeRecHelpers_base (ds : Array Declaration) (n : Name)

@@ -7,8 +7,10 @@ block, a recursive definition carrying an attribute, a recursive `abbrev`,
 structural recursion in a `mutual` block of private definitions, recursion
 through the module's own notation beside `IO` code, a decreasing proof that
 Lean's default tactics cannot find (regenerated with the proof elided, the
-base's own proof standing), and a lexicographic measure over two arguments
-(packed into a unary function).
+base's own proof standing), a lexicographic measure over two arguments
+(packed into a unary function), and well-founded recursion over a list of
+children through `List.map` and a `for` loop, which the toolchain's
+`wf_preprocess` rules rewrite to `attach` and `forIn'`.
 -/
 
 def fixtures_walk (bytes : ByteArray) (start : Nat) : Nat :=
@@ -60,3 +62,18 @@ decreasing_by
 def fixtures_two_args (a b : Nat) : Nat :=
   if a = 0 then b else if b = 0 then fixtures_two_args (a - 1) 5 else fixtures_two_args a (b - 1)
 termination_by (a, b)
+
+inductive FixturesRose where
+  | node (children : List FixturesRose)
+
+def fixtures_rose_size : FixturesRose → Nat
+  | .node children => 1 + (children.map fixtures_rose_size).sum
+termination_by t => t
+
+def fixtures_rose_leaves : FixturesRose → Nat
+  | .node children => Id.run do
+    let mut total := if children.isEmpty then 1 else 0
+    for child in children do
+      total := total + fixtures_rose_leaves child
+    return total
+termination_by t => t

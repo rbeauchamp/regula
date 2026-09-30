@@ -355,8 +355,9 @@ def guide : RuleId → Guide
           `Hashable` or `Repr` function on a recursive inductive that is neither nested nor \
           mutual). It is admitted by exact match (standard §7.4): rerunning Lean's recursion \
           compiler on the helper's recursion, with only the toolchain's own preprocessing rules \
-          and syntax handlers, regenerates the observed base, up to compilation erasure, and the \
-          base's axioms are within Standard-Logical. Which code added the helper does not matter.",
+          and the checker's built-in syntax handlers, regenerates the observed base, up to \
+          compilation erasure, and the base's axioms are within Standard-Logical. Which code added \
+          the helper does not matter.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -368,16 +369,22 @@ def guide : RuleId → Guide
         "A total replacement keeps the same domain and result type; if it changes behavior, state \
           and prove the relation to the intended function."]
       established := [
-        "No authored unsafe or partial declaration is on the claimed surface; every admitted \
-          generated helper has a safe base of the same module and type, with Standard-Logical \
-          axioms, that Lean's own recursion compiler regenerates from the helper's recursion."]
+        "No authored unsafe or partial declaration is on the claimed surface. Every admitted \
+          generated helper is Lean's compilation of a safe definition: its base, of the same \
+          module and type, is what Lean's own recursion compiler regenerates from the helper's \
+          recursion, up to compilation erasure, and is kernel-checked with Standard-Logical \
+          axioms; whenever the helper returns, it returns the base's value."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
-        "That the regeneration observation is truthful, that the toolchain's recursion compiler \
-          and preprocessing rules preserve the helper's recursive calls, or that a helper's \
-          compiled code matches its value; these rest on the pinned Lean toolchain and on \
-          Regula's own unproved regeneration comparison.",
+        "That the helper terminates whenever the base does. Lean compiles the base from a body \
+          its `wf_preprocess` rules rewrote and the helper from the original, and Lean documents \
+          that a rewrite can remove a subterm the compiled code still evaluates; a toolchain rule \
+          can, through a reducible definition that ignores an argument. The helper's termination \
+          trusts that preprocessing, as every well-founded definition Lean accepts does.",
+        "That the regeneration observation is truthful or that a helper's compiled code matches \
+          its value; these rest on the pinned Lean toolchain and on Regula's own unproved \
+          regeneration comparison.",
         "Termination proofs' adequacy for cost claims."]
       configuration := [
         "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
@@ -386,8 +393,9 @@ def guide : RuleId → Guide
           structural recursion on an argument other than the first one Lean's automatic choice \
           accepts (selectable by `termination_by structural`), a `partial_fixpoint` definition, \
           a base compiled through a fixpoint combinator other than `WellFounded.fix` and \
-          `WellFounded.Nat.fix`, or a base whose compilation used a `wf_preprocess` rule declared \
-          outside the Lean toolchain.",
+          `WellFounded.Nat.fix`, a base whose compilation used a `wf_preprocess` rule declared \
+          outside the Lean toolchain, or one elaborated with `set_option wf.preprocess false` or \
+          with a toolchain rule removed by `attribute [-wf_preprocess]`.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]

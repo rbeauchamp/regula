@@ -289,7 +289,7 @@ the call through each success owner.
 | RG1001–RG1003 | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
 | RG1004 | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
 | RG1005 | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
-| RG1006 | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the regeneration observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, compiled-code correspondence and execution coverage are not proved. |
+| RG1006 | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the regeneration observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates, so the helper's termination trusts that preprocessing (standard §7.4). |
 | RG1007 | `ContractOK` through `ruleFor` | Recorded contract failures are enforced; Probe's extraction of the proposition and root, proof admission and adequacy are not proved by this relation. |
 | RG2004 | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | RG3001, RG3002 | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff` | The theorems cover the supplied unresolved paths and boundaries, not complete root and closure discovery or external runtime correctness. |
@@ -578,15 +578,17 @@ assembly belong to the project routes.
 the type's constants, closed under unfolding, and only modules that import `Regula.Contract`
 contribute constants. For a recursion helper it reruns Lean's own recursion compiler on the
 helper's group (structural recursion first, then well-founded recursion with every decreasing proof
-elided), with only the toolchain's own `wf_preprocess` rules and the executable's built-in macros,
-tactic and term elaborators, and compares each regenerated definition with the observed one up to compilation erasure:
-proofs and types, each classified in its own side's context, are erased and a well-founded fixpoint
-is compared without its relation or measure (`Declaration.unsafeRecRegenerated`). It never uses
+elided), with only the toolchain's own `wf_preprocess` rules and the checker's built-in macros,
+tactic and term elaborators, generating no code for the fresh definitions, and compares each
+regenerated definition with the observed one up to compilation erasure: proofs and types, each
+classified in its own side's context, are erased and a well-founded fixpoint is compared without its
+relation or measure (`Declaration.unsafeRecRegenerated`). It never uses
 `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of the
 self-referential helper does not terminate. The regeneration runs Lean's elaborator in the report
 worker and is undone before the comparison, which reads the observed definitions and decides erasure
-in the inspected environment. The report's other elaborator observations (`Meta.isProp`, the pretty-printed type,
-and `Probe`'s executable-root classification) run under Lean's default limits. When one fails,
+in the inspected environment; a comparison that throws counts as no regeneration. The report's
+other elaborator observations (`Meta.isProp`, the pretty-printed type, and `Probe`'s
+executable-root classification) run under Lean's default limits. When one fails,
 the report worker's error names the module, the declaration (for an execution walk, its root) and
 the failing stage: `declaration record` (any observation of `Collect.declaration`),
 `executable-root classification`, `proposition test` or `execution walk`. When the failure is one
