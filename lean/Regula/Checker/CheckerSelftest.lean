@@ -1410,10 +1410,14 @@ private def sourceAttributionSource : String :=
 constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
 `countdown`'s equation lemma and auxiliary proof, `countPair._unary` and `countPair.induct`, and
 the admitted recursion helper `countUp._unsafe_rec`), the action of `initialize counter` and that
-action's auxiliary proof, whose chain runs through the action, is attributed to and located at the
-declaration Lean generated it from, with its own module as a
-related location. `Rec`'s range is read from its own finding or, when it has none, from its
-constructor's finding, which is attributed to it: Lean's `exportedAxiomsExt`
+action's auxiliary proof, whose chain runs through the action, is attributed to the declaration
+Lean generated it from. One without a range of its own is located at that declaration's range,
+with its own module as a related location; one with a range of its own keeps it, with no related
+location: `Channel.value` at its field and the action at its `initialize` command, both other than
+their source's, and `Channel.mk` at the structure's name, where Lean records an implicit
+constructor (`expandCtor`, `Lean/Elab/Structure.lean:235-246`). `Rec`'s range is read from its
+own finding or, when it has none, from its implicit constructor's finding, at the same name: Lean's
+`exportedAxiomsExt`
 (`Lean/Util/CollectAxioms.lean:118-140` in the v4.34.0 toolchain source) computes a module's
 axioms in one shared cache, and when it reaches an inductive first through its constructor, it
 caches the inductive with that constructor's in-progress empty entry, so the inductive can record
@@ -1436,8 +1440,15 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   let attributed (d owner : Json) (ownerName : String) : Bool :=
     source d == .str ownerName && kind d == .str "source" && selection d == selection owner &&
       relation d == some (.str "declared in module")
+  let keepsOwn (d owner : Json) (ownerName : String) (distinct : Bool) : Bool :=
+    source d == .str ownerName && kind d == .str "source" &&
+      d.getObjValD "related" == Json.arr #[] && (!distinct || selection d != selection owner)
   let some channel := find "Channel" | return some "no Channel finding"
-  for (name, ownerName) in #[("Channel.mk", "Channel"), ("Channel.value", "Channel"),
+  for (name, distinct) in #[("Channel.mk", false), ("Channel.value", true)] do
+    let some d := find name | return some s!"no {name} finding"
+    unless keepsOwn d channel "Channel" distinct do
+      return some s!"{name} is not attributed to Channel at its own range"
+  for (name, ownerName) in #[
       ("Channel.rec", "Channel"), ("Channel.casesOn", "Channel"), ("countdown.eq_1", "countdown"),
       ("countPair.induct", "countPair"), ("firstIndex.match_1", "firstIndex"),
       ("countPair._unary", "countPair"), ("walkDown._f", "walkDown"),
@@ -1460,8 +1471,8 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   let some counter := find "counter" | return some "no counter finding"
   let some action := diagnostics.find? (userName? · == some `initFn)
     | return some "no finding for the action of initialize counter"
-  unless attributed action counter "counter" do
-    return some "the action of initialize counter is not attributed to and located at counter"
+  unless keepsOwn action counter "counter" true do
+    return some "the action of initialize counter is not attributed to counter at its own range"
   let some proof := diagnostics.find? fun d => match userName? d with
       | some (.str (.str .anonymous "initFn") s) => s.startsWith "_proof_"
       | _ => false

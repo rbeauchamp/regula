@@ -622,8 +622,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             id key.2 (Regula.materialDocumentationDetail failure)
             location mode (some surface.claim.toString))
           failures := failures.push s!"{(Regula.descriptor id).applicability}: {key.2}"
-        -- A declaration Lean generated, or an admitted recursion helper, is located at, and names,
-        -- the declaration it was generated from (`Findings.sourceName?_eq_some_iff`).
+        -- A declaration Lean generated, or an admitted recursion helper, names the declaration it
+        -- was generated from (`Findings.sourceName?_eq_some_iff`), and is located at it when it
+        -- has no range of its own.
         let index := Regula.Findings.declarationIndex report.declarations
         -- `ScopeContract` retains `report.declarations` as the inventory, so iterating the
         -- inventory visits the same sequence and supplies each membership proof.

@@ -9,8 +9,8 @@ import Std.Data.HashMap.Lemmas
 
 Import-safe adapters to the canonical diagnostic schema. Policy decisions
 remain in the policy core; these functions preserve identity and mode, and attribute a declaration
-Lean generated to the declaration it generated it from (`sourceName?`), locating it there
-(`findingLocation`). -/
+Lean generated to the declaration it generated it from (`sourceName?`), locating it there when it
+has no range of its own (`findingLocation`). -/
 
 public section
 
@@ -324,27 +324,29 @@ theorem declarationFinding_groupUnder? {name : Name} {detail : String} {location
   · cases h; rfl
   · cases h
 
-/-- The location of a finding about `decl`: the range of the declaration it is attributed to
-(`sourceName?`) when `index` holds that declaration with a recorded range and its module has a
-snapshot, else its own (`declarationLocation`). `snapshotFor` gives the source of a module whose
-ranges can be admitted. -/
+/-- The location of a finding about `decl`: its own (`declarationLocation`) when it has a recorded
+range; when it has none, the range of the declaration it is attributed to (`sourceName?`) when
+`index` holds that declaration with a recorded range and its module has a snapshot, else its
+module. So a constructor or field with a range of its own keeps it while grouping under its type.
+`snapshotFor` gives the source of a module whose ranges can be admitted. -/
 def findingLocation (index : Std.HashMap Name RegulaPolicy.Declaration) (helpers : Array Name)
     (decl : RegulaPolicy.Declaration) (snapshotFor : Name → Option SourceSnapshot) :
     Except String Location := do
-  match (sourceName? index helpers decl).bind (index[·]?) with
-  | some p => match p.ranges, snapshotFor p.module with
-    | some ranges, some source => return .source (← sourceFromReport source ranges)
-    | _, _ => declarationLocation decl (snapshotFor decl.module)
-  | none => declarationLocation decl (snapshotFor decl.module)
+  if decl.ranges.isNone then
+    if let some p := (sourceName? index helpers decl).bind (index[·]?) then
+      if let (some ranges, some source) := (p.ranges, snapshotFor p.module) then
+        return .source (← sourceFromReport source ranges)
+  declarationLocation decl (snapshotFor decl.module)
 
 /-- The attribution of a finding about `decl`: the declaration it is attributed to
-(`sourceName?`), and then a related location naming the module `decl` belongs to, which the
-finding's location no longer states when it is that declaration's range (`findingLocation`). -/
+(`sourceName?`), and, when `decl` has no recorded range of its own, a related location naming the
+module `decl` belongs to, since its finding is then located at that declaration's range where
+that one has a range (`findingLocation`). -/
 def attribution (index : Std.HashMap Name RegulaPolicy.Declaration) (helpers : Array Name)
     (decl : RegulaPolicy.Declaration) : Option Name × Array RelatedLocation :=
   match sourceName? index helpers decl with
-  | some source =>
-      (some source, #[{ relation := "declared in module", location := .module decl.module }])
+  | some source => (some source, if decl.ranges.isSome then #[] else
+      #[{ relation := "declared in module", location := .module decl.module }])
   | none => (none, #[])
 
 end Regula.Findings

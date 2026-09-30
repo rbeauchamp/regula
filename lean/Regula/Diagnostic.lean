@@ -34,9 +34,10 @@ def sourceFromReport (snapshot : SourceSnapshot) (ranges : RegulaPolicy.Ranges) 
     Except String SourceLocation :=
   sourceFromReportWith lspUtf16Column snapshot ranges
 
-/-- Where a finding is. A declaration Lean generated is located at the range of the declaration
-it generated it from (`Regula.Findings.findingLocation`), and a declaration without a range
-otherwise keeps honest module attribution. -/
+/-- Where a finding is. A declaration with a recorded range is located at it; a declaration Lean
+generated without one is located at the range of the declaration it generated it from
+(`Regula.Findings.findingLocation`), and a declaration without a range otherwise keeps honest
+module attribution. -/
 inductive Location where
   /-- A range of an admitted source snapshot. -/
   | source (value : SourceLocation)

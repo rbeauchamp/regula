@@ -23,9 +23,10 @@ it, and, only for a name whose printed text Lean's parser does not read back as 
 structural components, an array of `["str", s]` and `["num", n]` innermost first
 (`printedNameJson_roundtrip`, `printedNameJson_eq_str_iff`). A declaration finding's
 `arguments.sourceDeclaration` is `null`, or, for a declaration Lean generated, the declaration
-at the end of the chain it generated it from (`Findings.sourceName?`); such a finding is located
-at that declaration's range when it has one and its module has a snapshot
-(`Findings.findingLocation`), and its `related` names its own module.
+at the end of the chain it generated it from (`Findings.sourceName?`); such a finding keeps the
+range of its own declaration when it has one, and otherwise is located at that declaration's range
+when it has one and its module has a snapshot (`Findings.findingLocation`), and its `related` then
+names its own module.
 Result schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
 module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
