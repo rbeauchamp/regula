@@ -42,21 +42,28 @@ private def cases : Array Case := #[
     project := true },
   { name := "lean-module-origin"
     supportModule := "Lean.Adopter"
-    extraImports := #["Std.Sync.Mutex"]
+    extraImports := #["Std.Sync.Mutex", "Lean.Data.Name"]
     body := "/-- The identity, doubled. -/\ndef other (n : Nat) := n + n\n/-- The identity. -/\n" ++
       "def target (n : Nat) := n\n/-- Under a fresh lock, prints the length of `target`'s " ++
-      "decimal spelling. -/\ndef entry (n : Nat) : IO Unit := do\n" ++
+      "decimal spelling and a name and syntax comparison. -/\ndef entry (n : Nat) : IO Unit := do\n" ++
       "  let mutex ← Std.BaseMutex.new\n  mutex.lock\n" ++
-      "  IO.println (← #[toString (target n)].foldlM (fun acc s => pure (acc + s.length)) 0)\n"
+      "  IO.println (← #[toString (target n)].foldlM (fun acc s => pure (acc + s.length)) 0)\n" ++
+      "  IO.println (Lean.Name.quickCmp `a `b == .lt && Lean.Syntax.structEq .missing .missing)\n"
     before := "def target", after := "@[implemented_by other] def target"
     expected := #["CompilerPath.target [runtime-replacement]", "module Lean.Adopter"]
-    -- Real toolchain boundaries of `Init` and `Std`: a replacement, an unsafe implementation and
-    -- an extern, each attributed to the toolchain.
+    -- Real toolchain boundaries of `Init`, `Std` and `Lean` (the last resolved through the
+    -- lookalike's symlinked `Lean` prefix): replacements, an unsafe implementation, an extern
+    -- and a partial definition, each attributed to the toolchain.
     positiveExpected := #["Nat.repr [runtime-replacement] correspondence=trusted " ++
       "replacement=Nat.reprFast toolchain",
       "Array.foldlMUnsafe [unsafe-computation] correspondence=trusted toolchain",
       "Std.BaseMutex.lock [native-runtime] correspondence=trusted toolchain " ++
-        "(module Std.Sync.Mutex)"]
+        "(module Std.Sync.Mutex)",
+      "Lean.Name.quickCmp [runtime-replacement] correspondence=trusted " ++
+        "replacement=_private.Lean.Data.Name.0.Lean.Name.quickCmpImpl toolchain " ++
+        "(module Lean.Data.Name)",
+      "Lean.Syntax.structEq [partial-computation] correspondence=trusted toolchain " ++
+        "(module Init.Meta.Defs)"]
     project := true },
   { name := "imported"
     body := "/-- The identity. -/\ndef target (n : Nat) := n\n" ++

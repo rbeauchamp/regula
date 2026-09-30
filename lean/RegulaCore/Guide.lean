@@ -838,9 +838,10 @@ def guide : RuleId → Guide
           stay trusted and reported.",
         "Anything about code the program selects at runtime rather than references: a constant \
           it evaluates by name (`Lean.Environment.evalConst`, `Lean.Meta.reduceBoolNative`), a \
-          dynamic library or plugin it loads, the initializers of modules it imports, or a \
-          process it spawns. The account is the static closure; such code is data to it, and the \
-          toolchain primitive that runs it is trusted base.",
+          dynamic library or plugin it loads, or a process it spawns. The account is the static \
+          closure; such code is data to it, and the toolchain primitive that runs it is trusted \
+          base. The `initialize` and `[init]` actions of imported modules, static or at runtime, \
+          are likewise outside the account.",
         "That the executable roots are the ones the project intends to cover (R-INVARIANT)."]
       configuration := [
         "`execution` in the surface manifest (`report` or `checked`), or `--execution checked` for \
