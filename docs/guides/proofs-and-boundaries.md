@@ -368,8 +368,9 @@ inferred from any pure proof.
   lacks, the constant the audited environment keeps (`Admission.replayMap`), so there the replayed
   kernel holds exactly the constants reports read, and replay itself rejects a kept copy whose
   proof is circular. `Admission.checkCopies` then checks every copy against the constant the
-  replayed kernel holds under its name: a copy of a name the base or another replayed module
-  also declares must form, with the held constant, two theorems of the same name, type
+  replayed kernel holds under its name. An `unsafe` or `partial` copy, which `replay` does not
+  check and the receipt does not require, only must not share its name. For every other copy: a
+  copy of a name the base or another replayed module also declares must form, with the held constant, two theorems of the same name, type
   (`Expr.eqv`, in either direction), universe parameters and mutual block
   (`Admission.sameTheorem`); a copy that is not the held constant must have its own proof accepted
   by the kernel under `Admission.proofCheckName`, and that proof must not reach its own name in

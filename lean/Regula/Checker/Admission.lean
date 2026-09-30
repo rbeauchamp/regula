@@ -694,9 +694,9 @@ theorem checkKept_ok {checked : Kernel.Environment} {kept : Name → Option Cons
         · simp [hr, hc] at h
   · exact .inl rfl
 
-/-- Check one copy against the replayed kernel `checked` and the audited environment `kept`
-(`checkShared`, `checkOwn`, `checkKept`, against the constant each holds under its name). -/
-def checkCopy (checked : Kernel.Environment) (kept : Name → Option ConstantInfo) (fuel : Nat)
+/-- Check one safe, total copy against the replayed kernel `checked` and the audited environment
+`kept` (`checkShared`, `checkOwn`, `checkKept`, against the constant each holds under its name). -/
+def checkSafeCopy (checked : Kernel.Environment) (kept : Name → Option ConstantInfo) (fuel : Nat)
     (shared : Copy → Bool) (copy : Copy) : Except CopyFailure Unit := do
   let some held := checked.find? copy.name | throw (.missing copy)
   let some keptInfo := kept copy.name | throw (.missing copy)
@@ -704,9 +704,19 @@ def checkCopy (checked : Kernel.Environment) (kept : Name → Option ConstantInf
   checkOwn checked fuel held copy
   checkKept checked kept fuel held keptInfo copy
 
+/-- Check one copy. `Kernel.Environment.replay` does not check an `unsafe` or `partial` constant
+and admission does not require one, so such a copy only must not share its name; every other
+copy passes `checkSafeCopy`. -/
+def checkCopy (checked : Kernel.Environment) (kept : Name → Option ConstantInfo) (fuel : Nat)
+    (shared : Copy → Bool) (copy : Copy) : Except CopyFailure Unit :=
+  if copy.info.isUnsafe || copy.info.isPartial then
+    if shared copy then throw (.differs copy) else pure ()
+  else checkSafeCopy checked kept fuel shared copy
+
 /-- What a successful `checkCopy` establishes for one copy. -/
 def CopyAdmitted (checked : Kernel.Environment) (kept : Name → Option ConstantInfo)
     (shared : Copy → Bool) (copy : Copy) : Prop :=
+  (copy.info.isUnsafe || copy.info.isPartial) = true ∧ shared copy = false ∨
   ∃ held keptInfo, checked.find? copy.name = some held ∧ kept copy.name = some keptInfo ∧
     (shared copy = true → sameTheorem held copy.info = true) ∧
     (identical held copy.info = true ∨ RenamedOK checked copy.info ∧
@@ -720,16 +730,25 @@ theorem checkCopy_ok {checked : Kernel.Environment} {kept : Name → Option Cons
     (h : checkCopy checked kept fuel shared copy = .ok ()) :
     CopyAdmitted checked kept shared copy := by
   unfold checkCopy at h
-  cases hh : checked.find? copy.name with
-  | none => simp [hh] at h
-  | some held =>
-    cases hk : kept copy.name with
-    | none => simp [hh, hk] at h
-    | some keptInfo =>
-      simp only [hh, hk] at h
-      obtain ⟨⟨⟩, h1, h⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
-      obtain ⟨⟨⟩, h2, h3⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
-      exact ⟨held, keptInfo, hh, hk, checkShared_ok h1, checkOwn_ok h2, checkKept_ok h3⟩
+  cases hu : (copy.info.isUnsafe || copy.info.isPartial)
+  · simp only [hu, Bool.false_eq_true, ↓reduceIte] at h
+    right
+    unfold checkSafeCopy at h
+    cases hh : checked.find? copy.name with
+    | none => simp [hh] at h
+    | some held =>
+      cases hk : kept copy.name with
+      | none => simp [hh, hk] at h
+      | some keptInfo =>
+        simp only [hh, hk] at h
+        obtain ⟨⟨⟩, h1, h⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
+        obtain ⟨⟨⟩, h2, h3⟩ := RegulaPolicy.Guards.bind_eq_ok.mp h
+        exact ⟨held, keptInfo, rfl, rfl, checkShared_ok h1, checkOwn_ok h2, checkKept_ok h3⟩
+  · left
+    refine ⟨hu, ?_⟩
+    cases hs : shared copy
+    · rfl
+    · simp [hu, hs] at h
 
 /-- Check every copy (`checkCopy`), stopping at the first refusal. -/
 def checkCopies (checked : Kernel.Environment) (kept : Name → Option ConstantInfo) (fuel : Nat)
