@@ -18,17 +18,18 @@ finding for the targets that share a claim and failures.
 - `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
   package, the files and the import headers of the root package's modules.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
-  agent-guidance section, searched from the Lake root up to the Git repository root.
+  agent-guidance section, searched from the Lake root up to the Git repository root, and
+  `unreachedNote` for a section a farther `AGENTS.md` lacks.
 - `lakefileText`: the lakefile with the planned `lintDriver` and `leanOptions` edits written into
   it, located with Lake's own TOML grammar or Lean's parser over the `package`, `lean_lib` and
   `lean_exe` declarations.
 - `starterManifest`: every root `lean_lib` claimed `standard-logical`, as a `Manifest` value that
   `Manifest.parse` admits before it is written.
 - `init`: apply the plan, observe again and restore every written file unless the new plan is
-  empty; then run `doctor`.
+  empty and the options claimed targets set only with a `-D` are unchanged; then run `doctor`.
 - `doctor`: print the findings and the edits `init` would write, exiting 0 only when there is
   none, and a note, which does not count, for each module outside every library that no claimed
-  module imports.
+  module imports and for a section a farther `AGENTS.md` lacks.
 
 ## Boundaries
 
@@ -66,6 +67,10 @@ structure GuidanceFile where
   hasSection : Bool
   /-- A Git repository contains the project root (`guidanceDirs`). -/
   repository : Bool
+  /-- When the file has the section, the farthest `AGENTS.md` up to the repository root that
+  exists without it, relative to the project root: an agent working there does not read the
+  section. -/
+  unreached : Option String
 
 /-- What the commands read of a project in one observation. -/
 structure Project where
@@ -112,16 +117,28 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
     { path := (dirs.getD i root) / "AGENTS.md"
       name := String.join (List.replicate i "../") ++ "AGENTS.md"
       project := "/".intercalate (root.components.drop (root.components.length - i))
-      present, hasSection, repository }
+      present, hasSection, repository, unreached := none }
   let mut found : List GuidanceFile := []
   for (dir, i) in dirs.zipIdx do
     let path := dir / "AGENTS.md"
     if ← path.pathExists then
       found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
   match found.find? (·.hasSection), found.head? with
-  | some f, _ => return f
+  | some f, _ =>
+    return { f with unreached := (found.filter (!·.hasSection)).getLast?.bind fun g =>
+      if g.name.length > f.name.length then some g.name else none }
   | none, some f => return f
   | none, none => return file (dirs.length - 1) false false
+
+/-- The note `doctor` prints, without failing, when the section is in a nested `AGENTS.md` and
+the repository's farther `file` lacks it, as an earlier `init` left a Lake project in a
+subdirectory. -/
+def unreachedNote (g : GuidanceFile) (file : String) : String :=
+  "note [" ++ g.name ++ "]: the `" ++ agentsHeading ++ "` section is here, but " ++ file ++
+    " has none, so an agent working there does not read it\n" ++
+  "  either remove the section here (the whole file, if an earlier `init` created it) and run \
+    `lake exe regula init`, which adds it to " ++ file ++ " with this Lake project's directory, \
+    or keep it here deliberately"
 
 private def readTrimmed (path : FilePath) : IO String := do
   if ← path.pathExists then return (← IO.FS.readFile path).trimAscii.toString
@@ -215,16 +232,16 @@ def observe (root : FilePath) : IO Project := do
         (Lake.buildOptions (.ofArray options) #[] #[]).options
       let libs := pkg.leanLibs.filter fun lib => !excludedLibraries.contains lib.name.toString
       let exes := pkg.leanExes.filter fun exe => !excludedExecutables.contains exe.name.toString
-      -- A target's extra `lean` arguments as the audit's inventory reads them for RG2006.
+      -- A target's extra `lean` arguments are the audit inventory's, read by the same functions.
+      -- With a valid manifest, `targets` lists every root target exactly when `allClaimed` holds.
       let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption)
-          (weakArgs args : Array String) : Regula.Setup.Target :=
-        ⟨exe, name.toString, own options,
-          (Lake.buildOptions (.ofArray #[]) weakArgs args).arguments⟩
+          (build : RegulaPolicy.Community.BuildOptions) : Regula.Setup.Target :=
+        ⟨exe, name.toString, own options, build.arguments⟩
       let targets := if invalid then [] else
-        (libs.map (fun lib => target false lib.name lib.config.leanOptions lib.weakLeanArgs
-            lib.leanArgs) ++
-          exes.map (fun exe => target true exe.name exe.config.leanOptions exe.root.weakLeanArgs
-            exe.root.leanArgs)).toList
+        (libs.map (fun lib => target false lib.name lib.config.leanOptions
+            (Lake.libraryOptions lib)) ++
+          exes.map (fun exe => target true exe.name exe.config.leanOptions
+            (Lake.executableOptions exe))).toList
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
       let regulaDir := match ws.packages.find? (·.baseName == `regula) with
         | some regula => regula.dir
@@ -655,6 +672,8 @@ def doctor (root : FilePath) : IO UInt32 := do
   let findings ← if o.manifest then configurationFindings project else pure #[]
   RunFeedback.emitAll IO.println findings
   for entry in o.unimported do IO.println (unimportedNote project.lakefile entry)
+  if let some file := project.guidance.unreached then
+    IO.println (unreachedNote project.guidance file)
   let count := setup.length + findings.size
   if count == 0 then
     IO.println "regula doctor: the setup is complete; run `lake lint`"
@@ -729,6 +748,10 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
       unless left.isEmpty do
         throw <| IO.userError s!"the files as written still need: \
           {", ".intercalate (left.map (·.summary project.lakefile))}"
+      -- `argued_run`: the plan adds no option a claimed target sets only with a `-D`.
+      unless argued after.observation == argued project.observation do
+        throw <| IO.userError "the files as written give a claimed target an option beside a \
+          `-D` that sets it"
     catch error =>
       restore (← written.get)
       throw <| IO.userError s!"{error}; every file init wrote is restored"

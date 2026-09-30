@@ -56,7 +56,7 @@ runs, and with any other Lean Regula's `lakefile.lean` stops before anything com
 releases:
 
 ```text
-error: …/regula/lakefile.lean:…: this Regula release supports only Lean leanprover/lean4:v4.34.0, but Lake is running Lean leanprover/lean4:v4.33.0. …
+error: …/regula/lakefile.lean:…: this Regula release supports only Lean leanprover/lean4:v4.34.0, but Lake is running Lean 4.33.0. …
 ```
 
 Move your project to the supported Lean release first: set `lean-toolchain`, move Mathlib (if you
@@ -79,13 +79,14 @@ lake exe regula init            # or: lake exe regula init --skill
 | Lint driver | `lintDriver = "regula/lint"` (`lakefile.toml`, top level) or `lintDriver := "regula/lint"` (`lakefile.lean`, in the `package` declaration), so `lake lint` runs Regula. |
 | Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value and no `-D` in the target's `weakLeanArgs` or `moreLeanArgs` (its own or the package's) sets it: in the package's configuration when every root target is claimed (as the starter manifest claims them all) and no claimed target's `-D` sets the option, and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes or a target whose `-D` sets it; while an existing manifest does not load or classify every root target, none, until `doctor`'s RG2002 finding is fixed. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
 | Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library that contains its root module, or with the first library when none does ([step 3](#3-review-the-claimed-surface)). A manifest claims each surface per library, a `lean_exe` belonging to a library's surface, so a package with no `lean_lib` (such as Lake's `exe` template) gets none: `init` writes the other pieces and `doctor` asks you to add a library, after which `init` writes the starter. |
-| Agent guidance | A short `## Lean standard: Regula` section in your repository's `AGENTS.md`, or with `--skill` the briefing as `.agents/skills/regula/SKILL.md` in the Lake project. `init` looks for `AGENTS.md` from the Lake project's directory up to the root of the Git repository that contains it, and adds the section to the nearest one, so a Lake project in a subdirectory such as `lean/` uses the repository's root `AGENTS.md`; there the section ends by naming the directory its `lake` commands run in. When there is none, it creates `AGENTS.md` at the repository root (at the Lake project outside a Git repository) and says so; `doctor` and `init` print the file's path. `init` also rewrites `.claude/skills/regula/SKILL.md`, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
+| Agent guidance | A short `## Lean standard: Regula` section in your repository's `AGENTS.md`, or with `--skill` the briefing as `.agents/skills/regula/SKILL.md` in the Lake project. `init` looks for `AGENTS.md` from the Lake project's directory up to the root of the Git repository that contains it (the nearest directory holding `.git`) and adds the section to the nearest one, so a Lake project in a subdirectory such as `lean/` without its own `AGENTS.md` uses the repository's root one; there the section ends by naming the directory its `lake` commands run in. When there is none, it creates `AGENTS.md` at the repository root (at the Lake project outside a Git repository) and says so; `doctor` and `init` print the file's path. A section already in a nearer `AGENTS.md` counts, and `doctor` notes when a farther one lacks it; if an earlier `init` created `lean/AGENTS.md` with only the section, delete that file and run `init` again. In a repository with several Lake projects, the first to run `init` adds the section; name the other projects' directories in it by hand. `init` also rewrites `.claude/skills/regula/SKILL.md`, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
 
 It never changes a value you set: a lint driver of your own, an option with another value and an
 existing manifest stay as they are, and `lake exe regula doctor` reports each with its fix. A
-required option that a `-D` extra `lean` argument sets counts as set: `init` adds no second
-setting beside it (`Regula.Setup.added_unargued`), and `doctor` reports once that RG2006 requires
-those options in `leanOptions`, naming them. It
+required option that a `-D` extra `lean` argument of a target sets counts as set for that target:
+`init` adds it to no configuration that reaches the target (`Regula.Setup.added_unargued`, over the
+modelled setup and reading every `-D` candidate as RG2006 does, and checked again after writing),
+and `doctor` reports once that RG2006 requires those options in `leanOptions`, naming them. It
 edits the lakefile in place, in its own format, then reads the project again and restores every
 file it wrote unless nothing is left to write. A second run therefore writes nothing:
 `Regula.Setup.plan_idempotent` proves that the plan of the result is empty over the modelled
@@ -359,8 +360,8 @@ core-only code.
   ([standard §7.1](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#71-declare-the-elaboration-environment))
   and, in a project that depends on Mathlib, enables the syntax linters Mathlib builds with,
   except the three that enforce policies of the Mathlib repository itself. `init` writes these
-  (into each claimed target's own configuration instead when the manifest excludes a root target,
-  and none that a `-D` of the target already sets):
+  (into each claimed target's own configuration instead when the manifest excludes a root target
+  or another claimed target's `-D` sets the option, and none that a `-D` of the target sets):
 
   ```toml
   [leanOptions]

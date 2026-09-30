@@ -22,9 +22,10 @@ commands execute over what they observe of a project.
   has a `lean_lib` for it to claim; a package with none has an issue `init` does not fix.
 - `Target`, `Observation.targets`, `Observation.allClaimed`: the option check covers exactly the
   claimed targets, as RG2006 does.
-- `Target.argues`, `Observation.without`: a `-D` among a target's extra `lean` arguments sets an
-  option, read as RG2006 reads them; a target builds without a required option when neither
-  `leanOptions` nor such a `-D` gives it one.
+- `Target.argues`, `Observation.without`: a `-D` candidate among a target's extra `lean` arguments
+  sets an option, read as RG2006 reads them (`RegulaPolicy.Community.argumentSettings`, a superset
+  of the `-D` settings `lean` reads under the command-line assumption stated there); a target
+  builds without a required option when neither `leanOptions` nor such a candidate gives it one.
 - `Observation.lacks`, `missing`, `targetMissing`, `optionEdits`: the options `init` adds. It adds
   a required option to the package when every root target is claimed, some claimed target builds
   without it and no claimed target's `-D` sets it; otherwise it adds the option to each claimed
@@ -57,14 +58,17 @@ manifest to claim, whether each skill file equals the installed skill, the proje
 required Regula's `lean-toolchain`, and the modules below a library root that no library includes,
 split by whether a claimed module imports them as Lean's import-header parser reads the package's
 sources (not a build). The command writes each edit into the lakefile, the manifest and the
-guidance files, then observes the project again and refuses unless the new plan is empty; that the
-file edits realize `apply` is that runtime check, not a theorem. RG2006 itself is decided per
-claimed target over Lake's resolved options by `RegulaPolicy.Community.failures`, reading the
-same `-D` candidates as `Target.argues`; `init` writes package-level options only when every root
-target is claimed, options of the claimed targets otherwise, never an option a claimed target's
-`-D` sets where it reaches that target, and never changes a value the package or a target already
-gives. Which of Lean's inputs wins when `leanOptions` and a `-D` both set an option is not modelled:
-the plan avoids the situation. -/
+guidance files, then observes the project again and refuses unless the new plan is empty and
+`argued` is unchanged (`argued_run`); that the file edits realize `apply` is that runtime check,
+not a theorem. RG2006 itself is decided per claimed target over Lake's resolved options by
+`RegulaPolicy.Community.failures`, reading the same `-D` candidates as `Target.argues`; `init`
+writes an option into the package's configuration only when every root target is claimed and no
+claimed target's `-D` candidate sets it, into claimed targets' own configurations otherwise, never
+into a configuration that reaches a target whose `-D` candidate sets it, and never changes a value
+the package or a target already gives. That `allClaimed` holds only when `targets` is every root
+target is how the command builds the observation, not a field of this model. Which of Lean's
+inputs wins when `leanOptions` and a `-D` both set an option is not modelled: the plan avoids the
+situation. -/
 
 namespace Regula.Setup
 
@@ -1309,7 +1313,7 @@ def Issue.message (f : Lakefile) : Issue → String
       ", ".intercalate (es.map fun e => "`" ++ toString (optionOf e.1) ++ "`") ++
       ", which neither the package's nor its own `leanOptions` set"
   | .argued ns => "setup [" ++ f.name ++ "]: a `-D` among the extra `lean` arguments \
-      (`weakLeanArgs`, `moreLeanArgs`) of a claimed target sets " ++
+      (`weakLeanArgs`, `moreLeanArgs`) of one or more claimed targets sets " ++
       ", ".intercalate (ns.map fun n => "`" ++ toString n ++ "`") ++
       ", which its `leanOptions` do not; RG2006 requires " ++
       (if ns.length == 1 then "it" else "them") ++ " in `leanOptions`, and `init` adds no second \
@@ -1344,7 +1348,7 @@ def Issue.fix (f : Lakefile) : Issue → String
       one whose `-D` sets them), or run `lake exe regula init`"
   | .argued ns => "  fix: set " ++ (if ns.length == 1 then "it" else "them") ++ " in \
       `leanOptions` instead, as RG2006 states for each claimed target, and remove the `-D` \
-      (`init` never adds an option that a `-D` also sets)"
+      (`init` adds no option to a target whose `-D` sets it)"
   | .manifestMissing => "  fix: run `lake exe regula init`, which writes a starter claiming every \
       `lean_lib` as `standard-logical`; then review each claim and rationale"
   | .noLibrary => "  fix: add a " ++ f.library ++ " for the modules your executables import, \
