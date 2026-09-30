@@ -14,6 +14,10 @@ public import Lean.Meta.Match.MatcherInfo
 public import Lean.Meta.Native
 public import RegulaPolicy.NativeAxiom
 public import Lean.Meta.Eqns
+public import Lean.Meta.Injective
+public import Lean.Meta.SameCtorUtils
+public import Lean.Meta.Constructions.CtorElim
+public import Lean.Class
 public import Lean.Meta.RecExt
 public import Lean.ProjFns
 public import Lean.Util.FoldConsts
@@ -507,58 +511,93 @@ def moduleOf (env : Environment) (name : Name) : Except String Name := do
     throw s!"declaration {name} has no established module ownership"
   return env.mainModule
 
-/-- The suffixes Lean's own `isAutoDeclOrPrivate_Internal` classifies as generated for a
-constructor `c` in a name `c.s`: `inj` and `injEq` (`Meta.mkInjectiveTheoremNameFor`,
-`Meta.mkInjectiveEqTheoremNameFor`), `sizeOf_spec` (`Meta.mkSizeOfSpecLemmaName`), `elim` and
-`noConfusion`. -/
-private def constructorSuffixes : List String :=
-  ["inj", "injEq", "sizeOf_spec", "elim", "noConfusion"]
+/-- Whether Lean's injectivity generator (`Meta.mkInjectiveTheorems`, run for every inductive type
+it declares) generates `c.inj` and `c.injEq` for the constructor `c`, under Lean's default
+options: the type is not a class, not an inductive predicate and not `unsafe`, and `c` has a field
+its injectivity theorem equates, one whose type is not a proposition and that its result type
+does not mention (the fields `mkInjectiveTheoremType?` keeps). -/
+private def injectivityGenerated (ctor : ConstructorVal) : MetaM Bool := do
+  if isClass (← getEnv) ctor.induct || ctor.isUnsafe || (← Meta.isInductivePredicate ctor.induct)
+  then return false
+  let type ← Meta.elimOptParam ctor.type
+  Meta.forallBoundedTelescope type ctor.numParams fun _ type =>
+    Meta.forallTelescope type fun fields result => do
+      let context ← getLCtx
+      fields.anyM fun field => do
+        return !(← Meta.isProp (← Meta.inferType field)) && !Meta.occursOrInType context field result
 
-/-- The suffixes Lean's own `isAutoDeclOrPrivate_Internal` classifies as generated for an
-inductive type `t` in a name `t.s`, besides those it also starts with `brecOn_` or `below_`. -/
-private def inductiveSuffixes : List String :=
-  ["casesOn", "recOn", "brecOn", "below", "ndrec", "ndrecOn", "noConfusionType", "noConfusion",
-    "ofNat", "toCtorIdx", "ctorIdx", "ctorElim", "ctorElimType"]
+/-- Whether Lean's `SizeOf` generator (`Meta.mkSizeOfInstances`, run for every inductive type it
+declares) generates `c.sizeOf_spec` for every constructor `c` of `t`, under Lean's default options:
+`SizeOf` is declared and `t` is not a class, not an inductive predicate and not `unsafe`. -/
+private def sizeOfGenerated (t : InductiveVal) : MetaM Bool := do
+  return (← getEnv).contains ``SizeOf && !isClass (← getEnv) t.name && !t.isUnsafe &&
+    !(← Meta.isInductivePredicate t.name)
+
+/-- Whether Lean's `ctorIdx` generator (`mkCtorIdx`, run for every inductive type it declares)
+generates `t.ctorIdx`, under Lean's default options: `Nat` is declared, `t` is not a family of
+propositions, and it eliminates into every universe (its `casesOn` has a universe parameter of its
+own). -/
+private def ctorIdxGenerated (t : InductiveVal) : MetaM Bool := do
+  let some casesOn := (← getEnv).find? (mkCasesOnName t.name) | return false
+  return (← getEnv).contains ``Nat && casesOn.levelParams.length > t.levelParams.length &&
+    !(← Meta.isPropFormerType t.type)
 
 /-- The declaration Lean generated `name` from, one step, as the environment records it; `none`
-when Lean did not generate `name` from another declaration:
-- a constructor: its inductive type (`ConstructorVal.induct`);
-- a structure projection: its structure's constructor (`ProjectionFunctionInfo.ctorName`);
-- a recursor, an auxiliary recursor such as `casesOn` (`isAuxRecursor`), or a `noConfusion`
-  (`isNoConfusion`): the inductive type it is named under, which Lean's own
-  `findDeclarationRanges?` gives it the range of;
-- an equation lemma `f.eq_1`, `f.eq_def` or `f.eq_unfold`: its definition
+when Lean did not generate `name` from another declaration. Each clause rests on (a) a mark Lean's
+generator leaves in the environment, or on (c) the generator's own precondition, checked on the
+environment:
+- (a) a constructor: its inductive type (`ConstructorVal.induct`); a structure projection: its
+  structure's constructor (`ProjectionFunctionInfo.ctorName`);
+- (a) a recursor (`isRecCore`), an auxiliary recursor (`isAuxRecursor`: `casesOn`, `recOn`,
+  `below`, `brecOn`, `ctorElim` and a constructor's `elim`), or a `noConfusion`, the type's or a
+  constructor's (`isNoConfusion`): the name it is named under, whose range Lean's own
+  `findDeclarationRanges?` gives it;
+- (a) an equation lemma `f.eq_1`, `f.eq_def` or `f.eq_unfold`: its definition
   (`Meta.declFromEqLikeName`);
-- a name `c.s` or `t.s` that `isAutoDeclOrPrivate_Internal` classifies as generated for a
-  constructor `c` (`constructorSuffixes`) or an inductive type `t` (`inductiveSuffixes`): `c` or
-  `t`;
-- a matcher `f.match_1` (`Meta.isMatcherCore`), a declaration named under a matcher, such as its
-  equations and splitter, a name Lean reserves for a declaration it generates on demand
-  (`isReservedName`), such as `f.induct`, and a name whose last component Lean marks internal with
-  a leading `_`, as the auxiliary declarations `f._proof_1`, `f._unary` and `T._sizeOf_1` Lean
-  names under the declaration it generates them for (`Name.isInternal`): the declaration it is
-  named under, as itself or its user name (`privateToUserName`), whichever the environment
-  contains, the two spellings Lean's own `Meta.declFromEqLikeName` tries.
-Derived instances are not related: Lean records no relation between an instance and the
-declaration it derives it for. -/
-def generatedFrom? (env : Environment) (name : Name) : Option Name :=
-  match env.find? name with
-  | some (.ctorInfo value) => some value.induct
-  | _ =>
-    if let some info := env.getProjectionFnInfo? name then some info.ctorName
-    else if isRecCore env name || isAuxRecursor env name || isNoConfusion env name then
-      if name.getPrefix.isAnonymous then none else some name.getPrefix
-    else if let some (definition, _) := Meta.declFromEqLikeName env name then some definition
-    else match name with
-      | .str p s =>
-        if env.isConstructor p && constructorSuffixes.contains s then some p
-        else if isInductiveCore env p && (inductiveSuffixes.contains s ||
-            s.startsWith "brecOn_" || s.startsWith "below_") then some p
-        else if Meta.isMatcherCore env name || Meta.isMatcherCore env p ||
-            isReservedName env name || s.startsWith "_" then
-          [p, privateToUserName p].find? env.contains
-        else none
-      | _ => none
+- (a) a name Lean reserves for a declaration it generates on demand (`isReservedName`), such as
+  `f.induct`, and which no user declaration can take (`checkNotAlreadyDeclared`); a matcher
+  `f.match_1` (`Meta.isMatcherCore`); an equation or splitter of a matcher, the names Lean's own
+  `isMatchEqName?` gives them: the name it is named under;
+- (c) `c.inj` and `c.injEq` for a constructor `c` (`injectivityGenerated`), `c.sizeOf_spec`
+  (`sizeOfGenerated`), and `t.ctorIdx` for an inductive type `t` (`ctorIdxGenerated`): `c` or
+  `t`. Lean's generator runs when it declares the type, so a declaration that already had the
+  name would have failed that command;
+- (c) `t.noConfusionType` and `t.ctorElimType`: `t`, when `t.noConfusion` is marked
+  (`isNoConfusion`) or `t.ctorElim` is marked (`isAuxRecursor`), since the one generator run that
+  marks it also generates them;
+- a name whose last component Lean marks internal with a leading `_` (`Name.isInternal`), as the
+  auxiliary declarations `f._proof_1`, `f._unary` and `T._sizeOf_1` Lean names under the
+  declaration it generates them for: the name it is named under. This rests on Lean's naming
+  convention, not a mark: Lean does not refuse a user declaration with such a name, and one is
+  attributed all the same.
+A name standing for the declaration it is named under is read as itself or its user name
+(`privateToUserName`), whichever the environment contains, the two spellings Lean's own
+`Meta.declFromEqLikeName` tries. Derived instances, and declarations deriving handlers add such as
+an enumeration's `ofNat`, are not related: Lean records no relation to the type. -/
+def generatedFrom? (name : Name) : MetaM (Option Name) := do
+  let env ← getEnv
+  if let some (.ctorInfo value) := env.find? name then return some value.induct
+  if let some info := env.getProjectionFnInfo? name then return some info.ctorName
+  if isRecCore env name || isAuxRecursor env name || isNoConfusion env name then
+    return if name.getPrefix.isAnonymous then none else some name.getPrefix
+  if let some (definition, _) := Meta.declFromEqLikeName env name then return some definition
+  let .str p s := name | return none
+  if isReservedName env name || Meta.isMatcherCore env name || s.startsWith "_" ||
+      (Meta.isMatcherCore env p && (Meta.isEqnReservedNameSuffix s || s == "splitter")) then
+    return [p, privateToUserName p].find? env.contains
+  match env.find? p with
+  | some (.ctorInfo ctor) =>
+    if (s == "inj" || s == "injEq") && (← injectivityGenerated ctor) then return some p
+    let some (.inductInfo t) := env.find? ctor.induct | return none
+    if s == "sizeOf_spec" && (← sizeOfGenerated t) then return some p
+    return none
+  | some (.inductInfo t) =>
+    if (s == "noConfusionType" && isNoConfusion env (p.str "noConfusion")) ||
+        (s == "ctorElimType" && isAuxRecursor env (mkCtorElimName p)) ||
+        (s == "ctorIdx" && (← ctorIdxGenerated t)) then
+      return some p
+    return none
+  | _ => return none
 
 /-- Construct the canonical record from this command's actual environment.
 Replay candidates still require the existing fresh transcript and admission guards;
@@ -627,7 +666,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
     ranges := ranges?.map rangesReport
-    generatedFrom := generatedFrom? env name
+    generatedFrom := ← liftTermElabM (generatedFrom? name)
     axioms := RegulaPolicy.canonicalNames axioms
     executableContract := ← executableContract? env scope info
   }

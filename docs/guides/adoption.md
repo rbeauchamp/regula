@@ -368,13 +368,17 @@ RG1005 [violation; freshProject; claim=kernel-only; Widget/Basic.lean:4:4]: coun
 
 Which declaration Lean generated a declaration from is read from what Lean's environment records
 about it: a constructor's inductive type, a projection's structure constructor, the type a
-recursor, auxiliary recursor or `noConfusion` belongs to, a definition's equation lemmas, the
-constructor and type lemmas Lean's own `isAutoDeclOrPrivate_Internal` recognizes, matchers, names
-Lean reserves for declarations it generates on demand (`f.induct`), and auxiliary declarations
-whose last name component begins with `_` (`f._proof_1`, `f._unary`). A declaration named under
-another that Lean did not generate from it, such as a theorem a metaprogram adds under an ordinary
-name, is reported on its own, whether or not it has a source range, and so is a derived instance:
-Lean records no relation between it and the type it derives it for.
+recursor, auxiliary recursor or `noConfusion` belongs to, a definition's equation lemmas,
+matchers and their equations, and names Lean reserves for declarations it generates on demand
+(`f.induct`). A constructor's `inj`, `injEq` and `sizeOf_spec` and a type's `ctorIdx`,
+`noConfusionType` and `ctorElimType` are related where Lean's generator for them ran on that type,
+which is checked on the environment. So are auxiliary declarations whose last name component
+begins with `_` (`f._proof_1`, `f._unary`), by Lean's naming convention: a declaration you give
+such a name is reported under the declaration it is named under too. Any other declaration named
+under another that Lean did not generate from it is reported on its own, whether or not it has a
+source range, such as a theorem a metaprogram adds or a `Word.ofNat` you write for a structure;
+so is a derived instance, or an enumeration's `ofNat` from deriving `DecidableEq`: Lean records no
+relation between it and the type.
 
 ## Machine-readable report
 

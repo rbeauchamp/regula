@@ -1352,9 +1352,10 @@ private def duplicateAdmissionControls (sources copy : FilePath)
 
 /-- A file with declarations Lean generates: the equation lemmas and auxiliary proof of a
 well-founded definition, and the constructor, projection, recursor and constructor lemmas of a
-structure whose field type uses `Classical.choice`; and a theorem a metaprogram adds, without a
-source range, under the structure's name. Every one exceeds a Kernel-only claim, so each has an
-RG1005 finding. -/
+structure whose field type uses `Classical.choice`; and declarations Lean does not generate though
+they are named under a structure: a theorem a metaprogram adds without a source range, and a
+user-written `ofNat`, a name Lean generates only for an enumeration deriving `DecidableEq`. Every
+one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
 private def sourceAttributionSource : String :=
   "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
   "open Lean Elab Command\n\n" ++
@@ -1362,6 +1363,11 @@ private def sourceAttributionSource : String :=
   "noncomputable def pick : Nat := Classical.choose (⟨0, rfl⟩ : ∃ n : Nat, n = n)\n\n" ++
   "/-- A structure whose field type uses `pick`. -/\nstructure Channel where\n" ++
   "  /-- The bounded value. -/\n  value : Fin (pick + 1)\n\n" ++
+  "/-- A structure with a conversion of its own. -/\nstructure Word where\n" ++
+  "  /-- The bounded value. -/\n  val : Fin (pick + 1)\n\n" ++
+  "/-- A user-written conversion from `Nat`. -/\n" ++
+  "noncomputable def Word.ofNat (n : Nat) : Word :=\n" ++
+  "  ⟨⟨n % (pick + 1), Nat.mod_lt n (Nat.succ_pos pick)⟩⟩\n\n" ++
   "/-- A definition by well-founded recursion. -/\n" ++
   "def countdown (n : Nat) : Nat := if h : n = 0 then 0 else countdown (n - 1)\n" ++
   "termination_by n\ndecreasing_by omega\n\n" ++
@@ -1373,11 +1379,12 @@ private def sourceAttributionSource : String :=
   "    value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkConst ``pick) }\n"
 
 /-- The first failed expectation of the source-attribution report, if any: the equation lemma and
-auxiliary proof of `countdown`, and the recursor, constructor, constructor lemma `mk.injEq` and
-projection of `Channel`, are attributed to and located at the declaration Lean generated them
-from, with their own module as a related location; `Channel.fact`, which Lean did not generate
-though it is named under `Channel` and has no source range, is not attributed and keeps module
-attribution. -/
+auxiliary proof of `countdown`, and the recursor, constructor, constructor lemmas `mk.injEq` and
+`mk.sizeOf_spec`, `ctorIdx` and projection of `Channel`, are attributed to and located at the
+declaration Lean generated them from, with their own module as a related location. Neither
+`Channel.fact`, which has no source range, nor `Word.ofNat` is attributed, though each is named
+under a structure: Lean did not generate them. `Channel.fact` keeps module attribution and
+`Word.ofNat` its own range. -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
@@ -1393,6 +1400,7 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   for (name, owner, ownerName) in #[("countdown.eq_1", countdown, "countdown"),
       ("countdown._proof_1", countdown, "countdown"), ("Channel.rec", channel, "Channel"),
       ("Channel.mk", channel, "Channel"), ("Channel.mk.injEq", channel, "Channel"),
+      ("Channel.mk.sizeOf_spec", channel, "Channel"), ("Channel.ctorIdx", channel, "Channel"),
       ("Channel.value", channel, "Channel")] do
     let some d := find name | return some s!"no {name} finding"
     unless source d == .str ownerName && kind d == .str "source" &&
@@ -1401,15 +1409,20 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   let some fact := find "Channel.fact" | return some "no Channel.fact finding"
   unless source fact == .null && kind fact == .str "module" do
     return some "Channel.fact, which Lean did not generate, was attributed"
+  let some word := find "Word" | return some "no Word finding"
+  let some ofNat := find "Word.ofNat" | return some "no Word.ofNat finding"
+  unless source ofNat == .null && kind ofNat == .str "source" &&
+      selection ofNat != selection word && ofNat.getObjValD "related" == Json.arr #[] do
+    return some "Word.ofNat, which Lean did not generate, was attributed"
   return none
 
 /-- External-boundary controls for source attribution through the public `axiomGate --file`
 audit. Which declarations Lean generates, and what the environment records about them, is the
 compiler's behavior; `Findings.sourceName?_eq_some_iff` states the attribution decision over the
 recorded relation and `groupFindings_flatten` the grouping. The positive controls are the
-attributed findings and their printed blocks; the negative control is a theorem a metaprogram
-adds without a source range under a declaration's name, which Lean did not generate from it
-(`sourceAttributionFailure`). -/
+attributed findings and their printed blocks; the negative controls are a theorem a metaprogram
+adds without a source range under a declaration's name, and a user-written `ofNat` under a
+structure's, which Lean did not generate from them (`sourceAttributionFailure`). -/
 private def sourceAttributionControls (dir : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let report := dir / "source-attribution.json"
@@ -1894,7 +1907,7 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
     IO.println <| "self-test source attribution: " ++
       (if attribution.isEmpty then "PASS" else "FAIL") ++
       " (declarations Lean generated attributed and printed in one block; a metaprogram theorem \
-        under a declaration's name not attributed)"
+        and a user-written ofNat under a structure's name not attributed)"
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. -/

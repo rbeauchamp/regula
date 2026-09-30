@@ -210,17 +210,20 @@ metadata, not authenticated binary identity.
   from, one step (`Collect.generatedFrom?`): a constructor's inductive type, a projection's
   structure constructor, the type a recursor, auxiliary recursor or `noConfusion` is named under
   (the relation Lean's `findDeclarationRanges?` uses), a definition's equation lemmas
-  (`Meta.declFromEqLikeName`), the constructor and type lemmas Lean's `isAutoDeclOrPrivate_Internal`
-  recognizes, matchers, names Lean reserves (`isReservedName`), and auxiliary declarations whose
-  last component begins with `_`. A declaration finding's `arguments.sourceDeclaration` is the end
+  (`Meta.declFromEqLikeName`), matchers and their equations, and names Lean reserves
+  (`isReservedName`), each by a mark Lean's generator leaves; a constructor's `inj`, `injEq` and
+  `sizeOf_spec` and a type's `ctorIdx`, `noConfusionType` and `ctorElimType` only where the
+  environment shows their generator ran on the type (its precondition, under Lean's default
+  options, or the mark it leaves on a sibling it generates in the same run); and, by Lean's naming
+  convention rather than a mark, declarations whose last component begins with `_`. A declaration finding's `arguments.sourceDeclaration` is the end
   of that chain over the audited declarations (`Findings.sourceName?`), and
   `sourceName?_eq_some_iff` proves it is exactly the name the recorded relation leads to from the
   declaration and relates to nothing further: a declaration Lean did not generate from another, or
   one outside the audited declarations. The finding is located at that declaration's range when it has one
   and its module has a snapshot (`Findings.findingLocation`), and its `related` names the
   declaration's own module. Which clause records which declaration is Lean's behavior, read from
-  its environment, not proved; derived instances are not related, since Lean records no such
-  relation. The `lake lint` text prints the RG1005 findings under one declaration as one block
+  its environment, not proved; derived instances and the declarations deriving handlers add, such
+  as an enumeration's `ofNat`, are not related, since Lean records no such relation. The `lake lint` text prints the RG1005 findings under one declaration as one block
   (`groupFindings`, `groupEntry`; `declarationFinding_groupUnder?` proves such a finding groups
   under the declaration it is attributed to) and folds their lines in its closing `FAIL` summary
   into one count; the JSON keeps them one per declaration, in the same order

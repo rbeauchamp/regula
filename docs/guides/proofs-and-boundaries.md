@@ -766,9 +766,14 @@ is not itself attributed to another (`sourceName?_source`); the executed index e
 inventory search it replaces (`declarationIndex_get`), and an RG1005 finding built with that
 attribution groups under it (`declarationFinding_groupUnder?`). Which declaration Lean generated a
 declaration from is read from the environment by `Collect.generatedFrom?`, clause by clause from
-what Lean records (constructor, projection, recursor, equation-lemma, matcher, reserved-name and
-internal-name facts); that those facts describe Lean's generation is observed Lean behavior (the
-`cli` self-test's source-attribution controls), not proved, and derived instances, whose relation
+the marks Lean's generators leave (constructor, projection, recursor, equation-lemma, matcher and
+reserved-name facts) and, for a constructor's `inj`, `injEq` and `sizeOf_spec` and a type's
+`ctorIdx`, `noConfusionType` and `ctorElimType`, from their generator's precondition or a sibling's
+mark, checked on the environment under Lean's default options; auxiliary declarations whose last
+name component begins with `_` are related by Lean's naming convention, an assumption a user
+declaration with such a name does not meet. That these clauses match Lean's generators is read
+from Lean's source and observed (the `cli` self-test's source-attribution controls, with a
+user-written `ofNat` as a negative control), not proved, and derived instances, whose relation
 Lean does not record, are not related.
 `RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula` parser admits exactly its documented commands
 (`parseCommand_arguments`, `parseCommand_sound`, `parseInvocation_arguments`,
