@@ -1352,10 +1352,11 @@ private def duplicateAdmissionControls (sources copy : FilePath)
 
 /-- A file with declarations Lean generates: the equation lemmas and auxiliary proof of a
 well-founded definition, and the constructor, projection, recursor and constructor lemmas of a
-structure whose field type uses `Classical.choice`; and declarations Lean does not generate though
-they are named under a structure: a theorem a metaprogram adds without a source range, and a
-user-written `ofNat`, a name Lean generates only for an enumeration deriving `DecidableEq`. Every
-one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
+structure whose field type uses `Classical.choice`; and declarations Lean does not generate from
+the structure they are named under: a theorem a metaprogram adds without a source range, a
+user-written `ofNat`, a name Lean generates only for an enumeration deriving `DecidableEq`, and an
+elaborator Lean names `«_aux_…»` inside the structure's namespace. Every one exceeds a Kernel-only
+claim, so each has an RG1005 finding. -/
 private def sourceAttributionSource : String :=
   "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
   "open Lean Elab Command\n\n" ++
@@ -1368,6 +1369,8 @@ private def sourceAttributionSource : String :=
   "/-- A user-written conversion from `Nat`. -/\n" ++
   "noncomputable def Word.ofNat (n : Nat) : Word :=\n" ++
   "  ⟨⟨n % (pick + 1), Nat.mod_lt n (Nat.succ_pos pick)⟩⟩\n\n" ++
+  "namespace Channel\n\n/-- A term elaborated in `Channel`'s namespace. -/\n" ++
+  "elab \"vzero\" : term => Term.elabTerm (Syntax.mkNumLit \"0\") none\n\nend Channel\n\n" ++
   "/-- A definition by well-founded recursion. -/\n" ++
   "def countdown (n : Nat) : Nat := if h : n = 0 then 0 else countdown (n - 1)\n" ++
   "termination_by n\ndecreasing_by omega\n\n" ++
@@ -1381,10 +1384,11 @@ private def sourceAttributionSource : String :=
 /-- The first failed expectation of the source-attribution report, if any: the equation lemma and
 auxiliary proof of `countdown`, and the recursor, constructor, constructor lemmas `mk.injEq` and
 `mk.sizeOf_spec`, `ctorIdx` and projection of `Channel`, are attributed to and located at the
-declaration Lean generated them from, with their own module as a related location. Neither
-`Channel.fact`, which has no source range, nor `Word.ofNat` is attributed, though each is named
-under a structure: Lean did not generate them. `Channel.fact` keeps module attribution and
-`Word.ofNat` its own range. -/
+declaration Lean generated them from, with their own module as a related location. None of
+`Channel.fact`, which has no source range, `Word.ofNat` and the `vzero` elaborator in `Channel`'s
+namespace is attributed, though each is named under a structure: Lean did not generate them from
+it. `Channel.fact` keeps module attribution, and `Word.ofNat` and the elaborator their own
+range. -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
@@ -1414,6 +1418,15 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   unless source ofNat == .null && kind ofNat == .str "source" &&
       selection ofNat != selection word && ofNat.getObjValD "related" == Json.arr #[] do
     return some "Word.ofNat, which Lean did not generate, was attributed"
+  let some elaborator := diagnostics.find? fun d =>
+      match Regula.RegistryCodec.parsePrintedNameJson
+          ((d.getObjValD "arguments").getObjValD "declaration") with
+      | .ok (.str (.str .anonymous "Channel") s) => s.startsWith "_aux_" && s.contains "termVzero"
+      | _ => false
+    | return some "no finding for the vzero elaborator in Channel's namespace"
+  unless source elaborator == .null && kind elaborator == .str "source" &&
+      selection elaborator != selection channel && elaborator.getObjValD "related" == Json.arr #[] do
+    return some "the vzero elaborator, which Lean did not generate from Channel, was attributed"
   return none
 
 /-- External-boundary controls for source attribution through the public `axiomGate --file`
@@ -1421,8 +1434,9 @@ audit. Which declarations Lean generates, and what the environment records about
 compiler's behavior; `Findings.sourceName?_eq_some_iff` states the attribution decision over the
 recorded relation and `groupFindings_flatten` the grouping. The positive controls are the
 attributed findings and their printed blocks; the negative controls are a theorem a metaprogram
-adds without a source range under a declaration's name, and a user-written `ofNat` under a
-structure's, which Lean did not generate from them (`sourceAttributionFailure`). -/
+adds without a source range under a declaration's name, a user-written `ofNat` under a
+structure's, and an elaborator Lean names `«_aux_…»` in a structure's namespace, none of which
+Lean generated from it (`sourceAttributionFailure`). -/
 private def sourceAttributionControls (dir : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let report := dir / "source-attribution.json"
@@ -1906,8 +1920,8 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
     for failure in attribution do failures.modify (·.push failure)
     IO.println <| "self-test source attribution: " ++
       (if attribution.isEmpty then "PASS" else "FAIL") ++
-      " (declarations Lean generated attributed and printed in one block; a metaprogram theorem \
-        and a user-written ofNat under a structure's name not attributed)"
+      " (declarations Lean generated attributed and printed in one block; a metaprogram theorem, \
+        a user-written ofNat and an elaborator under a structure's name not attributed)"
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. -/

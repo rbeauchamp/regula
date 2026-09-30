@@ -214,8 +214,12 @@ metadata, not authenticated binary identity.
   (`isReservedName`), each by a mark Lean's generator leaves; a constructor's `inj`, `injEq` and
   `sizeOf_spec` and a type's `ctorIdx`, `noConfusionType` and `ctorElimType` only where the
   environment shows their generator ran on the type (its precondition, under Lean's default
-  options, or the mark it leaves on a sibling it generates in the same run); and, by Lean's naming
-  convention rather than a mark, declarations whose last component begins with `_`. A declaration finding's `arguments.sourceDeclaration` is the end
+  options, or the mark it leaves on a sibling it generates in the same run); a well-founded
+  definition's `_unary` or `_mutual` function (its equation information), a type's `_sizeOf_n` and
+  `_sizeOf_inst` and a structure constructor's `_flat_ctor` where their generator ran; and an
+  auxiliary lemma `f._proof_n`, `f._simp_n` or `f._cbv_eval_n` only when `f`'s value uses it. No
+  clause rests on a name alone, so an elaborator or macro Lean names `«_aux_…»` inside a namespace
+  is not related. A declaration finding's `arguments.sourceDeclaration` is the end
   of that chain over the audited declarations (`Findings.sourceName?`), and
   `sourceName?_eq_some_iff` proves it is exactly the name the recorded relation leads to from the
   declaration and relates to nothing further: a declaration Lean did not generate from another, or

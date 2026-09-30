@@ -769,12 +769,14 @@ declaration from is read from the environment by `Collect.generatedFrom?`, claus
 the marks Lean's generators leave (constructor, projection, recursor, equation-lemma, matcher and
 reserved-name facts) and, for a constructor's `inj`, `injEq` and `sizeOf_spec` and a type's
 `ctorIdx`, `noConfusionType` and `ctorElimType`, from their generator's precondition or a sibling's
-mark, checked on the environment under Lean's default options; auxiliary declarations whose last
-name component begins with `_` are related by Lean's naming convention, an assumption a user
-declaration with such a name does not meet. That these clauses match Lean's generators is read
-from Lean's source and observed (the `cli` self-test's source-attribution controls, with a
-user-written `ofNat` as a negative control), not proved, and derived instances, whose relation
-Lean does not record, are not related.
+mark, checked on the environment under Lean's default options; a well-founded definition's
+`_unary` or `_mutual` function from its equation information, a type's `_sizeOf_n` and
+`_sizeOf_inst` and a structure constructor's `_flat_ctor` from their generator's precondition, and
+an auxiliary lemma such as `f._proof_1` only from `f`'s value using it. No clause rests on a name
+alone. That these clauses match Lean's generators is read from Lean's source and observed (the
+`cli` self-test's source-attribution controls, with a user-written `ofNat` and an elaborator named
+`«_aux_…»` in a structure's namespace as negative controls), not proved, and derived instances,
+whose relation Lean does not record, are not related.
 `RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula` parser admits exactly its documented commands
 (`parseCommand_arguments`, `parseCommand_sound`, `parseInvocation_arguments`,
 `parseInvocation_sound`). Result stages: `stagesOf_required`,

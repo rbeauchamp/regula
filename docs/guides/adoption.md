@@ -372,13 +372,15 @@ recursor, auxiliary recursor or `noConfusion` belongs to, a definition's equatio
 matchers and their equations, and names Lean reserves for declarations it generates on demand
 (`f.induct`). A constructor's `inj`, `injEq` and `sizeOf_spec` and a type's `ctorIdx`,
 `noConfusionType` and `ctorElimType` are related where Lean's generator for them ran on that type,
-which is checked on the environment. So are auxiliary declarations whose last name component
-begins with `_` (`f._proof_1`, `f._unary`), by Lean's naming convention: a declaration you give
-such a name is reported under the declaration it is named under too. Any other declaration named
-under another that Lean did not generate from it is reported on its own, whether or not it has a
-source range, such as a theorem a metaprogram adds or a `Word.ofNat` you write for a structure;
-so is a derived instance, or an enumeration's `ofNat` from deriving `DecidableEq`: Lean records no
-relation between it and the type.
+which is checked on the environment. So are the auxiliary declarations Lean makes for a
+declaration where the environment records them: the `f._unary` or `f._mutual` function a
+well-founded definition `f` is compiled through, a type's `_sizeOf_1` and `_sizeOf_inst`, a
+structure constructor's `_flat_ctor`, and an auxiliary lemma such as `f._proof_1` that `f`'s value
+uses. Any other declaration named under another that Lean did not generate from it is reported on
+its own, whatever its name and whether or not it has a source range, such as a theorem a
+metaprogram adds, a `Word.ofNat` you write for a structure, or an elaborator Lean names
+`«_aux_…»` inside a namespace; so is a derived instance, or an enumeration's `ofNat` from deriving
+`DecidableEq`: Lean records no relation between it and the type.
 
 ## Machine-readable report
 

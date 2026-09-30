@@ -565,15 +565,19 @@ environment:
 - (c) `t.noConfusionType` and `t.ctorElimType`: `t`, when `t.noConfusion` is marked
   (`isNoConfusion`) or `t.ctorElim` is marked (`isAuxRecursor`), since the one generator run that
   marks it also generates them;
-- a name whose last component Lean marks internal with a leading `_` (`Name.isInternal`), as the
-  auxiliary declarations `f._proof_1`, `f._unary` and `T._sizeOf_1` Lean names under the
-  declaration it generates them for: the name it is named under. This rests on Lean's naming
-  convention, not a mark: Lean does not refuse a user declaration with such a name, and one is
-  attributed all the same.
-A name standing for the declaration it is named under is read as itself or its user name
-(`privateToUserName`), whichever the environment contains, the two spellings Lean's own
-`Meta.declFromEqLikeName` tries. Derived instances, and declarations deriving handlers add such as
-an enumeration's `ofNat`, are not related: Lean records no relation to the type. -/
+- (a) `f._unary` or `f._mutual`, the function a well-founded definition `f` is compiled through:
+  `f`, when its well-founded equation information names it (`Elab.WF.eqnInfoExt`);
+- (c) `t._sizeOf_1`, `t._sizeOf_2`, … and `t._sizeOf_inst` for an inductive type `t`
+  (`sizeOfGenerated`), and `c._flat_ctor` for the constructor `c` of a registered structure
+  (`isStructure`), which the `structure` command generates with it: `t` or `c`;
+- (a) an auxiliary lemma Lean abstracts out of a declaration and names under it, `f._proof_1`,
+  `f._simp_1` or `f._cbv_eval_1` (`Meta.mkAuxLemma`): `f`, when `f`'s value uses it.
+No other declaration is related, whatever its name: an elaborator or macro Lean names
+`«_aux_…»` inside a namespace keeps its own. A name standing for the declaration it is named under
+is read as itself or its user name (`privateToUserName`), whichever the environment contains, the
+two spellings Lean's own `Meta.declFromEqLikeName` tries. Derived instances, and declarations
+deriving handlers add such as an enumeration's `ofNat`, are not related: Lean records no relation
+to the type. -/
 def generatedFrom? (name : Name) : MetaM (Option Name) := do
   let env ← getEnv
   if let some (.ctorInfo value) := env.find? name then return some value.induct
@@ -582,19 +586,30 @@ def generatedFrom? (name : Name) : MetaM (Option Name) := do
     return if name.getPrefix.isAnonymous then none else some name.getPrefix
   if let some (definition, _) := Meta.declFromEqLikeName env name then return some definition
   let .str p s := name | return none
-  if isReservedName env name || Meta.isMatcherCore env name || s.startsWith "_" ||
+  let spellings := [p, privateToUserName p]
+  if isReservedName env name || Meta.isMatcherCore env name ||
       (Meta.isMatcherCore env p && (Meta.isEqnReservedNameSuffix s || s == "splitter")) then
-    return [p, privateToUserName p].find? env.contains
+    return spellings.find? env.contains
+  if let some f := spellings.find? fun f =>
+      (Elab.WF.eqnInfoExt.find? env f).any (·.declNameNonRec == name) then
+    return some f
+  if ["_proof_", "_simp_", "_cbv_eval_"].any (s.startsWith ·) then
+    return spellings.find? fun f =>
+      ((env.find? f).bind valueOf?).any (·.getUsedConstants.contains name)
   match env.find? p with
   | some (.ctorInfo ctor) =>
-    if (s == "inj" || s == "injEq") && (← injectivityGenerated ctor) then return some p
+    if ((s == "inj" || s == "injEq") && (← injectivityGenerated ctor)) ||
+        (s == "_flat_ctor" && isStructure env ctor.induct) then
+      return some p
     let some (.inductInfo t) := env.find? ctor.induct | return none
     if s == "sizeOf_spec" && (← sizeOfGenerated t) then return some p
     return none
   | some (.inductInfo t) =>
     if (s == "noConfusionType" && isNoConfusion env (p.str "noConfusion")) ||
         (s == "ctorElimType" && isAuxRecursor env (mkCtorElimName p)) ||
-        (s == "ctorIdx" && (← ctorIdxGenerated t)) then
+        (s == "ctorIdx" && (← ctorIdxGenerated t)) ||
+        ((s == "_sizeOf_inst" || (s.startsWith "_sizeOf_" && (s.drop 8).isNat)) &&
+          (← sizeOfGenerated t)) then
       return some p
     return none
   | _ => return none
