@@ -33,7 +33,9 @@ commands execute over what they observe of a project.
   (`run_options_unclaimed`).
 - `added_unargued`: no option the plan adds reaches a target whose `-D` also sets it, so the
   plan never creates a second setting beside a `-D`; `argued` lists the required options a
-  claimed target sets only with a `-D`, which `doctor` reports once and `init` leaves to the user.
+  claimed target sets only with a `-D`, which `doctor` reports once and `init` leaves to the user,
+  and `arguedBy_run` states that the plan leaves `Observation.arguedBy`, those of each claimed
+  target, unchanged.
 - `run_plan_targets`, `run_sets`, `resolved_run`: after the plan, a claimed target that built
   without a required option builds with its required value (`RegulaPolicy.Community.sets`, which
   meets RG2006's requirement on that option by `meets_of_sets`), and every claimed target has a
@@ -54,13 +56,14 @@ The observation is supplied by the operational `regula` command: Lake's loaded r
 `lean` arguments of each root target the manifest does not exclude), whether the workspace
 contains Mathlib, whether `foundation_manifest.json` and the agent guidance exist and which
 `AGENTS.md` holds or receives the section, whether the root package has a `lean_lib` for a starter
-manifest to claim, whether each skill file equals the installed skill, the project's and the
-required Regula's `lean-toolchain`, and the modules below a library root that no library includes,
-split by whether a claimed module imports them as Lean's import-header parser reads the package's
-sources (not a build). The command writes each edit into the lakefile, the manifest and the
-guidance files, then observes the project again and refuses unless the new plan is empty and
-`argued` is unchanged (`argued_run`); that the file edits realize `apply` is that runtime check,
-not a theorem. RG2006 itself is decided per claimed target over Lake's resolved options by
+manifest to claim, whether each skill file at the repository root equals the installed skill, the
+project's and the required Regula's `lean-toolchain`, and the modules below a library root that no
+library includes, split by whether a claimed module imports them as Lean's import-header parser
+reads the package's sources (not a build). The command writes each edit into the lakefile, the
+manifest and the guidance files, then observes the project again and refuses unless the new plan
+is empty and each claimed target of both observations, matched by kind and name, has the same
+`Observation.arguedBy` (`arguedBy_run`); that the file edits realize `apply` is that runtime
+check, not a theorem. RG2006 itself is decided per claimed target over Lake's resolved options by
 `RegulaPolicy.Community.failures`, reading the same `-D` candidates as `Target.argues`; `init`
 writes an option into the package's configuration only when every root target is claimed and no
 claimed target's `-D` candidate sets it, into claimed targets' own configurations otherwise, never
@@ -73,8 +76,8 @@ situation. -/
 namespace Regula.Setup
 
 open Lean (Name)
-open RegulaPolicy.Community (OptionValue BuildOptions required baseline mathlibBaseline valuesOf
-  sets optionOf argumentSettings)
+open RegulaPolicy.Community (OptionValue required baseline mathlibBaseline valuesOf sets optionOf
+  argumentSettings)
 
 /-- The `lintDriver` value that makes `lake lint` run Regula. -/
 def lintDriver : String := "regula/lint"
@@ -84,17 +87,18 @@ inductive Guidance where
   /-- A short section in `AGENTS.md` that tells the agent to run `lake exe regula agent-guide`;
   it names no version, so it never goes stale. -/
   | agentsMd
-  /-- The installed briefing as an Agent Skills `SKILL.md` at `skillPath`, which `init` rewrites
-  whenever it differs from the installed Regula's. -/
+  /-- The installed briefing as an Agent Skills `SKILL.md` at `Observation.skillFile`, which
+  `init` rewrites whenever it differs from the installed Regula's. -/
   | skill
   deriving DecidableEq, Repr
 
-/-- The skill file `init --skill` writes. -/
+/-- The skill file `init --skill` writes, relative to the repository root. -/
 def skillPath : String := ".agents/skills/regula/SKILL.md"
 
-/-- The skill files `init` and `doctor` recognize, relative to the project root: `skillPath`, and
-the path where Claude Code discovers project skills. `init` owns both and replaces one that
-differs from the installed skill, local edits included. -/
+/-- The skill files `init` and `doctor` recognize, relative to the repository root (the root of
+the Git repository that contains the project, else the project root): `skillPath`, and the path
+where Claude Code discovers project skills. `init` owns both and replaces one that differs from
+the installed skill, local edits included. -/
 def skillPaths : List String := [skillPath, ".claude/skills/regula/SKILL.md"]
 
 /-- The heading of the `AGENTS.md` section; its presence as a line marks the section. -/
@@ -168,7 +172,11 @@ structure Observation where
   agentsFile : String
   /-- `agentsFile` contains the `agentsHeading` line. -/
   agentsSection : Bool
-  /-- Each recognized skill file that exists, and whether it equals the installed skill. -/
+  /-- The skill file `init --skill` writes, relative to the project root: `skillPath` at the
+  repository root, such as `../.agents/skills/regula/SKILL.md`. -/
+  skillFile : String
+  /-- Each file of `skillPaths` at the repository root that exists, relative to the project root,
+  and whether it equals the installed skill. -/
   skills : List (String × Bool)
   /-- The project's `lean-toolchain`, trimmed. -/
   toolchain : String
@@ -182,9 +190,6 @@ structure Observation where
   imports: the audit neither inspects them nor fails, so `doctor` only notes them. -/
   unimported : List (String × List String × List String)
   deriving DecidableEq, Repr
-
-/-- The package-level options of an observation, as the RG2006 decision reads options. -/
-def Observation.build (o : Observation) : BuildOptions := ⟨o.options, []⟩
 
 /-- The key `init` writes for option `name`: Mathlib's options under `weak.`, which Lean ignores
 in a module that does not import Mathlib, and every other option as it is. -/
@@ -215,13 +220,21 @@ target is claimed, these are the options some other claimed target sets with a `
 def targetMissing (o : Observation) (t : Target) : List (Name × OptionValue) :=
   ((required o.mathlib).filter fun r => o.without t r && !o.lacks r).map fun r => (key r.1, r.2)
 
-/-- The required options some claimed target sets only with a `-D`: the package's and its own
-`leanOptions` give the option no value, and a `-D` among its extra `lean` arguments sets it.
-RG2006 requires the value in `leanOptions`, and `init` adds none beside the `-D`. Each comes with
-its required value, keyed by `key`: the entry to write in `leanOptions` instead. -/
+/-- Claimed target `t` sets required option `r` only with a `-D`: the package's and its own
+`leanOptions` give it no value under either spelling, and a `-D` among its extra `lean` arguments
+sets it. -/
+def Observation.onlyArgued (o : Observation) (t : Target) (r : Name × OptionValue) : Bool :=
+  (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty && t.argues r.1
+
+/-- The required options claimed target `t` sets only with a `-D`. -/
+def Observation.arguedBy (o : Observation) (t : Target) : List (Name × OptionValue) :=
+  (required o.mathlib).filter (o.onlyArgued t)
+
+/-- The required options some claimed target sets only with a `-D`. RG2006 requires the value in
+`leanOptions`, and `init` adds none beside the `-D`. Each comes with its required value, keyed by
+`key`: the entry to write in `leanOptions` instead. -/
 def argued (o : Observation) : List (Name × OptionValue) :=
-  ((required o.mathlib).filter fun r => o.targets.any fun t =>
-    (valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty && t.argues r.1).map
+  ((required o.mathlib).filter fun r => o.targets.any (o.onlyArgued · r)).map
     fun r => (key r.1, r.2)
 
 /-- One missing or wrong piece of setup. -/
@@ -245,8 +258,9 @@ inductive Issue where
   | manifestMissing
   /-- The root package has no `lean_lib`, so no surface can be claimed. -/
   | noLibrary
-  /-- There is neither an `agentsHeading` section in `file` nor a skill file. -/
-  | guidanceMissing (file : String)
+  /-- There is neither an `agentsHeading` section in `file` nor a skill file; `skill` is the one
+  `init --skill` writes. -/
+  | guidanceMissing (file skill : String)
   /-- The skill file at `path` differs from the installed Regula's skill. -/
   | skillStale (path : String)
   /-- The project uses toolchain `project`, but this Regula release supports only `supported`. -/
@@ -264,7 +278,7 @@ def Issue.fixable : Issue → Bool
   | .argued _ => false
   | .manifestMissing => true
   | .noLibrary => false
-  | .guidanceMissing _ => true
+  | .guidanceMissing _ _ => true
   | .skillStale _ => true
   | .toolchain _ _ => false
   | .uncovered _ _ _ => false
@@ -306,7 +320,7 @@ def issues (o : Observation) : List Issue :=
   arguedIssues o ++
   (if o.starter then [.manifestMissing] else []) ++
   (if o.libraries then [] else [.noLibrary]) ++
-  (if o.guided then [] else [.guidanceMissing o.agentsFile]) ++
+  (if o.guided then [] else [.guidanceMissing o.agentsFile o.skillFile]) ++
   (staleSkills o).map .skillStale ++
   (if o.toolchain = o.supported then [] else [.toolchain o.toolchain o.supported]) ++
   o.uncovered.map uncoveredIssue
@@ -334,7 +348,7 @@ def guidanceEdits (g : Guidance) (o : Observation) : List Edit :=
   if o.guided then [] else
     match g with
     | .agentsMd => [.agentsSection o.agentsFile]
-    | .skill => [.skill skillPath]
+    | .skill => [.skill o.skillFile]
 
 /-- The option edits: the package's missing options, then each claimed target's own, so that no
 option reaches a target the manifest excludes or a target whose `-D` sets it. -/
@@ -661,7 +675,7 @@ theorem manifest_not_mem_guidanceEdits (g : Guidance) (o : Observation) :
 
 theorem guidanceEdits_skillFiles (g : Guidance) (o : Observation) :
     (guidanceEdits g o).filterMap Edit.skillFile? =
-      if o.guided then [] else match g with | .agentsMd => [] | .skill => [skillPath] := by
+      if o.guided then [] else match g with | .agentsMd => [] | .skill => [o.skillFile] := by
   unfold guidanceEdits
   split
   · rfl
@@ -722,7 +736,7 @@ theorem plan_manifest_mem (g : Guidance) (o : Observation) :
 
 theorem plan_skillFiles (g : Guidance) (o : Observation) :
     (plan g o).filterMap Edit.skillFile? =
-      (if o.guided then [] else match g with | .agentsMd => [] | .skill => [skillPath]) ++
+      (if o.guided then [] else match g with | .agentsMd => [] | .skill => [o.skillFile]) ++
         staleSkills o := by
   simp only [plan, List.filterMap_append, guidanceEdits_skillFiles, optionEdits_skillFiles,
     List.filterMap_map]
@@ -892,19 +906,13 @@ theorem optionEdits_run (g : Guidance) (o : Observation) :
   intro h
   exact absurd (List.all_eq_true.mpr fun t' ht' => by simp [targetMissing_run g o t' ht']) h
 
-/-- The plan leaves the required options that claimed targets set only with a `-D` as they
-were: it adds none of them. -/
-theorem argued_run (g : Guidance) (o : Observation) : argued (run o (plan g o)) = argued o := by
-  unfold argued
-  rw [run_mathlib, run_plan_targets]
-  congr 1
-  apply List.filter_congr
-  intro r hr
-  rw [List.any_map, Bool.eq_iff_iff, List.any_eq_true, List.any_eq_true]
-  refine exists_congr fun t => and_congr_right fun ht => ?_
+/-- Whether a claimed target sets a required option only with a `-D` is the same after the plan:
+the plan gives such a target no value for the option. -/
+theorem onlyArgued_run (g : Guidance) (o : Observation) (t : Target) (ht : t ∈ o.targets)
+    (r : Name × OptionValue) (hr : r ∈ required o.mathlib) :
+    (run o (plan g o)).onlyArgued (withAdded o t) r = o.onlyArgued t r := by
   change ((valuesOf ⟨(run o (plan g o)).options ++ (withAdded o t).options, []⟩ r.1).isEmpty &&
-      t.argues r.1) = true ↔ ((valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty &&
-      t.argues r.1) = true
+      t.argues r.1) = ((valuesOf ⟨o.options ++ t.options, []⟩ r.1).isEmpty && t.argues r.1)
   cases ha : t.argues r.1
   · simp
   · have hl : o.lacks r = false := by
@@ -916,6 +924,27 @@ theorem argued_run (g : Guidance) (o : Observation) : argued (run o (plan g o)) 
     rw [valuesOf_run, valuesOf_missing o r hr, valuesOf_targetMissing o t r hr, hl, hw,
       valuesOf_append]
     simp
+
+/-- The plan leaves the required options each claimed target sets only with a `-D` as they were:
+it adds none of them to that target. `init` checks this target by target after writing. -/
+theorem arguedBy_run (g : Guidance) (o : Observation) (t : Target) (ht : t ∈ o.targets) :
+    (run o (plan g o)).arguedBy (withAdded o t) = o.arguedBy t := by
+  unfold Observation.arguedBy
+  rw [run_mathlib]
+  exact List.filter_congr fun r hr => onlyArgued_run g o t ht r hr
+
+/-- The plan leaves the required options that claimed targets set only with a `-D` as they
+were: it adds none of them. -/
+theorem argued_run (g : Guidance) (o : Observation) : argued (run o (plan g o)) = argued o := by
+  unfold argued
+  rw [run_mathlib, run_plan_targets]
+  congr 1
+  apply List.filter_congr
+  intro r hr
+  rw [List.any_map, Bool.eq_iff_iff, List.any_eq_true, List.any_eq_true]
+  refine exists_congr fun t => and_congr_right fun ht => ?_
+  show (run o (plan g o)).onlyArgued (withAdded o t) r = true ↔ o.onlyArgued t r = true
+  rw [onlyArgued_run g o t ht r hr]
 
 /-- After the plan, every skill file equals the installed skill. -/
 theorem staleSkills_run (g : Guidance) (o : Observation) :
@@ -942,7 +971,7 @@ theorem guided_run (g : Guidance) (o : Observation) : (run o (plan g o)).guided 
     · simp [h]
     · have hne : o.skills ≠ [] := by simpa using h
       have := markAll_ne_nil (skills := o.skills)
-        ((if o.guided then [] else match g with | .agentsMd => [] | .skill => [skillPath]) ++
+        ((if o.guided then [] else match g with | .agentsMd => [] | .skill => [o.skillFile]) ++
           staleSkills o) (.inl hne)
       simp [this]
   · have hg' : o.guided = false := by simpa using hg
@@ -950,7 +979,7 @@ theorem guided_run (g : Guidance) (o : Observation) : (run o (plan g o)).guided 
     · have hmem : (plan .agentsMd o).any Edit.writesSection = true := by
         simp [plan, guidanceEdits, hg', Edit.writesSection]
       simp [hmem]
-    · have := markAll_ne_nil (skills := o.skills) (skillPath :: staleSkills o) (.inr (by simp))
+    · have := markAll_ne_nil (skills := o.skills) (o.skillFile :: staleSkills o) (.inr (by simp))
       simp [hg', this]
 
 /-- The driver after the plan: Regula's when the package set none, otherwise unchanged. -/
@@ -1069,7 +1098,7 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       · have := h .manifestMissing (by simp [issues, hm])
         exact Bool.noConfusion this
     · cases hg : o.guided
-      · have := h (.guidanceMissing o.agentsFile) (by simp [issues, hg])
+      · have := h (.guidanceMissing o.agentsFile o.skillFile) (by simp [issues, hg])
         exact Bool.noConfusion this
       · rfl
     · rw [List.eq_nil_iff_forall_not_mem]
@@ -1162,8 +1191,9 @@ theorem issues_run (g : Guidance) (o : Observation) :
     List.map_nil, List.append_nil, List.filter_append, hs, ht, hu, hl, hopt, ha]
   have hf : (if o.starter = true then [Issue.manifestMissing] else []).filter
       (!·.fixable) = [] := by split <;> rfl
-  have hg : (if o.guided = true then [] else [Issue.guidanceMissing o.agentsFile]).filter
-      (!·.fixable) = [] := by split <;> rfl
+  have hg : (if o.guided = true then []
+      else [Issue.guidanceMissing o.agentsFile o.skillFile]).filter (!·.fixable) = [] := by
+    split <;> rfl
   rw [hf, hg]
   unfold driverIssues
   rw [h1]
@@ -1326,8 +1356,8 @@ def Issue.message (f : Lakefile) : Issue → String
   | .noLibrary => "setup [" ++ f.name ++ "]: the package has no `lean_lib`, so a foundation \
       manifest has no surface to claim: Regula claims each surface per library, an executable \
       belonging to a library's surface"
-  | .guidanceMissing a => "setup [" ++ a ++ "]: no agent guidance: " ++ a ++ " has no `" ++
-      agentsHeading ++ "` section and there is no " ++ skillPath
+  | .guidanceMissing a s => "setup [" ++ a ++ "]: no agent guidance: " ++ a ++ " has no `" ++
+      agentsHeading ++ "` section and there is no " ++ s
   | .skillStale p => "setup [" ++ p ++ "]: the skill is not the installed Regula's briefing"
   | .toolchain p s => "setup [lean-toolchain]: the project uses " ++ p ++
       ", but this Regula release supports only " ++ s
@@ -1358,8 +1388,8 @@ def Issue.fix (f : Lakefile) : Issue → String
   | .noLibrary => "  fix: add a " ++ f.library ++ " for the modules your executables import, \
       then run `lake exe regula init`, which writes a starter manifest claiming it with every \
       `lean_exe`"
-  | .guidanceMissing a => "  fix: run `lake exe regula init` (adds the section to " ++ a ++
-      ") or `lake exe regula init --skill` (writes the skill)"
+  | .guidanceMissing a s => "  fix: run `lake exe regula init` (adds the section to " ++ a ++
+      ") or `lake exe regula init --skill` (writes " ++ s ++ ")"
   | .skillStale _ => "  fix: run `lake exe regula init`, which replaces it with the installed \
       briefing (for example after `lake update regula`); init owns this file and keeps no local \
       edits"

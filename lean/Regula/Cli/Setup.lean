@@ -18,14 +18,16 @@ finding for the targets that share a claim and failures.
 - `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
   package, the files and the import headers of the root package's modules.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
-  agent-guidance section, searched from the Lake root up to the Git repository root.
+  agent-guidance section, searched from the Lake root up to the Git repository root, and that
+  root, where the skill files are.
 - `lakefileText`: the lakefile with the planned `lintDriver` and `leanOptions` edits written into
   it, located with Lake's own TOML grammar or Lean's parser over the `package`, `lean_lib` and
   `lean_exe` declarations.
 - `starterManifest`: every root `lean_lib` claimed `standard-logical`, as a `Manifest` value that
   `Manifest.parse` admits before it is written.
 - `init`: apply the plan, observe again and restore every written file unless the new plan is
-  empty and the options claimed targets set only with a `-D` are unchanged; then run `doctor`.
+  empty and each claimed target of both observations, matched by kind and name, sets the same
+  required options only with a `-D` (`Regula.Setup.arguedBy_run`); then run `doctor`.
 - `doctor`: print the findings and the edits `init` would write, exiting 0 only when there is
   none, and a note, which does not count, for each module outside every library that no claimed
   module imports.
@@ -66,6 +68,9 @@ structure GuidanceFile where
   hasSection : Bool
   /-- A Git repository contains the project root (`guidanceDirs`). -/
   repository : Bool
+  /-- The repository root relative to the project root, as a prefix such as `../`; empty when
+  they are the same directory. -/
+  up : String
 
 /-- What the commands read of a project in one observation. -/
 structure Project where
@@ -107,12 +112,13 @@ project's own: among the `AGENTS.md` files of `guidanceDirs root`, the nearest w
 `agentsHeading` line, else the nearest that exists, else the repository root's. -/
 def guidanceFile (root : FilePath) : IO GuidanceFile := do
   let (dirs, repository) ← guidanceDirs root
+  let up := String.join (List.replicate (dirs.length - 1) "../")
   -- The file in the directory `i` levels above `root`.
   let file (i : Nat) (present hasSection : Bool) : GuidanceFile :=
     { path := (dirs.getD i root) / "AGENTS.md"
       name := String.join (List.replicate i "../") ++ "AGENTS.md"
       project := "/".intercalate (root.components.drop (root.components.length - i))
-      present, hasSection, repository }
+      present, hasSection, repository, up }
   let mut found : List GuidanceFile := []
   for (dir, i) in dirs.zipIdx do
     let path := dir / "AGENTS.md"
@@ -233,16 +239,17 @@ def observe (root : FilePath) : IO Project := do
         ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered, unimported)
   let guidance ← guidanceFile root
   let skills ← skillPaths.filterMapM fun (p : String) => do
-    let path := root / p
-    if ← path.pathExists then
-      return some (p, (← IO.FS.readFile path) == Regula.Guidance.skill)
+    let name := guidance.up ++ p
+    if ← (root / name).pathExists then
+      return some (name, (← IO.FS.readFile (root / name)) == Regula.Guidance.skill)
     return none
   return {
     root, lakefile, configFile, guidance
     observation := {
       driver, options, targets, allClaimed, libraries, mathlib
       manifest := ← (Manifest.defaultPath root).pathExists
-      agentsFile := guidance.name, agentsSection := guidance.hasSection, skills
+      agentsFile := guidance.name, agentsSection := guidance.hasSection
+      skillFile := guidance.up ++ skillPath, skills
       toolchain := ← readTrimmed (root / "lean-toolchain")
       supported := ← readTrimmed (regulaDir / "lean-toolchain")
       uncovered, unimported } }
@@ -726,10 +733,14 @@ def init (g : Guidance) (root : FilePath) : IO UInt32 := do
       unless left.isEmpty do
         throw <| IO.userError s!"the files as written still need: \
           {", ".intercalate (left.map (·.summary project.lakefile))}"
-      -- `argued_run`: the plan adds no option a claimed target sets only with a `-D`.
-      unless argued after.observation == argued project.observation do
-        throw <| IO.userError "the files as written give a claimed target an option beside a \
-          `-D` that sets it"
+      -- `arguedBy_run`: the plan adds no option to a claimed target that sets it only with a `-D`.
+      for t in after.observation.targets do
+        let some t₀ := project.observation.targets.find? fun t₀ =>
+            t₀.exe == t.exe && t₀.name == t.name
+          | continue
+        unless after.observation.arguedBy t == project.observation.arguedBy t₀ do
+          throw <| IO.userError s!"the files as written change which required options claimed \
+            {if t.exe then "lean_exe" else "lean_lib"} `{t.name}` sets only with a `-D`"
     catch error =>
       restore (← written.get)
       throw <| IO.userError s!"{error}; every file init wrote is restored"
