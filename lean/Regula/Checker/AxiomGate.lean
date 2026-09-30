@@ -1,4 +1,5 @@
 import Regula.Checker.Acceptance
+import Regula.Checker.Inspection
 import Regula.Checker.AcceptanceLink
 import Regula.Checker.PolicyCodec
 import Regula.Checker.Lake
@@ -24,6 +25,7 @@ open Lean System
 open scoped Regula.Report
 open Regula.Checker
 open Regula.Checker.Policy
+open Regula.Checker.Inspection
 
 /-- The command-line options of one `axiomGate` invocation, as `parseArgs` reads them; `run`
 rejects the combinations the usage text does not allow. -/
@@ -113,24 +115,6 @@ private def parseArgs : List String → Options → IO Options
 
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
-
-/-- The Lake inventory of one audited library or surface environment: its modules and their
-source files. -/
-structure LibraryInfo where
-  /-- The Lake library name; for an executable's environment, the executable's name. -/
-  name : String
-  /-- Its modules as Lake reports them; for a surface environment, the modules that environment
-  owns: the library's modules other than its claimed executables' roots, or one executable's
-  root. -/
-  modules : Array Name
-  /-- The source file Lake resolves for each of those modules. -/
-  sources : Array Lake.SourceEntry
-
-private def infoFor (libraries : Array LibraryInfo) (name : String) :
-    IO LibraryInfo :=
-  match libraries.find? (·.name == name) with
-  | some info => return info
-  | none => throw <| IO.userError s!"internal error: missing library inventory for {name}"
 
 private def sameStringSet (left right : Array String) : Bool :=
   left.size == right.size && left.all right.contains && right.all left.contains
@@ -263,126 +247,6 @@ private def libraryInfoJson (info : LibraryInfo) : Json :=
     ])
   ]
 
-private def candidateModules (decls : Array Regula.Report.Declaration) : Array Name :=
-  Id.run do
-    let mut modules : Array Name := #[]
-    for decl in decls do
-      if Policy.needsFrontendTranscript #[decl]
-          && !modules.contains decl.«module» then
-        modules := modules.push decl.«module»
-    modules
-
-/-- Only typed data crosses these worker boundaries. Each imported environment
-and frontend's persistent import regions die before that surface's next operation. -/
-private structure ReportWorkerRequest where
-  modules : Array Name
-  searchRoots : Array String
-  sourceRoots : Array String
-  sourceBindings : Array ProducerReport.SourceBinding
-  ownedOutput : String
-  /-- Directory the coordinator owns for this audit, where surface workers share
-  replacement-history worker output (`Environment.historyWorkerOutput`). -/
-  historyMemo : String
-  /-- The library environments' completed admissions, which an executable's environment reuses
-  (`Admission.reusedModules`); empty for a library's environment. -/
-  priors : Array Admission.PriorAdmission
-  deriving ToJson
-
-instance : FromJson ReportWorkerRequest := ⟨fun j => do
-  Regula.Checker.PolicyCodec.exactFields j
-      ["modules", "searchRoots", "sourceRoots", "sourceBindings", "ownedOutput",
-    "historyMemo", "priors"]
-  return {
-    modules := ← j.getObjValAs? _ "modules"
-    searchRoots := ← j.getObjValAs? _ "searchRoots"
-    sourceRoots := ← j.getObjValAs? _ "sourceRoots"
-    sourceBindings := ← j.getObjValAs? _ "sourceBindings"
-    ownedOutput := ← j.getObjValAs? _ "ownedOutput"
-    historyMemo := ← j.getObjValAs? _ "historyMemo"
-    priors := ← j.getObjValAs? _ "priors"
-  }⟩
-
-/-- One Lean environment the project audit loads for a claimed surface, in the order of
-`RegulaPolicy.SurfaceAssignment.environments`: the surface's library, or one claimed
-executable whose root module it loads without any other executable root. -/
-private structure SurfaceEnvironment where
-  /-- The manifest surface the environment belongs to; its claim and execution claim apply. -/
-  surface : Manifest.Surface
-  /-- The claimed executable whose root the environment loads; `none` for the library. -/
-  executable : Option Lake.ExecutableInventory
-  /-- The environment's owned modules, as the claim assigns them, and their source files. -/
-  info : LibraryInfo
-
-/-- The environment's name in progress lines and findings: the surface's library, followed by
-the executable's name for an executable's environment. -/
-private def SurfaceEnvironment.label (environment : SurfaceEnvironment) : String :=
-  match environment.executable with
-  | none => environment.surface.library
-  | some exe => s!"{environment.surface.library} executable {exe.executable}"
-
-/-- The environments of every claimed surface, in claim order, with the modules of
-`assignments.flatMap (·.environmentNames)`: each surface's library, then each executable root
-alone. `checked_surfaceAssignments` assigns the surfaces in manifest order and gives the `i`th
-root as the root of the manifest's `i`th executable name, so the size checks cannot fail. -/
-private def surfaceEnvironments (manifest : Manifest)
-    (assignments : Array RegulaPolicy.SurfaceAssignment) (libraries : Array LibraryInfo)
-    (exeInfoFor : String → IO Lake.ExecutableInventory) : IO (Array SurfaceEnvironment) := do
-  unless manifest.surfaces.size == assignments.size do
-    throw <| IO.userError "internal error: surface assignments differ from the manifest"
-  let mut environments : Array SurfaceEnvironment := #[]
-  for (surface, assignment) in manifest.surfaces.zip assignments do
-    let library ← infoFor libraries surface.library
-    environments := environments.push {
-      surface, executable := none
-      info := { library with modules := assignment.library.map (·.name) } }
-    unless surface.executables.size == assignment.executables.size do
-      throw <| IO.userError s!"internal error: executable assignments differ for {surface.library}"
-    for (name, root) in surface.executables.zip assignment.executables do
-      let exe ← exeInfoFor name
-      environments := environments.push {
-        surface, executable := some exe
-        info := {
-          name, modules := #[root.name]
-          sources := #[{ «module» := root.name, source := exe.source }] } }
-  return environments
-
-private structure SurfaceInspection where
-  info : LibraryInfo
-  admitted : Regula.Checker.ProducerReport.Admitted
-  transcripts : Array Frontend.Transcript
-  frontendFailures : Array String
-
-/-- The bytes of every part Lean reads for the module whose `.olean` is `olean`, in
-`OLeanLevel` order, `none` for an absent part: the exported `.olean`, and for a module-system
-file its `.olean.server` and `.olean.private`, from which `importModules (level := .private)`
-takes the kernel constants. -/
-private def oleanParts (olean : FilePath) : IO (Array (Option ByteArray)) :=
-  #[Lean.OLeanLevel.exported, .server, .private].mapM fun level => do
-    let part := level.adjustFileName olean
-    if ← part.pathExists then some <$> IO.FS.readBinFile part else pure none
-
-/-- The completed admissions of the library environments, as an executable's environment may
-reuse them: each offers the modules it replayed, except those containing a copy of a shared name
-(the receipt's `shared`), whose import closure loads every `owned` module from the canonical
-`.olean` path whose parts `frozen` records for it. -/
-private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
-    (inspections : Array (Except IO.Error
-      (Except ProducerReport.AdmissionFailure SurfaceInspection))) :
-    Array Admission.PriorAdmission :=
-  inspections.filterMap fun
-    | .ok (.ok inspected) =>
-        let report := inspected.admitted.report
-        let index := Admission.originIndex report.moduleOrigins
-        let shared := (report.admission.map (·.shared)).getD #[]
-        let offered := ((report.admission.map (·.modules)).getD #[]).filter fun m =>
-          !shared.contains m && match Admission.importClosure index m with
-          | none => false
-          | some closure => closure.all fun origin =>
-              !owned.contains origin.name || frozen[origin.name]? == some origin.olean
-        if offered.isEmpty then none
-        else some { modules := offered, origins := report.moduleOrigins }
-    | _ => none
-
 private def capturedSourceAccount (resultOut : Option FilePath)
     (sources : Array ProducerReport.SourceBinding) : IO Json := do
   if sources.isEmpty then
@@ -478,21 +342,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       leanLibDir := inventory.leanLibDir
     }
     checkClassification manifest inventory
-    let manifested := Manifest.libraries manifest
-    let mut libraries : Array LibraryInfo := #[]
-    for library in manifested do
-      let some info := inventory.libraries.find? (·.library == library)
-        | throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {library}"
-      libraries := libraries.push {
-        name := library, modules := info.modules, sources := info.sources
-      }
-    let exeInfoFor (name : String) : IO Lake.ExecutableInventory :=
-      match inventory.executables.find? (·.executable == name) with
-      | some info => return info
-      | none => throw <| IO.userError s!"lake-query-malformed: auditPlan omitted {name}"
+    let libraries ← manifestedLibraries manifest inventory
     -- Two executable roots that each declare `main` cannot be imported into one environment,
     -- so each root is inspected alone (`RegulaPolicy.census_executable_alone`).
-    let environments ← surfaceEnvironments manifest assignments libraries exeInfoFor
+    let environments ← surfaceEnvironments manifest inventory assignments libraries
     withSourceEvidence sourceBindings configuration reportRoot.toString
         (if fresh then .freshProject else .incrementalProject) composed resultOut do
       let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
@@ -523,106 +376,18 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         result
       let configuredModules := libraries.foldl (fun result info => result ++ info.modules) #[]
         ++ inventory.executables.map (·.root)
-      -- At most three slot holders (surface report workers and frontend attributions) run
-      -- at once, as before; each report worker may still run its history helper. A surface's
-      -- frontend attributions share
-      -- those three slots, so they run in parallel on slots other surfaces released
-      -- instead of one after another behind their own report. A report may retain its
-      -- environment while awaiting an existing replacement-history helper.
-      let slots ← Std.Mutex.new (3 : Nat)
-      let withSlot {β : Type} (act : IO β) : IO β := do
-        while !(← slots.atomically do
-            let free ← get
-            if free > 0 then set (free - 1); return true else return false) do
-          IO.sleep 20
-        try act finally slots.atomically (modify (· + 1))
-      let inspectEnvironment (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
-          (environment : SurfaceEnvironment) :
-          IO (Except ProducerReport.AdmissionFailure SurfaceInspection) := do
-        let info := environment.info
-        let request : ReportWorkerRequest := {
-          modules := info.modules
-          searchRoots := inventory.leanPath.map (·.toString)
-          sourceRoots := inventory.leanSrcPath.map (·.toString)
-          sourceBindings
-          ownedOutput := inventory.leanLibDir.toString
-          historyMemo := historyMemo.toString
-          priors
-        }
-        -- The decoder validates the report once and keeps that success as a proof.
-        let outcome : ProducerReport.AdmittedOutcome ← withSlot <|
-            timedPhase s!"declaration inspection {environment.label}" <|
-          runTypedWorker "--declaration-report-worker" request
-        if let .error failure := outcome then return .error failure
-        let .ok admitted := outcome
-          | throw <| IO.userError "unreachable admission outcome"
-        let report := admitted.report
-        if let .error failure := SourceBinding.validateAgainst sourceBindings report then
-          return .error failure
-        unless Admission.reuseJustified priors report do
-          return .error ⟨s!"{Admission.failureTag} {environment.label} reused an \
-            admission no library environment offered over the same import closure"⟩
-        -- `mapWorkQueue` returns results in module order, so transcripts and failures
-        -- keep the order of the former sequential loop.
-        let modules := candidateModules report.declarations
-        let attempts ← mapWorkQueue 3 modules fun moduleName => do
-          let some source := info.sources.find? (·.«module» == moduleName)
-            | return Sum.inl s!"frontend-source-missing: {moduleName}"
-          try
-            return Sum.inr (← withSlot <| timedPhase s!"frontend attribution {moduleName}" <|
-              Frontend.buildIsolated moduleName source.source inventory.leanPath)
-          catch error =>
-            return Sum.inl s!"frontend-transcript-failed: {moduleName}: {error}"
-        let mut frontendFailures : Array String := #[]
-        let mut transcripts : Array Frontend.Transcript := #[]
-        for attempt in attempts do
-          match attempt with
-          | .inl failure => frontendFailures := frontendFailures.push failure
-          | .inr transcript => transcripts := transcripts.push transcript
-        if let .error failure := SourceBinding.transcriptsMatch sourceBindings transcripts then
-          return .error failure
-        return .ok { info, admitted, transcripts, frontendFailures }
-      -- An executable's environment reuses a library module's admission only over the `.olean`
-      -- parts frozen here, and every frozen part is compared again after the last inspection.
-      let frozenArtifacts ← if environments.any (·.executable.isSome) then
-          (assignments.flatMap (·.library)).filterMapM fun identity => do
-            let path := Lean.modToFilePath inventory.leanLibDir identity.name "olean"
-            unless ← path.pathExists do return none
-            return some (identity.name, (← IO.FS.realPath path).toString, path,
-              ← oleanParts path)
-        else pure #[]
-      let inspectGroup (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
-          (group : Array (Nat × SurfaceEnvironment)) :=
-        mapWorkQueue 3 group fun (index, environment) => do
-          -- Capture failures as values so every started worker is joined, then choose
-          -- fatal errors in claim order instead of worker-completion order.
-          return (index, environment,
-            ← (inspectEnvironment historyMemo priors environment).toBaseIO)
-      let inspections ← withScratch (← IO.currentDir) "history-memo" fun historyMemo => do
-        let indexed := environments.mapIdx fun index environment => (index, environment)
-        -- Every library's environment completes before any executable's, which reuses the
-        -- admissions they offer (`Admission.reusedModules`).
-        let libraries ← inspectGroup historyMemo #[] (indexed.filter (·.2.executable.isNone))
-        let executableGroup := indexed.filter (·.2.executable.isSome)
-        let priors := if executableGroup.isEmpty then #[] else
-          libraryPriors
-            (NameSet.ofArray ((sourceBindings.map (·.moduleName)).filter fun name =>
-              !Environment.probeModuleNames.contains name.toString))
-            (frozenArtifacts.foldl (fun paths (name, real, _) => paths.insert name real) {})
-            (libraries.map (·.2.2))
-        let executables ← inspectGroup historyMemo priors executableGroup
-        return ((libraries ++ executables).qsort (·.1 < ·.1)).map (·.2)
+      -- Each environment's report comes from its own worker process (`Inspection.inspect`).
+      let (frozenArtifacts, inspections) ←
+        Inspection.inspect inventory sourceBindings assignments environments
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
-      for (name, _, path, parts) in frozenArtifacts do
-        let current ← (oleanParts path).toBaseIO
-        unless (match current with | .ok found => found == parts | .error _ => false) do
-          reportContextFailure .admission reportRoot.toString
-            (if fresh then .freshProject else .incrementalProject) .incomplete
-                [.configuration, .discovery, .build]
-            s!"producer-artifact: the .olean files of {name} changed during the audit" composed
-            resultOut sourceBindings
-          return 1
+      if let some name ← changedArtifact? frozenArtifacts then
+        reportContextFailure .admission reportRoot.toString
+          (if fresh then .freshProject else .incrementalProject) .incomplete
+              [.configuration, .discovery, .build]
+          s!"producer-artifact: the .olean files of {name} changed during the audit" composed
+          resultOut sourceBindings
+        return 1
       -- Freeze the complete discovery domain before the per-declaration policy loop.
       -- Expected modules are the coordinator's Lake assignments, never response fields.
       for (_, outcome) in inspections do

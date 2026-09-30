@@ -526,6 +526,103 @@ theorem accepted_execution_resolves {c : Claim} {i : Census} {p : Plan c i}
   rw [stageEq, evidenceEq] at policy
   exact ⟨localSlot, position, identity, policy⟩
 
+/-- A declaration that needs a frontend transcript is an axiom (`declarationNeedsTranscript`), and
+no conforming request admits an axiom: `DeclarationOK`'s only axiom case requires the teaching
+request. -/
+theorem declarationOK_conforming_needsTranscript {d : Declaration} {profile : ConformingProfile}
+    {native helpers : Array Lean.Name}
+    (judgment : DeclarationOK d (.conforming profile) native helpers) :
+    declarationNeedsTranscript d.kind d.name = false := by
+  rcases judgment with ⟨_, _, impossible⟩ | ⟨kind, _⟩
+  · cases impossible
+  · simp [declarationNeedsTranscript, kind]
+
+/-- The observation a declaration-policy job accepts is a declaration of the environment's
+inventory with the job's name, judged under a conforming profile. -/
+private theorem localDeclarationPolicy_judgment {c : Claim} {e : EnvironmentCensus}
+    {roles : Roles e.policy} {key : DeclarationKey} {evidence : JobEvidence}
+    (accepted : LocalStageOK c e roles .declarationPolicy (.declaration key) evidence) :
+    ∃ d ∈ e.policy.declarations, d.name = key.name.name ∧
+      ∃ profile ∈ profileForModule c d.module,
+        DeclarationOK d (.conforming profile) roles.native roles.helpers := by
+  cases evidence <;> simp only [LocalStageOK] at accepted
+  obtain ⟨member, name, _, judgment⟩ := accepted
+  exact ⟨_, member, name, judgment⟩
+
+/-- An accepted run of a claim whose mode requires declaration policy has no declaration that
+needs a frontend transcript (a native-proof axiom) in any environment's inventory. Every inventory
+declaration names a key of the environment (`EnvironmentCensusOK`), so the plan holds its
+declaration-policy job; the observation that job accepts is the declaration itself, since the
+inventory's names are unique (`InventoryValid`); and no conforming profile admits it
+(`declarationOK_conforming_needsTranscript`). -/
+theorem accepted_no_transcript_declaration {c : Claim} {i : Census} {p : Plan c i}
+    {roles : CensusRoles i} {s : ResultTable p} (accepted : Accepted p roles s)
+    (required : Stage.declarationPolicy ∈ requiredStages c)
+    {e : EnvironmentCensus} (member : e ∈ i.environments)
+    {d : Declaration} (inventory : d ∈ e.policy.declarations) :
+    declarationNeedsTranscript d.kind d.name = false := by
+  have census := p.valid.2.2.1
+  have environmentOK : EnvironmentCensusOK c i e := census.2.2.1 e member
+  unfold EnvironmentCensusOK at environmentOK
+  obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, names, -⟩ := environmentOK
+  have named : (d.module, d.name) ∈ declarationNames e.declarations := by
+    rw [names]
+    exact Array.mem_map.mpr ⟨d, inventory, rfl⟩
+  obtain ⟨key, keyMember, keyNames⟩ := Array.mem_map.mp named
+  have keyName : key.name.name = d.name := (Prod.mk.inj keyNames).2
+  -- The plan holds the declaration-policy job of that key.
+  have job : (Stage.declarationPolicy, JobSubject.environment e.request.key (.declaration key)) ∈
+      requiredJobs c i := by
+    have subject : LocalJobSubject.declaration key ∈ localStageSubjects e .declarationPolicy :=
+      Array.mem_map.mpr ⟨key, keyMember, rfl⟩
+    have hin := stageSubjects_environment i e member .declarationPolicy _ subject
+    simp only [requiredJobs, Array.mem_flatMap, List.mem_toArray, Array.mem_map]
+    exact ⟨.declarationPolicy, required, _, hin, rfl⟩
+  rw [← p.exactJobs] at job
+  obtain ⟨jobKey, jobMember, jobEq⟩ := Array.mem_map.mp job
+  have jobPair : (jobKey.stage, jobKey.subject) =
+      (Stage.declarationPolicy, JobSubject.environment e.request.key (.declaration key)) := jobEq
+  obtain ⟨slot, bound, lookup⟩ := Array.mem_iff_getElem.mp jobMember
+  obtain ⟨o, _, planned, policy, _⟩ := accepted_covers_slot accepted slot bound
+  have keyEq : o.key = jobKey := by
+    rw [Array.getElem?_eq_getElem bound, lookup] at planned
+    exact (Option.some.inj planned).symm
+  have stageEq : o.key.stage = .declarationPolicy := by rw [keyEq]; exact (Prod.mk.inj jobPair).1
+  have subjectEq : o.key.subject = .environment e.request.key (.declaration key) := by
+    rw [keyEq]; exact (Prod.mk.inj jobPair).2
+  have stageOK := policy.2.2.2
+  simp only [StageOK, subjectEq] at stageOK
+  obtain ⟨localSlot, _, identity, localOK⟩ :=
+    environmentStageOK_resolves c i roles _ _ _ _ stageOK
+  rw [stageEq] at localOK
+  obtain ⟨d', member', name', _, _, judgment⟩ := localDeclarationPolicy_judgment localOK
+  -- The environment the job resolves to is `e`: request keys identify environments.
+  obtain ⟨index, indexBound, atIndex⟩ := Array.mem_iff_getElem.mp member
+  have sameSlot : localSlot = ⟨index, indexBound⟩ :=
+    census_environment_unique c i census localSlot ⟨index, indexBound⟩
+      (by simpa [atIndex] using identity)
+  have retained : d' ∈ e.policy.declarations := by
+    subst sameSlot
+    rw [← atIndex]
+    exact member'
+  have sameDeclaration : d' = d :=
+    eq_of_name_eq e.policy.valid.1 retained inventory (name'.trans keyName)
+  rw [← sameDeclaration]
+  exact declarationOK_conforming_needsTranscript judgment
+
+/-- Hence an accepted run of such a claim plans no transcript job: `localStageSubjects` derives a
+transcript subject only from an inventory declaration that needs a transcript. -/
+theorem accepted_no_transcript_subjects {c : Claim} {i : Census} {p : Plan c i}
+    {roles : CensusRoles i} {s : ResultTable p} (accepted : Accepted p roles s)
+    (required : Stage.declarationPolicy ∈ requiredStages c)
+    {e : EnvironmentCensus} (member : e ∈ i.environments) :
+    localStageSubjects e .transcript = #[] := by
+  simp only [localStageSubjects, Array.map_eq_empty_iff, Array.filter_eq_empty_iff]
+  intro m _ found
+  obtain ⟨d, inventory, both⟩ := Array.any_eq_true'.mp found
+  have none := accepted_no_transcript_declaration accepted required member inventory
+  simp [none] at both
+
 /-- Combined ordinary acceptance retains both independently complete plans, indexed by
 one exact snapshot and the requested Markdown inventory. Neither component is promoted
 to the other's scope; negative/teaching fences remain expectation evidence. -/

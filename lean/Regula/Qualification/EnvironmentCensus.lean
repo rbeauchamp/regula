@@ -1,10 +1,14 @@
 import Regula.Qualification.Support
 import Regula.Checker.Acceptance
+import Regula.Checker.Inspection
 
 /-! # Environment census qualification
 
-Native, source-bound environment composition qualification. Complete producer packets
-are retained before admission controls. Observed process/filesystem/compiler behavior is
+Native, source-bound environment composition qualification. Every environment's packet is
+written before the census's own admission checks: its admitted report and transcripts, with a
+refusal when frontend attribution failed, or only the refusal detail for an inspection that
+`Inspection.inspect` refused (report admission, source binding, admission reuse or transcript
+binding) or failed. Observed process/filesystem/compiler behavior is
 not a universal proof; the separate shared-name theorem establishes the pure collision class. -/
 namespace Regula.Qualification.EnvironmentCensus
 open Lean System Regula.Checker RegulaPolicy
@@ -27,58 +31,80 @@ def beginAttempt (path : FilePath) (attempt : String) : IO Unit := do
   save attempt path #[] #[] "incomplete"
 
 /-- Exercise actual native acquisition and the public freeze/finalization adapters.
+Every report comes from the project audit's own acquisition (`Inspection.inspect`): one
+`--declaration-report-worker` process per environment, so no environment's correspondence
+checks run under a resource limit an earlier environment's process fixed (`Regula.Probe`).
 The command owns one existing outer deadline, including its incremental build observation. -/
 private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   save attempt path #[] #[] "incomplete"
   let root ← rootDirectory
+  -- The same search-path initialization as the audit's coordinator (`AxiomGate.entry`); the
+  -- report workers inherit it.
+  initializeLeanSearchPath
   let configuration ← SourceBinding.configuration root (Manifest.defaultPath root)
   let inventory ← Lake.surfaceInventory root
   let sources ← SourceBinding.capture inventory.moduleSources
   let manifest ← Manifest.load (Manifest.defaultPath root)
   let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
-  let expected := assignments.flatMap (·.environmentNames)
+  let libraries ← Inspection.manifestedLibraries manifest inventory
+  let environments ← Inspection.surfaceEnvironments manifest inventory assignments libraries
+  let expected := environments.map (·.info.modules)
   let dependencies ← Snapshot.dependencies inventory
+  -- The report workers run the `axiomGate` binary beside this one (`workerBinary`); build it
+  -- from the same sources first, so the census never runs a stale worker.
+  let worker ← Lake.buildTargets root #["axiomGate"]
+  let mut records :=
+    #[Json.mkObj [("case", toJson "worker-build"), ("observation", toJson worker)]]
+  save attempt path #[] records "incomplete"
+  requireChecks [⟨"report worker builds", worker.succeeded⟩]
   let targets := manifest.surfaces.flatMap fun s => #[s.library] ++ s.executables
   let (build, failure) ← Lake.buildCheckedObservation root targets
       "incrementally for environment qualification"
-  let mut records := #[Json.mkObj [("case", toJson "build"), ("observation", toJson build)]]
+  records := records.push <| Json.mkObj [("case", toJson "build"), ("observation", toJson build)]
   let mut packets : Array Json := #[]
   save attempt path packets records "incomplete"
   requireChecks [⟨"positive targets build warning-free", failure.isNone⟩]
   SourceBinding.unchanged sources
   SourceBinding.configurationUnchanged configuration
+  let (frozenArtifacts, inspections) ←
+    Inspection.inspect inventory sources assignments environments
+  -- Write every environment's packet before the census's own admission checks (scope admission,
+  -- freeze, finish, mutations): the admitted report, plus its refusal when frontend attribution
+  -- failed, or only the refusal detail for an inspection `Inspection.inspect` refused or failed.
   let mut reports : Array Acceptance.RequestedInspection := #[]
-  for modules in expected do
-    let report ← Environment.loadReport modules inventory.leanPath inventory.leanSrcPath
-      inventory.moduleSources (some inventory.leanLibDir)
-    -- Retain even a report whose subsequent frontend acquisition or validation fails.
-    let packetPath := path.addExtension s!"packet-{reports.size}.json"
-    atomicWrite packetPath (Json.mkObj [("expectedModules", toJson modules),
-      ("report", toJson report),
-      ("transcripts", toJson (#[] : Array RegulaPolicy.Frontend.Transcript)),
-      ("frontendComplete", toJson false)])
+  let mut refusals : Array String := #[]
+  for (environment, outcome) in inspections do
+    let packetPath := path.addExtension s!"packet-{packets.size}.json"
+    let refused (detail : String) : Json × Except String Acceptance.RequestedInspection :=
+      (Json.mkObj [("expectedModules", toJson environment.info.modules),
+        ("refusal", toJson detail)], .error detail)
+    let (packet, inspection) : Json × Except String Acceptance.RequestedInspection :=
+      match outcome with
+      | .ok (.ok inspected) =>
+          let requested : Acceptance.RequestedInspection :=
+            ⟨environment.info.modules, inspected.admitted, inspected.transcripts⟩
+          if inspected.frontendFailures.isEmpty then (toJson requested, .ok requested)
+          else
+            let detail := "; ".intercalate inspected.frontendFailures.toList
+            ((toJson requested).setObjVal! "refusal" (toJson detail), .error detail)
+      | .ok (.error failure) => refused failure.detail
+      | .error error => refused error.toString
+    atomicWrite packetPath packet
+    match inspection with
+    | .ok requested => reports := reports.push requested
+    | .error detail => refusals := refusals.push s!"{environment.label}: {detail}"
     packets := packets.push (toJson packetPath.toString)
     save attempt path packets records "incomplete"
-    let candidates := report.declarations.foldl (fun names d =>
-      if Policy.needsFrontendTranscript #[d] && !names.contains d.module then names.push d.module
-      else names) (#[] : Array Name)
-    let mut transcripts : Array RegulaPolicy.Frontend.Transcript := #[]
-    for name in candidates do
-      let some source := sources.find? (·.moduleName == name)
-        | throw <| IO.userError s!"missing captured frontend source: {name}"
-      transcripts := transcripts.push
-          (← Regula.Checker.Frontend.buildIsolated name ⟨source.path⟩ inventory.leanPath)
-    let inspected : Acceptance.RequestedInspection :=
-      ⟨modules, ← IO.ofExcept (ProducerReport.admit report), transcripts⟩
-    reports := reports.push inspected
-    atomicWrite packetPath (toJson inspected)
-    save attempt path packets records "incomplete"
-    IO.ofExcept ((SourceBinding.validateAgainst sources report).mapError (·.detail))
-    IO.ofExcept ((SourceBinding.transcriptsMatch sources transcripts).mapError (·.detail))
-    let _ ← IO.ofExcept <| Policy.admitScope report.declarations transcripts
+  unless refusals.isEmpty do
+    throw <| IO.userError s!"environment inspection refused: {"; ".intercalate refusals.toList}"
+  for requested in reports do
+    let _ ← IO.ofExcept <| Policy.admitScope requested.report.declarations requested.transcripts
   SourceBinding.unchanged sources
   SourceBinding.configurationUnchanged configuration
+  if let some name ← Inspection.changedArtifact? frozenArtifacts then
+    throw <| IO.userError
+      s!"producer-artifact: the .olean files of {name} changed during the qualification"
   Snapshot.inputsUnchanged inventory dependencies
   -- Both environments own a `main`: the verification library's driver and the application
   -- executable's root, which is requested alone (`census_executable_alone`).
@@ -187,21 +213,16 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
                                  { value with unresolved :=
                                                 #["qualification unresolved execution"] } })
     | _ => (slot, observation)
-  let transcripts := reports.flatMap (·.transcripts)
-  let some foreignTranscript := transcripts[0]?
-    | throw <| IO.userError "no real role transcript available for substitution"
-  let roleInputs := inputs.map fun (slot, observation) =>
-    match observation.evidence with
-    | .transcript value =>
-        if value.module != foreignTranscript.module then
-          (slot, { observation with evidence := .transcript foreignTranscript })
-        else (slot, observation)
-    | _ => (slot, observation)
+  -- No transcript substitution control runs: an accepted run plans no transcript job
+  -- (`RegulaPolicy.accepted_no_transcript_subjects`), so the accepted positive above has no
+  -- transcript observation to substitute. The record says so rather than omitting the case.
+  records := records.push <| Json.mkObj [("case", toJson "cross-environment-role-transcript"),
+    ("run", toJson false), ("reason", toJson
+      "an accepted run plans no transcript job (RegulaPolicy.accepted_no_transcript_subjects)")]
   for (name, mutated) in #[
       ("cross-environment-declaration", substitutionInputs),
       ("cross-environment-root", rootInputs),
-      ("incompatible-execution", unresolvedInputs),
-      ("cross-environment-role-transcript", roleInputs)] do
+      ("incompatible-execution", unresolvedInputs)] do
     let result := finalize frozen.plan frozen.roles mutated
     let refusal := match result with | .ok _ => "" | .error failure => reprStr failure
     records := records.push <| Json.mkObj [("case", toJson name), ("refusal", toJson refusal)]
@@ -238,7 +259,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   save attempt path packets records "complete"
   IO.println "environment census qualification: PASS (scoped native observations)"
 
-/-- Ordinary failures retain all captured packets and report failure. Termination before
+/-- An ordinary failure keeps the packets already written (every environment's, once
+`Inspection.inspect` has returned; see `checkCore`) and reports failure. Termination before
 this handler runs leaves the initialized incomplete receipt; atomic rename is trusted IO. -/
 unsafe def check (path : FilePath) (attempt : Option String := none) : IO Unit := do
   let attempt ← attempt.map pure |>.getD freshAttempt
