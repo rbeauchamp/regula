@@ -268,7 +268,9 @@ inspection; the compiler-dependent account is specified in standard §7.6.
 [`examples/rules/<ID>/`](../../examples/rules/) holds each rule's `Violation` and `Fixed` source,
 or an unchanged `Example.lean` with a changed dependency (RG1003) or configuration (RG2001,
 RG2002, RG2006) pair; RG2006's pair is the package's `lakefile.lean`, to which the run appends the
-`require` line of its producer slot. [`corpus.json`](../../examples/rules/corpus.json) fixes each
+`require` line of its producer slot, and RG2002's pair is two manifests for one layout, in which
+the run gives library `Example` the submodule glob and `lean_exe cli` its root `Example.Cli`
+(`Cli.lean`) inside that library. [`corpus.json`](../../examples/rules/corpus.json) fixes each
 phase's invocation, evidence mode, expected IDs, subreasons, message patterns, subjects and full
 primary locations before execution; its [README](../../examples/rules/README.md) gives the
 authoring rules and placeholders. Keep a pair's `correction` sentence and its fixtures in the

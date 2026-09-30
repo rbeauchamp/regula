@@ -486,16 +486,20 @@ def guide : RuleId → Guide
       trigger := [
         "The checker parses the manifest and reconciles it with Lake's elaborated root package. \
           Unknown keys, duplicates, a wrong schema version, an unknown `execution` value, an empty \
-          `surfaces` array, a missing rationale, an unclassified or unknown target, and \
-          claimed/excluded conflicts are rejected (`manifest-schema`, `manifest-incomplete` and \
-          related subreasons).",
+          `surfaces` array, a missing rationale, an unclassified or unknown target, and an \
+          executable whose root module belongs to a library classified differently (claimed in \
+          another surface, or claimed where the library is excluded, or the reverse) are \
+          rejected (`manifest-schema`, `manifest-incomplete`, `manifest-conflict` and related \
+          subreasons). A claimed executable whose root belongs to its own surface's library is \
+          accepted: the root is inspected once, in the executable's environment.",
         "In the editor, an invalid local request (for example an unknown `regula.localFoundation` \
           value) is reported under this rule for the current file only."]
       rationaleDetail := []
       proofShape := []
       established := [
         "The manifest has the exact schema and classifies every root-package library and \
-          executable exactly once."]
+          executable exactly once, each executable alike with every library that contains its \
+          root module."]
       notEstablished := [
         "That the chosen claims and exclusions are appropriate for the project; that is reviewed \
           with each rationale.",
@@ -606,8 +610,11 @@ def guide : RuleId → Guide
           ["DECL-02", "DECL-03", "SCOPE-05", "DECL-01", "DECL-04", "BUILD-01",
               "BUILD-03", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.ScopeOK`, over \
-        the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`. The \
-        inventory checks are operational."
+        the surface assignments of `Regula.Checker.Acceptance.checked_surfaceAssignments`, which \
+        assign every module of a claimed library to one of its surface's environments \
+        (`surfaceAssignments_covers`). The root-classification conflict is \
+        `RegulaPolicy.RootsClassifiedAlike`, decided before the build and again in \
+        `TargetPartitionOK`. The inventory checks are operational."
       sources :=
           ["lean/Regula/Checker/Lake.lean", "lean/Regula/Probe.lean",
               "lean/Regula/Checker/AxiomGate.lean"] }

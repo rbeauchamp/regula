@@ -241,8 +241,25 @@ theorem infrastructure_disjoint (c : Claim) (i : EnvironmentCensus) (h : Infrast
     (m : ModuleKey) (hm : m ∈ i.infrastructureModules) : m ∉ i.modules ∧ m ∉ i.importedModules :=
   ⟨(h.1 m hm).1, (h.1 m hm).2.1⟩
 
-/-- Exact target partition, including excluded targets and standalone-executable conflicts.
-Each positive surface owns its library and any separately classified executable roots. -/
+/-- An executable's root module lies in a library only when the manifest classifies the two
+alike: the executable is claimed with that library's surface, or both are excluded. A claimed
+root inside a claimed library therefore keeps that library's claim, and no root is claimed with
+one surface while a library containing it is excluded or claimed with another, or excluded while
+such a library is claimed. -/
+def RootsClassifiedAlike (configured : Array TargetAssignment)
+    (discovered : Array DiscoveredTarget) : Prop :=
+  ∀ a ∈ configured, a.kind = .executable →
+    ∀ t ∈ discovered, t.kind = .executable → t.name = a.name →
+      ∀ n ∈ t.modules, ∀ lib ∈ discovered, lib.kind = .library → n ∈ lib.modules →
+        ∀ l ∈ configured, l.kind = .library → l.name = lib.name → l.surface = a.surface
+set_option synthInstance.maxSize 1024 in
+instance (configured : Array TargetAssignment) (discovered : Array DiscoveredTarget) :
+    Decidable (RootsClassifiedAlike configured discovered) := by
+  unfold RootsClassifiedAlike; infer_instance
+
+/-- Exact target partition, including excluded targets and executable roots classified alike
+with every library containing them (`RootsClassifiedAlike`). Each positive surface owns its
+library's modules and its claimed executables' root modules, a root inside the library once. -/
 def TargetPartitionOK (c : Claim) (i : Census) : Prop :=
   i.configuredTargets.toList.Pairwise (fun a b => (a.kind, a.name) ≠ (b.kind, b.name)) ∧
   i.discoveredTargets.toList.Pairwise (fun a b => (a.kind, a.name) ≠ (b.kind, b.name)) ∧
@@ -258,11 +275,7 @@ def TargetPartitionOK (c : Claim) (i : Census) : Prop :=
         a.kind == t.kind && a.name == t.name && a.surface == some s.target))).flatMap (·.modules)))
             ∧
   (∀ a ∈ i.configuredTargets, a.kind = .library → ∀ owner ∈ a.surface, a.name = owner) ∧
-  (∀ a ∈ i.configuredTargets, a.kind = .executable →
-    ∀ t ∈ i.discoveredTargets, t.kind = .executable → t.name = a.name →
-      ∀ n ∈ t.modules, ∀ lib ∈ i.discoveredTargets, lib.kind = .library →
-        (a.surface.isSome = true → n ∉ lib.modules) ∧
-        (∀ owner ∈ c.val.surfaces, lib.name = owner.target → n ∉ lib.modules))
+  RootsClassifiedAlike i.configuredTargets i.discoveredTargets
 set_option synthInstance.maxSize 1024 in
 instance (c : Claim) (i : Census) : Decidable (TargetPartitionOK c i) := by
   unfold TargetPartitionOK; infer_instance

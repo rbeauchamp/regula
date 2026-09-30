@@ -192,10 +192,15 @@ the census of owned declarations, roots and required transcripts; then freeze th
 before collecting results. `Census.requests` is the ordered array of environment requests, and
 `CensusOK` requires the returned requests to equal it and their positive module partition to be
 the whole claim. An ordinary (non-serialized-graph) project claim requests
-`SurfaceAssignment.environments` for each surface in order: the library's modules, then each
-claimed executable's root alone (`census_executable_alone`; `acceptedRun_executable_alone` for
-every accepted ordinary project run), because two roots that each define `main` cannot share one
-environment. `InventoryValid`
+`SurfaceAssignment.environments` for each surface in order: the library's modules other than its
+claimed executables' roots, then each claimed executable's root alone (`census_executable_alone`;
+`acceptedRun_executable_alone` for every accepted ordinary project run), because two roots that
+each define `main` cannot share one environment. A root inside its library is thus assigned once
+(`SurfaceAssigned.disjoint`), and `surfaceAssignments_covers` proves of the executed assignment
+that every module of a claimed library is assigned to one of its surface's environments. An
+executable's root may lie in a library only when the manifest classifies the two alike
+(`RootsClassifiedAlike`, a conjunct of `TargetPartitionOK` that `checkClassification` decides
+before the build). `InventoryValid`
 requires unique names within each Lean environment; different environments may each define
 `main`, and their inventories are never merged. Each
 `EnvironmentCensus` retains its complete admitted policy inventory, transcripts, execution roots,
@@ -261,7 +266,7 @@ interfaces do not imply a library-wide exemption.
 | `Probe.replacementCorrespondence` | `DefeqComparison.classify` (a comparison that did not complete is unresolved, never trusted) | Mapping the kernel result to the outcome, the kernel decision itself and the incomplete theorem-candidate search. |
 | `Checker/Common.admitIndexedWorkerResults`, `mapWorkQueue`, `Documentation.auditTasks` | `checked_indexedResults` over `ResultState.collect` | Child completion, strict packet decoding, task scheduling and exact request and source binding. |
 | `Checker/Documentation.matchesPattern` | `matchesPattern` | Structural fence scanning, pattern diagnostic text and effective-error extraction. |
-| `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments`, `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
+| `AxiomGate.auditSurfaceAt`, `FreshChecker`, the file gate | `checked_surfaceAssignments` (with `surfaceAssignments_covers`), `checked_conformingProfile`, `checked_histories`, `checked_environmentJob`, `checked_environmentEvidence` (claimed `RegulaCore.Assembly`) | Manifest parsing, Lake loading and producer history; the contracts concern the decoded records. |
 | `Checker/Acceptance.finish`, `Documentation.finishDocuments`, `FreshChecker.finishGraph` | `finalize`, `finalize_iff`, `accepted_report_identity`, `accepted_covers_slot` | The independently supplied census and the truth of the observations; each finalizer supplies all derived jobs and returns `AcceptedRun`. |
 | `AxiomGate.auditSurface` combined success | `combineAccepted`, `combined_policy`, `combined_reports_same_snapshot` | Child completion and raw decoding, terminal source stability and environment extraction. |
 | `ResultProtocol.writeAccepted`, `acceptedJson` and the success renderers | `AcceptedRun.report`, `Account.account` (`checked_account`), `Status.completed_accepted` | Rendering, JSON and OS exit semantics are not universally proved; JSON is never decoded into acceptance. Each contract requirement's adequacy and the residual obligations remain review. |
@@ -781,7 +786,11 @@ library includes is a failing setup issue only when a claimed module (of a libra
 the manifest does not exclude) reaches it by import through the package's modules, which the
 audit rejects as outside every library; any other such module is a `note` that does not count
 toward `doctor`'s exit status. That reachability is read from the sources' import headers, not
-from a build.
+from a build. Each such finding states how many modules the library leaves out and names at most
+`shownModules` of them, wrapped: `moduleSummary_complete` proves it prints a prefix of them and
+counts exactly the rest, and `wrapFrom_flatten` that wrapping keeps each printed name, in order.
+The starter manifest lists each `lean_exe` with the first library containing its root module, so
+it meets `RootsClassifiedAlike` unless a root lies in two libraries.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
 which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and

@@ -8,7 +8,9 @@ import RegulaPolicy.Traversal
 Pure assembly of the acceptance census and job observations from the decoded manifest,
 Lake inventory, producer history and frozen environment records. Contracts cover what
 nothing downstream decides again: each surface's profile and execution claim and its
-module order (`conformingProfile`, `surfaceAssignments`), exact history copies
+module order (`conformingProfile`, `surfaceAssignments`), including that every module of a
+claimed library is assigned to one of its surface's environments (`surfaceAssignments_covers`),
+exact history copies
 (`histories`), the frozen environment an environment job reads (`checked_environmentJob`),
 and, as soundness only, which record within that environment supplies
 documentation-presence evidence (`checked_environmentEvidence`). The claimed
@@ -203,8 +205,10 @@ def conformingProfile (profile : Profile) : Except String ConformingProfile :=
   checked_conformingProfile.run profile
 
 /-- Required claim surface for one manifest surface: its library name and execution claim,
-the conforming profile its claim spells, the modules of the first Lake library of that name,
-and, in manifest order, the root of the first Lake executable of each claimed executable name. -/
+the conforming profile its claim spells, in manifest order the root of the first Lake executable
+of each claimed executable name, and, in Lake's order, the modules of the first Lake library of
+that name other than those roots. A root inside the library is thus assigned once, to its
+executable's environment, where it keeps the surface's claim. -/
 def SurfaceAssigned (inventory : Lake.SurfaceInventory) (surface : Manifest.Surface)
     (assigned : SurfaceAssignment) : Prop :=
   assigned.target = surface.library ∧ assigned.execution = surface.execution ∧
@@ -214,8 +218,37 @@ def SurfaceAssigned (inventory : Lake.SurfaceInventory) (surface : Manifest.Surf
       (∀ i (h : i < surface.executables.size) (h' : i < roots.length),
         (inventory.executables.find? (·.executable == surface.executables[i])).map (·.root) =
           some roots[i]) ∧
-      assigned.library.toList.map (·.name) = library.modules.toList ∧
+      assigned.library.toList.map (·.name) =
+        library.modules.toList.filter (fun m => !roots.contains m) ∧
       assigned.executables.toList.map (·.name) = roots
+
+/-- No module of the surface's Lake library escapes its assignment: each is assigned to the
+library's environment or is the root of one of its claimed executables. -/
+theorem SurfaceAssigned.covers {inventory : Lake.SurfaceInventory} {surface : Manifest.Surface}
+    {assigned : SurfaceAssignment} (h : SurfaceAssigned inventory surface assigned)
+    {library : Lake.LibraryInventory}
+    (hl : inventory.libraries.find? (·.library == surface.library) = some library) :
+    ∀ m ∈ library.modules, m ∈ assigned.library.map (·.name) ∨
+      m ∈ assigned.executables.map (·.name) := by
+  obtain ⟨_, _, _, library', hl', roots, _, _, hlib, hexe⟩ := h
+  obtain rfl : library' = library := Option.some.inj (hl'.symm.trans hl)
+  intro m hm
+  by_cases hr : m ∈ roots
+  · exact .inr (by rw [← Array.mem_toList_iff, Array.toList_map, hexe]; exact hr)
+  · refine .inl ?_
+    rw [← Array.mem_toList_iff, Array.toList_map, hlib, List.mem_filter]
+    exact ⟨Array.mem_toList_iff.mpr hm, by simpa using hr⟩
+
+/-- The library's environment and the executables' roots are disjoint, so a root inside the
+library is not inspected in two environments. -/
+theorem SurfaceAssigned.disjoint {inventory : Lake.SurfaceInventory} {surface : Manifest.Surface}
+    {assigned : SurfaceAssignment} (h : SurfaceAssigned inventory surface assigned) :
+    ∀ m ∈ assigned.library.map (·.name), m ∉ assigned.executables.map (·.name) := by
+  obtain ⟨_, _, _, _, _, roots, _, _, hlib, hexe⟩ := h
+  intro m hm hr
+  rw [← Array.mem_toList_iff, Array.toList_map, hlib, List.mem_filter] at hm
+  rw [← Array.mem_toList_iff, Array.toList_map, hexe] at hr
+  simp [hr] at hm
 
 /-- Required census assignment: success exactly with one `SurfaceAssigned` claim surface
 per manifest surface, in manifest order. -/
@@ -238,7 +271,7 @@ private def assignSurface (inventory : Lake.SurfaceInventory) (surface : Manifes
   let some library := inventory.libraries.find? (·.library == surface.library)
     | throw "manifest surface missing from Lake discovery"
   let roots ← surface.executables.toList.mapM (executableRoot inventory)
-  let modules ← library.modules.toList.mapM admitIdentity
+  let modules ← (library.modules.toList.filter (fun m => !roots.contains m)).mapM admitIdentity
   let rootModules ← roots.mapM admitIdentity
   let profile ← conformingProfile surface.claim
   return ⟨surface.library, modules.toArray, rootModules.toArray, profile, surface.execution⟩
@@ -315,17 +348,20 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
         have b := hroots i (by omega) h'
         rw [a] at b
         exact Option.some.inj b
-      cases hm : library.modules.toList.mapM admitIdentity with
+      -- The goal still binds `roots` here, so `hm` rewrites it by `simp` once the binds reduce.
+      cases hm : (library.modules.toList.filter (fun m => !roots.contains m)).mapM
+          admitIdentity with
       | error e =>
-        simp only [bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
-        intro _ _ _ _ _ _ hnames _
+        simp only [hm, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
+        intro _ _ _ roots' hlen' hroots' hnames _
+        obtain rfl := sameRoots roots' hlen' hroots'
         rw [(admitIdentities_ok _ assigned.library.toList).mpr hnames] at hm
         cases hm
       | ok modules =>
         have hnames := (admitIdentities_ok _ _).mp hm
         cases hx : roots.mapM admitIdentity with
         | error e =>
-          simp only [hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
+          simp only [hm, hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
           intro _ _ _ roots' hlen' hroots' _ hrootNames
           obtain rfl := sameRoots roots' hlen' hroots'
           rw [(admitIdentities_ok _ assigned.executables.toList).mpr hrootNames] at hx
@@ -334,7 +370,7 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
           have hrootNames := (admitIdentities_ok _ _).mp hx
           cases hp : conformingProfile surface.claim with
           | error e =>
-            simp only [hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
+            simp only [hm, hx, bind, Except.bind, reduceCtorEq, false_iff, not_and, not_exists]
             intro _ _ hspell _ _ _ _ _
             have := (checked_conformingProfile.evidence.1 surface.claim assigned.profile).mpr
               hspell
@@ -343,7 +379,7 @@ private theorem assignSurface_ok (inventory : Lake.SurfaceInventory) (surface : 
             cases this
           | ok profile =>
             have hspell := (checked_conformingProfile.evidence.1 surface.claim profile).mp hp
-            simp only [hx, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
+            simp only [hm, hx, bind, Except.bind, pure, Except.pure, Except.ok.injEq]
             constructor
             · rintro rfl
               exact ⟨rfl, rfl, hspell, roots, hlen, hroots, by simpa using hnames,
@@ -398,6 +434,27 @@ inventory, before looking at returned declarations or policy results. Through
 def surfaceAssignments (manifest : Manifest) (inventory : Lake.SurfaceInventory) :
     Except String (Array SurfaceAssignment) :=
   checked_surfaceAssignments.run manifest inventory
+
+/-- No module of a claimed library escapes the executed assignment: every module of the Lake
+library of manifest surface `i` is assigned to an environment of that surface, the library's
+own or, for the root of one of its claimed executables, that executable's
+(`SurfaceAssigned.covers`, `SurfaceAssignment.flatten_environments`). -/
+theorem surfaceAssignments_covers {manifest : Manifest} {inventory : Lake.SurfaceInventory}
+    {out : Array SurfaceAssignment} (h : surfaceAssignments manifest inventory = .ok out)
+    (i : Nat) (hi : i < manifest.surfaces.size) {library : Lake.LibraryInventory}
+    (hl : inventory.libraries.find? (·.library == manifest.surfaces[i].library) = some library) :
+    ∃ ho : i < out.size,
+      ∀ m ∈ library.modules, ∃ e ∈ out[i].environments, m ∈ e.map (·.name) := by
+  have ⟨hsize, hall⟩ := (checked_surfaceAssignments.evidence manifest inventory out).mp h
+  have ho : i < out.size := hsize ▸ hi
+  refine ⟨ho, fun m hm => ?_⟩
+  have hin : m ∈ out[i].modules.map (·.name) := by
+    simp only [SurfaceAssignment.modules, Array.map_append, Array.mem_append]
+    exact (hall i hi ho).covers hl m hm
+  rw [← SurfaceAssignment.flatten_environments] at hin
+  obtain ⟨identity, hidentity, rfl⟩ := Array.mem_map.mp hin
+  obtain ⟨e, he, hmember⟩ := Array.mem_flatten.mp hidentity
+  exact ⟨e, he, Array.mem_map.mpr ⟨identity, hmember, rfl⟩⟩
 
 /-- Manifest classification of every library and executable, as a total projection. The
 claimed `TargetPartitionOK` checks it against discovery and the claim surfaces. -/
