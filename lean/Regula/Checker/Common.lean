@@ -65,16 +65,76 @@ def runProcess (repo : FilePath) (cmd : String) (args : Array String)
   let result ← IO.Process.output { cmd, args, cwd := some repo, env }
   return { exitCode := result.exitCode, stdout := result.stdout, stderr := result.stderr }
 
-/-- Report elapsed wall time around an action, including exceptional completion. -/
+/-- The environment variable that turns timing output on in a checker process: `1` on, otherwise
+off. A coordinator passes it to the workers whose output it shows (`runTypedWorker`). -/
+def timingVariable : String := "REGULA_TIMING"
+
+/-- Whether this process prints timing spans (`timedPhase`, `timingSpan`): off by default, on
+with `axiomGate --verbose` (so also `lake lint -- --verbose`) or when `timingVariable` is `1`.
+The spans measure the checker's own cost; they are never findings or results. -/
+initialize timing : IO.Ref Bool ← do IO.mkRef ((← IO.getEnv timingVariable) == some "1")
+
+/-- Print one timing line when timing output is on. -/
+def timingSpan (line : String) : IO Unit := do
+  if ← timing.get then
+    IO.println line
+    (← IO.getStdout).flush
+
+/-- Lake's own progress line for one build job: the job's status icon (`LogLevel.icon`, or `✔`)
+and its `[i/n]` position, as `Lake.Build.Run.reportJob` prints it without ANSI codes, such as
+`✔ [3/10] Built Widget (1.2s)`. -/
+def isLakeProgressLine (line : String) : Bool :=
+  ["✔ [", "ℹ [", "⚠ [", "✖ ["].any fun (icon : String) => line.startsWith icon
+
+/-- A stream that writes everything to `target` and also prints to standard output, as each line
+is completed, every line `display` selects. -/
+def showingStream (target : IO.FS.Stream) (display : String → Bool) : IO IO.FS.Stream := do
+  let pending ← IO.mkRef ""
+  let stdout ← IO.getStdout
+  return { target with
+    putStr := fun text => do
+      target.putStr text
+      let parts := ((← pending.get) ++ text).splitOn "\n"
+      pending.set parts.getLast!
+      for line in parts.dropLast do
+        if display line then
+          stdout.putStrLn line
+          stdout.flush }
+
+/-- `runProcess`, also printing to standard output each line of the child's standard output that
+`display` selects (with its newline), as the child writes it. The captured output is the
+child's complete output. -/
+def runProcessShowing (repo : FilePath) (cmd : String) (args : Array String)
+    (env : Array (String × Option String)) (display : String → Bool) : IO ProcessResult := do
+  let child ← IO.Process.spawn {
+    cmd, args, cwd := some repo, env, stdin := .null, stdout := .piped, stderr := .piped }
+  -- Drain standard error while standard output is read, so neither pipe can block the child.
+  let errors ← IO.asTask child.stderr.readToEnd .dedicated
+  let stdout ← IO.mkRef ""
+  let read : IO Unit := do
+    repeat
+      let line ← child.stdout.getLine
+      if line.isEmpty then break
+      stdout.modify (· ++ line)
+      if display line then
+        IO.print line
+        (← IO.getStdout).flush
+  let readResult ← read.toBaseIO
+  let waited ← child.wait.toBaseIO
+  let errors ← IO.wait errors
+  IO.ofExcept readResult
+  return {
+    exitCode := ← IO.ofExcept waited, stdout := ← stdout.get, stderr := ← IO.ofExcept errors }
+
+/-- Report elapsed wall time around an action, including exceptional completion, when timing
+output is on (`timing`). -/
 def timedPhase {α : Type} (label : String) (action : IO α) : IO α := do
-  IO.println s!"verification phase {label}: start"
-  (← IO.getStdout).flush
+  timingSpan s!"verification phase {label}: start"
   let start ← IO.monoNanosNow
   try action
   finally
     let elapsed ← IO.monoNanosNow
-    IO.println s!"verification phase {label}: {(elapsed - start) / 1000000}ms (finished)"
-    (← IO.getStdout).flush
+    timingSpan s!"verification phase {label}: {(elapsed - start) / 1000000}ms (finished)"
 
 /-- The lines of `output`, split at each newline. -/
 def outputLines (output : String) : Array String :=
@@ -326,15 +386,15 @@ def readJson (path : FilePath) : IO Json := do
   IO.ofExcept <| Regula.Checker.PolicyCodec.parse text
 
 /-- Write `value` as compact JSON and a final newline to `path`, creating its parent
-directories, and print how long encoding and writing took. -/
+directories, and report how long encoding and writing took when timing output is on. -/
 def writeJson (path : FilePath) (value : Json) : IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   let encodeStart ← IO.monoMsNow
   let encoded := Json.compress value ++ "\n"
-  IO.println s!"diagnostic span: writeJson encode {path}: {(← IO.monoMsNow) - encodeStart}ms"
+  timingSpan s!"diagnostic span: writeJson encode {path}: {(← IO.monoMsNow) - encodeStart}ms"
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded
-  IO.println s!"diagnostic span: writeJson write {path}: {(← IO.monoMsNow) - writeStart}ms"
+  timingSpan s!"diagnostic span: writeJson write {path}: {(← IO.monoMsNow) - writeStart}ms"
 
 /-- The JSON on a succeeded process's standard output, parsed strictly; a failed process or
 malformed output throws an error that names `what`. -/
@@ -480,8 +540,17 @@ def workerBinary : IO FilePath := do
     | throw <| IO.userError "checker library directory unavailable"
   return selfLib.parent.getD selfLib / ".." / "bin" / "axiomGate"
 
+/-- A failed worker's error text: its standard error, trimmed and without the `FAIL: ` prefix
+the `axiomGate` entry prints before an escaped error, or a note that it wrote none. -/
+def workerErrorText (stderr : String) : String :=
+  let text := stderr.trimAscii.toString
+  let text := ((text.dropPrefix? "FAIL: ").map (·.toString)).getD text
+  if text.isEmpty then "the worker wrote no error" else text
+
 /-- Await an isolated checker worker and decode its typed result. The child
-stays in the caller’s process group and its scratch files outlive its exit. -/
+stays in the caller’s process group and its scratch files outlive its exit. Its standard error
+is captured: a nonzero exit raises an error that carries it (`workerErrorText`), and a
+successful worker's is copied to this process's standard error. -/
 def runTypedWorker {α β : Type} [ToJson α] [FromJson β]
     (flag : String) (request : α) : IO β := do
   let binary ← workerBinary
@@ -492,14 +561,22 @@ def runTypedWorker {α β : Type} [ToJson α] [FromJson β]
     let child ← IO.Process.spawn {
       cmd := binary.toString
       args := #[flag, input.toString, output.toString]
-      env := #[("LEAN_PATH", some (SearchPath.toString (← Lean.searchPathRef.get)))]
+      env := #[("LEAN_PATH", some (SearchPath.toString (← Lean.searchPathRef.get))),
+        (timingVariable, if ← timing.get then some "1" else none)]
       stdin := .null
       stdout := .inherit
-      stderr := .inherit
+      stderr := .piped
       setsid := false
     }
-    let code ← child.wait
-    if code != 0 then throw <| IO.userError s!"{flag} failed with exit code {code}"
+    -- Drain standard error while the worker runs, so a full pipe cannot block it.
+    let errors ← IO.asTask child.stderr.readToEnd .dedicated
+    let waited : Except IO.Error UInt32 ← try pure (.ok (← child.wait))
+      catch error => pure (.error error)
+    let errors ← IO.ofExcept (← IO.wait errors)
+    let code ← IO.ofExcept waited
+    if code != 0 then
+      throw <| IO.userError s!"{flag} exited with code {code}: {workerErrorText errors}"
+    unless errors.isEmpty do IO.eprint errors
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
     let payload ← IO.ofExcept <| readWorkerPacket (toJson request) json
     IO.ofExcept (fromJson? payload)

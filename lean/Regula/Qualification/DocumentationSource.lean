@@ -1,4 +1,5 @@
 import Regula.Qualification.SourceEvidence
+import Regula.Checker.Common
 
 /-! # Documentation source-binding qualification
 
@@ -13,6 +14,11 @@ private def action (operation : String) : String :=
   if operation == "append" then "IO.FS.writeFile path ((← IO.FS.readFile path) ++ \"\\n\")"
   else if operation == "remove" then "IO.FS.removeFile path"
   else "IO.FS.removeFile path\n  IO.FS.createDirAll path"
+
+/-- The adopter environment with timing output on: the transcript checks require the
+`fence compilation` phase line (`documentationChecks`), which only timing output prints. -/
+private def timedEnv : Array (String × Option String) :=
+  cleanEnv.push (Regula.Checker.timingVariable, some "1")
 
 /-- Full campaign or the upstream source-read subset; neither is advertised as ordinary
 acceptance. Every refusal is checked for its intended reason and followed by restoration. -/
@@ -60,7 +66,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
         let (process, _) ← observe root project s!"{binary}-{phase}" binary flags {
           failure := bad, status := if bad then "incomplete" else "completed",
           ids := if bad then ["RG2005"] else [], reason,
-          positiveText := "conforming-positive-pass=1/1" }
+          positiveText := "conforming-positive-pass=1/1" } timedEnv
         if bad then
           let scope := if binary == "docFenceAudit" then project / "docs" else project
           IO.ofExcept

@@ -30,7 +30,8 @@ structure Options where
   /-- `--fresh`: audit an isolated copy built from empty output instead of incrementally. -/
   fresh : Bool := false
   /-- `--verbose`: pass `--verbose` to the audit, which then also prints every classified
-  declaration. -/
+  declaration, the execution roots and toolchain trusted-base entries it lists on request, and
+  its timing spans. -/
   verbose : Bool := false
   /-- `--explain-config`: print the configuration an audit would use, run no audit and exit
   with the configuration class. -/
@@ -46,6 +47,9 @@ def usage : String :=
   "       lake lint -- --explain-config [--fresh] [--project DIR] [--manifest PATH]\n" ++
   "Checks every manifested Lake surface: incremental elaboration with current policy\n" ++
   "inspection by default, or an isolated fresh build with --fresh.\n" ++
+  "--verbose also prints every classified declaration, timing spans, each execution root with a \
+    boundary the toolchain does not own or an unresolved path and every entry of the toolchain \
+    trusted base.\n" ++
   "exit codes: 0 accepted, 1 violation, 2 invalid configuration or invocation, 3 incomplete\n" ++
   "--explain-config and --help run no audit, establish no result and exit 2."
 
@@ -182,7 +186,7 @@ private unsafe def lint (args : List String) : IO Outcome := do
     IO.println
         s!"regula lint: enforcing all manifested Lake surfaces; mode {modeText options.fresh}"
     (← IO.getStdout).flush
-    let worker ← Lake.buildTargets (← repoRoot) #[workerTarget]
+    let worker ← Lake.buildTargetsShowing (← repoRoot) #[workerTarget]
     unless worker.succeeded && (← (← workerBinary).pathExists) do
       IO.eprintln worker.output
       IO.eprintln s!"regula lint: {Outcome.incomplete.label}: audit worker {workerTarget} did not \
@@ -194,7 +198,7 @@ private unsafe def lint (args : List String) : IO Outcome := do
     let outcome := classify (requestedMode options.fresh) code observed
     -- The only success line projects the accepted account the audit recorded.
     match outcome, observed with
-    | .accepted, some ⟨.completed account, _⟩ => IO.println (account.pass "regula lint")
+    | .accepted, some (.accepted account) => IO.println (account.pass "regula lint")
     | _, _ => IO.println s!"regula lint: {outcome.label} (exit {outcome.exitCode})"
     return outcome
 

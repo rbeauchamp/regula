@@ -305,9 +305,10 @@ private def assessFixtureOutput (fixture : FixtureSpec) (succeeded : Bool)
           s!"{repr expected.toList}, got {repr actual.toList}:\n{output}"
       return none
 
-/-- Real-CLI fixture control: one actual `axiomGate --file` invocation. -/
+/-- Real-CLI fixture control: one actual `axiomGate --file --verbose` invocation, which prints
+every classified declaration with its label. -/
 private def checkFixtureCli (repo : FilePath) (fixture : FixtureSpec) : IO (Option String) := do
-  let args := #["--file", fixture.source.toString] ++ match fixture.claim with
+  let args := #["--file", fixture.source.toString, "--verbose"] ++ match fixture.claim with
     | some claim => #["--claim", claim.toString]
     | none => #[]
   let args := args ++ match fixture.execution with
@@ -328,7 +329,7 @@ private def disjointNames (left right : Array String) : Bool :=
   left.all fun name => !right.contains name
 
 /-- Render the exact per-declaration and execution-coverage lines the public
-`axiomGate --file` audit prints for one elaborated fixture, using the same
+`axiomGate --file --verbose` audit prints for one elaborated fixture, using the same
 `Policy` functions, so the shared assessment sees an equivalent report. -/
 private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
     (declarations : Array Regula.Report.Declaration)

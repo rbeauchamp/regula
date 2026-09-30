@@ -3,6 +3,7 @@ import Regula.Checker.ResultProtocol
 import Regula.Checker.PolicyCodec
 import Regula.Website
 import RegulaPolicy.Guards
+import RegulaCore.Lint
 
 /-! # Rule-example receipt qualification
 
@@ -261,13 +262,17 @@ def qualifyKind (record result : Json) (bound : ExampleBinding) (observedRequest
           throw "positive check incomplete"
       validateBoundExample bound .positive #[] observation
   | "policyRejection" =>
-      unless code == 1 && status == "rejected" && !actual.isEmpty do
+      -- The producer's exit code for exactly these findings (`Lint.Observation.exitCode`): 1, or
+      -- 2 when every one is configuration (RG2002).
+      let exit := (Lint.Observation.refused (actual.toList.map fun f => (f.1, f.2.impact))
+        false).exitCode
+      unless code == exit.toNat && status == "rejected" && !actual.isEmpty do
           throw "policy rejection incomplete"
       let rule ← RegistryCodec.parseRule (← field record "rule")
       validateBoundExample bound (.policyRejection rule (descriptor rule).applicability) actual
           observation
   | "diagnosticDemonstration" =>
-      unless code == 1 && status == "incomplete" do
+      unless code == Lint.Outcome.incomplete.exitCode.toNat && status == "incomplete" do
           throw "not the expected unavailable-analysis result"
       let rule ← RegistryCodec.parseRule (← field record "rule")
       let _ ← admitDemonstration ⟨bound, rule, actual⟩ observation
@@ -286,7 +291,7 @@ def qualify (record : Json) : Except String Unit := do
   unless modeMatches observedRequest.kind mode do
       throw "request invocation differs from evidence mode"
   let code ← (← field record "exitCode").getNat?
-  unless code ≤ 1 do throw "example process did not complete normally"
+  unless code ≤ 3 do throw "example process did not complete normally"
   let actual ← checkFindings record result bound
   let status ← string result "status"
   let kind ← string record "kind"
@@ -304,7 +309,7 @@ theorem qualify_parts (record : Json) (h : qualify record = .ok ()) :
       binding record mode = .ok bound ∧
       requestAccount result bound = .ok observedRequest ∧
       modeMatches observedRequest.kind mode = true ∧
-      (field record "exitCode" >>= Json.getNat?) = .ok code ∧ code ≤ 1 ∧
+      (field record "exitCode" >>= Json.getNat?) = .ok code ∧ code ≤ 3 ∧
       checkFindings record result bound = .ok actual ∧
       string result "status" = .ok status ∧ string record "kind" = .ok kind ∧
       string record "source" = .ok displayed ∧
@@ -450,7 +455,7 @@ def RecordAdmissible (record : Json) : Prop :=
       (fromJson? requestJson : Except String ExampleRequest) = .ok bound.request) ∧
     (∃ requestJson, field result "request" = .ok requestJson ∧
       (fromJson? requestJson : Except String ExampleRequest) = .ok bound.request) ∧
-    (field record "exitCode" >>= Json.getNat?) = .ok code ∧ code ≤ 1 ∧
+    (field record "exitCode" >>= Json.getNat?) = .ok code ∧ code ≤ 3 ∧
     string record "source" = .ok displayed ∧
     (∃ observed, observedSources result bound = .ok observed ∧
       ExampleSourcesOK bound.snapshot.val.sources observed displayed ∧

@@ -181,7 +181,7 @@ def requirements (report : Json) (code : Nat) (mode source : String)
   let diagnostics ← array report "diagnostics"
   let ids ← diagnostics.toList.mapM (fun d => text d "id")
   let base : List Check := [
-    ⟨"history exit", code == (if unsupported then 1 else 0)⟩,
+    ⟨"history exit", code == (if unsupported then 3 else 0)⟩,
     ⟨"history mode", (← text report "mode") == mode⟩,
     ⟨"history diagnostics", ids.eraseDups == (if unsupported then ["RG3001"] else [])⟩,
     ⟨"history status", (← text report "status") ==

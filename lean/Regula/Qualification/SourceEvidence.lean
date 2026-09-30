@@ -31,15 +31,16 @@ def rangeSource (bad : Bool) : String :=
 def writeFence (project : FilePath) (source : String) : IO Unit :=
   IO.FS.writeFile (project / "docs/control.md") ("```lean\n" ++ source ++ "```\n")
 
-/-- Observe the selected public command, requiring a fresh output for JSON commands. -/
+/-- Observe the selected public command in `env`, requiring a fresh output for JSON commands. -/
 def observe (root project : FilePath) (label binary : String) (flags : Array String)
-    (expected : Expected) : IO (IO.Process.Output × Option Json) := do
+    (expected : Expected) (env : Array (String × Option String) := cleanEnv) :
+    IO (IO.Process.Output × Option Json) := do
   let output := project / s!"{label}.json"
   requireChecks [⟨"fresh evidence output", !(← output.pathExists)⟩]
   let jsonCommand := binary == "axiomGate"
   let result ← run project (root / ".lake/build/bin" / binary).toString
     (#["--project", project.toString] ++ flags ++
-      if jsonCommand then #["--json-out", output.toString] else #[]) cleanEnv
+      if jsonCommand then #["--json-out", output.toString] else #[]) env
   let report ← if jsonCommand then pure (some (← readJson output)) else pure none
   IO.ofExcept
       (checked_validation.run expected result.exitCode.toNat

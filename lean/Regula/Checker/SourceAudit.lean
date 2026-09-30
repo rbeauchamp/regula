@@ -122,16 +122,18 @@ structure GroupReport where
 search path while their sources stay unchanged, and validates the report against the source
 bindings. -/
 unsafe def inspectGroupWorker (request : GroupRequest) : IO ProducerReport.Outcome := do
-  let outcome ← SourceBinding.withUnchanged request.sourceBindings #[] do
+  let outcome ← SourceBinding.withUnchanged
+      (α := Except ProducerReport.Refusal ProducerReport.Environment) request.sourceBindings #[] do
     let moduleSources := request.sourceBindings.map fun source =>
       (source.moduleName, FilePath.mk source.path)
     let outcome ← Environment.loadReportCurrentSearchPathOutcome request.modules moduleSources
       (request.ownedOutput.map FilePath.mk) request.includeExecution request.includeModuleOrigins
     if let .ok report := outcome then
       if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
-        return .error failure
+        return .error (.admission failure)
     return outcome
-  return ProducerReport.Outcome.ofExcept (outcome.bind id)
+  return ProducerReport.Outcome.ofExcept
+    ((outcome.mapError ProducerReport.Refusal.admission).bind id)
 
 /-- Inspects `modules` in one worker process (`--inspection-group-worker`) on the current search
 path, then builds the isolated frontend transcripts needed for `transcriptSources`. Refuses when
@@ -142,17 +144,20 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (compiledSources : Array ProducerReport.SourceBinding := #[]) :
-    IO (Except ProducerReport.AdmissionFailure GroupReport) := do
-  return (← SourceBinding.withUnchanged compiledSources #[] do
+    IO (Except ProducerReport.Refusal GroupReport) := do
+  return (← SourceBinding.withUnchanged (α := Except ProducerReport.Refusal GroupReport)
+      compiledSources #[] do
     let binary ← workerBinary
     let mut resolvedSources := moduleSources ++ transcriptSources
     for name in modules do
       if !resolvedSources.any (·.1 == name) then
         resolvedSources := resolvedSources.push (name, (← Lean.findOLean name).withExtension "lean")
     let sourceBindings ← SourceBinding.capture resolvedSources
-    return (← SourceBinding.withUnchanged sourceBindings #[] do
+    return (← SourceBinding.withUnchanged (α := Except ProducerReport.Refusal GroupReport)
+        sourceBindings #[] do
       unless compiledSources.all sourceBindings.contains do
-        return .error ⟨"producer-source: grouped inspection differs from compiled source"⟩
+        return .error
+          (.admission ⟨"producer-source: grouped inspection differs from compiled source"⟩)
       withScratch (← IO.currentDir) "inspection-group" fun scratch => do
         let input := scratch / "request.json"
         let output := scratch / "report.json"
@@ -174,11 +179,12 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
         let payload ← IO.ofExcept <| readWorkerPacket (toJson request) json
         let outcome : ProducerReport.Outcome ← IO.ofExcept (fromJson? payload)
         SourceBinding.unchanged sourceBindings
-        if let .admissionFailed failure := outcome then return .error failure
-        let .reported report := outcome
-          | throw <| IO.userError "unreachable admission outcome"
+        let report ← match outcome with
+          | .reported report => pure report
+          | .admissionFailed failure => return .error (.admission failure)
+          | .unowned unowned => return .error (.unowned unowned)
         if let .error failure := SourceBinding.validateAgainst sourceBindings report then
-          return .error failure
+          return .error (.admission failure)
         unless report.census.modules == modules &&
             report.census.executionRoots.isSome == includeExecution do
           throw <| IO.userError "producer-census: inspection response scope mismatch"
@@ -190,11 +196,11 @@ def inspectGroupCurrentSearchPath (modules : Array Name)
           if Policy.needsFrontendTranscript declarations then
             transcripts := transcripts.push (← Frontend.buildIsolated name path)
         if let .error failure := SourceBinding.transcriptsMatch sourceBindings transcripts then
-          return .error failure
+          return .error (.admission failure)
         SourceBinding.unchanged sourceBindings
         return .ok { report, transcripts }
-    ).bind id
-  ).bind id
+    ).mapError ProducerReport.Refusal.admission |>.bind id
+  ).mapError ProducerReport.Refusal.admission |>.bind id
 
 private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
     (insideLakeEnv : Bool) : IO (Except ProducerReport.AdmissionFailure Compilation) := do
@@ -214,7 +220,7 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
       let process ← spawn binary.toString
         #["--diagnostic-worker", (Regula.RegistryCodec.nameJson spec.module.toName).compress,
             sourcePath.toString, output.toString]
-      IO.println
+      timingSpan
           s!"diagnostic span: compileIn diagnostic-worker: {(← IO.monoMsNow) - workerStart}ms"
       let errors ← if process.succeeded then
           try
@@ -245,7 +251,7 @@ private def compileIn (repo scratch : FilePath) (spec : SourceSpec)
       else pure "lean"
     let compileStart ← IO.monoMsNow
     let process ← spawn compiler args
-    IO.println s!"diagnostic span: compileIn compile: {(← IO.monoMsNow) - compileStart}ms"
+    timingSpan s!"diagnostic span: compileIn compile: {(← IO.monoMsNow) - compileStart}ms"
     return { spec, sourcePath, oleanPath, ileanPath, process }
 
 /-- Standalone compilation still obtains its environment through Lake. -/
@@ -329,12 +335,12 @@ def sourceDiagnosticFailure (value : Compilation) : Bool :=
     line.startsWith (value.sourcePath.toString ++ ":") && (isErrorLine line || isWarningLine line))
 
 /-- Reads the typed report of a compiled source (and its frontend transcript when needed) while
-its source stays unchanged; throws when the compilation did not pass, and returns an admission
-failure as `.error`. -/
+its source stays unchanged; throws when the compilation did not pass, and returns a refusal (an
+admission failure or unowned imported modules) as `.error`. -/
 unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePath := #[])
     (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :
-    IO (Except ProducerReport.AdmissionFailure Inspected) := do
+    IO (Except ProducerReport.Refusal Inspected) := do
   if !compilationPassed value then
     throw <| IO.userError s!"source did not elaborate: {value.spec.«module»}"
   let some scratch := value.sourcePath.parent
@@ -342,10 +348,12 @@ unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePa
   let source : ProducerReport.SourceBinding := {
     moduleName := value.spec.module.toName, path := value.sourcePath.toString, content :=
         value.spec.source }
-  return (← SourceBinding.withUnchanged #[source] #[] do
+  return (← SourceBinding.withUnchanged (α := Except ProducerReport.Refusal Inspected)
+      #[source] #[] do
     SourceBinding.unchanged #[source]
     let sources ← SourceBinding.capture (moduleSources.push (source.moduleName, value.sourcePath))
-    return (← SourceBinding.withUnchanged sources #[] do
+    return (← SourceBinding.withUnchanged (α := Except ProducerReport.Refusal Inspected)
+        sources #[] do
       let reportResult ← Environment.loadReportOutcome #[value.spec.«module».toName]
           (#[scratch] ++ extraSearchRoots) sourceRoots
         (sources.map fun s => (s.moduleName, FilePath.mk s.path)) ownedOutput
@@ -353,21 +361,21 @@ unsafe def inspectOutcome (value : Compilation) (extraSearchRoots : Array FilePa
       let .ok report := reportResult
         | throw <| IO.userError "unreachable admission outcome"
       if let .error failure := SourceBinding.validateAgainst sources report then
-        return .error failure
+        return .error (.admission failure)
       let declarations := report.declarations
       let transcripts : Array Frontend.Transcript ←
         if Policy.needsFrontendTranscript declarations then
           pure #[← Frontend.build value.spec.«module».toName value.sourcePath extraSearchRoots]
         else pure #[]
       if let .error failure := SourceBinding.transcriptsMatch sources transcripts then
-        return .error failure
+        return .error (.admission failure)
       SourceBinding.unchanged sources
       SourceBinding.unchanged #[source]
       return .ok { compilation := value, report, transcripts }
-    ).bind id
-  ).bind id
+    ).mapError ProducerReport.Refusal.admission |>.bind id
+  ).mapError ProducerReport.Refusal.admission |>.bind id
 
-/-- `inspectOutcome` with an admission failure raised as an `IO` error carrying its detail. -/
+/-- `inspectOutcome` with a refusal raised as an `IO` error carrying its detail. -/
 unsafe def inspect (value : Compilation) (extraSearchRoots : Array FilePath := #[])
     (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none) :

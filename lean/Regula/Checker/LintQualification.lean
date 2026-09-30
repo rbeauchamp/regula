@@ -27,9 +27,8 @@ private structure Expectation where
   contains : Array String := #[]
   excludes : Array String := #[]
 
-private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[]) :
-    IO (Array String) := do
-  let result ← lint cwd args
+/-- The failures of one observed invocation against its expectation, with its output. -/
+private def assess (e : Expectation) (result : ProcessResult) : IO (Array String) := do
   let mut failures := #[]
   if result.exitCode != e.exitCode then
     failures := failures.push s!"lake-lint/{e.label}: exit {result.exitCode}, expected {e.exitCode}"
@@ -42,11 +41,23 @@ private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[
   (← IO.getStdout).flush
   return failures
 
-/-- An accepted run prints its account's `Account.pass` line, which names the coverage. -/
+private def expect (cwd : FilePath) (e : Expectation) (args : Array String := #[]) :
+    IO (Array String) := do
+  assess e (← lint cwd args)
+
+/-- The adopter's `axiomGate --file` audit of `file` against kernel-only, run through Lake. -/
+private def fileAudit (cwd : FilePath) (file : String) (args : Array String := #[]) :
+    IO ProcessResult :=
+  runProcess cwd "lake" (#["exe", "axiomGate", "--file", file, "--claim", "kernel-only"] ++ args)
+    scrubbedLeanPathEnv
+
+/-- An accepted run prints its account's `Account.pass` line, which names the coverage, and no
+timing span, which only `--verbose` prints. -/
 private def accepted (label : String) (fresh : Bool := false) : Expectation :=
   { label, exitCode := 0, contains := #[if fresh then
       "regula lint: PASS — fresh whole-project acceptance"
-    else "regula lint: PASS — incremental project acceptance"] }
+    else "regula lint: PASS — incremental project acceptance"],
+    excludes := #["verification phase", "diagnostic span"] }
 
 /-- Replace one exact anchor; a missing or repeated anchor is a harness failure. -/
 private def mutate (path : FilePath) (before after : String) : IO Unit := do
@@ -60,28 +71,49 @@ private def restore (adopter : FilePath) (files : Array (FilePath × String)) : 
   if ← (adopter / ".lake" / "build").pathExists then
     IO.FS.removeDirAll (adopter / ".lake" / "build")
 
-/-- `lakefile.lean` adopter: every exit class, a repeated cached failure, Lake's
-builtin-only and combined dispatch, and the read-only configuration explanation. -/
+/-- `lakefile.lean` adopter: every exit class with its summary counts, a repeated cached failure,
+a claimed import outside every library (RG2004) in the driver and the file audit, a failed audit
+worker reported with its own error, Lake's builtin-only and combined dispatch, and the read-only
+configuration explanation. Default output shows Lake's build progress and no timing span; the
+file audit lists every classified declaration only with `--verbose`. -/
 private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter
-  let mut failures ← expect adopter (accepted "lean/positive")
+  -- The first run builds every module, showing Lake's progress line for each.
+  let positive := accepted "lean/positive"
+  let mut failures ← expect adopter
+    { positive with contains := positive.contains.push "] Built Widget" }
   if !failures.isEmpty then return failures
   failures := failures ++ (← expect adopter {
       label := "lean/explain-config", exitCode := 2,
       contains := #["no audit was run", "Widget.Additional", "kernel-only"],
       excludes := #["regula lint: PASS"] } #["--", "--explain-config"])
+  -- The file audit lists only declarations with a finding, and timing spans are verbose output.
+  failures := failures ++ (← assess {
+      label := "lean/file-positive", exitCode := 0, contains := #["file audit: PASS"],
+      excludes := #["[OK]", "verification phase", "diagnostic span"] }
+    (← fileAudit adopter "Widget.lean"))
+  failures := failures ++ (← assess {
+      label := "lean/file-verbose", exitCode := 0,
+      contains := #["file audit: PASS", "[OK]", "diagnostic span"] }
+    (← fileAudit adopter "Widget.lean" #["--verbose"]))
   let additional := adopter / "Widget" / "Additional.lean"
   let manifest := adopter / "foundation_manifest.json"
   let widget := adopter / "Widget.lean"
+  let lakefile := adopter / "lakefile.lean"
   let originals := #[(additional, ← IO.FS.readFile additional),
-    (manifest, ← IO.FS.readFile manifest), (widget, ← IO.FS.readFile widget)]
+    (manifest, ← IO.FS.readFile manifest), (widget, ← IO.FS.readFile widget),
+    (lakefile, ← IO.FS.readFile lakefile)]
   -- An unimported glob module; the second run has every module cached.
   mutate additional "namespace Widget.Additional"
     "/-- A control assumption. -/\naxiom lintAssumption : True\nnamespace Widget.Additional"
+  -- The summary counts no incomplete finding, and the rebuilt module shows its progress line.
   let violation : Expectation := {
     label := "lean/violation", exitCode := 1,
-    contains := #["RG1001", "lintAssumption", "regula lint: VIOLATION (exit 1)"] }
-  failures := failures ++ (← expect adopter violation)
+    contains := #["RG1001", "lintAssumption", "violation(s), 0 incomplete finding(s)",
+      "regula lint: VIOLATION (exit 1)"],
+    excludes := #["verification phase", "diagnostic span"] }
+  failures := failures ++ (← expect adopter
+    { violation with contains := violation.contains.push "] Built Widget.Additional" })
   failures := failures ++ (← expect adopter { violation with label := "lean/cached-violation" })
   -- Builtin linting needs explicit modules here (the default target is `policy`).
   -- Lake skips the driver: exit 0 despite the violation is not Regula enforcement.
@@ -103,7 +135,45 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
     Nat := \"text\"\nnamespace Widget"
   failures := failures ++ (← expect adopter {
       label := "lean/incomplete", exitCode := 3,
-      contains := #["build-failed", "regula lint: INCOMPLETE (exit 3)"] })
+      contains := #["build-failed", "FAIL: 0 violation(s), 1 incomplete finding(s)",
+        "regula lint: INCOMPLETE (exit 3)"] })
+  restore adopter originals
+  -- A claimed module imports a module of the package outside every library: the coverage
+  -- violation RG2004 naming both (#129), not a failed worker.
+  mutate lakefile "globs := #[.andSubmodules `Widget]" "globs := #[.one `Widget]"
+  mutate widget "import Regula.Contract\n" "import Regula.Contract\nimport Widget.Additional\n"
+  failures := failures ++ (← expect adopter {
+      label := "lean/unowned-module", exitCode := 1,
+      contains := #["RG2004", "unexpected-project-module", "Widget.Additional is outside every",
+        "imported by Widget", "FAIL: 1 violation(s), 0 incomplete finding(s)",
+        "regula lint: VIOLATION (exit 1)"],
+      excludes := #["RG2001", "declaration-report-worker"] })
+  -- The file audit reports the same import as the same violation, not as a compiler failure,
+  -- naming the audited file, not the module it compiles the file as, as the importer.
+  failures := failures ++ (← assess {
+      label := "lean/file-unowned-module", exitCode := 1,
+      contains := #["RG2004", "Widget.Additional is outside every",
+        s!"imported by {(← IO.FS.realPath adopter) / "Widget.lean"}",
+        "FAIL: 1 violation(s), 0 incomplete finding(s)"],
+      excludes := #["does not elaborate", "RG2003", "RG2001", "AuditFile_"] }
+    (← fileAudit adopter "Widget.lean"))
+  restore adopter originals
+  -- Two library modules that both declare `main` cannot share one environment, so the audit
+  -- worker fails: its error is the RG2001 finding's detail, and the report lists the stages that
+  -- completed before inspection (#130).
+  let entryPoints := #[adopter / "Widget" / "One.lean", adopter / "Widget" / "Two.lean"]
+  for file in entryPoints do
+    IO.FS.writeFile file "/-! A root-namespace entry point. -/\n\n/-- Does nothing. -/\n\
+      def main : IO Unit := pure ()\n"
+  failures := failures ++ (← expect adopter {
+      label := "lean/worker-failure", exitCode := 3,
+      contains := #["RG2001", "declaration inspection of Widget failed", "already contains 'main'",
+        "FAIL: 0 violation(s), 1 incomplete finding(s)", "regula lint: INCOMPLETE (exit 3)"] }
+    #["--", "--json-out", "worker-failure.json"])
+  let stages := (← readJson (adopter / "worker-failure.json")).getObjValD "stagesCompleted"
+  unless stages == toJson #["configuration", "discovery", "build"] do
+    failures := failures.push s!"lake-lint/lean/worker-failure: stagesCompleted {stages.compress}"
+  for file in entryPoints do IO.FS.removeFile file
   restore adopter originals
   failures := failures ++ (← expect adopter (accepted "lean/fresh-restored"))
   return failures
