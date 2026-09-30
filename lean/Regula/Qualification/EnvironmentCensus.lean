@@ -4,8 +4,11 @@ import Regula.Checker.Inspection
 
 /-! # Environment census qualification
 
-Native, source-bound environment composition qualification. Complete producer packets
-are retained before admission controls. Observed process/filesystem/compiler behavior is
+Native, source-bound environment composition qualification. Every environment's packet is
+written before the census's own admission checks: its admitted report and transcripts, with a
+refusal when frontend attribution failed, or only the refusal detail for an inspection that
+`Inspection.inspect` refused (report admission, source binding, admission reuse or transcript
+binding) or failed. Observed process/filesystem/compiler behavior is
 not a universal proof; the separate shared-name theorem establishes the pure collision class. -/
 namespace Regula.Qualification.EnvironmentCensus
 open Lean System Regula.Checker RegulaPolicy
@@ -66,7 +69,9 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   SourceBinding.configurationUnchanged configuration
   let (frozenArtifacts, inspections) ←
     Inspection.inspect inventory sources assignments environments
-  -- Retain every environment's packet, including a refused one, before any admission control.
+  -- Write every environment's packet before the census's own admission checks (scope admission,
+  -- freeze, finish, mutations): the admitted report, plus its refusal when frontend attribution
+  -- failed, or only the refusal detail for an inspection `Inspection.inspect` refused or failed.
   let mut reports : Array Acceptance.RequestedInspection := #[]
   let mut refusals : Array String := #[]
   for (environment, outcome) in inspections do
@@ -254,7 +259,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   save attempt path packets records "complete"
   IO.println "environment census qualification: PASS (scoped native observations)"
 
-/-- Ordinary failures retain all captured packets and report failure. Termination before
+/-- An ordinary failure keeps the packets already written (every environment's, once
+`Inspection.inspect` has returned; see `checkCore`) and reports failure. Termination before
 this handler runs leaves the initialized incomplete receipt; atomic rename is trusted IO. -/
 unsafe def check (path : FilePath) (attempt : Option String := none) : IO Unit := do
   let attempt ← attempt.map pure |>.getD freshAttempt
