@@ -1350,13 +1350,15 @@ private def duplicateAdmissionControls (sources copy : FilePath)
         failures.modify (·.push failure)
   failures.get
 
-/-- A file with declarations Lean generates: the equation lemmas and auxiliary proof of a
-well-founded definition, and the constructor, projection, recursor and constructor lemmas of a
-structure whose field type uses `Classical.choice`; and declarations Lean does not generate from
-the structure they are named under: a theorem a metaprogram adds without a source range, a
-user-written `ofNat`, a name Lean generates only for an enumeration deriving `DecidableEq`, and an
-elaborator Lean names `«_aux_…»` inside the structure's namespace. Every one exceeds a Kernel-only
-claim, so each has an RG1005 finding. -/
+/-- A file with a declaration of every `GeneratedFamily` Lean generates: the constructor,
+projection, recursors, constructor lemmas and type constructions of a structure whose field type
+uses `Classical.choice`, a structure field's default, a matcher, the `_f` and `_sunfold` of a
+structural recursion, the equation lemmas and auxiliary proof of a well-founded definition, the
+`_unary` and functional induction principle of one with two arguments; and declarations Lean does
+not generate from the structure they are named under: a theorem a metaprogram adds without a
+source range, a user-written `ofNat`, a name Lean generates only for an enumeration deriving
+`DecidableEq`, and an elaborator Lean names `«_aux_…»` inside the structure's namespace. Every one
+exceeds a Kernel-only claim, so each has an RG1005 finding. -/
 private def sourceAttributionSource : String :=
   "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
   "open Lean Elab Command\n\n" ++
@@ -1369,6 +1371,13 @@ private def sourceAttributionSource : String :=
   "/-- A user-written conversion from `Nat`. -/\n" ++
   "noncomputable def Word.ofNat (n : Nat) : Word :=\n" ++
   "  ⟨⟨n % (pick + 1), Nat.mod_lt n (Nat.succ_pos pick)⟩⟩\n\n" ++
+  "/-- A structure whose field default uses `pick`. -/\nstructure Rec where\n" ++
+  "  /-- A bounded value with a default. -/\n  x : Fin (pick + 1) := ⟨0, Nat.succ_pos pick⟩\n\n" ++
+  "/-- A definition by pattern matching on a value whose type uses `pick`. -/\n" ++
+  "def firstIndex (c : Channel) : Nat :=\n  match c.value with\n  | ⟨0, _⟩ => 0\n" ++
+  "  | ⟨k + 1, _⟩ => k\n\n" ++
+  "/-- A definition by structural recursion. -/\n" ++
+  "noncomputable def walkDown : Nat → Nat\n  | 0 => pick\n  | n + 1 => walkDown n\n\n" ++
   "namespace Channel\n\n/-- A term elaborated in `Channel`'s namespace. -/\n" ++
   "elab \"vzero\" : term => Term.elabTerm (Syntax.mkNumLit \"0\") none\n\nend Channel\n\n" ++
   "/-- A definition by well-founded recursion. -/\n" ++
@@ -1376,15 +1385,23 @@ private def sourceAttributionSource : String :=
   "termination_by n\ndecreasing_by omega\n\n" ++
   "/-- Unfolding `countdown` realizes its equation lemmas. -/\n" ++
   "theorem countdown_zero : countdown 0 = 0 := by\n  simp [countdown]\n\n" ++
+  "/-- A definition by well-founded recursion on two arguments. -/\n" ++
+  "def countPair (m n : Nat) : Nat := if h : m = 0 then n else countPair (m - 1) (n + 1)\n" ++
+  "termination_by m\ndecreasing_by omega\n\n" ++
+  "/-- A use of `countPair`'s functional induction principle, which realizes it. -/\n" ++
+  "theorem countPair_induct_used : True := (fun _ => trivial) (@countPair.induct)\n\n" ++
   "run_cmd liftTermElabM do\n  addDecl <| .thmDecl {\n" ++
   "    name := `Channel.fact, levelParams := []\n" ++
   "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
   "    value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkConst ``pick) }\n"
 
-/-- The first failed expectation of the source-attribution report, if any: the equation lemma and
-auxiliary proof of `countdown`, and the recursor, constructor, constructor lemmas `mk.injEq` and
-`mk.sizeOf_spec`, `ctorIdx` and projection of `Channel`, are attributed to and located at the
-declaration Lean generated them from, with their own module as a related location. None of
+/-- The first failed expectation of the source-attribution report, if any: a declaration of every
+`GeneratedFamily` (`Channel`'s constructor, projection, recursor, constructor lemmas and type
+constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
+`countdown`'s equation lemma and auxiliary proof, and `countPair._unary` and `countPair.induct`)
+is attributed to and located at the declaration Lean generated it from, with its own module as a
+related location; `Rec`, whose own record carries no axiom, has no finding of its own, so its
+range is read from its constructor's finding, attributed to it too. None of
 `Channel.fact`, which has no source range, `Word.ofNat` and the `vzero` elaborator in `Channel`'s
 namespace is attributed, though each is named under a structure: Lean did not generate them from
 it. `Channel.fact` keeps module attribution, and `Word.ofNat` and the elaborator their own
@@ -1399,13 +1416,18 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   let source (d : Json) : Json := (d.getObjValD "arguments").getObjValD "sourceDeclaration"
   let relation (d : Json) : Option Json :=
     ((d.getObjValD "related").getArrVal? 0).toOption.map (·.getObjValD "relation")
-  let some countdown := find "countdown" | return some "no countdown finding"
   let some channel := find "Channel" | return some "no Channel finding"
-  for (name, owner, ownerName) in #[("countdown.eq_1", countdown, "countdown"),
-      ("countdown._proof_1", countdown, "countdown"), ("Channel.rec", channel, "Channel"),
-      ("Channel.mk", channel, "Channel"), ("Channel.mk.injEq", channel, "Channel"),
-      ("Channel.mk.sizeOf_spec", channel, "Channel"), ("Channel.ctorIdx", channel, "Channel"),
-      ("Channel.value", channel, "Channel")] do
+  for (name, ownerName) in #[("Channel.mk", "Channel"), ("Channel.value", "Channel"),
+      ("Channel.rec", "Channel"), ("Channel.casesOn", "Channel"), ("countdown.eq_1", "countdown"),
+      ("countPair.induct", "countPair"), ("firstIndex.match_1", "firstIndex"),
+      ("countPair._unary", "countPair"), ("walkDown._f", "walkDown"),
+      ("walkDown._sunfold", "walkDown"), ("countdown._proof_1", "countdown"),
+      ("Channel.mk.injEq", "Channel"), ("Channel.mk.sizeOf_spec", "Channel"),
+      ("Channel.mk._flat_ctor", "Channel"), ("Channel.ctorIdx", "Channel"),
+      ("Channel.noConfusionType", "Channel"), ("Channel._sizeOf_1", "Channel"),
+      ("Channel._sizeOf_inst", "Channel"), ("Rec.x._default", "Rec")] do
+    let some owner := find ownerName <|> find (ownerName ++ ".mk")
+      | return some s!"no {ownerName} finding"
     let some d := find name | return some s!"no {name} finding"
     unless source d == .str ownerName && kind d == .str "source" &&
         selection d == selection owner && relation d == some (.str "declared in module") do
@@ -1433,7 +1455,8 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
 audit. Which declarations Lean generates, and what the environment records about them, is the
 compiler's behavior; `Findings.sourceName?_eq_some_iff` states the attribution decision over the
 recorded relation and `groupFindings_flatten` the grouping. The positive controls are the
-attributed findings and their printed blocks; the negative controls are a theorem a metaprogram
+attributed findings, a declaration of every `GeneratedFamily`, and their printed blocks; the
+negative controls are a theorem a metaprogram
 adds without a source range under a declaration's name, a user-written `ofNat` under a
 structure's, and an elaborator Lean names `«_aux_…»` in a structure's namespace, none of which
 Lean generated from it (`sourceAttributionFailure`). -/
@@ -1920,8 +1943,9 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
     for failure in attribution do failures.modify (·.push failure)
     IO.println <| "self-test source attribution: " ++
       (if attribution.isEmpty then "PASS" else "FAIL") ++
-      " (declarations Lean generated attributed and printed in one block; a metaprogram theorem, \
-        a user-written ofNat and an elaborator under a structure's name not attributed)"
+      " (a declaration of every generated family attributed and printed in one block; a \
+        metaprogram theorem, a user-written ofNat and an elaborator under a structure's name not \
+        attributed)"
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. -/

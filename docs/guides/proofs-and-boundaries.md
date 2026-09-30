@@ -765,18 +765,19 @@ number of declarations, which the proof shows no such chain exceeds), so the dec
 is not itself attributed to another (`sourceName?_source`); the executed index equals the
 inventory search it replaces (`declarationIndex_get`), and an RG1005 finding built with that
 attribution groups under it (`declarationFinding_groupUnder?`). Which declaration Lean generated a
-declaration from is read from the environment by `Collect.generatedFrom?`, clause by clause from
-the marks Lean's generators leave (constructor, projection, recursor, equation-lemma, matcher and
-reserved-name facts) and, for a constructor's `inj`, `injEq` and `sizeOf_spec` and a type's
-`ctorIdx`, `noConfusionType` and `ctorElimType`, from their generator's precondition or a sibling's
-mark, checked on the environment under Lean's default options; a well-founded definition's
-`_unary` or `_mutual` function from its equation information, a type's `_sizeOf_n` and
-`_sizeOf_inst` and a structure constructor's `_flat_ctor` from their generator's precondition, and
-an auxiliary lemma such as `f._proof_1` only from `f`'s value using it. No clause rests on a name
-alone. That these clauses match Lean's generators is read from Lean's source and observed (the
-`cli` self-test's source-attribution controls, with a user-written `ofNat` and an elaborator named
-`«_aux_…»` in a structure's namespace as negative controls), not proved, and derived instances,
-whose relation Lean does not record, are not related.
+declaration from is read from the environment by `Collect.generatedFrom?`, one clause per family
+of `GeneratedFamily`: from the marks Lean's generators leave, from a recursive definition's
+equation information, from the uses in a definition's value, from Lean's own field-default
+lookup, and, for constructor lemmas and type constructions, from their generator's precondition or
+a sibling's mark, checked under Lean's default options. No clause rests on a name alone.
+`GeneratedFamily.mem_all` proves the list the checker tries and the RG1005 guidance names holds
+every family, and `generatedBy?` matches every family by construction (Lean's exhaustiveness
+check). That the clauses match Lean's generators is read from Lean's source and observed, not
+proved: the `cli` self-test's source-attribution controls attribute a declaration of every family
+and keep a metaprogram theorem, a user-written `ofNat` and an elaborator named `«_aux_…»` in a
+structure's namespace on their own. They do not exercise `f._mutual`, `S.x._inherited_default`,
+`t.ctorElimType`, a matcher's equations or splitter, or an auxiliary lemma used only by equation
+information. Derived instances, whose relation Lean does not record, are not related.
 `RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula` parser admits exactly its documented commands
 (`parseCommand_arguments`, `parseCommand_sound`, `parseInvocation_arguments`,
 `parseInvocation_sound`). Result stages: `stagesOf_required`,

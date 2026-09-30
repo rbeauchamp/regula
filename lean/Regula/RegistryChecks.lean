@@ -25,6 +25,7 @@ run_cmd do
       ``Regula.Findings.declarationIndex_get, ``Regula.Findings.chainEnd_eq_some_iff,
       ``Regula.Findings.sourceName?_eq_some_iff, ``Regula.Findings.sourceName?_source,
       ``Regula.Findings.declarationFinding_groupUnder?, ``Regula.Feedback.flatten_runs_go,
+      ``Regula.GeneratedFamily.mem_all,
       ``Regula.Checker.ResultProtocol.stagesOf_required,
       ``Regula.Checker.ResultProtocol.notRun_completedStages_eq_nil_iff,
       ``Regula.Checker.ResultProtocol.stagesOf_ordered,

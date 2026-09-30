@@ -5,6 +5,7 @@ public import RegulaCore.Edition
 public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
+public import RegulaCore.GeneratedFamily
 
 /-! # Rule registry
 
@@ -532,12 +533,10 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           claim.",
         "If the stronger foundation is intended, change the surface's `claim` and rationale \
           explicitly; this changes the published claim and needs review.",
-        "In `lake lint` and `axiomGate`, a declaration Lean generates from another (an equation \
-          lemma `f.eq_1`, a matcher, an auxiliary proof `f._proof_1` that `f` uses, a recursor, \
-          `casesOn`, a constructor, a projection or a constructor lemma such as `mk.injEq`) is \
-          reported at the declaration Lean generated it from, in one block with each \
-          declaration's axioms. Change that declaration or a definition it uses that introduces \
-          the axiom."]
+        "In `lake lint` and `axiomGate`, a declaration Lean generated is grouped at the one it \
+          came from if it is a " ++ "; ".intercalate (GeneratedFamily.all.map (·.text)) ++
+          ". Others keep their own location. Fix the declaration reported or a definition it \
+          uses that adds the axiom."]
       examples := {
         language := .lean
         audience := .adopter

@@ -18,6 +18,8 @@ public import Lean.Meta.Injective
 public import Lean.Meta.SameCtorUtils
 public import Lean.Meta.Constructions.CtorElim
 public import Lean.Class
+public import Lean.Elab.PreDefinition.Structural.Eqns
+public import RegulaCore.GeneratedFamily
 public import Lean.Meta.RecExt
 public import Lean.ProjFns
 public import Lean.Util.FoldConsts
@@ -542,69 +544,97 @@ private def ctorIdxGenerated (t : InductiveVal) : MetaM Bool := do
   return (← getEnv).contains ``Nat && casesOn.levelParams.length > t.levelParams.length &&
     !(← Meta.isPropFormerType t.type)
 
-/-- The declaration Lean generated `name` from, one step, as the environment records it; `none`
-when Lean did not generate `name` from another declaration. Each clause rests on (a) a mark Lean's
-generator leaves in the environment, or on (c) the generator's own precondition, checked on the
-environment:
-- (a) a constructor: its inductive type (`ConstructorVal.induct`); a structure projection: its
-  structure's constructor (`ProjectionFunctionInfo.ctorName`);
-- (a) a recursor (`isRecCore`), an auxiliary recursor (`isAuxRecursor`: `casesOn`, `recOn`,
-  `below`, `brecOn`, `ctorElim` and a constructor's `elim`), or a `noConfusion`, the type's or a
-  constructor's (`isNoConfusion`): the name it is named under, whose range Lean's own
+/-- The declarations `name` is named under, as itself and as its user name
+(`privateToUserName`), the two spellings Lean's own `Meta.declFromEqLikeName` tries, and its last
+component. -/
+private def namedUnder? : Name → Option (List Name × String)
+  | .str p s => some ([p, privateToUserName p], s)
+  | _ => none
+
+/-- Whether the kernel value of the declaration `f` uses `name`. -/
+private def valueUses (env : Environment) (f name : Name) : Bool :=
+  ((env.find? f).bind valueOf?).any (·.getUsedConstants.contains name)
+
+/-- The declaration Lean generated `name` from, one step, if `name` belongs to `family`, as the
+environment records it. Each clause rests on (a) a mark Lean's generator leaves in the environment,
+or on (c) the generator's own precondition, checked on the environment; none rests on a name
+alone:
+- `constructor` (a): its inductive type (`ConstructorVal.induct`);
+- `projection` (a): its structure's constructor (`ProjectionFunctionInfo.ctorName`);
+- `recursor` (a): a recursor (`isRecCore`), an auxiliary recursor (`isAuxRecursor`: `casesOn`,
+  `recOn`, `below`, `brecOn`, `ctorElim` and a constructor's `elim`) or a `noConfusion`, the
+  type's or a constructor's (`isNoConfusion`): the name it is named under, whose range Lean's own
   `findDeclarationRanges?` gives it;
-- (a) an equation lemma `f.eq_1`, `f.eq_def` or `f.eq_unfold`: its definition
-  (`Meta.declFromEqLikeName`);
-- (a) a name Lean reserves for a declaration it generates on demand (`isReservedName`), such as
-  `f.induct`, and which no user declaration can take (`checkNotAlreadyDeclared`); a matcher
-  `f.match_1` (`Meta.isMatcherCore`); an equation or splitter of a matcher, the names Lean's own
-  `isMatchEqName?` gives them: the name it is named under;
-- (c) `c.inj` and `c.injEq` for a constructor `c` (`injectivityGenerated`), `c.sizeOf_spec`
-  (`sizeOfGenerated`), and `t.ctorIdx` for an inductive type `t` (`ctorIdxGenerated`): `c` or
-  `t`. Lean's generator runs when it declares the type, so a declaration that already had the
-  name would have failed that command;
-- (c) `t.noConfusionType` and `t.ctorElimType`: `t`, when `t.noConfusion` is marked
-  (`isNoConfusion`) or `t.ctorElim` is marked (`isAuxRecursor`), since the one generator run that
-  marks it also generates them;
-- (a) `f._unary` or `f._mutual`, the function a well-founded definition `f` is compiled through:
-  `f`, when its well-founded equation information names it (`Elab.WF.eqnInfoExt`);
-- (c) `t._sizeOf_1`, `t._sizeOf_2`, … and `t._sizeOf_inst` for an inductive type `t`
-  (`sizeOfGenerated`), and `c._flat_ctor` for the constructor `c` of a registered structure
-  (`isStructure`), which the `structure` command generates with it: `t` or `c`;
-- (a) an auxiliary lemma Lean abstracts out of a declaration and names under it, `f._proof_1`,
-  `f._simp_1` or `f._cbv_eval_1` (`Meta.mkAuxLemma`): `f`, when `f`'s value uses it.
-No other declaration is related, whatever its name: an elaborator or macro Lean names
-`«_aux_…»` inside a namespace keeps its own. A name standing for the declaration it is named under
-is read as itself or its user name (`privateToUserName`), whichever the environment contains, the
-two spellings Lean's own `Meta.declFromEqLikeName` tries. Derived instances, and declarations
-deriving handlers add such as an enumeration's `ofNat`, are not related: Lean records no relation
-to the type. -/
-def generatedFrom? (name : Name) : MetaM (Option Name) := do
+- `equationLemma` (a): its definition (`Meta.declFromEqLikeName`);
+- `reservedName` (a): a name Lean reserves for a declaration it generates on demand
+  (`isReservedName`), which no user declaration can take (`checkNotAlreadyDeclared`): the name it
+  is named under;
+- `matcher` (a): a matcher (`Meta.isMatcherCore`), or an equation or splitter of one, the names
+  Lean's own `isMatchEqName?` gives them: the name it is named under;
+- `wellFounded` (a): `f`, when its well-founded equation information names `name` as the function
+  it is compiled through (`Elab.WF.eqnInfoExt`);
+- `structural` (a): `f` for `f._sunfold`, when its structural equation information records it
+  (`Elab.Structural.eqnInfoExt`), and for `f._f`, when that records it or `f`'s value uses `f._f`;
+- `auxiliaryLemma` (a): `f` for an auxiliary lemma Lean abstracts out of it and names under it,
+  `f._proof_1`, `f._simp_1` or `f._cbv_eval_1` (`Meta.mkAuxLemma`), when `f`'s value or the value
+  its well-founded or structural equation information records uses it;
+- `constructorLemma` (c): `c` for `c.inj` and `c.injEq` (`injectivityGenerated`) and
+  `c.sizeOf_spec` (`sizeOfGenerated`), and for `c._flat_ctor` when `c` constructs a registered
+  structure (`isStructure`), which the `structure` command generates with it. Lean's generator runs
+  when it declares the type, so a declaration that already had the name would have failed that
+  command;
+- `typeConstruction` (c): `t` for `t.ctorIdx` (`ctorIdxGenerated`), `t._sizeOf_1`, … and
+  `t._sizeOf_inst` (`sizeOfGenerated`), and `t.noConfusionType` and `t.ctorElimType` when
+  `t.noConfusion` is marked (`isNoConfusion`) or `t.ctorElim` is marked (`isAuxRecursor`), since
+  the one generator run that marks it also generates them;
+- `fieldDefault` (a): the structure `S` for `S.x._default` or `S.x._inherited_default`, when
+  Lean's own lookup of the default of `S`'s field `x` (`getEffectiveDefaultFnForField?`) is
+  `name`. -/
+def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) := do
   let env ← getEnv
-  if let some (.ctorInfo value) := env.find? name then return some value.induct
-  if let some info := env.getProjectionFnInfo? name then return some info.ctorName
-  if isRecCore env name || isAuxRecursor env name || isNoConfusion env name then
+  match family with
+  | .constructor =>
+    let some (.ctorInfo value) := env.find? name | return none
+    return some value.induct
+  | .projection => return (env.getProjectionFnInfo? name).map (·.ctorName)
+  | .recursor =>
+    unless isRecCore env name || isAuxRecursor env name || isNoConfusion env name do return none
     return if name.getPrefix.isAnonymous then none else some name.getPrefix
-  if let some (definition, _) := Meta.declFromEqLikeName env name then return some definition
-  let .str p s := name | return none
-  let spellings := [p, privateToUserName p]
-  if isReservedName env name || Meta.isMatcherCore env name ||
-      (Meta.isMatcherCore env p && (Meta.isEqnReservedNameSuffix s || s == "splitter")) then
+  | .equationLemma => return (Meta.declFromEqLikeName env name).map (·.1)
+  | .reservedName =>
+    let some (spellings, _) := namedUnder? name | return none
+    return if isReservedName env name then spellings.find? env.contains else none
+  | .matcher =>
+    let some (spellings, s) := namedUnder? name | return none
+    unless Meta.isMatcherCore env name || (spellings.head?.any (Meta.isMatcherCore env) &&
+        (Meta.isEqnReservedNameSuffix s || s == "splitter")) do return none
     return spellings.find? env.contains
-  if let some f := spellings.find? fun f =>
-      (Elab.WF.eqnInfoExt.find? env f).any (·.declNameNonRec == name) then
-    return some f
-  if ["_proof_", "_simp_", "_cbv_eval_"].any (s.startsWith ·) then
+  | .wellFounded =>
+    let some (spellings, _) := namedUnder? name | return none
     return spellings.find? fun f =>
-      ((env.find? f).bind valueOf?).any (·.getUsedConstants.contains name)
-  match env.find? p with
-  | some (.ctorInfo ctor) =>
+      (Elab.WF.eqnInfoExt.find? env f).any (·.declNameNonRec == name)
+  | .structural =>
+    let some (spellings, s) := namedUnder? name | return none
+    unless s == "_f" || s == "_sunfold" do return none
+    return spellings.find? fun f => (Elab.Structural.eqnInfoExt.find? env f).isSome ||
+      (s == "_f" && valueUses env f name)
+  | .auxiliaryLemma =>
+    let some (spellings, s) := namedUnder? name | return none
+    unless ["_proof_", "_simp_", "_cbv_eval_"].any (s.startsWith ·) do return none
+    return spellings.find? fun f => valueUses env f name ||
+      (Elab.WF.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
+      (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name)
+  | .constructorLemma =>
+    let .str p s := name | return none
+    let some (.ctorInfo ctor) := env.find? p | return none
     if ((s == "inj" || s == "injEq") && (← injectivityGenerated ctor)) ||
         (s == "_flat_ctor" && isStructure env ctor.induct) then
       return some p
     let some (.inductInfo t) := env.find? ctor.induct | return none
-    if s == "sizeOf_spec" && (← sizeOfGenerated t) then return some p
-    return none
-  | some (.inductInfo t) =>
+    return if s == "sizeOf_spec" && (← sizeOfGenerated t) then some p else none
+  | .typeConstruction =>
+    let .str p s := name | return none
+    let some (.inductInfo t) := env.find? p | return none
     if (s == "noConfusionType" && isNoConfusion env (p.str "noConfusion")) ||
         (s == "ctorElimType" && isAuxRecursor env (mkCtorElimName p)) ||
         (s == "ctorIdx" && (← ctorIdxGenerated t)) ||
@@ -612,7 +642,24 @@ def generatedFrom? (name : Name) : MetaM (Option Name) := do
           (← sizeOfGenerated t)) then
       return some p
     return none
-  | _ => return none
+  | .fieldDefault =>
+    let some (spellings, s) := namedUnder? name | return none
+    unless s == "_default" || s == "_inherited_default" do return none
+    return spellings.findSome? fun
+      | .str struct field =>
+        if isStructure env struct &&
+            getEffectiveDefaultFnForField? env struct (.mkSimple field) == some name then
+          some struct
+        else none
+      | _ => none
+
+/-- The declaration Lean generated `name` from, one step, as the environment records it: the one
+the first family of `GeneratedFamily.all` that `name` belongs to relates it to (`generatedBy?`),
+and `none` when it belongs to none, whatever its name. So an elaborator or macro Lean names
+`«_aux_…»` inside a namespace, a declaration a metaprogram adds, a derived instance, or a
+declaration a deriving handler adds such as an enumeration's `ofNat` is not related. -/
+def generatedFrom? (name : Name) : MetaM (Option Name) :=
+  GeneratedFamily.all.findSomeM? (generatedBy? · name)
 
 /-- Construct the canonical record from this command's actual environment.
 Replay candidates still require the existing fresh transcript and admission guards;

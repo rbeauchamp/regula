@@ -207,19 +207,20 @@ metadata, not authenticated binary identity.
   instances and diagnostics through `DiagnosticCodec.parseDiagnostic`, which also refuses a
   diagnostic unequal to its canonical re-encoding.
 - **Attribution:** the collector records, for each declaration, the declaration Lean generated it
-  from, one step (`Collect.generatedFrom?`): a constructor's inductive type, a projection's
-  structure constructor, the type a recursor, auxiliary recursor or `noConfusion` is named under
-  (the relation Lean's `findDeclarationRanges?` uses), a definition's equation lemmas
-  (`Meta.declFromEqLikeName`), matchers and their equations, and names Lean reserves
-  (`isReservedName`), each by a mark Lean's generator leaves; a constructor's `inj`, `injEq` and
-  `sizeOf_spec` and a type's `ctorIdx`, `noConfusionType` and `ctorElimType` only where the
+  from, one step (`Collect.generatedFrom?`), by trying the closed families of
+  `RegulaCore.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of
+  the exhaustive match `Collect.generatedBy?`: constructors, projections, recursors (the relation
+  Lean's `findDeclarationRanges?` uses), equation lemmas (`Meta.declFromEqLikeName`), reserved
+  names (`isReservedName`) and matchers by a mark Lean's generator leaves; a well-founded
+  definition's `_unary` or `_mutual` and a structural recursion's `_f` and `_sunfold` by its
+  equation information; auxiliary lemmas `f._proof_n`, `f._simp_n` or `f._cbv_eval_n` when `f`'s
+  value or equation information uses them; constructor lemmas and type constructions where the
   environment shows their generator ran on the type (its precondition, under Lean's default
-  options, or the mark it leaves on a sibling it generates in the same run); a well-founded
-  definition's `_unary` or `_mutual` function (its equation information), a type's `_sizeOf_n` and
-  `_sizeOf_inst` and a structure constructor's `_flat_ctor` where their generator ran; and an
-  auxiliary lemma `f._proof_n`, `f._simp_n` or `f._cbv_eval_n` only when `f`'s value uses it. No
-  clause rests on a name alone, so an elaborator or macro Lean names `«_aux_…»` inside a namespace
-  is not related. A declaration finding's `arguments.sourceDeclaration` is the end
+  options, or the mark it leaves on a sibling it generates in the same run); and field defaults
+  by Lean's own lookup (`getEffectiveDefaultFnForField?`). No clause rests on a name alone, so an
+  elaborator or macro Lean names `«_aux_…»` inside a namespace is not related. The RG1005
+  rewrite names the families from `GeneratedFamily.all` and `GeneratedFamily.text`, so the
+  guidance lists exactly the families the checker tries. A declaration finding's `arguments.sourceDeclaration` is the end
   of that chain over the audited declarations (`Findings.sourceName?`), and
   `sourceName?_eq_some_iff` proves it is exactly the name the recorded relation leads to from the
   declaration and relates to nothing further: a declaration Lean did not generate from another, or

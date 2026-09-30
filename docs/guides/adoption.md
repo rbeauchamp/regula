@@ -346,13 +346,18 @@ release (`…/regula/v/<version>/rules/<ID>/`; an unreleased build links the dev
 under `/dev/`), where the [rule index](https://rbeauchamp.github.io/regula/dev/rules/) shows each
 rule's scope, reason and a violating and corrected example produced by the real checker.
 
-Lean also generates declarations from the ones you write: equation lemmas (`f.eq_1`), matchers
-(`f.match_1`) and auxiliary proofs (`f._proof_1`) of a definition, and the constructors,
-projections, recursors, `casesOn`, `noConfusion` and constructor lemmas (`mk.injEq`, `mk.inj`,
-`mk.sizeOf_spec`) of an inductive type or structure. A finding about a declaration Lean generated
-is reported at the declaration it generated it from, following the chain to its end, and located
-at that declaration's range: `Channel.mk.injEq`, generated from the constructor `Channel.mk`, is
-reported at the structure `Channel`. The RG1005 findings under one declaration print as one block,
+Lean also generates declarations from the ones you write. A finding about one of these families
+is reported at the declaration Lean generated it from, following the chain to its end, and
+located at that declaration's range: a constructor, a structure projection, a recursor,
+auxiliary recursor such as `casesOn` or `noConfusion`, an equation lemma (`f.eq_1`), a
+declaration Lean generates on demand under a reserved name (`f.induct`), a matcher (`f.match_1`)
+with its equations and splitter, a well-founded definition's `f._unary` or `f._mutual`, a
+structural recursion's `f._f` and `f._sunfold`, an auxiliary lemma such as `f._proof_1` that `f`
+or its equation information uses, a constructor's `inj`, `injEq`, `sizeOf_spec` and `_flat_ctor`,
+a type's `ctorIdx`, `noConfusionType`, `ctorElimType`, `_sizeOf_1` and `_sizeOf_inst`, and a
+structure field's default `S.x._default` or `S.x._inherited_default`. Any other declaration,
+generated or not, is reported at its own location. So `Channel.mk.injEq`, generated from the
+constructor `Channel.mk`, is reported at the structure `Channel`. The RG1005 findings under one declaration print as one block,
 which lists each declaration's axioms and says where to fix them, and the closing `FAIL` summary
 counts the attributed ones in one line; the JSON report keeps one diagnostic per declaration:
 
@@ -366,21 +371,16 @@ RG1005 [violation; freshProject; claim=kernel-only; Widget/Basic.lean:4:4]: coun
   fix: Prove the same statement with fewer axioms, or deliberately raise the surface's claim …
 ```
 
-Which declaration Lean generated a declaration from is read from what Lean's environment records
-about it: a constructor's inductive type, a projection's structure constructor, the type a
-recursor, auxiliary recursor or `noConfusion` belongs to, a definition's equation lemmas,
-matchers and their equations, and names Lean reserves for declarations it generates on demand
-(`f.induct`). A constructor's `inj`, `injEq` and `sizeOf_spec` and a type's `ctorIdx`,
-`noConfusionType` and `ctorElimType` are related where Lean's generator for them ran on that type,
-which is checked on the environment. So are the auxiliary declarations Lean makes for a
-declaration where the environment records them: the `f._unary` or `f._mutual` function a
-well-founded definition `f` is compiled through, a type's `_sizeOf_1` and `_sizeOf_inst`, a
-structure constructor's `_flat_ctor`, and an auxiliary lemma such as `f._proof_1` that `f`'s value
-uses. Any other declaration named under another that Lean did not generate from it is reported on
-its own, whatever its name and whether or not it has a source range, such as a theorem a
-metaprogram adds, a `Word.ofNat` you write for a structure, or an elaborator Lean names
-`«_aux_…»` inside a namespace; so is a derived instance, or an enumeration's `ofNat` from deriving
-`DecidableEq`: Lean records no relation between it and the type.
+Which family a declaration belongs to, and what it was generated from, is read from what Lean's
+environment records about it, never from its name alone: the marks Lean's generators leave, the
+equation information of a recursive definition, the uses in a definition's value, and, where a
+generator runs on every type it applies to, its precondition checked on the environment. The
+RG1005 guidance (`lake exe regula explain RG1005`) names the same families, from the same list
+the checker runs. A declaration named under another that Lean did not generate from it is
+reported on its own, whether or not it has a source range, such as a theorem a metaprogram adds,
+a `Word.ofNat` you write for a structure, or an elaborator Lean names `«_aux_…»` inside a
+namespace; so is a derived instance, or an enumeration's `ofNat` from deriving `DecidableEq`:
+Lean records no relation between it and the type.
 
 ## Machine-readable report
 
