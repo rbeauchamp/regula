@@ -893,7 +893,7 @@ and of the edited files, its check that a commit of `main` or of a pull request 
 derived from `main`'s commit before CI records it as that commit. Its edits of
 `RegulaCore/Edition.lean`, `lakefile.lean` and the adoption guide's compatibility table are read
 back before use; its stamps of `RegulaCore/Rule.lean` are a convenience that reads text. `agree`,
-the second step of `verify`, refuses a `lakefile.lean` version, as Lake reads it
+a step of `verify` before acceptance, refuses a `lakefile.lean` version, as Lake reads it
 (`lake reservoir-config`), other than the latest listed release's, and a compatibility table
 other than the one `Regula.releases` gives. The kernel checks the edited modules' theorems when
 the release pull request's checks and CI's checks of the release commit build them:

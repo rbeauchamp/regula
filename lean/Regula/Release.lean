@@ -39,9 +39,10 @@ raise the bump and never lowers it (`nextBump_ge_called`, `nextBump_ge_requested
 (`derive_eq_none`) and needs that input, and the bump is still at least each header's
 (`nextVersion_ge`). The derived version follows its predecessor (`nextVersion_follows`): it is
 later, a patch release keeps its predecessor's toolchain, and a release that starts a new line
-resets the lower components. `main`'s `lakefile.lean` declares the version of the latest listed release, and the
-adoption guide's compatibility table lists every listed release with its toolchain; `agree`
-checks both on every commit, the version as Lake itself reads it (`lake reservoir-config`).
+resets the lower components. `main`'s `lakefile.lean` declares the version of the latest listed
+release, and the adoption guide's compatibility table lists every listed release with its
+toolchain; `agree` checks both on every commit, the version as Lake itself reads it
+(`lake reservoir-config`).
 
 ## Steps
 

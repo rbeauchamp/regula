@@ -424,8 +424,8 @@ release, so the first own-numbered release is `0.2.0`; its lifecycle stamps
 (`.release ⟨4, 34, 0⟩`) and its rule reference `/v/4.34.0/` keep its tag's number. Its
 `lakefile.lean` declares no version, which Lake reads as `0.0.0`, so Lake and Reservoir rank it
 below every later release too ([Reservoir](#reservoir)). `main`'s `lakefile.lean` declares the
-latest release's version (`0.0.0` until `0.2.0`), and the second step of the required `verify`
-check (`lean --run lean/Regula/Release.lean agree`) refuses a version Lake reads that is not the
+latest release's version (`0.0.0` until `0.2.0`), and a step of the required `verify` check,
+before acceptance (`lean --run lean/Regula/Release.lean agree`), refuses a version Lake reads that is not the
 latest listed release's, and an adoption-guide compatibility table that is not the one
 `Regula.releases` gives.
 
