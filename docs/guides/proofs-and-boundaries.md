@@ -99,7 +99,10 @@ documentation-presence coverage; fences keep §7.7's logical-only contract; a se
 requires every selected root checked. Empty modules, empty root sets and fence-free Markdown are
 accepted only after their discovery, build and scan jobs complete; a project still needs a
 nonempty library surface. A discovered root-package library with no modules is refused, even
-when it is excluded.
+when it is excluded. A transcript job is derived only for a module declaring a native-proof axiom,
+which every declaration-policy job refuses under its conforming profile, and every mode that
+requires transcripts also requires declaration policy; so an accepted run plans no transcript job
+(`accepted_no_transcript_subjects`), and a run with a transcript job is never accepted.
 
 **The report account.** Every verdict line and every `completed` status is rendered from
 `Account.account run` (claimed `RegulaCore.Account`). `Account` is the subtype of projections of
@@ -325,7 +328,10 @@ check cannot raise the next one's limit. The 1 GiB is shared by every later chec
 in the worker, so after one exhaustion later checks may exhaust at once; they fail closed as
 unresolved. At most three report workers run, each running its checks sequentially, so checks add at
 most 3 GiB above those workers' first-check peaks; that increment does not by itself bound the
-audit's total memory. Supplied and then discovered theorem candidates are tried before the
+audit's total memory. Because the allowance is per process, a process that has inspected one
+environment is not fresh for the next, whose checks may then exhaust at once; the audit and the
+`qualify environments` census therefore acquire every claimed environment's report through the same
+code, `Inspection.inspect`, each in its own report worker. Supplied and then discovered theorem candidates are tried before the
 kernel-defeq check, to keep a kernel-exhausting unfolding within one comparison from consuming the
 headroom a supplied proof needs, so a replacement with both reports `proved:` evidence; kernel
 resource exhaustion is never conflated with rejection; a theorem candidate whose admission exhausts
@@ -408,7 +414,7 @@ inferred from any pure proof.
   conditions above, stated with the reachability relation `Admission.Reach`). **Argued, not
   machine-checked:** `validate` passes these checks the replayed module data, the base's and the
   audited environment's `find?` and the replayed kernel, admits no key when one fails, and filters
-  `shared` modules from the offered admissions (`AxiomGate.libraryPriors`), all read from the
+  `shared` modules from the offered admissions (`Inspection.libraryPriors`), all read from the
   code. Every cycle among the audited environment's non-inductive constants that involves an
   owned name passes through a name whose kept constant differs from the replayed one (or through
   the trusted base), because replay admits each declaration only after the constants its type and
@@ -924,7 +930,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec and source cases | registry, diagnostic and source codecs | Proved in part | round-trip theorems; open: state the remaining refusals as theorems |
-| standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled |
+| standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
 | project audit | executable admission reuse recheck | a report reusing an admission no library environment offered is refused | Proved | `Admission.reuseJustified_sound` |
@@ -981,7 +987,11 @@ The `qualify` campaigns and what they observe:
   symlinked-root and outside-root cases); `all` runs all three under one deadline. It checks typed
   root/source attribution and absence of acceptance on unavailable history; these are scoped
   operational controls, not a proof of IO extraction or a full acceptance run.
-- `environments` and `self-audit`.
+- `environments`: this repository's claimed environments, each report acquired as the audit
+  acquires it (`Inspection.inspect`); the complete and restored positives must be accepted, and
+  each omitted, duplicated, rebound, substituted or mis-bound mutation refused for its intended
+  reason.
+- `self-audit`.
 
 `producers` accepts an optional `--evidence PATH`; `environments --evidence PATH` and
 `acceptance GROUP --evidence PATH` (group `fences`) take an evidence path.
