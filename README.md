@@ -125,7 +125,8 @@ The [adoption guide](docs/guides/adoption.md) covers fresh runs, CI and editor d
 [Open an issue](https://github.com/rbeauchamp/regula/issues) for checker false positives or
 omissions, unclear or unnecessarily restrictive requirements, incorrect Lean claims or
 adoption difficulties. Cite the rule or section, and include a small Lean example and your
-toolchain version where useful.
+toolchain version where useful. Report a security vulnerability, such as a way to make a
+violating project pass, privately instead, as the [security policy](SECURITY.md) describes.
 
 ## Repository map
 
