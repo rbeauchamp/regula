@@ -153,8 +153,9 @@ inductive JobEvidence where
   | transcript (observation : Frontend.Transcript)
   /-- The observed elaboration history of one module. -/
   | history (observation : HistoryObservation)
-  /-- The observed origin of one module's native runtime code (`NativeOrigin`). -/
-  | origin (observation : NativeOrigin)
+  /-- The observed toolchain origin of one module whose boundaries the toolchain owns
+  (`ToolchainOrigin`). -/
+  | origin (observation : ToolchainOrigin)
   /-- The docstring found for a module or declaration, or `none` when it has none. -/
   | documentationPresence (docstring : Option String)
   /-- The observed scan of the documentation files. -/
@@ -313,23 +314,25 @@ A registered material declaration additionally needs an Intent section
 (`MaterialDocumentationOK`); its adequacy is the R-INTENT review obligation. -/
 def DocumentationPresenceOK (docstring : Option String) : Prop := docstring ≠ none
 
-/-- Native-runtime evidence must agree with every relevant boundary origin observation. -/
-def OriginOK (i : EnvironmentCensus) (m : ModuleKey) (origin : NativeOrigin) : Prop :=
+/-- Toolchain-origin evidence must agree with every boundary of the module that claims toolchain
+ownership (`ExecutionBoundary.claimsToolchain`): each carries exactly this origin. -/
+def OriginOK (i : EnvironmentCensus) (m : ModuleKey) (origin : ToolchainOrigin) : Prop :=
   origin.moduleName = m.name.name ∧
   ∀ r ∈ i.execution.roots, ∀ b ∈ r.boundaries,
-    b.module = m.name.name → b.boundary = .nativeRuntime → b.account.nativeOrigin? = some origin
-instance (i : EnvironmentCensus) (m : ModuleKey) (o : NativeOrigin) : Decidable
+    b.module = m.name.name → b.claimsToolchain = true → b.toolchainOrigin? = some origin
+instance (i : EnvironmentCensus) (m : ModuleKey) (o : ToolchainOrigin) : Decidable
     (OriginOK i m o) := by
   unfold OriginOK; infer_instance
 
 /-- History is bound to unchanged exact source, with no recorded unsupported evaluator,
-missing replay, or current replacement absent from the observed history. -/
+missing replay, or current replacement the toolchain does not own absent from the observed
+history. -/
 def HistoryOK (c : Claim) (i : EnvironmentCensus) (m : ModuleKey) (o : HistoryObservation) : Prop :=
   o.moduleName = m.name.name ∧ o.before ∈ snapshotSources c ∧
   (∃ entry ∈ i.allModuleSources, entry.1 = m ∧ entry.2 = o.before) ∧
   o.after = o.before ∧ o.unsupported = #[] ∧
   ∀ r ∈ i.execution.roots, ∀ b ∈ r.boundaries,
-    b.module = m.name.name → b.boundary = .runtimeReplacement →
+    b.module = m.name.name → b.needsHistory = true →
       ∃ target ∈ b.replacement, (b.name, target) ∈ o.replacements
 set_option synthInstance.maxSize 1024 in
 instance (c : Claim) (i : EnvironmentCensus) (m : ModuleKey) (o : HistoryObservation) : Decidable
@@ -486,8 +489,9 @@ inductive LocalEvidenceTransfer (c : Claim) (localInventory flattened : Environm
           entry ∈ localInventory.allModuleSources) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .history (.module key) (.history o) (.history o)
-  /-- The same native-origin observation, where every local execution root is a combined one. -/
-  | origin (key : ModuleKey) (o : NativeOrigin)
+  /-- The same toolchain-origin observation, where every local execution root is a combined
+  one. -/
+  | origin (key : ModuleKey) (o : ToolchainOrigin)
       (roots : ∀ root ∈ localInventory.execution.roots, root ∈ flattened.execution.roots) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .origin (.module key) (.origin o) (.origin o)

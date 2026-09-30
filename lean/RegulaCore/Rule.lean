@@ -824,7 +824,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "execution-trusted-boundary"
       evidenceModes := [.incrementalProject, .freshProject, .freshFile]
       requirement := "Under `\"execution\": \"checked\"`, every reachable replacement or `extern` \
-        boundary has a kernel-checked equality with its reference."
+        boundary outside the Lean toolchain's own trusted base has a kernel-checked equality with \
+        its reference."
       rationale := "`@[implemented_by g] def f` makes the kernel reason about `f` while compiled \
         code runs `g`. Without a proof relating them, theorems about `f` say nothing about the \
         program's behavior."
@@ -845,7 +846,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         noncompliant := include_str "../../examples/rules/RG3002/Violation.lean"
         correction := "The correction adds the missing equality between the reference and its \
           replacement on the full natural-number domain, keeping the checked execution claim and \
-          both implementations." } }
+          both implementations. In both, `spell` runs `Nat.repr`, whose replacement is the Lean \
+          toolchain's own: it passes as the toolchain's trusted base, reported once." } }
   | .fenceStructure => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "Documentation fences must have a valid classification", category := .documentation

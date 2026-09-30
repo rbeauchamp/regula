@@ -640,10 +640,10 @@ private def environmentEvidenceImpl (frozen : FrozenEnvironment) (stage : Stage)
               (← requireOne "history" <| frozen.histories.filter (·.moduleName == k.name.name))
       | .origin, .module k => do
           let origins := frozen.census.execution.roots.flatMap fun r => r.boundaries.filterMap
-            fun b => if b.module == k.name.name then b.account.nativeOrigin? else none
-          let some origin := origins[0]? | throw "missing native-runtime origin observation"
+            fun b => if b.module == k.name.name then b.toolchainOrigin? else none
+          let some origin := origins[0]? | throw "missing toolchain origin observation"
           unless origins.all (fun other => decide (other = origin)) do
-              throw "conflicting native-runtime origins"
+              throw "conflicting toolchain origins"
           pure <| .origin origin
       | .documentationPresence, .module k => do
           let observation ← requireOne "module documentation" <|

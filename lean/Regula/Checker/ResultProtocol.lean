@@ -16,11 +16,15 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 4 inspects each claimed executable's root in an environment of its own: a
-project `scope.surfaces[*]` entry's `modules` and `report` cover only its library's environment
-(the library's modules other than its claimed executables' roots), and each claimed executable
-has its own `executables[*]` entry with its own `modules` and `report`. A
-report's `admission` also lists as `reused` the modules its environment did not replay because a
+/-- Result schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
+module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
+`toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
+each report environment and file result lists its `toolchainBase`, every such boundary once with
+the roots that reach it. Schema 4 inspected each claimed executable's root in an environment of
+its own: a project `scope.surfaces[*]` entry's `modules` and `report` cover only its library's
+environment (the library's modules other than its claimed executables' roots), and each claimed
+executable has its own `executables[*]` entry with its own `modules` and `report`. A report's
+`admission` also lists as `reused` the modules its environment did not replay because a
 library's environment admitted them over the identical import closure.
 Schema 3 added, for agents, each diagnostic's `remedy`, the top-level `rules` (the
 guidance of every rule that fired, once each), the stage evidence `stages` (the run's required
@@ -30,7 +34,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 4
+def schemaVersion : Nat := 5
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion

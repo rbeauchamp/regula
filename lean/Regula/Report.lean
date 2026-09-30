@@ -185,11 +185,11 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
 JSON codec whose decoder admits the boundary evidence through `admitBoundaryEvidence` and
 refuses a noncanonical payload. -/
 abbrev ExecutionBoundary := RegulaPolicy.ExecutionBoundary
-instance : ToJson RegulaPolicy.NativeOrigin := ⟨fun o => Json.mkObj [
+instance : ToJson RegulaPolicy.ToolchainOrigin := ⟨fun o => Json.mkObj [
   ("module", toJson o.moduleName), ("actual", toJson o.actual), ("expected", toJson o.expected)]⟩
-instance : FromJson RegulaPolicy.NativeOrigin := ⟨fun j => do
+instance : FromJson RegulaPolicy.ToolchainOrigin := ⟨fun j => do
   exactFields j ["module", "actual", "expected"]
-  RegulaPolicy.admitNativeOrigin (← j.getObjValAs? Name "module")
+  RegulaPolicy.admitToolchainOrigin (← j.getObjValAs? Name "module")
     (← j.getObjValAs? String "actual") (← j.getObjValAs? String "expected")⟩
 
 instance : ToJson ExecutionBoundary := ⟨fun b => Json.mkObj [
@@ -197,17 +197,17 @@ instance : ToJson ExecutionBoundary := ⟨fun b => Json.mkObj [
   ("boundary", toJson b.boundary), ("correspondence", toJson b.correspondence),
   ("owned", toJson b.owned), ("replacement", toJson b.replacement),
   ("evidence", toJson b.evidence), ("compilerCallers", toJson b.compilerCallers),
-  ("nativeOrigin", toJson b.account.nativeOrigin?)]⟩
+  ("toolchainOrigin", toJson b.toolchainOrigin?)]⟩
 instance : FromJson ExecutionBoundary := ⟨fun j => do
   exactFields j
       ["occurrence", "name", "module", "boundary", "correspondence", "owned", "replacement",
-          "evidence", "compilerCallers", "nativeOrigin"]
+          "evidence", "compilerCallers", "toolchainOrigin"]
   let boundary ← j.getObjValAs? BoundaryKind "boundary"
   let state ← j.getObjValAs? Correspondence "correspondence"
   let detail ← j.getObjValAs? (Option String) "evidence"
-  let origin ← j.getObjValAs? (Option NativeOrigin) "nativeOrigin"
+  let origin ← j.getObjValAs? (Option ToolchainOrigin) "toolchainOrigin"
   let account ← admitBoundaryEvidence boundary state detail origin
-  unless account.detail == detail && account.nativeOrigin? == origin do
+  unless account.detail == detail && account.toolchainOrigin? == origin do
     throw "noncanonical boundary evidence payload"
   return {
     occurrence := ← j.getObjValAs? Nat "occurrence"

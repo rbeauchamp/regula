@@ -6,3 +6,5 @@ def alternative (n : Nat) : Nat := 0 + n
 /-- The identity on natural numbers; compiled code runs `alternative` instead. -/
 @[implemented_by alternative] def identity (n : Nat) : Nat := n
 theorem correspondence (n : Nat) : identity n = alternative n := (Nat.zero_add n).symm
+/-- Spells `n` through the toolchain's `Nat.repr`. -/
+def spell (n : Nat) := toString n
