@@ -940,7 +940,7 @@ private def manifestQualification (repo scratch : FilePath) : IO (Array String) 
     "{\"executable\":\"freshChecker\",\"rationale\":\"tooling\"}," ++
     "{\"executable\":\"checkerSelftest\",\"rationale\":\"tooling\"}]}"
   if let some failure ← expectManifestPublicFailure repo "unknown-library" unknownLibrary
-      "manifest surface missing from Lake discovery" then
+      "manifest-incomplete: library 'NoSuchLibrary' is not a root Lean library" then
     failures := failures.push failure
   return failures
 
@@ -992,7 +992,7 @@ manifest, so `Manifest.structural_libraries` and `structural_executables` make t
 classified names of this in-memory manifest exactly the actual ones.
 `Manifest.structural_roundtrip` proves that the JSON value stage of the gate's `parse` recovers
 this manifest exactly from `Manifest.toJson` and that its identity stage
-(`Manifest.recordExecutables`) returns it unchanged. Its hypothesis that the copy claims an actual
+(`Manifest.recordTargets`) returns it unchanged. Its hypothesis that the copy claims an actual
 surface is what the guard below checks at run time, not a theorem. Rendering with
 `Json.compress` and reading with `PolicyCodec.parse` stay trusted,
 as do the `auditAppVariant` rewrites. The mutations'
