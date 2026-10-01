@@ -89,7 +89,8 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
       throw <| IO.userError "lake-query-malformed: no root Lean libraries"
     let mut executables : Array ExecutableInventory := #[]
     for exe in pkg.leanExes do
-      let executable := exe.name.toString
+      -- The recorded spelling a manifest's executable names are compared with (`executableName`).
+      let executable := Manifest.targetSpelling exe.name
       let root := exe.root.name
       let source ← checkSource repo s!"executable {executable}"
         root.toString exe.root.leanFile.toString

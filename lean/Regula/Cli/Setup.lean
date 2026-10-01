@@ -188,7 +188,8 @@ def observe (root : FilePath) : IO Project := do
           unless excludedLibraries.contains lib.name.toString do claimed := m.name :: claimed
       for exe in pkg.leanExes do
         sources := sources.insert exe.root.name exe.root.leanFile
-        unless excludedExecutables.contains exe.name.toString do claimed := exe.root.name :: claimed
+        unless excludedExecutables.contains (Manifest.targetSpelling exe.name) do
+          claimed := exe.root.name :: claimed
       let included := sources
       -- The modules below each library root that no root library includes.
       let mut missedBy : Array (String × List String × Array Name) := #[]
@@ -217,7 +218,8 @@ def observe (root : FilePath) : IO Project := do
       let own (options : Array Lean.LeanOption) :=
         (Lake.buildOptions (.ofArray options) #[] #[]).options
       let libs := pkg.leanLibs.filter fun lib => !excludedLibraries.contains lib.name.toString
-      let exes := pkg.leanExes.filter fun exe => !excludedExecutables.contains exe.name.toString
+      let exes := pkg.leanExes.filter fun exe =>
+        !excludedExecutables.contains (Manifest.targetSpelling exe.name)
       -- A target's extra `lean` arguments are the audit inventory's, read by the same functions.
       -- With a valid manifest, `targets` lists every root target exactly when `allClaimed` holds.
       let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption)

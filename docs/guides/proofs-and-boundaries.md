@@ -1253,11 +1253,21 @@ the module's `collectAxioms` command). `parse_sound` and `parse_input`: every ma
 `parse` accepts satisfies `Manifest.Valid` (nonempty surfaces, duplicate-free library and
 executable names across surfaces and exclusions, well-formed target names, no compiler-trusting
 claim, a nonempty rationale for every entry) and comes from JSON whose keys are all allowed and
-whose schema version is 2, each array decoding element by element in order. Every name and
-rationale is the JSON string, the claim is `Profile.parse?` of the JSON string, an absent
-`executables` is empty and a present one is exactly its string array, and an absent `execution`
+whose schema version is 2, each array decoding element by element in order. Every library name
+and rationale is the JSON string, the claim is `Profile.parse?` of the JSON string, an absent
+`executables` is empty and a present one is its string array, and an absent `execution`
 is `report` while a present one is `ExecutionClaim.parse?` of the JSON string (`SurfaceDecodes`,
-`ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). `load` adds only the missing-file check
+`ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). Every executable name is `executableName`
+of the JSON string (`parse_input`, `recordExecutables_ok`): Lake's own reading of a target name
+(`Lake.stringToLegalOrSimpleName`, which its TOML loader applies to a `lean_exe` name and
+`lake build` to a target argument), spelled as Lean prints a name. The Lake inventory records the
+same spelling of each executable's name (`targetSpelling`), so the `name` a `lakefile.toml` gives
+a `lean_exe` is recorded as that executable's name by definition. `parse_recorded`: every
+executable name of an accepted manifest is its own recorded spelling, so with `parse_sound`'s
+distinctness no accepted manifest names one Lake target under two spellings. That Lean reads a
+name it printed back as that name, which is what accepts the spelling `init` writes for a name
+that is not an identifier (`«widget-tool»`), is trusted and not proved; the identity stage
+refuses a spelling for which it fails. `load` adds only the missing-file check
 and the read. The refusal-class theorems (`parse_malformed`, `objectWithKeys_unknown`,
 `topLevel_unknownKey`, `topLevel_schemaVersion`, `topLevel_emptySurfaces`,
 `parseSurface_unknownKey`, `surfaceExecution_unknown`, `surfaceExecution_nonString`) give the
@@ -1271,12 +1281,13 @@ unrecognized or non-string `execution`, once every earlier surface check accepts
 (`SurfacePrefixOK`), gives the `manifest-schema` execution message); other refusals, including a
 missing required field and an unknown key in an exclusion entry, are not classified by a theorem,
 and the public CLI controls remain external observations of how each class renders.
-`parse_emptyExclusions`: JSON meeting the top-level conditions with empty exclusion arrays is
-accepted with exactly its surfaces whenever they parse; it does not prove that any particular
-surface is accepted.
+`parse_emptyExclusions`: for JSON meeting the top-level conditions with empty exclusion arrays
+whose surfaces parse, `parse` is the identity stage (`recordExecutables`) of exactly those
+surfaces; it does not prove that any particular surface is accepted.
 `parse_ok` (`parse` accepts `m` exactly when `PolicyCodec.parse` returns a value `parseValue`
-accepts with `m`), `parseValue_ok` (`parseValue` accepts a value with `m` exactly when
-`m.Valid` and the value `Encodes` `m`, so `Manifest.Valid` is exactly what the parser admits) and
+accepts with some `raw` from which `recordExecutables` returns `m`), `parseValue_ok`
+(`parseValue` accepts a value with `m` exactly when `m.Valid` and the value `Encodes` `m`, so
+`Manifest.Valid` is exactly what the value stage admits) and
 `toJson_encodes` give `parseValue_toJson`; `structuralManifest_valid` shows the structural copy
 of a valid manifest is valid whenever it claims an actual surface. The schema-version check
 compares `JsonNumber` fields with derived equality (`schemaVersion2`) rather than `Json`'s
@@ -1285,7 +1296,8 @@ compares `JsonNumber` fields with derived equality (`schemaVersion2`) rather tha
 **The structural partition.** `Manifest.structuralManifest` derives each structural copy's
 manifests from the repository's; `structural_libraries` and `structural_executables` prove the
 base classifies exactly the actual targets, and `structural_roundtrip` (with `parseValue_toJson`:
-`parseValue (toJson m) = .ok m ↔ m.Valid`) covers what the gate reads at the `Json` value
+`parseValue (toJson m) = .ok m ↔ m.Valid`, and the identity stage returning the copy unchanged)
+covers what the gate reads at the `Json` value
 boundary for any accepted manifest and claim set selecting an actual surface. `structuralBase`
 checks that claim hypothesis at run time, and no theorem links that check to the hypothesis. The
 text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
