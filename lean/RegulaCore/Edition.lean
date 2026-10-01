@@ -277,8 +277,11 @@ def Build.edition : Build → Edition
 theorem Build.edition_eq_dev_iff (b : Build) : b.edition = .dev ↔ b = .unreleased := by
   cases b <;> simp [Build.edition]
 
-/-- The state of the repository's tag `v<version>` for the installed release, as a site build
-observes it. An unreleased build has no release tag and observes `absent`. -/
+/-- The state of a release's tag `v<version>` in the repository relative to a site build's
+commit, as the build observes it. `labelAdmitted` takes the state of the installed release's tag,
+where an unreleased build has no release tag and observes `absent`; `releaseSource` takes the
+state of the tag of the release whose edition it decides, in a released and an unreleased build
+alike. -/
 inductive TagState where
   /-- The tag does not exist yet. -/
   | absent

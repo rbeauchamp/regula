@@ -141,9 +141,9 @@ commit; the site build then refuses the evidence as another commit's. Delete
 `.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh. A
 worktree with uncommitted changes produces a labelled local preview. Every build requests the
 release asset of every release and reads the repository's tags with `git ls-remote`
-([versions](#versions-and-routes)), so a build needs network access. The artifact expects to be served at `/regula/`; any static file
-server works if `_site/` is mounted at that path (for example a directory containing only a
-`regula` link to `_site`).
+([versions](#versions-and-routes)), so a build needs network access. The artifact expects to be
+served at `/regula/`; any static file server works if `_site/` is mounted at that path (for
+example a directory containing only a `regula` link to `_site`).
 
 ## Publication
 

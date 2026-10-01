@@ -17,8 +17,8 @@ be uploaded.
   this build's rendered edition in a build of the installed release while its tag is absent or
   names this commit, and the same rendered files as a preview in an unreleased build while the
   release is the latest listed and its tag is absent. `buildJson` records each source, whether
-  the tag names this commit and the value of `publishable` for the sources, which
-  `Deployment gate` requires.
+  the installed release's tag names this commit and the value of `publishable` for the sources,
+  which `Deployment gate` requires.
 - `publishedCopy`: a release's published edition: its copy, with the latest-release banner
   (`outdatedBanner`, `bannerTarget`) inserted into every HTML page (`insertBanner`) when a later
   release exists.
@@ -122,8 +122,8 @@ def identityFields (g : Generated) : List (String × Json) := [
       ("shard", shardField s "shard"), ("attempt", shardField s "attempt"),
       ("selected", shardField s "selected")]))]
 
-/-- The `build.json` of the installed release's edition: the identity of the build that made
-that release's copy. -/
+/-- The `build.json` of a release edition this build renders, the installed release's or a
+preview of a release not yet published: the identity of the build that made that copy. -/
 def editionJson (g : Generated) : Json := Json.mkObj (identityFields g)
 
 /-- The machine-readable identity of an artifact: the build's identity, its published editions,
