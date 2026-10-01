@@ -808,7 +808,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
 
 /-- Fresh audits copy the project into an owned isolated workspace. With `--with-docs`,
 the documentation stage runs afterwards in this same process against the same frozen
-snapshot and build; project and documentation acceptance are then combined. With
+snapshot and build; project and documentation acceptance are then combined. A change of a frozen
+source or configuration file during that stage is reported as the project's admission refusal,
+which replaces the stage's result. With
 `acceptanceLink`, a fresh success also returns the pending identity of its accepted inputs;
 only the caller records it, after its own outer recheck. -/
 private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
@@ -858,12 +860,18 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let docFindings ← IO.mkRef (#[] : Array Regula.Finding)
     let documentAccepted ← IO.mkRef
         (none : Option ((c : RegulaPolicy.Claim) × RegulaPolicy.AcceptedRun c))
-    -- The documentation stage performs the run's terminal freshness recheck.
-    let docsResult ← Documentation.auditBuiltProject copy (copy / "docs") evidence.inventory
-      evidence.sources evidence.configuration evidence.dependencies documents
-          evidence.build 4 verbose
-      (fun finding => docFindings.modify (·.push finding)) (fun _ => pure ())
-      (fun claim accepted => documentAccepted.set (some ⟨claim, accepted⟩)) (some evidence.snapshot)
+    -- The documentation stage performs the run's terminal freshness recheck. This caller owns
+    -- its enclosing frozen-project guard: a source or configuration change during the stage
+    -- replaces the stage's result with the project refusal, which the guard renders.
+    let some docsResult ← withSourceEvidenceOr none evidence.sources evidence.configuration
+        repo.toString .freshProject composed resultOut (some <$>
+          Documentation.auditBuiltProject copy (copy / "docs") evidence.inventory
+            evidence.sources evidence.configuration evidence.dependencies documents
+            evidence.build 4 verbose
+            (fun finding => docFindings.modify (·.push finding)) (fun _ => pure ())
+            (fun claim accepted => documentAccepted.set (some ⟨claim, accepted⟩))
+            (some evidence.snapshot))
+      | return (1, none)
     let combined ← if docsResult == 0 then do
         let some ⟨docClaim, accepted⟩ ← documentAccepted.get
           | throw <| IO.userError "missing accepted documentation evidence"

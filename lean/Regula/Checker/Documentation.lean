@@ -1026,7 +1026,9 @@ project's Lake environment, or, when `environment` gives a workspace directory, 
 path and its own modules, in that workspace: the documentation audit passes the freshly built
 Verso package, which requires the project and resolves every module the standard's examples
 import, with the modules of the packages it requires by local path (`versoLocalModules`). The
-owned modules are the project's claimed ones and those environment modules. -/
+owned modules are the project's claimed ones and those environment modules. Each structural
+problem and each fence result obtained is reported before a failure of the fence audit or of the
+terminal recheck is rethrown. -/
 unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.SurfaceInventory)
     (sourceBindings : Array ProducerReport.SourceBinding)
     (configuration : Array (FilePath × Option String))
@@ -1092,17 +1094,27 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
             IO.ofExcept (← IO.lazyPure fun _ => freezeDocuments claim tasks)
         else pure none
       let fenceScratch := fenceWorkspace / "tmp" / "fence-build"
-      IO.FS.createDirAll fenceScratch
-      let results ← auditTasks fenceWorkspace fenceScratch jobs tasks ownedBindings configuration
+      -- A failed fence audit or terminal recheck must not drop a finding that is already
+      -- established (a structural problem or a fence result). Both run in `BaseIO`, which cannot
+      -- throw; the report follows, and the first failure is rethrown only after it.
+      let audit : IO (Array Result) := do
+        IO.FS.createDirAll fenceScratch
+        auditTasks fenceWorkspace fenceScratch jobs tasks ownedBindings configuration
           fenceSearchPath (some inventory.leanLibDir)
-      sources.check documents
-      Snapshot.inputsUnchanged inventory dependencies
-      let accepted ← match frozen with
+      let audited ← audit.toBaseIO
+      let recheck : IO (Option (RegulaPolicy.AcceptedRun claim)) := do
+        let results ← MonadExcept.ofExcept audited
+        sources.check documents
+        Snapshot.inputsUnchanged inventory dependencies
+        match frozen with
         | some frozen =>
             if results.all (·.status != .fail) then
               pure (some (← finishDocuments frozen build documents structural results))
             else pure none
         | none => pure none
+      let rechecked ← recheck.toBaseIO
+      let results := audited.toOption.getD #[]
+      let accepted := rechecked.toOption.join
       let mut failures := structural.size
       for problem in structural do
         IO.println s!"[X] {problem}"
@@ -1160,6 +1172,7 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
         s!"conforming-positive-pass={positivePass}/{positiveCount} " ++
         s!"negative-pass={negativePass}/{negativeCount} " ++
         s!"trusted-classified={trustedPass}/{trustedCount} fail={failures}"
+      let accepted ← MonadExcept.ofExcept rechecked
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
       observe results

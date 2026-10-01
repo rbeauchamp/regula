@@ -28,6 +28,10 @@ def check (sourceReadOnly : Bool) : IO Unit := do
     prepareCoreProject root project "documentation_adopter" "kernel-only"
     IO.FS.writeFile (project / "Example.lean") source
     let manifest ← IO.FS.readFile (project / "foundation_manifest.json")
+    -- What this runtime reports for the two failed reads the controls cause: a file that does
+    -- not exist, and a directory in a file's place.
+    let missing ← readFailure (project / "Absent.lean")
+    let directory ← readFailure (project / "docs")
     for (binary, flags) in
         #[("docFenceAudit", #["--jobs", "1", "--verbose"]), ("axiomGate", #["--with-docs"])] do
       if binary == "axiomGate" then
@@ -71,7 +75,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
           let scope := if binary == "docFenceAudit" then project / "docs" else project
           IO.ofExcept
               (checked_documentation.run (process.stdout ++ process.stderr) scope.toString
-                  reason phase)
+                  reason phase missing directory)
         IO.println s!"documentation {binary}/{phase}: PASS"
     if sourceReadOnly then
       for stage in #["file", "build"] do
@@ -114,9 +118,8 @@ def check (sourceReadOnly : Bool) : IO Unit := do
               let ds ← array result "diagnostics"
               let some d := ds[0]? | throw "missing source refusal"
               detail d
-            requireChecks [⟨"exact unavailable IO reason", why.toLower.contains
-              (if phase == "source-missing" then "no such file or directory" else
-                                                  "is a directory")⟩,
+            requireChecks [⟨"exact unavailable IO reason", why.contains
+              (if phase == "source-missing" then missing else directory)⟩,
               ⟨"exact unavailable source", why.contains (target.fileName.getD "")⟩]
           IO.println s!"source boundary {stage}/{phase}: PASS"
     -- Original checked sources remain unchanged: mutations happened in owned audit

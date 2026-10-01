@@ -117,6 +117,8 @@ def configuration : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") source
     let manifest := project / "foundation_manifest.json"
     let saved ← IO.FS.readFile manifest
+    -- What this runtime reports for reading a directory in a file's place.
+    let directory ← readFailure (project / "docs")
     for (mode, flags) in #[("freshProject", #[]),
         ("freshFile", #["--file", (project / "Example.lean").toString, "--claim", "kernel-only"])]
             do
@@ -138,7 +140,7 @@ def configuration : IO Unit := do
             let why ← detail d
             return [
               Check.mk "configuration IO detail"
-                  (why.contains "is a directory" && process.stderr.contains why),
+                  (why.contains directory && process.stderr.contains why),
               ⟨"exact configuration location", (← field d "location") == Json.mkObj [
                 ("kind", .str "project"), ("identity", .str project.toString)]⟩,
               ⟨"exact unresolved IO failure", (← array result "unresolved") == #[.str why]⟩,
