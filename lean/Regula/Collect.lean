@@ -212,7 +212,8 @@ stores (`Meta.mkAuxLemma`), and privately where a `module` file does not export 
 (`DeclNameGenerator.mkUniqueName`). The observed declarations therefore need not hold a theorem of
 the regenerated name and type: Lean may have reused an earlier declaration's, numbered its own
 differently, or named it privately. Replacing each by its value leaves none of these names in the
-comparison (`unfoldTheorems_free`), which erases the proof itself. -/
+unfolded value (`unfoldTheorems_free`, which does not cover the renaming that follows), and the
+comparison erases the proof itself. -/
 private def regeneratedDefinitions (before after : Environment) : Option (Array (Name × Expr)) := do
   let unregenerate := fun (n : Name) => n.replacePrefix regenerationRoot .anonymous
   let added := after.constants.map₂.toList.filter fun (name, _) => !before.contains name

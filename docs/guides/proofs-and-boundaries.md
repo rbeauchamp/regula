@@ -679,8 +679,9 @@ relation or measure (`Declaration.unsafeRecRegenerated`). Each theorem the regen
 from a nested proof is first put back as its value, so the comparison uses no such theorem's name:
 Lean names it from a counter and from the propositions it already abstracted in the same process,
 and privately where a `module` file does not export the body, so the observed module need not hold
-a theorem of that name. `unfoldTheorems_free` proves that the value compared mentions none of those
-theorems; it proves nothing about `Expr.replace` or the comparison. It never uses
+a theorem of that name. `unfoldTheorems_free` proves that the value so unfolded mentions none of
+those theorems; it proves nothing about `Expr.replace`, the renaming of the regenerated definitions
+that follows, or the comparison. It never uses
 `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of the
 self-referential helper does not terminate. The regeneration runs Lean's elaborator in the report
 worker and is undone before the comparison, which reads the observed definitions and decides erasure
