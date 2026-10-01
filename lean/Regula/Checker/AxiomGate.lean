@@ -1255,6 +1255,7 @@ unsafe def run (args : List String) : IO UInt32 := do
         (request.sourceBindings.map fun source => (source.moduleName, FilePath.mk source.path))
         (some (FilePath.mk request.ownedOutput)) (validateReport := false)
         (historyMemo := some (FilePath.mk request.historyMemo)) (priors := request.priors)
+        (publish := some (FilePath.mk request.publish))
       if let .ok report := outcome then
         if let .error failure := SourceBinding.validateAgainst request.sourceBindings report then
           return .error (.admission failure)

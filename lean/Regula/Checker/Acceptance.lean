@@ -131,7 +131,11 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
           sourceFor
   let infrastructureSources ← ((infrastructure.map (·.moduleKey)).filter
     (fun m => allSources.any (·.moduleName == m.name.name))).mapM sourceFor
-  let replayModules ← IO.ofExcept <| replay.modules.mapM (moduleKey snapshot)
+  -- A reused module of this environment's own request has its keys among `required`, admitted
+  -- by the environment that replayed it (`Admission.reuseJustified_admitted`), so it is an
+  -- admission module here too; the receipt lists no module as both replayed and reused.
+  let replayModules ← IO.ofExcept <|
+    (replay.modules ++ replay.reused.filter positive.contains).mapM (moduleKey snapshot)
   let required ← IO.ofExcept <| replay.required.mapM (declarationKey snapshot)
   let admitted ← IO.ofExcept <| replay.admitted.mapM (declarationKey snapshot)
   let declarations ← IO.ofExcept <|

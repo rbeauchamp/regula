@@ -244,7 +244,8 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option (FilePath × String) := none)
-    (priors : Array Admission.PriorAdmission := #[]) :
+    (priors : Array Admission.PriorAdmission := #[])
+    (publish : Option FilePath := none) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
     throw <| IO.userError "environment report requires unique nonempty modules"
@@ -283,14 +284,23 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
           «module» := name
           importers := loaded.filterMap fun (importer, data) =>
             if data.imports.any (·.module == name) then some importer else none }))
-    let reused ← if priors.isEmpty then pure #[] else do
-      let origins ← Regula.Probe.loadedModuleOrigins env
-      pure (Admission.reusedModules env origins requested ownedModules priors)
+    let origins ← if priors.isEmpty && publish.isNone then pure #[] else
+      Regula.Probe.loadedModuleOrigins env
+    let reused := if priors.isEmpty then #[] else
+      Admission.reusedModules env origins ownedModules priors
     let admissionResult ← timedPhase "kernel admission" <|
-      Admission.validate env ownedModules reused
+      Admission.validate env ownedModules reused requested
     if let .error failure := admissionResult then return .error (.admission failure)
     let .ok admission := admissionResult
       | throw <| IO.userError "unreachable admission outcome"
+    -- Later environments of the audit may start from this admission while the report below is
+    -- still being built; the coordinator compares it with the finished report
+    -- (`Inspection.inspect`). The rename makes the file appear complete or not at all.
+    if let some path := publish then
+      let staged := path.addExtension "staged"
+      IO.FS.writeFile staged
+        (toJson ({ receipt := admission, origins } : Admission.Completed)).compress
+      IO.FS.rename staged path
     -- Freeze the selector from the completed environment before reading docstrings.
     -- Loading server/private data above is necessary for both Lean doc formats.
     let own := Regula.Probe.ownedConstants env requested.toList
@@ -359,7 +369,7 @@ private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array Fi
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
-    (priors : Array Admission.PriorAdmission := #[]) :
+    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   let some selfLib ← checkerPackageLibDir
     | throw <| IO.userError "trusted checker library directory unavailable"
@@ -377,7 +387,7 @@ private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array Fi
     let searchIdentity := s!"probe={probeDirectory};path={System.SearchPath.toString oldSearchPath}"
     try
       loadReportCoreAtSearchPath modules sourceRoots moduleSources ownedOutput includeExecution
-        includeModuleOrigins validateReport (historyMemo.map (·, searchIdentity)) priors
+        includeModuleOrigins validateReport (historyMemo.map (·, searchIdentity)) priors publish
     finally Lean.searchPathRef.set oldSearchPath
 
 /-- Load exact modules using the already configured search path. This variant
@@ -391,20 +401,22 @@ unsafe def loadReportCurrentSearchPathOutcome (modules : Array Name)
 
 /-- Load exact modules through Lean's import semantics and return their typed
 declaration report. Extra search roots are temporary and restored afterward. Kernel admission
-reuses the admission `priors` completed for owned modules (`Admission.reusedModules`). -/
+reuses the admission `priors` completed for owned modules (`Admission.reusedModules`), and its
+receipt and module origins are written to `publish` (`Admission.Completed`) as soon as it
+succeeds. -/
 unsafe def loadReportOutcome (modules : Array Name)
     (extraSearchRoots : Array FilePath := #[]) (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
-    (priors : Array Admission.PriorAdmission := #[]) :
+    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none) :
     IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
   let selfLib ← checkerPackageLibDir
   let oldSearchPath ← Lean.searchPathRef.get
   Lean.searchPathRef.set (extraSearchRoots.toList ++ selfLib.toList ++ oldSearchPath)
   try
     loadReportCore modules sourceRoots moduleSources ownedOutput includeExecution
-      includeModuleOrigins validateReport historyMemo priors
+      includeModuleOrigins validateReport historyMemo priors publish
   finally Lean.searchPathRef.set oldSearchPath
 
 /-- Compatibility wrapper for callers that report every refusal as an inspection failure at their

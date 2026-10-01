@@ -227,12 +227,14 @@ lake lint -- --explain-config              # read-only: manifest, scope, profile
 The driver builds every manifested library and executable by its explicit Lake target, with
 warnings as failures, and inspects the completed environments: each library in one, and each
 claimed executable's root in one of its own, since every root defines `main` (a root inside
-its library is inspected there, not in the library's environment). The libraries'
-environments come first; an executable's environment reuses their kernel check of the claimed
-library modules its root imports when those load from byte-identical `.olean` files (including
-`.olean.private` parts) in both, instead of repeating it. Library environments still repeat the
-kernel check of each other's modules they import. It re-evaluates current policy even when every
-module is cached. Run it from the project root without `-d`: it refuses a working directory that
+its library is inspected there, not in the library's environment). An environment waits for the
+claimed libraries it imports and reuses their kernel check of the modules it loads from them,
+when those load from byte-identical `.olean` files (including `.olean.private` parts) in both,
+instead of repeating it; libraries that do not import one another are inspected side by side.
+So each claimed library module is kernel-checked once per audit, in its own library's
+environment (or, where claimed libraries import one another, in the first environment that
+loads it), and again only where that identity cannot be established. It re-evaluates current
+policy even when every module is cached. Run it from the project root without `-d`: it refuses a working directory that
 is not the workspace that dispatched it. Its exit status separates the outcome:
 
 | Exit | Outcome |

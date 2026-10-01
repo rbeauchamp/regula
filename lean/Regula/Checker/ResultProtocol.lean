@@ -50,7 +50,11 @@ claimed executable's root in an environment of its own: a project `scope.surface
 its claimed executables' roots), and each claimed executable has its own `executables[*]` entry
 with its own `modules` and `report`. A report's `admission` also lists as `reused` the modules
 its environment did not replay because a library's environment admitted them over the identical
-import closure.
+import closure; a library's own report lists the modules of the claimed libraries it imports
+there, each of which is in the `modules` of the report of the environment that replayed it.
+Where claimed libraries import one another, `reused` can hold one of the report's own claimed
+modules, which an earlier environment replayed; `required` and `admitted` then keep that module's
+keys, admitted by that earlier environment.
 Schema 3 added, for agents, each diagnostic's `remedy`, the top-level `rules` (the
 guidance of every rule that fired, once each), the stage evidence `stages` (the run's required
 stages) and `stagesCompleted` (those that completed), and their derivation `complete` (every

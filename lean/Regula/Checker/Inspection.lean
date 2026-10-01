@@ -72,15 +72,20 @@ structure ReportWorkerRequest where
   /-- Directory the coordinator owns for this audit, where surface workers share
   replacement-history worker output (`Environment.historyWorkerOutput`). -/
   historyMemo : String
-  /-- The library environments' completed admissions, which an executable's environment reuses
-  (`Admission.reusedModules`); empty for a library's environment. -/
+  /-- What the completed admissions of earlier environments of the audit offer this one
+  (`Admission.currentOffers`), which its admission reuses (`Admission.reusedModules`): for a
+  library's environment, those of the environments that replay the claimed library modules it
+  loads; for an executable's, every library's. -/
   priors : Array Admission.PriorAdmission
+  /-- The file the worker writes its completed admission to (`Admission.Completed`) as soon as
+  kernel admission succeeds, for the environments after it. -/
+  publish : String
   deriving ToJson
 
 instance : FromJson ReportWorkerRequest := ⟨fun j => do
   Regula.Checker.PolicyCodec.exactFields j
       ["modules", "searchRoots", "sourceRoots", "sourceBindings", "ownedOutput",
-    "historyMemo", "priors"]
+    "historyMemo", "priors", "publish"]
   return {
     modules := ← j.getObjValAs? _ "modules"
     searchRoots := ← j.getObjValAs? _ "searchRoots"
@@ -89,6 +94,7 @@ instance : FromJson ReportWorkerRequest := ⟨fun j => do
     ownedOutput := ← j.getObjValAs? _ "ownedOutput"
     historyMemo := ← j.getObjValAs? _ "historyMemo"
     priors := ← j.getObjValAs? _ "priors"
+    publish := ← j.getObjValAs? _ "publish"
   }⟩
 
 /-- One Lean environment the project audit loads for a claimed surface, in the order of
@@ -156,47 +162,138 @@ private def oleanParts (olean : FilePath) : IO (Array (Option ByteArray)) :=
     let part := level.adjustFileName olean
     if ← part.pathExists then some <$> IO.FS.readBinFile part else pure none
 
-/-- A claimed library module's `.olean` parts, frozen before any environment is inspected. -/
-structure FrozenArtifact where
-  /-- The module. -/
-  moduleName : Name
-  /-- The canonical path of its `.olean` file. -/
-  canonical : String
-  /-- Its `.olean` path under the root package's output directory. -/
-  path : FilePath
-  /-- The bytes of each part (`oleanParts`). -/
-  parts : Array (Option ByteArray)
+/-- The module's `.olean` parts as they are now, with the canonical path of its `.olean`, or
+`none` when it has no `.olean` at `path`. -/
+def freezeArtifact (moduleName : Name) (path : FilePath) :
+    IO (Option Admission.FrozenArtifact) := do
+  unless ← path.pathExists do return none
+  return some { moduleName, canonical := (← IO.FS.realPath path).toString, path,
+                parts := ← oleanParts path }
 
-/-- The first frozen module whose `.olean` parts now differ from, or can no longer be read as,
-the frozen parts. -/
-def changedArtifact? (artifacts : Array FrozenArtifact) : IO (Option Name) := do
+/-- A reading of each artifact's parts as they are now (`Admission.Reading`): the parts, or
+`none` for an artifact whose parts can no longer be read. Reading the files is the trusted
+boundary; what a reading supports is decided by `Admission.unchanged?`. -/
+def readings (artifacts : Array Admission.FrozenArtifact) :
+    BaseIO (Array Admission.Reading) :=
+  artifacts.mapM fun artifact => do
+    match ← (oleanParts artifact.path).toBaseIO with
+    | .ok parts => return (artifact, some parts)
+    | .error _ => return (artifact, none)
+
+/-- The first frozen module whose `.olean` parts, read now, are not the frozen parts, by the
+comparison offers are made on (`Admission.unchangedOf`). -/
+def changedArtifact? (artifacts : Array Admission.FrozenArtifact) : IO (Option Name) := do
   for artifact in artifacts do
-    let current ← (oleanParts artifact.path).toBaseIO
-    unless (match current with | .ok found => found == artifact.parts | .error _ => false) do
+    if (Admission.unchangedOf (← readings #[artifact])).isEmpty then
       return some artifact.moduleName
   return none
 
-/-- The completed admissions of the library environments, as an executable's environment may
-reuse them: each offers the modules it replayed, except those containing a copy of a shared name
-(the receipt's `shared`), whose import closure loads every `owned` module from the canonical
-`.olean` path whose parts `frozen` records for it. -/
-private def libraryPriors (owned : NameSet) (frozen : Std.HashMap Name String)
-    (inspections : Array (Except IO.Error
-      (Except ProducerReport.Refusal SurfaceInspection))) :
-    Array Admission.PriorAdmission :=
-  inspections.filterMap fun
-    | .ok (.ok inspected) =>
-        let report := inspected.admitted.report
-        let index := Admission.originIndex report.moduleOrigins
-        let shared := (report.admission.map (·.shared)).getD #[]
-        let offered := ((report.admission.map (·.modules)).getD #[]).filter fun m =>
-          !shared.contains m && match Admission.importClosure index m with
-          | none => false
-          | some closure => closure.all fun origin =>
-              !owned.contains origin.name || frozen[origin.name]? == some origin.olean
-        if offered.isEmpty then none
-        else some { modules := offered, origins := report.moduleOrigins }
-    | _ => none
+/-! ## Start order
+
+An environment reuses the admission of a claimed library module only once the environment that
+replays the module has completed its own admission, so each environment waits for the
+environments that replay the modules it loads. Only the wait is decided here: what an environment
+may reuse is decided by `Admission.currentOffers`, `Admission.reusedModules` and
+`Admission.reuseJustified`, whatever the order. An import this section misses costs a replay,
+never an unreplayed module. -/
+
+/-- The modules with a bound source that the modules `roots` import, directly or through other
+such modules, and `roots` themselves, by the imports each bound source's header declares
+(`Lean.parseImports'`). The walk ends at a module without a bound source or whose header does not
+parse. -/
+private def sourceClosure (sources : Std.HashMap Name ProducerReport.SourceBinding)
+    (roots : Array Name) : IO NameSet := do
+  let mut seen : NameSet := {}
+  let mut pending := roots.toList
+  repeat
+    let name :: rest := pending | break
+    pending := rest
+    if seen.contains name then continue
+    seen := seen.insert name
+    let some source := sources[name]? | continue
+    let imports ← try
+        pure ((← Lean.parseImports' source.content source.path).imports.map (·.module)).toList
+      catch _ => pure []
+    pending := imports ++ pending
+  return seen
+
+/-- For each environment, the source-bound modules a library's environment loads: those its own
+modules or the force-imported probe reach (`sourceClosure`); `none` for an executable's. -/
+private def environmentLoads (sourceBindings : Array ProducerReport.SourceBinding)
+    (environments : Array SurfaceEnvironment) : IO (Array (Option NameSet)) := do
+  let sources : Std.HashMap Name ProducerReport.SourceBinding :=
+    sourceBindings.foldl (fun index source => index.insert source.moduleName source) {}
+  environments.mapM fun environment => do
+    if environment.executable.isSome then return none
+    return some (← sourceClosure sources
+      (environment.info.modules.push Environment.probeModuleName.toName))
+
+/-- For each environment, by index, the library environments it needs: for a library's
+environment (`loads` has its modules), the other libraries one of whose requested modules it
+loads; for an executable's, every library. -/
+def libraryNeeds (requests : Array (Array Name)) (loads : Array (Option NameSet)) :
+    Array (Array Nat) :=
+  let libraries := (Array.range loads.size).filter fun index => (loads.getD index none).isSome
+  loads.mapIdx fun index loaded =>
+    match loaded with
+    | none => libraries
+    | some loaded => libraries.filter fun other =>
+        other != index && (requests.getD other #[]).any loaded.contains
+
+/-- The order in which the environments become eligible to start: repeatedly the first
+environment, in claim order, every one of whose `needs` is already placed. Where none is left,
+because the remaining environments need one another, the first of them in claim order that
+another of them needs is placed, so an environment nothing waits for (an executable's) still
+comes after the libraries it needs. -/
+def startOrder (needs : Array (Array Nat)) : Array Nat := Id.run do
+  let count := needs.size
+  let mut placed := Array.replicate count false
+  let mut order : Array Nat := #[]
+  for _ in [:count] do
+    let unplaced := (Array.range count).filter fun index => !placed.getD index true
+    let ready := unplaced.find? fun index =>
+      (needs.getD index #[]).all fun needed => needed == index || placed.getD needed true
+    let needed := unplaced.find? fun index => unplaced.any fun other =>
+      other != index && (needs.getD other #[]).contains index
+    let some next := ready <|> needed <|> unplaced[0]? | break
+    placed := placed.set! next true
+    order := order.push next
+  return order
+
+/-- For each environment, by index, the environments whose completed admissions it can reuse,
+given the start order: for a library's environment, the first library environment in `order` to
+load each module that it loads and a library requests, which is the one that replays the module
+(its own library's, unless claimed libraries import one another); for an executable's, every
+library. -/
+def replayers (order : Array Nat) (requests : Array (Array Name))
+    (loads : Array (Option NameSet)) : Array (Array Nat) :=
+  let libraries := (Array.range loads.size).filter fun index => (loads.getD index none).isSome
+  let claimed := libraries.flatMap fun index => requests.getD index #[]
+  let first (m : Name) : Option Nat := order.find? fun index =>
+    match loads.getD index none with
+    | some loaded => loaded.contains m
+    | none => false
+  loads.mapIdx fun index loaded =>
+    match loaded with
+    | none => libraries
+    | some loaded =>
+        (((claimed.filter loaded.contains).filterMap first).filter (· != index)).toList.eraseDups
+          |>.toArray
+
+
+/-- The environments that environment `index` waits for: those it needs that come before it in
+`order`. -/
+def prerequisites (order : Array Nat) (needs : Array (Array Nat)) (index : Nat) : Array Nat :=
+  (needs.getD index #[]).filter fun needed => order.idxOf needed < order.idxOf index
+
+/-- Every prerequisite comes strictly before its environment in the start order, whatever the
+order and the needs are. So no environments wait for one another: of the environments not yet
+started, the one that comes first in the order waits only for environments already started. -/
+theorem prerequisites_earlier {order : Array Nat} {needs : Array (Array Nat)} {index needed : Nat}
+    (h : needed ∈ prerequisites order needs index) :
+    order.idxOf needed < order.idxOf index := by
+  unfold prerequisites at h
+  simpa using (Array.mem_filter.mp h).2
 
 /-- Wait for one of the three shared slots, run `act` in it, then release the slot. -/
 private def withSlot {β : Type} (slots : Std.Mutex Nat) (act : IO β) : IO β := do
@@ -206,18 +303,32 @@ private def withSlot {β : Type} (slots : Std.Mutex Nat) (act : IO β) : IO β :
     IO.sleep 20
   try act finally slots.atomically (modify (· + 1))
 
+/-- The completed admission a worker published at `path`, when the file is there. -/
+private def publishedAdmission (path : FilePath) : IO (Option Admission.Completed) := do
+  unless ← path.pathExists do return none
+  return some (← IO.ofExcept <|
+    (Regula.Checker.PolicyCodec.parse (← IO.FS.readFile path)).bind fromJson?)
+
 /-- Inspect every environment, each through its own `--declaration-report-worker` process, and
 return the frozen library artifacts with each environment's outcome, in `environments` order.
-Every library's environment completes before any executable's, which reuses the admissions they
-offer (`Admission.reusedModules`) only over the `.olean` parts frozen here; the caller compares
-those parts again after the inspections (`changedArtifact?`). A refusal (an admission failure, or
-root-package output outside every owned module) is an `.error` outcome; an IO failure is kept as
-a value, so every started worker is joined. -/
+
+An environment starts once the environments it waits for (`prerequisites` of `replayers`, over
+`startOrder`) have published their completed admission or ended without one; environments that
+wait for nothing, or for the same ones, run side by side, three at a time. It is offered those
+admissions and reuses them (`Admission.reusedModules`) only over the `.olean` parts frozen here
+whose reading, taken as it starts, is the frozen one (`readings`, `Admission.currentOffers`); the
+caller compares every frozen part again after the inspections (`changedArtifact?`). A
+worker publishes its admission as soon as kernel admission succeeds, before it builds its report,
+and its report is accepted only when it records that same admission, reuses nothing its offers
+do not justify (`Admission.reuseJustified`) and leaves no owned module it loaded unreplayed
+(`Admission.accountsFor`). A refusal (an admission failure, or root-package output outside every
+owned module) is an `.error` outcome; an IO failure is kept as a value, so every started worker
+is joined. -/
 def inspect (inventory : Lake.SurfaceInventory)
     (sourceBindings : Array ProducerReport.SourceBinding)
     (assignments : Array RegulaPolicy.SurfaceAssignment)
     (environments : Array SurfaceEnvironment) :
-    IO (Array FrozenArtifact × Array (SurfaceEnvironment ×
+    IO (Array Admission.FrozenArtifact × Array (SurfaceEnvironment ×
       Except IO.Error (Except ProducerReport.Refusal SurfaceInspection))) := do
   -- At most three slot holders (surface report workers and frontend attributions) run
   -- at once, as before; each report worker may still run its history helper. A surface's
@@ -226,8 +337,20 @@ def inspect (inventory : Lake.SurfaceInventory)
   -- instead of one after another behind their own report. A report may retain its
   -- environment while awaiting an existing replacement-history helper.
   let slots ← Std.Mutex.new (3 : Nat)
-  let inspectEnvironment (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
-      (environment : SurfaceEnvironment) :
+  let owned := NameSet.ofArray ((sourceBindings.map (·.moduleName)).filter fun name =>
+    !Environment.probeModuleNames.contains name.toString)
+  -- An environment reuses a library module's admission only over the `.olean` parts frozen
+  -- here, and every frozen part is compared again after the last inspection.
+  let frozenArtifacts : Array Admission.FrozenArtifact ← if environments.size > 1 then
+      (assignments.flatMap (·.library)).filterMapM fun identity =>
+        freezeArtifact identity.name (Lean.modToFilePath inventory.leanLibDir identity.name "olean")
+    else pure #[]
+  let loads ← environmentLoads sourceBindings environments
+  let requests := environments.map (·.info.modules)
+  let order := startOrder (libraryNeeds requests loads)
+  let needs := replayers order requests loads
+  let inspectEnvironment (historyMemo publication : FilePath)
+      (priors : Array Admission.PriorAdmission) (environment : SurfaceEnvironment) :
       IO (Except ProducerReport.Refusal SurfaceInspection) := do
     let info := environment.info
     let request : ReportWorkerRequest := {
@@ -237,7 +360,10 @@ def inspect (inventory : Lake.SurfaceInventory)
       sourceBindings
       ownedOutput := inventory.leanLibDir.toString
       historyMemo := historyMemo.toString
-      priors
+      -- The worker selects modules by the offered modules and origins; the admitted keys are
+      -- the coordinator's own check of the report (`Admission.reuseJustified`).
+      priors := priors.map fun prior => { prior with admitted := #[] }
+      publish := publication.toString
     }
     -- The decoder validates the report once and keeps that success as a proof.
     let outcome : ProducerReport.AdmittedOutcome ← withSlot slots <|
@@ -251,7 +377,14 @@ def inspect (inventory : Lake.SurfaceInventory)
       return .error (.admission failure)
     unless Admission.reuseJustified priors report do
       return .error (.admission ⟨s!"{Admission.failureTag} {environment.label} reused an \
-        admission no library environment offered over the same import closure"⟩)
+        admission no earlier environment offered over the same import closure"⟩)
+    unless Admission.accountsFor owned report do
+      return .error (.admission ⟨s!"{Admission.failureTag} {environment.label} loaded an owned \
+        module that its admission neither replayed nor reused"⟩)
+    -- Later environments started from the published admission, so it must be the report's.
+    unless (← publishedAdmission publication) == Admission.Completed.ofReport report do
+      return .error (.admission ⟨s!"{Admission.failureTag} {environment.label} published an \
+        admission that differs from its report's"⟩)
     -- `mapWorkQueue` returns results in module order, so transcripts and failures
     -- keep the order of the former sequential loop.
     let modules := candidateModules report.declarations
@@ -272,37 +405,80 @@ def inspect (inventory : Lake.SurfaceInventory)
     if let .error failure := SourceBinding.transcriptsMatch sourceBindings transcripts then
       return .error (.admission failure)
     return .ok { info, admitted, transcripts, frontendFailures }
-  -- An executable's environment reuses a library module's admission only over the `.olean`
-  -- parts frozen here, and every frozen part is compared again after the last inspection.
-  let frozenArtifacts ← if environments.any (·.executable.isSome) then
-      (assignments.flatMap (·.library)).filterMapM fun identity => do
-        let path := Lean.modToFilePath inventory.leanLibDir identity.name "olean"
-        unless ← path.pathExists do return none
-        return some { moduleName := identity.name, canonical := (← IO.FS.realPath path).toString,
-                      path, parts := ← oleanParts path }
-    else pure #[]
-  let inspectGroup (historyMemo : FilePath) (priors : Array Admission.PriorAdmission)
-      (group : Array (Nat × SurfaceEnvironment)) :=
-    mapWorkQueue 3 group fun (index, environment) => do
-      -- Capture failures as values so every started worker is joined, then choose
-      -- fatal errors in claim order instead of worker-completion order.
-      return (index, environment,
-        ← (inspectEnvironment historyMemo priors environment).toBaseIO)
-  let inspections ← withScratch (← IO.currentDir) "history-memo" fun historyMemo => do
-    let indexed := environments.mapIdx fun index environment => (index, environment)
-    -- Every library's environment completes before any executable's, which reuses the
-    -- admissions they offer (`Admission.reusedModules`).
-    let libraries ← inspectGroup historyMemo #[] (indexed.filter (·.2.executable.isNone))
-    let executableGroup := indexed.filter (·.2.executable.isSome)
-    let priors := if executableGroup.isEmpty then #[] else
-      libraryPriors
-        (NameSet.ofArray ((sourceBindings.map (·.moduleName)).filter fun name =>
-          !Environment.probeModuleNames.contains name.toString))
-        (frozenArtifacts.foldl (fun paths artifact =>
-          paths.insert artifact.moduleName artifact.canonical) {})
-        (libraries.map (·.2.2))
-    let executables ← inspectGroup historyMemo priors executableGroup
-    return ((libraries ++ executables).qsort (·.1 < ·.1)).map (·.2)
+  let count := environments.size
+  let root ← IO.currentDir
+  let inspections ← withScratch root "history-memo" fun historyMemo =>
+      withScratch root "admissions" fun publications => do
+    let publication (index : Nat) : FilePath := publications / s!"{index}.json"
+    -- What each environment has made available to those that wait for it: nothing yet, its
+    -- published admission, or (the inner `none`) that it ended without publishing one.
+    let available ← IO.mkRef (Array.replicate count (none : Option (Option Admission.Completed)))
+    let availability (index : Nat) : BaseIO (Option (Option Admission.Completed)) := do
+      if let some known := (← available.get).getD index none then return some known
+      match ← (publishedAdmission (publication index)).toBaseIO with
+      | .ok (some completed) =>
+          available.modify (·.modify index (· <|> some (some completed)))
+          return some (some completed)
+      | _ => return none
+    let results ← IO.mkRef (Array.replicate count
+      (none : Option (Except IO.Error (Except ProducerReport.Refusal SurfaceInspection))))
+    let started ← Std.Mutex.new (Array.replicate count false)
+    let priority := order ++ (Array.range count).filter (!order.contains ·)
+    let waits := (Array.range count).map (prerequisites order needs)
+    -- Three workers keep the environments going without batch barriers. Each takes the first
+    -- environment in start order that is not started and whose prerequisites are available;
+    -- `prerequisites_earlier` gives the first unstarted one only started prerequisites, and a
+    -- started environment always becomes available below, so the workers finish.
+    let claim (index : Nat) : IO Bool := started.atomically do
+      if (← get).getD index true then return false
+      modify (·.set! index true)
+      return true
+    let worker : IO Unit := do
+      repeat
+        let flags ← started.atomically get
+        if flags.all id then break
+        -- Only a started environment can have become available since the last look.
+        for index in [:count] do
+          if flags.getD index false then discard <| availability index
+        let cells ← available.get
+        let mut claimed : Option Nat := none
+        for index in priority do
+          if flags.getD index true then continue
+          if (waits.getD index #[]).all fun needed => (cells.getD needed none).isSome then
+            if ← claim index then
+              claimed := some index
+              break
+        let some index := claimed
+          | IO.sleep 20
+            continue
+        let some environment := environments[index]?
+          | throw <| IO.userError "internal error: invalid environment index"
+        let completed := (waits.getD index #[]).filterMap fun needed =>
+          (cells.getD needed none).join
+        -- An admission is offered only over the frozen artifacts whose parts, read now, are the
+        -- frozen ones, so a module whose `.olean`, `.olean.server` or `.olean.private` changed
+        -- since it was frozen is replayed here (`Admission.replayed_of_changed`), and the
+        -- caller's comparison after the last inspection then leaves the audit incomplete.
+        let current ← if completed.isEmpty then pure #[] else readings frozenArtifacts
+        let priors := Admission.currentOffers owned current completed
+        -- Capture failures as values so every started worker is joined, then choose
+        -- fatal errors in claim order instead of worker-completion order.
+        let outcome ←
+          (inspectEnvironment historyMemo (publication index) priors environment).toBaseIO
+        discard <| availability index
+        available.modify (·.modify index (· <|> some none))
+        results.modify (·.set! index (some outcome))
+    let workers ← (Array.range (min 3 count)).mapM fun _ =>
+      IO.asTask (prio := .dedicated) worker
+    let finished ← workers.mapM fun task => IO.wait task
+    for outcome in finished do IO.ofExcept outcome
+    let outcomes ← results.get
+    let mut inspections := #[]
+    for environment in environments, outcome in outcomes do
+      let some outcome := outcome
+        | throw <| IO.userError s!"internal error: {environment.label} was not inspected"
+      inspections := inspections.push (environment, outcome)
+    return inspections
   return (frozenArtifacts, inspections)
 
 end Regula.Checker.Inspection

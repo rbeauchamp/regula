@@ -416,9 +416,9 @@ inferred from any pure proof.
   `Admission.checkCopies_sound` (a success gives every copy the `Admission.CopyAdmitted`
   conditions above, stated with the reachability relation `Admission.Reach`). **Argued, not
   machine-checked:** `validate` passes these checks the replayed module data, the base's and the
-  audited environment's `find?` and the replayed kernel, admits no key when one fails, and filters
-  `shared` modules from the offered admissions (`Inspection.libraryPriors`), all read from the
-  code. Every cycle among the audited environment's non-inductive constants that involves an
+  audited environment's `find?` and the replayed kernel, and admits no key when one fails, all
+  read from the code (`Admission.mem_offers` proves that no offered admission lists a `shared`
+  module). Every cycle among the audited environment's non-inductive constants that involves an
   owned name passes through a name whose kept constant differs from the replayed one (or through
   the trusted base), because replay admits each declaration only after the constants its type and
   value use, and the replayed kernel agrees with the audited environment on the other owned names;
@@ -436,45 +436,107 @@ inferred from any pure proof.
   value of a theorem does not change what typechecks where copies of one statement are exchanged.
   Report attribution is unchanged: `Probe.ownedConstants` attributes a shared name to the first
   module Lean's import loaded it from, so the name's claim is that module's.
-- **Admission reuse.** The project audit inspects every library environment before any
-  executable's, and hands the executables the libraries' completed admissions
-  (`Admission.PriorAdmission`). An executable's environment keeps an owned module other than its
-  root in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's
-  `reused`) only when (1) a handed-out library admission replayed it over the identical import
-  closure (`Admission.importClosure`: the same modules, canonical `.olean` paths and import
-  edges) and did not list it as `shared` (a module containing a copy of a name another module of
-  that environment declares); (2) every owned module of that closure is a claimed library module
-  all of whose `.olean` parts (the `.olean` and, for a module-system file, the `.olean.server`
-  and the `.olean.private` Lean takes its kernel constants from) the coordinator read before the
-  first inspection and compares, presence and bytes, after the last (a change is RG2005,
-  incomplete); (3) each declaration of each owned module of the closure refers only to constants
-  of its own closure (`Admission.referencesWithin` over `ConstantInfo.getUsedConstantsAsSet`, the
-  dependencies `Kernel.Environment.replay` replays first); (4) every constant of the module is
-  attributed to it in this environment and is the copy this environment keeps
-  (`Admission.uniquelyKept`), so no module here declares a different copy of its names; and (5)
-  every owned module of the closure is reused too. If the filtered set misses (5), nothing is
-  reused. Every other owned module is replayed. **Proved** about the executed definitions:
-  `Admission.mem_reusedModules` (a reused module is owned, unrequested and satisfies the offer of
-  (1), (3), (4) and (5)) and `Admission.reuseJustified_sound` (the coordinator's recheck of a
-  report accepts only unrequested modules a handed-out admission offers over the report's own
-  closure). **Checked at run time, not proved:** that the handed-out admissions list only
-  replayed modules outside `shared` whose closures are frozen, (2), and that a closure contains
-  every module its members import (`Admission.validate` still refuses a base module that imports
-  a replayed one). **Derived, not machine-checked:** the kernel's check of a declaration depends
-  only on the declaration and the constants it consults, which its references and their values
-  reach. By (3), (5) and the imported base's own references, a reused module's declarations
-  consult only its closure; by (4) for each owned module of the closure (all reused by (5)), no
-  module here declares a different copy of their names, and another copy here of a base module's
-  name is checked by this environment when a replayed module holds it (`Admission.checkCopies`)
-  and trusted when another unreplayed module does; by (1) and (2) that closure is
-  the same bytes in both environments, and by (1) none of its names had a second copy in the
-  library environment, so the library environment's successful replay is the one this environment
-  would repeat. This rests on the stated trusted boundary: authentic imported artifacts unchanged
-  during the audit (as the history memo already assumes), filesystem reads, and no change
-  restored between the two byte observations. No theorem models the kernel. Reuse is scoped to
-  executable environments: library environments still replay every owned module they load,
-  including one another library environment also replays, a cost that predates per-executable
-  environments and this reuse does not address.
+- **Admission reuse.** One contract covers every environment of a project audit, a library's
+  and an executable's alike. Each environment waits for the environments that replay the claimed
+  library modules it loads. What a library's environment loads is read from the import headers
+  of the bound sources, starting at its own modules and the force-imported probe; the
+  environments are ordered so that a library comes after the libraries whose modules it loads
+  (`Inspection.libraryNeeds`, `Inspection.startOrder`), and the first environment in that order
+  to load a module is the one that replays it (`Inspection.replayers`): its own library's, unless
+  claimed libraries import one another. An executable's environment waits for every library. No
+  environments wait for one another (`Inspection.prerequisites`), and environments that wait for
+  nothing, or for the same ones, run side by side, three at a time. A worker publishes its
+  completed admission (`Admission.Completed`: the receipt and the module origins) as soon as
+  kernel admission succeeds, so the environments waiting for it start while it builds its report.
+  The coordinator offers a starting environment the admissions of the environments it waited for
+  (`Admission.currentOffers`, `Admission.PriorAdmission`). That environment keeps an owned module
+  in the replay base instead of replaying it (`Admission.reusedModules`; the receipt's `reused`)
+  only when (1) an offered admission replayed it over the identical import closure
+  (`Admission.importClosure`: the same modules, canonical `.olean` paths and import edges) and
+  did not list it as `shared` (a module containing a copy of a name another module of that
+  environment declares); (2) the module and every owned module of that closure is a claimed
+  library module all of whose `.olean` parts (the `.olean` and, for a module-system file, the
+  `.olean.server` and the `.olean.private` Lean takes its kernel constants from) the coordinator
+  read before the first inspection, read again as this environment started with the frozen
+  presence and bytes (`Inspection.readings`, `Admission.Unchanged`), and compares again after the
+  last inspection (a change is RG2005, incomplete); (3) each declaration of each owned module of
+  the closure refers only to constants of its own closure (`Admission.referencesWithin` over
+  `ConstantInfo.getUsedConstantsAsSet`, the dependencies `Kernel.Environment.replay` replays
+  first); (4) every constant of the module is attributed to it in this environment and is the
+  copy this environment keeps (`Admission.uniquelyKept`), so no module here declares a different
+  copy of its names; and (5) every owned module of the closure is reused too: a candidate whose
+  closure contains an owned module that is not a candidate is removed, round after round until
+  none is (`Admission.narrow`), so a module that cannot be reused takes only the modules above it
+  out, and should the remaining set still miss (5), nothing is reused. Every other owned module is
+  replayed (`Admission.replaySet`). A module of the environment's own request is reused under the
+  same conditions, which arises only when an earlier environment loaded it first (claimed
+  libraries that import one another): the receipt then still requires the key of each of its
+  safe, total constants, read from the module's own data, and those keys are admitted by the
+  environment that replayed it. The coordinator accepts a report only when its offers justify
+  every module it reused and every key it requires in a reused module (`Admission.reuseJustified`),
+  its receipt lists every owned module its environment loaded as replayed or reused
+  (`Admission.accountsFor`), no module as both (`ProducerReport.Environment.receiptOK`), and the
+  admission its worker published is the one the report records (`Completed.ofReport`, compared by
+  decidable equality); otherwise the environment is RG2005, incomplete. **Proved** about the
+  executed definitions: `Admission.mem_reusedModules` (a reused module is owned and satisfies the
+  offer of (1), (3), (4) and (5)); `Admission.mem_replaySet` (every owned module that is not
+  reused is in the set `Admission.validate` replays); `Admission.replayed_unless_offered` (a
+  changed import forces a replay: an owned module is replayed unless an offer covers it over
+  exactly the closure it has here); `Admission.unchanged?_eq_some`, `Admission.mem_unchangedOf`
+  and `Admission.frozenIndex_unchanged` (an offer rests only on an artifact whose reading, the
+  one the coordinator took, equals its frozen parts: `Admission.Unchanged` carries that equality,
+  so an artifact that was not read again cannot be passed where an offer needs one);
+  `Admission.replayed_of_changed` and `Admission.replayed_of_changed_import` (a changed `.olean`,
+  `.olean.server` or `.olean.private` forces a replay: an owned module is replayed when every
+  reading of its artifact, or of the artifact of an owned module of its closure in every completed
+  admission, differs from the frozen parts or failed); `Admission.mem_offers` and
+  `Admission.frozenClosure_sound` (an offered module is one a completed admission replayed,
+  outside its `shared` and `reused` modules, loaded with every owned module of its closure from
+  the canonical path of such an artifact, and an offered key is one that admission admitted);
+  `Admission.reuseJustified_sound` and `Admission.reuseJustified_frozen` (an accepted report
+  reused only modules that a completed admission replayed, outside its `shared` modules, over
+  the report's own closure, whose owned modules and the module itself have artifacts read with
+  their frozen parts); `Admission.reuseJustified_admitted` (every key an accepted report requires
+  in a module it reused was admitted by a completed admission that replayed that module);
+  `Admission.replayed_of_loaded` (every owned module an accepted report's environment loaded is
+  listed as replayed by its own receipt or by a completed admission it was offered, so no
+  accepted report rests on a module no environment replayed); `ProducerReport.validate_sound`
+  (an admitted report's receipt requires the key of every safe, total declaration it reports, in
+  a module it lists as replayed or reused, never both); and `Inspection.prerequisites_earlier`
+  (every environment waits only for environments strictly before it in the start order, so the
+  waits have no cycle). **Checked at run time, not proved:** the equality of the published and
+  reported admission, and that a closure contains every module its members import
+  (`Admission.validate` still refuses a base module that imports a replayed one). **Observed,
+  an external boundary:** reading the `.olean` parts (`Inspection.readings`; the `checkerSelftest`
+  structural partition observes, through `Admission.currentOffers`, that a changed, removed or
+  added `.olean`, `.olean.server` or `.olean.private` withdraws the offer and a restored part
+  returns it), and the reuse of a requested module through the report workers and the kernel (the
+  same partition audits two claimed libraries that import one another). **Argued, not
+  machine-checked:** `Inspection.inspect` passes these definitions the admissions published by
+  the environments it waited for and the readings it took as the environment started, and
+  `Admission.validate` replays exactly `Admission.replaySet` and takes the keys of a reused
+  requested module from that module's data, all read from the code; the workers finish because
+  the first environment not yet started in the start order waits only for started ones
+  (`prerequisites_earlier`) and a started environment always publishes its admission or ends.
+  **Derived, not machine-checked:** the kernel's check of a declaration depends only on the
+  declaration and the constants it consults, which its references and their values reach. By
+  (3), (5) and the imported base's own references, a reused module's declarations consult only
+  its closure; by (4) for each owned module of the closure (all reused by (5)), no module here
+  declares a different copy of their names, and another copy here of a base module's name is
+  checked by this environment when a replayed module holds it (`Admission.checkCopies`) and
+  trusted when another unreplayed module does; by (1) and (2) that closure is the same bytes in
+  both environments, and by (1) none of its names had a second copy in the earlier environment,
+  so the earlier environment's successful replay is the one this environment would repeat. This
+  rests on the stated trusted boundary: authentic imported artifacts unchanged during the audit
+  (as the history memo already assumes), filesystem reads, and no change restored between two
+  byte observations. No theorem models the kernel. Where the conditions fail, a module is
+  replayed more than once: a `shared` module and the modules that import it, in every environment
+  that loads them (so a claimed module that realizes its own copy of a toolchain lemma, as
+  `simp only [Except.mapError]` does for `Except.mapError.eq_1`, is replayed wherever it is
+  loaded); an owned module outside every claimed library (one of an excluded library that the
+  probe loads, such as `Regula.StructuralName` in this repository), whose `.olean` is not frozen,
+  with the reporter modules that import it; and a claimed library that an environment reaches
+  only through a module without a bound source, which the import headers do not show.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
@@ -1177,8 +1239,11 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
-| project audit | executable admission reuse recheck | a report reusing an admission no library environment offered is refused | Proved | `Admission.reuseJustified_sound` |
-| project audit | none | a frozen `.olean` part that changes during the audit is RG2005 | External | open: MUT-02 not yet evidenced; no intended-reason control rewrites a part between the freeze and the final comparison |
+| project audit | admission reuse recheck | a report that reuses a module, or requires a key in a reused module, that no earlier environment offered over a frozen closure, or leaves an owned module it loaded unreplayed, is refused | Proved | `Admission.reuseJustified_frozen`, `Admission.reuseJustified_admitted`, `Admission.replayed_of_loaded` |
+| project audit | changed import, changed `.olean` part | an owned module is replayed unless an offer covers it over its closure here and over artifacts read again with their frozen parts | Proved | `Admission.replayed_unless_offered`, `Admission.replayed_of_changed`, `Admission.replayed_of_changed_import`; an artifact not read again with its frozen parts cannot support an offer (`Admission.Unchanged`) |
+| checkerSelftest structural | a changed, removed and added `.olean`, `.olean.server` and `.olean.private`, each restored, for a module with three parts and with one, through `Inspection.readings` and `Admission.currentOffers` | reading the frozen parts: each change withdraws the offer and `Inspection.changedArtifact?` reports it | External | observed |
+| checkerSelftest structural | a fresh audit of two claimed libraries that import one another | the report workers, Lean's import and the kernel reuse a requested module: accepted, each module replayed in one environment, the reused module's key required | External | observed; the decision is `Admission.reuseJustified_admitted` and `Admission.replayed_of_loaded` |
+| project audit | none | a frozen `.olean` part that changes during the audit is RG2005 | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (two rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:
 
