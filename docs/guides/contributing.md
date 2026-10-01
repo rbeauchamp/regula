@@ -103,10 +103,10 @@ so copies wait while another copy creates a new pin.
 - Write probes that need Mathlib as single files under `tmp/` and check them with
   `lake -d audit env lean tmp/Probe.lean`; a separate Lake project there would fetch its own
   Mathlib. A probe that needs only the checker uses `lake env lean tmp/Probe.lean`.
-- Scratch directories live in `tmp/.regula-scratch/`, each beside an ownership marker
+- Scratch directories live in `.lake/regula-scratch/`, each beside an ownership marker
   `<name>.owner`. Those of killed runs (for example at the seven-minute limit) are reclaimed
   by the next run that creates one while no other run in the copy holds scratch; only marked
-  directories there are removed. Scratch outside `tmp/.regula-scratch/` is never reclaimed;
+  directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
 - GitHub Actions keeps `lake -d audit exe cache get` and its dependency cache; provisioning does
   nothing there. A shared directory is never modified, only removed whole.

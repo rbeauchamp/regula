@@ -261,6 +261,12 @@ declaration, each execution root with a boundary the toolchain does not own or a
 every entry of the toolchain trusted base, and the checker's timing spans (`verification phase …`,
 `diagnostic span: …`), which default output omits.
 
+Regula keeps its working files in `.lake/regula-scratch/` of the project: the isolated copy of a
+`--fresh` run and the copies of Lean sources it compiles. It removes each directory there when
+the run that made it returns. A run that is killed leaves its directory, with those `.lean`
+copies, until the next Regula run in the project removes it. `.lake/` is Lake's own output
+directory, so a tool that walks your sources and skips it never sees these files.
+
 **A first run usually stops at build warnings.** Rules are inspected only after a build without
 warnings (RG2003), so a warning, such as a missing docstring, makes the run `INCOMPLETE` (exit 3)
 with the compiler's message before any foundation rule is checked. The same holds for your first
@@ -324,6 +330,10 @@ lake lint
 differs from the new release's briefing and adds any option the new release requires; it changes
 nothing else. A project that also uses Mathlib moves Mathlib to the same Lean release the usual
 way. Each finding's rule link then targets the new release's pages.
+
+Regula v0.3.0 and earlier kept those working files in `tmp/.regula-scratch/` instead. A later
+release neither writes nor removes anything there, so delete `tmp/.regula-scratch/` once after
+upgrading.
 
 ## Read a finding
 

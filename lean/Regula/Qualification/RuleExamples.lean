@@ -398,7 +398,7 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
           (← string original "source") == actualSource
       requireChecks [⟨s!"project source binding {actualPath}", originals.size == 1⟩,
         ⟨"fresh project source belongs to owned copy", actualPath.startsWith
-            ((project / "tmp").toString ++ "/")⟩]
+            ((Regula.Scratch.directory project).toString ++ "/")⟩]
       if (← get item "module") == nameJson "Example" then
         replacements := ("$SOURCE", actualPath) :: replacements.filter (·.1 != "$SOURCE")
       aliases := aliases.push (Json.mkObj [("uri", .str actualPath), ("source", .str actualSource)])

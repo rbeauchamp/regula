@@ -1,7 +1,11 @@
+import Lake.Config.Defaults
+
 /-! # Owned scratch directories
 
-Scratch directories in Regula's own `tmp/.regula-scratch/` under a checkout, and
-reclamation of those whose run died.
+Scratch directories in Regula's own `.lake/regula-scratch/` under a project, and reclamation
+of those whose run died. `directory` is the only place that location is derived, and
+`withScratch`, the only source of a scratch path, creates nothing outside it. The Lake
+directory holds build output, so a project's own walks of its sources already skip it.
 
 Each scratch directory `<name>` is created only after its ownership marker `<name>.owner` was
 created exclusively beside it, and the marker is removed only after the directory. Every
@@ -15,8 +19,16 @@ creation, process death and directory removal are trusted operating-system effec
 namespace Regula.Scratch
 open System
 
-/-- Regula's own scratch directory, directly under `tmp/`. -/
-def dirName : String := ".regula-scratch"
+/-- Regula's own scratch directory, directly under the project's Lake directory. -/
+def dirName : String := "regula-scratch"
+
+/-- Regula's scratch directory of the project at `root`: `.lake/regula-scratch`, inside the
+directory Lake keeps its own output in (`Lake.defaultLakeDir`). -/
+def directory (root : FilePath) : FilePath := root / Lake.defaultLakeDir / dirName
+
+/-- The directory name `.regula-scratch`: Regula v0.3.0 and earlier kept scratch under
+`tmp/.regula-scratch`. Isolated copies skip it. -/
+def legacyDirName : String := ".regula-scratch"
 
 /-- The lock file, directly under Regula's scratch directory. -/
 def lockName : String := ".lock"
@@ -55,14 +67,14 @@ private def reclaim (dir : FilePath) : IO Unit := do
   if reclaimed > 0 then
     IO.eprintln s!"scratch: reclaimed {reclaimed} orphaned scratch directories under {dir}"
 
-/-- Run `action` in a fresh, marked scratch directory under `root/tmp/.regula-scratch` and
-remove it, then its marker, on normal or exceptional return, holding the scratch lock shared
-throughout. When no scratch owner is alive, orphans are reclaimed first. Returns the value and
-the removed directory's path; the path is returned only after its removal returned. Random
-naming is not a logical freshness proof. -/
+/-- Run `action` in a fresh, marked scratch directory under `directory root` and remove it,
+then its marker, on normal or exceptional return, holding the scratch lock shared throughout.
+When no scratch owner is alive, orphans are reclaimed first. Returns the value and the removed
+directory's path; the path is returned only after its removal returned. Random naming is not a
+logical freshness proof. -/
 def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × FilePath) := do
-  let dir := root / "tmp" / dirName
+  let dir := directory root
   IO.FS.createDirAll dir
   let lock ← IO.FS.Handle.mk (dir / lockName) .append
   if ← lock.tryLock then

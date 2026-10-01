@@ -232,8 +232,9 @@ def checkerPackageLibDir : IO (Option FilePath) := do
     return some libDir
   return none
 
-/-- A fresh scratch directory under `repo/tmp/.regula-scratch`, removed on return; orphans of
-dead runs are reclaimed (`Regula.Scratch`). -/
+/-- A fresh scratch directory under `Regula.Scratch.directory repo`
+(`repo/.lake/regula-scratch`), removed on return; orphans of dead runs are reclaimed
+(`Regula.Scratch`). -/
 def withScratch {α : Type} (repo : FilePath) (stem : String)
     (action : FilePath → IO α) : IO α :=
   return (← Regula.Scratch.withScratch repo stem action).1
@@ -336,11 +337,12 @@ def copyProject (repo target exclude : FilePath) : IO Unit := do
   -- directories are pruned at every depth (a nested Lake workspace such as a
   -- committed example adopter carries its own `.lake` with full dependency
   -- checkouts, and a nested package audited on its own keeps its scratch under
-  -- its own `tmp/`); the rest of the root `tmp/` is pruned only at the project
-  -- root, where it lives.
+  -- its own `.lake`, or under its own `tmp/` when an older Regula audited it);
+  -- the rest of the root `tmp/` is pruned only at the project root, where it
+  -- lives.
   let prunedAnywhere := fun (component : String) =>
-    component == ".git" || component == ".lake" || component == ".cache" ||
-      component == Regula.Scratch.dirName
+    component == ".git" || component == _root_.Lake.defaultLakeDir.toString ||
+      component == ".cache" || component == Regula.Scratch.legacyDirName
   let includePath := fun (path : FilePath) =>
     let components := path.normalize.components
     !excludeComponents.isPrefixOf components &&

@@ -37,9 +37,9 @@ to break one of them on purpose:
   declarations the project's own macros, elaborators, tactics or evaluators produce.
 - **Regula acting outside what it documents.** Regula runs external programs with argument
   arrays, never through a generated shell program, and keeps scratch work under the checked
-  project's `tmp/`. An input, such as a path or a module or file name, that makes Regula's own
-  code run a command, or write or delete a file, beyond what its documentation describes is a
-  vulnerability.
+  project's `.lake/regula-scratch/`. An input, such as a path or a module or file name, that
+  makes Regula's own code run a command, or write or delete a file, beyond what its
+  documentation describes is a vulnerability.
 - **A release or site published unchecked.** A flaw in the CI and release workflows
   (`.github/workflows/`, `lean/Regula/Release.lean`) that could publish a release, a tag or the
   rule-reference site from content that did not pass the checks the
