@@ -655,12 +655,13 @@ private def auxiliaryOwner? (env : Environment) (name : Name) : Option Name := d
       let helper := Compiler.mkUnsafeRecName f
       if valueUses env helper name then some helper else none
 
-/-- A declaration of the module that may use an auxiliary declaration: its name, whether it is
-itself named as an auxiliary declaration (`isAuxiliaryName`), and the constants it uses. -/
+/-- A declaration of the module that may use an auxiliary declaration: its name, whether Lean
+generated it as an auxiliary declaration itself (it is named as one, `isAuxiliaryName`, and has
+no recorded declaration range), and the constants it uses. -/
 private abbrev AuxiliaryUser := Name × Bool × Thunk NameSet
 
 /-- Whether `user` uses the auxiliary declaration `name`, named under `parents`, as a declaration
-that is not itself auxiliary-named: it is named under one of `parents` at any depth
+that is not itself a generated auxiliary one: it is named under one of `parents` at any depth
 (`namedBelow`), as a `where` or `let rec` helper of the declaration is, and its type or value uses
 `name`. The name is tested first, so the constants of a declaration named elsewhere are not
 read. -/
@@ -668,10 +669,10 @@ private def helperUses (parents : List Name) (name : Name) : AuxiliaryUser → B
   | (user, auxiliary, uses) => !auxiliary && namedBelow parents user && uses.get.contains name
 
 /-- Whether the auxiliary declaration `name` is related: by a use of its own (`auxiliaryOwner?`,
-or `helperUses` by one of `users`), or by an auxiliary-named one of `users` that uses `name` and is
-itself related in the same way. The state holds the auxiliary declarations already examined, and
-none is examined twice. That loses nothing: a search that fails has examined every declaration
-that uses `name` through any chain of auxiliary-named `users` and found none with a use of its
+or `helperUses` by one of `users`), or by a generated auxiliary one of `users` that uses `name` and
+is itself related in the same way. The state holds the auxiliary declarations already examined,
+and none is examined twice. That loses nothing: a search that fails has examined every declaration
+that uses `name` through any chain of generated auxiliary `users` and found none with a use of its
 own, so each of them is unrelated whatever led to it, and a later search may skip them; a search
 that succeeds ends the query. The declarations under examination at one time are distinct members
 of `users`, so `users.size` steps of fuel never run out before an unexamined one. -/
@@ -688,16 +689,18 @@ private def auxiliaryRelated (env : Environment) (users : Array AuxiliaryUser) :
       else if auxiliary && uses.get.contains name then auxiliaryRelated env users fuel user
       else return false
 
-/-- The first of the declarations `users` of the module that relates the auxiliary declaration
-`name` by using it in its type or value: one that is not auxiliary-named and is named under the
-declaration `name` is named under, at any depth (`helperUses`), or an auxiliary-named one that is
-itself related (`auxiliaryRelated`), by a use of its own or by another of `users` in the same way,
-through any number of them. One query examines each auxiliary-named one of `users` at most once,
-and reads the constants each of `users` uses at most once. -/
-private def auxiliaryUser? (env : Environment) (users : Array Name) (name : Name) : Option Name :=
+/-- The first of the declarations `users` of the module, each with whether Lean generated it as an
+auxiliary declaration, that relates the auxiliary declaration `name` by using it in its type or
+value: one that is not a generated auxiliary declaration and is named under the declaration `name`
+is named under, at any depth (`helperUses`), or a generated auxiliary one that is itself related
+(`auxiliaryRelated`), by a use of its own or by another of `users` in the same way, through any
+number of them. One query examines each generated auxiliary one of `users` at most once, and reads
+the constants each of `users` uses at most once. -/
+private def auxiliaryUser? (env : Environment) (users : Array (Name × Bool)) (name : Name) :
+    Option Name :=
   let parents := ((namedUnder? name).map (·.1)).getD []
-  let users : Array AuxiliaryUser := users.map fun user =>
-    (user, isAuxiliaryName user, Thunk.mk fun _ => usedConstants env user)
+  let users : Array AuxiliaryUser := users.map fun (user, auxiliary) =>
+    (user, auxiliary, Thunk.mk fun _ => usedConstants env user)
   let search := users.findM? fun (user, auxiliary, uses) =>
     if helperUses parents name (user, auxiliary, uses) then return true
     else if auxiliary && user != name && uses.get.contains name then
@@ -712,9 +715,16 @@ or kernel value, in the statement of an `eq_def`, in a helper or in another auxi
 or on (c) the generator's own precondition, checked on the environment, for a declaration Lean
 generates whenever that precondition holds, so that no other declaration can have its name. None
 rests on a name alone; the name only says which declaration a marked one is named under, as
-Lean's own `findDeclarationRanges?` reads it. The enumeration of the families Lean v4.34.0
-generates, with their generators, is in
-`docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
+Lean's own `findDeclarationRanges?` reads it. A declaration is related only when an environment
+fact shows Lean generated it: each clause that reads the relation from the declaration's name (an
+equation lemma, a reserved name, a matcher's equation or splitter, a `brecOn`'s `go` or `eq`, a
+structural helper, an auxiliary `kind_N` declaration, a constructor lemma, a type construction, a
+field default) applies only to a declaration with no recorded declaration range
+(`findDeclarationRangesCore?`), since Lean records one for every declaration an author writes and
+none for these generated ones. A declaration left unrelated is reported at its own location,
+while one related wrongly would misreport what the author wrote as generated, so a clause is
+narrowed rather than widened. The enumeration of the families Lean v4.34.0 generates, with their
+generators, is in `docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
 - `constructor` (a): its inductive type (`ConstructorVal.induct`);
 - `projection` (a): a structure projection's constructor (`ProjectionFunctionInfo.ctorName`), or,
   for a parent projection that is not a subobject (`getAuxParentProjectionInfo?`), the structure it
@@ -727,8 +737,8 @@ generates, with their generators, is in
   `brecOn`;
 - `equationLemma` (a): its definition (`Meta.declFromEqLikeName`);
 - `reservedName` (a): a name Lean reserves for a declaration it generates on demand
-  (`isReservedName`), which no user declaration can take (`checkNotAlreadyDeclared`): the name it
-  is named under;
+  (`isReservedName`), which no user declaration can take once it is reserved
+  (`checkNotAlreadyDeclared`): the name it is named under;
 - `matcher` (a): a matcher (`Meta.isMatcherCore`), or an equation or splitter of one, the names
   Lean's own `isMatchEqName?` gives them: the name it is named under;
 - `wellFounded` (a): `f`, when its well-founded or `partial_fixpoint` equation information names
@@ -774,6 +784,7 @@ generates, with their generators, is in
   the admitted helper authorization relates it (`Findings.stepOf`). -/
 def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) := do
   let env ← getEnv
+  let authored := (← findDeclarationRangesCore? name).isSome
   match family with
   | .constructor =>
     let some (.ctorInfo value) := env.find? name | return none
@@ -785,17 +796,19 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
       else none
   | .recursor =>
     let some (spellings@(p :: _), s) := namedUnder? name | return none
-    if (s == "go" || s == "eq") && isBRecOnRecursor env p then return some p
+    if (s == "go" || s == "eq") && !authored && isBRecOnRecursor env p then return some p
     unless isRecCore env name || isAuxRecursor env name || isNoConfusion env name ||
         isSparseCasesOn env name do return none
     return spellings.find? env.contains
-  | .equationLemma => return (Meta.declFromEqLikeName env name).map (·.1)
+  | .equationLemma =>
+    return if authored then none else (Meta.declFromEqLikeName env name).map (·.1)
   | .reservedName =>
     let some (spellings, _) := namedUnder? name | return none
-    return if isReservedName env name then spellings.find? env.contains else none
+    return if !authored && isReservedName env name then spellings.find? env.contains else none
   | .matcher =>
     let some (spellings, s) := namedUnder? name | return none
-    unless Meta.isMatcherCore env name || (spellings.head?.any (Meta.isMatcherCore env) &&
+    unless Meta.isMatcherCore env name || (!authored &&
+        spellings.head?.any (Meta.isMatcherCore env) &&
         (Meta.isEqnReservedNameSuffix s || s == "splitter")) do return none
     return spellings.find? env.contains
   | .wellFounded =>
@@ -805,7 +818,7 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
         (Elab.PartialFixpoint.eqnInfoExt.find? env f).any (·.declNameNonRec == name)
   | .structural =>
     let some (spellings, s) := namedUnder? name | return none
-    unless s == "_f" || s == "_sunfold" do return none
+    unless !authored && (s == "_f" || s == "_sunfold") do return none
     return spellings.find? fun f => (Elab.Structural.eqnInfoExt.find? env f).isSome ||
       (s == "_f" && valueUses env f name)
   | .auxiliaryLemma =>
@@ -818,12 +831,16 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     let some (spellings, s) := namedUnder? name | return none
     if s == "_rpc_wrapped" then
       return spellings.find? fun f => Server.userRpcProcedures.find? env f == some name
-    if (auxiliaryKind? s).isNone then return none
+    if authored || (auxiliaryKind? s).isNone then return none
     if let some owner := auxiliaryOwner? env name then return some owner
     let (near, far) := (moduleConstants env name).partition (namedBelow spellings)
     let (auxiliaries, others) := far.partition isAuxiliaryName
-    return auxiliaryUser? env (near.qsort Name.lt ++ auxiliaries.qsort Name.lt ++ others) name
+    let users ← (near.qsort Name.lt ++ auxiliaries.qsort Name.lt ++ others).mapM fun user => do
+      if isAuxiliaryName user then return (user, (← findDeclarationRangesCore? user).isNone)
+      else return (user, false)
+    return auxiliaryUser? env users name
   | .constructorLemma =>
+    if authored then return none
     let some (p :: _, s) := namedUnder? name | return none
     let some (.ctorInfo ctor) := env.find? p | return none
     if ((s == "inj" || s == "injEq") && (← injectivityGenerated ctor)) ||
@@ -832,6 +849,7 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     let some (.inductInfo t) := env.find? ctor.induct | return none
     return if s == "sizeOf_spec" && (← sizeOfGenerated t) then some p else none
   | .typeConstruction =>
+    if authored then return none
     let some (p :: _, s) := namedUnder? name | return none
     let some (.inductInfo t) := env.find? p | return none
     if (s == "noConfusionType" && isNoConfusion env (p.str "noConfusion")) ||
@@ -843,7 +861,7 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     return none
   | .fieldDefault =>
     let some (spellings, s) := namedUnder? name | return none
-    unless s == "_default" || s == "_inherited_default" do return none
+    unless !authored && (s == "_default" || s == "_inherited_default") do return none
     return spellings.findSome? fun projection =>
       match namedUnder? projection with
       | some (struct :: _, field) =>

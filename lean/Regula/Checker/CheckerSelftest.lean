@@ -1364,9 +1364,11 @@ name; and
 declarations Lean does not generate from the declaration they are named under: a theorem a
 metaprogram adds without a source range, a user-written `ofNat`, a name Lean generates only for an
 enumeration deriving `DecidableEq`, an elaborator Lean names `«_aux_…»` inside the
-structure's namespace, and two user-written theorems named like auxiliary proofs of a definition
-that does not use them, one using the other. Every one exceeds a Kernel-only claim, so each has
-an RG1005 finding. -/
+structure's namespace, and user-written theorems named like auxiliary proofs or an equation lemma:
+two of a definition that does not use them, one using the other and a theorem named under the
+definition using the first; one in a namespace, which a theorem of the namespace uses; and two
+declared before the definition they are named under, which uses the one named like an auxiliary
+proof. Every one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
 private def sourceAttributionSource : String :=
   "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
   "open Lean Elab Command\n\n" ++
@@ -1413,6 +1415,19 @@ private def sourceAttributionSource : String :=
   "theorem middle._proof_8 : pick = pick := rfl\n\n" ++
   "/-- A user-written theorem named like an auxiliary proof, which uses the one above. -/\n" ++
   "theorem middle._proof_9 : pick = pick := middle._proof_8\n\n" ++
+  "/-- A user-written theorem named under `middle`, which uses the first one above. -/\n" ++
+  "theorem middle.spec : pick = pick := middle._proof_8\n\n" ++
+  "namespace Util\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof, in a namespace. -/\n" ++
+  "theorem _proof_8 : pick = pick := rfl\n\n" ++
+  "/-- A user-written theorem of the namespace, which uses the one above. -/\n" ++
+  "theorem spec : pick = pick := Util._proof_8\n\nend Util\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof of `later`, declared before it. -/\n" ++
+  "theorem later._proof_8 : pick = pick := rfl\n\n" ++
+  "/-- A user-written theorem named like an equation lemma of `later`, declared before it. -/\n" ++
+  "theorem later.eq_7 : pick = pick := rfl\n\n" ++
+  "/-- A definition that uses the theorem named like its auxiliary proof. -/\n" ++
+  "noncomputable def later : Nat := (fun (_ : pick = pick) => pick) later._proof_8\n\n" ++
   "/-- A reference whose initialization action carries a proof that uses `propext`. -/\n" ++
   "initialize counter : IO.Ref Nat ← do\n" ++
   "  have _ : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n  IO.mkRef 0\n\n" ++
@@ -1445,9 +1460,11 @@ the constructor is flagged. None of
 `Channel.fact`, which has no source range, `Word.ofNat` and the `vzero` elaborator in `Channel`'s
 namespace is attributed, though each is named under a structure: Lean did not generate them from
 it. `Channel.fact` keeps module attribution, and `Word.ofNat` and the elaborator their own
-range. Neither is the user-written `middle._proof_8`, which only the user-written
-`middle._proof_9` uses, nor that one, which nothing uses: a use by an auxiliary-named declaration
-relates only when that declaration is itself related. Both keep their own range. -/
+range. Neither is a user-written theorem named like a generated declaration, which has a
+declaration range where the ones Lean generates have none: `middle._proof_8`, which the
+user-written `middle._proof_9` and `middle.spec` use, `middle._proof_9`, which nothing uses,
+`Util._proof_8`, which `Util.spec` uses in a namespace no declaration names, and `later._proof_8`
+and `later.eq_7`, declared before `later`, which uses the first. Each keeps its own range. -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
@@ -1511,7 +1528,8 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   unless source ofNat == .null && kind ofNat == .str "source" &&
       selection ofNat != selection word && ofNat.getObjValD "related" == Json.arr #[] do
     return some "Word.ofNat, which Lean did not generate, was attributed"
-  for name in #["middle._proof_8", "middle._proof_9"] do
+  for name in #["middle._proof_8", "middle._proof_9", "Util._proof_8", "later._proof_8",
+      "later.eq_7"] do
     let some d := find name | return some s!"no {name} finding"
     unless source d == .null && kind d == .str "source" &&
         d.getObjValD "related" == Json.arr #[] do
@@ -1534,8 +1552,9 @@ recorded relation and `groupFindings_flatten` the grouping. The positive control
 attributed findings, a declaration of every `GeneratedFamily`, and their printed blocks; the
 negative controls are a theorem a metaprogram adds without a source range under a declaration's
 name, a user-written `ofNat` under a structure's, an elaborator Lean names `«_aux_…»` in a
-structure's namespace, and two user-written theorems named like a definition's auxiliary proofs,
-one using the other, none of which Lean generated from it (`sourceAttributionFailure`). -/
+structure's namespace, and user-written theorems named like a definition's auxiliary proofs or
+equation lemma that the definition or a declaration named beside them uses, none of which Lean
+generated from it (`sourceAttributionFailure`). -/
 private def sourceAttributionControls (dir : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let report := dir / "source-attribution.json"

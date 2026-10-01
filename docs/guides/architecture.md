@@ -232,7 +232,10 @@ metadata, not authenticated binary identity.
   `authorizedUnsafeRecHelpers`), and `Findings.helperStep_base` proves `f` is then an audited
   definition in the helper's module with its type, and that Lean's recursion compiler was observed
   to regenerate the helper. No clause rests on a name alone, so an elaborator or macro Lean names
-  `«_aux_…»` inside a namespace is not related. The RG1005 rewrite names the families from
+  `«_aux_…»` inside a namespace is not related; and a clause that reads the relation from the
+  declaration's name applies only to a declaration with no recorded declaration range, which Lean
+  records for what an author writes and not for these generated declarations, so a theorem an
+  author names like one of them keeps its own location. The RG1005 rewrite names the families from
   `GeneratedFamily.all` and `GeneratedFamily.text`, and `RegistryChecks` requires the adoption
   guide to quote it verbatim, so the guidance and the guide name exactly the families the checker
   relates; the [enumeration](proofs-and-boundaries.md#generated-declaration-families) records
