@@ -851,10 +851,8 @@ prove that JSON text round-trips (what `Json.parse` returns for the file's text,
 as it is for every earlier schema), or that the written form is smaller than the logical one.
 The last holds when the writer's proposal is kept, which is checked at each write and observed
 on the collector's real output by the `history` qualification (`derivedOnly`) and on built and
-parsed accounts by `RegistryChecks`, not proved. In the
-excluded library,
-`RegistryCodec.mode_roundtrip`,
-`mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
+parsed accounts by `RegistryChecks`, not proved. In the excluded library,
+`RegistryCodec.mode_roundtrip`, `mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
 `nameParts_roundtrip`, `name_roundtrip` and `Regula.sortFindings_entries` on `propext`,
 `Classical.choice` and `Quot.sound`; `RegistryChecks` bounds them to Standard-Logical.
 
@@ -1176,7 +1174,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | --- | --- | --- | --- | --- |
 | producers | 12 documented-source runs, 2 standalone executables | real incremental and build-lint detection, stale-artifact handling | External | observed |
 | producers | 8 transport mutations | `Environment.validate` refusals | Proved | `ProducerReport.validate_sound` |
-| history | 10 project and file invocations | replacement history, unsupported evaluators, source changes | External | observed |
+| history | 10 project and file invocations | replacement history, unsupported evaluators, source changes; the written `execution` as a shared form with every root derived | External | observed |
 | history | 17 history, closure and source transport mutations | `Environment.validate` refusals | Proved | `ProducerReport.validate_sound` |
 | history | 7 oracle mutations | refusal of missing imported ownership or execution evidence | Proved | `History.validate_importedRootExecuted`, `validate_unsupported_unresolved` |
 | rule-examples | 44 Fixed/Violation productions | every published example yields exactly its documented findings | External | observed |
@@ -1191,7 +1189,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
-| ordinary | `RegistryChecks` codec and source cases | registry, diagnostic and source codecs | Proved in part | round-trip theorems; open: state the remaining refusals as theorems |
+| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems; that the shared form is kept is observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |
@@ -1222,7 +1220,9 @@ The `qualify` campaigns and what they observe:
   expectation validator.
 - `history`: ten project and file invocations, each in its own fresh workspace, covering private
   and imported roots, reached-closure and source accounts, unsupported-evaluator refusal and
-  source-snapshot changes.
+  source-snapshot changes. The six invocations the oracle validates (positive and
+  unsupported-evaluator) also require the `execution` the file holds to be a shared form whose
+  every root entry is derived (`SharedExecution.derivedOnly`).
 - `rule-examples`: above.
 - `closure-evidence`: reflexive candidate versus active cycle, retained recursive IR edges and
   range refusals through four invocation paths.

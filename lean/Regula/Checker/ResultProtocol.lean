@@ -26,15 +26,15 @@ the reader returns the accounts from it (the `names` its roots reach, their `mod
 `nameModules`, each edge channel as pairs of name indices, the `boundaries` records and
 `unavailableCode`, each once, and `roots`, one entry per root), and otherwise the accounts in
 full (`SharedExecution.restore?` states what each written value stands for); every observation
-of each root is recoverable either way. Readers of this checker take the
-document through `SharedExecution.read`, which rebuilds each root's account, so the document they
-see holds an array of complete root accounts as before: `SharedExecution.read_write` proves it is
-the document the writer was given. A declaration of a report and a declaration a frontend
-transcript records carry `type`, the `repr` of the kernel type expression, only when the audit
-was asked for it (`axiomGate --kernel-types`); `prettyType` is the declaration's type as Lean
-prints it (`ProducerReport.declarationResultJson`, `Frontend.transcriptResultJson`). Earlier
-schemas wrote each root's account in full, so a name,
-edge or boundary that several roots reach was repeated for each, and always wrote that `repr`.
+of each root is recoverable either way. Readers of this checker take the document through
+`SharedExecution.read`, which rebuilds each root's account, so the document they see holds an
+array of complete root accounts as before: `SharedExecution.read_write` proves it is the document
+the writer was given. A declaration of a report and a declaration a frontend transcript records
+carry `type`, the `repr` of the kernel type expression, only when the audit was asked for it
+(`axiomGate --kernel-types`); `prettyType` is the declaration's type as Lean prints it
+(`ProducerReport.declarationResultJson`, `Frontend.transcriptResultJson`). Earlier schemas wrote
+each root's account in full, so a name, edge or boundary that several roots reach was repeated
+for each, and always wrote that `repr`.
 Schema 7 stores each source text once. A result file's top-level `sourceTexts` lists
 every distinct source text of the document, and each `sourceText` member, wherever it occurs (a
 source location of `diagnostics`, the `sourceAccount`, the sources, frontend transcripts, source
@@ -347,10 +347,11 @@ def requestJson (kind project subject : String) (claim execution : Option String
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
 /-- Write a result document to `path` in its written form: the `SharedExecution.write` of
-`document` (its `SharedExecution.intern` with the proposals of `ExecutionShare`, then `SourceTexts.intern`) as compact JSON and a final newline, creating the
-parent directories. `SharedExecution.read_write` proves a reader's `SharedExecution.read` of the
-written value is `document` itself; that law is about `Json` values, not the file's text. A
-document `SourceTexts.intern` refuses (one without the `null` `sourceTexts` member of `sourceTextsField`,
+`document` (its `SharedExecution.intern` with the proposals of `ExecutionShare`, then
+`SourceTexts.intern`) as compact JSON and a final newline, creating the parent directories.
+`SharedExecution.read_write` proves a reader's `SharedExecution.read` of the written value is
+`document` itself; that law is about `Json` values, not the file's text. A document
+`SourceTexts.intern` refuses (one without the `null` `sourceTexts` member of `sourceTextsField`,
 or with a `sourceText` member that is not a string) is an error and nothing is written. `span`
 names the write in timing output (`timingSpan`). -/
 def writeDocument (path : System.FilePath) (document : Json) (span : String := "writeDocument") :

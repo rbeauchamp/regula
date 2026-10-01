@@ -261,10 +261,10 @@ metadata, not authenticated binary identity.
   its kernel type expression, in a report's `declarations` and in a frontend transcript's
   `addedDeclarations` only when the audit is run with `axiomGate --kernel-types`, an option
   `lake lint` does not take (`ProducerReport.declarationResultJson`,
-  `Frontend.commandResultJson`); `prettyType` is the type as Lean prints it. The in-memory report and worker transport always keep `type`, which
-  the role decisions compare. The producer qualification runs its controls with
-  `--kernel-types`, because its oracle compares the kernel expression, which two different
-  types that print alike would not show in `prettyType`.
+  `Frontend.commandResultJson`); `prettyType` is the type as Lean prints it. The in-memory report
+  and worker transport always keep `type`, which the role decisions compare. The producer
+  qualification runs its controls with `--kernel-types`, because its oracle compares the kernel
+  expression, which two different types that print alike would not show in `prettyType`.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

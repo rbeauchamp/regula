@@ -280,11 +280,11 @@ def pair? : Json → Option (Nat × Nat)
 /-! The objects of a root's account, as the reader builds them. `Regula.Report`'s codecs for
 `RegulaPolicy.ExecutionVisit`, `ExecutionBoundary`, `ExecutionClosure` and `ExecutionRoot` build
 the same objects (`ExecutionShare.visit_toJson` and its companions, by `rfl`), so a codec and the
-reader build the same value from the same members. Each lists its members in the order of their keys, which is the order the JSON parser
-inserts the members of a compressed object in: an account that was parsed is then the same tree
-as one that was built, which is what lets the writer keep a shared form for a document that was
-read back. That is an observation about Lean's tree insertion (`RegistryChecks` checks it on an
-account); no law depends on it. -/
+reader build the same value from the same members. Each lists its members in the order of their
+keys, which is the order the JSON parser inserts the members of a compressed object in: an
+account that was parsed is then the same tree as one that was built, which is what lets the
+writer keep a shared form for a document that was read back. That is an observation about Lean's
+tree insertion (`RegistryChecks` checks it on an account); no law depends on it. -/
 
 /-- A visit of a root's account: its name, its module and the position of the visit that queued
 it. -/
