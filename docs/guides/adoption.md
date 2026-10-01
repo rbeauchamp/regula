@@ -373,11 +373,10 @@ RG1005 [violation; freshProject; claim=kernel-only; Widget/Basic.lean:4:4]: coun
 ```
 
 Which family a declaration belongs to, and what it was generated from, is read from what Lean's
-environment records about it, never from its name alone: the marks Lean's generators leave, the
-equation information of a recursive definition, the uses in a definition's value or in the
-statement of its `eq_def`, where a generator runs on every type it applies to, its precondition
-checked on the environment, and, for a recursion helper `f._unsafe_rec`, Regula's own observation
-that Lean's recursion compiler regenerates it from `f`. A declaration named under another that
+environment records about it, never from its name alone; the
+[enumeration](proofs-and-boundaries.md#generated-declaration-families) names the fact read for
+each family. A recursion helper `f._unsafe_rec` is related by Regula's own observation that
+Lean's recursion compiler regenerates it from `f`. A declaration named under another that
 Lean did not generate from it is reported on its own, whether or not it has a source range, such
 as a theorem a metaprogram adds, a `Word.ofNat` you write for a structure, or an elaborator Lean
 names `«_aux_…»` inside a namespace; so is a derived instance, or an enumeration's `ofNat` from

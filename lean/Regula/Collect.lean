@@ -656,10 +656,10 @@ environment records it. Each clause rests on (a) a fact Lean's generator records
 environment: a mark or extension entry, an equation information, or a use in a kernel value or
 in the statement of an `eq_def` or in another auxiliary declaration; or on (c) the generator's
 own precondition, checked on the environment, for a declaration Lean generates whenever that
-precondition holds, so that no other declaration can have its name. None rests on a name alone; the name only says which declaration a
-marked one is named under, as Lean's own `findDeclarationRanges?` reads it. The enumeration of the
-families Lean v4.34.0 generates, with their generators, is in
-`docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
+precondition holds, so that no other declaration can have its name. None rests on a name alone;
+the name only says which declaration a marked one is named under, as Lean's own
+`findDeclarationRanges?` reads it. The enumeration of the families Lean v4.34.0 generates, with
+their generators, is in `docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
 - `constructor` (a): its inductive type (`ConstructorVal.induct`);
 - `projection` (a): a structure projection's constructor (`ProjectionFunctionInfo.ctorName`), or,
   for a parent projection that is not a subobject (`getAuxParentProjectionInfo?`), the structure it

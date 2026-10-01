@@ -113,9 +113,9 @@ module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Sou
 bounds, character boundaries, ordering and containment; a declaration with a recorded range is
 located at it, one Lean generated without a range at the range of the declaration it is attributed
 to (`Findings.findingLocation`), a declaration without a recorded range otherwise falls back to
-module attribution, and an inconsistent supplied
-range fails rather than acquiring an invented location. `sourceFromReport` additionally requires the recorded code-point
-and UTF-16 coordinates to agree with that text. Report lines are one-based and columns count
+module attribution, and an inconsistent supplied range fails rather than acquiring an invented
+location. `sourceFromReport` additionally requires the recorded code-point and UTF-16
+coordinates to agree with that text. Report lines are one-based and columns count
 Unicode code points; `startUtf16` and `endUtf16` are zero-based UTF-16 columns within their
 lines, computed with Lean's
 `leanPosToLspPos`. Native messages use Lean code-point positions, and the same validated
@@ -239,11 +239,11 @@ metadata, not authenticated binary identity.
   Lean did not generate from another, or one outside the audited declarations. The finding keeps
   the range Lean recorded for its declaration, as for a constructor or a field; without one, it is
   located at the source declaration's range when that has one and its module has a snapshot
-  (`Findings.findingLocation`), and its `related` then names the declaration's own module. Which clause
-  records which declaration is Lean's behavior, read from its environment, not proved; derived
-  instances and the declarations deriving handlers add, such as an enumeration's `ofNat`, are not
-  related, since Lean records no such relation. The `lake lint` text prints the RG1005 findings
-  under one declaration as one block
+  (`Findings.findingLocation`), and its `related` then names the declaration's own module. Which
+  clause records which declaration is Lean's behavior, read from its environment, not proved;
+  derived instances and the declarations deriving handlers add, such as an enumeration's `ofNat`,
+  are not related, since Lean records no such relation. The `lake lint` text prints the RG1005
+  findings under one declaration as one block
   (`groupFindings`, `groupEntry`; `declarationFinding_groupUnder?` proves such a finding groups
   under the declaration it is attributed to) and folds their lines in its closing `FAIL` summary
   into one count; the JSON keeps them one per declaration, in the same order
