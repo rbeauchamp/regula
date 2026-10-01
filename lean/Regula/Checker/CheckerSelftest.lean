@@ -88,7 +88,8 @@ inductive Partition where
   | fixtures
   /-- Structural, compiler-path and manifest controls. -/
   | structural
-  /-- Every fixture through a real `axiomGate --file` invocation. -/
+  /-- Every fixture through a real `axiomGate --file` invocation, and the source-attribution
+  controls. -/
   | cli
   /-- The end-to-end fence corpus and the external-adopter and clean-checkout controls. -/
   | environments
@@ -1349,6 +1350,239 @@ private def duplicateAdmissionControls (sources copy : FilePath)
         failures.modify (·.push failure)
   failures.get
 
+/-- A file with a declaration of every `GeneratedFamily` Lean generates: the constructor,
+projection, recursors, constructor lemmas and type constructions of a structure whose field type
+uses `Classical.choice`, a structure field's default, a matcher, the `_f` and `_sunfold` of a
+structural recursion, the equation lemmas and auxiliary proof of a well-founded definition, the
+`_unary` and functional induction principle of one with two arguments, the compiled recursion
+helper `_unsafe_rec` of a computable one whose value carries a proof that uses `propext`, and the
+auxiliary proof only its `eq_def` states, the auxiliary index proof only the `_unsafe_rec` of
+another uses, the auxiliary proof only another auxiliary proof of a non-recursive definition
+uses, the action of an `initialize` whose value carries such a proof, of a type no other
+proof here has, so Lean abstracts it into an auxiliary proof named under the action's hygienic
+name; and
+declarations Lean does not generate from the declaration they are named under: a theorem a
+metaprogram adds without a source range, a user-written `ofNat`, a name Lean generates only for an
+enumeration deriving `DecidableEq`, an elaborator Lean names `«_aux_…»` inside the
+structure's namespace, and user-written theorems named like auxiliary proofs or an equation lemma:
+two of a definition that does not use them, one using the other and a theorem named under the
+definition using the first; one in a namespace, which a theorem of the namespace uses; and two
+declared before the definition they are named under, which uses the one named like an auxiliary
+proof. Every one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
+private def sourceAttributionSource : String :=
+  "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
+  "open Lean Elab Command\n\n" ++
+  "/-- A value chosen with `Classical.choice`. -/\n" ++
+  "noncomputable def pick : Nat := Classical.choose (⟨0, rfl⟩ : ∃ n : Nat, n = n)\n\n" ++
+  "/-- A structure whose field type uses `pick`. -/\nstructure Channel where\n" ++
+  "  /-- The bounded value. -/\n  value : Fin (pick + 1)\n\n" ++
+  "/-- A structure with a conversion of its own. -/\nstructure Word where\n" ++
+  "  /-- The bounded value. -/\n  val : Fin (pick + 1)\n\n" ++
+  "/-- A user-written conversion from `Nat`. -/\n" ++
+  "noncomputable def Word.ofNat (n : Nat) : Word :=\n" ++
+  "  ⟨⟨n % (pick + 1), Nat.mod_lt n (Nat.succ_pos pick)⟩⟩\n\n" ++
+  "/-- A structure whose field default uses `pick`. -/\nstructure Rec where\n" ++
+  "  /-- A bounded value with a default. -/\n  x : Fin (pick + 1) := ⟨0, Nat.succ_pos pick⟩\n\n" ++
+  "/-- A definition by pattern matching on a value whose type uses `pick`. -/\n" ++
+  "def firstIndex (c : Channel) : Nat :=\n  match c.value with\n  | ⟨0, _⟩ => 0\n" ++
+  "  | ⟨k + 1, _⟩ => k\n\n" ++
+  "/-- A definition by structural recursion. -/\n" ++
+  "noncomputable def walkDown : Nat → Nat\n  | 0 => pick\n  | n + 1 => walkDown n\n\n" ++
+  "namespace Channel\n\n/-- A term elaborated in `Channel`'s namespace. -/\n" ++
+  "elab \"vzero\" : term => Term.elabTerm (Syntax.mkNumLit \"0\") none\n\nend Channel\n\n" ++
+  "/-- A definition by well-founded recursion. -/\n" ++
+  "def countdown (n : Nat) : Nat := if h : n = 0 then 0 else countdown (n - 1)\n" ++
+  "termination_by n\ndecreasing_by omega\n\n" ++
+  "/-- Unfolding `countdown` realizes its equation lemmas. -/\n" ++
+  "theorem countdown_zero : countdown 0 = 0 := by\n  simp [countdown]\n\n" ++
+  "/-- A definition by well-founded recursion on two arguments. -/\n" ++
+  "def countPair (m n : Nat) : Nat := if h : m = 0 then n else countPair (m - 1) (n + 1)\n" ++
+  "termination_by m\ndecreasing_by omega\n\n" ++
+  "/-- A use of `countPair`'s functional induction principle, which realizes it. -/\n" ++
+  "theorem countPair_induct_used : True := (fun _ => trivial) (@countPair.induct)\n\n" ++
+  "/-- A computable definition by well-founded recursion whose value carries a proof that uses \
+    `propext`. -/\n" ++
+  "def countUp (n : Nat) : Nat :=\n  have _ : True = True := propext (Iff.refl True)\n" ++
+  "  if h : n = 0 then 0 else countUp (n - 1)\ntermination_by n\ndecreasing_by omega\n\n" ++
+  "/-- A computable definition by well-founded recursion whose index proof uses `propext`. -/\n" ++
+  "def sumButLast (a : Array Nat) (i : Nat) : Nat :=\n" ++
+  "  if h : i + 1 < a.size then a[i]'(by omega) + sumButLast a (i + 1) else 0\n" ++
+  "termination_by a.size - i\n\n" ++
+  "/-- A definition whose index proof Lean abstracts into two lemmas, one used only by the \
+    other. -/\n" ++
+  "def middle (a : Array Nat) (h : 2 < a.size) : Nat := a[a.size / 2]'(by omega)\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof of `middle`. -/\n" ++
+  "theorem middle._proof_8 : pick = pick := rfl\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof, which uses the one above. -/\n" ++
+  "theorem middle._proof_9 : pick = pick := middle._proof_8\n\n" ++
+  "/-- A user-written theorem named under `middle`, which uses the first one above. -/\n" ++
+  "theorem middle.spec : pick = pick := middle._proof_8\n\n" ++
+  "namespace Util\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof, in a namespace. -/\n" ++
+  "theorem _proof_8 : pick = pick := rfl\n\n" ++
+  "/-- A user-written theorem of the namespace, which uses the one above. -/\n" ++
+  "theorem spec : pick = pick := Util._proof_8\n\nend Util\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof of `later`, declared before it. -/\n" ++
+  "theorem later._proof_8 : pick = pick := rfl\n\n" ++
+  "/-- A user-written theorem named like an equation lemma of `later`, declared before it. -/\n" ++
+  "theorem later.eq_7 : pick = pick := rfl\n\n" ++
+  "/-- A definition that uses the theorem named like its auxiliary proof. -/\n" ++
+  "noncomputable def later : Nat := (fun (_ : pick = pick) => pick) later._proof_8\n\n" ++
+  "/-- A reference whose initialization action carries a proof that uses `propext`. -/\n" ++
+  "initialize counter : IO.Ref Nat ← do\n" ++
+  "  have _ : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n  IO.mkRef 0\n\n" ++
+  "run_cmd liftTermElabM do\n  addDecl <| .thmDecl {\n" ++
+  "    name := `Channel.fact, levelParams := []\n" ++
+  "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
+  "    value := mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Nat) (mkConst ``pick) }\n"
+
+/-- The first failed expectation of the source-attribution report, if any: a declaration of every
+`GeneratedFamily` (`Channel`'s constructor, projection, recursor, constructor lemmas and type
+constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
+`countdown`'s equation lemma and auxiliary proof, `countPair._unary` and `countPair.induct`, and
+the admitted recursion helper `countUp._unsafe_rec`), the auxiliary proofs `countUp._proof_3`,
+which only `countUp.eq_def` states, `sumButLast._proof_1`, which only the admitted helper
+`sumButLast._unsafe_rec` uses and whose chain runs through it, and `middle._proof_1`, which only
+`middle._proof_2` uses and whose chain runs through it, the action of `initialize counter`
+and that action's auxiliary proof, whose chain runs through the action, is attributed to the
+declaration Lean generated it from. One without a range of its own is located at that
+declaration's range, with its own module as a related location; one with a range of its own keeps
+it, with no related location: `Channel.value` at its field and the action at its `initialize`
+command, both other than their source's, and `Channel.mk` at the structure's name, where Lean
+records an implicit constructor (`expandCtor`, `Lean/Elab/Structure.lean:235-246`). `Rec`'s
+range is read from its own finding or, when it has none, from its implicit constructor's finding,
+at the same name: Lean's `exportedAxiomsExt`
+(`Lean/Util/CollectAxioms.lean:118-140` in the v4.34.0 toolchain source) computes a module's
+axioms in one shared cache, and when it reaches an inductive first through its constructor, it
+caches the inductive with that constructor's in-progress empty entry, so the inductive can record
+no axiom while its constructor records `Classical.choice`. The claim is still rejected, because
+the constructor is flagged. None of
+`Channel.fact`, which has no source range, `Word.ofNat` and the `vzero` elaborator in `Channel`'s
+namespace is attributed, though each is named under a structure: Lean did not generate them from
+it. `Channel.fact` keeps module attribution, and `Word.ofNat` and the elaborator their own
+range. Neither is a user-written theorem named like a generated declaration, which has a
+declaration range where the ones Lean generates have none: `middle._proof_8`, which the
+user-written `middle._proof_9` and `middle.spec` use, `middle._proof_9`, which nothing uses,
+`Util._proof_8`, which `Util.spec` uses in a namespace no declaration names, and `later._proof_8`
+and `later.eq_7`, declared before `later`, which uses the first. Each keeps its own range. -/
+private def sourceAttributionFailure (report : Json) : Option String := Id.run do
+  let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
+    | return some "no diagnostics"
+  let find (name : String) : Option Json := diagnostics.find? fun d =>
+    (d.getObjValD "arguments").getObjValD "declaration" == .str name
+  let selection (d : Json) : Json := (d.getObjValD "location").getObjValD "selectionRange"
+  let kind (d : Json) : Json := (d.getObjValD "location").getObjValD "kind"
+  let source (d : Json) : Json := (d.getObjValD "arguments").getObjValD "sourceDeclaration"
+  let relation (d : Json) : Option Json :=
+    ((d.getObjValD "related").getArrVal? 0).toOption.map (·.getObjValD "relation")
+  let attributed (d owner : Json) (ownerName : String) : Bool :=
+    source d == .str ownerName && kind d == .str "source" && selection d == selection owner &&
+      relation d == some (.str "declared in module")
+  let keepsOwn (d owner : Json) (ownerName : String) (distinct : Bool) : Bool :=
+    source d == .str ownerName && kind d == .str "source" &&
+      d.getObjValD "related" == Json.arr #[] && (!distinct || selection d != selection owner)
+  let some channel := find "Channel" | return some "no Channel finding"
+  for (name, distinct) in #[("Channel.mk", false), ("Channel.value", true)] do
+    let some d := find name | return some s!"no {name} finding"
+    unless keepsOwn d channel "Channel" distinct do
+      return some s!"{name} is not attributed to Channel at its own range"
+  for (name, ownerName) in #[
+      ("Channel.rec", "Channel"), ("Channel.casesOn", "Channel"), ("countdown.eq_1", "countdown"),
+      ("countPair.induct", "countPair"), ("firstIndex.match_1", "firstIndex"),
+      ("countPair._unary", "countPair"), ("walkDown._f", "walkDown"),
+      ("walkDown._sunfold", "walkDown"), ("countdown._proof_1", "countdown"),
+      ("Channel.mk.injEq", "Channel"), ("Channel.mk.sizeOf_spec", "Channel"),
+      ("Channel.mk._flat_ctor", "Channel"), ("Channel.ctorIdx", "Channel"),
+      ("Channel.noConfusionType", "Channel"), ("Channel._sizeOf_1", "Channel"),
+      ("Channel._sizeOf_inst", "Channel"), ("Rec.x._default", "Rec"),
+      ("countUp._unsafe_rec", "countUp"), ("countUp._proof_3", "countUp"),
+      ("sumButLast._proof_1", "sumButLast"), ("middle._proof_1", "middle"),
+      ("middle._proof_2", "middle")] do
+    let some owner := find ownerName <|> find (ownerName ++ ".mk")
+      | return some s!"no {ownerName} finding"
+    let some d := find name | return some s!"no {name} finding"
+    unless attributed d owner ownerName do
+      return some s!"{name} is not attributed to and located at {ownerName}"
+  let userName? (d : Json) : Option Name :=
+    match Regula.RegistryCodec.parsePrintedNameJson
+        ((d.getObjValD "arguments").getObjValD "declaration") with
+    | .ok name => some (privateToUserName name.eraseMacroScopes)
+    | _ => none
+  let some counter := find "counter" | return some "no counter finding"
+  let some action := diagnostics.find? (userName? · == some `initFn)
+    | return some "no finding for the action of initialize counter"
+  unless keepsOwn action counter "counter" true do
+    return some "the action of initialize counter is not attributed to counter at its own range"
+  let some proof := diagnostics.find? fun d => match userName? d with
+      | some (.str (.str .anonymous "initFn") s) => s.startsWith "_proof_"
+      | _ => false
+    | return some "no finding for the auxiliary proof of initialize counter's action"
+  unless attributed proof counter "counter" do
+    return some "the auxiliary proof of initialize counter's action is not attributed to and \
+      located at counter"
+  let some fact := find "Channel.fact" | return some "no Channel.fact finding"
+  unless source fact == .null && kind fact == .str "module" do
+    return some "Channel.fact, which Lean did not generate, was attributed"
+  let some word := find "Word" | return some "no Word finding"
+  let some ofNat := find "Word.ofNat" | return some "no Word.ofNat finding"
+  unless source ofNat == .null && kind ofNat == .str "source" &&
+      selection ofNat != selection word && ofNat.getObjValD "related" == Json.arr #[] do
+    return some "Word.ofNat, which Lean did not generate, was attributed"
+  for name in #["middle._proof_8", "middle._proof_9", "Util._proof_8", "later._proof_8",
+      "later.eq_7"] do
+    let some d := find name | return some s!"no {name} finding"
+    unless source d == .null && kind d == .str "source" &&
+        d.getObjValD "related" == Json.arr #[] do
+      return some s!"{name}, which Lean did not generate, was attributed"
+  let some elaborator := diagnostics.find? fun d =>
+      match Regula.RegistryCodec.parsePrintedNameJson
+          ((d.getObjValD "arguments").getObjValD "declaration") with
+      | .ok (.str (.str .anonymous "Channel") s) => s.startsWith "_aux_" && s.contains "termVzero"
+      | _ => false
+    | return some "no finding for the vzero elaborator in Channel's namespace"
+  unless source elaborator == .null && kind elaborator == .str "source" &&
+      selection elaborator != selection channel && elaborator.getObjValD "related" == Json.arr #[] do
+    return some "the vzero elaborator, which Lean did not generate from Channel, was attributed"
+  return none
+
+/-- External-boundary controls for source attribution through the public `axiomGate --file`
+audit. Which declarations Lean generates, and what the environment records about them, is the
+compiler's behavior; `Findings.sourceName?_eq_some_iff` states the attribution decision over the
+recorded relation and `groupFindings_flatten` the grouping. The positive controls are the
+attributed findings, a declaration of every `GeneratedFamily`, and their printed blocks; the
+negative controls are a theorem a metaprogram adds without a source range under a declaration's
+name, a user-written `ofNat` under a structure's, an elaborator Lean names `«_aux_…»` in a
+structure's namespace, and user-written theorems named like a definition's auxiliary proofs or
+equation lemma that the definition or a declaration named beside them uses, none of which Lean
+generated from it (`sourceAttributionFailure`). -/
+private def sourceAttributionControls (dir : FilePath)
+    (gate : Array String → IO ProcessResult) : IO (Array String) := do
+  let report := dir / "source-attribution.json"
+  let source := dir / "SourceAttribution.lean"
+  withNewFile source sourceAttributionSource do
+    try
+      let result ← gate #["--file", source.toString, "--claim", "kernel-only",
+        "--json-out", report.toString]
+      let failed (detail : String) :=
+        #[s!"cli/source-attribution: {detail}:\n{result.output}"]
+      if result.succeeded then return failed "expected RG1005 findings"
+      let json ← match Json.parse (← IO.FS.readFile report) with
+        | .ok json => pure json
+        | .error error => return failed s!"unreadable report: {error}"
+      if let some detail := sourceAttributionFailure json then return failed detail
+      unless result.output.contains
+            "countdown: it and 3 declarations Lean generated from it exceed the claim" &&
+          result.output.contains
+            "  attributed: 3 declarations of these are generated by Lean from countdown and reported \
+              under it" do
+        return failed "the attributed findings did not print as one block under countdown"
+      unless result.output.contains "Channel: it and " && !result.output.contains "]: Channel.mk:" do
+        return failed "the findings Lean generated from Channel at its location did not print as \
+          one block"
+      return #[]
+    finally
+      if ← report.pathExists then IO.FS.removeFile report
+
 /-- Structural mutation cluster: fresh-checker coverage of an added module, controls for several
 copies of one name, and the final restored-state control. -/
 private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath) : IO
@@ -1799,6 +2033,16 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
   IO.println <| s!"self-test {cliLabel}: " ++
     (if cliResults.all (·.isNone) then "PASS" else "FAIL") ++
     s!" ({cliFixtures.size} real axiomGate --file invocations)"
+  if fullCli then
+    let attribution ← timedPhase "source attribution" <|
+      withScratch repo "checker-source-attribution" fun scratch =>
+        sourceAttributionControls scratch (runBinary repo "axiomGate" ·)
+    for failure in attribution do failures.modify (·.push failure)
+    IO.println <| "self-test source attribution: " ++
+      (if attribution.isEmpty then "PASS" else "FAIL") ++
+      " (a declaration of every generated family attributed, those at one location printed in one \
+        block; a metaprogram theorem, a user-written ofNat and an elaborator under a structure's \
+        name, and user-written theorems named like auxiliary proofs, not attributed)"
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. -/

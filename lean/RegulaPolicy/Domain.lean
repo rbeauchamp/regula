@@ -651,6 +651,11 @@ structure Declaration where
   nativeReplay : Option Bool
   /-- Lean's declaration ranges, when it recorded them. -/
   ranges : Option Ranges
+  /-- The declaration Lean generated this one from, one step, as the environment records it
+  (`Regula.Collect.generatedFrom?`): a constructor's inductive type, a projection's structure
+  constructor, a recursor's or equation lemma's declaration, and so on; `none` when Lean did not
+  generate it from another declaration. -/
+  generatedFrom : Option Lean.Name
   /-- The axioms the constant transitively depends on (`collectAxioms`), sorted and without
   duplicates. -/
   axioms : Array Lean.Name

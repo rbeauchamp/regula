@@ -5,6 +5,7 @@ public import RegulaCore.Edition
 public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
+public import RegulaCore.GeneratedFamily
 
 /-! # Rule registry
 
@@ -531,7 +532,10 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Prove the statement constructively or with a narrower lemma so the exact set fits the \
           claim.",
         "If the stronger foundation is intended, change the surface's `claim` and rationale \
-          explicitly; this changes the published claim and needs review."]
+          explicitly; this changes the published claim and needs review.",
+        "`lake lint` groups a declaration Lean generated under the one it came from if it is a " ++
+          "; ".intercalate (GeneratedFamily.all.map (·.text)) ++ ". Other declarations keep their \
+          own location. Fix the one reported or a definition it uses that adds the axiom."]
       examples := {
         language := .lean
         audience := .adopter

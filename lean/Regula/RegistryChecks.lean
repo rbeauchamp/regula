@@ -17,8 +17,16 @@ universe u v
 run_cmd do
   for name in #[``RuleId.parse_spelling, ``RuleId.spelling_injective, ``RuleId.mem_all,
       ``RuleId.all_nodup, ``RuleId.route_injective, ``mode_roundtrip, ``rule_roundtrip,
-      ``nameParts_roundtrip, ``name_roundtrip, ``mem_firedRules, ``firedRules_nodup,
-      ``Regula.sortFindings_entries, ``Regula.sortFindings_perm,
+      ``nameParts_roundtrip, ``name_roundtrip, ``printsExactly_iff, ``printedNameJson_roundtrip,
+      ``printedNameJson_eq_str_iff, ``parsePrintedNameJson_str, ``mem_firedRules,
+      ``firedRules_nodup, ``Regula.sortFindings_entries, ``Regula.sortFindings_perm,
+      ``Regula.Feedback.flatten_runs, ``Regula.groupFindings_flatten,
+      ``Regula.groupFindings_perm, ``Regula.groupEntry_alone,
+      ``Regula.Findings.declarationIndex_get, ``Regula.Findings.chainEnd_eq_some_iff,
+      ``Regula.Findings.sourceName?_eq_some_iff, ``Regula.Findings.sourceName?_source,
+      ``Regula.Findings.stepOf_eq_some_iff, ``Regula.Findings.helperStep_base,
+      ``Regula.Findings.declarationFinding_groupUnder?, ``Regula.Feedback.flatten_runs_go,
+      ``Regula.GeneratedFamily.mem_all,
       ``Regula.Checker.ResultProtocol.stagesOf_required,
       ``Regula.Checker.ResultProtocol.notRun_completedStages_eq_nil_iff,
       ``Regula.Checker.ResultProtocol.stagesOf_ordered,
@@ -69,6 +77,12 @@ def main : IO Unit := do
   -- The committed agent skill is the generated briefing of this build.
   require ((← IO.FS.readFile ".agents/skills/regula/SKILL.md") == Regula.Guidance.skill)
     "committed .agents/skills/regula/SKILL.md is current (regenerate with `lake exe regula skill`)"
+  -- The adoption guide quotes, on one line, the RG1005 guidance that names the families of
+  -- declarations Lean generates, rendered from the list the checker runs (`GeneratedFamily.all`).
+  let some families := (descriptor .profileExceeded).rewrites.getLast?
+    | throw <| IO.userError "registry qualification failed: RG1005 names no generated families"
+  require (((← IO.FS.readFile "docs/guides/adoption.md").splitOn s!"\n> {families}\n").length == 2)
+    "docs/guides/adoption.md quotes the RG1005 generated-family guidance once, verbatim"
   require
       (!succeeded (validateRegistry producer (manifest.setObjVal! "sourceRevision" (.str "stale"))))
     "stale revision"
@@ -105,9 +119,36 @@ def main : IO Unit := do
   require (!succeeded (admitSource { candidate with full := ⟨3, 9⟩ }))
       "selection outside full range"
   let name := Name.num (.str .anonymous "a.b") 2
-  let d ← IO.ofExcept <| makeDiagnostic .projectAxiom ⟨name, "project-axiom"⟩
+  let d ← IO.ofExcept <| makeDiagnostic .projectAxiom
+    ({ declaration := name, sourceDeclaration := none, detail := "project-axiom" } :
+      DeclarationArguments)
     (.source source) .freshFile (some "standard-logical") .violation
   let json := diagnosticJson ⟨.projectAxiom, d⟩
+  -- Printed names: Lean's printer and parser agree on an escaped component, so the text stands
+  -- for the name; a component containing `»` cannot be escaped, so its parts stand for it.
+  require ((json.getObjValD "arguments").getObjValD "declaration" == .str "«a.b».2")
+    "escaped name as its printed text"
+  let unescapable := Name.str (.str .anonymous "Acorn") "a»b"
+  let generated ← IO.ofExcept <| makeDiagnostic .profileExceeded
+    ({ declaration := unescapable, sourceDeclaration := some `Acorn, detail := "choice-free" } :
+      DeclarationArguments) (.module `Acorn.Admission) .freshProject (some "kernel-only") .violation
+  let generatedJson := diagnosticJson ⟨.profileExceeded, generated⟩
+  require ((generatedJson.getObjValD "arguments").getObjValD "declaration" == nameJson unescapable &&
+    (generatedJson.getObjValD "arguments").getObjValD "sourceDeclaration" == .str "Acorn" &&
+    (generatedJson.getObjValD "location").getObjValD "name" == .str "Acorn.Admission")
+    "components only for a name Lean's parser does not read back"
+  let reparsed ← IO.ofExcept <| DiagnosticCodec.parseDiagnostic generatedJson
+  require (diagnosticJson reparsed == generatedJson && reparsed.sourceDeclaration? == some `Acorn)
+    "generated finding transport control"
+  let printedOnly := generatedJson.setObjVal! "arguments" (Json.mkObj [
+    ("declaration", .str unescapable.toString), ("sourceDeclaration", .str "Acorn"),
+    ("detail", .str "choice-free")])
+  require (!succeeded (DiagnosticCodec.parseDiagnostic printedOnly))
+    "printed text for a name it does not denote"
+  let structural := json.setObjVal! "arguments" ((json.getObjValD "arguments").setObjVal!
+    "declaration" (nameJson name))
+  require (!succeeded (DiagnosticCodec.parseDiagnostic structural))
+    "components for a name its printed text denotes"
   let fileStages := Regula.Checker.ResultProtocol.stagesOf .freshFile
   -- Every writer records the request of a result with a mode.
   let requested (kind : String) (j : Json) : Json := j.setObjVal! "request"

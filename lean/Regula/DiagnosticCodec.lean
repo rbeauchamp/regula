@@ -21,7 +21,7 @@ private def byteRange (j : Json) : Except String ByteRange := do
 `admitSource`, and the input must equal the canonical `locationJson` of the result. -/
 def parseLocation (j : Json) : Except String Location := do
   let value ← match ← string j "kind" with
-    | "module" => pure <| Location.module (← parseName (← field j "name"))
+    | "module" => pure <| Location.module (← parsePrintedNameJson (← field j "name"))
     | "project" => pure <| Location.project (← string j "identity")
     | "source" => do
         let c : SourceCandidate := {
@@ -33,14 +33,20 @@ def parseLocation (j : Json) : Except String Location := do
   unless j == locationJson value do throw "noncanonical location or unknown fields"
   return value
 
+private def parseSource (j : Json) : Except String (Option Name) := do
+  match ← field j "sourceDeclaration" with
+  | .null => return none
+  | name => return some (← parsePrintedNameJson name)
+
 private def parseArguments (id : RuleId) (j : Json) : Except String (Payload id) := do
   let detail ← string j "detail"
   match (dependent := true) id with
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
   | .escapeHatch | .executableContract | .materialDocumentation | .materialIntent =>
-      return ⟨← parseName (← field j "declaration"), detail⟩
+      return { declaration := ← parsePrintedNameJson (← field j "declaration"),
+               sourceDeclaration := ← parseSource j, detail := detail : DeclarationArguments }
   | .executionUnresolved | .executionBoundary =>
-      return ⟨← parseName (← field j "root"), detail⟩
+      return ⟨← parsePrintedNameJson (← field j "root"), detail⟩
   | .environment | .configuration | .sourceBuild | .coverage | .admission | .communityConfiguration
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
   | .moduleDocumentation => return ⟨← string j "subject", detail⟩

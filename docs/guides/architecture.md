@@ -110,11 +110,14 @@ context and is not an independent policy decision.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
-bounds, character boundaries, ordering and containment; missing ranges fall back to module
-attribution, and an inconsistent supplied range fails rather than acquiring an invented
-location. `sourceFromReport` additionally requires the recorded code-point and UTF-16 coordinates
-to agree with that text. Report lines are one-based and columns count Unicode code points; `startUtf16` and
-`endUtf16` are zero-based UTF-16 columns within their lines, computed with Lean's
+bounds, character boundaries, ordering and containment; a declaration with a recorded range is
+located at it, one Lean generated without a range at the range of the declaration its finding is
+attributed to, where the finding carries the attribution (`Findings.findingLocation`), a
+declaration without a recorded range otherwise falls back to module attribution, and an
+inconsistent supplied range fails rather than acquiring an invented location. `sourceFromReport`
+additionally requires the recorded code-point and UTF-16 coordinates to agree with that text.
+Report lines are one-based and columns count Unicode code points; `startUtf16` and `endUtf16` are
+zero-based UTF-16 columns within their lines, computed with Lean's
 `leanPosToLspPos`. Native messages use Lean code-point positions, and the same validated
 selection supplies both the JSON LSP range and the native position. Fence declaration findings
 use labelled virtual snippet locations whose snapshot is the exact verbatim snippet, never
@@ -122,9 +125,10 @@ Markdown coordinates; aggregate fence errors keep their document and fence origi
 attribution. Filesystem paths stay native diagnostic filenames; project reports may keep
 disposable source-copy paths as evidence beside the actual source text, without asserting that
 those paths stay live after the run, and no textual path substitution is applied. Names are
-encoded structurally (tagged string and numeric components, outermost first) by
-`Regula.StructuralName`, never through printed forms, and display-only worker records cannot
-supply a declaration diagnostic. `parseDiagnostic` reconstructs the indexed payload and admitted
+written by `Regula.StructuralName` as the text Lean prints only where Lean's parser reads that text
+back as the same name, and otherwise structurally (tagged string and numeric components,
+innermost first; `printedNameJson_roundtrip`), and display-only worker records cannot supply a
+declaration diagnostic. `parseDiagnostic` reconstructs the indexed payload and admitted
 source location and compares the input with its canonical re-encoding, refusing unknown fields,
 unsupported modes and IDs, invalid coordinates and altered redundant text or help URLs; the
 proved name, ID and mode codec laws are not a proof of Lean's JSON parser, `FileMap` or the
@@ -166,7 +170,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 5, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 6, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -181,7 +185,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 5:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 6:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -193,6 +197,70 @@ metadata, not authenticated binary identity.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
+- **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
+  `acceptance` alike, and of the producer report it renders, is written one way
+  (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does
+  not read that text back as the name, its structural components as a JSON array.
+  `printedNameJson_roundtrip` proves the reader (`parsePrintedNameJson`) recovers every name,
+  `printedNameJson_eq_str_iff` that a name is a string exactly when Lean's parser reads its printed
+  text back, and `parsePrintedNameJson_str` that the reader admits a string only as that text.
+  Admission reads names back with that reader: producer reports through `Regula.Report`'s
+  instances and diagnostics through `DiagnosticCodec.parseDiagnostic`, which also refuses a
+  diagnostic unequal to its canonical re-encoding.
+- **Attribution:** the collector records, for each declaration, the declaration Lean generated it
+  from, one step (`Collect.generatedFrom?`), by trying the closed families of
+  `RegulaCore.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of
+  the exhaustive match `Collect.generatedBy?`: constructors, projections, recursors (the relation
+  Lean's `findDeclarationRanges?` uses), equation lemmas (`Meta.declFromEqLikeName`), reserved
+  names (`isReservedName`) and matchers by a mark Lean's generator leaves; a well-founded or
+  `partial_fixpoint` definition's `_unary`, `_mutual` or `mutual` and a structural recursion's `_f`
+  and `_sunfold` by its equation information; auxiliary declarations `mkAuxDeclName` names under
+  `f`, such as `f._proof_n`, when a constituent of `f`'s declaration (its type or value, or, for an
+  inductive type, the type, a constructor's type or a field's default value of any type of its
+  mutual block, which Lean elaborates under its first type's name), its equation information or
+  `f.eq_def`'s statement uses them, or, with the chain running through the recursion helper
+  below, `f._unsafe_rec`'s value does, or, with the chain running through it, a declaration named
+  under `f` at any depth that is not itself a generated auxiliary declaration (it is not
+  auxiliary-named, or it has a recorded declaration range), such as a `where` or `let rec` helper,
+  or another such auxiliary declaration with no recorded range that is itself related does, and an
+  RPC wrapper or `initialize` action by the extension that records it;
+  constructor lemmas and type constructions where the environment shows their generator ran on
+  the type (its precondition, under Lean's default options, or the mark it leaves on a sibling it
+  generates in the same run); and field defaults by Lean's own lookup
+  (`getEffectiveDefaultFnForField?`). A
+  compiled recursion helper `f._unsafe_rec`, which the environment ties to `f` only by its name, is
+  related to `f` when the admitted scope authorizes it (`Findings.stepOf` over
+  `authorizedUnsafeRecHelpers`), and `Findings.helperStep_base` proves `f` is then an audited
+  definition in the helper's module with its type, and that Lean's recursion compiler was observed
+  to regenerate the helper. No clause rests on a name alone, so an elaborator or macro Lean names
+  `«_aux_…»` inside a namespace is not related; and a clause that reads the relation from the
+  declaration's name applies only to a declaration with no recorded declaration range, which Lean
+  records for what an author writes and not for these generated declarations, so a theorem an
+  author names like one of them keeps its own location. The RG1005 rewrite names the families from
+  `GeneratedFamily.all` and `GeneratedFamily.text`, and `RegistryChecks` requires the adoption
+  guide to quote it verbatim, so the guidance and the guide name exactly the families the checker
+  relates; the [enumeration](proofs-and-boundaries.md#generated-declaration-families) records
+  every family Lean v4.34.0 generates and why each is related or not. In a declaration-policy
+  finding of a project audit, a file audit or a rule example (the rules `Policy.ruleForMember`
+  decides), `arguments.sourceDeclaration` is the end of that chain over the audited declarations
+  (`Findings.sourceName?`), and `sourceName?_eq_some_iff` proves it is exactly the name the
+  recorded relation leads to from the declaration and relates to nothing further: a declaration
+  Lean did not generate from another, or one outside the audited declarations. The finding keeps
+  the range Lean recorded for its declaration, as for a constructor or a field; without one, it is
+  located at the source declaration's range when that has one and its module has a snapshot
+  (`Findings.findingLocation`), and its `related` then names the declaration's own module. Other
+  declaration findings carry no attribution: a documentation example's, a material-documentation
+  one (RG5002, RG5003) and the editor linter's record `null` and their declaration's own location
+  (`Findings.declarationLocation`). Which clause records which declaration is Lean's behavior,
+  read from its environment, not proved;
+  derived instances and the declarations deriving handlers add, such as an enumeration's `ofNat`,
+  are not related, since Lean records no such relation. The `lake lint` text prints the RG1005
+  findings under one declaration at one location as one block, and a generated declaration with a
+  range of its own as its own block under the same declaration
+  (`groupFindings`, `groupEntry`, `Finding.sameGroup`; `declarationFinding_groupUnder?` proves such
+  a finding groups under the declaration it is attributed to) and folds their lines in its closing
+  `FAIL` summary into one count; the JSON keeps them one per declaration, in the same order
+  (`groupFindings_flatten`).
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,

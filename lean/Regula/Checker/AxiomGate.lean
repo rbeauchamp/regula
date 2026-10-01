@@ -262,9 +262,9 @@ private def manifestJson (manifest : Manifest) : Json :=
 private def libraryInfoJson (info : LibraryInfo) : Json :=
   Json.mkObj [
     ("library", Json.str info.name),
-    ("modules", Json.arr <| info.modules.map (fun n => Json.str n.toString)),
+    ("modules", toJson info.modules),
     ("sources", Json.arr <| info.sources.map fun source => Json.mkObj [
-      ("module", Json.str source.«module».toString),
+      ("module", toJson source.«module»),
       ("source", Json.str source.source.toString)
     ])
   ]
@@ -479,6 +479,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         pure (snapshot, ⟨request, frozen⟩)
       let frozenResult ← (timedPhase "project request freeze" freezeRequest).toBaseIO
       let mut failures : Array String := #[]
+      -- The indices in `failures` of RG1005 failures about declarations Lean generated from
+      -- another: the summary folds them into one count, since their findings print under it.
+      let mut attributedFailures : Std.HashSet Nat := {}
       let mut findings : Array Regula.Finding := #[]
       let mut totalDeclarations := 0
       let mut reportedImports : Std.HashSet (String × String) := {}
@@ -619,6 +622,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             id key.2 (Regula.materialDocumentationDetail failure)
             location mode (some surface.claim.toString))
           failures := failures.push s!"{(Regula.descriptor id).applicability}: {key.2}"
+        -- A declaration Lean generated, or an admitted recursion helper, names the declaration it
+        -- was generated from (`Findings.sourceName?_eq_some_iff`), and is located at it when it
+        -- has no range of its own.
+        let index := Regula.Findings.declarationIndex report.declarations
         -- `ScopeContract` retains `report.declarations` as the inventory, so iterating the
         -- inventory visits the same sequence and supplies each membership proof.
         for h : decl in scope.inventory.declarations do
@@ -627,14 +634,19 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             -- The finding names the declaration the author wrote (`Policy.subject_contract`).
             let named := Policy.subject decl scope h
             let classification := Policy.subjectDetail decl scope h
+            let (sourceDeclaration, related) :=
+              Regula.Findings.attribution index unsafeHelpers named
+            if id == .profileExceeded && sourceDeclaration.isSome then
+              attributedFailures := attributedFailures.insert failures.size
             failures :=
                 failures.push s!"{reason}: {named.name} [claim: {surface.claim}] {classification}"
-            let snapshot := snapshotFor named.module
-            let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation named snapshot
+            let location ← IO.ofExcept <|
+              Regula.Findings.findingLocation index unsafeHelpers named snapshotFor
             let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
                 (← IO.ofExcept (RuleDiagnostics.declarationName named))
               classification location
               (if fresh then .freshProject else .incrementalProject) (some surface.claim.toString)
+              sourceDeclaration related
             findings := findings.push finding
         -- Equal to `Policy.admitExecution report.execution` (`Admitted.admitExecution_eq`).
         let executionInventory := admitted.execution
@@ -667,9 +679,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           for line in Policy.executionAccountLines executionInventory do
             IO.println line
         let environmentFields (report : Json) : List (String × Json) := [
-          ("modules", Json.arr <| info.modules.map (fun n => Json.str n.toString)),
-          ("authorizedNativeAxioms", Json.arr <| native.map (Json.str ∘ Name.toString)),
-          ("authorizedUnsafeRecHelpers", Json.arr <| unsafeHelpers.map (Json.str ∘ Name.toString)),
+          ("modules", toJson info.modules),
+          ("authorizedNativeAxioms", toJson native),
+          ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
           ("frontendTranscripts", Json.arr <| transcripts.map toJson),
           ("report", report)
         ]
@@ -767,9 +779,15 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       RunFeedback.emitAll IO.println findings
       if !failures.isEmpty then
         printSummary observation
-        for failure in failures do
+        for (failure, index) in failures.zipIdx do
+          if attributedFailures.contains index then continue
           let reason := (failure.splitOn ":").head?.getD "violation"
           IO.println s!"  [{reason}] {failure}"
+        unless attributedFailures.isEmpty do
+          let applicability := (Regula.descriptor .profileExceeded).applicability
+          IO.println s!"  [{applicability}] \
+            {Regula.Feedback.countText attributedFailures.size "more finding"} on declarations \
+            Lean generated, listed above under the declarations it generated them from"
         return 1
       let some (snapshot, ⟨claim, accepted⟩) := accepted
         | throw <| IO.userError "missing accepted evidence for project success"
@@ -993,6 +1011,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
             let unsafeHelpers := scope.helpers
             let mut reasons : Array String := #[]
             let mut findings : Array Regula.Finding := #[]
+            let index := Regula.Findings.declarationIndex declarations
             -- The admitted inventory is exactly `declarations` (`ScopeContract`). One member
             -- rule per declaration; its reason is `reasonFor`'s by definition.
             for h : decl in scope.inventory.declarations do
@@ -1008,11 +1027,15 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                 reasons := reasons.push (Regula.descriptor id).applicability
                 -- The finding names the declaration the author wrote (`Policy.subject_contract`).
                 let named := Policy.subject decl scope h
-                let location ← IO.ofExcept <| RuleDiagnostics.declarationLocation named
-                  (some ⟨path.toString, source⟩)
+                let location ← IO.ofExcept <|
+                  Regula.Findings.findingLocation index unsafeHelpers named
+                    fun _ => some ⟨path.toString, source⟩
+                let (sourceDeclaration, related) :=
+                  Regula.Findings.attribution index unsafeHelpers named
                 let finding ← IO.ofExcept <| RuleDiagnostics.declarationFinding id
                     (← IO.ofExcept (RuleDiagnostics.declarationName named))
                   (Policy.subjectDetail decl scope h) location .freshFile (claim.map Profile.toString)
+                  sourceDeclaration related
                 findings := findings.push finding
             let executionInventory ← IO.ofExcept <| Policy.admitExecution inspected.report.execution
             let executionViolations := Policy.executionFailures executionInventory execution

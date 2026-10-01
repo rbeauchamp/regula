@@ -6,8 +6,9 @@ Every finding a checker process prints goes through `emit` or `emitAll`, which e
 `RegulaCore.Feedback.step`: the first finding of a rule in the run carries the rule's
 requirement, rationale, rewrites and compliant example, and later findings of that rule carry
 their own message and remedy with a back-reference (`Feedback.renderFrom_cons` relates the
-steps to `Feedback.render`). `emitAll` prints a batch in run order (`sortFindings`, whose
-entries are in `Feedback.sortEntries` order by `sortFindings_entries`).
+steps to `Feedback.renderFrom`). `emitAll` prints a batch in run order (`sortFindings`, whose
+entries are in `Feedback.sortEntries` order by `sortFindings_entries`), one entry per group of
+`groupFindings`, whose flattening is exactly that order (`groupFindings_flatten`).
 The set of explained rules is process state, reset when a run starts (`reset`). -/
 
 namespace Regula.Checker.RunFeedback
@@ -28,9 +29,15 @@ def emitEntry (print : String → IO Unit) (entry : Feedback.Entry) : IO Unit :=
 def emit (print : String → IO Unit) (finding : Finding) : IO Unit :=
   emitEntry print finding.entry
 
-/-- Print a batch of findings in run order. -/
+/-- Print a batch of findings in run order, one block per group (`groupFindings`, which loses no
+finding by `groupFindings_flatten`): the RG1005 findings under one declaration at one location,
+including those attributed to it, print as one `groupEntry`; a generated declaration with a range
+of its own prints as its own block under the same declaration (`Finding.sameGroup`); and every
+other finding prints alone, exactly as `emit` prints it (`groupEntry_alone`). -/
 def emitAll (print : String → IO Unit) (findings : Array Finding) : IO Unit := do
-  for finding in sortFindings findings.toList do
-    emit print finding
+  for group in groupFindings findings.toList do
+    match group with
+    | f :: rest => emitEntry print (groupEntry f rest)
+    | [] => pure ()
 
 end Regula.Checker.RunFeedback

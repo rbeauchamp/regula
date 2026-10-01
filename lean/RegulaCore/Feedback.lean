@@ -20,7 +20,8 @@ rule's guidance once.
   is `Regula.Diagnostic.text` (editor messages and the JSON `text` field); `firstText`
   extends it (`firstText_extends`).
 - `Entry`, `Entry.cmp`, `sortEntries`: the total order of a run's findings (project scope,
-  then modules, then source files by position, then rule and message).
+  then modules, then source files by position, then rule, the declaration the finding is grouped
+  under, that declaration's own finding before those attributed to it, and message).
 - `sortEntries_perm`, `sortEntries_sorted`, `sortEntries_eq_of_perm`: every finding is
   reported exactly once, in that order, and the order does not depend on detection order.
 - `tagFirst`, `render`, `step`: a run's text, with guidance on exactly the findings whose rule
@@ -29,6 +30,9 @@ rule's guidance once.
 - `mem_firsts`, `firsts_nodup`, `firsts_length_le`: the rules that receive guidance are
   exactly the rules that fired, each once, so a run prints at most one guidance block per
   registered rule whatever its number of findings.
+- `runs`, `flatten_runs`: the blocks a run prints its findings in, which keep every finding
+  exactly once and in order; `attributedLine` is the line of a block that says which of its
+  findings are about declarations Lean generated from the one it is under, and how to fix them.
 
 ## Boundaries
 
@@ -124,22 +128,32 @@ theorem Place.ext_key {p q : Place} (hr : p.rank = q.rank) (hn : p.name = q.name
     (hs : p.start = q.start) : p = q := by
   cases p <;> cases q <;> simp_all [Place.rank, Place.name, Place.start]
 
-/-- One finding of a run: its rule, its place and its `messageLine`. -/
+/-- One finding of a run: its rule, its place, its group and its `messageLine`. -/
 structure Entry where
   /-- The rule the finding reports. -/
   rule : RuleId
   /-- Where the finding is, used to order the run. -/
   place : Place
+  /-- The name of the declaration the finding is grouped under (`Regula.Finding.groupUnder?`),
+  or empty for a rule whose findings are not grouped; it orders the findings of one rule at one
+  place, so each group is contiguous. -/
+  group : String
+  /-- Whether the finding is about a declaration attributed to the one it is grouped under, whose
+  own finding it follows in the run. -/
+  attributed : Bool
   /-- The finding's one-line message (`messageLine`). -/
   message : String
   deriving DecidableEq
 
-/-- The run order: by place (rank, name, start), then rule ID, then message. -/
+/-- The run order: by place (rank, name, start), then rule ID, then group, then the finding about
+the declaration a group is under before those attributed to it, then message. -/
 def Entry.cmp : Entry → Entry → Ordering :=
   compareLex (compareOn fun e : Entry => e.place.rank) <|
   compareLex (compareOn fun e : Entry => e.place.name) <|
   compareLex (compareOn fun e : Entry => e.place.start) <|
-  compareLex (compareOn fun e : Entry => e.rule.spelling) (compareOn fun e : Entry => e.message)
+  compareLex (compareOn fun e : Entry => e.rule.spelling) <|
+  compareLex (compareOn fun e : Entry => e.group) <|
+  compareLex (compareOn fun e : Entry => e.attributed) (compareOn fun e : Entry => e.message)
 
 instance : Std.TransCmp Entry.cmp := by
   unfold Entry.cmp; infer_instance
@@ -150,10 +164,10 @@ def Entry.le (a b : Entry) : Bool := (Entry.cmp a b).isLE
 /-- Equal in the run order means equal. -/
 theorem Entry.eq_of_cmp {a b : Entry} (h : Entry.cmp a b = .eq) : a = b := by
   simp only [Entry.cmp, compareLex_eq_eq, compareOn, Std.LawfulEqCmp.compare_eq_iff_eq] at h
-  obtain ⟨hr, hn, hs, hid, hm⟩ := h
+  obtain ⟨hr, hn, hs, hid, hg, hgen, hm⟩ := h
   cases a; cases b
-  simp only at hr hn hs hid hm
-  rw [Place.ext_key hr hn hs, RuleId.spelling_injective hid, hm]
+  simp only at hr hn hs hid hg hgen hm
+  rw [Place.ext_key hr hn hs, RuleId.spelling_injective hid, hg, hgen, hm]
 
 theorem Entry.le_trans (a b c : Entry) (hab : Entry.le a b) (hbc : Entry.le b c) :
     Entry.le a c :=
@@ -287,5 +301,47 @@ theorem firsts_nodup (l : List Entry) : (firsts l).Nodup := firstsFrom_nodup [] 
 /-- A run prints at most one guidance block per registered rule, however many findings it has. -/
 theorem firsts_length_le (l : List Entry) : (firsts l).length ≤ RuleId.all.length :=
   List.Nodup.length_le_of_subset (firsts_nodup l) (fun r _ => RuleId.mem_all r)
+
+/-- The runs of `l`: its elements in order, cut exactly between adjacent elements that `R` does
+not relate. A run's findings print as one block (`Regula.groupFindings`). Tail-recursive, so the
+stack does not grow with the number of findings. -/
+def runs {α : Type} (R : α → α → Bool) : List α → List (List α)
+  | [] => []
+  | a :: as => go as a [] []
+where
+  /-- `go l last cur acc`: `last` is the latest element, `cur` the rest of its run in reverse, and
+  `acc` the finished runs in reverse. -/
+  go : List α → α → List α → List (List α) → List (List α)
+    | [], last, cur, acc => ((last :: cur).reverse :: acc).reverse
+    | b :: bs, last, cur, acc =>
+        if R last b then go bs b (last :: cur) acc else go bs b [] ((last :: cur).reverse :: acc)
+
+theorem flatten_runs_go {α : Type} (R : α → α → Bool) (l : List α) (last : α) (cur : List α)
+    (acc : List (List α)) :
+    (runs.go R l last cur acc).flatten = acc.reverse.flatten ++ (cur.reverse ++ last :: l) := by
+  induction l generalizing last cur acc with
+  | nil => simp [runs.go]
+  | cons b bs ih =>
+    unfold runs.go
+    split <;> simp [ih]
+
+/-- The runs keep every element exactly once, in order: flattened, they are `l` itself. -/
+theorem flatten_runs {α : Type} (R : α → α → Bool) (l : List α) : (runs R l).flatten = l := by
+  cases l with
+  | nil => rfl
+  | cons a as => simp [runs, flatten_runs_go]
+
+/-- `n` and `noun`, with `noun` in the plural unless `n` is 1. -/
+def countText (n : Nat) (noun : String) : String :=
+  toString n ++ " " ++ noun ++ (if n == 1 then "" else "s")
+
+/-- The line under a group of findings, `count` of which are about declarations Lean generated
+from `source` and are reported under it: where to fix them, since a declaration Lean generated is
+changed by changing the one it generated it from. -/
+def attributedLine (source : String) (count : Nat) : String :=
+  "  attributed: " ++ countText count "declaration" ++ " of these " ++
+  (if count == 1 then "is" else "are") ++ " generated by Lean from " ++ source ++
+  " and reported under it; change " ++ source ++
+  " or a definition it uses that introduces the axiom"
 
 end Regula.Feedback

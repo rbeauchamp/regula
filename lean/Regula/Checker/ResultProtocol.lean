@@ -17,7 +17,20 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
+/-- Result schema 6 writes every Lean name of the document, in `diagnostics`, `scope` and
+`acceptance` alike, in one encoding (`RegistryCodec.printedNameJson`): the string Lean prints for
+it, and, only for a name whose printed text Lean's parser does not read back as the name, its
+structural components, an array of `["str", s]` and `["num", n]` innermost first
+(`printedNameJson_roundtrip`, `printedNameJson_eq_str_iff`). In a declaration-policy finding of a
+project audit, a file audit or a rule example (the rules `Policy.ruleForMember` decides),
+`arguments.sourceDeclaration` is `null`, or, for a declaration Lean generated, the declaration
+at the end of the chain it generated it from (`Findings.sourceName?`); such a finding keeps the
+range of its own declaration when it has one, and otherwise is located at that declaration's range
+when it has one and its module has a snapshot (`Findings.findingLocation`), and its `related` then
+names its own module. Other declaration findings carry no attribution: a documentation
+example's, a material-documentation one and the editor linter's record `null` and their
+declaration's own location (`Findings.declarationLocation`).
+Schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
 module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
 each `axiomGate` project and file result's `scope.toolchainBase` lists every such boundary once
@@ -36,7 +49,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 5
+def schemaVersion : Nat := 6
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -307,13 +320,14 @@ private def sourceJson (source : RegulaPolicy.SourceSnapshot) : Json :=
   Json.mkObj [("uri", toJson source.uri), ("source", toJson source.source)]
 
 private def declarationKeyJson (key : RegulaPolicy.DeclarationKey) : Json :=
-  Json.mkObj [("module", RegistryCodec.nameJson key.moduleKey.name.name),
-    ("name", RegistryCodec.nameJson key.name.name)]
+  Json.mkObj [("module", RegistryCodec.printedNameJson key.moduleKey.name.name),
+    ("name", RegistryCodec.printedNameJson key.name.name)]
 
 private def localSubjectJson : RegulaPolicy.LocalJobSubject → Json
   | .scope => Json.mkObj [("kind", .str "scope")]
   | .module key =>
-      Json.mkObj [("kind", .str "module"), ("module", RegistryCodec.nameJson key.name.name)]
+      Json.mkObj [("kind", .str "module"),
+        ("module", RegistryCodec.printedNameJson key.name.name)]
   | .declaration key =>
       Json.mkObj [("kind", .str "declaration"), ("declaration", declarationKeyJson key)]
   | .root key => Json.mkObj [("kind", .str "root"), ("root", declarationKeyJson key)]
@@ -343,13 +357,13 @@ def accountJson (account : Regula.Checker.Account) : Json :=
   Json.mkObj [
     ("coverage", toJson a.coverage.spelling),
     ("checked", Json.mkObj
-        [("theorem", RegistryCodec.nameJson Regula.Checker.Account.acceptanceTheorem),
+        [("theorem", RegistryCodec.printedNameJson Regula.Checker.Account.acceptanceTheorem),
       ("jobs", toJson a.jobs)]),
     ("contracts", toJson (a.contracts.map fun contract => Json.mkObj [
       ("rule", toJson Regula.RuleId.executableContract.spelling),
-      ("registration", RegistryCodec.nameJson contract.registration),
-      ("module", RegistryCodec.nameJson contract.module),
-      ("implementation", RegistryCodec.nameJson contract.implementation),
+      ("registration", RegistryCodec.printedNameJson contract.registration),
+      ("module", RegistryCodec.printedNameJson contract.module),
+      ("implementation", RegistryCodec.printedNameJson contract.implementation),
       ("requirement", toJson contract.requirement),
       ("unresolvedReview", residuals Regula.Checker.Account.ContractAccount.unresolved)])),
     ("execution", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
@@ -398,11 +412,11 @@ def environmentJson (environment : RegulaPolicy.EnvironmentCensus) : Json :=
   Json.mkObj [
     ("index", toJson environment.request.key.index),
     ("modules", toJson
-        (environment.request.modules.map fun key => RegistryCodec.nameJson key.name.name)),
-    ("infrastructureModules", toJson
-        (environment.infrastructureModules.map fun key => RegistryCodec.nameJson key.name.name)),
+        (environment.request.modules.map fun key => RegistryCodec.printedNameJson key.name.name)),
+    ("infrastructureModules", toJson (environment.infrastructureModules.map fun key =>
+        RegistryCodec.printedNameJson key.name.name)),
     ("admissionModules", toJson
-        (environment.admissionModules.map fun key => RegistryCodec.nameJson key.name.name)),
+        (environment.admissionModules.map fun key => RegistryCodec.printedNameJson key.name.name)),
     ("admissionDeclarations", toJson (environment.admissionDeclarations.map declarationKeyJson)),
     ("declarations", toJson (environment.declarations.map declarationKeyJson)),
     ("roots", toJson (environment.roots.map declarationKeyJson)),
@@ -430,19 +444,20 @@ def acceptedJson {claim : RegulaPolicy.Claim} (accepted : RegulaPolicy.AcceptedR
     ("scope", toJson (reprStr report.claim.val.scope)),
     ("surfaces", toJson (report.claim.val.surfaces.map fun surface => Json.mkObj [
       ("target", toJson surface.target),
-      ("modules", toJson (surface.modules.map fun n => RegistryCodec.nameJson n.name)),
+      ("modules", toJson (surface.modules.map fun n => RegistryCodec.printedNameJson n.name)),
       ("profile", toJson surface.profile.spelling),
       ("execution", toJson surface.execution.spelling)])),
     ("snapshot", snapshotJson snapshot),
-    ("modules", toJson (report.census.modules.map fun key => RegistryCodec.nameJson key.name.name)),
+    ("modules", toJson
+        (report.census.modules.map fun key => RegistryCodec.printedNameJson key.name.name)),
     ("environments", toJson (report.census.environments.map environmentJson)),
     ("graphRoots", toJson
-        (report.census.graphRoots.map fun key => RegistryCodec.nameJson key.name.name)),
+        (report.census.graphRoots.map fun key => RegistryCodec.printedNameJson key.name.name)),
     ("graphCoverage", toJson (report.census.graphCoverage.map fun (key, modules) => Json.mkObj [
-      ("root", RegistryCodec.nameJson key.name.name),
+      ("root", RegistryCodec.printedNameJson key.name.name),
       ("modules", toJson
           (modules.map fun (moduleKey : RegulaPolicy.ModuleKey) =>
-              RegistryCodec.nameJson moduleKey.name.name))])),
+              RegistryCodec.printedNameJson moduleKey.name.name))])),
     ("jobs", toJson (report.jobs.mapIdx fun slot key => Json.mkObj [
       ("slot", toJson slot), ("stage", toJson (reprStr key.stage)),
       ("subject", subjectJson key.subject)])),

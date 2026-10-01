@@ -1,4 +1,5 @@
 import RegulaQualification.Json
+import Regula.StructuralName
 
 /-! # Producer observation requirements
 
@@ -12,9 +13,8 @@ open Lean
 private def field (j : Json) (key : String) := j.getObjVal? key
 private def array (j : Json) (key : String) := j.getObjValAs? (Array Json) key
 private def text (j : Json) (key : String) := j.getObjValAs? String key
-/-- The structural name codec's JSON for a dotted name: outermost component first. -/
-private def nameJson (name : String) : Json :=
-  toJson (name.splitOn "." |>.reverse |>.map fun part => #["str", part])
+/-- A dotted Lean name as result documents write it (`Regula.RegistryCodec.printedNameJson`). -/
+private def nameJson (name : String) : Json := Regula.RegistryCodec.printedNameJson name.toName
 private def first (values : Array Json) : Except String Json :=
   match values[0]? with | some value => .ok value | none => .error "missing required first element"
 
@@ -117,7 +117,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
         ⟨"source contains expected selection", source.contains "theorem reflexive" &&
             source.contains "@["⟩,
         ⟨"material arguments", (← field finding "arguments") == Json.mkObj
-            [("declaration", nameJson "reflexive"),
+            [("declaration", nameJson "reflexive"), ("sourceDeclaration", .null),
           ("detail", .str "material-documentation: document the claim, assumptions and evidence at \
             this declaration")]⟩,
         ⟨"location binds source", (← text location "source") == source⟩,
