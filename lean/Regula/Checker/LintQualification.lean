@@ -180,7 +180,12 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
 
 /-- `lakefile.toml` adopter importing `Regula.Linter`: disabling live feedback cannot waive
 the project predicate, and a live finding, also re-enabled by the source or replayed from an
-ordinary `lake build` with live feedback, is the audit's violation rather than a failed build. -/
+ordinary `lake build` with live feedback, is the audit's violation rather than a failed build.
+A claimed `lean_exe` whose Lake target name is not a Lean identifier is accepted under that name
+and classified alike under the name as Lean prints it; naming both is a configuration refusal,
+and so is an entry, claimed or excluded, that names no root executable: one refusal that quotes
+the entry as the manifest writes it and lists the root executables by Lake target name, in the
+driver and in the adopter's `axiomGate --file` audit. -/
 private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
@@ -218,6 +223,65 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG1001", "liveFinding", "regula lint: VIOLATION (exit 1)"],
       excludes := #["build-failed", "editorSnapshot"] })
   restore adopter originals
+  -- A `lean_exe` whose Lake target name is not a Lean identifier (#163). The manifest names it
+  -- by that name or as Lean prints it; both are one claim, naming both is a duplicate, and an
+  -- entry, claimed or excluded, that names no executable is one manifest refusal that quotes it
+  -- as written and lists the root executables by Lake target name.
+  let lakefile := adopter / "lakefile.toml"
+  let manifest := adopter / "foundation_manifest.json"
+  let cli := adopter / "Gadget" / "Cli.lean"
+  let targetOriginals := #[(lakefile, ← IO.FS.readFile lakefile),
+    (manifest, ← IO.FS.readFile manifest)]
+  let claiming (executables : Array String) (excluded : Array String := #[]) : String :=
+    Json.compress <| Json.mkObj [
+      ("schema-version", toJson (2 : Nat)),
+      ("surfaces", toJson #[Json.mkObj [
+        ("library", toJson "Gadget"), ("executables", toJson executables),
+        ("claim", toJson "choice-free"), ("execution", toJson "report"),
+        ("rationale", toJson "target-name control")]]),
+      ("excluded-libraries", toJson (#[] : Array Json)),
+      ("excluded-executables", toJson <| excluded.map fun executable => Json.mkObj [
+        ("executable", toJson executable), ("rationale", toJson "target-name control")])]
+  let explained (label : String) : Expectation := {
+    label, exitCode := 2, contains := #["no audit was run", "executables: «gadget-tool»"],
+    excludes := #["regula lint: PASS", "manifest-"] }
+  IO.FS.writeFile lakefile <| (← IO.FS.readFile lakefile) ++
+    "\n[[lean_exe]]\nname = \"gadget-tool\"\nroot = \"Gadget.Cli\"\n"
+  IO.FS.writeFile cli
+    "/-! The adopter's command. -/\n\n/-- Does nothing. -/\ndef main : IO Unit := pure ()\n"
+  IO.FS.writeFile manifest (claiming #["gadget-tool"])
+  failures := failures ++ (← expect adopter (accepted "toml/target-name"))
+  failures := failures ++
+    (← expect adopter (explained "toml/target-name-config") #["--", "--explain-config"])
+  IO.FS.writeFile manifest (claiming #["«gadget-tool»"])
+  failures := failures ++
+    (← expect adopter (explained "toml/printed-name-config") #["--", "--explain-config"])
+  IO.FS.writeFile manifest (claiming #["gadget-tool", "«gadget-tool»"])
+  failures := failures ++ (← expect adopter {
+      label := "toml/both-spellings", exitCode := 2,
+      contains := #["RG2002", "manifest-schema: duplicate executable '«gadget-tool»'",
+        "regula lint: INVALID CONFIGURATION (exit 2)"] })
+  IO.FS.writeFile manifest (claiming #["gadget-tol"])
+  let unknown (label entry : String) : Expectation := {
+    label, exitCode := 2,
+    contains := #["RG2002",
+      s!"manifest-incomplete: executable '{entry}' is not a root Lean executable",
+      "the root Lean executables are [\"gadget-tool\"]",
+      "regula lint: INVALID CONFIGURATION (exit 2)"],
+    excludes := #["RG2001", s!"«{entry}»", "«gadget-tool»"] }
+  failures := failures ++ (← expect adopter (unknown "toml/unknown-executable" "gadget-tol"))
+  IO.FS.writeFile manifest (claiming #["gadget-tool"] #["old-tool"])
+  failures := failures ++ (← expect adopter (unknown "toml/unknown-excluded" "old-tool"))
+  -- The adopter's `axiomGate --file` audit reads the same manifest for the same inventory.
+  failures := failures ++ (← assess {
+      label := "toml/file-unknown-excluded", exitCode := 2,
+      contains := #["RG2002",
+        "manifest-incomplete: executable 'old-tool' is not a root Lean executable",
+        "the root Lean executables are [\"gadget-tool\"]"],
+      excludes := #["RG2001", "RG2003", "build-failed", "file audit: PASS"] }
+    (← fileAudit adopter "Gadget.lean"))
+  IO.FS.removeFile cli
+  restore adopter targetOriginals
   failures := failures ++
       (← expect adopter (accepted "toml/fresh-restored" (fresh := true)) #["--", "--fresh"])
   return failures

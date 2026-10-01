@@ -126,7 +126,7 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | Route | Accepted value and remaining boundary |
 | --- | --- |
 | `AxiomGate.auditSurfaceAt` (fresh, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
-| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
+| `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
 | `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. |
 | `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
 | `AxiomGate.auditFile` with a conforming profile | A `freshFile` plan and `AcceptedRun`; dependencies stay incremental. No profile or a compiler-trusting file without a finding is `CLASSIFIED` (exit 0); the file audit's other exits follow its recorded observation as a project audit's do. |
@@ -968,7 +968,7 @@ the model's `apply` is this check, not a theorem. That `allClaimed` holds only w
 targets are every root `lean_lib` and `lean_exe` is how `observe` builds the observation, and the
 extra `lean` arguments it reads are those of the audit's inventory, read by the same
 `Lake.libraryOptions` and `Lake.executableOptions`. `doctor` runs the audit's own RG2002 functions
-(`Manifest.load`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and RG2006
+(`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and RG2006
 decision (`Community.failures`) over Lake's resolved options of each claimed target. It applies
 Mathlib's options when the workspace contains Mathlib, where the audit applies them to a target
 whose modules import Mathlib: by `conforming_of_mathlib` a target `doctor` accepts also passes the
@@ -1253,13 +1253,47 @@ the module's `collectAxioms` command). `parse_sound` and `parse_input`: every ma
 `parse` accepts satisfies `Manifest.Valid` (nonempty surfaces, duplicate-free library and
 executable names across surfaces and exclusions, well-formed target names, no compiler-trusting
 claim, a nonempty rationale for every entry) and comes from JSON whose keys are all allowed and
-whose schema version is 2, each array decoding element by element in order. Every name and
-rationale is the JSON string, the claim is `Profile.parse?` of the JSON string, an absent
-`executables` is empty and a present one is exactly its string array, and an absent `execution`
+whose schema version is 2, each array decoding element by element in order. Every library name
+and rationale is the JSON string, the claim is `Profile.parse?` of the JSON string, an absent
+`executables` is empty and a present one is its string array, and an absent `execution`
 is `report` while a present one is `ExecutionClaim.parse?` of the JSON string (`SurfaceDecodes`,
-`ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). `load` adds only the missing-file check
-and the read. The refusal-class theorems (`parse_malformed`, `objectWithKeys_unknown`,
-`topLevel_unknownKey`, `topLevel_schemaVersion`, `topLevel_emptySurfaces`,
+`ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). Every executable name is `executableName`
+of the JSON string (`parse_input`, `recordExecutables_ok`): Lake's own reading of a target name
+(`Lake.stringToLegalOrSimpleName`, which its TOML loader applies to a `lean_exe` name and
+`lake build` to a target argument), spelled as Lean prints a name. The Lake inventory records the
+same spelling of each executable's name (`targetSpelling`), so the `name` a `lakefile.toml` gives
+a `lean_exe` is recorded as that executable's name by definition. `parse_recorded`: every
+executable name of an accepted manifest is its own recorded spelling, so with `parse_sound`'s
+distinctness no accepted manifest names one Lake target under two spellings. That Lean reads a
+name it printed back as that name, which is what accepts the spelling `init` writes for a name
+that is not an identifier (`«widget-tool»`), is trusted and not proved; the identity stage
+checks only that each recorded spelling is its own recorded spelling and refuses a spelling
+whose recorded spelling is not, which does not show that the name was read back. `loadFor` is
+the module's only file reader: it takes the project's Lake inventory, adds the missing-file
+check and the read, and parses the text with `parseFor` and the inventory's executables. Every
+command that reads the manifest with the inventory at hand uses it: the project audit, the file
+audit (`axiomGate --file`), the documentation audit, the rule examples, `doctor`,
+`--explain-config`, the fresh checker and the environment census. Two readers have no inventory
+where they read and apply the pure `parse` to the file's text: the self-test harness, to derive
+its control manifests and build targets, and `doctor`'s observation of the project
+(`Setup.observe`), to scope which targets the manifest excludes. Neither classifies the manifest
+against Lake; `doctor` does that through `loadFor` (`validManifest`), and each self-test control
+through the gate it runs. `parseFor_ok`: `parseFor` accepts exactly the manifests `parse`
+accepts that name only those executables, so the theorems about `parse` hold of the manifest
+those commands use. `parseFor_unknown` and `unknownEntry?_some`: when the text parses, its
+executable names are recorded and some executable entry, claimed or excluded, has a recorded
+spelling that is not an inventory executable, it refuses with `unknownExecutable` of the first
+such entry, quoting the entry in the spelling the decoded text gives it; a text `parse` refuses
+keeps that earlier refusal. This is the only refusal of such an entry: of the two inclusions
+between the manifest's and the inventory's executables, `AxiomGate.checkClassification` checks
+only that every root executable is classified. The refusal lists each inventory executable by
+`lakeTargetName`: its name without escaping when that text has the same recorded spelling, and
+the recorded spelling otherwise, so a manifest that copies a listed name records that executable
+whenever the inventory's spelling is its own recorded spelling
+(`executableName_lakeTargetName`); that hypothesis is the same trusted read-back. That the
+inventory passed is the project's is the caller's linkage, not a theorem. The refusal-class
+theorems (`parse_malformed`,
+`objectWithKeys_unknown`, `topLevel_unknownKey`, `topLevel_schemaVersion`, `topLevel_emptySurfaces`,
 `parseSurface_unknownKey`, `surfaceExecution_unknown`, `surfaceExecution_nonString`) give the
 documented message of each isolated defect under their stated preconditions (unparseable JSON
 gives `manifest-malformed`; a key outside the allowed set gives
@@ -1271,12 +1305,13 @@ unrecognized or non-string `execution`, once every earlier surface check accepts
 (`SurfacePrefixOK`), gives the `manifest-schema` execution message); other refusals, including a
 missing required field and an unknown key in an exclusion entry, are not classified by a theorem,
 and the public CLI controls remain external observations of how each class renders.
-`parse_emptyExclusions`: JSON meeting the top-level conditions with empty exclusion arrays is
-accepted with exactly its surfaces whenever they parse; it does not prove that any particular
-surface is accepted.
+`parse_emptyExclusions`: for JSON meeting the top-level conditions with empty exclusion arrays
+whose surfaces parse, `parse` is the identity stage (`recordExecutables`) of exactly those
+surfaces; it does not prove that any particular surface is accepted.
 `parse_ok` (`parse` accepts `m` exactly when `PolicyCodec.parse` returns a value `parseValue`
-accepts with `m`), `parseValue_ok` (`parseValue` accepts a value with `m` exactly when
-`m.Valid` and the value `Encodes` `m`, so `Manifest.Valid` is exactly what the parser admits) and
+accepts with some `raw` from which `recordExecutables` returns `m`), `parseValue_ok`
+(`parseValue` accepts a value with `m` exactly when `m.Valid` and the value `Encodes` `m`, so
+`Manifest.Valid` is exactly what the value stage admits) and
 `toJson_encodes` give `parseValue_toJson`; `structuralManifest_valid` shows the structural copy
 of a valid manifest is valid whenever it claims an actual surface. The schema-version check
 compares `JsonNumber` fields with derived equality (`schemaVersion2`) rather than `Json`'s
@@ -1285,7 +1320,8 @@ compares `JsonNumber` fields with derived equality (`schemaVersion2`) rather tha
 **The structural partition.** `Manifest.structuralManifest` derives each structural copy's
 manifests from the repository's; `structural_libraries` and `structural_executables` prove the
 base classifies exactly the actual targets, and `structural_roundtrip` (with `parseValue_toJson`:
-`parseValue (toJson m) = .ok m ↔ m.Valid`) covers what the gate reads at the `Json` value
+`parseValue (toJson m) = .ok m ↔ m.Valid`, and the identity stage returning the copy unchanged)
+covers what the gate reads at the `Json` value
 boundary for any accepted manifest and claim set selecting an actual surface. `structuralBase`
 checks that claim hypothesis at run time, and no theorem links that check to the hypothesis. The
 text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`

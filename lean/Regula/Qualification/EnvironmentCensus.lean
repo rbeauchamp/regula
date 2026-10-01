@@ -46,7 +46,7 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   let configuration ← SourceBinding.configuration root (Manifest.defaultPath root)
   let inventory ← Lake.surfaceInventory root
   let sources ← SourceBinding.capture inventory.moduleSources
-  let manifest ← Manifest.load (Manifest.defaultPath root)
+  let manifest ← Manifest.loadFor (Manifest.defaultPath root) inventory
   let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
   let libraries ← Inspection.manifestedLibraries manifest inventory
   let environments ← Inspection.surfaceEnvironments manifest inventory assignments libraries

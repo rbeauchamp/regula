@@ -150,8 +150,8 @@ def importClosure (sources : NameMap FilePath) (starts : List Name) : IO NameSet
 /-- The project's manifest with its Lake inventory, refused unless it loads and classifies every
 root target: the audit's own RG2002 functions. -/
 def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := do
-  let manifest ← Manifest.load (Manifest.defaultPath root)
   let inventory ← Lake.surfaceInventory root
+  let manifest ← Manifest.loadFor (Manifest.defaultPath root) inventory
   discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
   AxiomGate.checkClassification manifest inventory
   return (manifest, inventory)
@@ -166,9 +166,13 @@ def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
   -- target claims none for the option edits until it does (`doctor` reports it as RG2002).
-  let manifestExists ← (Manifest.defaultPath root).pathExists
+  let manifestPath := Manifest.defaultPath root
+  let manifestExists ← manifestPath.pathExists
   let manifest ← if manifestExists then
-      try some <$> Manifest.load (Manifest.defaultPath root) catch _ => pure none
+      try
+        let text ← IO.FS.readFile manifestPath
+        some <$> IO.ofExcept (Manifest.parse manifestPath.toString text)
+      catch _ => pure none
     else pure none
   let invalid ← if manifestExists then
       try validManifest root *> pure false catch _ => pure true
@@ -188,7 +192,8 @@ def observe (root : FilePath) : IO Project := do
           unless excludedLibraries.contains lib.name.toString do claimed := m.name :: claimed
       for exe in pkg.leanExes do
         sources := sources.insert exe.root.name exe.root.leanFile
-        unless excludedExecutables.contains exe.name.toString do claimed := exe.root.name :: claimed
+        unless excludedExecutables.contains (Manifest.targetSpelling exe.name) do
+          claimed := exe.root.name :: claimed
       let included := sources
       -- The modules below each library root that no root library includes.
       let mut missedBy : Array (String × List String × Array Name) := #[]
@@ -217,7 +222,8 @@ def observe (root : FilePath) : IO Project := do
       let own (options : Array Lean.LeanOption) :=
         (Lake.buildOptions (.ofArray options) #[] #[]).options
       let libs := pkg.leanLibs.filter fun lib => !excludedLibraries.contains lib.name.toString
-      let exes := pkg.leanExes.filter fun exe => !excludedExecutables.contains exe.name.toString
+      let exes := pkg.leanExes.filter fun exe =>
+        !excludedExecutables.contains (Manifest.targetSpelling exe.name)
       -- A target's extra `lean` arguments are the audit inventory's, read by the same functions.
       -- With a valid manifest, `targets` lists every root target exactly when `allClaimed` holds.
       let target (exe : Bool) (name : Name) (options : Array Lean.LeanOption)

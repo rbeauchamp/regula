@@ -107,8 +107,8 @@ modules, selects as roots the claimed modules no other claimed module imports, a
 `fresh-coverage-incomplete` unless the roots' claimed transitive imports cover every claimed
 module. -/
 def buildPlan (repo manifestPath : FilePath) : IO Plan := do
-  let manifest ← Manifest.load manifestPath
   let inventory ← Lake.surfaceInventory repo
+  let manifest ← Manifest.loadFor manifestPath inventory
   let mut moduleSets : Array ModuleSet := #[]
   for surface in manifest.surfaces do
     let some library := inventory.libraries.find? (·.library == surface.library)
@@ -296,7 +296,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   let mut failures : Array String := #[]
   let mut accepted : Option ((c : RegulaPolicy.Claim) × RegulaPolicy.AcceptedRun c) := none
   if !options.planOnly then
-    let manifest ← Manifest.load manifestPath
+    let manifest ← Manifest.loadFor manifestPath inventory
     let (build, buildResult) ← Lake.buildCheckedObservation repo
         (Manifest.positiveTargets manifest) "incrementally"
     if let some lines := buildResult then

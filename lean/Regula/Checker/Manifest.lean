@@ -4,22 +4,38 @@ import Regula.Checker.Policy
 import RegulaPolicy.Guards
 import RegulaCore.Assembly
 import Lean.Elab.Command
+import Lake.Util.Name
 
 /-! # Strict surface-manifest parsing
 
 Strict surface-manifest parsing. Unknowns and omissions fail closed. The pure `parse` is
 the executed parser. `parse_sound` proves what every accepted manifest satisfies;
 `parse_input` proves it has the allowed keys and schema version and that each entry is, in
-order, the decoding of its JSON element, including the `execution` field;
-`parse_emptyExclusions` proves empty exclusion arrays are accepted whenever the surfaces are.
-`parse` is the text parser followed by `parseValue` (`parse_ok`), and `parseValue_ok` proves
-that `parseValue` accepts exactly the values encoding a valid manifest, returning that manifest.
-`parseValue_toJson` is the round trip at the `Json` value boundary; `structural_roundtrip`
-applies it to the structural copy. The text boundary (`Json.compress`, which is `partial`,
+order, the decoding of its JSON element, including the `execution` field, with every executable
+name replaced by its recorded spelling;
+`parse_emptyExclusions` proves that with empty exclusion arrays `parse` is the identity stage of
+the parsed surfaces. `parse` is the text parser, then `parseValue` (together `parseWritten`),
+then the identity stage `recordExecutables` (`parse_ok`). `parseValue_ok` proves that
+`parseValue` accepts exactly the values encoding a valid manifest, returning that manifest.
+`recordExecutables_ok` proves that
+the identity stage replaces each executable name by its recorded spelling (`executableName`:
+Lake's own reading of a target name, printed as Lean prints a name) and accepts exactly when
+those names are distinct, well formed and recorded spellings, so an executable's Lake target
+name and its name as Lean prints it are one name in every accepted manifest (`parse_recorded`).
+That Lean reads a name it printed back as that name is trusted, not proved: the identity stage
+checks only that each recorded spelling is its own recorded spelling and refuses a spelling
+whose recorded spelling is not, which does not show that the name was read back.
+`parseFor` is `parse` for a project's root executables: `parseFor_ok` proves it accepts exactly
+the manifests `parse` accepts that name only those executables, and `parseFor_unknown` that,
+when the text parses, its executable names are recorded and some entry's recorded spelling is
+none of them, it refuses with `unknownExecutable` of the first such entry as the text writes it
+(`unknownEntry?_some`); a text `parse` refuses keeps that earlier refusal. `parseValue_toJson`
+is the round trip at the `Json` value boundary; `structural_roundtrip` applies it, with the
+identity stage, to the structural copy. The text boundary (`Json.compress`, which is `partial`,
 and `PolicyCodec.parse`, which runs core `partial` parsers) stays trusted.
 The refusal-class theorems prove the message of malformed JSON, an unknown top-level or surface
 key, a non-2 schema version, empty surfaces and a bad surface `execution`, each given an
-otherwise accepted prefix. `load` adds only file IO. -/
+otherwise accepted prefix. `loadFor`, the only file reader, adds only file IO to `parseFor`. -/
 
 namespace Regula.Checker.Manifest
 
@@ -43,6 +59,57 @@ def executables (manifest : Manifest) : Array String :=
 /-- A well-formed target name: nonempty, no surrounding or inner whitespace, no comma. -/
 def TargetName (value : String) : Prop :=
   value ≠ "" ∧ value.trimAscii.toString = value ∧ ∀ c ∈ value.toList, ¬c.isWhitespace ∧ c ≠ ','
+
+instance : DecidablePred TargetName := fun _ => by unfold TargetName; infer_instance
+
+/-- The Lake target a spelling names, by Lake's own reading (`Lake.stringToLegalOrSimpleName`):
+its TOML loader reads a target's `name` with this function, and `lake build` and `lake exe` read
+a target argument with it. A spelling Lean reads as a name is that name, so `«widget-tool»` is
+the one-component name `widget-tool`; any other spelling, such as `widget-tool`, is the
+one-component name with exactly that text. -/
+def targetIdentity (spelling : String) : Name :=
+  _root_.Lake.stringToLegalOrSimpleName spelling
+
+/-- The one spelling Regula records for the Lake target `name`, in a parsed manifest, in the
+Lake inventory and in every report: the name as Lean prints it, which escapes a component that
+is not an identifier. -/
+def targetSpelling (name : Name) : String :=
+  name.toString
+
+/-- The recorded spelling of the executable a manifest spelling names: the `targetSpelling` of
+its `targetIdentity`. The Lake inventory records `targetSpelling` of the executable's name, so
+the `name` a `lakefile.toml` gives a `lean_exe` and that executable have the same recorded
+spelling by definition, with no assumption about how Lean prints or reads a name. A spelling
+Lean printed, such as `«widget-tool»`, has that recorded spelling when Lean reads its own
+printed name back, which is trusted of Lean and not proved here. -/
+def executableName (spelling : String) : String :=
+  targetSpelling (targetIdentity spelling)
+
+/-- The Lake target name of the executable recorded as `recorded`: its name printed without
+escaping, as `lake build` takes it, when that text has the recorded spelling `recorded`, and
+`recorded` itself otherwise. For `«widget-tool»` this is `widget-tool`. -/
+def lakeTargetName (recorded : String) : String :=
+  if executableName ((targetIdentity recorded).toString (escape := false)) = recorded then
+    (targetIdentity recorded).toString (escape := false)
+  else recorded
+
+/-- A manifest that names an executable by `lakeTargetName recorded` records it as `recorded`,
+whenever `recorded` is its own recorded spelling. -/
+theorem executableName_lakeTargetName {recorded : String}
+    (h : executableName recorded = recorded) :
+    executableName (lakeTargetName recorded) = recorded := by
+  unfold lakeTargetName
+  split
+  · assumption
+  · exact h
+
+/-- The refusal of a manifest executable entry, claimed or excluded, that names no root
+executable: it quotes `entry` and lists each root executable of `discovered`, the recorded
+spellings of the Lake inventory, by its `lakeTargetName`. -/
+def unknownExecutable (entry : String) (discovered : Array String) : String :=
+  s!"manifest-incomplete: executable '{entry}' is not a root Lean executable; the root Lean \
+    executables are {repr (discovered.map lakeTargetName).toList}. Name an executable by its \
+    Lake target name, as `lake build` takes it, or as Lean prints that name"
 
 private def objectWithKeys (value : Json) (allowed : Array String) (location : String) :
     Except String Unit := do
@@ -563,20 +630,168 @@ def parseValue (value : Json) : Except String Manifest := do
   let acc ← parseAll parseExcludedExecutable excludedExeValues.toList 0 acc
   return acc.manifest
 
-/-- The executed manifest parser: parses `text` as JSON (a failure is `manifest-malformed`,
-naming `path`) and then decodes it with `parseValue`. -/
-def parse (path text : String) : Except String Manifest := do
+/-- `m` with `f` applied to every executable name, claimed or excluded, and nothing else
+changed. -/
+def mapExecutables (f : String → String) (m : Manifest) : Manifest where
+  surfaces := m.surfaces.map fun s => { s with executables := s.executables.map f }
+  excludedLibraries := m.excludedLibraries
+  excludedExecutables := m.excludedExecutables.map fun e => { e with executable := f e.executable }
+
+theorem libraries_mapExecutables (f : String → String) (m : Manifest) :
+    libraries (mapExecutables f m) = libraries m := by
+  simp [libraries, mapExecutables, Array.map_map, Function.comp_def]
+
+theorem executables_mapExecutables (f : String → String) (m : Manifest) :
+    executables (mapExecutables f m) = (executables m).map f := by
+  simp [executables, mapExecutables, Array.map_map, Array.flatMap_map, Array.map_flatMap,
+    Function.comp_def]
+
+/-- Every executable name of `m` is a recorded spelling: `executableName` leaves it unchanged,
+so the name and any other spelling of the same Lake target are recorded as this one name. -/
+def Recorded (m : Manifest) : Prop :=
+  ∀ e ∈ executables m, executableName e = e
+
+/-- What `recordExecutables` requires of the manifest it returns: executable names that are
+distinct, well formed and recorded spellings. -/
+def ExecutablesRecorded (m : Manifest) : Prop :=
+  (executables m).toList.Nodup ∧ ∀ e ∈ executables m, TargetName e ∧ executableName e = e
+
+instance (m : Manifest) : Decidable (ExecutablesRecorded m) := by
+  unfold ExecutablesRecorded; infer_instance
+
+/-- Why `recordExecutables` refuses `raw`: the first spelling whose recorded spelling is not a
+well-formed name that is its own recorded spelling, and otherwise the first executable named
+more than once, with each spelling the manifest gives it. This is diagnostic text; the decision
+is `ExecutablesRecorded`. -/
+def recordRefusal (raw : Manifest) : String :=
+  let spellings := executables raw
+  let unreadable := spellings.find? fun s =>
+    !decide (TargetName (executableName s) ∧ executableName (executableName s) = executableName s)
+  let repeated := spellings.find? fun s =>
+    (spellings.filter (executableName · == executableName s)).size > 1
+  match unreadable, repeated with
+  | some s, _ => s!"manifest-schema: executable '{s}' does not name a Lake target: Lean prints \
+      the name as '{executableName s}', which is not a well-formed target name that Lean reads \
+      back as itself"
+  | none, some s => s!"manifest-schema: duplicate executable '{executableName s}', named as \
+      {repr (spellings.filter (executableName · == executableName s)).toList}"
+  | none, none => "manifest-schema: duplicate executable"
+
+/-- The identity stage of `parse`: every executable name is replaced by its recorded spelling
+(`executableName`), and the result is refused unless its executable names are distinct, well
+formed and recorded spellings (`ExecutablesRecorded`). Two spellings of one executable, such as
+its Lake target name `widget-tool` and `«widget-tool»` as Lean prints it, are therefore one name
+in every manifest `parse` returns, and naming both is a duplicate. -/
+def recordExecutables (raw : Manifest) : Except String Manifest :=
+  if ExecutablesRecorded (mapExecutables executableName raw) then
+    .ok (mapExecutables executableName raw)
+  else .error (recordRefusal raw)
+
+/-- Exact characterization of the identity stage: it returns `m` from `raw` exactly when `m` is
+`raw` with every executable name replaced by its recorded spelling and those names are distinct,
+well formed and recorded spellings. -/
+theorem recordExecutables_ok {raw m : Manifest} :
+    recordExecutables raw = .ok m ↔
+      m = mapExecutables executableName raw ∧ ExecutablesRecorded m := by
+  unfold recordExecutables
+  split
+  · rename_i h
+    constructor
+    · intro hm
+      cases hm
+      exact ⟨rfl, h⟩
+    · rintro ⟨rfl, -⟩
+      rfl
+  · rename_i h
+    constructor
+    · intro hm
+      cases hm
+    · rintro ⟨rfl, hr⟩
+      exact absurd hr h
+
+/-- The identity stage keeps validity: the manifest it returns from a valid one is valid. -/
+theorem recordExecutables_valid {raw m : Manifest} (hv : raw.Valid)
+    (h : recordExecutables raw = .ok m) : m.Valid := by
+  obtain ⟨rfl, hnd, hrec⟩ := recordExecutables_ok.mp h
+  obtain ⟨hne, hlibs, -, hsok, hlok, heok⟩ := hv
+  refine ⟨?_, ?_, hnd, ?_, hlok, ?_⟩
+  · intro hemp
+    exact hne (by simpa [mapExecutables] using hemp)
+  · rw [libraries_mapExecutables]
+    exact hlibs
+  · intro s hs
+    obtain ⟨s0, hs0, rfl⟩ := Array.mem_map.mp hs
+    obtain ⟨hname, -, hc, hr⟩ := hsok s0 hs0
+    refine ⟨hname, fun e he => (hrec e ?_).1, hc, hr⟩
+    exact Array.mem_append_left _ (Array.mem_flatMap.mpr ⟨_, hs, he⟩)
+  · intro e he
+    obtain ⟨e0, he0, rfl⟩ := Array.mem_map.mp he
+    refine ⟨(hrec _ ?_).1, (heok e0 he0).2⟩
+    exact Array.mem_append_right _ (Array.mem_map.mpr ⟨_, he, rfl⟩)
+
+/-- Every executable name of a valid manifest is well formed. -/
+theorem Valid.executableNames {m : Manifest} (hv : m.Valid) :
+    ∀ e ∈ executables m, TargetName e := by
+  obtain ⟨-, -, -, hsok, -, heok⟩ := hv
+  intro e he
+  simp only [executables, Array.mem_append, Array.mem_flatMap, Array.mem_map] at he
+  rcases he with ⟨s, hs, he⟩ | ⟨x, hx, rfl⟩
+  · exact (hsok s hs).2.1 e he
+  · exact (heok x hx).1
+
+/-- Replacing each executable name by its recorded spelling leaves unchanged a manifest whose
+executable names are recorded spellings. -/
+theorem mapExecutables_of_recorded {m : Manifest} (hr : Recorded m) :
+    mapExecutables executableName m = m := by
+  obtain ⟨surfaces, excludedLibraries, excludedExecutables⟩ := m
+  have hs : surfaces.map (fun s => { s with executables := s.executables.map executableName }) =
+      surfaces := by
+    refine (Array.map_congr_left fun s hs => ?_).trans (Array.map_id surfaces)
+    obtain ⟨library, executables', claim, execution, why⟩ := s
+    have : executables'.map executableName = executables' :=
+      (Array.map_congr_left fun e he => hr e
+        (Array.mem_append_left _ (Array.mem_flatMap.mpr ⟨_, hs, he⟩))).trans
+        (Array.map_id executables')
+    simp [this]
+  have he : excludedExecutables.map
+      (fun e => { e with executable := executableName e.executable }) = excludedExecutables := by
+    refine (Array.map_congr_left fun e he => ?_).trans (Array.map_id excludedExecutables)
+    obtain ⟨executable, why⟩ := e
+    have : executableName executable = executable :=
+      hr executable (Array.mem_append_right _ (Array.mem_map.mpr ⟨_, he, rfl⟩))
+    simp [this]
+  simp only [mapExecutables, hs, he]
+
+/-- The identity stage returns unchanged every valid manifest whose executable names are
+recorded spellings. -/
+theorem recordExecutables_of_recorded {m : Manifest} (hv : m.Valid) (hr : Recorded m) :
+    recordExecutables m = .ok m :=
+  recordExecutables_ok.mpr ⟨(mapExecutables_of_recorded hr).symm, hv.2.2.1,
+    fun e he => ⟨hv.executableNames e he, hr e he⟩⟩
+
+/-- The manifest as `text` writes it: parses `text` as JSON (a failure is `manifest-malformed`,
+naming `path`) and decodes it with `parseValue`, so every executable name is still the spelling
+the text gives it. -/
+def parseWritten (path text : String) : Except String Manifest := do
   let value ← (Regula.Checker.PolicyCodec.parse text).mapError
     (fun error => s!"manifest-malformed: {path}: {error}")
   parseValue value
 
-/-- `parse` accepts exactly what `parseValue` accepts of the text parser's value. -/
+/-- The executed manifest parser: `parseWritten`, then each executable name replaced by its
+recorded spelling with `recordExecutables`. -/
+def parse (path text : String) : Except String Manifest := do
+  recordExecutables (← parseWritten path text)
+
+/-- `parse` accepts exactly what `recordExecutables` accepts of what `parseValue` accepts of the
+text parser's value. -/
 theorem parse_ok {path text : String} {m : Manifest} :
     parse path text = .ok m ↔
-      ∃ value, Regula.Checker.PolicyCodec.parse text = .ok value ∧ parseValue value = .ok m := by
-  unfold parse
-  cases Regula.Checker.PolicyCodec.parse text <;>
-    simp [Except.mapError, bind, Except.bind]
+      ∃ value raw, Regula.Checker.PolicyCodec.parse text = .ok value ∧
+        parseValue value = .ok raw ∧ recordExecutables raw = .ok m := by
+  unfold parse parseWritten
+  cases Regula.Checker.PolicyCodec.parse text with
+  | error e => simp [Except.mapError, bind, Except.bind]
+  | ok value => cases h : parseValue value <;> simp [Except.mapError, bind, Except.bind, h]
 
 theorem parseValue_sound {value : Json} {m : Manifest} (h : parseValue value = .ok m) :
     m.Valid := by
@@ -620,8 +835,88 @@ theorem parseValue_sound {value : Json} {m : Manifest} (h : parseValue value = .
 
 theorem parse_sound {path text : String} {m : Manifest} (h : parse path text = .ok m) :
     m.Valid := by
-  obtain ⟨_, _, h⟩ := parse_ok.mp h
-  exact parseValue_sound h
+  obtain ⟨_, _, _, h, hr⟩ := parse_ok.mp h
+  exact recordExecutables_valid (parseValue_sound h) hr
+
+/-- One executable has one name in every manifest `parse` accepts: each executable name is a
+recorded spelling. With `parse_sound` those names are also distinct, so no accepted manifest
+names one Lake target under two spellings. -/
+theorem parse_recorded {path text : String} {m : Manifest} (h : parse path text = .ok m) :
+    Recorded m := by
+  obtain ⟨_, _, _, _, hr⟩ := parse_ok.mp h
+  exact fun e he => ((recordExecutables_ok.mp hr).2.2 e he).2
+
+/-- The first executable entry of `written`, claimed then excluded in manifest order, whose
+recorded spelling is none of `discovered`. -/
+def unknownEntry? (discovered : Array String) (written : Manifest) : Option String :=
+  (executables written).find? fun entry => !discovered.contains (executableName entry)
+
+/-- No entry is unknown exactly when every recorded executable name is one of `discovered`. -/
+theorem unknownEntry?_eq_none {discovered : Array String} {written : Manifest} :
+    unknownEntry? discovered written = none ↔
+      ∀ e ∈ executables (mapExecutables executableName written), e ∈ discovered := by
+  rw [executables_mapExecutables]
+  simp [unknownEntry?, Array.find?_eq_none]
+
+/-- An unknown entry is an executable name of `written`, in the spelling `written` gives it, and
+its recorded spelling is none of `discovered`. -/
+theorem unknownEntry?_some {discovered : Array String} {written : Manifest} {entry : String}
+    (h : unknownEntry? discovered written = some entry) :
+    entry ∈ executables written ∧ executableName entry ∉ discovered := by
+  unfold unknownEntry? at h
+  exact ⟨Array.mem_of_find?_eq_some h, by simpa using Array.find?_some h⟩
+
+/-- `parse` for the project whose root executables the Lake inventory records as `discovered`:
+the manifest `parse` returns, refused with `unknownExecutable` of the first executable entry,
+claimed or excluded and as `text` writes it, whose recorded spelling is none of `discovered`. -/
+def parseFor (discovered : Array String) (path text : String) : Except String Manifest := do
+  let written ← parseWritten path text
+  let manifest ← recordExecutables written
+  match unknownEntry? discovered written with
+  | some entry => .error (unknownExecutable entry discovered)
+  | none => .ok manifest
+
+/-- `parseFor` accepts exactly the manifests `parse` accepts that name only executables of
+`discovered`, so every theorem about a manifest `parse` accepts holds of one `parseFor`
+accepts. -/
+theorem parseFor_ok {discovered : Array String} {path text : String} {m : Manifest} :
+    parseFor discovered path text = .ok m ↔
+      parse path text = .ok m ∧ ∀ e ∈ executables m, e ∈ discovered := by
+  unfold parseFor parse
+  cases parseWritten path text with
+  | error e => simp [bind, Except.bind]
+  | ok written =>
+    simp only [bind, Except.bind]
+    cases hr : recordExecutables written with
+    | error e => simp
+    | ok recorded =>
+      obtain ⟨rfl, -⟩ := recordExecutables_ok.mp hr
+      cases hu : unknownEntry? discovered written with
+      | none =>
+        constructor
+        · intro h
+          refine ⟨h, ?_⟩
+          cases h
+          exact unknownEntry?_eq_none.mp hu
+        · exact fun h => h.1
+      | some entry =>
+        constructor
+        · intro h
+          cases h
+        · rintro ⟨h, hall⟩
+          cases h
+          rw [unknownEntry?_eq_none.mpr hall] at hu
+          cases hu
+
+/-- The refusal of an entry that names no executable of `discovered`: once the text parses and
+its executable names are recorded, `parseFor` refuses with `unknownExecutable` of the first
+unknown entry. -/
+theorem parseFor_unknown {discovered : Array String} {path text entry : String}
+    {written m : Manifest} (hw : parseWritten path text = .ok written)
+    (hm : recordExecutables written = .ok m)
+    (he : unknownEntry? discovered written = some entry) :
+    parseFor discovered path text = .error (unknownExecutable entry discovered) := by
+  simp [parseFor, hw, hm, he, bind, Except.bind]
 
 
 /-- Every item a successful fold consumed satisfies what one successful step establishes. -/
@@ -766,27 +1061,29 @@ theorem parseValue_input {value : Json} {m : Manifest} (h : parseValue value = .
   · simp only [Acc.manifest, k3.2]; simp only [k1.1] at e2; simpa [e2] using d2
   · simp only [Acc.manifest]; simp only [k2.2, k1.2] at e3; simpa [e3] using d3
 
-/-- Input fidelity: the parsed manifest comes from well-formed JSON with exactly the allowed
-top-level and per-entry keys and schema version 2, and each of its three arrays is, element by
-element in order, the decoding of the corresponding JSON array. -/
+/-- Input fidelity: the parsed manifest is `raw` with every executable name replaced by its
+recorded spelling, where `raw` comes from well-formed JSON with exactly the allowed top-level
+and per-entry keys and schema version 2, and each of its three arrays is, element by element in
+order, the decoding of the corresponding JSON array. -/
 theorem parse_input {path text : String} {m : Manifest} (h : parse path text = .ok m) :
-    ∃ value sv lv ev, Regula.Checker.PolicyCodec.parse text = .ok value ∧
+    ∃ value raw sv lv ev, Regula.Checker.PolicyCodec.parse text = .ok value ∧
+      m = mapExecutables executableName raw ∧
       KeysAllowed value
           #["schema-version", "surfaces", "excluded-libraries", "excluded-executables"] ∧
       value.getObjVal? "schema-version" = .ok (Json.num 2) ∧
       value.getObjVal? "surfaces" = .ok (.arr sv) ∧ value.getObjVal? "excluded-libraries" = .ok
           (.arr lv) ∧
       value.getObjVal? "excluded-executables" = .ok (.arr ev) ∧
-      Decodes SurfaceDecodes sv.toList m.surfaces.toList ∧
-      Decodes ExcludedLibraryDecodes lv.toList m.excludedLibraries.toList ∧
-      Decodes ExcludedExecutableDecodes ev.toList m.excludedExecutables.toList ∧
+      Decodes SurfaceDecodes sv.toList raw.surfaces.toList ∧
+      Decodes ExcludedLibraryDecodes lv.toList raw.excludedLibraries.toList ∧
+      Decodes ExcludedExecutableDecodes ev.toList raw.excludedExecutables.toList ∧
       (∀ item ∈ sv, KeysAllowed item #["library", "executables", "claim", "execution", "rationale"])
           ∧
       (∀ item ∈ lv, KeysAllowed item #["library", "rationale"]) ∧
       (∀ item ∈ ev, KeysAllowed item #["executable", "rationale"]) := by
-  obtain ⟨value, hvalue, h⟩ := parse_ok.mp h
+  obtain ⟨value, raw, hvalue, h, hr⟩ := parse_ok.mp h
   obtain ⟨sv, lv, ev, rest⟩ := parseValue_input h
-  exact ⟨value, sv, lv, ev, hvalue, rest⟩
+  exact ⟨value, raw, sv, lv, ev, hvalue, (recordExecutables_ok.mp hr).1, rest⟩
 
 /-- `topLevel` accepts every value meeting the conditions `topLevel_sound` establishes. -/
 theorem topLevel_complete {value : Json} {sv lv ev : Array Json}
@@ -802,8 +1099,8 @@ theorem topLevel_complete {value : Json} {sv lv ev : Array Json}
       Except.bind,
     pure, Except.pure]
 
-/-- Completeness for empty exclusions: well-formed top-level JSON whose exclusion arrays are
-empty is accepted whenever its surfaces are, with exactly the parsed surfaces. -/
+/-- Completeness for empty exclusions: for well-formed top-level JSON whose exclusion arrays are
+empty and whose surfaces parse, `parse` is the identity stage of exactly the parsed surfaces. -/
 theorem parse_emptyExclusions {path text : String} {value : Json} {sv : Array Json} {acc : Acc}
     (hvalue : Regula.Checker.PolicyCodec.parse text = .ok value)
     (hkeys : KeysAllowed value
@@ -813,10 +1110,10 @@ theorem parse_emptyExclusions {path text : String} {value : Json} {sv : Array Js
     (hl : value.getObjVal? "excluded-libraries" = .ok (.arr #[]))
     (he : value.getObjVal? "excluded-executables" = .ok (.arr #[])) (hne : sv ≠ #[])
     (hsurfaces : parseAll parseSurface sv.toList 0 {} = .ok acc) :
-    parse path text = .ok acc.manifest := by
+    parse path text = recordExecutables acc.manifest := by
   have htop := topLevel_complete hkeys hschema hs hl he hne
   simp
-      [parse, parseValue, hvalue, htop, hsurfaces, parseAll, Except.mapError, bind,
+      [parse, parseWritten, parseValue, hvalue, htop, hsurfaces, parseAll, Except.mapError, bind,
           Except.bind, pure,
     Except.pure]
 
@@ -1134,13 +1431,13 @@ theorem objectWithKeys_unknown {value : Json} {allowed : Array String} {location
 theorem parse_malformed {path text error : String}
     (h : Regula.Checker.PolicyCodec.parse text = .error error) :
     parse path text = .error s!"manifest-malformed: {path}: {error}" := by
-  simp [parse, h, Except.mapError, bind, Except.bind]
+  simp [parse, parseWritten, h, Except.mapError, bind, Except.bind]
 
 /-- A top-level refusal of well-formed JSON is the refusal of `parse`. -/
 theorem parse_topLevel_refuses {path text msg : String} {value : Json}
     (hvalue : Regula.Checker.PolicyCodec.parse text = .ok value) (h : topLevel value = .error msg) :
     parse path text = .error msg := by
-  simp [parse, parseValue, hvalue, h, Except.mapError, bind, Except.bind]
+  simp [parse, parseWritten, parseValue, hvalue, h, Except.mapError, bind, Except.bind]
 
 /-- An unknown top-level key yields the `objectWithKeys_unknown` message. -/
 theorem topLevel_unknownKey {value : Json} {msg : String}
@@ -1182,7 +1479,8 @@ theorem parse_surface_refuses {path text msg : String} {value : Json} {sv lv ev 
     (hpre : parseAll parseSurface pre 0 {} = .ok acc)
     (h : parseSurface acc pre.length item = .error msg) : parse path text = .error msg := by
   have hall := parseAll_refuses parseSurface (rest := rest) hpre (by simpa using h)
-  simp [parse, parseValue, hvalue, htop, hsv, hall, Except.mapError, bind, Except.bind]
+  simp [parse, parseWritten, parseValue, hvalue, htop, hsv, hall, Except.mapError, bind,
+    Except.bind]
 
 /-- An unknown surface key yields the `objectWithKeys_unknown` message. -/
 theorem parseSurface_unknownKey {acc : Acc} {index : Nat} {item : Json} {msg : String}
@@ -1232,12 +1530,16 @@ theorem surfaceExecution_nonString {item field : Json} {location : String}
   · rename_i text htext; exact absurd (Except.ok.inj (hfield.symm.trans htext)) (hnot text)
   · simp [throw, throwThe, MonadExceptOf.throw]
 
-/-- Reads and parses the manifest file at `path`, failing with `manifest-missing` when it does not
-exist. -/
-def load (path : FilePath) : IO Manifest := do
+/-- Reads the manifest file at `path` for the project `inventory` describes, failing with
+`manifest-missing` when it does not exist: the text is parsed with `parseFor` and the
+inventory's executables, so an executable entry, claimed or excluded, that names no root
+executable is refused here with `unknownExecutable`, quoting the entry as the file writes it.
+This module has no other file reader. -/
+def loadFor (path : FilePath) (inventory : Lake.SurfaceInventory) : IO Manifest := do
   if !(← path.pathExists) then
     throw <| IO.userError s!"manifest-missing: {path}"
-  IO.ofExcept (parse path.toString (← IO.FS.readFile path))
+  IO.ofExcept <| parseFor (inventory.executables.map (·.executable)) path.toString
+    (← IO.FS.readFile path)
 
 /-- The Lake targets a checker must build so every claimed module is
 elaborated and resolvable: each claimed library and claimed executable. -/
@@ -1353,19 +1655,14 @@ theorem trimAscii_isEmpty_eq_false {u : String.Slice} (h : u.startPos ≠ u.endP
 theorem structuralManifest_valid {actual : Manifest} {claimed : Array String} (hv : actual.Valid)
     (hne : actual.surfaces.filter (claimed.contains ·.library) ≠ #[]) :
     (structuralManifest actual claimed).Valid := by
-  obtain ⟨-, hlibs, hexes, hsok, hlok, heok⟩ := hv
+  have hexeName := hv.executableNames
+  obtain ⟨-, hlibs, hexes, hsok, hlok, -⟩ := hv
   have hlibName : ∀ l ∈ libraries actual, TargetName l := by
     intro l hl
     simp only [libraries, Array.mem_append, Array.mem_map] at hl
     rcases hl with ⟨s, hs, rfl⟩ | ⟨x, hx, rfl⟩
     · exact (hsok s hs).1
     · exact (hlok x hx).1
-  have hexeName : ∀ e ∈ executables actual, TargetName e := by
-    intro e he
-    simp only [executables, Array.mem_append, Array.mem_flatMap, Array.mem_map] at he
-    rcases he with ⟨s, hs, he⟩ | ⟨x, hx, rfl⟩
-    · exact (hsok s hs).2.1 e he
-    · exact (heok x hx).1
   have hwhy : "structural control: excluded".trimAscii.isEmpty = false :=
     trimAscii_isEmpty_eq_false (by decide) (by decide)
   refine ⟨hne, ?_, ?_, ?_, ?_, ?_⟩
@@ -1466,21 +1763,33 @@ theorem parseValue_toJson {m : Manifest} : parseValue (toJson m) = .ok m ↔ m.V
   ⟨parseValue_sound, fun hv => parseValue_complete hv (toJson_encodes m)⟩
 
 /-- The text boundary, conditionally: whenever the text parser returns a value that encodes a
-valid `m` (as `toJson m` does), the executed `parse` returns exactly `m`. -/
+valid `m` (as `toJson m` does) whose executable names are recorded spellings, the executed
+`parse` returns exactly `m`. -/
 theorem parse_of_encodes {path text : String} {value : Json} {m : Manifest}
     (hvalue : Regula.Checker.PolicyCodec.parse text = .ok value) (he : Encodes value m)
-    (hv : m.Valid) : parse path text = .ok m :=
-  parse_ok.mpr ⟨value, hvalue, parseValue_complete hv he⟩
+    (hv : m.Valid) (hr : Recorded m) : parse path text = .ok m :=
+  parse_ok.mpr ⟨value, m, hvalue, parseValue_complete hv he, recordExecutables_of_recorded hv hr⟩
+
+/-- The structural copy names only executables of the actual manifest, so its executable names
+are recorded spellings whenever the actual manifest's are. -/
+theorem structuralManifest_recorded {actual : Manifest} {claimed : Array String}
+    (hr : Recorded actual) : Recorded (structuralManifest actual claimed) :=
+  fun e he => hr e ((structural_executables actual claimed e).mp he)
 
 /-- What the structural gate reads: for any manifest the executed `parse` accepted, the JSON value
-stage recovers the in-memory structural copy exactly from its `toJson` whenever the copy claims
-an actual surface (the guard `structuralBase` runs before building it). -/
+stage recovers the in-memory structural copy exactly from its `toJson`, and the identity stage
+returns that copy unchanged, whenever the copy claims an actual surface (the guard
+`structuralBase` runs before building it). -/
 theorem structural_roundtrip {path text : String} {actual : Manifest} {claimed : Array String}
     (h : parse path text = .ok actual)
     (hne : actual.surfaces.filter (claimed.contains ·.library) ≠ #[]) :
     parseValue (toJson (structuralManifest actual claimed)) = .ok
+        (structuralManifest actual claimed) ∧
+      recordExecutables (structuralManifest actual claimed) = .ok
         (structuralManifest actual claimed) :=
-  parseValue_toJson.mpr (structuralManifest_valid (parse_sound h) hne)
+  have hv := structuralManifest_valid (parse_sound h) hne
+  ⟨parseValue_toJson.mpr hv,
+    recordExecutables_of_recorded hv (structuralManifest_recorded (parse_recorded h))⟩
 
 end Regula.Checker.Manifest
 
@@ -1500,6 +1809,12 @@ run_cmd do
       ``Regula.Checker.Manifest.surfaceExecution_nonString,
       ``Regula.Checker.Manifest.structural_libraries,
       ``Regula.Checker.Manifest.structural_executables,
+      ``Regula.Checker.Manifest.parse_recorded, ``Regula.Checker.Manifest.recordExecutables_ok,
+      ``Regula.Checker.Manifest.recordExecutables_valid,
+      ``Regula.Checker.Manifest.recordExecutables_of_recorded,
+      ``Regula.Checker.Manifest.executableName_lakeTargetName,
+      ``Regula.Checker.Manifest.unknownEntry?_some, ``Regula.Checker.Manifest.parseFor_ok,
+      ``Regula.Checker.Manifest.parseFor_unknown,
       ``Regula.Checker.Manifest.parse_ok, ``Regula.Checker.Manifest.parseValue_ok,
       ``Regula.Checker.Manifest.parseValue_complete, ``Regula.Checker.Manifest.toJson_encodes,
       ``Regula.Checker.Manifest.parseValue_toJson, ``Regula.Checker.Manifest.parse_of_encodes,

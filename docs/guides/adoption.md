@@ -156,6 +156,13 @@ the glob that includes them all.
 with a rationale. Review the starter: strengthen each `claim` where the library allows, write
 the real rationale, and exclude what you do not claim.
 
+Name an executable by its Lake target name, the `name` of its `lean_exe` that `lake build` and
+`lake exe` take, such as `widget-tool`. A name that is not a Lean identifier has a second
+spelling, `«widget-tool»`, which is how Lean prints it: `init` writes that spelling and reports
+show it. Both name the same executable, so a manifest that names both has a duplicate. An entry,
+claimed or excluded, that names no root executable is refused (RG2002): the finding quotes the
+entry as you wrote it and lists the root executables by Lake target name.
+
 An executable's root may live inside a library's namespace, such as ``root := `Widget.Cli` `` under
 the ``.andSubmodules `Widget`` glob, so no glob needs to leave executable roots out. List such an
 executable in the `executables` of that library's surface: its root keeps the library's claim
