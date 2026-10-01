@@ -17,9 +17,9 @@ release and checks it.
   proved `ruleExampleQualification` executable, and its recorded checker, corpus and
   configuration bytes equal the current sources.
 - `exampleOf`: the display form of one rule's two admitted records.
-- `tagState`, `downloadRelease`, `extractRelease`: the observations the release decisions
-  (`labelAdmitted`, `releaseSource`, `publishable`) take: which commit, if any, a release tag
-  names, whether a release's GitHub asset exists, and the permanent copy it holds.
+- `remoteTags`, `tagState`, `downloadRelease`, `extractRelease`: the observations the release
+  decisions (`labelAdmitted`, `releaseSource`, `publishable`) take: which commit, if any, a
+  release tag names, whether a release's GitHub asset exists, and the permanent copy it holds.
 - `build`: generation, Verso rendering, assembly and `checkArtifact`.
 
 ## Boundaries
@@ -279,14 +279,16 @@ def taggedCommit (listing ref : String) : Option String :=
     | _ => none
   entries.lookup (ref ++ "^{}") <|> entries.lookup ref
 
-/-- The state of the repository's tag `v<version>` relative to `head`: absent, naming `head`, or
-naming another commit. The tag is read from the repository with `git ls-remote`, because CI
-checkouts are shallow and have no tags; a failed read refuses. -/
-def tagState (root : FilePath) (v : ReleaseVersion) (head : Commit) : IO TagState := do
-  let listing ← git root #["ls-remote", "--tags", repository]
-  return match taggedCommit listing ("refs/tags/v" ++ v.spelling) with
-    | none => .absent
-    | some commit => if commit == head.val then .head else .other
+/-- The repository's tags as `git ls-remote` lists them. They are read from the repository,
+because CI checkouts are shallow and have no tags; a failed read refuses. -/
+def remoteTags (root : FilePath) : IO String := git root #["ls-remote", "--tags", repository]
+
+/-- The state of tag `v<version>` in `listing` (`remoteTags`) relative to `head`: absent, naming
+`head`, or naming another commit. -/
+def tagState (listing : String) (v : ReleaseVersion) (head : Commit) : TagState :=
+  match taggedCommit listing ("refs/tags/v" ++ v.spelling) with
+  | none => .absent
+  | some commit => if commit == head.val then .head else .other
 
 /-- Download release `v`'s asset into `releaseDirectory` and return whether it exists: HTTP 200
 is present and 404 absent; any other answer or a failed transfer refuses. -/

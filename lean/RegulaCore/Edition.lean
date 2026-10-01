@@ -26,11 +26,13 @@ pages, and `dev/` only for an unreleased build.
   `helpUrl_unreleased`, `helpUrl_dev_iff`: the help link of a rule targets the installed
   release's page, and `dev/` exactly for an unreleased build.
 - `TagState`, `labelAdmitted`, `labelAdmitted_release_iff`, `labelAdmitted_unreleased`,
-  `releaseSource`, `releaseSource_render_iff`, `releaseSource_asset_iff`, `publishable`,
-  `publishable_iff`: a build carries a release label only while the release's tag is absent or
-  names its commit; only such a build renders the release's edition from source, and only before
-  its release asset exists; once the asset exists every build takes the edition from it; and only
-  an artifact with no release edition rendered from source is deployed.
+  `releaseSource`, `releaseSource_render_iff`, `releaseSource_asset_iff`,
+  `releaseSource_preview_iff`, `publishable`, `publishable_iff`: a build carries a release label
+  only while the release's tag is absent or names its commit; only such a build renders the
+  release's edition from source, and only before its release asset exists; once the asset exists
+  every build takes the edition from it; an unreleased build previews only the latest listed
+  release, and only while neither its asset nor its tag exists; and only an artifact whose every
+  release edition is its asset is deployed.
 - `sitePath`, `sitePath_iff`: the route policy of the published artifact: its root files and
   the files of the published editions, nothing else.
 
@@ -199,9 +201,10 @@ shards and the site build) before anything is published; publishing the release 
 (`Regula.Release.tagAction` in `lean/Regula/Release.lean`, with its theorems). The site build
 refuses a build labelled `.release v` once the tag names another commit (`labelAdmitted`); it
 renders `v<version>`'s edition from source only in a build of `v` while the tag is absent or
-names its commit, and only before the release asset exists, and every other build takes the
-frozen asset (`releaseSource`); and only an artifact with no rendered release edition is
-deployed (`publishable`). -/
+names its commit, and only before the release asset exists; an unreleased build, such as the
+release pull request's, previews the latest listed release's edition while neither its asset nor
+its tag exists, and every other build takes the frozen asset (`releaseSource`); and only an
+artifact whose every release edition is its asset is deployed (`publishable`). -/
 def installed : Build := .unreleased
 
 /-- Every release with the one Lean toolchain it supports, oldest first. The release pull request
@@ -274,8 +277,11 @@ def Build.edition : Build → Edition
 theorem Build.edition_eq_dev_iff (b : Build) : b.edition = .dev ↔ b = .unreleased := by
   cases b <;> simp [Build.edition]
 
-/-- The state of the repository's tag `v<version>` for the installed release, as a site build
-observes it. An unreleased build has no release tag and observes `absent`. -/
+/-- The state of a release's tag `v<version>` in the repository relative to a site build's
+commit, as the build observes it. `labelAdmitted` takes the state of the installed release's tag,
+where an unreleased build has no release tag and observes `absent`; `releaseSource` takes the
+state of the tag of the release whose edition it decides, in a released and an unreleased build
+alike. -/
 inductive TagState where
   /-- The tag does not exist yet. -/
   | absent
@@ -305,23 +311,30 @@ theorem labelAdmitted_unreleased (tag : TagState) : labelAdmitted .unreleased ta
 inductive ReleaseSource where
   /-- The frozen copy: the release asset attached at the release. -/
   | asset
-  /-- The edition this build renders from its own sources. -/
+  /-- The edition this build renders from its own sources, as a build of that release. -/
   | render
+  /-- A stand-in for the edition of a release not yet published: the edition an unreleased build
+  renders from its own sources, which carries no release label. -/
+  | preview
   deriving DecidableEq, Repr
 
 /-- The machine name of each source in the artifact's `build.json`. -/
 def ReleaseSource.spelling : ReleaseSource → String
   | .asset => "asset"
   | .render => "render"
+  | .preview => "preview"
 
 /-- The source of release `v`'s edition in a site build of `b`, given whether `v`'s release asset
-exists and the state `tag` of `b`'s release tag: the asset whenever it exists, the rendered
-edition only in a build of `v` whose tag is absent or names its commit before the asset exists,
-and otherwise `none`, which the build refuses. -/
+exists and the state `tag` of tag `v<version>` of `v` relative to the build's commit: the asset
+whenever it exists; before it exists, the rendered edition in a build of `v` whose tag is absent
+or names its commit, and a preview in an unreleased build while `v` is the latest listed release
+and its tag is absent, which is a release CI on `main` has yet to publish; and otherwise `none`,
+which the build refuses. -/
 def releaseSource (b : Build) (v : ReleaseVersion) (assetExists : Bool) (tag : TagState) :
     Option ReleaseSource :=
   if assetExists then some .asset
   else if b = .release v ∧ tag ≠ .other then some .render
+  else if b = .unreleased ∧ latest = some v ∧ tag = .absent then some .preview
   else none
 
 /-- A release's edition is rendered from source only by a build of that release before its asset
@@ -338,15 +351,27 @@ theorem releaseSource_asset_iff (b : Build) (v : ReleaseVersion) (assetExists : 
   unfold releaseSource
   cases assetExists <;> cases tag <;> by_cases h : b = .release v <;> simp_all
 
-/-- Whether an artifact whose release editions came from `sources` may be deployed: every release
-edition is its frozen asset, none rendered from source. The release commit's site build renders
-its release's edition only to write it as the release asset; the site build records this value in
-the artifact's `build.json`, which `Deployment gate` requires to be `true`. -/
-def publishable (sources : List ReleaseSource) : Bool := !sources.contains .render
+/-- A release's edition is previewed only by an unreleased build, only for the latest listed
+release, and only while neither its asset nor its tag exists. A release whose tag exists and
+whose asset is missing is therefore refused, never previewed; that publishing a release is what
+creates its tag is the release steps' behaviour (`lean/Regula/Release.lean`), not a consequence
+of these definitions. -/
+theorem releaseSource_preview_iff (b : Build) (v : ReleaseVersion) (assetExists : Bool)
+    (tag : TagState) : releaseSource b v assetExists tag = some .preview ↔
+      assetExists = false ∧ b = .unreleased ∧ latest = some v ∧ tag = .absent := by
+  unfold releaseSource
+  cases assetExists <;> cases tag <;> cases b <;> simp
 
-/-- An artifact is publishable exactly when it has no release edition rendered from source. -/
+/-- Whether an artifact whose release editions came from `sources` may be deployed: every release
+edition is its frozen asset, none rendered from source and none a preview. The release commit's
+site build renders its release's edition only to write it as the release asset, and an unreleased
+build previews one only to check the rest of its artifact; the site build records this value in
+the artifact's `build.json`, which `Deployment gate` requires to be `true`. -/
+def publishable (sources : List ReleaseSource) : Bool := sources.all (· == .asset)
+
+/-- An artifact is publishable exactly when every release edition in it is its frozen asset. -/
 theorem publishable_iff (sources : List ReleaseSource) :
-    publishable sources = true ↔ .render ∉ sources := by
+    publishable sources = true ↔ ∀ s ∈ sources, s = .asset := by
   simp [publishable]
 
 /-- The editions every deployment publishes: the development edition and each release's. -/

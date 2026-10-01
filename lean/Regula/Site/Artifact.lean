@@ -13,10 +13,12 @@ be uploaded.
 - `landing`: the site root `index.html`, which opens `rootEdition`: the latest release's edition,
   or `dev/` while no release exists.
 - `releaseSources`, `releaseCopies`: each release's edition before banners, from
-  `releaseSource`: the frozen copy whenever its release asset exists, and this build's rendered
-  edition only in a build of the installed release while its tag is absent or names this commit,
-  before that asset exists. `buildJson` records each source, whether the tag names this commit and
-  the value of `publishable` for the sources, which `Deployment gate` requires.
+  `releaseSource`: the frozen copy whenever its release asset exists; before that asset exists,
+  this build's rendered edition in a build of the installed release while its tag is absent or
+  names this commit, and the same rendered files as a preview in an unreleased build while the
+  release is the latest listed and its tag is absent. `buildJson` records each source, whether
+  the installed release's tag names this commit and the value of `publishable` for the sources,
+  which `Deployment gate` requires.
 - `publishedCopy`: a release's published edition: its copy, with the latest-release banner
   (`outdatedBanner`, `bannerTarget`) inserted into every HTML page (`insertBanner`) when a later
   release exists.
@@ -120,8 +122,8 @@ def identityFields (g : Generated) : List (String × Json) := [
       ("shard", shardField s "shard"), ("attempt", shardField s "attempt"),
       ("selected", shardField s "selected")]))]
 
-/-- The `build.json` of the installed release's edition: the identity of the build that made
-that release's copy. -/
+/-- The `build.json` of a release edition this build renders, the installed release's or a
+preview of a release not yet published: the identity of the build that made that copy. -/
 def editionJson (g : Generated) : Json := Json.mkObj (identityFields g)
 
 /-- The machine-readable identity of an artifact: the build's identity, its published editions,
@@ -141,25 +143,28 @@ private def byPath (files : List (String × ByteArray)) : List (String × ByteAr
   files.mergeSort (fun a b => a.1 ≤ b.1)
 
 /-- The source of each release's edition, oldest first (`releaseSource`), from whether its release
-asset exists and the state `tag` of the installed release's tag. Refuses a release without an
-asset unless this build is that release's and its tag is absent or names this commit. -/
-def releaseSources (root : FilePath) (tag : TagState) :
+asset exists and the state `tag` gives of its tag. Refuses a release without an asset unless
+this build is that release's and its tag is absent or names this commit, or this build is
+unreleased, the release is the latest listed and its tag is absent. -/
+def releaseSources (root : FilePath) (tag : ReleaseVersion → TagState) :
     IO (List (ReleaseVersion × ReleaseSource)) :=
   versions.mapM fun v => do
-    match releaseSource installed v (← downloadRelease root v) tag with
+    match releaseSource installed v (← downloadRelease root v) (tag v) with
     | some source => return (v, source)
-    | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist \
-        yet, and only the release commit renders its edition; CI on main publishes the asset once \
-        the release commit passes its checks"
+    | none => throw <| IO.userError s!"release {v.spelling}: its release asset does not exist. \
+        Only the release commit renders its edition, and a build of an unreleased commit previews \
+        it only while it is the latest listed release and tag v{v.spelling} does not exist yet; \
+        CI on main publishes the asset once the release commit passes its checks"
 
 /-- Each release's edition before banners, oldest first, from its source: the frozen copy, or the
-rendered edition with its `build.json`. -/
+rendered edition with its `build.json`, which is the release's own edition in a build of that
+release and a preview of it in an unreleased build. -/
 def releaseCopies (root : FilePath) (g : Generated) (edition : List (String × ByteArray))
     (sources : List (ReleaseVersion × ReleaseSource)) :
     IO (List (ReleaseVersion × List (String × ByteArray))) :=
   sources.mapM fun (v, source) => match source with
     | .asset => return (v, ← extractRelease root v)
-    | .render =>
+    | .render | .preview =>
       return (v, byPath (edition ++ [("build.json", ((editionJson g).pretty ++ "\n").toUTF8)]))
 
 /-- The published files of release `v`'s edition, given `copy`, its files before banners, and
@@ -296,20 +301,23 @@ def releasePackage (root : FilePath) (v : ReleaseVersion) : FilePath :=
 /-- Complete build: refuse a release label whose tag names another commit, decide each release
 edition's source, admit evidence, generate, render, collect the release editions, assemble and
 check. A clean build that rendered its release's edition, the release commit's before its
-release is published, also writes that edition as the release asset. -/
+release is published, also writes that edition as the release asset. An unreleased build that
+previews a release not yet published, the release pull request's, writes no asset and says that
+its artifact is not publishable. -/
 def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
   -- Invalidate an earlier artifact before any step can fail.
   if ← out.pathExists then IO.FS.removeDirAll out
   let root ← rootDirectory
   let ident ← identity root
-  let tag ← match installed with
-    | .release v => tagState root v ident.revision
-    | .unreleased => pure .absent
+  let tags ← remoteTags root
+  let tag := match installed with
+    | .release v => tagState tags v ident.revision
+    | .unreleased => .absent
   requireChecks [⟨s!"a build labelled {installed.spelling} is refused once tag \
     v{installed.spelling} names another commit: only the release commit that CI on main creates \
     carries a release label, and main and pull requests keep Regula.installed .unreleased",
     labelAdmitted installed tag⟩]
-  let sources ← releaseSources root tag
+  let sources ← releaseSources root fun v => tagState tags v ident.revision
   let g ← evidence root ident evidencePaths
   generate root g
   let edition ← render root (root / "tmp/site-render") ident.revision.val
@@ -335,6 +343,12 @@ def build (evidencePaths : List FilePath) (out : FilePath) : IO Unit := do
           attaches it as the release asset once every check of this commit passes"
       else IO.println s!"site: release {v.spelling}'s edition is a preview rendered from \
         uncommitted changes; only a clean build writes its asset"
+  for (v, source) in sources do
+    if source == .preview then
+      IO.println s!"site: release {v.spelling} is not published yet, so v/{v.spelling}/ is a \
+        preview rendered from this unreleased commit, not the release's edition. This artifact \
+        is not publishable: the deployment gate refuses it, and CI on main renders the edition \
+        from the release commit and publishes it as the release asset"
   IO.println s!"site: PASS ({RuleId.all.length} rule pages, editions \
     {published.map Edition.root}, {(← snapshotTree out).length} files, \
     commit {ident.revision.val}{if ident.dirty then " with uncommitted changes" else ""}); \

@@ -102,8 +102,9 @@ fails and removes `_site/`:
   ([versions](#versions-and-routes)) with the latest-release banner on every HTML page when a
   later release exists. The artifact contains no hidden files (the Pages upload drops them);
   `build.json` records the commit, toolchain, linter version, Verso revision, per-rule evidence,
-  the published editions, how each release edition was obtained (its asset or rendered from
-  source) and whether the build's commit is the one the installed release's tag names.
+  the published editions, how each release edition was obtained (its asset, rendered from
+  source, or a preview) and whether the build's commit is the one the installed release's tag
+  names.
 - **Size.** The artifact is at most `artifactBudget` (900 MB) of file bytes, below GitHub Pages'
   1 GB limit on a published site. Each release adds one edition of a few megabytes.
 
@@ -139,11 +140,10 @@ when `lean/Regula/Checker/Producer.lean` is compiled, and Lake reuses that build
 commit; the site build then refuses the evidence as another commit's. Delete
 `.lake/build/lib/lean/Regula/Checker/Producer.*` before rerunning the shards. CI builds fresh. A
 worktree with uncommitted changes produces a labelled local preview. Every build requests the
-release asset of every release, and a build whose `installed` is a release also reads its tag
-with `git ls-remote` ([versions](#versions-and-routes)), so a build needs network access once a
-release exists. The artifact expects to be served at `/regula/`; any static file
-server works if `_site/` is mounted at that path (for example a directory containing only a
-`regula` link to `_site`).
+release asset of every release and reads the repository's tags with `git ls-remote`
+([versions](#versions-and-routes)), so a build needs network access. The artifact expects to be
+served at `/regula/`; any static file server works if `_site/` is mounted at that path (for
+example a directory containing only a `regula` link to `_site`).
 
 ## Publication
 
@@ -174,11 +174,15 @@ CI runs on every pull request and on `main`:
 7. `site` (after `rule-examples`, and after `candidate` and `publish` passed or were skipped):
    builds the site tooling, then `./scripts/verify.sh site` over this run's exports, and uploads
    the checked `_site/` as `site-<commit>` (preview). Running after `publish`, it takes a release's
-   edition from the asset published in the same run. On `main` only, `Deployment gate` refuses an
-   artifact built from uncommitted changes, from another commit than `GITHUB_SHA`, or with a
-   release edition rendered from source instead of taken from its asset (the build's recorded
-   value of `Regula.publishable`), and the checked `_site/` is then uploaded as the Pages
-   artifact. Pull requests never publish.
+   edition from the asset published in the same run. On the release pull request, and on any
+   other unreleased commit that lists a release not yet published, it previews that release's
+   edition instead ([versions](#versions-and-routes)) and passes. On `main` only,
+   `Deployment gate` refuses an artifact built from uncommitted changes, from another commit than
+   `GITHUB_SHA`, or with a release edition that is not its asset, rendered from source or
+   previewed (the build's recorded value of `Regula.publishable`), and the checked `_site/` is
+   then uploaded as the Pages artifact. So when `release-verify` or `release-site` fails on
+   `main`, `publish` is skipped, the gate refuses the preview, this job fails and nothing is
+   deployed. Pull requests never publish.
 8. `deploy` (`main` only, after `verify` and `site`): a dependency-free step asks the GitHub API
    (default token, `contents: read`) whether this commit is still the head of `main` and refuses
    otherwise; then `actions/deploy-pages` publishes exactly the validated artifact to the
@@ -238,15 +242,23 @@ unreadable archive, a symbolic link, a copy without a home page, and a copy whos
 does not record a clean build of that release for this site. A build renders a release's edition
 from source only while no asset exists, only as a build of that release, and only while its tag
 `v<version>` is absent or names the build's commit (`releaseSource_render_iff`): in CI, the
-release commit before publication. Any other build refuses a release without an asset, so a
-release edition cannot silently drop out of a deployment or be replaced; until a release is
-published, that includes the site build of the release pull request and of every commit that
-lists the release. A build whose `installed` is a release refuses once that tag names another
-commit (`labelAdmitted_release_iff`); the tag is read with `git ls-remote` because CI checkouts
-have no tags. That no commit of `main` or of a pull request carries a release label is the first
-step of `verify`. A deployment serves every release edition from its asset: the build records in
-`build.json` whether its artifact is `publishable` (no release edition rendered from source), and
-`Deployment gate` refuses an artifact that is not. Only a clean build that rendered its release's
+release commit before publication. An unreleased build previews a release's edition only while
+no asset exists, only for the latest listed release, and only while its tag `v<version>` is
+absent (`releaseSource_preview_iff`): the release pull request, and every unreleased commit that
+lists the release until it is published. The preview is the edition that build renders from its
+own sources, without a release label, placed at `v/<version>/`, so the artifact check runs over
+a tree that has the new edition's routes, into which the site root's link and the older
+editions' banners resolve; it is not the release's edition, whose pages only a build with the
+release label renders. Any other
+build refuses a release without an asset, so a release edition cannot silently drop out of a
+deployment or be replaced: publishing a release creates its tag, so a published release whose
+asset is missing has a tag and is refused, not previewed. A build whose `installed` is a release
+refuses once that tag names another commit (`labelAdmitted_release_iff`); the tags are read with
+`git ls-remote` because CI checkouts have no tags. That no commit of `main` or of a pull request
+carries a release label is the first step of `verify`. A deployment serves every release edition
+from its asset: the build records in `build.json` whether its artifact is `publishable` (every
+release edition is its asset, `publishable_iff`), and `Deployment gate` refuses an artifact that
+is not. Only a clean build that rendered its release's
 edition writes it as the release asset, and CI attaches it only once every check of that release
 commit has passed. That the asset stays the one attached at release rests on GitHub: immutable
 releases, a repository setting that is on, forbid changing a published release's tag or assets.
@@ -258,7 +270,8 @@ A release takes these steps, in order ([release procedure](contributing.md#relea
    workflow derives and its toolchain, to `Regula.releases`
    ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)), sets `lakefile.lean`'s
    `version`, adds it to the adoption guide's compatibility table and stamps it into rule
-   lifecycle positions still `.unreleased`; `Regula.installed` stays `.unreleased`.
+   lifecycle positions still `.unreleased`; `Regula.installed` stays `.unreleased`. Its `site`
+   check passes with a preview of the release's edition, which is never deployed.
 2. When it merges, CI on `main`, once acceptance and the rule-example shards pass, creates the
    release commit, a child of the head of `main` that is not on `main` and whose only change sets
    `Regula.installed` to the release, and runs both acceptance steps, both rule-example shards
