@@ -1,10 +1,12 @@
 name: Diagnostics
 
 # Capability-triggered qualification campaigns (standard §7.8): the producer and history
-# campaigns, and the `lake lint` dispatch over the maintained adopter fixtures, which crosses
-# Lake, process and filesystem boundaries that the driver's proofs do not cover. They run when
-# the checker, rules, rule examples, adopter fixtures, Lake configuration or manifests change,
-# always on main, and nightly. They are diagnostics, not a partition of ordinary acceptance.
+# campaigns, the `lake lint` dispatch over the maintained adopter fixtures, which crosses
+# Lake, process and filesystem boundaries that the driver's proofs do not cover, and the
+# checker self-test's structural and execution partitions. They run when the checker,
+# rules, rule examples, adopter fixtures, the application and fixture sources those two
+# partitions mutate, Lake configuration or manifests change, always on main, and nightly. They
+# are diagnostics, not a partition of ordinary acceptance.
 on:
   pull_request:
     paths:
@@ -14,6 +16,10 @@ on:
       - lean/RegulaCore/**
       - lean/RegulaQualification/**
       - lean/RegulaVerification.lean
+      - lean/AuditApp/**
+      - lean/AuditApp.lean
+      - lean/Main.lean
+      - lean/Fixtures/**
       - audit/lakefile.lean
       - audit/lake-manifest.json
       - audit/foundation_manifest.json
@@ -53,6 +59,8 @@ jobs:
           - diagnostics producers
           - diagnostics history
           - diagnostics lint-driver
+          - diagnostics structural
+          - diagnostics execution
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

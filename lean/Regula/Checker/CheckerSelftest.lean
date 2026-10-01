@@ -16,8 +16,8 @@ re-paying it per verdict:
 
 * The **default tier** attacks declaration policy with every fixed fixture,
   attacks the Markdown protocol in memory and through the in-process fence
-  auditor, attacks strict manifest parsing, and applies every structural
-  mutation in parallel isolated project copies. Fixture verdicts are computed
+  auditor, attacks strict manifest parsing, and applies every structural and
+  compiler-path mutation in parallel isolated projects. Fixture verdicts are computed
   in this process: all fixture sources compile in bounded parallel batches and
   are then inspected by isolated group workers, using
   the same `SourceAudit`/`Environment`/`Frontend`/`Policy` functions the public
@@ -33,13 +33,17 @@ re-paying it per verdict:
   changes, plus CI.
 
 With `--build-bound`, the closed partitions are `fixtures` (in-process fixtures,
-scanner, and fence corpus), `structural` (structural/compiler-path and
-manifest controls), `cli` (the complete CLI sweep), `environments` (packaging
-and fresh-state controls), `build-policy` (ordinary-build enforcement), and `lint-driver` (`lake
-lint`
-dispatch and exit classes).
+scanner, and fence corpus), `structural` (structural and manifest controls),
+`execution` (the compiler-path mutations and the correspondence controls), `cli` (the
+complete CLI sweep), `environments` (packaging and fresh-state controls), `build-policy`
+(ordinary-build enforcement), and `lint-driver` (`lake lint` dispatch and exit classes).
 Each starts with the same baseline preparation.
 Their disjoint union is the full run; no partition alone reports full qualification.
+
+The structural and correspondence clusters run in the structural project
+(`StructuralProject`): the repository's package restricted to the application, so a gate there
+builds and inspects the application alone. The one control that needs the checker's own
+package as the audited project runs in a copy of the repository (`structuralSelfHosted`).
 
 It is intentionally qualification-only, not an ordinary build.
 -/
@@ -86,8 +90,11 @@ structure FixtureSpec where
 inductive Partition where
   /-- In-process fixture verdicts, the Markdown scanner and the fence corpus. -/
   | fixtures
-  /-- Structural, compiler-path and manifest controls. -/
+  /-- Structural and manifest controls. -/
   | structural
+  /-- Execution-evidence controls: the compiler-path mutations and the correspondence
+  controls, each with its positive and fresh restoration. -/
+  | execution
   /-- Every fixture through a real `axiomGate --file` invocation, and the source-attribution
   controls. -/
   | cli
@@ -102,6 +109,7 @@ inductive Partition where
 private def Partition.label : Partition → String
   | .fixtures => "fixtures"
   | .structural => "structural"
+  | .execution => "execution"
   | .cli => "cli"
   | .environments => "environments"
   | .buildPolicy => "build-policy"
@@ -109,7 +117,7 @@ private def Partition.label : Partition → String
 
 /-- The full run enumerates each supported partition exactly once. -/
 private def Partition.all : List Partition :=
-    [.fixtures, .structural, .cli, .environments, .buildPolicy, .lintDriver]
+    [.fixtures, .structural, .execution, .cli, .environments, .buildPolicy, .lintDriver]
 
 private theorem Partition.all_complete (partition : Partition) : partition ∈ all := by
   cases partition <;> simp [all]
@@ -120,7 +128,8 @@ private theorem Partition.all_nodup : all.Nodup := by decide
 structure Options where
   /-- `--jobs N`: the number of parallel workers; must be positive. -/
   jobs : Nat := 4
-  /-- `--structural-only`: run only the structural controls after the baseline build. -/
+  /-- `--structural-only`: run only the structural and execution controls after the baseline
+  build. -/
   structuralOnly : Bool := false
   /-- `--build-bound`: also run the conditional, build-bound tier. -/
   buildBound : Bool := false
@@ -131,12 +140,12 @@ structure Options where
 
 private def usage : String :=
   "usage: lake exe checkerSelftest -- [--jobs N] [--structural-only] [--build-bound [--partition \
-    fixtures|structural|cli|environments|build-policy|lint-driver]]\n" ++
+    fixtures|structural|execution|cli|environments|build-policy|lint-driver]]\n" ++
   "--fences-only: focused in-process and public fence qualification, without the full suite\n" ++
   "default tier: every planted-defect verdict in one process plus a real-CLI smoke tier\n" ++
   "--build-bound: additionally run the conditional tier (real-CLI sweep, end-to-end\n" ++
   "fence corpus, external adopters, clean-checkout environment, public controls)\n" ++
-  "--partition: run only the named build-bound group; all six groups are required for full \
+  "--partition: run only the named build-bound group; all seven groups are required for full \
     qualification"
 
 private def parseArgs : List String → Options → IO Options
@@ -161,6 +170,7 @@ private def parseArgs : List String → Options → IO Options
       let partition ← match value with
         | "fixtures" => pure Partition.fixtures
         | "structural" => pure Partition.structural
+        | "execution" => pure Partition.execution
         | "cli" => pure Partition.cli
         | "environments" => pure Partition.environments
         | "build-policy" => pure Partition.buildPolicy
@@ -183,18 +193,135 @@ private def optionalString (value : Json) (key where_ : String) : IO (Option Str
   | .ok (.str text) => return some text
   | .ok _ => throw <| IO.userError s!"{where_}.{key} must be a string"
 
+/-- The library the structural project claims: the complete-application dogfooding surface. -/
+private def structuralApplication : String := "AuditApp"
+
+/-- The module of an excluded library that the structural project starts with: the
+contamination controls import it into the claimed library. -/
+private def structuralFixture : Name := `Fixtures.Mutations.DirectAxiom
+
+/-- The structural project: the repository's own package restricted to its application. Its
+root targets are the application library, the executables the repository's manifest claims on
+it, and the libraries owning the excluded fixture module or a root-package module the
+application imports; its sources are the application's modules, those executables' roots, the
+fixture module and every root-package module they import, directly or not. The package keeps
+the repository's name, source directory and Lean options, and each target the roots, globs,
+source directory and Lean options of its own configuration, as Lake reports them, so a kept
+library owns in the project exactly its modules whose sources are present, and a target a
+control adds inherits the package's options as it would in the repository. The project
+requires no package, and the checker probe's own imports outside it resolve to the running
+checker's library, so no gate in it builds or inspects a library the application does not
+import. -/
+private structure StructuralProject where
+  /-- The project's `lakefile.lean`. -/
+  lakefile : String
+  /-- The project's sources, relative to the repository root. -/
+  sources : Array FilePath
+  /-- The project's root libraries, as the manifest spells them. -/
+  libraries : Array String
+  /-- The application's claimed executables, as the manifest spells them. -/
+  executables : Array String
+
+/-- A configuration's own Lean options, as the `leanOptions` field of a `lakefile.lean`. -/
+private def renderOptions (options : Array Lean.LeanOption) : String :=
+  let values := options.toList.map fun option =>
+    let value := match option.value with
+      | .ofString s => s!".ofString {repr s}"
+      | .ofBool b => s!".ofBool {b}"
+      | .ofNat n => s!".ofNat {n}"
+    s!"⟨`{option.name}, {value}⟩"
+  s!"#[{", ".intercalate values}]"
+
+/-- The structural project carries Lean options only: a target Lake builds with extra `lean`
+arguments is refused, not built without them. -/
+private def refuseArguments (target : String)
+    (options : RegulaPolicy.Community.BuildOptions) : IO Unit :=
+  unless options.arguments.isEmpty do
+    throw <| IO.userError s!"self-test: the structural project cannot carry the extra lean \
+      arguments of {target}: {options.arguments}"
+
+private def renderGlob : _root_.Lake.Glob → String
+  | .one name => s!".one `{name}"
+  | .submodules name => s!".submodules `{name}"
+  | .andSubmodules name => s!".andSubmodules `{name}"
+
+/-- Derive the structural project from the repository's loaded workspace and parsed manifest.
+Module ownership, sources, imports of root-package modules and target configuration are Lake's
+own (`Workspace.findModule?`, `Lean.parseImports'`); nothing is a fixed file list. -/
+private def structuralProject (manifest : Manifest) (ws : _root_.Lake.Workspace) :
+    IO StructuralProject := do
+  let pkg := ws.root
+  let spelling (name : Name) := Manifest.targetSpelling name
+  let some application := pkg.leanLibs.find? (spelling ·.name == structuralApplication)
+    | throw <| IO.userError s!"self-test: Lake omitted the {structuralApplication} library"
+  let some fixture := ws.findModule? structuralFixture
+    | throw <| IO.userError s!"self-test: Lake omitted the module {structuralFixture}"
+  let claimed := (manifest.surfaces.filter (·.library == structuralApplication)).flatMap
+    (·.executables)
+  let executables := pkg.leanExes.filter (claimed.contains <| spelling ·.name)
+  unless executables.size == claimed.size do
+    throw <| IO.userError
+      s!"self-test: Lake omitted a claimed executable of {structuralApplication}"
+  let mut pending := (← application.getModuleArray).toList ++ [fixture] ++
+    executables.toList.map (·.root)
+  let mut modules : Array _root_.Lake.Module := #[]
+  repeat
+    let next :: rest := pending | break
+    pending := rest
+    if modules.any (·.name == next.name) then continue
+    modules := modules.push next
+    let header ← Lean.parseImports' (← IO.FS.readFile next.leanFile) next.leanFile.toString
+    for imported in header.imports do
+      if let some found := ws.findModule? imported.module then
+        if found.pkg.keyName == pkg.keyName then pending := found :: pending
+  let libraries := pkg.leanLibs.filter fun library =>
+    modules.any (·.lib.name == library.name)
+  let base := pkg.dir.normalize.components
+  let mut sources : Array FilePath := #[]
+  for owned in modules do
+    let components := owned.leanFile.normalize.components
+    unless base.isPrefixOf components do
+      throw <| IO.userError s!"self-test: {owned.leanFile} is outside the repository"
+    sources := sources.push (System.mkFilePath (components.drop base.length))
+  let mut lakefile := "import Lake\nopen Lake DSL\n\n" ++
+    s!"package «{pkg.baseName}» where\n  srcDir := {repr pkg.config.srcDir.toString}\n" ++
+    s!"  leanOptions := {renderOptions pkg.config.leanOptions}\n"
+  for library in libraries do
+    refuseArguments (spelling library.name) (Lake.libraryOptions library)
+    lakefile := lakefile ++ s!"\nlean_lib «{library.name}» where\n" ++
+      s!"  srcDir := {repr library.config.srcDir.toString}\n" ++
+      s!"  roots := #[{", ".intercalate (library.config.roots.toList.map (s!"`{·}"))}]\n" ++
+      s!"  globs := #[{", ".intercalate (library.config.globs.toList.map renderGlob)}]\n" ++
+      s!"  leanOptions := {renderOptions library.config.leanOptions}\n"
+  for executable in executables do
+    refuseArguments (spelling executable.name) (Lake.executableOptions executable)
+    lakefile := lakefile ++ s!"\nlean_exe «{executable.name}» where\n" ++
+      s!"  root := `{executable.root.name}\n" ++
+      s!"  supportInterpreter := {executable.supportInterpreter}\n" ++
+      s!"  leanOptions := {renderOptions executable.config.leanOptions}\n"
+  return {
+    lakefile, sources
+    libraries := libraries.map (spelling ·.name)
+    executables := executables.map (spelling ·.name) }
+
 /-- Immutable Lake-derived coordinates, acquired before fixture imports can
 register additional environment extensions. Scratch controls reanchor the
 relative directory without loading cold Lake configurations in this process. -/
 private structure SourceLayout where
   relativeDir : FilePath
+  /-- The structural project derived from the repository (`structuralProject`). -/
+  project : StructuralProject
 
 private def loadSourceLayout (repo : FilePath) : IO SourceLayout := do
-  let relativeDir ← Workspace.withRootWorkspace repo fun ws => pure ws.root.config.srcDir.normalize
-  if relativeDir.isAbsolute || relativeDir.components.contains ".." then
-    throw <|
-        IO.userError "self-test: package source directory must stay inside the copied repository"
-  return { relativeDir }
+  let manifestPath := Manifest.defaultPath repo
+  let manifest ← IO.ofExcept <|
+    Manifest.parse manifestPath.toString (← IO.FS.readFile manifestPath)
+  Workspace.withRootWorkspace repo fun ws => do
+    let relativeDir := ws.root.config.srcDir.normalize
+    if relativeDir.isAbsolute || relativeDir.components.contains ".." then
+      throw <| IO.userError
+        "self-test: package source directory must stay inside the copied repository"
+    return { relativeDir, project := ← structuralProject manifest ws }
 
 private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
     (Array FixtureSpec) := do
@@ -981,47 +1108,80 @@ private def expectedFailure (name : String) (result : ProcessResult)
     some s!"structural/{name}: missing diagnostic {repr missing}:\n{result.output}"
   else none
 
-/-- `AuditApp` and the policy library the probe imports; every other library stays excluded. -/
-private def structuralClaims : Array String := #["AuditApp", "RegulaPolicy"]
-
-/-- Manifest claimed inside every structural copy: the actual repository manifest's
-`AuditApp` surface and the `RegulaPolicy` surface, with every other actual library
-and executable excluded. `RegulaPolicy` must stay claimed because the checker probe's
-own imports resolve to it inside a self-hosted copy. It is derived from the actual
-manifest, so `Manifest.structural_libraries` and `structural_executables` make the
-classified names of this in-memory manifest exactly the actual ones.
-`Manifest.structural_roundtrip` proves that the JSON value stage of the gate's `parse` recovers
-this manifest exactly from `Manifest.toJson` and that its identity stage
-(`Manifest.recordTargets`) returns it unchanged. Its hypothesis that the copy claims an actual
-surface is what the guard below checks at run time, not a theorem. Rendering with
-`Json.compress` and reading with `PolicyCodec.parse` stay trusted,
-as do the `auditAppVariant` rewrites. The mutations'
-intended reasons are surface-content-agnostic; the
-heavy-surface end-to-end coverage stays in the conditional tier's public-surface
-control and the standalone CI gate. -/
-private def structuralBase (repo : FilePath) : IO Manifest := do
+/-- Manifest of the structural project: the actual repository manifest's entries for the
+project's libraries, so the application surface keeps its actual claim, execution claim and
+executables, and every other library of the project its actual classification. It is derived
+from the actual manifest: `Manifest.restrict_libraries` makes its classified libraries exactly
+the actual ones among the project's, and `Manifest.executables_restrict` its executables
+exactly those the kept surfaces claim. `Manifest.restrict_roundtrip` proves that the JSON value
+stage of the gate's `parse` recovers this manifest exactly from `Manifest.toJson` and that its
+identity stage (`Manifest.recordTargets`) returns it unchanged. Its hypothesis that the
+restriction keeps a surface is what the first guard below checks at run time, not a theorem.
+The second guard requires the application to be the only claimed library of the project, so
+its executables are exactly the project's (`StructuralProject.executables`) and no gate in the
+project inspects another library. Rendering with `Json.compress` and reading with
+`PolicyCodec.parse` stay trusted, as do the `auditAppVariant` rewrites. The mutations' intended
+reasons are surface-content-agnostic; the heavy-surface end-to-end coverage stays in the
+conditional tier's public-surface control and the standalone CI gate. -/
+private def structuralBase (layout : SourceLayout) (repo : FilePath) : IO Manifest := do
   let actual ← parsedManifest (Manifest.defaultPath repo)
-  for library in structuralClaims do
+  let base := Manifest.restrict actual layout.project.libraries
+  unless base.surfaces.any (·.library == structuralApplication) do
+    throw <| IO.userError s!"structural control requires the actual {structuralApplication} surface"
+  unless base.surfaces.all (·.library == structuralApplication) do
+    throw <| IO.userError s!"structural control: {structuralApplication} imports a module of \
+      another claimed library, which the structural project would have to claim too: \
+      {base.surfaces.map (·.library)}"
+  return base
+
+private def structuralManifestText (layout : SourceLayout) (repo : FilePath) : IO String := do
+  return (Manifest.toJson (← structuralBase layout repo)).compress
+
+/-- `AuditApp` and the policy library the probe imports; every other library stays excluded. -/
+private def selfHostedClaims : Array String := #[structuralApplication, "RegulaPolicy"]
+
+/-- Manifest claimed inside the self-hosted copy (`structuralSelfHosted`): the actual repository
+manifest's `AuditApp` surface and the `RegulaPolicy` surface, with every other actual library
+and executable excluded. `RegulaPolicy` must stay claimed because the checker probe's own
+imports resolve to it inside a self-hosted copy. `Manifest.structural_libraries` and
+`structural_executables` make the classified names of this in-memory manifest exactly the
+actual ones, and `Manifest.structural_roundtrip` covers what the gate reads of it, under the
+hypothesis the guard below checks at run time. -/
+private def selfHostedManifestText (repo : FilePath) : IO String := do
+  let actual ← parsedManifest (Manifest.defaultPath repo)
+  for library in selfHostedClaims do
     unless actual.surfaces.any (·.library == library) do
       throw <| IO.userError s!"structural control requires the actual {library} surface"
-  return Manifest.structuralManifest actual structuralClaims
-
-private def structuralManifestText (repo : FilePath) : IO String := do
-  return (Manifest.toJson (← structuralBase repo)).compress
+  return (Manifest.toJson (Manifest.structuralManifest actual selfHostedClaims)).compress
 
 /-- A structural manifest whose `AuditApp` surface claims exactly `executables`; the actual
 `AuditApp` executables it no longer claims are excluded when `excludeApp`, and otherwise
 left unclassified. -/
-private def auditAppVariant (repo : FilePath) (executables : Array String) (excludeApp : Bool) :
-    IO String := do
-  let base ← structuralBase repo
-  let released := (base.surfaces.filter (·.library == "AuditApp")).flatMap (·.executables)
-    |>.filter (!executables.contains ·)
+private def auditAppVariant (layout : SourceLayout) (repo : FilePath)
+    (executables : Array String) (excludeApp : Bool) : IO String := do
+  let base ← structuralBase layout repo
+  let released := (base.surfaces.filter (·.library == structuralApplication)).flatMap
+    (·.executables) |>.filter (!executables.contains ·)
   let surfaces := base.surfaces.map fun s =>
-    if s.library == "AuditApp" then { s with executables } else s
+    if s.library == structuralApplication then { s with executables } else s
   let excludedExecutables := if excludeApp then
     base.excludedExecutables ++ released.map (⟨·, "application"⟩) else base.excludedExecutables
   return (Manifest.toJson { base with surfaces, excludedExecutables }).compress
+
+/-- The structural project in `copy` (`StructuralProject`): its sources at their places in the
+repository, its Lake configuration, the repository's toolchain pin and lock manifest, and the
+manifest of `structuralBase`. -/
+private def prepareStructuralProject (layout : SourceLayout) (repo copy : FilePath) :
+    IO Unit := do
+  for relative in layout.project.sources do
+    let destination := copy / relative
+    if let some parent := destination.parent then IO.FS.createDirAll parent
+    IO.FS.writeBinFile destination (← IO.FS.readBinFile (repo / relative))
+  for file in #["lean-toolchain", "lake-manifest.json"] do
+    IO.FS.writeBinFile (copy / file) (← IO.FS.readBinFile (repo / file))
+  IO.FS.writeFile (copy / "lakefile.lean") layout.project.lakefile
+  IO.FS.writeFile (copy / "foundation_manifest.json")
+    ((← structuralManifestText layout repo) ++ "\n")
 
 /-- Structural mutation cluster: discovery of added modules, suppressed
 warnings, and contamination of the claimed library root by excluded fixture
@@ -1077,16 +1237,6 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
     if let some failure := expectedFailure "fixture-contamination" (← gate)
         #["unexpected-project-module", "Fixtures.Mutations.DirectAxiom"] then
       failures.modify (·.push failure)
-  -- The probe modules are exempt from the environment-level exclusion check
-  -- (the force import always brings them in); a claimed module importing the
-  -- probe's report records must still be rejected as excluded-module
-  -- contamination.
-  let probeContaminated := originalRoot.replace "import AuditApp.Demo\n"
-    "import AuditApp.Demo\nimport Regula.Report\n"
-  withReplacedFile appRoot probeContaminated do
-    if let some failure := expectedFailure "probe-contamination" (← gate)
-        #["unexpected-project-module", "Regula.Report"] then
-      failures.modify (·.push failure)
   let prefixFixture := sources / "Fixtures" / "Mutations" / "PrefixLookalike.lean"
   withNewFile prefixFixture "axiom AuditApp.lookalike_project_axiom : False\n" do
     let prefixed := originalRoot.replace "import AuditApp.Demo\n"
@@ -1098,6 +1248,31 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
   let restored ← gate #[]
   if !restored.succeeded then
     failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
+  failures.get
+
+/-- The one structural control that needs the checker's own package as the audited project: in
+a copy of the repository, the probe modules are exempt from the environment-level exclusion
+check (the force import always brings them in), and a claimed module importing the probe's
+report records must still be rejected as excluded-module contamination. The structural
+project has no source for that module, so the import there could not be this contamination.
+The copy claims `selfHostedManifestText`, so its gates build and inspect `RegulaPolicy` too. -/
+private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
+    (Array String) := do
+  let failures ← IO.mkRef (#[] : Array String)
+  let gate (args : Array String := #["--incremental"]) :=
+    runBinaryFrom repo copy "axiomGate" args
+  let appRoot := copy / layout.relativeDir / "AuditApp.lean"
+  let originalRoot ← IO.FS.readFile appRoot
+  let probeContaminated := originalRoot.replace "import AuditApp.Demo\n"
+    "import AuditApp.Demo\nimport Regula.Report\n"
+  withReplacedFile appRoot probeContaminated do
+    if let some failure := expectedFailure "probe-contamination" (← gate)
+        #["unexpected-project-module", "Regula.Report"] then
+      failures.modify (·.push failure)
+  let restored ← gate #[]
+  if !restored.succeeded then
+    failures.modify (·.push
+      s!"structural/self-hosted/restored: final fresh gate failed:\n{restored.output}")
   failures.get
 
 /-- Structural mutation cluster: unlisted root-owned modules, unclassified
@@ -1117,7 +1292,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
   -- which Lake never compiled), so this control claims the `AuditApp` library
   -- and classifies the application executable as excluded.
   let libOnlyManifest := copy / "lib-only.json"
-  IO.FS.writeFile libOnlyManifest (← auditAppVariant repo #[] true)
+  IO.FS.writeFile libOnlyManifest (← auditAppVariant layout repo #[] true)
   withNewFile (sources / "AuditLookalike.lean") "axiom Attack.lookalikeAxiom : False\n" do
     let outputDir := copy / ".lake" / "build" / "lib" / "lean"
     IO.FS.createDirAll outputDir
@@ -1148,7 +1323,7 @@ private unsafe def structuralPartB (layout : SourceLayout) (repo copy : FilePath
   -- The claimed-exe controls claim the added executable beside the application's: both roots
   -- define `main`, so the positive control also requires each root to be inspected in an
   -- environment of its own (`census_executable_alone`).
-  let claimedManifestText ← auditAppVariant repo #["auditApp", "selftestTool"] true
+  let claimedManifestText ← auditAppVariant layout repo #["auditApp", "selftestTool"] true
   let claimedGate := gate #["--manifest", claimedManifest.toString, "--incremental"]
   withNewFile (sources / "SelftestMain.lean") "/-! Standalone no-effect IO entrypoint. -/\n/-- \
     Does nothing. -/\ndef main : IO Unit := pure ()\n" do
@@ -1194,7 +1369,7 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
   let appOmittedManifest := copy / "app-omitted-exe.json"
-  IO.FS.writeFile appOmittedManifest (← auditAppVariant repo #[] false)
+  IO.FS.writeFile appOmittedManifest (← auditAppVariant layout repo #[] false)
   if let some failure := expectedFailure "app-omitted-exe"
       (← gate #["--manifest", appOmittedManifest.toString, "--incremental"])
       #["manifest-incomplete", "auditApp"] then
@@ -1230,11 +1405,9 @@ private unsafe def structuralPartC (layout : SourceLayout) (repo copy : FilePath
     "if _h : 0 < capacity then" "if _h : 0 ≤ capacity then"
     #["build-failed", "hpos", "0 <", "0 ≤"]
   -- Empty-exclusion acceptance is covered by adopterQualification's fresh
-  -- standalone library/executable controls in both Lake formats. Reusing those
-  -- avoids a second, dependency-fragile copy of the application as an adopter.
-  let restored ← gate #[]
-  if !restored.succeeded then
-    failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
+  -- standalone library/executable controls in both Lake formats.
+  -- The last mutation's own fresh restored gate is this cluster's final restored control: the
+  -- manifest control before the mutations changes no file of the copy, and nothing follows it.
   failures.get
 
 /-- A claimed module in which `simp` realizes `Except.mapError.eq_1`, which the toolchain's
@@ -1623,7 +1796,9 @@ private def correspondenceRestoration (layout : SourceLayout) (repo scratch : Fi
       continue
     let source := scratch / s!"{fixture}.lean"
     withNewFile source positive do
-      let gate := runBinary repo "axiomGate"
+      -- In this cluster's own project: its file audits build only that project's claimed
+      -- targets, so they run no Lake build in the repository beside the other items.
+      let gate := runBinaryFrom repo scratch "axiomGate"
         #["--file", source.toString, "--claim", "standard-logical", "--execution", "checked"]
       let green ← gate
       if !green.succeeded || !green.output.contains "correspondence=checked" then
@@ -1681,31 +1856,7 @@ private unsafe def structuralCorrespondence (layout : SourceLayout) (repo copy :
         if !restored.succeeded || !restored.output.contains "kernel-defeq" then
           failures.modify
               (·.push s!"correspondence/restored: fresh control failed:\n{restored.output}")
-  for failure in ← correspondenceRestoration layout repo copy do
-    failures.modify (·.push failure)
   failures.get
-
-/-- Structural qualification: the mutation clusters run in parallel, each in
-its own isolated project copy claiming the derived structural surfaces, so no
-two concurrent Lake builds ever share a build directory. -/
-private unsafe def structuralQualification (layout : SourceLayout) (repo scratch : FilePath)
-    (jobs : Nat)
-    : IO (Array String) := do
-  let parts : Array (FilePath → FilePath → IO (Array String)) :=
-    #[structuralPartA layout, structuralPartB layout, structuralPartC layout,
-        structuralPartD layout, structuralCorrespondence layout,
-      CompilerPaths.qualify]
-  let results ← mapConcurrent (min parts.size (max 1 jobs))
-    (parts.mapIdx fun index part => (index, part)) fun (index, part) => do
-      let copy := scratch / s!"copy{index + 1}"
-      prepareScratchRepo repo copy
-      IO.FS.writeFile (copy / "foundation_manifest.json") ((← structuralManifestText repo) ++ "\n")
-      let setup ← runProcess copy "lake"
-        #["build", "AuditApp", "auditApp", "Fixtures.Mutations.DirectAxiom"]
-      if !setup.succeeded then
-        return #[s!"structural/setup: copy{index + 1} baseline did not build:\n{setup.output}"]
-      part repo copy
-  return results.foldl (· ++ ·) #[]
 
 /-- Flush phase boundaries so CI timestamps and elapsed times identify the
 actual work, even when stdout is redirected. Timings are observations only. -/
@@ -1716,6 +1867,73 @@ private def timedPhase {α : Type} (label : String) (action : IO α) : IO α := 
   try action finally
     IO.println s!"phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms"
     (← IO.getStdout).flush
+
+/-- One cluster of controls: its own isolated project below `scratch`, prepared by `prepare`
+and built, then the controls of `part` in it. A baseline that does not build is the cluster's
+failure. -/
+private def cluster (repo scratch : FilePath) (name : String) (prepare : FilePath → IO Unit)
+    (targets : Array String) (part : FilePath → FilePath → IO (Array String)) :
+    String × IO (Array String) :=
+  (name, do
+    let copy := scratch / s!"copy-{name}"
+    let setup ← timedPhase s!"cluster {name} setup" do
+      prepare copy
+      runProcess copy "lake" (#["build"] ++ targets)
+    if !setup.succeeded then
+      return #[s!"structural/setup: copy-{name} baseline did not build:\n{setup.output}"]
+    part repo copy)
+
+/-- The application's library and claimed executables, as Lake targets. -/
+private def applicationTargets (layout : SourceLayout) : Array String :=
+  #[structuralApplication] ++ layout.project.executables
+
+/-- A cluster whose project is the structural project (`prepareStructuralProject`). Its gates
+only read the checker's output that the baseline build completed. -/
+private def projectCluster (layout : SourceLayout) (repo scratch : FilePath) (name : String)
+    (part : FilePath → FilePath → IO (Array String)) : String × IO (Array String) :=
+  cluster repo scratch name (prepareStructuralProject layout repo)
+    ((applicationTargets layout).push structuralFixture.toString) part
+
+/-- Run the named items on `jobs` workers, each taking the next waiting item as soon as it is
+free, and collect their failures. Every item prints its own elapsed time. -/
+private def qualifyItems (label : String) (jobs : Nat)
+    (items : Array (String × IO (Array String))) : IO (Array String) := do
+  let results ← mapWorkQueue (max 1 jobs) items fun (name, run) =>
+    timedPhase s!"{label} {name}" run
+  return results.foldl (· ++ ·) #[]
+
+/-- Structural qualification: the mutation clusters run on `jobs` workers, each in its own
+isolated project, so no two concurrent Lake builds ever write one build directory. Each
+cluster's project is the structural project; the self-hosted cluster's is a copy of the
+repository. The longest observed cluster is first in the queue. -/
+private unsafe def structuralQualification (layout : SourceLayout) (repo scratch : FilePath)
+    (jobs : Nat)
+    : IO (Array String) :=
+  let selfHosted := cluster repo scratch "self-hosted" (fun copy => do
+      prepareScratchRepo repo copy
+      IO.FS.writeFile (copy / "foundation_manifest.json")
+        ((← selfHostedManifestText repo) ++ "\n"))
+    (applicationTargets layout) (structuralSelfHosted layout)
+  qualifyItems "structural" jobs #[selfHosted,
+    projectCluster layout repo scratch "a" (structuralPartA layout),
+    projectCluster layout repo scratch "d" (structuralPartD layout),
+    projectCluster layout repo scratch "c" (structuralPartC layout),
+    projectCluster layout repo scratch "b" (structuralPartB layout)]
+
+/-- Execution qualification: the correspondence controls, in two clusters whose projects are
+the structural project, and the compiler-path cases, each phase of each case in a scratch
+project of its own below `scratch`. All run on `jobs` workers with no batch barrier between
+them, the longest observed first. -/
+private unsafe def executionQualification (layout : SourceLayout) (repo scratch : FilePath)
+    (jobs : Nat) : IO (Array String) := do
+  let compilerPaths := scratch / "compiler-paths"
+  IO.FS.createDirAll compilerPaths
+  qualifyItems "execution" jobs <|
+    #[projectCluster layout repo scratch "correspondence-restoration"
+        (correspondenceRestoration layout),
+      projectCluster layout repo scratch "correspondence" (structuralCorrespondence layout)] ++
+    (CompilerPaths.qualifications repo compilerPaths).map fun (name, run) =>
+      (s!"compiler path {name}", run)
 
 /-- Two mutually independent modules, so the fresh control has two maximal roots. -/
 private def freshControlStems : Array String := #["Left", "Right"]
@@ -1989,8 +2207,8 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
       (if corpus.isEmpty then "PASS" else "FAIL") ++
       s!" (scanner controls + {(fenceCorpusCases repo).size} in-process corpus cases)"
 
-/-- Structural/compiler-path mutations and manifest controls retain their
-isolated copies, task joins, and complete failure accumulation. -/
+/-- Structural mutations and manifest controls retain their isolated projects, task joins,
+and complete failure accumulation. -/
 private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
     (failures : IO.Ref (Array String)) : IO Unit := do
   let structuralTask ← IO.asTask (prio := .dedicated) do
@@ -2009,9 +2227,22 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     " (discovery, warning, contamination, exact ownership, unlisted root module, " ++
     "library and exe classification, claimed exe root, exe contamination, app exe omission, " ++
     "app missing/trivial/weakened update evidence, missing proof field, weakened admission, " ++
-    "fresh coverage, realized and unchecked duplicate copies, conditional correspondence, " ++
-    "restore; " ++
-    "isolated copies, bounded parallelism)"
+    "fresh coverage, realized and unchecked duplicate copies, restore; " ++
+    "isolated projects, bounded parallelism)"
+
+/-- Execution-evidence controls: the correspondence controls and every compiler-path case,
+each with its positive, mutation and fresh restoration in an isolated project. -/
+private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
+    (failures : IO.Ref (Array String)) : IO Unit := do
+  let execution ← timedPhase "execution controls" <|
+    withScratch repo "checker-execution" fun scratch =>
+      executionQualification layout repo scratch jobs
+  for failure in execution do failures.modify (·.push failure)
+  IO.println <| "self-test execution: " ++
+    (if execution.isEmpty then "PASS" else "FAIL") ++
+    s!" ({CompilerPaths.caseCount} compiler-path cases, conditional correspondence, " ++
+    "restricted-domain and universe correspondence restorations; positive, mutation and " ++
+    "fresh restoration each; isolated projects, bounded parallelism)"
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged
 smoke subset for the default development tier. -/
@@ -2104,6 +2335,7 @@ private unsafe def runPartition (layout : SourceLayout) (partition : Partition) 
   match partition with
   | .fixtures => runFixtures repo jobs fixtures failures
   | .structural => runStructural layout repo jobs failures
+  | .execution => runExecution layout repo jobs failures
   | .cli => runCli repo jobs true fixtures failures
   | .environments => runEnvironments layout repo failures
   | .buildPolicy => runBuildPolicy repo jobs failures
@@ -2285,7 +2517,8 @@ unsafe def run (args : List String) : IO UInt32 := do
   let layout ← loadSourceLayout repo
   if options.structuralOnly then
     return ← withScratch repo "checker-structural" fun scratch => do
-      let structural ← structuralQualification layout repo scratch options.jobs
+      let structural := (← structuralQualification layout repo scratch options.jobs) ++
+        (← executionQualification layout repo scratch options.jobs)
       if structural.isEmpty then
         IO.println s!"checker structural self-test: PASS (including {CompilerPaths.caseCount} \
           compiler-path mutations with fresh restorations)"
@@ -2303,6 +2536,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     else
       runFixtures repo options.jobs fixtures failures
       runStructural layout repo options.jobs failures
+      runExecution layout repo options.jobs failures
       runCli repo options.jobs false fixtures failures
   let failures ← failures.get
   if !failures.isEmpty then

@@ -27,6 +27,8 @@ inductive Mode where
   | fixtures
   /-- `diagnostics structural`: the self-test's structural partition. -/
   | structural
+  /-- `diagnostics execution`: the self-test's execution partition. -/
+  | execution
   /-- `diagnostics cli`: the self-test's command-line partition. -/
   | cli
   /-- `diagnostics environments`: the self-test's environments partition. -/
@@ -61,6 +63,7 @@ def arguments : Mode → List String
   | .diagnostics => ["diagnostics"]
   | .fixtures => ["diagnostics", "fixtures"]
   | .structural => ["diagnostics", "structural"]
+  | .execution => ["diagnostics", "execution"]
   | .cli => ["diagnostics", "cli"]
   | .environments => ["diagnostics", "environments"]
   | .buildPolicy => ["diagnostics", "build-policy"]
@@ -76,9 +79,8 @@ def arguments : Mode → List String
 
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
-  .cli, .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint, .selfAudit,
-      .ruleExamples, .ruleExamplesFirst,
-  .ruleExamplesSecond, .site]
+  .execution, .cli, .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint,
+  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site]
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -213,8 +215,8 @@ def execute (command : Command) : IO Unit := do
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics \
-    [fixtures|structural|cli|environments|build-policy|lint-driver|producers|history|self-lint|self\
-    -audit|rule-examples [1/2|2/2]]]"
+    [fixtures|structural|execution|cli|environments|build-policy|lint-driver|producers|history|\
+    self-lint|self-audit|rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdict an attempt of `mode` invalidates, with the constant text recording it
 as incomplete. -/
