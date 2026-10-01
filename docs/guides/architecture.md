@@ -111,13 +111,13 @@ context and is not an independent policy decision.
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
 bounds, character boundaries, ordering and containment; a declaration with a recorded range is
-located at it, one Lean generated without a range at the range of the declaration it is attributed
-to (`Findings.findingLocation`), a declaration without a recorded range otherwise falls back to
-module attribution, and an inconsistent supplied range fails rather than acquiring an invented
-location. `sourceFromReport` additionally requires the recorded code-point and UTF-16
-coordinates to agree with that text. Report lines are one-based and columns count
-Unicode code points; `startUtf16` and `endUtf16` are zero-based UTF-16 columns within their
-lines, computed with Lean's
+located at it, one Lean generated without a range at the range of the declaration its finding is
+attributed to, where the finding carries the attribution (`Findings.findingLocation`), a
+declaration without a recorded range otherwise falls back to module attribution, and an
+inconsistent supplied range fails rather than acquiring an invented location. `sourceFromReport`
+additionally requires the recorded code-point and UTF-16 coordinates to agree with that text.
+Report lines are one-based and columns count Unicode code points; `startUtf16` and `endUtf16` are
+zero-based UTF-16 columns within their lines, computed with Lean's
 `leanPosToLspPos`. Native messages use Lean code-point positions, and the same validated
 selection supplies both the JSON LSP range and the native position. Fence declaration findings
 use labelled virtual snippet locations whose snapshot is the exact verbatim snippet, never
@@ -239,15 +239,19 @@ metadata, not authenticated binary identity.
   `GeneratedFamily.all` and `GeneratedFamily.text`, and `RegistryChecks` requires the adoption
   guide to quote it verbatim, so the guidance and the guide name exactly the families the checker
   relates; the [enumeration](proofs-and-boundaries.md#generated-declaration-families) records
-  every family Lean v4.34.0 generates and why each is related or not. A declaration finding's
-  `arguments.sourceDeclaration` is the end of that chain over the audited declarations
+  every family Lean v4.34.0 generates and why each is related or not. In a declaration-policy
+  finding of a project audit, a file audit or a rule example (the rules `Policy.ruleForMember`
+  decides), `arguments.sourceDeclaration` is the end of that chain over the audited declarations
   (`Findings.sourceName?`), and `sourceName?_eq_some_iff` proves it is exactly the name the
   recorded relation leads to from the declaration and relates to nothing further: a declaration
   Lean did not generate from another, or one outside the audited declarations. The finding keeps
   the range Lean recorded for its declaration, as for a constructor or a field; without one, it is
   located at the source declaration's range when that has one and its module has a snapshot
-  (`Findings.findingLocation`), and its `related` then names the declaration's own module. Which
-  clause records which declaration is Lean's behavior, read from its environment, not proved;
+  (`Findings.findingLocation`), and its `related` then names the declaration's own module. Other
+  declaration findings carry no attribution: a documentation example's, a material-documentation
+  one (RG5002, RG5003) and the editor linter's record `null` and their declaration's own location
+  (`Findings.declarationLocation`). Which clause records which declaration is Lean's behavior,
+  read from its environment, not proved;
   derived instances and the declarations deriving handlers add, such as an enumeration's `ofNat`,
   are not related, since Lean records no such relation. The `lake lint` text prints the RG1005
   findings under one declaration at one location as one block, and a generated declaration with a

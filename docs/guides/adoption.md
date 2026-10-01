@@ -346,7 +346,8 @@ release (`…/regula/v/<version>/rules/<ID>/`; an unreleased build links the dev
 under `/dev/`), where the [rule index](https://rbeauchamp.github.io/regula/dev/rules/) shows each
 rule's scope, reason and a violating and corrected example produced by the real checker.
 
-Lean also generates declarations from the ones you write. A finding about one of them is reported
+Lean also generates declarations from the ones you write. In a project or file audit, a
+declaration-policy finding about one of them, such as RG1005, is reported
 at the declaration Lean generated it from, following the chain to its end, and, unless Lean
 recorded a range of its own for it, as for a constructor or a field, located at that
 declaration's range, when it belongs to one of the families the RG1005 guidance names (`lake exe
@@ -398,7 +399,7 @@ run's. Its main members:
 | `schemaVersion` | `6`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
-| `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another. For a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range, with `related` naming the declaration's own module. |
+| `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example (RG1005 and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one (RG5002, RG5003) and the editor linter's record `null` and the declaration's own location. |
 | `rules` | Once per fired rule: `requirement`, `rationale`, `remedy`, `rewrites`, `compliantExample`, `correction`, `helpUrl` and the offline `explain` command. |
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one

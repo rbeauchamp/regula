@@ -21,12 +21,15 @@ abbrev producer := Regula.Checker.Producer.identity
 `acceptance` alike, in one encoding (`RegistryCodec.printedNameJson`): the string Lean prints for
 it, and, only for a name whose printed text Lean's parser does not read back as the name, its
 structural components, an array of `["str", s]` and `["num", n]` innermost first
-(`printedNameJson_roundtrip`, `printedNameJson_eq_str_iff`). A declaration finding's
+(`printedNameJson_roundtrip`, `printedNameJson_eq_str_iff`). In a declaration-policy finding of a
+project audit, a file audit or a rule example (the rules `Policy.ruleForMember` decides),
 `arguments.sourceDeclaration` is `null`, or, for a declaration Lean generated, the declaration
 at the end of the chain it generated it from (`Findings.sourceName?`); such a finding keeps the
 range of its own declaration when it has one, and otherwise is located at that declaration's range
 when it has one and its module has a snapshot (`Findings.findingLocation`), and its `related` then
-names its own module.
+names its own module. Other declaration findings carry no attribution: a documentation
+example's, a material-documentation one and the editor linter's record `null` and their
+declaration's own location (`Findings.declarationLocation`).
 Schema 5 attributes the toolchain's own boundaries to it: a boundary a toolchain
 module (`Init`, `Std` or `Lean`, loaded from the toolchain's library) owns carries its
 `toolchainOrigin` (formerly `nativeOrigin`, which only native-runtime boundaries carried), and
