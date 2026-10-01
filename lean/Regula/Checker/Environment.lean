@@ -21,9 +21,42 @@ open scoped Regula.Report
 /-- The checker-owned probe modules force-imported into every report so the
 trusted reporter is always available: the probe and its transitive imports
 inside the checker library. They are never part of an audited surface, so
-their presence in an environment is not evidence about the claimed modules. -/
+their presence in an environment is not evidence about the claimed modules.
+
+The force import loads the whole import closure of `Regula.Probe` into the audited
+environment, and the gate's excluded-module scan (`AxiomGate.auditSurfaceAt`) exempts only
+`RegulaPolicy.infrastructureModuleNames`. So every module of that closure outside the
+toolchain (roots `Init`, `Std`, `Lean` and `Lake`) is a `RegulaPolicy` module or one of
+`RegulaPolicy.infrastructureModuleNames`: in a project that hosts this package and claims
+`RegulaPolicy`, the scan then reports no module that only the probe loaded. The command
+below refuses to elaborate this module otherwise. It walks the imports recorded in the module
+data this module loaded, starting at `Regula.Probe`, so it is a fact about this package's
+modules as built here. `infrastructureOrigins` authenticates the infrastructure modules'
+artifacts in an audited environment; what the `RegulaPolicy` names resolve to there is the
+audited project's own build, which this command does not see. -/
 def probeModuleNames : Array String :=
   RegulaPolicy.reporterModuleNames.map (·.toString)
+
+run_cmd do
+  let env ← getEnv
+  let mut pending := [`Regula.Probe]
+  let mut closure : NameSet := {}
+  repeat
+    let name :: rest := pending | break
+    pending := rest
+    if closure.contains name then continue
+    closure := closure.insert name
+    let some data := (env.getModuleIdx? name).bind fun index =>
+        env.header.moduleData[(index : Nat)]?
+      | throwError "probe import closure: module {name} is not loaded"
+    pending := data.imports.toList.map (·.module) ++ pending
+  for name in closure do
+    unless #[`Init, `Std, `Lean, `Lake, `RegulaPolicy].contains name.getRoot ||
+        RegulaPolicy.infrastructureModuleNames.contains name do
+      throwError "probe import closure: {name} is neither a RegulaPolicy module nor one of \
+        RegulaPolicy.infrastructureModuleNames, so a project that hosts this package and \
+        excludes its library would import an excluded module through the force-loaded probe; \
+        move what the probe needs from it into RegulaPolicy"
 
 /-- The probe modules no claimed module may import. `Regula.Contract` (the
 executable-contract interface, standard §7.11) and `Regula.MaterialClaim` (the

@@ -21,7 +21,7 @@ public import Lean.Class
 public import Lean.Elab.PreDefinition.Structural.Eqns
 public import Lean.Elab.PreDefinition.PartialFixpoint.Eqns
 public import Lean.Server.Rpc.RequestHandling
-public import RegulaCore.GeneratedFamily
+public import RegulaPolicy.GeneratedFamily
 public import Lean.Meta.RecExt
 public import Lean.ProjFns
 public import Lean.Util.FoldConsts
