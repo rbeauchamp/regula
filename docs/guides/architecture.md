@@ -219,9 +219,10 @@ metadata, not authenticated binary identity.
   inductive type, the type, a constructor's type or a field's default value of any type of its
   mutual block, which Lean elaborates under its first type's name), its equation information or
   `f.eq_def`'s statement uses them, or, with the chain running through the recursion helper
-  below, `f._unsafe_rec`'s value does, or, with the chain running through it, another such
-  auxiliary declaration that is itself related does, and an RPC wrapper or `initialize` action by
-  the extension that records it;
+  below, `f._unsafe_rec`'s value does, or, with the chain running through it, a declaration named
+  under `f` at any depth that is not auxiliary-named, such as a `where` or `let rec` helper, or
+  another such auxiliary declaration that is itself related does, and an RPC wrapper or
+  `initialize` action by the extension that records it;
   constructor lemmas and type constructions where the environment shows their generator ran on
   the type (its precondition, under Lean's default options, or the mark it leaves on a sibling it
   generates in the same run); and field defaults by Lean's own lookup
