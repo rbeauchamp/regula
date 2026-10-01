@@ -412,7 +412,7 @@ location is its `uri`, its ranges and a `sourceText` index, and its byte ranges 
   "sourceTexts": ["theorem reflexive : 1 = 1 := by\n  sorry\n"],
   "diagnostics": [
     { "id": "RG1002",
-      "location": { "kind": "source", "uri": "Widget/Basic.lean", "sourceText": 0,
+      "location": { "kind": "source", "uri": "/work/widget/Widget/Basic.lean", "sourceText": 0,
         "range": { "startByte": 0, "endByte": 39 },
         "selectionRange": { "startByte": 8, "endByte": 17 } } }
   ]

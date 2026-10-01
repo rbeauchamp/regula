@@ -201,9 +201,11 @@ metadata, not authenticated binary identity.
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
 - **Source texts:** since schema 7 a result file holds each distinct source text once, in its
-  top-level `sourceTexts`, and every `sourceText` member (a source location, a `sourceAccount`
-  entry, `scope`'s sources, frontend transcripts, source bindings and histories, and an
-  `acceptance` snapshot) is the index of its text there. Checker code builds and reads the
+  top-level `sourceTexts`, and every `sourceText` member (a source location; a `sourceAccount`
+  entry; in `scope`, a project's `sources`, a file audit's own text, a documentation
+  rule-example's `documents`, and the frontend transcripts, source bindings and histories; in
+  `acceptance` and `documentationAcceptance`, the snapshot's sources and an environment's
+  `fileSource`) is the index of its text there. Checker code builds and reads the
   document with the text in each member and `sourceTexts` `null`; `ResultProtocol.writeDocument`
   writes its `SourceTexts.intern`, and each reader that decodes a diagnostic or reads a text
   (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the file through
