@@ -124,9 +124,6 @@ private def parseArgs : List String → Options → IO Options
 private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
 
-private def sameStringSet (left right : Array String) : Bool :=
-  left.size == right.size && left.all right.contains && right.all left.contains
-
 /-- The recorded result of the current invocation, set wherever a project, file or combined
 documentation audit decides its result status, including without `--json-out`. Its status is
 the one the result output renders, its tally the summary counts, and its exit code the one
@@ -196,10 +193,10 @@ private def rootConflict (manifest : Manifest) (inventory : Lake.SurfaceInventor
           '{library.library}', which the manifest classifies differently"
   conflicts[0]?.getD "an executable root is classified differently from a library containing it"
 
-/-- Every root-package Lean library is classified exactly once by the manifest, and every
-root-package Lean executable is classified by it: `manifest` is one `Manifest.loadFor` admitted
-for `inventory`, which names only root executables, each once (`Manifest.parseFor_ok`,
-`Manifest.parse_sound`), so only an unclassified executable is left to refuse here. Every
+/-- Every root-package Lean library and executable is classified by the manifest: `manifest` is
+one `Manifest.loadFor` admitted for `inventory`, which names only root libraries and root
+executables, each once (`Manifest.parseFor_ok`, `Manifest.parse_sound`), so only an
+unclassified library or executable is left to refuse here. Every
 executable root is classified alike with each library containing it:
 `RegulaPolicy.RootsClassifiedAlike` over `Acceptance.configuredTargets` and
 `Acceptance.discoveredTargets`, the predicate the claimed acceptance decides again in
@@ -209,15 +206,12 @@ executables' roots: `∀ s ∈ assignments, s.library.size > 0` over the execute
 over the surfaces the audit's claim is admitted with. Shared by the audit, `doctor` and the
 read-only configuration explanation. -/
 def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory) : IO Unit := do
-  let rootLibraries := inventory.libraries.map (·.library)
   let manifested := Manifest.libraries manifest
-  if !sameStringSet manifested rootLibraries then
-    let missing := rootLibraries.filter fun name => !manifested.contains name
-    let extra := manifested.filter fun name => !rootLibraries.contains name
-    let details := (if missing.isEmpty then #[] else
-      #[s!"unclassified root Lean libraries {repr missing.toList}"]) ++
-      (if extra.isEmpty then #[] else #[s!"non-root Lean libraries {repr extra.toList}"])
-    throw <| IO.userError s!"manifest-incomplete: {"; ".intercalate details.toList}"
+  let missing := (inventory.libraries.map (·.library)).filter fun name =>
+    !manifested.contains name
+  unless missing.isEmpty do
+    throw <| IO.userError
+      s!"manifest-incomplete: unclassified root Lean libraries {repr missing.toList}"
   let manifestedExes := Manifest.executables manifest
   let missing := (inventory.executables.map (·.executable)).filter fun name =>
     !manifestedExes.contains name

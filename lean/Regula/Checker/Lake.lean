@@ -70,7 +70,8 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
       throw <| IO.userError "lake-query-malformed: root leanLibDir is empty"
     let mut libraries : Array LibraryInventory := #[]
     for lib in pkg.leanLibs do
-      let library := lib.name.toString
+      -- The recorded spelling a manifest's library names are compared with (`recordedName`).
+      let library := Manifest.targetSpelling lib.name
       let libModules ← lib.getModuleArray
       let modules := libModules.map (·.name)
       let mut sources : Array SourceEntry := #[]
@@ -89,7 +90,7 @@ def surfaceInventory (repo : FilePath) : IO SurfaceInventory :=
       throw <| IO.userError "lake-query-malformed: no root Lean libraries"
     let mut executables : Array ExecutableInventory := #[]
     for exe in pkg.leanExes do
-      -- The recorded spelling a manifest's executable names are compared with (`executableName`).
+      -- The recorded spelling a manifest's executable names are compared with (`recordedName`).
       let executable := Manifest.targetSpelling exe.name
       let root := exe.root.name
       let source ← checkSource repo s!"executable {executable}"

@@ -1253,24 +1253,26 @@ the module's `collectAxioms` command). `parse_sound` and `parse_input`: every ma
 `parse` accepts satisfies `Manifest.Valid` (nonempty surfaces, duplicate-free library and
 executable names across surfaces and exclusions, well-formed target names, no compiler-trusting
 claim, a nonempty rationale for every entry) and comes from JSON whose keys are all allowed and
-whose schema version is 2, each array decoding element by element in order. Every library name
-and rationale is the JSON string, the claim is `Profile.parse?` of the JSON string, an absent
+whose schema version is 2, each array decoding element by element in order. Every rationale is
+the JSON string, the claim is `Profile.parse?` of the JSON string, an absent
 `executables` is empty and a present one is its string array, and an absent `execution`
 is `report` while a present one is `ExecutionClaim.parse?` of the JSON string (`SurfaceDecodes`,
-`ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). Every executable name is `executableName`
-of the JSON string (`parse_input`, `recordExecutables_ok`): Lake's own reading of a target name
-(`Lake.stringToLegalOrSimpleName`, which its TOML loader applies to a `lean_exe` name and
-`lake build` to a target argument), spelled as Lean prints a name. The Lake inventory records the
-same spelling of each executable's name (`targetSpelling`), so the `name` a `lakefile.toml` gives
-a `lean_exe` is recorded as that executable's name by definition. `parse_recorded`: every
-executable name of an accepted manifest is its own recorded spelling, so with `parse_sound`'s
-distinctness no accepted manifest names one Lake target under two spellings. That Lean reads a
-name it printed back as that name, which is what accepts the spelling `init` writes for a name
+`ExcludedLibraryDecodes`, `ExcludedExecutableDecodes`). Every library and executable name is
+`recordedName` of the JSON string (`parse_input`, `recordTargets_ok`): Lake's own reading of a
+target name (`Lake.stringToLegalOrSimpleName`, which its TOML loader applies to a `lean_lib` and
+a `lean_exe` name and `lake build` to a target argument), spelled as Lean prints a name. The
+Lake inventory records the same spelling of each library's and each executable's name
+(`targetSpelling`), so the `name` a `lakefile.toml` gives a `lean_lib` or a `lean_exe` is
+recorded as that target's name by definition. `parse_recorded`: every library and executable
+name of an accepted manifest is its own recorded spelling, so with `parse_sound`'s distinctness
+no accepted manifest names one library, or one executable, under two spellings. That Lean reads
+a name it printed back as that name, which is what accepts the spelling `init` writes for a name
 that is not an identifier (`«widget-tool»`), is trusted and not proved; the identity stage
 checks only that each recorded spelling is its own recorded spelling and refuses a spelling
 whose recorded spelling is not, which does not show that the name was read back. `loadFor` is
 the module's only file reader: it takes the project's Lake inventory, adds the missing-file
-check and the read, and parses the text with `parseFor` and the inventory's executables. Every
+check and the read, and parses the text with `parseFor` and the inventory's libraries and
+executables. Every
 command that reads the manifest with the inventory at hand uses it: the project audit, the file
 audit (`axiomGate --file`), the documentation audit, the rule examples, `doctor`,
 `--explain-config`, the fresh checker and the environment census. Two readers have no inventory
@@ -1279,18 +1281,22 @@ its control manifests and build targets, and `doctor`'s observation of the proje
 (`Setup.observe`), to scope which targets the manifest excludes. Neither classifies the manifest
 against Lake; `doctor` does that through `loadFor` (`validManifest`), and each self-test control
 through the gate it runs. `parseFor_ok`: `parseFor` accepts exactly the manifests `parse`
-accepts that name only those executables, so the theorems about `parse` hold of the manifest
-those commands use. `parseFor_unknown` and `unknownEntry?_some`: when the text parses, its
-executable names are recorded and some executable entry, claimed or excluded, has a recorded
-spelling that is not an inventory executable, it refuses with `unknownExecutable` of the first
-such entry, quoting the entry in the spelling the decoded text gives it; a text `parse` refuses
-keeps that earlier refusal. This is the only refusal of such an entry: of the two inclusions
-between the manifest's and the inventory's executables, `AxiomGate.checkClassification` checks
-only that every root executable is classified. The refusal lists each inventory executable by
+accepts that name only those libraries and executables, so the theorems about `parse` hold of
+the manifest those commands use. `parseFor_unknownLibrary`, `parseFor_unknownExecutable` and
+`unknownEntry?_some`: when the text parses, its target names are recorded and some library
+entry, claimed or excluded, has a recorded spelling that is not an inventory library, it refuses
+with `unknownTarget` of the first such entry, quoting the entry in the spelling the decoded text
+gives it; when every library entry is an inventory library and some executable entry is not an
+inventory executable, it refuses with `unknownTarget` of the first such executable entry in the
+same way; a text `parse` refuses keeps that earlier refusal. One message function writes both
+refusals, so they differ only in the kind's words. This is the only refusal of such an entry: of
+the two inclusions between the manifest's and the inventory's targets,
+`AxiomGate.checkClassification` checks only that every root library and every root executable is
+classified. The refusal lists each inventory target of the entry's kind by
 `lakeTargetName`: its name without escaping when that text has the same recorded spelling, and
-the recorded spelling otherwise, so a manifest that copies a listed name records that executable
+the recorded spelling otherwise, so a manifest that copies a listed name records that target
 whenever the inventory's spelling is its own recorded spelling
-(`executableName_lakeTargetName`); that hypothesis is the same trusted read-back. That the
+(`recordedName_lakeTargetName`); that hypothesis is the same trusted read-back. That the
 inventory passed is the project's is the caller's linkage, not a theorem. The refusal-class
 theorems (`parse_malformed`,
 `objectWithKeys_unknown`, `topLevel_unknownKey`, `topLevel_schemaVersion`, `topLevel_emptySurfaces`,
@@ -1306,10 +1312,10 @@ unrecognized or non-string `execution`, once every earlier surface check accepts
 missing required field and an unknown key in an exclusion entry, are not classified by a theorem,
 and the public CLI controls remain external observations of how each class renders.
 `parse_emptyExclusions`: for JSON meeting the top-level conditions with empty exclusion arrays
-whose surfaces parse, `parse` is the identity stage (`recordExecutables`) of exactly those
+whose surfaces parse, `parse` is the identity stage (`recordTargets`) of exactly those
 surfaces; it does not prove that any particular surface is accepted.
 `parse_ok` (`parse` accepts `m` exactly when `PolicyCodec.parse` returns a value `parseValue`
-accepts with some `raw` from which `recordExecutables` returns `m`), `parseValue_ok`
+accepts with some `raw` from which `recordTargets` returns `m`), `parseValue_ok`
 (`parseValue` accepts a value with `m` exactly when `m.Valid` and the value `Encodes` `m`, so
 `Manifest.Valid` is exactly what the value stage admits) and
 `toJson_encodes` give `parseValue_toJson`; `structuralManifest_valid` shows the structural copy

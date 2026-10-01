@@ -189,7 +189,8 @@ def observe (root : FilePath) : IO Project := do
       for lib in pkg.leanLibs do
         for m in ← lib.getModuleArray do
           sources := sources.insert m.name m.leanFile
-          unless excludedLibraries.contains lib.name.toString do claimed := m.name :: claimed
+          unless excludedLibraries.contains (Manifest.targetSpelling lib.name) do
+            claimed := m.name :: claimed
       for exe in pkg.leanExes do
         sources := sources.insert exe.root.name exe.root.leanFile
         unless excludedExecutables.contains (Manifest.targetSpelling exe.name) do
@@ -221,7 +222,8 @@ def observe (root : FilePath) : IO Project := do
         unless rest.isEmpty do unimported := unimported ++ [(library, roots, sorted rest)]
       let own (options : Array Lean.LeanOption) :=
         (Lake.buildOptions (.ofArray options) #[] #[]).options
-      let libs := pkg.leanLibs.filter fun lib => !excludedLibraries.contains lib.name.toString
+      let libs := pkg.leanLibs.filter fun lib =>
+        !excludedLibraries.contains (Manifest.targetSpelling lib.name)
       let exes := pkg.leanExes.filter fun exe =>
         !excludedExecutables.contains (Manifest.targetSpelling exe.name)
       -- A target's extra `lean` arguments are the audit inventory's, read by the same functions.
