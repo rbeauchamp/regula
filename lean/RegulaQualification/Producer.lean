@@ -78,7 +78,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"reflexivity admitted", required.contains key⟩,
     ⟨"one source snapshot", snapshots.size == 1⟩,
     ⟨"snapshot module", (← field snapshot "module") == nameJson "Example"⟩,
-    ⟨"exact source bytes", (← text snapshot "source") == source⟩,
+    ⟨"exact source bytes", (← text snapshot "sourceText") == source⟩,
     ⟨"snapshot filename", (System.FilePath.mk (← text snapshot "path")).fileName ==
         some "Example.lean"⟩,
     ⟨"module documentation",
@@ -120,7 +120,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
             [("declaration", nameJson "reflexive"), ("sourceDeclaration", .null),
           ("detail", .str "material-documentation: document the claim, assumptions and evidence at \
             this declaration")]⟩,
-        ⟨"location binds source", (← text location "source") == source⟩,
+        ⟨"location binds source", (← text location "sourceText") == source⟩,
         ⟨"location filename", (System.FilePath.mk (← text location "uri")).fileName ==
             some "Example.lean"⟩,
         ⟨"selection byte range", (← field location "selectionRange") == Json.mkObj

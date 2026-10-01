@@ -61,19 +61,20 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
               (Policy.subjectDetail decl scope h) location .freshFile (some "standard-logical")
               sourceDeclaration related)
         return (Json.mkObj [
-          ("file", toJson path.toString), ("source", toJson source),
+          ("file", toJson path.toString), (SourceTexts.textKey, toJson source),
           ("configuration", toJson configuration), ("configurationRoot", toJson repo.toString),
           ("claim", toJson (some "standard-logical" : Option String)), ("execution", Json.null),
           ("diagnosticOnly", toJson true), ("compilerOutput", toJson compilation.process.output),
           ("report", inspected.report.resultJson),
-          ("frontendTranscripts", toJson inspected.transcripts)], findings)
+          ("frontendTranscripts",
+            toJson (inspected.transcripts.map Frontend.transcriptResultJson))], findings)
   ResultProtocol.write output scopeJson .freshFile
     (if findings.isEmpty then .classified else .rejected) findings
     (ResultProtocol.stagesOf .freshFile) [.discovery, .build, .admission, .declarationPolicy]
-  let value ← IO.ofExcept <| PolicyCodec.parse (← IO.FS.readFile output)
+  let value ← ResultProtocol.readDocument output
   let request := ResultProtocol.requestJson "policyNegative" repo.toString path.toString none none
       configuration
-  writeJson output ((value.setObjVal! "request" request).setObjVal! "effective"
+  ResultProtocol.writeDocument output ((value.setObjVal! "request" request).setObjVal! "effective"
     (Json.mkObj [("root", toJson repo.toString), ("configuration", toJson configuration)]))
   return if findings.isEmpty then 0 else 1
 
@@ -135,17 +136,17 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
   ResultProtocol.write output (Json.mkObj [
     ("configuration", toJson configuration), ("configurationRoot", toJson configurationRoot),
     ("fences", toJson classifications),
-    ("documents", toJson (sources.map fun (path, source) => Json.mkObj [
-      ("uri", toJson path.toString), ("source", toJson source)]))])
+    ("documents", toJson (sources.map fun (path, source) =>
+      ResultProtocol.sourceJson ⟨path.toString, source⟩))])
     .documentationExample completion actual (ResultProtocol.stagesOf .documentationExample)
     (ResultProtocol.stagesOf .documentationExample)
-  let value ← IO.ofExcept <| PolicyCodec.parse (← IO.FS.readFile output)
+  let value ← ResultProtocol.readDocument output
   let value := match certificate with
     | some ⟨_, accepted⟩ => value.setObjVal! "acceptance" (ResultProtocol.acceptedJson accepted)
     | none => value
   let request := ResultProtocol.requestJson "documentation" repo.toString docsRoot.toString none
       none requestedConfiguration
-  writeJson output ((value.setObjVal! "request" request).setObjVal! "effective"
+  ResultProtocol.writeDocument output ((value.setObjVal! "request" request).setObjVal! "effective"
     (Json.mkObj [("root", toJson configurationRoot), ("configuration", toJson configuration)]))
   return code
 

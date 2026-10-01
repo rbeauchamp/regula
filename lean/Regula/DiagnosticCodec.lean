@@ -18,14 +18,16 @@ private def byteRange (j : Json) : Except String ByteRange := do
   return ⟨← nat j "startByte", ← nat j "endByte"⟩
 
 /-- Decode a module, project or source location; a source location's coordinates must pass
-`admitSource`, and the input must equal the canonical `locationJson` of the result. -/
+`admitSource`, and the input must equal the canonical `locationJson` of the result. A source
+location's text is its `sourceText` member, as `SourceTexts.expand` leaves it for a location read
+from a result file. -/
 def parseLocation (j : Json) : Except String Location := do
   let value ← match ← string j "kind" with
     | "module" => pure <| Location.module (← parsePrintedNameJson (← field j "name"))
     | "project" => pure <| Location.project (← string j "identity")
     | "source" => do
         let c : SourceCandidate := {
-          snapshot := ⟨← string j "uri", ← string j "source"⟩
+          snapshot := ⟨← string j "uri", ← string j SourceTexts.textKey⟩
           full := ← byteRange (← field j "range")
           selection := ← byteRange (← field j "selectionRange") }
         pure <| Location.source (← admitSource c)

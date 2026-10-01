@@ -363,7 +363,8 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
   let evidenceStart ← IO.monoMsNow
   let rawObservation := terminal.setObjVal! "resultIdentity" (← digest root output)
   save (raw / "terminal.json") rawObservation
-  let observed ← readJson output
+  -- The record keeps the expanded document, in which every `sourceText` member holds its text.
+  let observed ← readResult output
   if let .error problem := Regula.Checker.ResultProtocol.admitGuidance observed then
     throw <| IO.userError s!"{rule}/{phase}: result guidance: {problem}"
   IO.println s!"driver span: raw digest/read/parse/projection: {(← IO.monoMsNow) - evidenceStart}ms"
@@ -375,10 +376,13 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     let captured ← match field observed "sourceAccount" with
       | .ok value => IO.ofExcept value.getArr?
       | .error _ => pure #[]
-    let account ← if captured.isEmpty then entries (← get observed "scope") "sources" else
-      captured.mapM fun s => return Json.mkObj
+    let account ← if captured.isEmpty then
+        (← entries (← get observed "scope") "sources").mapM fun s => return Json.mkObj
+          [("module", ← get s "module"), ("path", ← get s "path"),
+            ("source", ← get s "sourceText")]
+      else captured.mapM fun s => return Json.mkObj
                               [("module", ← get s "moduleName"), ("path", ← get s "path"),
-                                  ("source", ← get s "content")]
+                                  ("source", ← get s "sourceText")]
     let candidates ← account.filterM fun s => return (← get s "module") == nameJson "Example"
     let #[_] := candidates | throw <| IO.userError "project example source account mismatch"
     let originalSources ← entries before "sources"

@@ -70,6 +70,6 @@ def observeProject (root project output : FilePath) (flags : Array String) : IO
   requireChecks [⟨"result path must be fresh", !(← output.pathExists)⟩]
   let result ← run project (root / ".lake/build/bin/axiomGate").toString
     (#["--project", project.toString] ++ flags ++ #["--json-out", output.toString]) cleanEnv
-  return (result, ← readJson output)
+  return (result, ← readResult output)
 
 end Regula.Qualification

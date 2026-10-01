@@ -105,7 +105,7 @@ def closureRequirements (account ownModule : Json) (source : String) (unsupporte
     Except String (List Check) := do
   let bindings ← array account "sourceBindings"
   let snapshots ← bindings.toList.filterMapM fun entry => do
-    if (← field entry "moduleName") == ownModule then return some (← text entry "content")
+    if (← field entry "moduleName") == ownModule then return some (← text entry "sourceText")
     return none
   let declarations ← array account "declarations"
   let some contract := declarations.find?
@@ -156,8 +156,8 @@ def completedRequirements (history : Json) (source : String) : Except String (Li
   let replacements ← array history "replacements"
   return [
     ⟨"history completed", (← text history "kind") == "completed"⟩,
-    ⟨"history before binds source", (← text history "before") == source⟩,
-    ⟨"history after binds source", (← text history "after") == source⟩,
+    ⟨"history before binds source", (← text (← field history "before") "sourceText") == source⟩,
+    ⟨"history after binds source", (← text (← field history "after") "sourceText") == source⟩,
     ⟨"history has Lean source path", (← text history "path").endsWith ".lean"⟩,
     ⟨"earlier replacement retained", replacements.contains
         (toJson #[nameJson "reference", nameJson "earlier"])⟩,

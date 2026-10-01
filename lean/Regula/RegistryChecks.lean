@@ -33,7 +33,9 @@ run_cmd do
           ``Regula.Checker.ResultProtocol.withDocs_ordered,
       ``Regula.Checker.ResultProtocol.completedStages_idem,
       ``Regula.Checker.ResultProtocol.guidanceFields_recorded,
-      ``Regula.Checker.ResultProtocol.parseStage_stageName] do
+      ``Regula.Checker.ResultProtocol.parseStage_stageName,
+      ``Regula.SourceTexts.expand_intern, ``Regula.SourceTexts.intern_isOk_iff,
+      ``Regula.SourceTexts.intern_table, ``Regula.SourceTexts.expand_texts] do
     let axioms ← Lean.collectAxioms name
     unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"
@@ -155,6 +157,29 @@ def main : IO Unit := do
     (Regula.Checker.ResultProtocol.requestJson kind "control" "control" none none #[])
   let envelope := requested "file" <| Regula.Checker.ResultProtocol.resultJson (.str "control")
     .freshFile .rejected #[⟨.projectAxiom, d⟩, ⟨.projectAxiom, d⟩] fileStages fileStages #[]
+  -- Source texts stored once. `SourceTexts.expand_intern` and `intern_table` prove the laws for
+  -- every document; these observe the wiring they do not cover: that the document `resultJson`
+  -- builds is one `intern` writes, that its locations carry `sourceText` members, and what the
+  -- reader does with a document `intern` did not write.
+  let written ← IO.ofExcept (SourceTexts.intern envelope)
+  let location (j : Json) (position : Nat) : Json :=
+    (((j.getObjValD "diagnostics").getArrVal? position).toOption.getD .null).getObjValD "location"
+  require (written.getObjValD SourceTexts.tableKey == toJson #[candidate.snapshot.source])
+    "two findings in one file store its text once"
+  require ((location written 0).getObjValD SourceTexts.textKey == toJson (0 : Nat) &&
+    (location written 1).getObjValD SourceTexts.textKey == toJson (0 : Nat))
+    "a written location names its text by index"
+  let expanded ← IO.ofExcept (SourceTexts.expand written)
+  require (expanded == envelope) "the reader recovers the document written"
+  require (!succeeded (SourceTexts.intern written)) "a written document is not written again"
+  require (!succeeded (SourceTexts.expand envelope)) "an unwritten document is not expanded"
+  require (!succeeded (SourceTexts.expand
+    (written.setObjVal! SourceTexts.tableKey (toJson (#[] : Array String)))))
+    "sourceText index outside the stored texts"
+  require (!succeeded (SourceTexts.expand (written.setObjVal! SourceTexts.tableKey
+    (toJson #[candidate.snapshot.source, candidate.snapshot.source])))) "stored text repeated"
+  require (!succeeded (SourceTexts.expand (written.setObjVal! SourceTexts.tableKey
+    (toJson #[(0 : Nat)])))) "stored text that is not a string"
   let partialRun := requested "file" <| Regula.Checker.ResultProtocol.resultJson (.str "control")
     .freshFile .rejected #[⟨.projectAxiom, d⟩] fileStages
     (fileStages.filter (· ∉ [.execution, .origin])) #[]
