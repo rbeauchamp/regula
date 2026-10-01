@@ -94,7 +94,10 @@ theorem checked_validation : Regula.ExecutableContract validate
 admission diagnostics (fence and project), and exactly one compilation diagnostic. For a phase
 that makes an input unavailable, the transcript must also contain the supplied IO reason, which
 must be nonempty (`missing` for a removed source, otherwise `directory`), and the input's file
-name. The caller supplies the reasons the runtime reports for those two failed reads. -/
+name. The caller supplies the reasons the runtime reports for reads that fail those two ways (an
+absent file, a directory in a file's place), of other paths than the checker's; that the reasons
+do not depend on the path is trusted runtime behavior, and these checks do not relate the
+supplied strings to any read. -/
 def documentationChecks (transcript scope reason phase missing directory : String) :
     List Check :=
   let lines := transcript.splitOn "\n"

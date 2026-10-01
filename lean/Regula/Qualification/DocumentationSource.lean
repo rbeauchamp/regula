@@ -28,8 +28,8 @@ def check (sourceReadOnly : Bool) : IO Unit := do
     prepareCoreProject root project "documentation_adopter" "kernel-only"
     IO.FS.writeFile (project / "Example.lean") source
     let manifest ← IO.FS.readFile (project / "foundation_manifest.json")
-    -- What this runtime reports for the two failed reads the controls cause: a file that does
-    -- not exist, and a directory in a file's place.
+    -- What this runtime reports for reads that fail the two ways the controls cause: a file that
+    -- does not exist, and a directory in a file's place.
     let missing ← readFailure (project / "Absent.lean")
     let directory ← readFailure (project / "docs")
     for (binary, flags) in

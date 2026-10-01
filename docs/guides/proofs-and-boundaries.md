@@ -1361,7 +1361,11 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - `Evidence.checked_validation` and `checked_documentation`: exact conjunctions of decoded status,
   diagnostic, exit and transcript requirements, including distinct fence and project admission
   messages and the underlying IO reason, which the caller supplies as the runtime's own message
-  for the same failed read (`readFailure`) instead of a copied operating-system text.
+  for a read that fails the same way (`readFailure`: an absent file, or a directory in a file's
+  place) instead of a copied operating-system text. That read is of another path than the
+  checker's; that the first line of the `IO.Error` text does not depend on the path is trusted
+  runtime behavior, which `checked_documentation` does not cover: it quantifies over arbitrary
+  reason strings.
 - `Launcher.admit`: a proof-bearing mapping with nonempty unique names and both required search
   paths, admitting every valid decoded mapping; `checked_equivalence` requires exactly 42
   observations and full ordered equality of source, arguments, streams, exit, environment and
