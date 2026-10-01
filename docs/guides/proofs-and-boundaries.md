@@ -1330,7 +1330,11 @@ variants that rewrite the `AuditApp` surface after derivation are not covered. T
 variant excludes every actual `AuditApp` executable it stops claiming, and app-omitted-exe
 leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
 executable, so two claimed roots each define `main`. `RegulaPolicy` stays
-claimed in each copy because the checker probe's own imports resolve to it in a self-hosted copy.
+claimed in each copy because the checker probe's own imports resolve to it in a self-hosted copy;
+`Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
+outside the toolchain is a `RegulaPolicy` module or one of
+`RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
+states what it does not see).
 `diagnostics structural` passed locally in 572 s without the deadline (observed 2026-09-27);
 meeting the 420-second budget remains open, so it is not a CI job.
 
