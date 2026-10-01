@@ -91,13 +91,18 @@ def displayText (project : String) (text : String) : String :=
   ((text.replace (scratch ++ "/slot/root") "<regula>").replace project "<example>").replace scratch
       "<scratch>"
 
+/-- Whether `uri` lies in the scratch directory of `project` (`Regula.Scratch.directory`), where
+the checker keeps its isolated copy. -/
+def inScratch (project uri : String) : Bool :=
+  uri.startsWith ((Regula.Scratch.directory (System.FilePath.mk project)).toString ++ "/")
+
 /-- Workspace-relative display path of an input of `project`, if it is one of the project's
 own inputs rather than the checker's isolated copy or a documentation snippet alias. -/
 def relativeInput (project uri : String) : Option String :=
   match uri.dropPrefix? (project ++ "/") with
   | some rest =>
     let rest := rest.toString
-    if rest.startsWith "tmp/" || (uri.splitOn "#").length > 1 then none else some rest
+    if inScratch project uri || (uri.splitOn "#").length > 1 then none else some rest
   | none => none
 
 /-- Every input file of one record: its sources and its configuration files (absent ones as
@@ -151,9 +156,8 @@ def findingOf (project : String) (d : Json) : IO FindingView := do
         | some rest =>
           let rest := rest.toString
           match rest.splitOn "/project/" with
-          | [pre, post] => if pre.startsWith "tmp/" then post ++
-                                                          " (the audit's fresh isolated copy)" else
-                                                              rest
+          | [_, post] =>
+            if inScratch project uri then post ++ " (the audit's fresh isolated copy)" else rest
           | _ => rest
         | none => displayText project uri
       let range ← get location "lspSelectionRange"

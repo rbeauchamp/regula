@@ -1411,7 +1411,8 @@ failures for both `acceptance` and `environments`; the timed child carries the s
 adds no new deadline. Acceptance keeps existing raw result/trace sidecars before parsing and
 records partial file locations on the active case, and completed command records contain
 executable plus argv; these are diagnostic receipt guarantees under trusted filesystem and process
-IO. Scratch directories are removed on normal or exceptional return; a killed run's directory is
-reclaimed by the next scratch user once no live process holds the scratch lock (`Regula.Scratch`).
+IO. Scratch directories live under the project's `.lake/regula-scratch/` and are removed on normal
+or exceptional return; a killed run's directory is reclaimed by the next scratch user once no live
+process holds the scratch lock (`Regula.Scratch`).
 Helpers invoke external programs with argument arrays, never generated shell programs. The
 operator's narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md).
