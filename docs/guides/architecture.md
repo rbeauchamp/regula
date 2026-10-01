@@ -128,7 +128,10 @@ those paths stay live after the run, and no textual path substitution is applied
 written by `Regula.StructuralName` as the text Lean prints only where Lean's parser reads that text
 back as the same name, and otherwise structurally (tagged string and numeric components,
 innermost first; `printedNameJson_roundtrip`), and display-only worker records cannot supply a
-declaration diagnostic. `parseDiagnostic` reconstructs the indexed payload and admitted
+declaration diagnostic. A source location's text is its `sourceText` member; a result file
+stores each text once and the member is then its index, so `parseDiagnostic` reads the document
+`SourceTexts.expand` returns ([output schemas](#output-schemas)). `parseDiagnostic` reconstructs
+the indexed payload and admitted
 source location and compares the input with its canonical re-encoding, refusing unknown fields,
 unsupported modes and IDs, invalid coordinates and altered redundant text or help URLs; the
 proved name, ID and mode codec laws are not a proof of Lean's JSON parser, `FileMap` or the
@@ -170,7 +173,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 6, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 7, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -185,7 +188,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 6:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 7:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -197,6 +200,30 @@ metadata, not authenticated binary identity.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
   [adoption guide](adoption.md#machine-readable-report) documents the members for adopters.
+- **Source texts:** since schema 7 a result file holds each distinct source text once, in its
+  top-level `sourceTexts`, and every `sourceText` member (a source location; a `sourceAccount`
+  entry; in `scope`, a project's `sources`, a file audit's own text, a documentation
+  rule-example's `documents`, and the frontend transcripts, source bindings and histories; in
+  `acceptance` and `documentationAcceptance`, the snapshot's sources and an environment's
+  `fileSource`) is the index of its text there. Checker code builds and reads the
+  document with the text in each member and `sourceTexts` `null`; `ResultProtocol.writeDocument`
+  writes its `SourceTexts.intern`, and each reader that decodes a diagnostic or reads a text
+  (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the file through
+  `SourceTexts.expand`, which refuses a list that is not distinct strings and an index outside
+  it; a rule-example record keeps that expanded document. `SourceTexts.expand_intern` proves
+  `expand` returns exactly the document `intern` was given, `intern_table` that the written list
+  has no text twice, exactly the texts of the document's `sourceText` members, and that every
+  such member of the written document is an index, and `intern_isOk_iff` that `intern` writes
+  exactly the documents with one `null` `sourceTexts` member and string `sourceText` members.
+  These are laws of `Json` values, including malformed object trees; they are not laws of JSON
+  text or of Lean's `partial` `Json` equality. So the text a file's findings share is written
+  once: the written size is that of the distinct texts plus the rest of the document, which
+  carries one index for each member. That is an argument from the construction, not a theorem
+  about byte counts, and it bounds source text only: a string elsewhere in the document is
+  written where it occurs. Project configuration text stays inline in `request`, `effective` and
+  `scope.configuration`. `scope` also records every owned declaration with its kernel type as
+  text, and each execution root's account lists its own reached names, edges and boundaries, so
+  that member grows with the declarations and with the roots times what each reaches.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

@@ -41,7 +41,7 @@ def observe (root project : FilePath) (label binary : String) (flags : Array Str
   let result ← run project (root / ".lake/build/bin" / binary).toString
     (#["--project", project.toString] ++ flags ++
       if jsonCommand then #["--json-out", output.toString] else #[]) env
-  let report ← if jsonCommand then pure (some (← readJson output)) else pure none
+  let report ← if jsonCommand then pure (some (← readResult output)) else pure none
   IO.ofExcept
       (checked_validation.run expected result.exitCode.toNat
           (result.stdout ++ result.stderr) report)
@@ -152,7 +152,7 @@ def configuration : IO Unit := do
             let sources ← array result "sourceAccount"
             return [⟨"actual source account", sources.any fun item =>
               (text item "path").toOption == some (effective ++ "/Example.lean") &&
-              (text item "content").toOption == some source⟩]
+              (text item "sourceText").toOption == some source⟩]
         requireChecks checks
         IO.println s!"configuration capture {mode}/{phase}: PASS"
 

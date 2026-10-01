@@ -1,5 +1,6 @@
 import Regula.Diagnostic
 import Regula.StructuralName
+import Regula.SourceTexts
 
 /-! # Registry transport codec
 
@@ -146,13 +147,14 @@ private def rangeJson (r : ByteRange) : Json :=
   Json.mkObj [("startByte", toJson r.start), ("endByte", toJson r.stop)]
 
 /-- A location's JSON: its kind with the module name (`printedNameJson`), the project identity,
-or the source's URI, text, byte ranges and LSP ranges. -/
+or the source's URI, text, byte ranges and LSP ranges. The text is the `sourceText` member, which
+a result file stores once for all its locations (`SourceTexts.intern`). -/
 def locationJson : Location → Json
   | .module n => Json.mkObj [("kind", .str "module"), ("name", printedNameJson n)]
   | .project s => Json.mkObj [("kind", .str "project"), ("identity", .str s)]
   | .source s => Json.mkObj [
       ("kind", .str "source"), ("uri", .str s.val.snapshot.uri),
-      ("source", .str s.val.snapshot.source), ("range", rangeJson s.val.full),
+      (SourceTexts.textKey, .str s.val.snapshot.source), ("range", rangeJson s.val.full),
       ("selectionRange", rangeJson s.val.selection),
       ("lspRange", toJson s.fullLsp), ("lspSelectionRange", toJson s.selectionLsp)]
 

@@ -806,7 +806,21 @@ parser admits exactly its documented commands (`parseCommand_arguments`, `parseC
 `snapshotJson_configuration_independent`, `environmentJson_imports_independent` and
 `Environment.resultJson_imports_independent` (`rfl`) show the rendering does not depend on
 dependency text or import lists; the resulting size bound is an argument from construction, not a
-theorem about byte counts. In the excluded library, `RegistryCodec.mode_roundtrip`,
+theorem about byte counts. Source texts: `SourceTexts.expand_intern` (the reader's `expand` of what
+`intern` wrote is the document it was given), `intern_table` (the written `sourceTexts` has no
+text twice and exactly the texts of the document's `sourceText` members, and each such member of
+the written document is an index into it), `intern_isOk_iff` (`intern` writes exactly the
+documents with one `null` `sourceTexts` member and string `sourceText` members) and
+`expand_texts` (every `sourceText` member of a document `expand` admits is a string), for every
+`Json` value, without assuming its object trees well formed, and
+`ResultProtocol.resultJson_slots` (every document `resultJson` builds has that one `null`
+member); they depend on `propext`, `Classical.choice` and `Quot.sound`, and `RegistryChecks`
+bounds them to Standard-Logical. They do not cover JSON text, the file, a member added to the
+document after `resultJson` built it, or that a writer marks every source text as a `sourceText`
+member: the members that do are listed in the
+[architecture guide](architecture.md#output-schemas), and `RegistryChecks` and the rule-example
+and producer campaigns observe written documents. In the excluded library,
+`RegistryCodec.mode_roundtrip`,
 `mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
 `nameParts_roundtrip`, `name_roundtrip` and `Regula.sortFindings_entries` on `propext`,
 `Classical.choice` and `Quot.sound`; `RegistryChecks` bounds them to Standard-Logical.

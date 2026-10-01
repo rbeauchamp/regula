@@ -1,4 +1,5 @@
 import Regula.Report
+import Regula.SourceTexts
 import RegulaPolicy.Admission
 import RegulaPolicy.ModuleHeader
 import RegulaPolicy.Guards
@@ -168,15 +169,44 @@ instance : ToJson Environment := ⟨fun r => Json.mkObj [
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
   ("histories", toJson r.histories), ("sourceBindings", toJson r.sourceBindings)]⟩
 
+/-- Result-file rendering of a source binding: its module, path and text, the text as a
+`sourceText` member, which a result file stores once (`SourceTexts.intern`). -/
+def SourceBinding.resultJson (s : SourceBinding) : Json := Json.mkObj [
+  ("moduleName", toJson s.moduleName), ("path", toJson s.path),
+  (SourceTexts.textKey, toJson s.content)]
+
+/-- Read a source binding `SourceBinding.resultJson` wrote, from an expanded result document. -/
+def SourceBinding.ofResultJson (j : Json) : Except String SourceBinding := do
+  exactFields j ["moduleName", "path", SourceTexts.textKey]
+  return { moduleName := ← j.getObjValAs? _ "moduleName"
+           path := ← j.getObjValAs? _ "path"
+           content := ← j.getObjValAs? _ SourceTexts.textKey }
+
+/-- The `sourceAccount` member of a result document: the sources a run observed, each by
+`SourceBinding.resultJson`. -/
+def sourceAccountJson (sources : Array SourceBinding) : Json :=
+  toJson (sources.map SourceBinding.resultJson)
+
+/-- Result-file rendering of a history outcome: the transport fields, with a completed
+receipt's `before` and `after` texts each as a `sourceText` member (`SourceTexts.textJson`). -/
+def HistoryOutcome.resultJson : HistoryOutcome → Json
+  | .completed path before after edges => Json.mkObj [
+      ("kind", toJson "completed"), ("path", toJson path),
+      ("before", SourceTexts.textJson before), ("after", SourceTexts.textJson after),
+      ("replacements", toJson edges)]
+  | .unavailable detail => toJson (HistoryOutcome.unavailable detail)
+
 /-- Result-file rendering: the transport fields except `modules` and `moduleOrigins`, which
 list every module of the imported environment (the whole import closure) and are
-recomputable from the pinned inputs. Owned modules remain in `census.modules`. Checker
+recomputable from the pinned inputs. Owned modules remain in `census.modules`. Source texts, in
+`sourceBindings` and completed `histories`, are `sourceText` members. Checker
 decisions use the in-memory report; worker transport keeps the full `ToJson` shape. -/
 def Environment.resultJson (r : Environment) : Json := Json.mkObj [
   ("toolchain", toJson r.toolchain), ("declarations", toJson r.declarations),
   ("execution", toJson r.execution), ("census", toJson r.census),
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
-  ("histories", toJson r.histories), ("sourceBindings", toJson r.sourceBindings)]
+  ("histories", toJson (r.histories.map fun (name, outcome) => (name, outcome.resultJson))),
+  ("sourceBindings", toJson (r.sourceBindings.map SourceBinding.resultJson))]
 
 /-- The result rendering is independent of the import closure (kernel-checked by `rfl`). -/
 theorem Environment.resultJson_imports_independent (r : Environment) (modules : Array Name)

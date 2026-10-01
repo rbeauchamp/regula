@@ -274,9 +274,9 @@ private def capturedSourceAccount (resultOut : Option FilePath)
   if sources.isEmpty then
     if let some output := resultOut then
       if ← output.pathExists then
-        let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
+        let value ← ResultProtocol.readDocument output
         if let .ok captured := value.getObjVal? "sourceAccount" then return captured
-  return toJson sources
+  return ProducerReport.sourceAccountJson sources
 
 private def retainSourceAccount (resultOut : Option FilePath)
     (composed : IO.Ref (Option Json))
@@ -287,8 +287,8 @@ private def retainSourceAccount (resultOut : Option FilePath)
     if let some output := resultOut then
       if ← output.pathExists then
         let captured ← capturedSourceAccount resultOut sources
-        let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
-        writeJson output (value.setObjVal! "sourceAccount" captured)
+        let value ← ResultProtocol.readDocument output
+        ResultProtocol.writeDocument output (value.setObjVal! "sourceAccount" captured)
 
 private def withRetainedSources {α : Type} (resultOut : Option FilePath)
     (composed : IO.Ref (Option Json))
@@ -309,8 +309,9 @@ private def reportContextFindings (findings : Array Regula.Finding) (scope : Str
   printSummary observation
   if let some output := resultOut then
     let captured ← capturedSourceAccount resultOut sources
-    writeJson output <| (ResultProtocol.resultJson (Json.str scope) mode status findings
-      (← expectedStages.get) completed #[]).setObjVal! "sourceAccount" captured
+    ResultProtocol.writeDocument output <|
+      (ResultProtocol.resultJson (Json.str scope) mode status findings
+        (← expectedStages.get) completed #[]).setObjVal! "sourceAccount" captured
 
 /-- `reportContextFindings` with the one context finding of rule `id`. -/
 private def reportContextFailure (id : Regula.RuleId) (scope : String)
@@ -682,7 +683,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           ("modules", toJson info.modules),
           ("authorizedNativeAxioms", toJson native),
           ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
-          ("frontendTranscripts", Json.arr <| transcripts.map toJson),
+          ("frontendTranscripts", Json.arr <| transcripts.map Frontend.transcriptResultJson),
           ("report", report)
         ]
         -- Built only for the result output, which omits the import closure; it affects no
@@ -752,7 +753,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             (sourceBindings.filter (fun s => ownedModuleNames.contains s.moduleName)).map fun s =>
           Json.mkObj
               [("module", toJson s.moduleName), ("path", toJson s.path),
-                  ("source", toJson s.content)]
+                  (SourceTexts.textKey, toJson s.content)]
         let surfaceEntries := resultSurfaces.map fun (library, executables) =>
           library.setObjVal! "executables" (Json.arr executables)
         let resultScope := Json.mkObj
@@ -880,7 +881,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
     let status ← record observation
     if combined.isNone then printSummary observation
     if let some output := resultOut then
-      let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
+      let value ← ResultProtocol.readDocument output
       let scope ← IO.ofExcept (value.getObjVal? "scope")
       let previous ← IO.ofExcept <| (← IO.ofExcept (value.getObjVal? "diagnostics")).getArr?
       let previous ← IO.ofExcept <| previous.mapM Regula.DiagnosticCodec.parseDiagnostic
@@ -903,7 +904,7 @@ private unsafe def auditSurface (repo : FilePath) (manifest : Option FilePath)
             (value.setObjVal! "acceptance" (ResultProtocol.acceptedJson receipt.project)).setObjVal!
               "documentationAcceptance" (ResultProtocol.acceptedJson receipt.documentation)
         | none => value
-      writeJson output value
+      ResultProtocol.writeDocument output value
     if let some ⟨_, receipt⟩ := combined then
       let account := Account.account receipt.project
       IO.println s!"combined audit: accepted {account.val.jobs} project \
@@ -1112,7 +1113,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
             let status ← record observation
             if let some output := resultOut then
               let resultScope := Json.mkObj
-                  [("file", toJson path.toString), ("source", toJson source),
+                  [("file", toJson path.toString), (SourceTexts.textKey, toJson source),
                   ("execution", toJson execution.toString),
                   ("claim", toJson (claim.map Profile.toString)),
                   ("declarations", toJson declarations.size),
@@ -1120,7 +1121,8 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
                   ("authorizedNativeAxioms", toJson native),
                   ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
-                  ("frontendTranscripts", toJson inspected.transcripts),
+                  ("frontendTranscripts",
+                    toJson (inspected.transcripts.map Frontend.transcriptResultJson)),
                   ("configuration", toJson configuration),
                   ("configurationRoot", toJson repo.toString),
                   ("completedStages", toJson
@@ -1163,10 +1165,11 @@ incomplete, so an earlier completed result cannot be mistaken for this attempt's
 def invalidateResults (args : List String) : IO Unit := do
   let destinations := (optionValues "--json-out" args).eraseDups.map FilePath.mk
   let invalidate (path : FilePath) :=
-    writeJson path (Json.mkObj (ResultProtocol.identityFields ++ [
+    ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
       ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
       ("diagnostics", toJson (#[] : Array Json)),
-      ("unresolved", toJson #["configuration has not been validated"])] ++
+      ("unresolved", toJson #["configuration has not been validated"]),
+      ResultProtocol.sourceTextsField] ++
       ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
   -- Absolute destinations do not depend on project configuration being valid.
   for path in destinations.filter (·.isAbsolute) do invalidate path
@@ -1336,8 +1339,9 @@ unsafe def run (args : List String) : IO UInt32 := do
     printSummary observation
     if let some output := resultOut then
       let captured ← capturedSourceAccount resultOut (← capturedSources.get)
-      writeJson output <| (ResultProtocol.resultJson (Json.str repo.toString) mode status #[finding]
-        (← expectedStages.get) [] #[error.toString]).setObjVal! "sourceAccount" captured
+      ResultProtocol.writeDocument output <|
+        (ResultProtocol.resultJson (Json.str repo.toString) mode status #[finding]
+          (← expectedStages.get) [] #[error.toString]).setObjVal! "sourceAccount" captured
     return 1
   let action : IO (UInt32 × Option AcceptanceLink.Pending) := do
     try
@@ -1377,15 +1381,16 @@ unsafe def run (args : List String) : IO UInt32 := do
   if let some output := resultOut then
     match ResultProtocol.composeDecision code (← composed.get) with
     | some base =>
-      writeJson output (ResultProtocol.composedFinal base
+      ResultProtocol.writeDocument output (ResultProtocol.composedFinal base
         (← capturedSourceAccount resultOut (← capturedSources.get))
-        (toJson (← capturedSources.get)) request (toJson (← effective.get)))
+        (ProducerReport.sourceAccountJson (← capturedSources.get)) request
+        (toJson (← effective.get)))
     | none =>
-      let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile output)
+      let value ← ResultProtocol.readDocument output
       let captured ← capturedSources.get
       let value := if (value.getObjVal? "sourceAccount").isOk then value
-        else value.setObjVal! "sourceAccount" (toJson captured)
-      writeJson output
+        else value.setObjVal! "sourceAccount" (ProducerReport.sourceAccountJson captured)
+      ResultProtocol.writeDocument output
           ((value.setObjVal! "request" request).setObjVal! "effective" (toJson (← effective.get)))
   if code == 0 then
     if let (some path, some pending) := (acceptanceLink, linked) then

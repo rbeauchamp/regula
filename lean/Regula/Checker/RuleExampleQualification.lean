@@ -89,17 +89,25 @@ def binding (record : Json) (mode : EvidenceMode) : Except String ExampleBinding
     throw "request configuration differs from frozen snapshot"
   return ⟨snapshot, mode, request⟩
 
+/-- A JSON array of the source snapshots a result document lists (`ResultProtocol.sourceJson`),
+each an object with exactly the fields `uri` and `sourceText`. -/
+def resultSources (j : Json) : Except String (Array RegulaPolicy.SourceSnapshot) := do
+  (← j.getArr?).mapM fun source => do
+    PolicyCodec.exactFields source ["uri", SourceTexts.textKey]
+    return ⟨← string source "uri", ← string source SourceTexts.textKey⟩
+
 /-- The producer's account of the sources it read: its source account, or the
-diagnostic-only file or documentation scope. -/
+diagnostic-only file or documentation scope. The result is the expanded document
+(`SourceTexts.expand`), so each `sourceText` member is its text. -/
 def observedSources (result : Json) (bound : ExampleBinding) :
     Except String (Array RegulaPolicy.SourceSnapshot) := do
   let scope ← field result "scope"
   if let .ok raw := field result "sourceAccount" then do
-    let entries ← fromJson? (α := Array ProducerReport.SourceBinding) raw
+    let entries ← (← raw.getArr?).mapM ProducerReport.SourceBinding.ofResultJson
     pure (entries.map fun entry => (⟨entry.path, entry.content⟩ : RegulaPolicy.SourceSnapshot))
   else if bound.request.kind == "policyNegative" then do
-    pure #[⟨← string scope "file", ← string scope "source"⟩]
-  else if bound.request.kind == "documentation" then sources (← field scope "documents")
+    pure #[⟨← string scope "file", ← string scope SourceTexts.textKey⟩]
+  else if bound.request.kind == "documentation" then resultSources (← field scope "documents")
   else throw "missing result source account"
 
 /-- The producer's observed sources pass `admitExampleSources` against the bound snapshot

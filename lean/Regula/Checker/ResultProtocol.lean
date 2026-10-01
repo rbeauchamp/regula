@@ -4,6 +4,7 @@ import Regula.Website
 import Regula.Checker.Producer
 import Regula.Checker.RuleDiagnostics
 import Regula.DiagnosticCodec
+import Regula.SourceTexts
 import Regula.Checker.Common
 
 /-! # Versioned result protocol
@@ -17,7 +18,16 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 6 writes every Lean name of the document, in `diagnostics`, `scope` and
+/-- Result schema 7 stores each source text once. A result file's top-level `sourceTexts` lists
+every distinct source text of the document, and each `sourceText` member, wherever it occurs (a
+source location of `diagnostics`, the `sourceAccount`, the sources, frontend transcripts, source
+bindings and histories of `scope`, and the snapshots of `acceptance`), is the index of its text
+in that list (`SourceTexts.intern`, `SourceTexts.intern_table`). Readers of this checker take the
+document through `SourceTexts.expand`, which puts each text back in its member and leaves
+`sourceTexts` `null` (`SourceTexts.expand_intern`); every other definition here concerns that
+expanded document. Earlier schemas wrote the text in each member (`source`, `content`,
+`sourceContent`, `before` and `after`), so a source location repeated its file's text.
+Schema 6 writes every Lean name of the document, in `diagnostics`, `scope` and
 `acceptance` alike, in one encoding (`RegistryCodec.printedNameJson`): the string Lean prints for
 it, and, only for a name whose printed text Lean's parser does not read back as the name, its
 structural components, an array of `["str", s]` and `["num", n]` innermost first
@@ -49,7 +59,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 6
+def schemaVersion : Nat := 7
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -218,10 +228,15 @@ theorem guidanceFields_recorded (accepted : Bool) (required completed : List Sta
   unfold guidanceFields
   rw [completedStages_idem]
 
+/-- The `sourceTexts` member of every result document a checker builds: `null`, which
+`writeDocument` replaces by the document's distinct source texts (`SourceTexts.intern`). -/
+def sourceTextsField : String × Json := (SourceTexts.tableKey, .null)
+
 /-- Completed is scoped observation, never a synonym for whole-standard conformance. A
 completed envelope takes its mode from the status's account, not from `mode`. `expected` are
 the run's required stages and `completed` those its writer recorded as completed. The guidance
-members are derived from the diagnostics exactly as written, in `sortFindings` order. -/
+members are derived from the diagnostics exactly as written, in `sortFindings` order. This is the
+document before its source texts are stored once (`sourceTextsField`). -/
 def resultJson (scope : Json) (mode : EvidenceMode) (status : Status)
     (findings : Array Finding) (expected completed : List Stage) (unresolved : Array String) :
     Json :=
@@ -233,8 +248,20 @@ def resultJson (scope : Json) (mode : EvidenceMode) (status : Status)
     ("scope", scope), ("mode", .str (RegistryCodec.modeText mode)),
     ("status", .str (statusText status)),
     ("diagnostics", toJson (findings.map RegistryCodec.diagnosticJson)),
-    ("unresolved", toJson unresolved)] ++
+    ("unresolved", toJson unresolved), sourceTextsField] ++
     guidanceFields (acceptedStatus (statusText status)) expected completed findings)
+
+/-- Every document `resultJson` builds has exactly one `sourceTexts` member, `null`, as
+`SourceTexts.intern` requires: by `SourceTexts.intern_isOk_iff`, `writeDocument` refuses such a
+document only if one of its `sourceText` members is not a string. A member added to the document
+afterwards (`request`, `effective`, `sourceAccount`, `acceptance`) is outside this statement. -/
+theorem resultJson_slots (scope : Json) (mode : EvidenceMode) (status : Status)
+    (findings : Array Finding) (expected completed : List Stage) (unresolved : Array String) :
+    SourceTexts.slots (resultJson scope mode status findings expected completed unresolved) =
+      [.null] := by
+  simp [resultJson, Json.mkObj, SourceTexts.slots, identityFields, RegistryCodec.identityFields,
+    sourceTextsField, guidanceFields]
+  rfl
 
 /-- The stage named `name`. -/
 def parseStage (name : String) : Except String Stage :=
@@ -300,24 +327,40 @@ def requestJson (kind project subject : String) (claim execution : Option String
   toJson (⟨kind, project, subject, claim, execution,
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
-/-- Write the `resultJson` of these arguments as compact JSON and a final newline to `path`,
-creating its parent directories, and report how long encoding and writing took when timing output
-is on (`timingSpan`). -/
-def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status : Status)
-    (findings : Array Finding) (expected completed : List Stage)
-    (unresolved : Array String := #[]) :
+/-- Write a result document to `path` with its source texts stored once: the
+`SourceTexts.intern` of `document` as compact JSON and a final newline, creating the parent
+directories. `SourceTexts.expand_intern` proves a reader's `SourceTexts.expand` of the written
+value is `document` itself; a document `intern` refuses (one without the `null` `sourceTexts`
+member of `sourceTextsField`, or with a `sourceText` member that is not a string) is an error and
+nothing is written. `span` names the write in timing output (`timingSpan`). -/
+def writeDocument (path : System.FilePath) (document : Json) (span : String := "writeDocument") :
     IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   let spanStart ← IO.monoMsNow
-  let encoded := Json.compress
-      (resultJson scope mode status findings expected completed unresolved) ++ "\n"
-  timingSpan s!"diagnostic span: ResultProtocol.write encode: {(← IO.monoMsNow) - spanStart}ms"
+  let written ← IO.ofExcept (SourceTexts.intern document)
+  let encoded := Json.compress written ++ "\n"
+  timingSpan s!"diagnostic span: {span} encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded
-  timingSpan s!"diagnostic span: ResultProtocol.write write: {(← IO.monoMsNow) - writeStart}ms"
+  timingSpan s!"diagnostic span: {span} write: {(← IO.monoMsNow) - writeStart}ms"
 
-private def sourceJson (source : RegulaPolicy.SourceSnapshot) : Json :=
-  Json.mkObj [("uri", toJson source.uri), ("source", toJson source.source)]
+/-- Read the result document `writeDocument` wrote at `path`: parsed strictly
+(`PolicyCodec.parse`) and expanded (`SourceTexts.expand`), so every `sourceText` member holds its
+text. A file that is not a written result document is an error. -/
+def readDocument (path : System.FilePath) : IO Json := do
+  IO.ofExcept (SourceTexts.expand (← readJson path))
+
+/-- Write the `resultJson` of these arguments to `path` (`writeDocument`). -/
+def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status : Status)
+    (findings : Array Finding) (expected completed : List Stage)
+    (unresolved : Array String := #[]) :
+    IO Unit :=
+  writeDocument path (resultJson scope mode status findings expected completed unresolved)
+    "ResultProtocol.write"
+
+/-- A source snapshot's URI and text, the text as a `sourceText` member. -/
+def sourceJson (source : RegulaPolicy.SourceSnapshot) : Json :=
+  Json.mkObj [("uri", toJson source.uri), (SourceTexts.textKey, toJson source.source)]
 
 private def declarationKeyJson (key : RegulaPolicy.DeclarationKey) : Json :=
   Json.mkObj [("module", RegistryCodec.printedNameJson key.moduleKey.name.name),
@@ -380,6 +423,9 @@ def accountJson (account : Regula.Checker.Account) : Json :=
 
 /-- Result rendering of a frozen snapshot: the audited sources in full, the configuration
 by URI, and each dependency by package, nominal revision and input-scoped `dirty` status.
+Each source's text is a `sourceText` member (`sourceJson`): a result file stores it once
+(`writeDocument`), and the freshChecker serialized-graph output, which is not a result document,
+keeps it in the member.
 `configuration.source` serializes the project configuration and every Lake dependency's
 captured source and configuration text, which for any Mathlib-dependent project is all of
 Mathlib. Acceptance compares those exact bytes in memory (`RegulaPolicy.Snapshot`) and
@@ -485,19 +531,10 @@ def acceptedValue {claim : RegulaPolicy.Claim}
     (.completed (Regula.Checker.Account.account accepted)) #[] stages stages #[]).setObjVal!
     "acceptance" (acceptedJson accepted)
 
-/-- Write `acceptedValue accepted scope` as compact JSON and a final newline to `path`,
-creating its parent directories, and report how long encoding and writing took when timing output
-is on (`timingSpan`). -/
+/-- Write `acceptedValue accepted scope` to `path` (`writeDocument`). -/
 def writeAccepted {claim : RegulaPolicy.Claim} (path : System.FilePath)
-    (accepted : RegulaPolicy.AcceptedRun claim) (scope : Json) : IO Unit := do
-  let spanStart ← IO.monoMsNow
-  let value := acceptedValue accepted scope
-  if let some parent := path.parent then IO.FS.createDirAll parent
-  let encoded := Json.compress value ++ "\n"
-  timingSpan s!"diagnostic span: writeAccepted encode: {(← IO.monoMsNow) - spanStart}ms"
-  let writeStart ← IO.monoMsNow
-  IO.FS.writeFile path encoded
-  timingSpan s!"diagnostic span: writeAccepted write: {(← IO.monoMsNow) - writeStart}ms"
+    (accepted : RegulaPolicy.AcceptedRun claim) (scope : Json) : IO Unit :=
+  writeDocument path (acceptedValue accepted scope) "writeAccepted"
 
 /-- The historical parse/compress normalization hop, retained verbatim:
 roundtrip identity over arbitrary `Json`/`JsonNumber` is not assumed. The

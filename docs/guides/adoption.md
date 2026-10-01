@@ -390,17 +390,41 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 6, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 7, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `6`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `7`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
-| `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, byte and LSP ranges; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example (RG1005 and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one (RG5002, RG5003) and the editor linter's record `null` and the declaration's own location. |
+| `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example (RG1005 and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one (RG5002, RG5003) and the editor linter's record `null` and the declaration's own location. |
 | `rules` | Once per fired rule: `requirement`, `rationale`, `remedy`, `rewrites`, `compliantExample`, `correction`, `helpUrl` and the offline `explain` command. |
+| `sourceTexts` | Every distinct source text of the document, once each. A `sourceText` member, wherever it occurs, is the index of its text in this array. |
+
+The document holds each source file's text once, however many findings are in the file. A source
+location is its `uri`, its ranges and a `sourceText` index, and its byte ranges are offsets into
+`sourceTexts[sourceText]` (other members omitted here):
+
+```json
+{
+  "sourceTexts": ["theorem reflexive : 1 = 1 := by\n  sorry\n"],
+  "diagnostics": [
+    { "id": "RG1002",
+      "location": { "kind": "source", "uri": "/work/widget/Widget/Basic.lean", "sourceText": 0,
+        "range": { "startByte": 0, "endByte": 39 },
+        "selectionRange": { "startByte": 8, "endByte": 17 } } }
+  ]
+}
+```
+
+The same member carries the text wherever else the document records a source: in
+`sourceAccount`, in `scope` (its `sources`, each surface's `frontendTranscripts` and its report's
+`sourceBindings` and `histories`) and in the snapshots of `acceptance`. Earlier schemas repeated
+the text in each of those members and in every source location (as `source`, `content`,
+`sourceContent`, `before` and `after`). Project configuration files stay inline, in `request`,
+`effective` and `scope.configuration`.
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it

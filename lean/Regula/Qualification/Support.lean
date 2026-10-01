@@ -1,5 +1,6 @@
 import RegulaQualification.Checks
 import Regula.Scratch
+import Regula.SourceTexts
 import Lean
 
 /-! # Operational qualification support
@@ -77,6 +78,12 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
 /-- Parse using the pinned Lean JSON implementation; malformed output is an error. -/
 def readJson (path : FilePath) : IO Json := do
   IO.ofExcept (Json.parse (← IO.FS.readFile path))
+
+/-- Read a result file (`--json-out`) as the document its writer built: parsed with the pinned
+Lean JSON implementation and expanded (`Regula.SourceTexts.expand`), so each `sourceText` member
+holds its text. A file that is not a written result document is an error. -/
+def readResult (path : FilePath) : IO Json := do
+  IO.ofExcept (Regula.SourceTexts.expand (← readJson path))
 
 /-- Pretty JSON is an output format, not a claim of byte-canonical serialization. -/
 def writeJson (path : FilePath) (value : Json) : IO Unit :=

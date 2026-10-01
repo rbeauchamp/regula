@@ -187,7 +187,8 @@ def agentGuide : String :=
   "- Check with `lake lint` (`lake lint -- --fresh` for a fresh-source audit). Exit codes: " ++
       exitCodes ++ ".\n" ++
   "- `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, " ++
-  "remedy and rule guidance (result schema 6, which writes names as Lean prints them). When a \
+  "remedy and rule guidance (result schema 7: names as Lean prints them, and each source text " ++
+  "once, in `sourceTexts`, which a `sourceText` member indexes). When a \
     stage did not complete, `complete` is false " ++
   "and `stagesNotRun` names the stages, so fixing these findings can reveal more.\n" ++
   "- A finding names its rule ID, what is wrong and where, and the fix. The first finding of " ++

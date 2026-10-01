@@ -10,7 +10,7 @@
         "detailPattern": "unknown-axiom",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 66,
             "endByte": 75
@@ -62,7 +62,7 @@
         "location": {
           "kind": "source",
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "range": {
             "startByte": 60,
             "endByte": 107
@@ -114,7 +114,7 @@
         "location": {
           "kind": "source",
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "range": {
             "startByte": 93,
             "endByte": 154
@@ -165,7 +165,7 @@
         "detailPattern": "compiler-trusting",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 108,
             "endByte": 113
@@ -209,7 +209,7 @@
         "detailPattern": "compiler-trusting",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 136,
             "endByte": 149
@@ -253,7 +253,7 @@
         "detailPattern": "compiler-trusting",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 158,
             "endByte": 166
@@ -297,7 +297,7 @@
         "detailPattern": "compiler-trusting",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 197,
             "endByte": 211
@@ -341,7 +341,7 @@
         "detailPattern": "compiler-trusting",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 220,
             "endByte": 227
@@ -385,7 +385,7 @@
         "detailPattern": "compiler-trusting",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 267,
             "endByte": 276
@@ -436,7 +436,7 @@
         "detailPattern": "choice-free",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 87,
             "endByte": 96
@@ -487,7 +487,7 @@
         "detailPattern": "unsafe",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 108,
             "endByte": 116
@@ -538,7 +538,7 @@
         "detailPattern": "registration must be closed",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 193,
             "endByte": 201
@@ -724,7 +724,7 @@
         "detailPattern": "replacement history unavailable.*unsupported replacement-history evaluators",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 303,
             "endByte": 311
@@ -774,7 +774,7 @@
         "detailPattern": "identity reaches identity",
         "location": {
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "selectionRange": {
             "startByte": 311,
             "endByte": 319
@@ -860,7 +860,7 @@
         "detailPattern": "project-axiom: reflexive",
         "location": {
           "uri": "$SNIPPET_URI",
-          "source": "$SNIPPET_TEXT",
+          "sourceText": "$SNIPPET_TEXT",
           "selectionRange": {
             "startByte": 66,
             "endByte": 75
@@ -983,7 +983,7 @@
         "location": {
           "kind": "source",
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "range": {
             "startByte": 123,
             "endByte": 184
@@ -1034,7 +1034,7 @@
         "location": {
           "kind": "source",
           "uri": "$SOURCE",
-          "source": "$SOURCE_TEXT",
+          "sourceText": "$SOURCE_TEXT",
           "range": {
             "startByte": 123,
             "endByte": 258

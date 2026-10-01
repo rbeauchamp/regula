@@ -1,4 +1,5 @@
 import Regula.Report
+import Regula.SourceTexts
 import Regula.Collect
 import Regula.Diagnostic
 import RegulaCore.Coordinates
@@ -81,6 +82,17 @@ instance : FromJson RegulaPolicy.Frontend.Transcript := ⟨fun j => do
     replacementHistoryUnsupported := ← j.getObjValAs? _ "replacementHistoryUnsupported"
   }⟩
 
+/-- Result-file rendering of a transcript: the transport fields, with the elaborated source as
+a `sourceText` member, which a result file stores once (`SourceTexts.intern`), in place of
+`sourceContent`. Worker transport keeps the `ToJson` shape. -/
+def transcriptResultJson (transcript : Transcript) : Json := Json.mkObj [
+  ("module", toJson transcript.module), ("source", toJson transcript.source),
+  ("sourceBytes", toJson transcript.sourceBytes),
+  (Regula.SourceTexts.textKey, toJson transcript.sourceContent),
+  ("leanVersion", toJson transcript.leanVersion), ("leanGitHash", toJson transcript.leanGitHash),
+  ("imports", toJson transcript.imports), ("commands", toJson transcript.commands),
+  ("runtimeReplacements", toJson transcript.runtimeReplacements),
+  ("replacementHistoryUnsupported", toJson transcript.replacementHistoryUnsupported)]
 
 
 /-- Recheck source coordinates against exact transcript bytes using Lean's FileMap and LSP
