@@ -11,12 +11,13 @@ import Lake.Util.Name
 Strict surface-manifest parsing. Unknowns and omissions fail closed. The pure `parse` is
 the executed parser. `parse_sound` proves what every accepted manifest satisfies;
 `parse_input` proves it has the allowed keys and schema version and that each entry is, in
-order, the decoding of its JSON element, including the `execution` field;
+order, the decoding of its JSON element, including the `execution` field, with every executable
+name replaced by its recorded spelling;
 `parse_emptyExclusions` proves that with empty exclusion arrays `parse` is the identity stage of
 the parsed surfaces. `parse` is the text parser, then `parseValue` (together `parseWritten`),
 then the identity stage `recordExecutables` (`parse_ok`). `parseValue_ok` proves that
-`parseValue` accepts exactly the
-values encoding a valid manifest, returning that manifest. `recordExecutables_ok` proves that
+`parseValue` accepts exactly the values encoding a valid manifest, returning that manifest.
+`recordExecutables_ok` proves that
 the identity stage replaces each executable name by its recorded spelling (`executableName`:
 Lake's own reading of a target name, printed as Lean prints a name) and accepts exactly when
 those names are distinct, well formed and recorded spellings, so an executable's Lake target
