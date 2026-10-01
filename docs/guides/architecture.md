@@ -205,9 +205,10 @@ metadata, not authenticated binary identity.
   entry, `scope`'s sources, frontend transcripts, source bindings and histories, and an
   `acceptance` snapshot) is the index of its text there. Checker code builds and reads the
   document with the text in each member and `sourceTexts` `null`; `ResultProtocol.writeDocument`
-  writes its `SourceTexts.intern`, and every reader (`ResultProtocol.readDocument`, the
-  qualification drivers' `readResult`) takes the file through `SourceTexts.expand`, which refuses
-  a list that is not distinct strings and an index outside it. `SourceTexts.expand_intern` proves
+  writes its `SourceTexts.intern`, and each reader that decodes a diagnostic or reads a text
+  (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the file through
+  `SourceTexts.expand`, which refuses a list that is not distinct strings and an index outside
+  it; a rule-example record keeps that expanded document. `SourceTexts.expand_intern` proves
   `expand` returns exactly the document `intern` was given, `intern_table` that the written list
   has no text twice, exactly the texts of the document's `sourceText` members, and that every
   such member of the written document is an index, and `intern_isOk_iff` that `intern` writes
@@ -218,8 +219,9 @@ metadata, not authenticated binary identity.
   carries one index for each member. That is an argument from the construction, not a theorem
   about byte counts, and it bounds source text only: a string elsewhere in the document is
   written where it occurs. Project configuration text stays inline in `request`, `effective` and
-  `scope.configuration`, and each execution root's account in `scope` lists its own reached
-  names and edges, so that part grows with the roots times what each reaches.
+  `scope.configuration`. `scope` also records every owned declaration with its kernel type as
+  text, and each execution root's account lists its own reached names, edges and boundaries, so
+  that member grows with the declarations and with the roots times what each reaches.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

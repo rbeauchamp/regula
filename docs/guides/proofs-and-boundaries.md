@@ -812,10 +812,14 @@ text twice and exactly the texts of the document's `sourceText` members, and eac
 the written document is an index into it), `intern_isOk_iff` (`intern` writes exactly the
 documents with one `null` `sourceTexts` member and string `sourceText` members) and
 `expand_texts` (every `sourceText` member of a document `expand` admits is a string), for every
-`Json` value, without assuming its object trees well formed; `RegistryChecks` bounds them to
-Standard-Logical. They do not cover JSON text, the file, or that a writer marks every source
-text as a `sourceText` member: the members that do are listed in the
-[architecture guide](architecture.md#output-schemas). In the excluded library,
+`Json` value, without assuming its object trees well formed, and
+`ResultProtocol.resultJson_slots` (every document `resultJson` builds has that one `null`
+member); they depend on `propext`, `Classical.choice` and `Quot.sound`, and `RegistryChecks`
+bounds them to Standard-Logical. They do not cover JSON text, the file, a member added to the
+document after `resultJson` built it, or that a writer marks every source text as a `sourceText`
+member: the members that do are listed in the
+[architecture guide](architecture.md#output-schemas), and `RegistryChecks` and the rule-example
+and producer campaigns observe written documents. In the excluded library,
 `RegistryCodec.mode_roundtrip`,
 `mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
 `nameParts_roundtrip`, `name_roundtrip` and `Regula.sortFindings_entries` on `propext`,

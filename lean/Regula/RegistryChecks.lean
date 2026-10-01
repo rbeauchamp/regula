@@ -35,7 +35,8 @@ run_cmd do
       ``Regula.Checker.ResultProtocol.guidanceFields_recorded,
       ``Regula.Checker.ResultProtocol.parseStage_stageName,
       ``Regula.SourceTexts.expand_intern, ``Regula.SourceTexts.intern_isOk_iff,
-      ``Regula.SourceTexts.intern_table, ``Regula.SourceTexts.expand_texts] do
+      ``Regula.SourceTexts.intern_table, ``Regula.SourceTexts.expand_texts,
+      ``Regula.Checker.ResultProtocol.resultJson_slots] do
     let axioms ← Lean.collectAxioms name
     unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
       throwError "registry theorem {name} exceeds Standard-Logical: {axioms}"

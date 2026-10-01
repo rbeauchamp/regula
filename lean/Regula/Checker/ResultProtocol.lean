@@ -251,6 +251,18 @@ def resultJson (scope : Json) (mode : EvidenceMode) (status : Status)
     ("unresolved", toJson unresolved), sourceTextsField] ++
     guidanceFields (acceptedStatus (statusText status)) expected completed findings)
 
+/-- Every document `resultJson` builds has exactly one `sourceTexts` member, `null`, as
+`SourceTexts.intern` requires: by `SourceTexts.intern_isOk_iff`, `writeDocument` refuses such a
+document only if one of its `sourceText` members is not a string. A member added to the document
+afterwards (`request`, `effective`, `sourceAccount`, `acceptance`) is outside this statement. -/
+theorem resultJson_slots (scope : Json) (mode : EvidenceMode) (status : Status)
+    (findings : Array Finding) (expected completed : List Stage) (unresolved : Array String) :
+    SourceTexts.slots (resultJson scope mode status findings expected completed unresolved) =
+      [.null] := by
+  simp [resultJson, Json.mkObj, SourceTexts.slots, identityFields, RegistryCodec.identityFields,
+    sourceTextsField, guidanceFields]
+  rfl
+
 /-- The stage named `name`. -/
 def parseStage (name : String) : Except String Stage :=
   match allStages.find? (stageName · == name) with
@@ -411,6 +423,9 @@ def accountJson (account : Regula.Checker.Account) : Json :=
 
 /-- Result rendering of a frozen snapshot: the audited sources in full, the configuration
 by URI, and each dependency by package, nominal revision and input-scoped `dirty` status.
+Each source's text is a `sourceText` member (`sourceJson`): a result file stores it once
+(`writeDocument`), and the freshChecker serialized-graph output, which is not a result document,
+keeps it in the member.
 `configuration.source` serializes the project configuration and every Lake dependency's
 captured source and configuration text, which for any Mathlib-dependent project is all of
 Mathlib. Acceptance compares those exact bytes in memory (`RegulaPolicy.Snapshot`) and
