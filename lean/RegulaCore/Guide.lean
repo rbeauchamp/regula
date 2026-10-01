@@ -357,7 +357,10 @@ def guide : RuleId → Guide
           compiler on the helper's recursion, with only the toolchain's own preprocessing rules \
           and the checker's built-in syntax handlers, regenerates the observed base, up to \
           compilation erasure, and the base's axioms are within Standard-Logical. Which code added \
-          the helper does not matter.",
+          the helper does not matter, and neither do declaration order, a nested proof shared with \
+          an earlier declaration, a proof written as a tactic block or as a term, or whether a \
+          `public` definition of a `module` file is exposed: the comparison uses no name of a \
+          theorem Lean abstracts from a nested proof.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -403,7 +406,9 @@ def guide : RuleId → Guide
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
         characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
-        each a regenerated, safe base with Standard-Logical axioms, and \
+        each a regenerated, safe base with Standard-Logical axioms, `helper_policy_iff` shows \
+        that a `partial` declaration linked to an admitted base passes exactly when it is such a \
+        helper with no failed contract inspection of its own, and \
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
         `partial def`'s helper under the `partial def`."
       sources :=

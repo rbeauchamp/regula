@@ -167,18 +167,67 @@ private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : E
           (body'.instantiate1 y)
     | _, _ => return false
 
+/-- Whether `value` mentions a constant of `theorems`. -/
+private def mentionsTheorem (theorems : NameMap TheoremVal) (value : Expr) : Bool :=
+  (value.find? fun e => e.isConst && theorems.contains e.constName!).isSome
+
+/-- `value` with every constant of `theorems` replaced by that theorem's value at the constant's
+universe levels, in at most `passes` passes over it; `none` if it still mentions one after them. A
+theorem Lean admitted mentions only theorems admitted before it, so one pass per theorem
+suffices. -/
+private def unfoldTheorems (theorems : NameMap TheoremVal) (passes : Nat) (value : Expr) :
+    Option Expr :=
+  if !mentionsTheorem theorems value then some value
+  else match passes with
+    | 0 => none
+    | passes + 1 => unfoldTheorems theorems passes <| value.replace fun
+        | .const n us => (theorems.find? n).map fun auxiliary =>
+            auxiliary.value.instantiateLevelParams auxiliary.levelParams us
+        | _ => none
+
+/-- What `unfoldTheorems` returns mentions no constant of `theorems`, for every map, pass count and
+value: the names of the unfolded theorems take no part in whatever reads the result. This states
+nothing about `Expr.replace` or about the theorems' values. -/
+private theorem unfoldTheorems_free (theorems : NameMap TheoremVal) (passes : Nat)
+    (value result : Expr) (unfolded : unfoldTheorems theorems passes value = some result) :
+    mentionsTheorem theorems result = false := by
+  induction passes generalizing value with
+  | zero =>
+    unfold unfoldTheorems at unfolded
+    split at unfolded <;> simp_all
+  | succ passes ih =>
+    unfold unfoldTheorems at unfolded
+    split at unfolded
+    · simp_all
+    · exact ih _ unfolded
+
 /-- The definitions a regeneration added to `before` to reach `after`, those named under
-`regenerationRoot`, each with its value and with every constant the regeneration added renamed
-back; a constant of `before`, under the root or not, keeps its name. -/
-private def regeneratedDefinitions (before after : Environment) : Array (Name × Expr) :=
+`regenerationRoot`, each with its value: every theorem the regeneration added is replaced by its
+value (`unfoldTheorems`), and every other constant it added under the root is renamed back; a
+constant of `before`, under the root or not, keeps its name. `none` if a theorem is left.
+
+An added theorem is a proof Lean abstracted from a regenerated value. Lean names it from a counter
+and from a cache of the propositions already abstracted in the same process, which no `.olean`
+stores (`Meta.mkAuxLemma`), and privately where a `module` file does not export the body
+(`DeclNameGenerator.mkUniqueName`). The observed declarations therefore need not hold a theorem of
+the regenerated name and type: Lean may have reused an earlier declaration's, numbered its own
+differently, or named it privately. Replacing each by its value leaves none of these names in the
+comparison (`unfoldTheorems_free`), which erases the proof itself. -/
+private def regeneratedDefinitions (before after : Environment) : Option (Array (Name × Expr)) := do
   let unregenerate := fun (n : Name) => n.replacePrefix regenerationRoot .anonymous
-  let added := after.constants.map₂.toList.filter fun (name, _) =>
-    name.getRoot == regenerationRoot && !before.contains name
-  let addedNames := NameSet.ofList (added.map (·.1))
-  added.toArray.filterMap fun (name, info) => do
-    let .defnInfo regenerated := info | none
-    return (unregenerate name, regenerated.value.replace fun
-      | .const n us => if addedNames.contains n then some (mkConst (unregenerate n) us) else none
+  let added := after.constants.map₂.toList.filter fun (name, _) => !before.contains name
+  let theorems : NameMap TheoremVal := added.foldl (init := {}) fun theorems (name, info) =>
+    match info with
+    | .thmInfo auxiliary => theorems.insert name auxiliary
+    | _ => theorems
+  let renamed := NameSet.ofList <| added.filterMap fun (name, _) =>
+    if name.getRoot == regenerationRoot && !theorems.contains name then some name else none
+  added.toArray.filterMapM fun (name, info) => do
+    let .defnInfo regenerated := info | return none
+    unless renamed.contains name do return none
+    let value ← unfoldTheorems theorems theorems.size regenerated.value
+    return some (unregenerate name, value.replace fun
+      | .const n us => if renamed.contains n then some (mkConst (unregenerate n) us) else none
       | _ => none)
 
 /-- Whether each regenerated definition equals up to compilation erasure the observed definition of
@@ -246,8 +295,10 @@ proofs and the observed base's own kernel-checked value supplies them. The compi
 `regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is generated
 for them. A regeneration that reports an error does not count. Every change is undone before the
 comparison, which reads the observed definitions and decides erasure in the inspected environment:
-whatever code runs during a regeneration, only the definitions it adds are compared. A comparison
-that throws does not count either. A `checkerLimit?` reached is rethrown. -/
+whatever code runs during a regeneration, only the definitions it adds are compared, each with the
+theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so the result
+does not depend on how Lean named or shared those theorems. A comparison that throws does not
+count either. A `checkerLimit?` reached is rethrown. -/
 private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo)
     (preprocessRules : IO.Ref (Option Meta.SimpTheorems)) :
     CommandElabM (Option RecursionOrigin) := do
@@ -283,7 +334,8 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         let after ← getEnv
         saved.restore
         if failed then return false
-        regenerationMatches (regeneratedDefinitions regenerating after)
+        let some regenerated := regeneratedDefinitions regenerating after | return false
+        regenerationMatches regenerated
       catch ex =>
         saved.restore
         if (← checkerLimit? ex).isSome then throw ex
