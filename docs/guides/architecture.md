@@ -220,9 +220,10 @@ metadata, not authenticated binary identity.
   mutual block, which Lean elaborates under its first type's name), its equation information or
   `f.eq_def`'s statement uses them, or, with the chain running through the recursion helper
   below, `f._unsafe_rec`'s value does, or, with the chain running through it, a declaration named
-  under `f` at any depth that is not auxiliary-named, such as a `where` or `let rec` helper, or
-  another such auxiliary declaration that is itself related does, and an RPC wrapper or
-  `initialize` action by the extension that records it;
+  under `f` at any depth that is not itself a generated auxiliary declaration (it is not
+  auxiliary-named, or it has a recorded declaration range), such as a `where` or `let rec` helper,
+  or another such auxiliary declaration with no recorded range that is itself related does, and an
+  RPC wrapper or `initialize` action by the extension that records it;
   constructor lemmas and type constructions where the environment shows their generator ran on
   the type (its precondition, under Lean's default options, or the mark it leaves on a sibling it
   generates in the same run); and field defaults by Lean's own lookup
@@ -257,8 +258,8 @@ metadata, not authenticated binary identity.
   findings under one declaration at one location as one block, and a generated declaration with a
   range of its own as its own block under the same declaration
   (`groupFindings`, `groupEntry`, `Finding.sameGroup`; `declarationFinding_groupUnder?` proves such
-  a finding groups under the declaration it is attributed to) and folds their lines in its closing `FAIL` summary
-  into one count; the JSON keeps them one per declaration, in the same order
+  a finding groups under the declaration it is attributed to) and folds their lines in its closing
+  `FAIL` summary into one count; the JSON keeps them one per declaration, in the same order
   (`groupFindings_flatten`).
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The

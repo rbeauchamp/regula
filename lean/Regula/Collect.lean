@@ -758,10 +758,11 @@ generators, is in `docs/guides/proofs-and-boundaries.md#generated-declaration-fa
   `f._unsafe_rec` when its value uses it, the recursion helper `addAndCompilePartialRec` compiles
   from `f`'s pre-definition, whose own step to `f` is its admitted authorization
   (`Findings.stepOf`), not its name; otherwise a declaration of its module whose type or value
-  uses it (`auxiliaryUser?`): one that is not auxiliary-named and is named under `f` at any depth,
-  such as a `where` or `let rec` helper `f.go`, whose proofs Lean names under `f` when it runs
-  their tactic blocks in the exposed body of a `module` file; or another such auxiliary
-  declaration that is itself related, by one of those uses or by a further auxiliary declaration
+  uses it (`auxiliaryUser?`): one named under `f` at any depth that is not itself a generated
+  auxiliary declaration (it is not auxiliary-named, or it has a recorded declaration range), such
+  as a `where` or `let rec` helper `f.go`, whose proofs Lean names under `f` when it runs their
+  tactic blocks in the exposed body of a `module` file; or another such auxiliary declaration with
+  no recorded range that is itself related, by one of those uses or by a further such declaration
   in the same way; one named under `f` first, then the first in name order: Lean abstracts a proof
   nested in a proof, so the lemma that uses it can be named under another declaration, such as a
   `where` helper's; `f` for the wrapper `f._rpc_wrapped` Lean records for an RPC method `f`
