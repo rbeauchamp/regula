@@ -35,7 +35,9 @@ private def beforeBytes (source marker : String) : Nat :=
   (source.splitOn marker).head!.utf8ByteSize
 
 /-- Build all preserved source-producer requirements. `theoremType` is the first
-observed type shared across invocations; equality is checked, never parsed from prose. -/
+observed `prettyType`, the theorem's type as Lean prints it, shared across invocations; equality
+of that text is checked, never parsed from prose. It is the printed type, not the kernel
+expression, which a result document does not carry. -/
 def requirements (report : Json) (code : Nat) (rule mode source : String)
     (fixed : Bool) (theoremType : Json) : Except String (List Check) := do
   let account ← account report
@@ -90,7 +92,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
     ⟨"no axioms", (← array declaration "axioms").isEmpty⟩,
     ⟨"safe declaration", !(← declaration.getObjValAs? Bool "isUnsafe")⟩,
     ⟨"total declaration", !(← declaration.getObjValAs? Bool "isPartial")⟩,
-    ⟨"unchanged elaborated theorem", (← field declaration "type") == theoremType⟩]
+    ⟨"unchanged printed theorem type", (← field declaration "prettyType") == theoremType⟩]
   if !fixed then
     let finding ← first diagnostics
     let location ← field finding "location"

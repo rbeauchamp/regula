@@ -82,15 +82,27 @@ instance : FromJson RegulaPolicy.Frontend.Transcript := ⟨fun j => do
     replacementHistoryUnsupported := ← j.getObjValAs? _ "replacementHistoryUnsupported"
   }⟩
 
+/-- Result-file rendering of a command: the transport fields, each added declaration without
+`type`, the `repr` of its kernel type expression, which is recomputable from the pinned inputs.
+Worker transport and native-axiom authentication keep the `ToJson` shape. -/
+def commandResultJson (command : Command) : Json := Json.mkObj [
+  ("added", toJson command.added),
+  ("addedDeclarations", toJson (command.addedDeclarations.map fun added => Json.mkObj [
+    ("name", toJson added.name), ("kind", toJson added.kind),
+    ("nativeStatement", toJson added.nativeStatement)])),
+  ("declaresAxiom", toJson command.declaresAxiom)]
+
 /-- Result-file rendering of a transcript: the transport fields, with the elaborated source as
 a `sourceText` member, which a result file stores once (`SourceTexts.intern`), in place of
-`sourceContent`. Worker transport keeps the `ToJson` shape. -/
+`sourceContent`, and each command by `commandResultJson`. Worker transport keeps the `ToJson`
+shape. -/
 def transcriptResultJson (transcript : Transcript) : Json := Json.mkObj [
   ("module", toJson transcript.module), ("source", toJson transcript.source),
   ("sourceBytes", toJson transcript.sourceBytes),
   (Regula.SourceTexts.textKey, toJson transcript.sourceContent),
   ("leanVersion", toJson transcript.leanVersion), ("leanGitHash", toJson transcript.leanGitHash),
-  ("imports", toJson transcript.imports), ("commands", toJson transcript.commands),
+  ("imports", toJson transcript.imports),
+  ("commands", toJson (transcript.commands.map commandResultJson)),
   ("runtimeReplacements", toJson transcript.runtimeReplacements),
   ("replacementHistoryUnsupported", toJson transcript.replacementHistoryUnsupported)]
 

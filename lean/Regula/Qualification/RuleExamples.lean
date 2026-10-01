@@ -476,7 +476,7 @@ def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array Fil
           corpusPaths).toList.eraseDups.toArray
 
 /-- The rule pair validated together by the fresh-project producer oracle, which requires
-one shared elaborated theorem type; the pair must therefore share a shard. -/
+one shared printed theorem type; the pair must therefore share a shard. -/
 def sharedTheoremTypeRules : String × String := ("RG5001", "RG5002")
 
 /-- The rule whose corpus position decides `key`'s shard: the first rule of
@@ -694,7 +694,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
         pure ()
     -- The fresh-project producer controls: the corpus `sharedTheoremTypeRules` records are the
     -- only fresh-project runs of those fixtures, so the producer oracle validates these
-    -- same observations (one shared elaborated theorem type, as in the producer campaign).
+    -- same observations (one shared printed theorem type, as in the producer campaign).
     let mut theoremType : Option Json := none
     for record in records do
       let rule ← string record "rule"
@@ -703,7 +703,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
       let account ← IO.ofExcept (RegulaQualification.Producer.account report)
       let declarations ← entries account "declarations"
       let some declaration := declarations[0]? | throw <| IO.userError "missing theorem declaration"
-      let expectedType := theoremType.getD (← get declaration "type")
+      let expectedType := theoremType.getD (← get declaration "prettyType")
       theoremType := some expectedType
       let phase ← string record "phase"
       IO.ofExcept (RegulaQualification.Producer.checked_validation.run report

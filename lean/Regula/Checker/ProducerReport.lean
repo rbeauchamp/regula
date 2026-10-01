@@ -196,13 +196,24 @@ def HistoryOutcome.resultJson : HistoryOutcome → Json
       ("replacements", toJson edges)]
   | .unavailable detail => toJson (HistoryOutcome.unavailable detail)
 
+/-- Result-file rendering of a declaration: the transport fields except `type`, the `repr` of the
+kernel type expression, which is recomputable from the pinned inputs; `prettyType` is the type as
+Lean prints it. Checker decisions use the in-memory record, which keeps `type`. -/
+def declarationResultJson (d : Regula.Report.Declaration) : Json :=
+  match toJson d with
+  | .obj members => .obj (members.erase "type")
+  | other => other
+
 /-- Result-file rendering: the transport fields except `modules` and `moduleOrigins`, which
 list every module of the imported environment (the whole import closure) and are
-recomputable from the pinned inputs. Owned modules remain in `census.modules`. Source texts, in
-`sourceBindings` and completed `histories`, are `sourceText` members. Checker
+recomputable from the pinned inputs, and except each declaration's `type`
+(`declarationResultJson`). Owned modules remain in `census.modules`. Source texts, in
+`sourceBindings` and completed `histories`, are `sourceText` members. `execution` is the array of
+root accounts; a result file stores it in the shared form (`SharedExecution.intern`). Checker
 decisions use the in-memory report; worker transport keeps the full `ToJson` shape. -/
 def Environment.resultJson (r : Environment) : Json := Json.mkObj [
-  ("toolchain", toJson r.toolchain), ("declarations", toJson r.declarations),
+  ("toolchain", toJson r.toolchain),
+  ("declarations", toJson (r.declarations.map declarationResultJson)),
   ("execution", toJson r.execution), ("census", toJson r.census),
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
   ("histories", toJson (r.histories.map fun (name, outcome) => (name, outcome.resultJson))),

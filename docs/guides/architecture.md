@@ -173,7 +173,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 7, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 8, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -188,7 +188,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 7:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 8:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -221,9 +221,46 @@ metadata, not authenticated binary identity.
   carries one index for each member. That is an argument from the construction, not a theorem
   about byte counts, and it bounds source text only: a string elsewhere in the document is
   written where it occurs. Project configuration text stays inline in `request`, `effective` and
-  `scope.configuration`. `scope` also records every owned declaration with its kernel type as
-  text, and each execution root's account lists its own reached names, edges and boundaries, so
-  that member grows with the declarations and with the roots times what each reaches.
+  `scope.configuration`.
+- **Execution accounts:** since schema 8 a result file holds each environment report's
+  `execution` in a shared form: `names` (every name its roots reach, in the order of
+  `canonicalNames`), `modules` and `nameModules` (each name's module), the seven edge channels
+  (`compilerEdges`, `logicalEdges`, `candidateEdges`, `historyEdges`, `currentReplacementEdges`,
+  `activeSimplificationEdges`, `helperEdges`) as pairs of name indices, `boundaries` (each
+  boundary record once, with the index of its name as `node`), `unavailableCode`, and `roots`,
+  one entry per root. Checker code builds and reads the document with `execution` as an array of
+  complete root accounts (name, module, boundaries, unresolved paths, compiler edges and
+  closure), as before; `ResultProtocol.writeDocument` writes `SharedExecution.write` of it and
+  every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
+  file through `SharedExecution.read`. The reader (`SharedExecution.restore?`,
+  `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
+  from the root over the edges the collector follows (`SharedExecution.walkLoop`), unless the
+  entry lists them; its reached names are the visited ones; each channel's edges are those leaving
+  a reached name; its required code is the targets of its compiler edges, and the root if its
+  entry says so; its boundaries are its visited names' records in visit order, each with the
+  reached names that call it. An entry can also hold a root's account as it is (`explicit`).
+  The writer proposes a shared form (`ExecutionShare.proposals`) and keeps it only if the reader
+  returns the logical value's content from it, compared by `SharedExecution.alike`; otherwise it
+  writes the logical value. So `SharedExecution.expand_intern` and `read_write` hold for every
+  `Json` value whatever is proposed: reading what was written returns a document with the same
+  `SharedExecution.content`, the document with each object as the list of its members in order,
+  which is what its JSON text shows. The recovered document may balance an object's tree
+  differently; `SharedExecution.getObjVal?_content` proves a lookup by key does not see that
+  for two objects of the same content whose trees are ordered, which is its hypothesis (Std
+  proves it of every tree its operations build, `Impl.WF.ordered`; that each object of a
+  document is such a tree is not proved here). That the proposal is kept, and so that the file
+  is small, is not a theorem: it holds when the collector's accounts have the form the reader
+  derives, which `Probe.executionWalk` is written to produce (it queues names in the order of
+  `canonicalNames`), and the `history` qualification and `RegistryChecks` observe it. The written
+  member then holds each reached name, edge and boundary record once per environment and a
+  constant-size entry per root, where the logical member repeats them for every root that
+  reaches them.
+- **Kernel types:** since schema 8 a result file does not carry a declaration's `type`, the
+  `repr` of its kernel type expression, in a report's `declarations` or in a frontend
+  transcript's `addedDeclarations` (`ProducerReport.declarationResultJson`,
+  `Frontend.commandResultJson`); `prettyType` is the type as Lean prints it. The in-memory
+  report and worker transport keep `type`, which the role decisions compare, and it is
+  recomputable from the pinned inputs.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

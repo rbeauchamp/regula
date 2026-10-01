@@ -410,13 +410,13 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 7, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 8, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `7`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `8`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example (RG1005 and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one (RG5002, RG5003) and the editor linter's record `null` and the declaration's own location. |
@@ -445,6 +445,51 @@ The same member carries the text wherever else the document records a source: in
 the text in each of those members and in every source location (as `source`, `content`,
 `sourceContent`, `before` and `after`). Project configuration files stay inline, in `request`,
 `effective` and `scope.configuration`.
+
+`scope` holds the audit's account. Each environment report in it (`scope.surfaces[*].report`,
+each `executables[*].report`, and `scope.report` for a file audit) lists its `declarations`, each
+with `prettyType`, its type as Lean prints it (earlier schemas also wrote `type`, the `repr` of
+the kernel expression), and its `execution`, the account of what each executable root reaches.
+`execution` stores what the environment's roots reach once, and each root as a short entry:
+
+```json
+{ "names": ["Nat.add", "Widget.double", "Widget.twice"],
+  "modules": ["Init.Prelude", "Widget.Basic"], "nameModules": [0, 1, 1],
+  "compilerEdges": [[1, 0], [2, 1]], "logicalEdges": [[1, 0], [2, 1]],
+  "candidateEdges": [], "historyEdges": [], "currentReplacementEdges": [],
+  "activeSimplificationEdges": [], "helperEdges": [],
+  "boundaries": [
+    { "node": 0, "name": "Nat.add", "module": "Init.Prelude", "boundary": "native-runtime",
+      "correspondence": "trusted", "owned": false, "replacement": null, "evidence": null,
+      "toolchainOrigin": { "module": "Init.Prelude", "actual": "…", "expected": "…" } } ],
+  "unavailableCode": [],
+  "roots": [
+    { "name": 1, "module": "Widget.Basic", "unresolved": [], "requiresCode": true },
+    { "name": 2, "module": "Widget.Basic", "unresolved": [], "requiresCode": true } ] }
+```
+
+A number in an edge, in `node`, in `unavailableCode` or as a root's `name` is an index into
+`names`; `nameModules[i]` is the index in `modules` of the module of `names[i]`, or `null`. A
+root's account follows from its entry:
+
+- its reached names are those the walk from the root visits: start with the root; take the name
+  queued last, and if it was not yet visited, visit it and queue the targets of its
+  `compilerEdges`, `candidateEdges`, `historyEdges`, `currentReplacementEdges`, `logicalEdges`
+  and `helperEdges`, in that order and each in listed order;
+- its edges in each channel are the listed edges that leave a reached name;
+- its boundaries are the `boundaries` records of its reached names, in visit order, and a
+  boundary's compiled callers are the reached names with a compiler edge to its name;
+- its required code is the targets of its compiler edges, and the root itself when
+  `requiresCode` is `true`; its unavailable code is the required code listed in
+  `unavailableCode`;
+- `unresolved` lists the paths the analysis could not resolve for this root.
+
+A root entry may instead list its `visits` (each a name index and the position of the visit that
+queued it), or hold its whole account as `explicit`; Regula writes those only for an account the
+walk above does not reproduce. Earlier schemas wrote `execution` as an array with every root's
+account in full (`name`, `module`, `boundaries`, `unresolved`, `compilerEdges` and a `closure` of
+`nodes`, `visits` and the edge lists), so a name, edge or boundary several roots reach was written
+once for each.
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it

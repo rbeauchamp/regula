@@ -36,6 +36,10 @@ run_cmd do
       ``Regula.Checker.ResultProtocol.parseStage_stageName,
       ``Regula.SourceTexts.expand_intern, ``Regula.SourceTexts.intern_isOk_iff,
       ``Regula.SourceTexts.intern_table, ``Regula.SourceTexts.expand_texts,
+      ``Regula.SharedExecution.alike_content, ``Regula.SharedExecution.getObjVal?_content,
+      ``Regula.SharedExecution.restoreMembers_mapMembers,
+      ``Regula.SharedExecution.restore?_internValue, ``Regula.SharedExecution.expand_intern,
+      ``Regula.SharedExecution.slots_intern, ``Regula.SharedExecution.read_write,
       ``Regula.Checker.ResultProtocol.resultJson_slots] do
     let axioms ← Lean.collectAxioms name
     unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
@@ -181,6 +185,57 @@ def main : IO Unit := do
     (toJson #[candidate.snapshot.source, candidate.snapshot.source])))) "stored text repeated"
   require (!succeeded (SourceTexts.expand (written.setObjVal! SourceTexts.tableKey
     (toJson #[(0 : Nat)])))) "stored text that is not a string"
+  -- Execution accounts stored once. `SharedExecution.expand_intern` and `read_write` prove that
+  -- the reader recovers the content of every document, whatever the writer proposes; these
+  -- observe what they do not cover: that the writer's proposal is kept for accounts of the form
+  -- the collector produces, so two roots store what both reach once, what the writer does with
+  -- an account of another form, and what the reader does with a malformed one.
+  let evidence ← IO.ofExcept
+    (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none)
+  let account (root : Name) (visits : Array RegulaPolicy.ExecutionVisit) :
+      RegulaPolicy.ExecutionRoot := {
+    name := root, «module» := `M
+    boundaries := #[{
+      occurrence := 0, name := `shared, «module» := `M, boundary := .partialComputation,
+      account := evidence, owned := true, replacement := none, compilerCallers := #[root] }]
+    unresolved := #[]
+    compilerEdges := #[(root, `shared)]
+    closure := {
+      nodes := RegulaPolicy.canonicalNames #[root, `shared]
+      visits
+      logicalEdges := #[(root, `shared)]
+      requiredCode := RegulaPolicy.canonicalNames #[root, `shared] } }
+  let walked (root : Name) : Array RegulaPolicy.ExecutionVisit :=
+    #[⟨root, some `M, none⟩, ⟨`shared, some `M, some 0⟩]
+  let report (accounts : Array RegulaPolicy.ExecutionRoot) : Json :=
+    Json.mkObj [(SharedExecution.accountKey, toJson accounts)]
+  let logical := report #[account `first (walked `first), account `second (walked `second)]
+  let stored := SharedExecution.intern ExecutionShare.proposals logical
+  let storedAccount := stored.getObjValD SharedExecution.accountKey
+  let count (member : String) : Option Nat :=
+    (storedAccount.getObjValD member).getArr?.toOption.map (·.size)
+  require (SharedExecution.derivedOnly storedAccount)
+    "accounts the walk reproduces are stored as derived root entries"
+  require (count "names" == some 3 && count "boundaries" == some 1 &&
+    count "compilerEdges" == some 2 && count "logicalEdges" == some 2)
+    "two roots store the name and boundary both reach once"
+  require ((SharedExecution.expand stored).toOption == some logical)
+    "the reader rebuilds each root's account"
+  -- Visits the walk does not produce: the root's entry lists them, and the reader still
+  -- returns the account.
+  let other := report #[account `first #[⟨`shared, some `M, none⟩, ⟨`first, some `M, some 0⟩],
+    account `second (walked `second)]
+  let listed := SharedExecution.intern ExecutionShare.proposals other
+  require (!SharedExecution.derivedOnly (listed.getObjValD SharedExecution.accountKey) &&
+    (SharedExecution.expand listed).toOption == some other)
+    "an account the walk does not reproduce is written with its visits and read back"
+  let claim := Json.mkObj [(SharedExecution.accountKey, .str "checked")]
+  require (SharedExecution.intern ExecutionShare.proposals claim == claim &&
+    (SharedExecution.expand claim).toOption == some claim)
+    "an execution member that is not an account is kept"
+  require (!succeeded (SharedExecution.expand (stored.setObjVal! SharedExecution.accountKey
+    (storedAccount.setObjVal! "names" (toJson (#[] : Array Json))))))
+    "a shared account whose names do not cover its indices is refused"
   let partialRun := requested "file" <| Regula.Checker.ResultProtocol.resultJson (.str "control")
     .freshFile .rejected #[⟨.projectAxiom, d⟩] fileStages
     (fileStages.filter (· ∉ [.execution, .origin])) #[]

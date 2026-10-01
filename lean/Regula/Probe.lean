@@ -478,7 +478,11 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     visited := visited.insert name
     let visitIndex := visits.size
     visits := visits.push { name, moduleName := moduleOf name, parent }
-    let enqueue (names : Array Name) := names.map (·, some visitIndex)
+    -- Queued names are in the order of `canonicalNames`, so the visit order and each visit's
+    -- parent are a function of the closure's edge sets: a reader of the result file's shared
+    -- execution account derives them (`SharedExecution.walkLoop`) instead of reading them.
+    let enqueue (names : Array Name) :=
+      (RegulaPolicy.canonicalNames names).map (·, some visitIndex)
     -- Persisted compiler IR records replacements at the time each imported
     -- declaration was compiled, including scoped simplification and inlining.
     -- Keep source edges too: optimization may erase an unsafe/replacement step.
@@ -529,7 +533,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
           (some
               s!"conservative constant-equality \
                 candidate={simplification.thmName}; {evidence.getD ""}"))
-      queue := queue ++ enqueue #[target]
+    queue := queue ++ enqueue (((candidates.find? name).getD #[]).map (·.toDeclName))
     if Lean.isExtern env name then
       boundaries := boundaries.push <|
         (← entry (if toolchain.isSome then .nativeRuntime else .external) .trusted none none)
@@ -546,10 +550,10 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
         queue := queue ++ enqueue #[target]
         continue
       let history ← liftIO <| loadReplacementHistory moduleName
-      let targets ← match history with
+      let (recorded, targets) ← match history with
         | .error error =>
             unresolved := unresolved.push s!"{name}: replacement history unavailable: {error}"
-            pure #[target]
+            pure (#[], #[target])
         | .ok edges =>
             let targets := edges.filterMap fun (reference, target) =>
               if reference == name then some target else none
@@ -558,13 +562,15 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
               unresolved :=
                   unresolved.push
                       s!"{name}: fresh replacement history omits current target {target}"
-            pure <| if targets.contains target then targets else targets.push target
+            pure (targets, if targets.contains target then targets else targets.push target)
       for target in targets do
         replacementEdges := replacementEdges.push (name, target)
         let (correspondence, evidence) ← correspondence name target
         boundaries := boundaries.push <|
           (← entry .runtimeReplacement correspondence (some target) evidence)
-        queue := queue ++ enqueue #[target]
+      -- The recorded targets, then the current one: the order of the closure's history edges
+      -- and its current replacement edge.
+      queue := queue ++ enqueue recorded ++ enqueue #[target]
       continue
     if info.isPartial then
       boundaries := boundaries.push <| (← entry .partialComputation .trusted none none)

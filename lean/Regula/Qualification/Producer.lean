@@ -50,7 +50,7 @@ def check (evidence : Option FilePath) : IO Unit := do
           let declarations ← IO.ofExcept (account.getObjValAs? (Array Json) "declarations")
           let some declaration := declarations[0]? | throw <|
                                                       IO.userError "missing theorem declaration"
-          let observedType ← IO.ofExcept (declaration.getObjVal? "type")
+          let observedType ← IO.ofExcept (declaration.getObjVal? "prettyType")
           let expectedType := theoremType.getD observedType
           theoremType := some expectedType
           IO.ofExcept
