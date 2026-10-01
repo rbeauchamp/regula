@@ -157,10 +157,10 @@ with a rationale. Review the starter: strengthen each `claim` where the library 
 the real rationale, and exclude what you do not claim.
 
 Name a library or an executable by its Lake target name, the `name` of its `lean_lib` or
-`lean_exe` that `lake build` and `lake exe` take, such as `widget-tool`. A name that is not a
-Lean identifier has a second spelling, `«widget-tool»`, which is how Lean prints it: `init`
-writes that spelling and reports show it. Both name the same target, so a manifest that names
-both has a duplicate. A library or executable entry, claimed or excluded, that names no root
+`lean_exe` that `lake build` takes (and `lake exe`, for an executable), such as `widget-tool`.
+A name that is not a Lean identifier has a second spelling, `«widget-tool»`, which is how Lean
+prints it: `init` writes that spelling and reports show it. Both name the same target, so a
+manifest that names both has a duplicate. A library or executable entry, claimed or excluded, that names no root
 target of its kind is refused (RG2002): the finding quotes the entry as you wrote it and lists
 the root libraries, or the root executables, by Lake target name.
 
