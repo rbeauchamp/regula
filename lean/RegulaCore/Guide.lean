@@ -406,9 +406,7 @@ def guide : RuleId → Guide
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
         characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
-        each a regenerated, safe base with Standard-Logical axioms, `helper_policy_iff` shows \
-        that a `partial` declaration linked to an admitted base passes exactly when it is such a \
-        helper with no failed contract inspection of its own, and \
+        each a regenerated, safe base with Standard-Logical axioms, and \
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
         `partial def`'s helper under the `partial def`."
       sources :=

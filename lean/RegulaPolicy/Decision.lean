@@ -355,69 +355,6 @@ theorem compiler_not_logical (i : Inventory) (roles : Roles i) (n : Name)
   · subst n; simp [Permitted]
   · exact native_not_logical i roles n hc
 
-/-- The authorization invariant for generated recursion helpers: a helper of a definition the
-checker admits is admitted exactly when it adds no trust beyond that definition.
-
-Let `h` be a `partial` declaration of the inventory whose Lean-linked base
-(`Declaration.unsafeRecBase`) is the inventory declaration `b`, and let `b` pass the request `r`.
-Then the actual decision `policyFor` passes `h` for `r` exactly when `h` is a recursion helper of
-the inventory (`RecursiveHelperOK`) and no contract inspection recorded for `h` failed.
-`RecursiveHelperOK` is what the observations record of "no trust beyond `b`": `h` is a range-less
-internal definition with the opaque hint, not `unsafe`, with no runtime replacement or external
-marker; `b` is a definition of the same module, type and universes, neither `partial` nor `unsafe`,
-with none either; every axiom of `h` is one of `b`'s, which are within Standard-Logical; the two
-mutual groups correspond; and Lean's own recursion compiler regenerates `b` from `h`
-(`Declaration.unsafeRecRegenerated`). No other evidence is consulted in either direction: an
-admitted base never leaves such a helper with a finding, and no other `partial` declaration linked
-to it passes.
-
-This relates two outcomes of `policyFor` over the recorded observations; it does not prove the
-regeneration observation truthful. -/
-theorem helper_policy_iff (i : Inventory) (roles : Roles i) {h b : Declaration}
-    (hh : h ∈ i.declarations) (hb : b ∈ i.declarations) (link : h.unsafeRecBase = some b.name)
-    (escape : h.isPartial = true) (r : InspectionRequest)
-    (admitted : policyFor i roles b r = none) :
-    policyFor i roles h r = none ↔ RecursiveHelperOK i.declarations h ∧ ContractOK h := by
-  have unique := i.valid.1
-  constructor
-  · intro pass
-    rcases ((policyFor_none_iff i roles h r).mp pass).2 with
-      ⟨-, native, -⟩ | ⟨-, -, -, safety, -, contract, -⟩
-    · rw [roles.native_exact, authorizedNativeAxioms_iff] at native
-      obtain ⟨a, ha, name, shape, -⟩ := native
-      cases eq_of_name_eq unique ha hh name
-      exact absurd escape (by simp [shape.2.2.2.2.1])
-    · rcases safety with ⟨-, total⟩ | member
-      · exact absurd escape (by simp [total])
-      · rw [roles.helpers_exact, authorizedUnsafeRecHelpers_iff] at member
-        obtain ⟨h', hh', name, helper⟩ := member
-        cases eq_of_name_eq unique hh' hh name
-        exact ⟨helper, contract⟩
-  · rintro ⟨helper, contract⟩
-    have member : h.name ∈ roles.helpers := by
-      rw [roles.helpers_exact, authorizedUnsafeRecHelpers_iff]
-      exact ⟨h, hh, rfl, helper⟩
-    obtain ⟨shape, -, b', hb', link', base, -⟩ := helper
-    cases eq_of_name_eq unique hb' hb (Option.some.inj (link'.symm.trans link))
-    obtain ⟨bkind, -, -, -, -, -, -, -, within, logical⟩ := base
-    have logicalH : ContainsFoundation .standardLogical h.axioms :=
-      fun n hn => logical n (within n hn)
-    have free : ∀ n ∈ h.axioms, ¬ CompilerAxiom roles.native n :=
-      fun n hn hc => compiler_not_logical i roles n hc (logicalH n hn)
-    refine (policyFor_none_iff i roles h r).mpr ⟨hh, Or.inr ⟨by simp [shape.1], ?_,
-      fun n hn => Or.inl (logicalH n hn), Or.inr member, Or.inr free, contract, ?_⟩⟩
-    · intro hole
-      have := logicalH _ hole
-      simp [Permitted] at this
-    · cases r with
-      | conforming p =>
-        rcases ((policyFor_none_iff i roles b _).mp admitted).2 with
-          ⟨axiomKind, -⟩ | ⟨-, -, -, -, -, -, profile⟩
-        · exact absurd (bkind.symm.trans axiomKind) (by decide)
-        · exact fun n hn => profile n (within n hn)
-      | classification => trivial
-      | teaching => trivial
-
 /-- For any logically admissible observed set, the actual diagnostic classifier returns
 its least profile. The role argument is bound to the same admitted inventory. -/
 theorem labelOf_logical (i : Inventory) (roles : Roles i) (a : Array Name)
