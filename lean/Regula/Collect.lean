@@ -601,15 +601,22 @@ private def usedConstants (env : Environment) (name : Name) : NameSet :=
   | none => {}
 
 /-- Whether a constituent of the declaration `f` uses `name`, in its type or kernel value
-(`usedConstants`): `f` itself, or, when `f` is an inductive type, one of its constructors or, for
-a structure, the default of one of its fields (`getEffectiveDefaultFnForField?`). -/
+(`usedConstants`): `f` itself, or, when `f` is an inductive type, any type of its mutual block
+(`InductiveVal.all`, which holds `f`), one of that type's constructors or, for a structure, the
+default of one of its fields (`getEffectiveDefaultFnForField?`). Lean elaborates a whole mutual
+block under its first type's name, so that type's auxiliary declarations serve every type of the
+block. -/
 private def declarationUses (env : Environment) (f name : Name) : Bool :=
   let uses (constituent : Name) := (usedConstants env constituent).contains name
-  uses f || match env.find? f with
-    | some (.inductInfo t) => t.ctors.any uses || (isStructure env f &&
-        (getStructureFieldsFlattened env f (includeSubobjectFields := false)).any fun field =>
-          (getEffectiveDefaultFnForField? env f field).any uses)
-    | _ => false
+  let typeUses (type : Name) : Bool :=
+    uses type || ((env.find? type).any fun
+      | .inductInfo t => t.ctors.any uses
+      | _ => false) || (isStructure env type &&
+        (getStructureFieldsFlattened env type (includeSubobjectFields := false)).any fun field =>
+          (getEffectiveDefaultFnForField? env type field).any uses)
+  match env.find? f with
+  | some (.inductInfo t) => t.all.any typeUses
+  | _ => uses f
 
 /-- The declaration whose own use relates the auxiliary declaration `name`, named `kind_N` under
 `f`: `f`, when a constituent of its declaration (`declarationUses`), the value its well-founded or
@@ -695,12 +702,13 @@ their generators, is in `docs/guides/proofs-and-boundaries.md#generated-declarat
   (`Elab.Structural.eqnInfoExt`), and for `f._f`, when that records it or `f`'s value uses `f._f`;
 - `auxiliaryLemma` (a): `f` for a declaration `mkAuxDeclName` names `f.kind_N` for one of the
   `auxiliaryKinds`, when a constituent of `f`'s declaration uses it (`declarationUses`: its type
-  or value, or, for an inductive type, a constructor's type or a field's default value, where a
-  `module` file's header proofs go), or the value its well-founded or structural equation
-  information records, or the value of the function its well-founded equation information names
-  uses it, or, for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; otherwise
-  the definition of `f.eq_def` (`Meta.declFromEqLikeName`) when that theorem's statement uses it,
-  as the statement `WF.mkUnfoldEq` gives it from the pre-definition it cleans separately; otherwise
+  or value, or, for an inductive type, the type, a constructor's type or a field's default value of
+  any type of its mutual block, which Lean elaborates under its first type's name; where a `module`
+  file's header proofs go), or the value its well-founded or structural equation information
+  records, or the value of the function its well-founded equation information names uses it, or,
+  for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; otherwise the
+  definition of `f.eq_def` (`Meta.declFromEqLikeName`) when that theorem's statement uses it, as
+  the statement `WF.mkUnfoldEq` gives it from the pre-definition it cleans separately; otherwise
   `f._unsafe_rec` when its value uses it, the recursion helper `addAndCompilePartialRec` compiles
   from `f`'s pre-definition, whose own step to `f` is its admitted authorization
   (`Findings.stepOf`), not its name; otherwise another such auxiliary declaration of its module

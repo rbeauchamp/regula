@@ -216,7 +216,8 @@ metadata, not authenticated binary identity.
   `partial_fixpoint` definition's `_unary`, `_mutual` or `mutual` and a structural recursion's `_f`
   and `_sunfold` by its equation information; auxiliary declarations `mkAuxDeclName` names under
   `f`, such as `f._proof_n`, when a constituent of `f`'s declaration (its type or value, or, for an
-  inductive type, a constructor's type or a field's default value), its equation information or
+  inductive type, the type, a constructor's type or a field's default value of any type of its
+  mutual block, which Lean elaborates under its first type's name), its equation information or
   `f.eq_def`'s statement uses them, or, with the chain running through the recursion helper
   below, `f._unsafe_rec`'s value does, or, with the chain running through it, another such
   auxiliary declaration that is itself related does, and an RPC wrapper or `initialize` action by
