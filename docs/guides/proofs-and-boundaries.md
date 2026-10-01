@@ -675,7 +675,22 @@ elided), with only the toolchain's own `wf_preprocess` rules and the checker's b
 tactic and term elaborators, generating no code for the fresh definitions, and compares each
 regenerated definition with the observed one up to compilation erasure: proofs and types, each
 classified in its own side's context, are erased and a well-founded fixpoint is compared without its
-relation or measure (`Declaration.unsafeRecRegenerated`). It never uses
+relation or measure (`Declaration.unsafeRecRegenerated`). Each theorem the regeneration abstracted
+from a nested proof is first put back as its value, so the comparison uses no such theorem's name:
+Lean names it from a counter and from the propositions it already abstracted in the same process,
+and privately where a `module` file does not export the body, so the observed module need not hold
+a theorem of that name. `unfoldTheorems_free` proves that the value so unfolded mentions none of
+those theorems; it proves nothing about `Expr.replace`, the renaming of the regenerated definitions
+that follows, or the comparison. The invariant is that a helper of a definition the checker admits
+is admitted exactly when it adds no trust beyond that definition. Its machine-checked part is over
+the recorded observations only: `policyFor_none_iff`, `authorizedUnsafeRecHelpers_iff` and
+`authorizedUnsafeRecHelpers_base` (the Roles and Declaration policy rows above). That the comparison
+does not depend on the names of those theorems is observed, not proved: `checkerSelftest fixtures`
+admits every helper of `Fixtures.Positive.SharedProofRecursion` (the shapes of issue #162) and of
+`Fixtures.Positive.ModulePublicRecursion` (`public` definitions of a `module` file, exposed or not),
+and in `Fixtures.Mutations.SharedProofUnsafeRecForge` admits a faithful copy of a helper and rejects
+one that computes with another function. No theorem covers the regeneration itself, which runs in
+Lean's elaborator. The comparison never uses
 `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of the
 self-referential helper does not terminate. The regeneration runs Lean's elaborator in the report
 worker and is undone before the comparison, which reads the observed definitions and decides erasure
