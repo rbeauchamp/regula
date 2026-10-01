@@ -615,17 +615,41 @@ private def auxiliaryOwner? (env : Environment) (name : Name) : Option Name := d
       let helper := Compiler.mkUnsafeRecName f
       if valueUses env helper name then some helper else none
 
+/-- The constants the type and the kernel value of the declaration `name` use. -/
+private def usedConstants (env : Environment) (name : Name) : NameSet :=
+  match env.find? name with
+  | some info => info.type.getUsedConstantsAsSet ++
+      ((valueOf? info).map (·.getUsedConstantsAsSet)).getD {}
+  | none => {}
+
+/-- Whether the auxiliary declaration `name` is related: by a use of its own (`auxiliaryOwner?`),
+or by one of `users`, each paired with the constants it uses, that uses `name` and is itself
+related in the same way. The state holds the declarations already examined, and none is examined
+twice. That loses nothing: a search that fails has examined every declaration that uses `name`
+through any chain of `users` and found none with a use of its own, so each of them is unrelated
+whatever led to it, and a later search may skip them; a search that succeeds ends the query. The
+declarations under examination at one time are distinct members of `users`, so `users.size` steps
+of fuel never run out before an unexamined one. -/
+private def auxiliaryRelated (env : Environment) (users : Array (Name × Thunk NameSet)) :
+    Nat → Name → StateM NameSet Bool
+  | 0, _ => return false
+  | fuel + 1, name => do
+    if (← get).contains name then return false
+    modify (·.insert name)
+    if (auxiliaryOwner? env name).isSome then return true
+    users.anyM fun (user, uses) =>
+      if uses.get.contains name then auxiliaryRelated env users fuel user else return false
+
 /-- The first of the auxiliary declarations `users` whose type or value uses `name` and that is
-itself related: by a use of its own (`auxiliaryOwner?`), or, within `fuel` further steps, by
-another of `users` in the same way. No declaration uses itself through others, so a chain of
-uses visits each of `users` at most once, and `users.size` steps of fuel reach every one. -/
-private def auxiliaryUser? (env : Environment) (users : Array Name) : Nat → Name → Option Name
-  | 0, _ => none
-  | fuel + 1, name => users.find? fun user =>
-      user != name &&
-        (env.find? user).any (fun info => info.type.getUsedConstants.contains name ||
-          (valueOf? info).any (·.getUsedConstants.contains name)) &&
-        ((auxiliaryOwner? env user).isSome || (auxiliaryUser? env users fuel user).isSome)
+itself related (`auxiliaryRelated`): by a use of its own, or by another of `users` in the same
+way, through any number of them. One query examines each of `users` at most once, and reads the
+constants each one uses at most once. -/
+private def auxiliaryUser? (env : Environment) (users : Array Name) (name : Name) : Option Name :=
+  let users := users.map fun user => (user, Thunk.mk fun _ => usedConstants env user)
+  let search := users.findM? fun (user, uses) =>
+    if user != name && uses.get.contains name then auxiliaryRelated env users users.size user
+    else return false
+  (search.run' {}).run.map (·.1)
 
 /-- The declaration Lean generated `name` from, one step, if `name` belongs to `family`, as the
 environment records it. Each clause rests on (a) a fact Lean's generator records in the
@@ -740,7 +764,7 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     let auxiliaries := (moduleConstants env name).filter isAuxiliaryName |>.qsort Name.lt
     let (near, far) := auxiliaries.partition fun user =>
       (namedUnder? user).any (·.1 == spellings)
-    return auxiliaryUser? env (near ++ far) auxiliaries.size name
+    return auxiliaryUser? env (near ++ far) name
   | .constructorLemma =>
     let some (p :: _, s) := namedUnder? name | return none
     let some (.ctorInfo ctor) := env.find? p | return none
