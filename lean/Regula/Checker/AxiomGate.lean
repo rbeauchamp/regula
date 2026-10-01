@@ -62,16 +62,19 @@ structure Options where
   audit, every execution root with a boundary the toolchain does not own or an unresolved path
   and every entry of the toolchain trusted base, which the file audit always lists. -/
   verbose : Bool := false
+  /-- `--kernel-types`: also write, in `--json-out`, each declaration's `type`, the `repr` of
+  its kernel type expression, which the result otherwise omits. -/
+  kernelTypes : Bool := false
   /-- `--help` or `-h`: print the usage text and exit. -/
   help : Bool := false
 
 private def usage : String :=
-  "usage: lake exe axiomGate -- [--verbose] [--project DIR] [--manifest PATH] [--json-out PATH] \
-    [--with-docs] [--acceptance-link PATH [--verso DIR:LIBRARY:RENDER]]\n" ++
+  "usage: lake exe axiomGate -- [--verbose] [--project DIR] [--manifest PATH] [--json-out PATH \
+    [--kernel-types]] [--with-docs] [--acceptance-link PATH [--verso DIR:LIBRARY:RENDER]]\n" ++
   "       lake exe axiomGate -- (--incremental | --build-lint) [--verbose] [--project DIR] \
-    [--manifest PATH] [--json-out PATH]\n" ++
+    [--manifest PATH] [--json-out PATH [--kernel-types]]\n" ++
   "       lake exe axiomGate -- --file FILE [--claim PROFILE] [--execution MODE] [--json-out \
-    PATH] [--verbose]\n" ++
+    PATH [--kernel-types]] [--verbose]\n" ++
   "The project audit builds an isolated fresh copy by default. --incremental inspects current \
     policy over the project's incremental build instead; --build-lint does the same as the \
     enforcing build linter (the build-lint `policy` target) and implies --incremental.\n" ++
@@ -79,6 +82,8 @@ private def usage : String :=
     each execution root with a boundary the toolchain does not own or an unresolved path and \
     every entry of the toolchain trusted base; the file audit always lists its execution account \
     and toolchain trusted base.\n" ++
+  "--kernel-types also writes, in --json-out, each declaration's kernel type expression as \
+    `type`; the result otherwise carries only the printed `prettyType`.\n" ++
   "profiles: kernel-only, choice-free, standard-logical, compiler-trusting\n" ++
   "execution modes: report (default), checked\n" ++
   "exit codes: 0 accepted (or, for --file without a conforming claim, classified), 1 violation, \
@@ -117,6 +122,8 @@ private def parseArgs : List String → Options → IO Options
       parseArgs rest { options with buildLint := true, incremental := true }
   | "--verbose" :: rest, options =>
       parseArgs rest { options with verbose := true }
+  | "--kernel-types" :: rest, options =>
+      parseArgs rest { options with kernelTypes := true }
   | "--help" :: rest, options => parseArgs rest { options with help := true }
   | "-h" :: rest, options => parseArgs rest { options with help := true }
   | flag :: _, _ => throw <| IO.userError s!"unknown or incomplete argument: {flag}"
@@ -134,6 +141,11 @@ initialize terminalObservation : IO.Ref (Option Lint.Observation) ← IO.mkRef n
 /-- The stages the current invocation performs, set when its options are admitted; until then
 every stage, so no result claims a stage it never started. -/
 initialize expectedStages : IO.Ref (List ResultProtocol.Stage) ← IO.mkRef ResultProtocol.allStages
+
+/-- Whether the current invocation's result output also carries each declaration's kernel type
+expression (`--kernel-types`), set when its options are admitted. It changes only what the result
+file renders, never a decision. -/
+initialize kernelTypes : IO.Ref Bool ← IO.mkRef false
 
 /-- The claimed-source build of a project audit: the ordinary `lake build`, showing Lake's
 progress line for each job as it runs (`Lake.buildTargetsShowing`), or `Lake.buildAuditTargets`
@@ -673,18 +685,20 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         if verbose then
           for line in Policy.executionAccountLines executionInventory do
             IO.println line
+        let withKernelTypes ← kernelTypes.get
         let environmentFields (report : Json) : List (String × Json) := [
           ("modules", toJson info.modules),
           ("authorizedNativeAxioms", toJson native),
           ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
-          ("frontendTranscripts", Json.arr <| transcripts.map Frontend.transcriptResultJson),
+          ("frontendTranscripts", Json.arr <| transcripts.map
+            (Frontend.transcriptResultJson · withKernelTypes)),
           ("report", report)
         ]
         -- Built only for the result output, which omits the import closure; it affects no
         -- decision. A library's entry opens its surface, and each executable's environment
         -- follows it in claim order.
         if resultOut.isSome then
-          let fields := environmentFields report.resultJson
+          let fields := environmentFields (report.resultJson withKernelTypes)
           match environment.executable, resultSurfaces.back? with
           | none, _ =>
               resultSurfaces := resultSurfaces.push (Json.mkObj <| [
@@ -1114,17 +1128,19 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   else refused findings
             let status ← record observation
             if let some output := resultOut then
+              let withKernelTypes ← kernelTypes.get
               let resultScope := Json.mkObj
                   [("file", toJson path.toString), (SourceTexts.textKey, toJson source),
                   ("execution", toJson execution.toString),
                   ("claim", toJson (claim.map Profile.toString)),
                   ("declarations", toJson declarations.size),
-                  ("report", inspected.report.resultJson),
+                  ("report", inspected.report.resultJson withKernelTypes),
                   ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
                   ("authorizedNativeAxioms", toJson native),
                   ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
                   ("frontendTranscripts",
-                    toJson (inspected.transcripts.map Frontend.transcriptResultJson)),
+                    toJson (inspected.transcripts.map
+                      (Frontend.transcriptResultJson · withKernelTypes))),
                   ("configuration", toJson configuration),
                   ("configurationRoot", toJson repo.toString),
                   ("completedStages", toJson
@@ -1205,6 +1221,8 @@ private def admitOptions (args : List String) : IO Options := do
     throw <| IO.userError "--acceptance-link requires fresh surface mode without --with-docs"
   if options.verso.isSome && options.acceptanceLink.isNone then
     throw <| IO.userError "--verso applies only to --acceptance-link"
+  if options.kernelTypes && options.resultOut.isNone then
+    throw <| IO.userError "--kernel-types applies only to --json-out"
   return options
 
 /-- Refuse an invalid invocation: the usage text and the problem, and the invalid-configuration
@@ -1306,6 +1324,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   let .ok options := admitted | return Lint.Outcome.configuration.exitCode
   if options.help then IO.println usage; return 0
   if options.verbose then timing.set true
+  kernelTypes.set options.kernelTypes
   let repo ← match options.project with
     | some dir => findRepoRoot dir
     | none => repoRoot

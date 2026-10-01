@@ -240,27 +240,30 @@ metadata, not authenticated binary identity.
   entry says so; its boundaries are its visited names' records in visit order, each with the
   reached names that call it. An entry can also hold a root's account as it is (`explicit`).
   The writer proposes a shared form (`ExecutionShare.proposals`) and keeps it only if the reader
-  returns the logical value's content from it, compared by `SharedExecution.alike`; otherwise it
-  writes the logical value. So `SharedExecution.expand_intern` and `read_write` hold for every
-  `Json` value whatever is proposed: reading what was written returns a document with the same
-  `SharedExecution.content`, the document with each object as the list of its members in order,
-  which is what its JSON text shows. The recovered document may balance an object's tree
-  differently; `SharedExecution.getObjVal?_content` proves a lookup by key does not see that
-  for two objects of the same content whose trees are ordered, which is its hypothesis (Std
-  proves it of every tree its operations build, `Impl.WF.ordered`; that each object of a
-  document is such a tree is not proved here). That the proposal is kept, and so that the file
-  is small, is not a theorem: it holds when the collector's accounts have the form the reader
+  returns the logical value itself from it, decided by `SharedExecution.same`
+  (`same_eq`: a `true` answer is an equality); otherwise it writes the logical value as it is.
+  So `SharedExecution.expand_intern` and `read_write` hold for every `Json` value whatever is
+  proposed: reading what was written returns exactly the document the writer was given, so the
+  checker's and the qualification oracles' theorems about the document they read are theorems
+  about the document that was written. The law is about `Json` values; that parsing a file's
+  text returns the value that was compressed into it is the JSON implementation's round trip,
+  trusted as it was for earlier schemas. That the proposal is kept, and so that the file is
+  small, is not a theorem: it holds when the collector's accounts have the form the reader
   derives, which `Probe.executionWalk` is written to produce (it queues names in the order of
-  `canonicalNames`), and the `history` qualification and `RegistryChecks` observe it. The written
+  `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for which
+  the account codecs and the reader list each object's members in key order, as the JSON parser
+  inserts them. The `history` qualification and `RegistryChecks` observe both. The written
   member then holds each reached name, edge and boundary record once per environment and a
   constant-size entry per root, where the logical member repeats them for every root that
   reaches them.
-- **Kernel types:** since schema 8 a result file does not carry a declaration's `type`, the
-  `repr` of its kernel type expression, in a report's `declarations` or in a frontend
-  transcript's `addedDeclarations` (`ProducerReport.declarationResultJson`,
-  `Frontend.commandResultJson`); `prettyType` is the type as Lean prints it. The in-memory
-  report and worker transport keep `type`, which the role decisions compare, and it is
-  recomputable from the pinned inputs.
+- **Kernel types:** since schema 8 a result file carries a declaration's `type`, the `repr` of
+  its kernel type expression, in a report's `declarations` and in a frontend transcript's
+  `addedDeclarations` only when the audit is run with `--kernel-types`
+  (`ProducerReport.declarationResultJson`, `Frontend.commandResultJson`); `prettyType` is the
+  type as Lean prints it. The in-memory report and worker transport always keep `type`, which
+  the role decisions compare. The producer qualification runs its controls with
+  `--kernel-types`, because its oracle compares the kernel expression, which two different
+  types that print alike would not show in `prettyType`.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does

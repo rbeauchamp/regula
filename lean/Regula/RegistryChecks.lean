@@ -36,8 +36,7 @@ run_cmd do
       ``Regula.Checker.ResultProtocol.parseStage_stageName,
       ``Regula.SourceTexts.expand_intern, ``Regula.SourceTexts.intern_isOk_iff,
       ``Regula.SourceTexts.intern_table, ``Regula.SourceTexts.expand_texts,
-      ``Regula.SharedExecution.alike_content, ``Regula.SharedExecution.getObjVal?_content,
-      ``Regula.SharedExecution.restoreMembers_mapMembers,
+      ``Regula.SharedExecution.same_eq, ``Regula.SharedExecution.restoreMembers_mapMembers,
       ``Regula.SharedExecution.restore?_internValue, ``Regula.SharedExecution.expand_intern,
       ``Regula.SharedExecution.slots_intern, ``Regula.SharedExecution.read_write,
       ``Regula.Checker.ResultProtocol.resultJson_slots] do
@@ -186,10 +185,11 @@ def main : IO Unit := do
   require (!succeeded (SourceTexts.expand (written.setObjVal! SourceTexts.tableKey
     (toJson #[(0 : Nat)])))) "stored text that is not a string"
   -- Execution accounts stored once. `SharedExecution.expand_intern` and `read_write` prove that
-  -- the reader recovers the content of every document, whatever the writer proposes; these
-  -- observe what they do not cover: that the writer's proposal is kept for accounts of the form
-  -- the collector produces, so two roots store what both reach once, what the writer does with
-  -- an account of another form, and what the reader does with a malformed one.
+  -- the reader recovers every document, whatever the writer proposes; these observe what they
+  -- do not cover: that the writer's proposal is kept for accounts of the form the collector
+  -- produces, built or parsed, so two roots store what both reach once, what the writer does
+  -- with an account of another form or without roots, and what the reader does with a malformed
+  -- one.
   let evidence ← IO.ofExcept
     (RegulaPolicy.admitBoundaryEvidence .partialComputation .trusted none none)
   let account (root : Name) (visits : Array RegulaPolicy.ExecutionVisit) :
@@ -221,6 +221,25 @@ def main : IO Unit := do
     "two roots store the name and boundary both reach once"
   require ((SharedExecution.expand stored).toOption == some logical)
     "the reader rebuilds each root's account"
+  -- The JSON parser builds an account's objects as the codec and the reader do, so a document
+  -- that was read back is written in the shared form again.
+  let reread := Regula.Checker.ResultProtocol.normalize logical
+  require (SharedExecution.same reread logical)
+    "a parsed account is the same value as the built one"
+  require (SharedExecution.derivedOnly ((SharedExecution.intern ExecutionShare.proposals
+      reread).getObjValD SharedExecution.accountKey))
+    "a parsed account is stored as derived root entries"
+  require (match SharedExecution.expand (Regula.Checker.ResultProtocol.normalize stored) with
+    | .ok restored => SharedExecution.same restored logical
+    | .error _ => false)
+    "the reader rebuilds the built account from a parsed shared form"
+  let rootless := report #[]
+  let storedNone := SharedExecution.intern ExecutionShare.proposals rootless
+  require
+    (SharedExecution.field? SharedExecution.rootsKey
+        (storedNone.getObjValD SharedExecution.accountKey) == some (Json.arr #[]) &&
+      (SharedExecution.expand storedNone).toOption == some rootless)
+    "an environment without roots is stored as a shared form without roots"
   -- Visits the walk does not produce: the root's entry lists them, and the reader still
   -- returns the account.
   let other := report #[account `first #[⟨`shared, some `M, none⟩, ⟨`first, some `M, some 0⟩],

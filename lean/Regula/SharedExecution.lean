@@ -1,5 +1,4 @@
 import Regula.SourceTexts
-import Std.Data.DTreeMap.Internal.WF.Lemmas
 import Std.Data.HashMap
 import Std.Data.HashSet
 
@@ -15,19 +14,17 @@ once, and one entry of constant size per root. `restore?` is the reader: it rebu
 account from the shared form. `intern` writes a document and `expand` reads one.
 
 The laws do not depend on how a shared form is produced. `internValue` keeps a proposed written
-value only when `restore?` returns the logical value's content from it, compared with `alike`,
-an equality proofs unfold (`alike_content`); otherwise it writes the logical value itself. So
+value only when `restore?` returns the logical value itself from it, decided by `same`, an
+equality test proofs unfold (`same_eq`); otherwise it writes the logical value as it is. So
 `restore?_internValue` and `expand_intern` hold for every `Json` value and every proposal, and
-`read_write` composes them with the source-text laws.
+`read_write` composes them with the source-text laws: the reader returns exactly the document the
+writer was given, object trees included, so whatever a function computes from the read document
+it computes from the written one.
 
-What the reader recovers is the document's `content`: every value with each object as the list of
-its members in order, which is what the document's JSON text shows. The recovered document may
-balance an object's tree differently from the one written. `getObjVal?_content` proves that
-reading a member by its key does not see that difference: two objects of the same content whose
-trees are ordered hold values of the same content under every key. That every object of a given
-document has an ordered tree is its hypothesis, not proved here. The laws concern `Json` values,
-not JSON text or the files that hold it, and they do not establish that a written value is small:
-a proposal that `restore?` does not take back is replaced by the logical value. -/
+The laws concern `Json` values, not JSON text or the files that hold it: what `Json.parse`
+returns for the text of a written value is outside them, as it is for `SourceTexts`. They do not
+establish that a written value is small: a proposal that `restore?` does not take back is
+replaced by the logical value. -/
 namespace Regula.SharedExecution
 open Lean
 open Std.DTreeMap.Internal (Impl)
@@ -44,232 +41,103 @@ def rootsKey : String := "roots"
 /-- The only member of a written value that holds a logical value as it is (`verbatim`). -/
 def verbatimKey : String := "verbatim"
 
-/-! ### Content, and an equality proofs unfold -/
-
-/-- What a JSON value's text shows: the value with each object as the list of its members in the
-order its tree lists them. Two `Json` values with the same content differ only in how their
-object trees are balanced. -/
-inductive Content where
-  /-- `null`. -/
-  | null
-  /-- A boolean. -/
-  | bool (value : Bool)
-  /-- A number. -/
-  | num (value : JsonNumber)
-  /-- A string. -/
-  | str (value : String)
-  /-- An array's elements, in order. -/
-  | arr (elements : List Content)
-  /-- An object's members, in order. -/
-  | obj (members : List (String × Content))
+/-! ### An equality test proofs unfold -/
 
 mutual
-/-- The content of a JSON value. -/
-def content (value : Json) : Content :=
-  match value with
-  | .null => .null
-  | .bool b => .bool b
-  | .num n => .num n
-  | .str s => .str s
-  | .arr elems => .arr (elems.map content).toList
-  | .obj ⟨⟨fields⟩⟩ => .obj (contentFields fields)
-termination_by sizeOf value
-/-- The members of an object's fields with their contents, in tree order. -/
-def contentFields (fields : Fields) : List (String × Content) :=
-  match fields with
-  | .leaf => []
-  | .inner _ key value left right =>
-      contentFields left ++ (key, content value) :: contentFields right
-termination_by sizeOf fields
-end
-
-/-- The members of an object's fields, in tree order. -/
-def entries : Fields → List (String × Json)
-  | .leaf => []
-  | .inner _ key value left right => entries left ++ (key, value) :: entries right
-
-/-- Listed members with their contents. -/
-def contentEntries (listed : List (String × Json)) : List (String × Content) :=
-  listed.map fun (key, value) => (key, content value)
-
-theorem contentFields_eq (fields : Fields) :
-    contentFields fields = contentEntries (entries fields) := by
-  induction fields with
-  | leaf => simp [contentFields, entries, contentEntries]
-  | inner size key value left right hl hr =>
-    simp [contentFields, entries, contentEntries, hl, hr]
-
-mutual
-/-- Whether two JSON values have the same content: the same constructor, array elements in order,
-and the same object members in order, whatever the shape of the two trees. Lean's own `Json`
-equality is `partial`, so no proof unfolds it; this one is a definition, and `alike_content`
-proves that a `true` answer is an equality of contents. -/
-def alike (a b : Json) : Bool :=
+/-- Whether two JSON values are the same value: the same constructor, the same array elements in
+order and the same object trees, node for node. Lean's own `Json` equality is `partial`, so no
+proof unfolds it; this one is a definition, and `same_eq` proves that a `true` answer is an
+equality. Two objects with the same members whose trees are balanced differently are not the
+same value, so the answer may be `false` for values Lean's equality identifies. -/
+def same (a b : Json) : Bool :=
   match a, b with
   | .null, .null => true
   | .bool a, .bool b => a == b
   | .num a, .num b => a == b
   | .str a, .str b => a == b
-  | .arr ⟨a⟩, .arr ⟨b⟩ => alikeList a b
-  | .obj ⟨⟨a⟩⟩, .obj ⟨⟨b⟩⟩ =>
-      match alikeFields a (entries b) with
-      | some [] => true
-      | _ => false
+  | .arr ⟨a⟩, .arr ⟨b⟩ => sameList a b
+  | .obj ⟨⟨a⟩⟩, .obj ⟨⟨b⟩⟩ => sameFields a b
   | _, _ => false
 termination_by sizeOf a
-/-- `alike` on the elements of two arrays, in order. -/
-def alikeList (a b : List Json) : Bool :=
+/-- `same` on the elements of two arrays, in order. -/
+def sameList (a b : List Json) : Bool :=
   match a, b with
   | [], [] => true
-  | head :: rest, other :: others => alike head other && alikeList rest others
+  | head :: rest, other :: others => same head other && sameList rest others
   | _, _ => false
 termination_by sizeOf a
-/-- Match the members of `a`, in tree order, against the listed members `listed`: the members of
-`listed` that remain when each member of `a` has the key of the next listed member and a value
-`alike` to it, and `none` otherwise. -/
-def alikeFields (a : Fields) (listed : List (String × Json)) : Option (List (String × Json)) :=
-  match a with
-  | .leaf => some listed
-  | .inner _ key value left right =>
-      match alikeFields left listed with
-      | some ((key', value') :: remaining) =>
-          if key == key' && alike value value' then alikeFields right remaining else none
-      | _ => none
+/-- `same` on two object trees: the same shape, sizes and keys, and the same values. -/
+def sameFields (a b : Fields) : Bool :=
+  match a, b with
+  | .leaf, .leaf => true
+  | .inner size key value left right, .inner size' key' value' left' right' =>
+      size == size' && key == key' && same value value' && sameFields left left' &&
+        sameFields right right'
+  | _, _ => false
 termination_by sizeOf a
 end
 
-private theorem alikeList_content {a : List Json}
-    (elements : ∀ value ∈ a, ∀ other, alike value other = true → content value = content other) :
-    ∀ b, alikeList a b = true → a.map content = b.map content := by
+private theorem sameList_eq {a : List Json}
+    (elements : ∀ value ∈ a, ∀ other, same value other = true → value = other) :
+    ∀ b, sameList a b = true → a = b := by
   induction a with
   | nil =>
     intro b h
     cases b with
     | nil => rfl
-    | cons other others => simp [alikeList] at h
+    | cons other others => simp [sameList] at h
   | cons head rest step =>
     intro b h
     cases b with
-    | nil => simp [alikeList] at h
+    | nil => simp [sameList] at h
     | cons other others =>
-      simp only [alikeList, Bool.and_eq_true] at h
-      have first := elements head List.mem_cons_self other h.1
-      have remaining :=
-        step (fun value member => elements value (List.mem_cons_of_mem _ member)) others h.2
-      simp [first, remaining]
+      simp only [sameList, Bool.and_eq_true] at h
+      rw [elements head List.mem_cons_self other h.1,
+        step (fun value member => elements value (List.mem_cons_of_mem _ member)) others h.2]
 
-/-- **`alike` answers `true` only for values with the same content.** The converse is not claimed:
-nothing here depends on it. -/
-theorem alike_content (a b : Json) (h : alike a b = true) : content a = content b := by
+/-- **`same` answers `true` only for equal values.** The converse is not claimed: nothing here
+depends on it. -/
+theorem same_eq (a b : Json) (h : same a b = true) : a = b := by
   revert b
-  refine Cases.value (motive := fun a => ∀ b, alike a b = true → content a = content b)
-    (fieldsMotive := fun fields => ∀ listed remaining,
-      alikeFields fields listed = some remaining →
-        ∃ matched, listed = matched ++ remaining ∧
-          contentEntries matched = contentFields fields) ?_ a
+  refine Cases.value (motive := fun a => ∀ b, same a b = true → a = b)
+    (fieldsMotive := fun fields => ∀ other, sameFields fields other = true → fields = other) ?_ a
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro b h
-    cases b <;> simp_all [alike]
+    cases b <;> simp_all [same]
   · intro value b h
-    cases b <;> simp_all [alike]
+    cases b <;> simp_all [same]
   · intro value b h
-    cases b <;> simp_all [alike]
+    cases b <;> simp_all [same]
   · intro value b h
-    cases b <;> simp_all [alike]
+    cases b <;> simp_all [same]
   · intro elems elements b h
     obtain ⟨elems⟩ := elems
     cases b with
     | arr other =>
       obtain ⟨other⟩ := other
-      simp only [alike] at h
-      have mapped := alikeList_content
-        (fun value member => elements value (Array.mem_def.mpr member)) other h
-      simp [content, mapped]
-    | _ => simp [alike] at h
+      simp only [same] at h
+      have lists : elems = other :=
+        sameList_eq (fun value member => elements value (Array.mem_def.mpr member)) other h
+      rw [lists]
+    | _ => simp [same] at h
   · intro fields step b h
     cases b with
     | obj other =>
       obtain ⟨⟨other⟩⟩ := other
-      simp only [alike] at h
-      cases found : alikeFields fields (entries other) with
-      | none => simp [found] at h
-      | some remaining =>
-        cases remaining with
-        | cons head rest => simp [found] at h
-        | nil =>
-          obtain ⟨matched, listed, same⟩ := step _ _ found
-          simp only [List.append_nil] at listed
-          simp [content, ← same, contentFields_eq other, listed]
-    | _ => simp [alike] at h
-  · intro listed remaining h
-    simp only [alikeFields, Option.some.injEq] at h
-    exact ⟨[], by simp [h], by simp [contentEntries, contentFields]⟩
-  · intro size key value left right valueStep leftStep rightStep listed remaining h
-    simp only [alikeFields] at h
-    cases found : alikeFields left listed with
-    | none => simp [found] at h
-    | some middle =>
-      cases middle with
-      | nil => simp [found] at h
-      | cons head middle =>
-        obtain ⟨key', value'⟩ := head
-        simp only [found] at h
-        split at h
-        next same =>
-          simp only [Bool.and_eq_true, beq_iff_eq] at same
-          obtain ⟨rfl, values⟩ := same
-          obtain ⟨before, listedEq, beforeContent⟩ := leftStep _ _ found
-          obtain ⟨after, middleEq, afterContent⟩ := rightStep _ _ h
-          refine ⟨before ++ (key, value') :: after, by simp [listedEq, middleEq], ?_⟩
-          simp only [contentFields, ← beforeContent, ← afterContent, valueStep value' values]
-          simp [contentEntries]
-        next => cases h
-
-/-! ### Reading a member by its key -/
-
-/-- The content of the first member named `key` among listed members. -/
-def lookup (key : String) : List (String × Content) → Option Content
-  | [] => none
-  | (name, value) :: rest => if name == key then some value else lookup key rest
-
-theorem contentFields_toListModel (fields : Fields) :
-    contentFields fields = fields.toListModel.map fun member => (member.1, content member.2) := by
-  induction fields with
-  | leaf => simp [contentFields]
-  | inner size key value left right hl hr => simp [contentFields, hl, hr]
-
-theorem lookup_getValue? (key : String) (listed : List ((_ : String) × Json)) :
-    lookup key (listed.map fun member => (member.1, content member.2)) =
-      (Std.Internal.List.getValue? key listed).map content := by
-  induction listed with
-  | nil => simp [lookup]
-  | cons head rest step =>
-    obtain ⟨name, value⟩ := head
-    simp only [List.map_cons, lookup, Std.Internal.List.getValue?_cons, step]
-    split <;> simp
-
-/-- **Reading a member by its key depends only on an object's content, for ordered trees.** Two
-objects with the same content whose trees are ordered by their keys hold, under every key, values
-of the same content, or neither holds one: `Json.getObjVal?` does not see how a tree is balanced.
-`Impl.Ordered` holds for every tree Lean's own operations build from the empty one (`Json.mkObj`,
-the parser, `setObjVal!`), which is Std's `Impl.WF.ordered` and is not restated here; it is a
-hypothesis because a `Json` value can hold any tree. The statement is about one object: a reader
-that follows several members applies it at each object it reads. -/
-theorem getObjVal?_content {a b : Fields} (orderedA : a.Ordered) (orderedB : b.Ordered)
-    (same : content (.obj ⟨⟨a⟩⟩) = content (.obj ⟨⟨b⟩⟩)) (key : String) :
-    ((Json.obj ⟨⟨a⟩⟩).getObjVal? key).toOption.map content =
-      ((Json.obj ⟨⟨b⟩⟩).getObjVal? key).toOption.map content := by
-  have fields : contentFields a = contentFields b := by simpa [content] using same
-  have found : ∀ {t : Fields}, t.Ordered →
-      ((Json.obj ⟨⟨t⟩⟩).getObjVal? key).toOption.map content = lookup key (contentFields t) := by
-    intro t ordered
-    have read : (Std.TreeMap.Raw.get? (⟨⟨t⟩⟩ : Std.TreeMap.Raw String Json compare) key) =
-        Std.Internal.List.getValue? key t.toListModel :=
-      Impl.Const.get?_eq_getValue? ordered
-    rw [contentFields_toListModel, lookup_getValue?, ← read]
-    simp only [Json.getObjVal?]
-    split <;> simp_all [Except.toOption, pure, Except.pure, throw, throwThe, MonadExceptOf.throw]
-  rw [found orderedA, found orderedB, fields]
+      simp only [same] at h
+      rw [step other h]
+    | _ => simp [same] at h
+  · intro other h
+    cases other with
+    | leaf => rfl
+    | inner size key value left right => simp [sameFields] at h
+  · intro size key value left right valueStep leftStep rightStep other h
+    cases other with
+    | leaf => simp [sameFields] at h
+    | inner size' key' value' left' right' =>
+      simp only [sameFields, Bool.and_eq_true, beq_iff_eq] at h
+      obtain ⟨⟨⟨⟨rfl, rfl⟩, values⟩, lefts⟩, rights⟩ := h
+      rw [valueStep value' values, leftStep left' lefts, rightStep right' rights]
 
 /-! ### The members a document names with one key -/
 
@@ -299,28 +167,22 @@ end
 def sequence (values : Array (Option Json)) : Option (Array Json) :=
   if values.all (·.isSome) then some (values.map (·.getD .null)) else none
 
-/-- Restoring each element of an array, where each restores to its own content, restores to an
-array of the same contents. -/
-theorem sequence_content {values : Array Json} {leaf : Json → Option Json}
-    (each : ∀ value ∈ values, (leaf value).map content = some (content value)) :
-    ∃ restored, sequence (values.map leaf) = some restored ∧
-      restored.map content = values.map content := by
-  have present : ∀ value ∈ values,
-      ∃ found, leaf value = some found ∧ content found = content value :=
-    fun value member => Option.map_eq_some_iff.mp (each value member)
-  refine ⟨(values.map leaf).map (·.getD .null), ?_, ?_⟩
-  · have all : (values.map leaf).all (·.isSome) = true := by
-      rw [Array.all_eq_true']
-      intro option member
-      obtain ⟨value, inside, rfl⟩ := Array.mem_map.mp member
-      obtain ⟨found, eq, -⟩ := present value inside
-      simp [eq]
-    simp only [sequence, all, ↓reduceIte]
-  · rw [Array.map_map, Array.map_map]
-    apply Array.map_congr_left
-    intro value member
-    obtain ⟨found, eq, same⟩ := present value member
-    simp [eq, same]
+/-- Restoring each element of an array, where each restores to itself, restores the array. -/
+theorem sequence_self {values : Array Json} {leaf : Json → Option Json}
+    (each : ∀ value ∈ values, leaf value = some value) :
+    sequence (values.map leaf) = some values := by
+  have mapped : values.map leaf = values.map some := Array.map_congr_left each
+  have all : (values.map some).all (·.isSome) = true := by
+    rw [Array.all_eq_true']
+    intro option member
+    obtain ⟨value, -, rfl⟩ := Array.mem_map.mp member
+    rfl
+  simp only [sequence, mapped, all, ↓reduceIte, Array.map_map]
+  congr 1
+  conv => rhs; rw [← Array.map_id values]
+  apply Array.map_congr_left
+  intro value _
+  rfl
 
 mutual
 /-- Replace the value of every member named `key` of `value`, at any depth outside such a member,
@@ -348,23 +210,18 @@ def restoreMemberFields (key : String) (leaf : Json → Option Json) (fields : F
 termination_by sizeOf fields
 end
 
-/-- A reader that takes back the content of what a writer made of each value takes back the
-content of the whole document: whenever `restore (write value)` is a value with the content of
-`value`, for every value, restoring the members named `key` of a document whose members named
-`key` were written returns a document with the content of that document. -/
+/-- A reader that takes back what a writer made of each value takes back the whole document:
+whenever `restore (write value) = some value` for every value, restoring the members named `key`
+of a document whose members named `key` were written returns that document. -/
 theorem restoreMembers_mapMembers (key : String) (write : Json → Json)
-    (restore : Json → Option Json)
-    (inverse : ∀ value, (restore (write value)).map content = some (content value))
+    (restore : Json → Option Json) (inverse : ∀ value, restore (write value) = some value)
     (value : Json) :
-    (restoreMembers key restore (mapMembers key write value)).map content =
-      some (content value) := by
+    restoreMembers key restore (mapMembers key write value) = some value := by
   refine Cases.value
     (motive := fun value =>
-      (restoreMembers key restore (mapMembers key write value)).map content =
-        some (content value))
+      restoreMembers key restore (mapMembers key write value) = some value)
     (fieldsMotive := fun fields =>
-      (restoreMemberFields key restore (mapMemberFields key write fields)).map contentFields =
-        some (contentFields fields)) ?_ value
+      restoreMemberFields key restore (mapMemberFields key write fields) = some fields) ?_ value
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [mapMembers, restoreMembers]
   · intro b
@@ -374,28 +231,20 @@ theorem restoreMembers_mapMembers (key : String) (write : Json → Json)
   · intro s
     simp [mapMembers, restoreMembers]
   · intro elems elements
-    obtain ⟨restored, found, same⟩ := sequence_content
+    have found := sequence_self
       (leaf := fun element => restoreMembers key restore (mapMembers key write element)) elements
     have mapped : (elems.map (mapMembers key write)).map (restoreMembers key restore) =
         elems.map fun element => restoreMembers key restore (mapMembers key write element) := by
       rw [Array.map_map]
       rfl
-    simp only [mapMembers, restoreMembers, mapped, found, Option.map_some, content, same]
+    simp only [mapMembers, restoreMembers, mapped, found, Option.map_some]
   · intro fields step
-    obtain ⟨restored, found, same⟩ := Option.map_eq_some_iff.mp step
-    simp [mapMembers, restoreMembers, found, content, same]
+    simp [mapMembers, restoreMembers, step]
   · simp [mapMemberFields, restoreMemberFields]
   · intro size name value left right valueStep leftStep rightStep
-    obtain ⟨restoredLeft, foundLeft, leftContent⟩ := Option.map_eq_some_iff.mp leftStep
-    obtain ⟨restoredRight, foundRight, rightContent⟩ := Option.map_eq_some_iff.mp rightStep
     by_cases h : (name == key) = true
-    · obtain ⟨restoredValue, foundValue, valueContent⟩ :=
-        Option.map_eq_some_iff.mp (inverse value)
-      simp [mapMemberFields, restoreMemberFields, h, foundValue, foundLeft, foundRight,
-        contentFields, valueContent, leftContent, rightContent]
-    · obtain ⟨restoredValue, foundValue, valueContent⟩ := Option.map_eq_some_iff.mp valueStep
-      simp [mapMemberFields, restoreMemberFields, h, foundValue, foundLeft, foundRight,
-        contentFields, valueContent, leftContent, rightContent]
+    · simp [mapMemberFields, restoreMemberFields, h, inverse value, leftStep, rightStep]
+    · simp [mapMemberFields, restoreMemberFields, h, valueStep, leftStep, rightStep]
 
 /-! ### Reading a written account -/
 
@@ -441,43 +290,49 @@ def visit? (size : Nat) : Json → Option (Nat × Option Nat)
       | _ => none
   | _ => none
 
-/-- A visit of a root's account, with the members and their order of the logical document
-(`Regula.Report`'s codec for `RegulaPolicy.ExecutionVisit`). -/
-def visitObject (name moduleName parent : Json) : Json :=
-  Json.mkObj [("name", name), ("moduleName", moduleName), ("parent", parent)]
+/-! The objects of a root's account, as the reader builds them. `Regula.Report`'s codecs for
+`RegulaPolicy.ExecutionVisit`, `ExecutionBoundary`, `ExecutionClosure` and `ExecutionRoot` build
+the same objects (`ExecutionShare.visit_toJson` and its companions, by `rfl`), so a codec and the
+reader build the same value from the same members. Each lists its members in the order of their keys, which is the order the JSON parser
+inserts the members of a compressed object in: an account that was parsed is then the same tree
+as one that was built, which is what lets the writer keep a shared form for a document that was
+read back. That is an observation about Lean's tree insertion (`RegistryChecks` checks it on an
+account); no law depends on it. -/
 
-/-- A boundary of a root's account, with the members and their order of the logical document
-(`Regula.Report`'s codec for `RegulaPolicy.ExecutionBoundary`). -/
+/-- A visit of a root's account: its name, its module and the position of the visit that queued
+it. -/
+def visitObject (name moduleName parent : Json) : Json :=
+  Json.mkObj [("moduleName", moduleName), ("name", name), ("parent", parent)]
+
+/-- A boundary of a root's account. -/
 def boundaryObject (occurrence name moduleName boundary correspondence owned replacement evidence
     compilerCallers toolchainOrigin : Json) : Json :=
-  Json.mkObj [("occurrence", occurrence), ("name", name), ("module", moduleName),
-    ("boundary", boundary), ("correspondence", correspondence), ("owned", owned),
-    ("replacement", replacement), ("evidence", evidence), ("compilerCallers", compilerCallers),
+  Json.mkObj [("boundary", boundary), ("compilerCallers", compilerCallers),
+    ("correspondence", correspondence), ("evidence", evidence), ("module", moduleName),
+    ("name", name), ("occurrence", occurrence), ("owned", owned), ("replacement", replacement),
     ("toolchainOrigin", toolchainOrigin)]
 
 /-- A boundary record as a written account stores it once: the members of `boundaryObject` that
 do not depend on the root, and `node`, the index of the boundary's name. -/
 def boundaryRecord (node name moduleName boundary correspondence owned replacement evidence
     toolchainOrigin : Json) : Json :=
-  Json.mkObj [("node", node), ("name", name), ("module", moduleName), ("boundary", boundary),
-    ("correspondence", correspondence), ("owned", owned), ("replacement", replacement),
-    ("evidence", evidence), ("toolchainOrigin", toolchainOrigin)]
+  Json.mkObj [("boundary", boundary), ("correspondence", correspondence), ("evidence", evidence),
+    ("module", moduleName), ("name", name), ("node", node), ("owned", owned),
+    ("replacement", replacement), ("toolchainOrigin", toolchainOrigin)]
 
-/-- The closure of a root's account, with the members and their order of the logical document
-(`Regula.Report`'s codec for `RegulaPolicy.ExecutionClosure`). -/
+/-- The closure of a root's account. -/
 def closureObject (nodes visits logicalEdges candidateEdges historyEdges currentReplacementEdges
     activeSimplificationEdges helperEdges requiredCode unavailableCode : Json) : Json :=
-  Json.mkObj [("nodes", nodes), ("visits", visits), ("logicalEdges", logicalEdges),
-    ("candidateEdges", candidateEdges), ("historyEdges", historyEdges),
-    ("currentReplacementEdges", currentReplacementEdges),
-    ("activeSimplificationEdges", activeSimplificationEdges), ("helperEdges", helperEdges),
-    ("requiredCode", requiredCode), ("unavailableCode", unavailableCode)]
+  Json.mkObj [("activeSimplificationEdges", activeSimplificationEdges),
+    ("candidateEdges", candidateEdges), ("currentReplacementEdges", currentReplacementEdges),
+    ("helperEdges", helperEdges), ("historyEdges", historyEdges), ("logicalEdges", logicalEdges),
+    ("nodes", nodes), ("requiredCode", requiredCode), ("unavailableCode", unavailableCode),
+    ("visits", visits)]
 
-/-- A root's account, with the members and their order of the logical document
-(`Regula.Report`'s codec for `RegulaPolicy.ExecutionRoot`). -/
+/-- A root's account. -/
 def rootObject (name moduleName boundaries unresolved compilerEdges closure : Json) : Json :=
-  Json.mkObj [("name", name), ("module", moduleName), ("boundaries", boundaries),
-    ("unresolved", unresolved), ("compilerEdges", compilerEdges), ("closure", closure)]
+  Json.mkObj [("boundaries", boundaries), ("closure", closure), ("compilerEdges", compilerEdges),
+    ("module", moduleName), ("name", name), ("unresolved", unresolved)]
 
 /-- The edges of a written channel as successor lists: entry `source` lists the targets of the
 edges leaving `source`, in the order the channel lists them. `none` when an endpoint is not below
@@ -665,27 +520,26 @@ def restore? : Json → Option Json
   | value => some value
 
 /-- A logical value written as it is: the one member of the written value. The writer uses it only
-for a value that `restore?` would not return with its own content. -/
+for a value that `restore?` would not return from itself. -/
 def verbatim (value : Json) : Json := .obj ⟨⟨.inner 1 verbatimKey value .leaf .leaf⟩⟩
 
 theorem restore?_verbatim (value : Json) : restore? (verbatim value) = some value := by
   simp [restore?, verbatim, member?]
 
-/-- Whether the reader returns a value with the content of `value` from `written`, decided with
-`alike`. -/
+/-- Whether the reader returns `value` itself from `written`, decided with `same`. -/
 def recovers (written value : Json) : Bool :=
   match restore? written with
-  | some restored => alike restored value
+  | some restored => same restored value
   | none => false
 
 theorem restore?_of_recovers {written value : Json} (h : recovers written value = true) :
-    (restore? written).map content = some (content value) := by
+    restore? written = some value := by
   unfold recovers at h
   split at h
-  next restored found => simp [found, alike_content restored value h]
+  next restored found => rw [found, same_eq restored value h]
   next => cases h
 
-/-- The first proposal for `value` that the reader takes back to the content of `value`. -/
+/-- The first proposal for `value` that the reader takes back to `value`. -/
 def firstRecovered (value : Json) : List (Json → Json) → Option Json
   | [] => none
   | propose :: rest =>
@@ -693,8 +547,7 @@ def firstRecovered (value : Json) : List (Json → Json) → Option Json
       if recovers written value then some written else firstRecovered value rest
 
 theorem restore?_of_firstRecovered {value written : Json} (proposals : List (Json → Json))
-    (h : firstRecovered value proposals = some written) :
-    (restore? written).map content = some (content value) := by
+    (h : firstRecovered value proposals = some written) : restore? written = some value := by
   induction proposals with
   | nil => simp [firstRecovered] at h
   | cons propose rest step =>
@@ -706,24 +559,24 @@ theorem restore?_of_firstRecovered {value written : Json} (proposals : List (Jso
     next => exact step h
 
 /-- The written form of the value of an `execution` member: the first of `proposals` for it that
-the reader takes back to its content; without one, the value itself when the reader returns its
-content from it, and otherwise the value as a `verbatim` member. -/
+the reader takes back to it; without one, the value itself when the reader returns it from
+itself, and otherwise the value as a `verbatim` member. -/
 def internValue (proposals : List (Json → Json)) (value : Json) : Json :=
   match firstRecovered value proposals with
   | some written => written
   | none => if recovers value value then value else verbatim value
 
 /-- **The reader recovers each value the writer was given.** For every value and every list of
-proposals, `restore?` of the written form is a value with the content of the value. -/
+proposals, `restore?` of the written form is that value. -/
 theorem restore?_internValue (proposals : List (Json → Json)) (value : Json) :
-    (restore? (internValue proposals value)).map content = some (content value) := by
+    restore? (internValue proposals value) = some value := by
   unfold internValue
   split
   next written found => exact restore?_of_firstRecovered proposals found
   next =>
     split
     next recovered => exact restore?_of_recovers recovered
-    next => simp [restore?_verbatim]
+    next => exact restore?_verbatim value
 
 /-- The written form of a logical document's execution accounts: each `execution` member is its
 `internValue`. -/
@@ -738,13 +591,11 @@ def expand (written : Json) : Except String Json :=
   | none => .error "result document: an execution account does not restore"
 
 /-- **The reader recovers the document the writer was given.** For every document and every list
-of proposals, `expand` of what `intern` wrote is a document with the content of that document. -/
+of proposals, `expand` of what `intern` wrote is that document. -/
 theorem expand_intern (proposals : List (Json → Json)) (document : Json) :
-    (expand (intern proposals document)).map content = .ok (content document) := by
-  obtain ⟨restored, found, same⟩ := Option.map_eq_some_iff.mp
-    (restoreMembers_mapMembers accountKey (internValue proposals) restore?
-      (restore?_internValue proposals) document)
-  simp [expand, intern, found, Except.map, same]
+    expand (intern proposals document) = .ok document := by
+  simp [expand, intern, restoreMembers_mapMembers accountKey (internValue proposals) restore?
+    (restore?_internValue proposals) document]
 
 /-- `mapMemberFields` is the tree's own value map, so it keeps every key and the tree's shape. -/
 theorem mapMemberFields_eq_map (key : String) (leaf : Json → Json) (fields : Fields) :
@@ -783,12 +634,12 @@ def write (proposals : List (Json → Json)) (document : Json) : Except String J
 def read (written : Json) : Except String Json := do
   expand (← SourceTexts.expand written)
 
-/-- **A reader of a result file recovers the document its writer was given.** Whenever `write`
-produces a value, `read` of it is a document with the content of the document, for every document
-and every list of proposals. -/
+/-- **A reader of a result file's value recovers the document its writer was given.** Whenever
+`write` produces a value, `read` of it is that document, for every document and every list of
+proposals. So a function of the document a reader holds is the same function of the document the
+writer was given: `f <$> read written = .ok (f document)`. -/
 theorem read_write {proposals : List (Json → Json)} {document written : Json}
-    (h : write proposals document = .ok written) :
-    (read written).map content = .ok (content document) := by
+    (h : write proposals document = .ok written) : read written = .ok document := by
   have texts : SourceTexts.expand written = .ok (intern proposals document) :=
     SourceTexts.expand_intern h
   simp only [read, texts, bind, Except.bind]

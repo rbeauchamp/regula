@@ -448,9 +448,11 @@ the text in each of those members and in every source location (as `source`, `co
 
 `scope` holds the audit's account. Each environment report in it (`scope.surfaces[*].report`,
 each `executables[*].report`, and `scope.report` for a file audit) lists its `declarations`, each
-with `prettyType`, its type as Lean prints it (earlier schemas also wrote `type`, the `repr` of
-the kernel expression), and its `execution`, the account of what each executable root reaches.
-`execution` stores what the environment's roots reach once, and each root as a short entry:
+with `prettyType`, its type as Lean prints it, and its `execution`, the account of what each
+executable root reaches. A declaration also has `type`, the `repr` of its kernel type
+expression, only when the audit is run with `--kernel-types` (`lake lint -- --json-out PATH
+--kernel-types`); earlier schemas always wrote it. `execution` stores what the environment's
+roots reach once, and each root as a short entry:
 
 ```json
 { "names": ["Nat.add", "Widget.double", "Widget.twice"],
@@ -484,9 +486,13 @@ root's account follows from its entry:
   `unavailableCode`;
 - `unresolved` lists the paths the analysis could not resolve for this root.
 
-A root entry may instead list its `visits` (each a name index and the position of the visit that
+An environment without executable roots has the same object, with every list empty. A root
+entry may instead list its `visits` (each a name index and the position of the visit that
 queued it), or hold its whole account as `explicit`; Regula writes those only for an account the
-walk above does not reproduce. Earlier schemas wrote `execution` as an array with every root's
+walk above does not reproduce. A reader that accepts everything Regula's own reader does also
+takes an object with a `verbatim` member as that member's value, the accounts in full, and any
+other `execution` value that is not an object with `roots` as it is; Regula writes those only
+when its reader would not return the accounts from the shared form. Earlier schemas wrote `execution` as an array with every root's
 account in full (`name`, `module`, `boundaries`, `unresolved`, `compilerEdges` and a `closure` of
 `nodes`, `visits` and the edge lists), so a name, edge or boundary several roots reach was written
 once for each.

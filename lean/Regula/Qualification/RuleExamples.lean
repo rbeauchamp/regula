@@ -185,6 +185,12 @@ private def addPackage (project : FilePath) (name : String) (dir : FilePath) (co
     ("manifestFile", .str "lake-manifest.json"), ("inherited", .bool false),
     ("configFile", .str config)]))))
 
+/-- The rule pair validated together by the fresh-project producer oracle, which requires
+one shared elaborated theorem type; the pair must therefore share a shard. Their productions ask
+for the kernel type expression (`axiomGate --kernel-types`), which that oracle compares and a
+result otherwise omits. -/
+def sharedTheoremTypeRules : String × String := ("RG5001", "RG5002")
+
 /-- Consumer context: carries no slot paths. Control admission and terminal
 qualification consume captured data and the real ROOT checkout only. -/
 private structure Context where
@@ -300,7 +306,10 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     if rule == "RG1002" && case == "Violation" then
       binary := root / ".lake/build/bin/ruleExamples"
       command := #["--policy-negative", project.toString, sourcePath.toString, output.toString]
-    else command := command ++ #["--json-out", output.toString]
+    else
+      command := command ++ #["--json-out", output.toString]
+      if rule == sharedTheoremTypeRules.1 || rule == sharedTheoremTypeRules.2 then
+        command := command.push "--kernel-types"
   -- Internal qualification-only entry (`ruleExamples --injected-git-facts`): the
   -- same detector body, given the runner's once-captured shared-dependency Git
   -- facts. The user-facing `axiomGate` is never given injected facts.
@@ -474,10 +483,6 @@ def sourcePaths (root : FilePath) (modulePaths : Array FilePath) : IO (Array Fil
   return (modulePaths ++
       #[root / "lean-toolchain", root / "lakefile.lean", root / "lake-manifest.json"] ++
           corpusPaths).toList.eraseDups.toArray
-
-/-- The rule pair validated together by the fresh-project producer oracle, which requires
-one shared printed theorem type; the pair must therefore share a shard. -/
-def sharedTheoremTypeRules : String × String := ("RG5001", "RG5002")
 
 /-- The rule whose corpus position decides `key`'s shard: the first rule of
 `sharedTheoremTypeRules` for the second when the first is in the corpus, otherwise `key`. -/
@@ -694,7 +699,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
         pure ()
     -- The fresh-project producer controls: the corpus `sharedTheoremTypeRules` records are the
     -- only fresh-project runs of those fixtures, so the producer oracle validates these
-    -- same observations (one shared printed theorem type, as in the producer campaign).
+    -- same observations (one shared elaborated theorem type, as in the producer campaign).
     let mut theoremType : Option Json := none
     for record in records do
       let rule ← string record "rule"
@@ -703,7 +708,7 @@ def check (evidence : FilePath) (selection : Option (Array String))
       let account ← IO.ofExcept (RegulaQualification.Producer.account report)
       let declarations ← entries account "declarations"
       let some declaration := declarations[0]? | throw <| IO.userError "missing theorem declaration"
-      let expectedType := theoremType.getD (← get declaration "prettyType")
+      let expectedType := theoremType.getD (← get declaration "type")
       theoremType := some expectedType
       let phase ← string record "phase"
       IO.ofExcept (RegulaQualification.Producer.checked_validation.run report

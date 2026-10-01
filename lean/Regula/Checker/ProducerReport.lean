@@ -196,24 +196,25 @@ def HistoryOutcome.resultJson : HistoryOutcome → Json
       ("replacements", toJson edges)]
   | .unavailable detail => toJson (HistoryOutcome.unavailable detail)
 
-/-- Result-file rendering of a declaration: the transport fields except `type`, the `repr` of the
-kernel type expression, which is recomputable from the pinned inputs; `prettyType` is the type as
-Lean prints it. Checker decisions use the in-memory record, which keeps `type`. -/
-def declarationResultJson (d : Regula.Report.Declaration) : Json :=
+/-- Result-file rendering of a declaration: the transport fields, without `type`, the `repr` of
+the kernel type expression, unless `kernelTypes` asks for it (`axiomGate --kernel-types`). That
+text is recomputable from the pinned inputs; `prettyType` is the type as Lean prints it. Checker
+decisions use the in-memory record, which keeps `type`. -/
+def declarationResultJson (d : Regula.Report.Declaration) (kernelTypes : Bool := false) : Json :=
   match toJson d with
-  | .obj members => .obj (members.erase "type")
+  | .obj members => if kernelTypes then .obj members else .obj (members.erase "type")
   | other => other
 
 /-- Result-file rendering: the transport fields except `modules` and `moduleOrigins`, which
 list every module of the imported environment (the whole import closure) and are
-recomputable from the pinned inputs, and except each declaration's `type`
+recomputable from the pinned inputs, and, unless `kernelTypes`, except each declaration's `type`
 (`declarationResultJson`). Owned modules remain in `census.modules`. Source texts, in
 `sourceBindings` and completed `histories`, are `sourceText` members. `execution` is the array of
 root accounts; a result file stores it in the shared form (`SharedExecution.intern`). Checker
 decisions use the in-memory report; worker transport keeps the full `ToJson` shape. -/
-def Environment.resultJson (r : Environment) : Json := Json.mkObj [
+def Environment.resultJson (r : Environment) (kernelTypes : Bool := false) : Json := Json.mkObj [
   ("toolchain", toJson r.toolchain),
-  ("declarations", toJson (r.declarations.map declarationResultJson)),
+  ("declarations", toJson (r.declarations.map (declarationResultJson · kernelTypes))),
   ("execution", toJson r.execution), ("census", toJson r.census),
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
   ("histories", toJson (r.histories.map fun (name, outcome) => (name, outcome.resultJson))),
@@ -221,8 +222,9 @@ def Environment.resultJson (r : Environment) : Json := Json.mkObj [
 
 /-- The result rendering is independent of the import closure (kernel-checked by `rfl`). -/
 theorem Environment.resultJson_imports_independent (r : Environment) (modules : Array Name)
-    (moduleOrigins : Array RegulaPolicy.ModuleOrigin) :
-    Environment.resultJson { r with modules, moduleOrigins } = r.resultJson := rfl
+    (moduleOrigins : Array RegulaPolicy.ModuleOrigin) (kernelTypes : Bool) :
+    Environment.resultJson { r with modules, moduleOrigins } kernelTypes =
+      r.resultJson kernelTypes := rfl
 
 /-- Every owned source binding is unique, located, loaded and covers each claimed
 module and each declaration's ranges. -/

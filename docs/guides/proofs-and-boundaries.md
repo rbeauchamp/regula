@@ -836,24 +836,22 @@ member: the members that do are listed in the
 [architecture guide](architecture.md#output-schemas), and `RegistryChecks` and the rule-example
 and producer campaigns observe written documents. Execution accounts:
 `SharedExecution.restore?_internValue` (the reader's `restore?` of the written form of an
-`execution` value is a value with that value's `content`), `expand_intern` (`expand` of what
-`intern` wrote is a document with the content of the document it was given), `read_write` (the
-same through `SourceTexts.intern` and `expand`, which is what a result file's writer and readers
-run), `alike_content` (the comparison the writer decides with answers `true` only for values of
-equal content) and `slots_intern` (writing the accounts keeps the `null` `sourceTexts` member),
-for every `Json` value and every list of writer proposals, bounded to Standard-Logical by
-`RegistryChecks`. `content` is a value with each object as the list of its members in order: the
-laws identify the recovered document with the written one up to how object trees are balanced.
-`getObjVal?_content` proves that `Json.getObjVal?` does not see that balance: under every key,
-two objects of the same content whose trees are ordered hold values of the same content, or
-neither holds one. It is about one object and takes the order as a hypothesis; that every object
-of a document has an ordered tree is not proved here (Std's `Impl.WF.ordered` proves it of each
-tree its own operations build). The laws do not prove that JSON text
-round-trips, or that the written form is smaller than the logical one. The last holds when the
-writer's proposal is kept, which is checked at each write and observed on the collector's real
-output by the `history` qualification (`derivedOnly`), not proved. The `history` oracle's
-theorems (`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`) are about
-the document `readResult` returns, so they apply to the accounts the reader rebuilt. In the
+`execution` value is that value), `expand_intern` (`expand` of what `intern` wrote is the
+document it was given), `read_write` (the same through `SourceTexts.intern` and `expand`, which
+is what a result file's writer and readers run), `same_eq` (the comparison the writer decides
+with answers `true` only for equal values) and `slots_intern` (writing the accounts keeps the
+`null` `sourceTexts` member), for every `Json` value and every list of writer proposals, bounded
+to Standard-Logical by `RegistryChecks`. The equality is of `Json` values, object trees
+included, so any function of the document a reader holds is that function of the document the
+writer was given. In particular the `history` oracle's theorems
+(`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`), which are about
+the document `readResult` returns, are about the account the collector produced, with no
+further correspondence to assume between the shared form and the root accounts. The laws do not
+prove that JSON text round-trips (what `Json.parse` returns for the file's text, trusted here
+as it is for every earlier schema), or that the written form is smaller than the logical one.
+The last holds when the writer's proposal is kept, which is checked at each write and observed
+on the collector's real output by the `history` qualification (`derivedOnly`) and on built and
+parsed accounts by `RegistryChecks`, not proved. In the
 excluded library,
 `RegistryCodec.mode_roundtrip`,
 `mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
