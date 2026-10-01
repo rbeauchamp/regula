@@ -244,8 +244,11 @@ jobs:
   # checked. Separate from, and never a partition of, 420-second acceptance. On main it runs after
   # `publish`, so it takes a release's edition from the asset published in this run. `candidate`
   # and `publish` are skipped on pull requests; `publish` is also skipped when there is nothing to
-  # release, and when `release-verify` or `release-site` fails, in which case this job runs and
-  # refuses, because the listed release has no asset yet.
+  # release, and when `release-verify` or `release-site` fails. While the latest listed release
+  # has neither asset nor tag, on the release pull request and on main until it is published, the
+  # build previews its edition from this commit and records the artifact as not publishable
+  # (Regula.releaseSource_preview_iff): the pull request's check passes, and on main the
+  # deployment gate below refuses, so this job fails and nothing is deployed.
   site:
     needs: [rule-examples, candidate, publish]
     if: >-

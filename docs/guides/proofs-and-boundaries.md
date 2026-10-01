@@ -1051,8 +1051,10 @@ the releases' lakefiles declare puts an admitted release above every listed one
 exactly when it starts a new line (`follows_patch_iff`), and a release on another toolchain
 starts one (`follows_toolchain`). **Proved** in `RegulaCore.Edition`: a build
 labelled a release is admitted exactly while its tag is absent or names its commit
-(`labelAdmitted_release_iff`), and an artifact is deployable exactly when no release edition in
-it was rendered from source (`publishable_iff`), and a release that follows its predecessor has
+(`labelAdmitted_release_iff`), an unreleased build previews a release's edition exactly while
+that release is the latest listed and has neither asset nor tag (`releaseSource_preview_iff`),
+an artifact is deployable exactly when every release edition in it is its release asset
+(`publishable_iff`), and a release that follows its predecessor has
 patch `0` exactly when it starts a new line (`follows_startsLine_iff`). The rest of
 `Release.lean` is operational: the text reading of a Conventional Commits header (`parseHeader`)
 and of the edited files, its check that a commit of `main` or of a pull request is unreleased,

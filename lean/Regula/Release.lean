@@ -1381,9 +1381,11 @@ def openRelease : IO Unit := do
       that rule too: on this branch while this pull request is open and the version is \
       unchanged, on the branch of that version otherwise (then close this pull request), and in \
       a new pull request from it once this one has merged.\n\n\
-      Until the release is published, the `site` check of this branch refuses: the release's \
-      edition exists only once CI builds it from the release commit. `verify` and `title` are \
-      the required checks.\n\n\
+      Every check of this pull request passes before it merges. Until the release is \
+      published, its `site` check builds and checks the artifact with a preview at \
+      `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
+      release's own edition exists only once CI builds it from the release commit, and no \
+      artifact with a preview is deployed. `verify` and `title` are the required checks.\n\n\
       The Release workflow pushed this signed branch, and a maintainer opened this pull request \
       from the link in the job summary, which started its checks; when the workflow rebuilds \
       the branch while this pull request is open, it starts them by dispatching `ci.yml` and \

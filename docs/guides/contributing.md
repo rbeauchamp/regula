@@ -456,10 +456,13 @@ until the release commit has passed the same checks as `main`:
    the signature. It pushes the commit as `release/v<version>` and writes to its job summary the
    link that opens the pull request `chore(release): Regula v<version> for Lean <toolchain>`,
    title and description filled in. A maintainer opens the pull request from that link, which
-   starts its checks, and merging it through normal review is the decision to release. Until the
-   release is published, the `site` check of this pull request, like the site build of every
-   commit that lists the release, refuses: the release's edition exists only once CI builds it
-   from the release commit. Only `verify` and `title` are required checks.
+   starts its checks, and merging it through normal review is the decision to release. Every
+   check of this pull request passes before it merges. Until the release is published, its
+   `site` check, like the site build of every unreleased commit that lists the release, builds
+   and checks the artifact with a preview of the release's edition, rendered from that commit
+   without a release label ([versions](website.md#versions-and-routes)): the release's own
+   edition exists only once CI builds it from the release commit, and an artifact with a preview
+   is never deployed. Only `verify` and `title` are required checks.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
    shards pass on a commit of `main` that lists a release not yet published, it refuses unless
    the releases GitHub reports published are exactly the releases listed before it
