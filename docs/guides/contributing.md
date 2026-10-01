@@ -106,10 +106,8 @@ so copies wait while another copy creates a new pin.
 - Scratch directories live in `.lake/regula-scratch/`, each beside an ownership marker
   `<name>.owner`. Those of killed runs (for example at the seven-minute limit) are reclaimed
   by the next run that creates one while no other run in the copy holds scratch; only marked
-  directories there are removed. A copy that Regula v0.3.0 or earlier ran in also has
-  `tmp/.regula-scratch/`: nothing is created there any more, and its marked directories are
-  reclaimed the same way, under its own lock. Scratch anywhere else is never reclaimed; remove
-  it by hand.
+  directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
+  remove it by hand.
 - GitHub Actions keeps `lake -d audit exe cache get` and its dependency cache; provisioning does
   nothing there. A shared directory is never modified, only removed whole.
 

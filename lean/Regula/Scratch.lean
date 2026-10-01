@@ -14,13 +14,8 @@ there. A process that dies, for example at `scripts/verify.sh`'s SIGKILL deadlin
 remove its directory, but the kernel releases its lock. So whenever the lock can be taken
 exclusively, no scratch owner is alive and every marked directory is an orphan; the next
 scratch user removes them, then their markers, before creating its own. Nothing else is
-removed: no unmarked entry, and nothing outside Regula's directory.
-
-Regula v0.3.0 and earlier kept the same layout in the project's source tree, at
-`tmp/.regula-scratch/` (`legacyDirectory`). Nothing is created there any more. Its orphans are
-reclaimed under the same condition on its own lock, which those versions hold while they run;
-the directory and its lock file are left in place. File locking, exclusive creation, process
-death and directory removal are trusted operating-system effects. -/
+removed: no unmarked entry, and nothing outside Regula's directory. File locking, exclusive
+creation, process death and directory removal are trusted operating-system effects. -/
 namespace Regula.Scratch
 open System
 
@@ -31,14 +26,11 @@ def dirName : String := "regula-scratch"
 directory Lake keeps its own output in (`Lake.defaultLakeDir`). -/
 def directory (root : FilePath) : FilePath := root / Lake.defaultLakeDir / dirName
 
-/-- The name of the scratch directory Regula v0.3.0 and earlier kept under `tmp/`. -/
+/-- The directory name `.regula-scratch`: Regula v0.3.0 and earlier kept scratch under
+`tmp/.regula-scratch`. Isolated copies skip it. -/
 def legacyDirName : String := ".regula-scratch"
 
-/-- The scratch directory Regula v0.3.0 and earlier used for the project at `root`,
-`tmp/.regula-scratch` in its source tree. It is only read and reclaimed, never created. -/
-def legacyDirectory (root : FilePath) : FilePath := root / "tmp" / legacyDirName
-
-/-- The lock file, directly under a scratch directory. -/
+/-- The lock file, directly under Regula's scratch directory. -/
 def lockName : String := ".lock"
 
 /-- The extension of an ownership marker, beside the directory it marks. -/
@@ -75,37 +67,18 @@ private def reclaim (dir : FilePath) : IO Unit := do
   if reclaimed > 0 then
     IO.eprintln s!"scratch: reclaimed {reclaimed} orphaned scratch directories under {dir}"
 
-/-- Reclaim the orphans under `dir` when its `lock` can be taken exclusively, which is when no
-scratch owner there is alive. -/
-private def reclaimIfIdle (dir : FilePath) (lock : IO.FS.Handle) : IO Unit := do
-  if ← lock.tryLock then
-    try reclaim dir finally lock.unlock
-
-/-- Reclaim the orphans an older Regula left in `legacyDirectory root`. A run of such a version
-holds that directory's lock shared while it owns scratch there, so the condition of
-`reclaimIfIdle` identifies its orphans too. The lock is opened for reading only, so nothing is
-created: a directory without a lock file holds no marker, since the lock was created first. The
-directory and its lock file stay, since removing a lock file that a running older version may
-open would let two runs hold different locks. A failure here is reported, not fatal. -/
-private def reclaimLegacy (root : FilePath) : IO Unit := do
-  let dir := legacyDirectory root
-  let lock? ← try some <$> IO.FS.Handle.mk (dir / lockName) .read catch _ => pure none
-  let some lock := lock? | return
-  try reclaimIfIdle dir lock
-  catch error => IO.eprintln s!"scratch: could not reclaim under {dir}: {error}"
-
 /-- Run `action` in a fresh, marked scratch directory under `directory root` and remove it,
 then its marker, on normal or exceptional return, holding the scratch lock shared throughout.
-When no scratch owner is alive, orphans are reclaimed first, those of an older Regula under
-`legacyDirectory root` included. Returns the value and the removed directory's path; the path
-is returned only after its removal returned. Random naming is not a logical freshness proof. -/
+When no scratch owner is alive, orphans are reclaimed first. Returns the value and the removed
+directory's path; the path is returned only after its removal returned. Random naming is not a
+logical freshness proof. -/
 def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath → IO α) :
     IO (α × FilePath) := do
   let dir := directory root
   IO.FS.createDirAll dir
   let lock ← IO.FS.Handle.mk (dir / lockName) .append
-  reclaimIfIdle dir lock
-  reclaimLegacy root
+  if ← lock.tryLock then
+    try reclaim dir finally lock.unlock
   lock.lock (exclusive := false)
   try
     let path := dir / s!"{stem}-{← suffix}"

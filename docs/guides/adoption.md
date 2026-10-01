@@ -332,8 +332,8 @@ nothing else. A project that also uses Mathlib moves Mathlib to the same Lean re
 way. Each finding's rule link then targets the new release's pages.
 
 Regula v0.3.0 and earlier kept those working files in `tmp/.regula-scratch/` instead. A later
-release creates nothing there, and its first run removes what a killed earlier run left in it.
-You can then delete the directory.
+release neither writes nor removes anything there, so delete `tmp/.regula-scratch/` once after
+upgrading.
 
 ## Read a finding
 
