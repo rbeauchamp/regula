@@ -1286,12 +1286,13 @@ spelling that is not an inventory executable, it refuses with `unknownExecutable
 such entry, quoting the entry in the spelling the decoded text gives it; a text `parse` refuses
 keeps that earlier refusal. This is the only refusal of such an entry: of the two inclusions
 between the manifest's and the inventory's executables, `AxiomGate.checkClassification` checks
-only that every root executable is classified. The refusal lists each inventory executable by `lakeTargetName`: its
-name without escaping when that text has the same recorded spelling, and the recorded spelling
-otherwise, so a manifest that copies a listed name records that executable whenever the
-inventory's spelling is its own recorded spelling (`executableName_lakeTargetName`); that
-hypothesis is the same trusted read-back. That the inventory passed is the project's is the
-caller's linkage, not a theorem. The refusal-class theorems (`parse_malformed`,
+only that every root executable is classified. The refusal lists each inventory executable by
+`lakeTargetName`: its name without escaping when that text has the same recorded spelling, and
+the recorded spelling otherwise, so a manifest that copies a listed name records that executable
+whenever the inventory's spelling is its own recorded spelling
+(`executableName_lakeTargetName`); that hypothesis is the same trusted read-back. That the
+inventory passed is the project's is the caller's linkage, not a theorem. The refusal-class
+theorems (`parse_malformed`,
 `objectWithKeys_unknown`, `topLevel_unknownKey`, `topLevel_schemaVersion`, `topLevel_emptySurfaces`,
 `parseSurface_unknownKey`, `surfaceExecution_unknown`, `surfaceExecution_nonString`) give the
 documented message of each isolated defect under their stated preconditions (unparseable JSON
