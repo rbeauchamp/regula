@@ -593,15 +593,34 @@ private def moduleConstants (env : Environment) (name : Name) : Array Name :=
   | some idx => (env.header.moduleData[(idx : Nat)]?.map (·.constNames)).getD #[]
   | none => env.constants.map₂.foldl (init := #[]) fun names id _ => names.push id
 
+/-- The constants the type and the kernel value of the declaration `name` use. -/
+private def usedConstants (env : Environment) (name : Name) : NameSet :=
+  match env.find? name with
+  | some info => info.type.getUsedConstantsAsSet ++
+      ((valueOf? info).map (·.getUsedConstantsAsSet)).getD {}
+  | none => {}
+
+/-- Whether a constituent of the declaration `f` uses `name`, in its type or kernel value
+(`usedConstants`): `f` itself, or, when `f` is an inductive type, one of its constructors or, for
+a structure, the default of one of its fields (`getEffectiveDefaultFnForField?`). -/
+private def declarationUses (env : Environment) (f name : Name) : Bool :=
+  let uses (constituent : Name) := (usedConstants env constituent).contains name
+  uses f || match env.find? f with
+    | some (.inductInfo t) => t.ctors.any uses || (isStructure env f &&
+        (getStructureFieldsFlattened env f (includeSubobjectFields := false)).any fun field =>
+          (getEffectiveDefaultFnForField? env f field).any uses)
+    | _ => false
+
 /-- The declaration whose own use relates the auxiliary declaration `name`, named `kind_N` under
-`f`: `f`, when its value, the value its well-founded or structural equation information records,
-or the value of the function its well-founded equation information names uses `name`, or, for a
-`simp` or `cbv_eval` lemma, when `name` uses `f`; otherwise the definition of `f.eq_def` when
-that theorem's statement uses `name`; otherwise `f._unsafe_rec` when its value uses `name`. -/
+`f`: `f`, when a constituent of its declaration (`declarationUses`), the value its well-founded or
+structural equation information records, or the value of the function its well-founded equation
+information names uses `name`, or, for a `simp` or `cbv_eval` lemma, when `name` uses `f`;
+otherwise the definition of `f.eq_def` when that theorem's statement uses `name`; otherwise
+`f._unsafe_rec` when its value uses `name`. -/
 private def auxiliaryOwner? (env : Environment) (name : Name) : Option Name := do
   let (spellings, s) ← namedUnder? name
   let kind ← auxiliaryKind? s
-  (spellings.find? fun f => valueUses env f name ||
+  (spellings.find? fun f => declarationUses env f name ||
       (Elab.WF.eqnInfoExt.find? env f).any (fun info =>
         info.value.getUsedConstants.contains name || valueUses env info.declNameNonRec name) ||
       (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
@@ -614,13 +633,6 @@ private def auxiliaryOwner? (env : Environment) (name : Name) : Option Name := d
     spellings.findSome? fun f =>
       let helper := Compiler.mkUnsafeRecName f
       if valueUses env helper name then some helper else none
-
-/-- The constants the type and the kernel value of the declaration `name` use. -/
-private def usedConstants (env : Environment) (name : Name) : NameSet :=
-  match env.find? name with
-  | some info => info.type.getUsedConstantsAsSet ++
-      ((valueOf? info).map (·.getUsedConstantsAsSet)).getD {}
-  | none => {}
 
 /-- Whether the auxiliary declaration `name` is related: by a use of its own (`auxiliaryOwner?`),
 or by one of `users`, each paired with the constants it uses, that uses `name` and is itself
@@ -653,10 +665,10 @@ private def auxiliaryUser? (env : Environment) (users : Array Name) (name : Name
 
 /-- The declaration Lean generated `name` from, one step, if `name` belongs to `family`, as the
 environment records it. Each clause rests on (a) a fact Lean's generator records in the
-environment: a mark or extension entry, an equation information, or a use in a kernel value or
-in the statement of an `eq_def` or in another auxiliary declaration; or on (c) the generator's
-own precondition, checked on the environment, for a declaration Lean generates whenever that
-precondition holds, so that no other declaration can have its name. None rests on a name alone;
+environment: a mark or extension entry, an equation information, or a use in a declaration's type
+or kernel value, in the statement of an `eq_def` or in another auxiliary declaration; or on (c) the
+generator's own precondition, checked on the environment, for a declaration Lean generates whenever
+that precondition holds, so that no other declaration can have its name. None rests on a name alone;
 the name only says which declaration a marked one is named under, as Lean's own
 `findDeclarationRanges?` reads it. The enumeration of the families Lean v4.34.0 generates, with
 their generators, is in `docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
@@ -682,11 +694,13 @@ their generators, is in `docs/guides/proofs-and-boundaries.md#generated-declarat
 - `structural` (a): `f` for `f._sunfold`, when its structural equation information records it
   (`Elab.Structural.eqnInfoExt`), and for `f._f`, when that records it or `f`'s value uses `f._f`;
 - `auxiliaryLemma` (a): `f` for a declaration `mkAuxDeclName` names `f.kind_N` for one of the
-  `auxiliaryKinds`, when `f`'s value, the value its well-founded or structural equation information
-  records, or the value of the function its well-founded equation information names uses it, or,
-  for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; otherwise the
-  definition of `f.eq_def` (`Meta.declFromEqLikeName`) when that theorem's statement uses it, as
-  the statement `WF.mkUnfoldEq` gives it from the pre-definition it cleans separately; otherwise
+  `auxiliaryKinds`, when a constituent of `f`'s declaration uses it (`declarationUses`: its type
+  or value, or, for an inductive type, a constructor's type or a field's default value, where a
+  `module` file's header proofs go), or the value its well-founded or structural equation
+  information records, or the value of the function its well-founded equation information names
+  uses it, or, for a `simp` or `cbv_eval` lemma Lean derives from `f`, when it uses `f`; otherwise
+  the definition of `f.eq_def` (`Meta.declFromEqLikeName`) when that theorem's statement uses it,
+  as the statement `WF.mkUnfoldEq` gives it from the pre-definition it cleans separately; otherwise
   `f._unsafe_rec` when its value uses it, the recursion helper `addAndCompilePartialRec` compiles
   from `f`'s pre-definition, whose own step to `f` is its admitted authorization
   (`Findings.stepOf`), not its name; otherwise another such auxiliary declaration of its module

@@ -30,9 +30,10 @@ def emit (print : String → IO Unit) (finding : Finding) : IO Unit :=
   emitEntry print finding.entry
 
 /-- Print a batch of findings in run order, one block per group (`groupFindings`, which loses no
-finding by `groupFindings_flatten`): the RG1005 findings under one declaration, including those
-attributed to it, print as one `groupEntry`, and every other finding prints alone, exactly as
-`emit` prints it (`groupEntry_alone`). -/
+finding by `groupFindings_flatten`): the RG1005 findings under one declaration at one location,
+including those attributed to it, print as one `groupEntry`; a generated declaration with a range
+of its own prints as its own block under the same declaration (`Finding.sameGroup`); and every
+other finding prints alone, exactly as `emit` prints it (`groupEntry_alone`). -/
 def emitAll (print : String → IO Unit) (findings : Array Finding) : IO Unit := do
   for group in groupFindings findings.toList do
     match group with
