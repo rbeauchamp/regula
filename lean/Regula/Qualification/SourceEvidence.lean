@@ -65,7 +65,8 @@ def closure : IO Unit := do
           let bad := phase == "negative"
           let source := if kind == "range" then rangeSource bad else
             "import Lean\n/-! Reflexive simplification and ordinary recursion have separate \
-              meanings. -/\ndef f (n : Nat) : Nat := n\ndef recursiveSum : List Nat → Nat\n  | [] \
+              meanings. -/\n/-- The identity. -/\ndef f (n : Nat) : Nat := n\n/-- The sum of a \
+              list. -/\ndef recursiveSum : List Nat → Nat\n  | [] \
               => 0\n  | x :: xs => x + recursiveSum xs\n" ++
             (if bad then "@[csimp] " else "") ++ "theorem same : f = f := rfl\n"
           IO.FS.writeFile (project / "Example.lean") source
@@ -167,10 +168,12 @@ def fences : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") good
     let positive := rangeSource false
     let mut phases := #[("positive", positive, ([] : List String), "")]
+    -- The result lists findings in run order (`Regula.sortFindings`): two findings of the same
+    -- fence are ordered by rule ID, and a fence's finding precedes a source-located one.
     for (label, source, ids, reason) in #[
-        ("range", rangeSource true, ["RG4002", "RG2005"],
+        ("range", rangeSource true, ["RG2005", "RG4002"],
             "producer-source: source coverage or coordinates mismatch"),
-        ("replay", "import Lean\n" ++ unchecked, ["RG4002", "RG2005"], "kernel-admission"),
+        ("replay", "import Lean\n" ++ unchecked, ["RG2005", "RG4002"], "kernel-admission"),
         ("policy", "axiom forbidden : True\n", ["RG4002", "RG1001"], "project-axiom"),
         ("compiler", "def bad : Nat := \"wrong\"\n", ["RG4002"], "")] do
       phases := phases.push (label, source, ids, reason) |>.push
