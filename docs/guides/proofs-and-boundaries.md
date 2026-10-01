@@ -1268,18 +1268,25 @@ distinctness no accepted manifest names one Lake target under two spellings. Tha
 name it printed back as that name, which is what accepts the spelling `init` writes for a name
 that is not an identifier (`«widget-tool»`), is trusted and not proved; the identity stage
 checks only that each recorded spelling is its own recorded spelling and refuses a spelling
-whose recorded spelling is not, which does not show that the name was read back. `load` adds
-only the missing-file check and the read. `loadFor`, which every caller that classifies the
-manifest against the Lake inventory uses (the project audit, `doctor`, `--explain-config`, the
-fresh-checker plan and the environment census), parses the same text with `parseFor` and the
-inventory's executables. `parseFor_ok`: `parseFor` accepts exactly the manifests `parse` accepts
-that name only those executables, so the theorems about `parse` hold of the manifest those
-callers use. `parseFor_unknown` and `unknownEntry?_some`: otherwise it refuses with
-`unknownExecutable` of the first executable entry, claimed or excluded, whose recorded spelling
-is not an inventory executable, quoting the entry in the spelling the decoded text gives it;
-this is the only refusal of such an entry: of the two inclusions between the manifest's and
-the inventory's executables, `AxiomGate.checkClassification` checks only that every root
-executable is classified. The refusal lists each inventory executable by `lakeTargetName`: its
+whose recorded spelling is not, which does not show that the name was read back. `loadFor` is
+the module's only file reader: it takes the project's Lake inventory, adds the missing-file
+check and the read, and parses the text with `parseFor` and the inventory's executables. Every
+command that reads the manifest with the inventory at hand uses it: the project audit, the file
+audit (`axiomGate --file`), the documentation audit, the rule examples, `doctor`,
+`--explain-config`, the fresh checker and the environment census. Two readers have no inventory
+where they read and apply the pure `parse` to the file's text: the self-test harness, to derive
+its control manifests and build targets, and `doctor`'s observation of the project
+(`Setup.observe`), to scope which targets the manifest excludes. Neither classifies the manifest
+against Lake; `doctor` does that through `loadFor` (`validManifest`), and each self-test control
+through the gate it runs. `parseFor_ok`: `parseFor` accepts exactly the manifests `parse`
+accepts that name only those executables, so the theorems about `parse` hold of the manifest
+those commands use. `parseFor_unknown` and `unknownEntry?_some`: when the text parses, its
+executable names are recorded and some executable entry, claimed or excluded, has a recorded
+spelling that is not an inventory executable, it refuses with `unknownExecutable` of the first
+such entry, quoting the entry in the spelling the decoded text gives it; a text `parse` refuses
+keeps that earlier refusal. This is the only refusal of such an entry: of the two inclusions
+between the manifest's and the inventory's executables, `AxiomGate.checkClassification` checks
+only that every root executable is classified. The refusal lists each inventory executable by `lakeTargetName`: its
 name without escaping when that text has the same recorded spelling, and the recorded spelling
 otherwise, so a manifest that copies a listed name records that executable whenever the
 inventory's spelling is its own recorded spelling (`executableName_lakeTargetName`); that

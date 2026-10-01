@@ -184,7 +184,8 @@ ordinary `lake build` with live feedback, is the audit's violation rather than a
 A claimed `lean_exe` whose Lake target name is not a Lean identifier is accepted under that name
 and classified alike under the name as Lean prints it; naming both is a configuration refusal,
 and so is an entry, claimed or excluded, that names no root executable: one refusal that quotes
-the entry as the manifest writes it and lists the root executables by Lake target name. -/
+the entry as the manifest writes it and lists the root executables by Lake target name, in the
+driver and in the adopter's `axiomGate --file` audit. -/
 private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
@@ -271,6 +272,14 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter (unknown "toml/unknown-executable" "gadget-tol"))
   IO.FS.writeFile manifest (claiming #["gadget-tool"] #["old-tool"])
   failures := failures ++ (← expect adopter (unknown "toml/unknown-excluded" "old-tool"))
+  -- The adopter's `axiomGate --file` audit reads the same manifest for the same inventory.
+  failures := failures ++ (← assess {
+      label := "toml/file-unknown-excluded", exitCode := 2,
+      contains := #["RG2002",
+        "manifest-incomplete: executable 'old-tool' is not a root Lean executable",
+        "the root Lean executables are [\"gadget-tool\"]"],
+      excludes := #["RG2001", "RG2003", "build-failed", "file audit: PASS"] }
+    (← fileAudit adopter "Gadget.lean"))
   IO.FS.removeFile cli
   restore adopter targetOriginals
   failures := failures ++

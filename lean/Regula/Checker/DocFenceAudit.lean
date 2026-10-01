@@ -192,8 +192,8 @@ unsafe def run (args : List String) : IO UInt32 := do
     let manifestPath := options.manifest.map (resolve repo) |>.getD (Manifest.defaultPath copy)
     let configuration ← SourceBinding.configuration copy manifestPath
     let outcome ← SourceBinding.withUnchanged #[] configuration do
-      let manifest ← Manifest.load manifestPath
       let inventory ← Lake.surfaceInventory copy
+      let manifest ← Manifest.loadFor manifestPath inventory
       let sources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory
       -- A linked run audits only the inputs ordinary acceptance already accepted.

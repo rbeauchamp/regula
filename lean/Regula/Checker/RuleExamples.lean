@@ -28,7 +28,7 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
     let sources := (← SourceBinding.capture inventory.moduleSources).push {
       moduleName := `RuleExample, path := path.toString, content := source }
     stable sources configuration do
-      let manifest ← Manifest.load (Manifest.defaultPath repo)
+      let manifest ← Manifest.loadFor (Manifest.defaultPath repo) inventory
       if let some lines ← Lake.buildChecked repo
           (Manifest.positiveTargets manifest) "incrementally" then
         throw <| IO.userError ("example dependency build failed: " ++ "\n".intercalate lines.toList)
@@ -91,8 +91,8 @@ unsafe def documentation (repo docsRoot output : FilePath) : IO UInt32 := do
     copyProject repo copy scratch
     let configuration ← SourceBinding.configuration copy (Manifest.defaultPath copy)
     stable #[] configuration do
-      let manifest ← Manifest.load (Manifest.defaultPath copy)
       let inventory ← Lake.surfaceInventory copy
+      let manifest ← Manifest.loadFor (Manifest.defaultPath copy) inventory
       let projectSources ← SourceBinding.capture inventory.moduleSources
       let dependencies ← Snapshot.dependencies inventory
       stable projectSources configuration do

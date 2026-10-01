@@ -25,15 +25,16 @@ That Lean reads a name it printed back as that name is trusted, not proved: the 
 checks only that each recorded spelling is its own recorded spelling and refuses a spelling
 whose recorded spelling is not, which does not show that the name was read back.
 `parseFor` is `parse` for a project's root executables: `parseFor_ok` proves it accepts exactly
-the manifests `parse` accepts that name only those executables, and `parseFor_unknown` that it
-otherwise refuses with `unknownExecutable` of the first such entry as the text writes it
-(`unknownEntry?_some`). `parseValue_toJson` is the round trip at the `Json` value boundary;
-`structural_roundtrip` applies it, with the identity stage, to the structural copy. The text
-boundary (`Json.compress`, which is `partial`,
+the manifests `parse` accepts that name only those executables, and `parseFor_unknown` that,
+when the text parses, its executable names are recorded and some entry's recorded spelling is
+none of them, it refuses with `unknownExecutable` of the first such entry as the text writes it
+(`unknownEntry?_some`); a text `parse` refuses keeps that earlier refusal. `parseValue_toJson`
+is the round trip at the `Json` value boundary; `structural_roundtrip` applies it, with the
+identity stage, to the structural copy. The text boundary (`Json.compress`, which is `partial`,
 and `PolicyCodec.parse`, which runs core `partial` parsers) stays trusted.
 The refusal-class theorems prove the message of malformed JSON, an unknown top-level or surface
 key, a non-2 schema version, empty surfaces and a bad surface `execution`, each given an
-otherwise accepted prefix. `load` adds only file IO. -/
+otherwise accepted prefix. `loadFor`, the only file reader, adds only file IO to `parseFor`. -/
 
 namespace Regula.Checker.Manifest
 
@@ -1528,23 +1529,16 @@ theorem surfaceExecution_nonString {item field : Json} {location : String}
   · rename_i text htext; exact absurd (Except.ok.inj (hfield.symm.trans htext)) (hnot text)
   · simp [throw, throwThe, MonadExceptOf.throw]
 
-/-- The text of the manifest file at `path`, failing with `manifest-missing` when it does not
-exist. -/
-private def read (path : FilePath) : IO String := do
+/-- Reads the manifest file at `path` for the project `inventory` describes, failing with
+`manifest-missing` when it does not exist: the text is parsed with `parseFor` and the
+inventory's executables, so an executable entry, claimed or excluded, that names no root
+executable is refused here with `unknownExecutable`, quoting the entry as the file writes it.
+This module has no other file reader. -/
+def loadFor (path : FilePath) (inventory : Lake.SurfaceInventory) : IO Manifest := do
   if !(← path.pathExists) then
     throw <| IO.userError s!"manifest-missing: {path}"
-  IO.FS.readFile path
-
-/-- Reads and parses the manifest file at `path`, failing with `manifest-missing` when it does not
-exist. A caller that classifies the manifest against a Lake inventory loads it with `loadFor`. -/
-def load (path : FilePath) : IO Manifest := do
-  IO.ofExcept (parse path.toString (← read path))
-
-/-- `load` for the project `inventory` describes: the file is parsed with `parseFor` and the
-inventory's executables, so an executable entry, claimed or excluded, that names no root
-executable is refused here with `unknownExecutable`, quoting the entry as the file writes it. -/
-def loadFor (path : FilePath) (inventory : Lake.SurfaceInventory) : IO Manifest := do
-  IO.ofExcept (parseFor (inventory.executables.map (·.executable)) path.toString (← read path))
+  IO.ofExcept <| parseFor (inventory.executables.map (·.executable)) path.toString
+    (← IO.FS.readFile path)
 
 /-- The Lake targets a checker must build so every claimed module is
 elaborated and resolvable: each claimed library and claimed executable. -/

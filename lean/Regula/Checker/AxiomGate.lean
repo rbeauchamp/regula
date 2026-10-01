@@ -941,7 +941,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
     let sources := dependencySources.push fileSource
     withSourceEvidence sources configuration path.toString .freshFile composed resultOut do
       if manifest.isSome || (← manifestPath.pathExists) then
-        let claimed ← Manifest.load manifestPath
+        let claimed ← Manifest.loadFor manifestPath inventory
         let (_, buildResult) ← Lake.buildCheckedObservation repo
           (Manifest.positiveTargets claimed) "incrementally" Lake.buildTargetsShowing
         SourceBinding.unchanged sources

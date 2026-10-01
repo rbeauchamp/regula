@@ -166,9 +166,13 @@ def observe (root : FilePath) : IO Project := do
   -- Without a manifest every root target is claimed, as in the starter `init` writes; a target the
   -- manifest that loads excludes is not. A manifest that does not load or classify every root
   -- target claims none for the option edits until it does (`doctor` reports it as RG2002).
-  let manifestExists ← (Manifest.defaultPath root).pathExists
+  let manifestPath := Manifest.defaultPath root
+  let manifestExists ← manifestPath.pathExists
   let manifest ← if manifestExists then
-      try some <$> Manifest.load (Manifest.defaultPath root) catch _ => pure none
+      try
+        let text ← IO.FS.readFile manifestPath
+        some <$> IO.ofExcept (Manifest.parse manifestPath.toString text)
+      catch _ => pure none
     else pure none
   let invalid ← if manifestExists then
       try validManifest root *> pure false catch _ => pure true

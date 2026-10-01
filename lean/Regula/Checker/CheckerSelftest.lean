@@ -862,14 +862,12 @@ private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Ar
         diagnostic {repr (publicExpectation expected)}:\n{result.output}"
   return failures
 
-private def expectManifestFailure (name : String) (action : IO Manifest)
-    (expected : String) : IO (Option String) := do
-  try
-    let _ ← action
-    return some s!"manifest/{name}: expected failure"
-  catch error =>
-    if toString error |>.contains expected then return none
-    return some s!"manifest/{name}: wrong diagnostic: {error}"
+/-- The manifest file at `path` as the pure `Manifest.parse` reads it. The harness has no Lake
+inventory of the project here and only derives control manifests and build targets from the
+result; the gate each control runs reads its own manifest for its inventory
+(`Manifest.loadFor`). -/
+private def parsedManifest (path : FilePath) : IO Manifest := do
+  IO.ofExcept <| Manifest.parse path.toString (← IO.FS.readFile path)
 
 private def expectManifestPublicFailure (repo : FilePath) (name : String)
     (path : FilePath) (expected : String) : IO (Option String) := do
@@ -879,8 +877,8 @@ private def expectManifestPublicFailure (repo : FilePath) (name : String)
   if result.output.contains expected then return none
   return some s!"manifest/public/{name}: wrong diagnostic:\n{result.output}"
 
-/-- External manifest controls only: the real repository manifest, a missing file, and the
-public `axiomGate` CLI rendering the malformed, incomplete, wrong-version, unknown-key and
+/-- External manifest controls only: the real repository manifest, and the public `axiomGate`
+CLI rendering the missing-file, malformed, incomplete, wrong-version, unknown-key and
 bad-execution refusal classes and a Lake-inventory refusal. The pure parser is proved for every
 input instead of sampled in process: `Manifest.parse_sound` and `Manifest.parse_input` for what
 it accepts, `Manifest.parseValue_ok` for exactly which JSON values its value stage accepts,
@@ -890,14 +888,11 @@ theorems (`parse_malformed`, `topLevel_emptySurfaces`, `topLevel_schemaVersion`,
 message of each of those defects. -/
 private def manifestQualification (repo scratch : FilePath) : IO (Array String) := do
   let mut failures : Array String := #[]
-  let valid ← Manifest.load (Manifest.defaultPath repo)
+  let valid ← parsedManifest (Manifest.defaultPath repo)
   if valid.surfaces.isEmpty then failures := failures.push "manifest/valid: no surfaces"
   if valid.excludedExecutables.isEmpty then
     failures := failures.push "manifest/valid: no excluded executables"
   let missing := scratch / "missing.json"
-  if let some failure ← expectManifestFailure "missing"
-      (Manifest.load missing) "manifest-missing" then
-    failures := failures.push failure
   if let some failure ← expectManifestPublicFailure repo "missing" missing "manifest-missing" then
     failures := failures.push failure
   let malformed := scratch / "malformed.json"
@@ -1004,7 +999,7 @@ intended reasons are surface-content-agnostic; the
 heavy-surface end-to-end coverage stays in the conditional tier's public-surface
 control and the standalone CI gate. -/
 private def structuralBase (repo : FilePath) : IO Manifest := do
-  let actual ← Manifest.load (Manifest.defaultPath repo)
+  let actual ← parsedManifest (Manifest.defaultPath repo)
   for library in structuralClaims do
     unless actual.surfaces.any (·.library == library) do
       throw <| IO.userError s!"structural control requires the actual {library} surface"
@@ -1794,7 +1789,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
     IO.FS.writeFile lakefile ((← IO.FS.readFile lakefile) ++
       "\nlean_lib FreshControl where\n  globs := #[.submodules `FreshControl]\n")
     let manifest := dir / "foundation_manifest.json"
-    writeJson manifest (freshControlManifest (← Manifest.load manifest))
+    writeJson manifest (freshControlManifest (← parsedManifest manifest))
     let reportPath := dir / "fresh-report.json"
     let result ← runScrubbed dir "freshChecker" #["--json-out", reportPath.toString]
     if !result.succeeded then
@@ -2004,7 +1999,7 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     timedPhase "manifest controls" <| withScratch repo "checker-manifest" fun scratch =>
       manifestQualification repo scratch
   for failure in ← IO.ofExcept (← IO.wait manifestTask) do failures.modify (·.push failure)
-  IO.println "self-test manifest: completed (valid + missing in-process; missing, malformed, \
+  IO.println "self-test manifest: completed (valid in-process; missing, malformed, \
     incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
   let structural ← IO.ofExcept (← IO.wait structuralTask)
   for failure in structural do failures.modify (·.push failure)
@@ -2278,7 +2273,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- executables, the fixture import anchor, and the claimed positive surface
   -- (fixture sources import the owned library, e.g. `import AuditApp`), so every
   -- later phase sees an already-warm build.
-  let surfaceManifest ← Manifest.load (Manifest.defaultPath repo)
+  let surfaceManifest ← parsedManifest (Manifest.defaultPath repo)
   let build ← timedPhase "baseline build" <| runProcess repo "lake"
     (#["build", "axiomGate", "lint", "docFenceAudit", "freshChecker",
         "Fixtures.Mutations.DirectAxiom"]
