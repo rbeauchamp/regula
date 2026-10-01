@@ -790,8 +790,11 @@ and `RegistryChecks` requires the adoption guide to quote the guidance verbatim.
 match Lean's generators is read from Lean's source and observed, not proved: the `cli` self-test's
 source-attribution controls attribute a declaration of every family and keep a metaprogram
 theorem, a user-written `ofNat`, an elaborator named `«_aux_…»` in a structure's namespace and
-two user-written theorems named like auxiliary proofs, one using the other, on their own. They do
-not exercise every member of every family: for example, not `f._mutual`,
+user-written theorems named like auxiliary proofs or an equation lemma on their own:
+`middle._proof_8`, which `middle._proof_9` and the sibling `middle.spec` use, `middle._proof_9`,
+`Util._proof_8`, which `Util.spec` uses, and `later._proof_8` and `later.eq_7`, declared before
+`later`, which uses the first. They do not exercise every member of every family: for example,
+not `f._mutual`,
 `S.x._inherited_default`, `t.ctorElimType` or a matcher's splitter; the
 [enumeration](#generated-declaration-families) marks the members they observe. Derived instances,
 whose relation Lean does not record, are not related.

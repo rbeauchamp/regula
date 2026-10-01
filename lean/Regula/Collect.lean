@@ -881,9 +881,11 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
 the first family of `GeneratedFamily.all` that `name` belongs to relates it to (`generatedBy?`),
 kept only when the environment contains a declaration of that name, and `none` when no family
 relates it to one, whatever its name. So it never names a declaration that does not exist, and an
-elaborator or macro Lean names `«_aux_…»` inside a namespace, a declaration a metaprogram adds, a
-derived instance, or a declaration a deriving handler adds such as an enumeration's `ofNat` is not
-related. -/
+elaborator or macro Lean names `«_aux_…»` inside a namespace, a derived instance, or a declaration
+a deriving handler adds such as an enumeration's `ofNat` is not related. A declaration a
+metaprogram adds is related only when a family's clause holds of it, which a clause that reads
+the name allows only for one with no declaration range that is named like a generated one
+(`generatedBy?`). -/
 def generatedFrom? (name : Name) : MetaM (Option Name) := do
   let env ← getEnv
   GeneratedFamily.all.findSomeM? fun family =>

@@ -378,11 +378,14 @@ Which family a declaration belongs to, and what it was generated from, is read f
 environment records about it, never from its name alone; the
 [enumeration](proofs-and-boundaries.md#generated-declaration-families) names the fact read for
 each family. A recursion helper `f._unsafe_rec` is related by Regula's own observation that
-Lean's recursion compiler regenerates it from `f`. A declaration named under another that
-Lean did not generate from it is reported on its own, whether or not it has a source range, such
-as a theorem a metaprogram adds, a `Word.ofNat` you write for a structure, or an elaborator Lean
-names `«_aux_…»` inside a namespace; so is a derived instance, or an enumeration's `ofNat` from
-deriving `DecidableEq`: Lean records no relation between it and the type.
+Lean's recursion compiler regenerates it from `f`. A declaration you write keeps its own
+location, because Lean records its source range, and it is not grouped under another declaration
+by its name: a `Word.ofNat` you write for a structure, or a theorem you name `f._proof_8`, is
+reported on its own. A declaration a metaprogram adds without a range is reported on its own
+unless a family's environment fact holds of it, as it can when it is named like a generated
+declaration. An elaborator Lean names `«_aux_…»` inside a namespace is reported on its own, and so
+is a derived instance, or an enumeration's `ofNat` from deriving `DecidableEq`: Lean records no
+relation between it and the type.
 
 ## Machine-readable report
 
