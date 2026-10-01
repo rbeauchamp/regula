@@ -85,6 +85,21 @@ holds its text. A file that is not a written result document is an error. -/
 def readResult (path : FilePath) : IO Json := do
   IO.ofExcept (Regula.SourceTexts.expand (← readJson path))
 
+/-- The first line of the runtime's own message for a failed read of `path`: the `IO.Error` text
+before its `file:` line. A control compares a checker's IO refusal with this, the wording of the
+toolchain and platform it runs on, instead of a copied operating-system message. The control
+passes a path whose read fails the same way as the checker's (an absent file, or a directory in
+a file's place), not the path the checker read; that the first line does not depend on the path
+is trusted runtime behavior, not established here. A readable `path` or an empty first line
+refuses. -/
+def readFailure (path : FilePath) : IO String := do
+  match ← (IO.FS.readFile path).toBaseIO with
+  | .ok _ => throw <| IO.userError s!"control requires an unreadable path: {path}"
+  | .error error =>
+      let line := ((toString error).splitOn "\n").headD ""
+      requireChecks [⟨"runtime read failure has a reason", !line.isEmpty⟩]
+      return line
+
 /-- Pretty JSON is an output format, not a claim of byte-canonical serialization. -/
 def writeJson (path : FilePath) (value : Json) : IO Unit :=
   IO.FS.writeFile path (value.pretty ++ "\n")

@@ -236,7 +236,7 @@ metadata, not authenticated binary identity.
   diagnostic unequal to its canonical re-encoding.
 - **Attribution:** the collector records, for each declaration, the declaration Lean generated it
   from, one step (`Collect.generatedFrom?`), by trying the closed families of
-  `RegulaCore.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of
+  `RegulaPolicy.GeneratedFamily` in the order of `GeneratedFamily.all`, each with its own clause of
   the exhaustive match `Collect.generatedBy?`: constructors, projections, recursors (the relation
   Lean's `findDeclarationRanges?` uses), equation lemmas (`Meta.declFromEqLikeName`), reserved
   names (`isReservedName`) and matchers by a mark Lean's generator leaves; a well-founded or

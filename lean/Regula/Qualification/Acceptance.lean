@@ -74,7 +74,7 @@ private def qualify (group : String) (evidence : FilePath) (receipt : IO.Ref Jso
         "Exact accepted-result transport controls."
     manifest project "standard-logical"
     IO.FS.writeFile (project / "Example.lean") "import Regula.Contract\n/-! Public acceptance \
-      transport control. -/\ndef value : Nat := 7\n"
+      transport control. -/\n/-- The accepted value. -/\ndef value : Nat := 7\n"
     IO.FS.writeFile (project / "docs/control.md")
       "```lean\ntheorem documented : True := True.intro\n```\n\n<!-- lean-fail: Type mismatch \
         -->\n```lean\nexample : False := True.intro\n```\n"

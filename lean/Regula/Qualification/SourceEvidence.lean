@@ -65,7 +65,8 @@ def closure : IO Unit := do
           let bad := phase == "negative"
           let source := if kind == "range" then rangeSource bad else
             "import Lean\n/-! Reflexive simplification and ordinary recursion have separate \
-              meanings. -/\ndef f (n : Nat) : Nat := n\ndef recursiveSum : List Nat → Nat\n  | [] \
+              meanings. -/\n/-- The identity. -/\ndef f (n : Nat) : Nat := n\n/-- The sum of a \
+              list. -/\ndef recursiveSum : List Nat → Nat\n  | [] \
               => 0\n  | x :: xs => x + recursiveSum xs\n" ++
             (if bad then "@[csimp] " else "") ++ "theorem same : f = f := rfl\n"
           IO.FS.writeFile (project / "Example.lean") source
@@ -117,6 +118,8 @@ def configuration : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") source
     let manifest := project / "foundation_manifest.json"
     let saved ← IO.FS.readFile manifest
+    -- What this runtime reports for reading a directory in a file's place.
+    let directory ← readFailure (project / "docs")
     for (mode, flags) in #[("freshProject", #[]),
         ("freshFile", #["--file", (project / "Example.lean").toString, "--claim", "kernel-only"])]
             do
@@ -138,7 +141,7 @@ def configuration : IO Unit := do
             let why ← detail d
             return [
               Check.mk "configuration IO detail"
-                  (why.contains "is a directory" && process.stderr.contains why),
+                  (why.contains directory && process.stderr.contains why),
               ⟨"exact configuration location", (← field d "location") == Json.mkObj [
                 ("kind", .str "project"), ("identity", .str project.toString)]⟩,
               ⟨"exact unresolved IO failure", (← array result "unresolved") == #[.str why]⟩,
@@ -165,10 +168,12 @@ def fences : IO Unit := do
     IO.FS.writeFile (project / "Example.lean") good
     let positive := rangeSource false
     let mut phases := #[("positive", positive, ([] : List String), "")]
+    -- The result lists findings in run order (`Regula.sortFindings`): two findings of the same
+    -- fence are ordered by rule ID, and a fence's finding precedes a source-located one.
     for (label, source, ids, reason) in #[
-        ("range", rangeSource true, ["RG4002", "RG2005"],
+        ("range", rangeSource true, ["RG2005", "RG4002"],
             "producer-source: source coverage or coordinates mismatch"),
-        ("replay", "import Lean\n" ++ unchecked, ["RG4002", "RG2005"], "kernel-admission"),
+        ("replay", "import Lean\n" ++ unchecked, ["RG2005", "RG4002"], "kernel-admission"),
         ("policy", "axiom forbidden : True\n", ["RG4002", "RG1001"], "project-axiom"),
         ("compiler", "def bad : Nat := \"wrong\"\n", ["RG4002"], "")] do
       phases := phases.push (label, source, ids, reason) |>.push

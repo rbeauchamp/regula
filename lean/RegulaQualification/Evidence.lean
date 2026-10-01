@@ -91,12 +91,20 @@ theorem checked_validation : Regula.ExecutableContract validate
   ⟨fun _ _ _ _ => validateDecoded_exact _⟩
 
 /-- Original documentation mutation transcript requirements, including two distinct
-admission diagnostics (fence and project), and exactly one compilation diagnostic. -/
-def documentationChecks (transcript scope reason phase : String) : List Check :=
+admission diagnostics (fence and project), and exactly one compilation diagnostic. For a phase
+that makes an input unavailable, the transcript must also contain the supplied IO reason, which
+must be nonempty (`missing` for a removed source, otherwise `directory`), and the input's file
+name. The caller supplies the reasons the runtime reports for reads that fail those two ways (an
+absent file, a directory in a file's place), of other paths than the checker's; that the reasons
+do not depend on the path is trusted runtime behavior, and these checks do not relate the
+supplied strings to any read. -/
+def documentationChecks (transcript scope reason phase missing directory : String) :
+    List Check :=
   let lines := transcript.splitOn "\n"
   let admission := lines.filter (·.startsWith "RG2005 [")
   let unavailable :=
       ["source-missing", "source-unreadable", "configuration-unreadable"].contains phase
+  let io := if phase == "source-missing" then missing else directory
   [⟨"snapshot refusal", transcript.contains reason⟩,
    ⟨"fence compilation evidence", transcript.contains "fence compilation: "⟩,
    ⟨"two distinct admission diagnostics", admission.length == 2 && admission.eraseDups.length == 2⟩,
@@ -105,19 +113,19 @@ def documentationChecks (transcript scope reason phase : String) : List Check :=
    ⟨"one project admission diagnostic",
        (admission.filter (·.contains s!"project/configuration {scope}]")).length == 1⟩,
    ⟨"one fence compilation diagnostic", (lines.filter (·.startsWith "RG4002 [")).length == 1⟩,
-   ⟨"IO failure detail", !unavailable || transcript.toLower.contains
-     (if phase == "source-missing" then "no such file or directory" else "is a directory")⟩,
+   ⟨"IO failure detail", !unavailable || (!io.isEmpty && transcript.contains io)⟩,
    ⟨"IO failure path", !unavailable || transcript.contains
      (if phase == "configuration-unreadable" then "foundation_manifest.json" else "Example.lean")⟩]
 
 /-- Reusable exact contract for the source-mutation transcript predicates. -/
-def validateDocumentation (transcript scope reason phase : String) : Except String Unit :=
-  checked_evaluation.run (documentationChecks transcript scope reason phase)
+def validateDocumentation (transcript scope reason phase missing directory : String) :
+    Except String Unit :=
+  checked_evaluation.run (documentationChecks transcript scope reason phase missing directory)
 
 /-- Transcript success and refusal are governed by all requirements, not an exit alone. -/
 theorem checked_documentation : Regula.ExecutableContract validateDocumentation
-    (fun run => ∀ transcript scope reason phase,
-      run transcript scope reason phase = .ok () ↔ Satisfied
-          (documentationChecks transcript scope reason phase)) :=
-  ⟨fun _ _ _ _ => evaluate_success _⟩
+    (fun run => ∀ transcript scope reason phase missing directory,
+      run transcript scope reason phase missing directory = .ok () ↔ Satisfied
+          (documentationChecks transcript scope reason phase missing directory)) :=
+  ⟨fun _ _ _ _ _ _ => evaluate_success _⟩
 end RegulaQualification.Evidence

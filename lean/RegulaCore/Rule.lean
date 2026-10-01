@@ -5,7 +5,7 @@ public import RegulaCore.Edition
 public import RegulaCore.Standard
 public import RegulaPolicy.Foundation
 public import RegulaPolicy.Intent
-public import RegulaCore.GeneratedFamily
+public import RegulaPolicy.GeneratedFamily
 
 /-! # Rule registry
 

@@ -26,7 +26,8 @@ def worker (args : List String) : IO UInt32 := do
     if mode == "root-add" then
       IO.FS.createDirAll "Example"
       IO.FS.writeFile "Example/New.lean"
-          "/-! Added after root discovery. -/\naxiom escaped : False\n"
+          "/-! Added after root discovery. -/\n/-- Documented, so the added module builds \
+            without a warning. -/\naxiom escaped : False\n"
     else if mode.startsWith "docs-" then
       let target : FilePath := ← requiredEnv "INVENTORY_DOC"
       if mode == "docs-remove" then IO.FS.removeFile target

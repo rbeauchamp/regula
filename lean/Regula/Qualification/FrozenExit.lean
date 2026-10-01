@@ -17,6 +17,10 @@ private def importSource (enabled : Bool) (action : String) : String :=
 private def lost := "open Lean Elab Command in\nrun_cmd do\n  let path ← getFileName\n  \
   IO.FS.removeFile path\n  let _ ← IO.FS.readFile path\n  pure ()\n"
 
+/-- An ordinary compiler error and nothing else: the definition is documented, so the adopter's
+`linter.missingDocs` adds no warning, which a failed build's report would show instead. -/
+private def illTyped := "\n/-- Deliberately ill-typed. -/\ndef bad : Nat := \"wrong\"\n"
+
 private structure Case where
   label : String
   source : String := good
@@ -47,6 +51,8 @@ def check : IO Unit := do
     prepareCoreProject root project "frozen_adopter" "standard-logical"
     let manifest ← IO.FS.readFile (project / "foundation_manifest.json")
     let check := runCase root project manifest
+    -- A result lists findings in run order (`Regula.sortFindings`): the two findings of one
+    -- fence are ordered by rule ID.
     for (binary, flags) in
         #[("docFenceAudit", #["--jobs", "1", "--verbose"]), ("axiomGate", #["--with-docs"])] do
       let action := "IO.FS.writeFile path ((← IO.FS.readFile path) ++ \"\\n\")"
@@ -54,12 +60,12 @@ def check : IO Unit := do
         let bad := phase == "changed"
         check {
           label := s!"import/{binary}/{phase}", binary, flags, grouped := true,
-          fence := importSource bad action, ids := if bad then ["RG4002", "RG2005"] else [],
+          fence := importSource bad action, ids := if bad then ["RG2005", "RG4002"] else [],
           reason := if bad then "producer-source: source snapshot changed: DocFence_1" else "" }
       let action := "IO.FS.removeFile path\n      let _ ← IO.FS.readFile path\n      pure ()"
       check {
         label := s!"import/{binary}/missing-and-throw", binary, flags, grouped := true,
-        fence := importSource true action, ids := ["RG4002", "RG2005"],
+        fence := importSource true action, ids := ["RG2005", "RG4002"],
         reason := "producer-source: source snapshot unavailable: DocFence_1" }
       check { label := s!"import/{binary}/throw-restored", binary, flags, grouped := true, fence :=
                 importSource false action }
@@ -82,7 +88,7 @@ def check : IO Unit := do
         check {
           label := s!"build/{label}/{phase}", binary, flags,
           source := good ++
-              (if missing then lost else if ordinary then "\ndef bad : Nat := \"wrong\"\n" else ""),
+              (if missing then lost else if ordinary then illTyped else ""),
           ids := if missing then ["RG2005"] else if ordinary then
                                                   [if binary == "axiomGate" then "RG2003" else
                                                                                   "error"] else [],
@@ -92,7 +98,7 @@ def check : IO Unit := do
         #[("docFenceAudit", #["--jobs", "1"]), ("axiomGate", #["--with-docs"])] do
       check {
         label := s!"compile/{binary}/missing", binary, flags, fence := good ++ lost,
-        ids := ["RG4002", "RG2005"], reason :=
+        ids := ["RG2005", "RG4002"], reason :=
             "producer-source: source snapshot unavailable: DocFence_1" }
       check { label := s!"compile/{binary}/restored", binary, flags }
     let flags := #["--file", "Standalone.lean", "--claim", "standard-logical"]
