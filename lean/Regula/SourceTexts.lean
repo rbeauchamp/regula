@@ -238,8 +238,9 @@ theorem mapFields_eq_map (leaf : Json → Json) (fields : Fields) :
 /-- The `sourceText` values of a mapped document are the mapped values, in the same order. -/
 theorem texts_mapTexts (leaf : Json → Json) (value : Json) :
     texts (mapTexts leaf value) = (texts value).map leaf := by
-  refine Cases.value (fieldsMotive := fun fields =>
-    textsFields (mapFields leaf fields) = (textsFields fields).map leaf) ?_ value
+  refine Cases.value (motive := fun value => texts (mapTexts leaf value) = (texts value).map leaf)
+    (fieldsMotive := fun fields =>
+      textsFields (mapFields leaf fields) = (textsFields fields).map leaf) ?_ value
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · simp [mapTexts, texts]
   · intro b; simp [mapTexts, texts]
@@ -319,17 +320,9 @@ private theorem dedup_fold (found : List String) :
         exact h ha
       obtain ⟨distinct, members⟩ := ih (table ++ [head]) extended
       refine ⟨by simpa [List.foldl, h] using distinct, fun text => ?_⟩
-      simp only [List.foldl, h, ↓reduceIte, members, List.mem_append, List.mem_singleton,
-        List.mem_cons]
-      constructor
-      · rintro ((m | rfl) | m)
-        · exact .inl m
-        · exact .inr (.inl rfl)
-        · exact .inr (.inr m)
-      · rintro (m | rfl | m)
-        · exact .inl (.inl m)
-        · exact .inl (.inr rfl)
-        · exact .inr m
+      simp only [List.foldl, h, ↓reduceIte, members, List.mem_append, List.mem_cons,
+        List.not_mem_nil, or_false]
+      exact or_assoc
 
 /-- `dedup` lists no text twice. -/
 theorem dedup_nodup (found : List String) : (dedup found).Nodup :=
@@ -346,26 +339,29 @@ theorem tableOf?_tableJson (table : List String) : tableOf? (tableJson table) = 
   have recovered : (table.map Json.str).filterMap strOf? = table := by
     induction table with
     | nil => rfl
-    | cons head rest ih => simp [strOf?, List.filterMap_cons] at ih ⊢; exact ih
+    | cons head rest ih => simp [strOf?] at ih ⊢; exact ih
   simp [tableOf?, tableJson, strings, recovered]
 
 /-- Values that are all strings are the strings `filterMap strOf?` extracts from them. -/
 theorem str_of_all {found : List Json}
     (strings : found.all (fun value => (strOf? value).isSome) = true) {value : Json}
     (member : value ∈ found) : ∃ text, value = .str text ∧ text ∈ found.filterMap strOf? := by
-  have some := List.all_eq_true.mp strings value member
+  have isString := List.all_eq_true.mp strings value member
   cases value with
   | str text => exact ⟨text, rfl, List.mem_filterMap.mpr ⟨_, member, rfl⟩⟩
-  | _ => simp [strOf?] at some
+  | _ => simp [strOf?] at isString
 
 /-- A document whose `sourceText` members are texts of `table` survives the writer's indices and
 the reader's lookups unchanged. -/
 theorem mapTexts_expand_intern (table : List String) (value : Json) :
     (∀ ref ∈ texts value, ∃ text, ref = .str text ∧ text ∈ table) →
       mapTexts (expandLeaf table) (mapTexts (internLeaf table) value) = value := by
-  refine Cases.value (fieldsMotive := fun fields =>
-    (∀ ref ∈ textsFields fields, ∃ text, ref = .str text ∧ text ∈ table) →
-      mapFields (expandLeaf table) (mapFields (internLeaf table) fields) = fields) ?_ value
+  refine Cases.value (motive := fun value =>
+    (∀ ref ∈ texts value, ∃ text, ref = .str text ∧ text ∈ table) →
+      mapTexts (expandLeaf table) (mapTexts (internLeaf table) value) = value)
+    (fieldsMotive := fun fields =>
+      (∀ ref ∈ textsFields fields, ∃ text, ref = .str text ∧ text ∈ table) →
+        mapFields (expandLeaf table) (mapFields (internLeaf table) fields) = fields) ?_ value
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro _; simp [mapTexts]
   · intro b _; simp [mapTexts]
@@ -374,14 +370,13 @@ theorem mapTexts_expand_intern (table : List String) (value : Json) :
   · intro elems ih covered
     simp only [mapTexts, Array.map_map]
     congr 1
-    apply Array.map_id''
-    intro element
-    by_cases member : element ∈ elems
-    · exact ih element member fun ref inside => covered ref (by
-        simp only [texts, Array.toList_map]
-        exact List.mem_flatten.mpr ⟨texts element,
-          List.mem_map.mpr ⟨element, Array.mem_toList_iff.mpr member, rfl⟩, inside⟩)
-    · exact absurd rfl (fun _ : element = element => member (by assumption))
+    conv => rhs; rw [← Array.map_id elems]
+    apply Array.map_congr_left
+    intro element member
+    exact ih element member fun ref inside => covered ref (by
+      simp only [texts, Array.toList_map]
+      exact List.mem_flatten.mpr ⟨texts element,
+        List.mem_map.mpr ⟨element, Array.mem_toList_iff.mpr member, rfl⟩, inside⟩)
   · intro fields ih covered
     simp only [mapTexts]
     rw [ih (by simpa [texts] using covered)]
@@ -413,7 +408,7 @@ theorem slotsFields_map (f : String → Json → Json) (fields : Fields) :
     simp only [Impl.map, slotsFields, hl, hr, List.map_append]
     by_cases h : (key == tableKey) = true
     · have : key = tableKey := by simpa using h
-      simp [h, this]
+      simp [this]
     · simp [h]
 
 theorem map_map (f g : String → Json → Json) (fields : Fields) :
@@ -498,15 +493,15 @@ theorem intern_eq_ok {document written : Json} (h : intern document = .ok writte
   unfold intern at h
   split at h
   next slot =>
-    split at h
-    next strings =>
-      cases h
+    by_cases strings : ((texts document).all fun value => (strOf? value).isSome) = true
+    · simp only [strings, ↓reduceIte] at h
+      obtain rfl := Except.ok.inj h
       cases document with
       | obj raw =>
         obtain ⟨⟨fields⟩⟩ := raw
         exact ⟨fields, rfl, slot, strings, rfl⟩
       | _ => simp [slots] at slot
-    next => cases h
+    · simp [strings] at h
   next => cases h
 
 /-- **The reader recovers the document the writer was given.** Whenever `intern` writes a
@@ -557,7 +552,8 @@ theorem expand_intern {document written : Json} (h : intern document = .ok writt
     simp [internLeaf, refOf?_refJson, index_lt inside]
   simp only [expand, slots, writtenSlots, tableOf?_tableJson, dedup_nodup, valid, and_self,
     ↓reduceIte, setTable, mapTexts]
-  congr 3
+  refine congrArg (fun restored : Fields => (Except.ok (Json.obj ⟨⟨restored⟩⟩) : Except String Json))
+    ?_
   -- Reset the table, then look every index up: one value map, which returns each value.
   unfold setFields
   rw [mapFields_eq_map, mapFields_eq_map, map_map, map_map, map_map]
@@ -591,7 +587,9 @@ theorem intern_isOk_iff (document : Json) :
       intro value member
       obtain ⟨text, rfl⟩ := strings value member
       rfl
-    exact ⟨_, by simp [intern, slot, all]⟩
+    refine ⟨setTable (tableJson (dedup ((texts document).filterMap strOf?)))
+      (mapTexts (internLeaf (dedup ((texts document).filterMap strOf?))) document), ?_⟩
+    simp [intern, slot, all]
 
 /-- **Each text once.** The `sourceTexts` member of a written document lists no text twice and
 exactly the texts of the logical document's `sourceText` members, and every `sourceText` member
@@ -613,9 +611,9 @@ theorem intern_table {document written : Json} (h : intern document = .ok writte
     simp
   · rw [mem_dedup, ← hfound, List.mem_filterMap]
     constructor
-    · rintro ⟨value, member, some⟩
-      cases value <;> simp [strOf?] at some
-      subst some
+    · rintro ⟨value, member, isText⟩
+      cases value <;> simp [strOf?] at isText
+      subst isText
       exact member
     · intro member
       exact ⟨_, member, rfl⟩
@@ -657,7 +655,7 @@ theorem expand_texts {written document : Json} (h : expand written = .ok documen
           intro ref member
           have := List.all_eq_true.mp valid.2 ref member
           split at this
-          next position some => exact ⟨position, some, by simpa using this⟩
+          next position isRef => exact ⟨position, isRef, by simpa using this⟩
           next => cases this
         -- The reset table has no `sourceText` member, so the members are the written ones.
         have same : texts (setTable .null written) = texts written := by
@@ -687,10 +685,10 @@ theorem expand_texts {written document : Json} (h : expand written = .ok documen
             | _ => simp [tableOf?] at htable
           | _ => simp [setTable]
         rw [same] at inside
-        obtain ⟨position, some, bound⟩ := refs ref inside
+        obtain ⟨position, isRef, bound⟩ := refs ref inside
         obtain ⟨text, found⟩ : ∃ text, table[position]? = some text :=
           ⟨table[position], List.getElem?_eq_getElem bound⟩
-        exact ⟨text, by simp [expandLeaf, some, found]⟩
+        exact ⟨text, by simp [expandLeaf, isRef, found]⟩
       next => cases h
     next => cases h
   next => cases h

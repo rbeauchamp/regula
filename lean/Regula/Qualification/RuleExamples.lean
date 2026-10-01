@@ -376,13 +376,13 @@ private def produce (ctx : Context) (slot : Slot.ProducerSlot) (rule phase : Str
     let captured ← match field observed "sourceAccount" with
       | .ok value => IO.ofExcept value.getArr?
       | .error _ => pure #[]
-    let account ← if captured.isEmpty then
-        (← entries (← get observed "scope") "sources").mapM fun s => return Json.mkObj
-          [("module", ← get s "module"), ("path", ← get s "path"),
-            ("source", ← get s "sourceText")]
-      else captured.mapM fun s => return Json.mkObj
-                              [("module", ← get s "moduleName"), ("path", ← get s "path"),
-                                  ("source", ← get s "sourceText")]
+    -- The audited sources, by module and path: the source account's, or else the scope's.
+    let listed ← if captured.isEmpty then entries (← get observed "scope") "sources"
+      else pure captured
+    let moduleKey := if captured.isEmpty then "module" else "moduleName"
+    let account ← listed.mapM fun s => do
+      return Json.mkObj [("module", ← get s moduleKey), ("path", ← get s "path"),
+        ("source", ← get s "sourceText")]
     let candidates ← account.filterM fun s => return (← get s "module") == nameJson "Example"
     let #[_] := candidates | throw <| IO.userError "project example source account mismatch"
     let originalSources ← entries before "sources"
