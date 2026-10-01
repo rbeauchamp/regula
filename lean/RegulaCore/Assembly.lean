@@ -265,10 +265,7 @@ private def executableRoot (inventory : Lake.SurfaceInventory) (name : String) :
     Except String Name :=
   match inventory.executables.find? (·.executable == name) with
   | some exe => .ok exe.root
-  | none => .error s!"manifest-incomplete: claimed executable '{name}' is not a root Lean \
-      executable; the root Lean executables are \
-      {repr (inventory.executables.map (·.executable)).toList}. Name an executable by its Lake \
-      target name, as `lake build` takes it, or as Lean prints that name"
+  | none => .error "manifest executable missing from Lake discovery"
 
 private def assignSurface (inventory : Lake.SurfaceInventory) (surface : Manifest.Surface) :
     Except String SurfaceAssignment := do

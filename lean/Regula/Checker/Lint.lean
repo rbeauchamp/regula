@@ -111,8 +111,8 @@ private def explain (options : Options) : IO Outcome := do
   IO.println
       s!"manifest: {manifestPath} \
         ({if options.manifest.isSome then "--manifest" else "project-root default"})"
-  let manifest ← Manifest.load manifestPath
   let inventory ← Lake.surfaceInventory repo
+  let manifest ← Manifest.loadFor manifestPath inventory
   discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
   AxiomGate.checkClassification manifest inventory
   IO.println s!"mode: {modeText options.fresh}"

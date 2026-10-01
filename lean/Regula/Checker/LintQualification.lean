@@ -182,8 +182,9 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
 the project predicate, and a live finding, also re-enabled by the source or replayed from an
 ordinary `lake build` with live feedback, is the audit's violation rather than a failed build.
 A claimed `lean_exe` whose Lake target name is not a Lean identifier is accepted under that name
-and classified alike under the name as Lean prints it; naming both, or no root executable, is a
-configuration refusal that names the entry. -/
+and classified alike under the name as Lean prints it; naming both is a configuration refusal,
+and so is an entry, claimed or excluded, that names no root executable: one refusal that quotes
+the entry as the manifest writes it and lists the root executables by Lake target name. -/
 private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   BuildLintQualification.setup repo adopter "lake-lint-toml" #["Gadget.lean", "Gadget/Double.lean"]
     "lakefile.toml"
@@ -222,14 +223,15 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       excludes := #["build-failed", "editorSnapshot"] })
   restore adopter originals
   -- A `lean_exe` whose Lake target name is not a Lean identifier (#163). The manifest names it
-  -- by that name or as Lean prints it; both are one claim, naming both is a duplicate, and a
-  -- name of no executable is a manifest refusal that names it and the root executables.
+  -- by that name or as Lean prints it; both are one claim, naming both is a duplicate, and an
+  -- entry, claimed or excluded, that names no executable is one manifest refusal that quotes it
+  -- as written and lists the root executables by Lake target name.
   let lakefile := adopter / "lakefile.toml"
   let manifest := adopter / "foundation_manifest.json"
   let cli := adopter / "Gadget" / "Cli.lean"
   let targetOriginals := #[(lakefile, ← IO.FS.readFile lakefile),
     (manifest, ← IO.FS.readFile manifest)]
-  let claiming (executables : Array String) : String :=
+  let claiming (executables : Array String) (excluded : Array String := #[]) : String :=
     Json.compress <| Json.mkObj [
       ("schema-version", toJson (2 : Nat)),
       ("surfaces", toJson #[Json.mkObj [
@@ -237,7 +239,8 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
         ("claim", toJson "choice-free"), ("execution", toJson "report"),
         ("rationale", toJson "target-name control")]]),
       ("excluded-libraries", toJson (#[] : Array Json)),
-      ("excluded-executables", toJson (#[] : Array Json))]
+      ("excluded-executables", toJson <| excluded.map fun executable => Json.mkObj [
+        ("executable", toJson executable), ("rationale", toJson "target-name control")])]
   let explained (label : String) : Expectation := {
     label, exitCode := 2, contains := #["no audit was run", "executables: «gadget-tool»"],
     excludes := #["regula lint: PASS", "manifest-"] }
@@ -258,11 +261,16 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG2002", "manifest-schema: duplicate executable '«gadget-tool»'",
         "regula lint: INVALID CONFIGURATION (exit 2)"] })
   IO.FS.writeFile manifest (claiming #["gadget-tol"])
-  failures := failures ++ (← expect adopter {
-      label := "toml/unknown-executable", exitCode := 2,
-      contains := #["RG2002", "manifest-incomplete: claimed executable '«gadget-tol»'",
-        "«gadget-tool»", "regula lint: INVALID CONFIGURATION (exit 2)"],
-      excludes := #["RG2001"] })
+  let unknown (label entry : String) : Expectation := {
+    label, exitCode := 2,
+    contains := #["RG2002",
+      s!"manifest-incomplete: executable '{entry}' is not a root Lean executable",
+      "the root Lean executables are [\"gadget-tool\"]",
+      "regula lint: INVALID CONFIGURATION (exit 2)"],
+    excludes := #["RG2001", s!"«{entry}»", "«gadget-tool»"] }
+  failures := failures ++ (← expect adopter (unknown "toml/unknown-executable" "gadget-tol"))
+  IO.FS.writeFile manifest (claiming #["gadget-tool"] #["old-tool"])
+  failures := failures ++ (← expect adopter (unknown "toml/unknown-excluded" "old-tool"))
   IO.FS.removeFile cli
   restore adopter targetOriginals
   failures := failures ++

@@ -196,8 +196,11 @@ private def rootConflict (manifest : Manifest) (inventory : Lake.SurfaceInventor
           '{library.library}', which the manifest classifies differently"
   conflicts[0]?.getD "an executable root is classified differently from a library containing it"
 
-/-- Every root-package Lean library and executable is classified exactly once by the
-manifest; every executable root is classified alike with each library containing it:
+/-- Every root-package Lean library is classified exactly once by the manifest, and every
+root-package Lean executable is classified by it: `manifest` is one `Manifest.loadFor` admitted
+for `inventory`, which names only root executables, each once (`Manifest.parseFor_ok`,
+`Manifest.parse_sound`), so only an unclassified executable is left to refuse here. Every
+executable root is classified alike with each library containing it:
 `RegulaPolicy.RootsClassifiedAlike` over `Acceptance.configuredTargets` and
 `Acceptance.discoveredTargets`, the predicate the claimed acceptance decides again in
 `RegulaPolicy.TargetPartitionOK`; and every claimed library keeps a module besides its claimed
@@ -216,14 +219,11 @@ def checkClassification (manifest : Manifest) (inventory : Lake.SurfaceInventory
       (if extra.isEmpty then #[] else #[s!"non-root Lean libraries {repr extra.toList}"])
     throw <| IO.userError s!"manifest-incomplete: {"; ".intercalate details.toList}"
   let manifestedExes := Manifest.executables manifest
-  let discoveredExes := inventory.executables.map (·.executable)
-  if !sameStringSet manifestedExes discoveredExes then
-    let missing := discoveredExes.filter fun name => !manifestedExes.contains name
-    let extra := manifestedExes.filter fun name => !discoveredExes.contains name
-    let details := (if missing.isEmpty then #[] else
-      #[s!"unclassified root Lean executables {repr missing.toList}"]) ++
-      (if extra.isEmpty then #[] else #[s!"non-root Lean executables {repr extra.toList}"])
-    throw <| IO.userError s!"manifest-incomplete: {"; ".intercalate details.toList}"
+  let missing := (inventory.executables.map (·.executable)).filter fun name =>
+    !manifestedExes.contains name
+  unless missing.isEmpty do
+    throw <| IO.userError
+      s!"manifest-incomplete: unclassified root Lean executables {repr missing.toList}"
   unless decide (RegulaPolicy.RootsClassifiedAlike (Acceptance.configuredTargets manifest)
       (Acceptance.discoveredTargets inventory)) do
     throw <| IO.userError s!"manifest-conflict: {rootConflict manifest inventory}"
@@ -366,7 +366,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       (if fresh then .freshProject else .incrementalProject) composed resultOut do
     let inventory ← Lake.surfaceInventory repo
     let sourceBindings ← SourceBinding.capture inventory.moduleSources observeSources
-    let manifest ← Manifest.load manifestPath
+    let manifest ← Manifest.loadFor manifestPath inventory
     let assignments ← IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
     let dependencies ← Snapshot.dependencies inventory
     let rootInventory : Lake.RootInventory := {

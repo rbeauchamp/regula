@@ -150,8 +150,8 @@ def importClosure (sources : NameMap FilePath) (starts : List Name) : IO NameSet
 /-- The project's manifest with its Lake inventory, refused unless it loads and classifies every
 root target: the audit's own RG2002 functions. -/
 def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := do
-  let manifest ← Manifest.load (Manifest.defaultPath root)
   let inventory ← Lake.surfaceInventory root
+  let manifest ← Manifest.loadFor (Manifest.defaultPath root) inventory
   discard <| IO.ofExcept <| Acceptance.surfaceAssignments manifest inventory
   AxiomGate.checkClassification manifest inventory
   return (manifest, inventory)
