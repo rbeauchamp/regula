@@ -768,8 +768,8 @@ inventory search it replaces (`declarationIndex_get`), and an RG1005 finding bui
 attribution groups under it (`declarationFinding_groupUnder?`). Which declaration Lean generated a
 declaration from is read from the environment by `Collect.generatedFrom?`, one clause per family
 of `GeneratedFamily`: from the marks Lean's generators leave, from a recursive definition's
-equation information, from the uses in a definition's value or in the statement of its `eq_def`,
-from Lean's own field-default lookup, and, for constructor lemmas and type constructions, from
+equation information, from the uses in a definition's value, in the statement of its `eq_def` or
+in an auxiliary declaration that is itself related, from Lean's own field-default lookup, and, for constructor lemmas and type constructions, from
 their generator's precondition or a sibling's mark, checked under Lean's default options. No
 clause rests on a name alone. A compiled recursion helper `f._unsafe_rec`, which the environment
 ties to `f` only by its name, is related to `f` only when the admitted scope authorizes it
@@ -781,8 +781,8 @@ every family, `generatedBy?` matches every family by construction (Lean's exhaus
 and `RegistryChecks` requires the adoption guide to quote the guidance verbatim. That the clauses
 match Lean's generators is read from Lean's source and observed, not proved: the `cli` self-test's
 source-attribution controls attribute a declaration of every family and keep a metaprogram
-theorem, a user-written `ofNat` and an elaborator named `«_aux_…»` in a structure's namespace on
-their own. They do not exercise every member of every family: for example, not `f._mutual`,
+theorem, a user-written `ofNat`, an elaborator named `«_aux_…»` in a structure's namespace and
+two user-written theorems named like auxiliary proofs, one using the other, on their own. They do not exercise every member of every family: for example, not `f._mutual`,
 `S.x._inherited_default`, `t.ctorElimType` or a matcher's splitter; the
 [enumeration](#generated-declaration-families) marks the members they observe. Derived instances,
 whose relation Lean does not record, are not related.
@@ -859,7 +859,7 @@ declaration related to one that is itself related (such as `T.c.injEq` to `T.c`,
 | `partial_fixpoint`'s `f.mutual` | `Lean/Elab/PreDefinition/PartialFixpoint/Main.lean:193-217` | `wellFounded`: `PartialFixpoint.eqnInfoExt`'s `declNameNonRec` | |
 | `f.induct`, `.induct_unfolding`, `.mutual_induct`, `.fun_cases`, `partial_fixpoint`'s `.fixpoint_induct`, `.coinduct`, `.partial_correctness`, `f.congr_simp`, `f.hcongr_N`, `T.enumToBitVec` and its lemmas | `Lean/Meta/Tactic/FunInd.lean:910-1548`, `Lean/Elab/PreDefinition/PartialFixpoint/Induction.lean:105-426`, `Lean/Meta/CongrTheorems.lean:392-480`, `Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean:41-379` | `reservedName`: `isReservedName` | `countPair.induct` |
 | `f._unsafe_rec` | `Lean/Elab/PreDefinition/Basic.lean:255-295` | `recursionHelper`: the admitted helper authorization, which observed Lean's recursion compiler regenerate it (`Findings.stepOf`) | `countUp._unsafe_rec` |
-| `f._proof_N` | `Lean/Meta/Tactic/AuxLemma.lean:43-79`, `Lean/Meta/Closure.lean:457-460` | `auxiliaryLemma`: `f`'s value, its equation information's value, or the function its well-founded equation information names uses it, or else the statement of `f.eq_def` (`Meta.declFromEqLikeName`), which `WF.mkUnfoldEq` states from the pre-definition it cleans separately (`Lean/Elab/PreDefinition/WF/Main.lean:84-89`); or else the value of `f._unsafe_rec` uses it, and its chain runs through that admitted helper; one nothing uses, as `GuessLex` can leave, keeps its own location | `countdown._proof_1`, `countUp._proof_3` (through `countUp.eq_def`), `sumButLast._proof_1` (through `sumButLast._unsafe_rec`), the `_proof_N` of `initialize counter`'s action |
+| `f._proof_N` | `Lean/Meta/Tactic/AuxLemma.lean:43-79`, `Lean/Meta/Closure.lean:457-460` | `auxiliaryLemma`: `f`'s value, its equation information's value, or the function its well-founded equation information names uses it, or else the statement of `f.eq_def` (`Meta.declFromEqLikeName`), which `WF.mkUnfoldEq` states from the pre-definition it cleans separately (`Lean/Elab/PreDefinition/WF/Main.lean:84-89`); or else the value of `f._unsafe_rec` uses it, and its chain runs through that admitted helper; or else the type or value of another auxiliary declaration of its module uses it, one that is itself related in one of these ways, under whatever declaration that one is named (Lean abstracts a proof nested in a proof), and its chain runs through that declaration; one nothing related uses, as `GuessLex` can leave, keeps its own location | `countdown._proof_1`, `countUp._proof_3` (through `countUp.eq_def`), `sumButLast._proof_1` (through `sumButLast._unsafe_rec`), `middle._proof_1` (through `middle._proof_2`), the `_proof_N` of `initialize counter`'s action; the user-written `middle._proof_8` and `middle._proof_9` (not related) |
 | `f._simp_N`, `f._cbv_eval_N` | `Lean/Meta/Tactic/Simp/SimpTheorems.lean:453-471`, `Lean/Meta/Tactic/Cbv/CbvEvalExt.lean:61-64` | `auxiliaryLemma`: `f`'s value uses it (a tactic's lemma), or it uses `f` (an attribute's lemma) | |
 | `f._private_N`, `f.grind_N`, `f._impossible_N`, `inst._aux_N`, `f.unsafe_impl_N`, `f._expr_def_N`, `f._cert_def_N`, `f._reflection_def_N` | `Lean/Elab/BuiltinTerm.lean:451-465`, `Lean/Meta/Tactic/Grind/Main.lean:497-498`, `Lean/Elab/Tactic/Impossible.lean:88-92`, `Lean/Meta/WrapInstance.lean:185-283`, `Lean/Elab/BuiltinNotation.lean:556-579`, `Lean/Meta/Tactic/BVDecide/TacticContext.lean:40-42` | `auxiliaryLemma`: `f`'s value uses it | |
 | `f.unsafe_N` | `Lean/Elab/BuiltinNotation.lean:556-579` | own location: recorded only as the `implemented_by` target of `f.unsafe_impl_N` | |

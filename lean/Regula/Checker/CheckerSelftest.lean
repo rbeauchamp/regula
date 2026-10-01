@@ -1357,13 +1357,16 @@ structural recursion, the equation lemmas and auxiliary proof of a well-founded 
 `_unary` and functional induction principle of one with two arguments, the compiled recursion
 helper `_unsafe_rec` of a computable one whose value carries a proof that uses `propext`, and the
 auxiliary proof only its `eq_def` states, the auxiliary index proof only the `_unsafe_rec` of
-another uses, the action of an `initialize` whose value carries such a proof, of a type no other
+another uses, the auxiliary proof only another auxiliary proof of a non-recursive definition
+uses, the action of an `initialize` whose value carries such a proof, of a type no other
 proof here has, so Lean abstracts it into an auxiliary proof named under the action's hygienic
 name; and
-declarations Lean does not generate from the structure they are named under: a theorem a
+declarations Lean does not generate from the declaration they are named under: a theorem a
 metaprogram adds without a source range, a user-written `ofNat`, a name Lean generates only for an
-enumeration deriving `DecidableEq`, and an elaborator Lean names `«_aux_…»` inside the
-structure's namespace. Every one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
+enumeration deriving `DecidableEq`, an elaborator Lean names `«_aux_…»` inside the
+structure's namespace, and two user-written theorems named like auxiliary proofs of a definition
+that does not use them, one using the other. Every one exceeds a Kernel-only claim, so each has
+an RG1005 finding. -/
 private def sourceAttributionSource : String :=
   "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
   "open Lean Elab Command\n\n" ++
@@ -1403,6 +1406,13 @@ private def sourceAttributionSource : String :=
   "def sumButLast (a : Array Nat) (i : Nat) : Nat :=\n" ++
   "  if h : i + 1 < a.size then a[i]'(by omega) + sumButLast a (i + 1) else 0\n" ++
   "termination_by a.size - i\n\n" ++
+  "/-- A definition whose index proof Lean abstracts into two lemmas, one used only by the \
+    other. -/\n" ++
+  "def middle (a : Array Nat) (h : 2 < a.size) : Nat := a[a.size / 2]'(by omega)\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof of `middle`. -/\n" ++
+  "theorem middle._proof_8 : pick = pick := rfl\n\n" ++
+  "/-- A user-written theorem named like an auxiliary proof, which uses the one above. -/\n" ++
+  "theorem middle._proof_9 : pick = pick := middle._proof_8\n\n" ++
   "/-- A reference whose initialization action carries a proof that uses `propext`. -/\n" ++
   "initialize counter : IO.Ref Nat ← do\n" ++
   "  have _ : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n  IO.mkRef 0\n\n" ++
@@ -1416,8 +1426,9 @@ private def sourceAttributionSource : String :=
 constructions, `Rec.x._default`, `firstIndex.match_1`, `walkDown._f` and `walkDown._sunfold`,
 `countdown`'s equation lemma and auxiliary proof, `countPair._unary` and `countPair.induct`, and
 the admitted recursion helper `countUp._unsafe_rec`), the auxiliary proofs `countUp._proof_3`,
-which only `countUp.eq_def` states, and `sumButLast._proof_1`, which only the admitted helper
-`sumButLast._unsafe_rec` uses and whose chain runs through it, the action of `initialize counter`
+which only `countUp.eq_def` states, `sumButLast._proof_1`, which only the admitted helper
+`sumButLast._unsafe_rec` uses and whose chain runs through it, and `middle._proof_1`, which only
+`middle._proof_2` uses and whose chain runs through it, the action of `initialize counter`
 and that action's auxiliary proof, whose chain runs through the action, is attributed to the
 declaration Lean generated it from. One without a range of its own is located at that
 declaration's range, with its own module as a related location; one with a range of its own keeps
@@ -1434,7 +1445,9 @@ the constructor is flagged. None of
 `Channel.fact`, which has no source range, `Word.ofNat` and the `vzero` elaborator in `Channel`'s
 namespace is attributed, though each is named under a structure: Lean did not generate them from
 it. `Channel.fact` keeps module attribution, and `Word.ofNat` and the elaborator their own
-range. -/
+range. Neither is the user-written `middle._proof_8`, which only the user-written
+`middle._proof_9` uses, nor that one, which nothing uses: a use by an auxiliary-named declaration
+relates only when that declaration is itself related. Both keep their own range. -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
@@ -1466,7 +1479,8 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
       ("Channel.noConfusionType", "Channel"), ("Channel._sizeOf_1", "Channel"),
       ("Channel._sizeOf_inst", "Channel"), ("Rec.x._default", "Rec"),
       ("countUp._unsafe_rec", "countUp"), ("countUp._proof_3", "countUp"),
-      ("sumButLast._proof_1", "sumButLast")] do
+      ("sumButLast._proof_1", "sumButLast"), ("middle._proof_1", "middle"),
+      ("middle._proof_2", "middle")] do
     let some owner := find ownerName <|> find (ownerName ++ ".mk")
       | return some s!"no {ownerName} finding"
     let some d := find name | return some s!"no {name} finding"
@@ -1497,6 +1511,11 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   unless source ofNat == .null && kind ofNat == .str "source" &&
       selection ofNat != selection word && ofNat.getObjValD "related" == Json.arr #[] do
     return some "Word.ofNat, which Lean did not generate, was attributed"
+  for name in #["middle._proof_8", "middle._proof_9"] do
+    let some d := find name | return some s!"no {name} finding"
+    unless source d == .null && kind d == .str "source" &&
+        d.getObjValD "related" == Json.arr #[] do
+      return some s!"{name}, which Lean did not generate, was attributed"
   let some elaborator := diagnostics.find? fun d =>
       match Regula.RegistryCodec.parsePrintedNameJson
           ((d.getObjValD "arguments").getObjValD "declaration") with
@@ -1514,8 +1533,9 @@ compiler's behavior; `Findings.sourceName?_eq_some_iff` states the attribution d
 recorded relation and `groupFindings_flatten` the grouping. The positive controls are the
 attributed findings, a declaration of every `GeneratedFamily`, and their printed blocks; the
 negative controls are a theorem a metaprogram adds without a source range under a declaration's
-name, a user-written `ofNat` under a structure's, and an elaborator Lean names `«_aux_…»` in a
-structure's namespace, none of which Lean generated from it (`sourceAttributionFailure`). -/
+name, a user-written `ofNat` under a structure's, an elaborator Lean names `«_aux_…»` in a
+structure's namespace, and two user-written theorems named like a definition's auxiliary proofs,
+one using the other, none of which Lean generated from it (`sourceAttributionFailure`). -/
 private def sourceAttributionControls (dir : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let report := dir / "source-attribution.json"
@@ -2000,8 +2020,8 @@ private def runCli (repo : FilePath) (jobs : Nat) (fullCli : Bool)
     IO.println <| "self-test source attribution: " ++
       (if attribution.isEmpty then "PASS" else "FAIL") ++
       " (a declaration of every generated family attributed and printed in one block; a \
-        metaprogram theorem, a user-written ofNat and an elaborator under a structure's name not \
-        attributed)"
+        metaprogram theorem, a user-written ofNat and an elaborator under a structure's name, \
+        and user-written theorems named like auxiliary proofs, not attributed)"
 
 /-- Build-bound packaging and fresh-state controls, each retaining its isolated
 source/build directory and exact failure accumulation. -/

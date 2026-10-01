@@ -581,12 +581,58 @@ private def auxiliaryKind? (s : String) : Option String :=
 private def valueUses (env : Environment) (f name : Name) : Bool :=
   ((env.find? f).bind valueOf?).any (·.getUsedConstants.contains name)
 
+/-- Whether `name` is named `kind_N` for one of the `auxiliaryKinds` under another declaration's
+name. -/
+private def isAuxiliaryName (name : Name) : Bool :=
+  (namedUnder? name).any fun (_, s) => (auxiliaryKind? s).isSome
+
+/-- The names of the declarations of `name`'s module: an imported module's, or the current
+one's. -/
+private def moduleConstants (env : Environment) (name : Name) : Array Name :=
+  match env.getModuleIdxFor? name with
+  | some idx => (env.header.moduleData[(idx : Nat)]?.map (·.constNames)).getD #[]
+  | none => env.constants.map₂.foldl (init := #[]) fun names id _ => names.push id
+
+/-- The declaration whose own use relates the auxiliary declaration `name`, named `kind_N` under
+`f`: `f`, when its value, the value its well-founded or structural equation information records,
+or the value of the function its well-founded equation information names uses `name`, or, for a
+`simp` or `cbv_eval` lemma, when `name` uses `f`; otherwise the definition of `f.eq_def` when
+that theorem's statement uses `name`; otherwise `f._unsafe_rec` when its value uses `name`. -/
+private def auxiliaryOwner? (env : Environment) (name : Name) : Option Name := do
+  let (spellings, s) ← namedUnder? name
+  let kind ← auxiliaryKind? s
+  (spellings.find? fun f => valueUses env f name ||
+      (Elab.WF.eqnInfoExt.find? env f).any (fun info =>
+        info.value.getUsedConstants.contains name || valueUses env info.declNameNonRec name) ||
+      (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
+      ((kind == "_simp" || kind == "_cbv_eval") && valueUses env name f)) <|>
+    (spellings.findSome? fun f =>
+      let unfold := f.str Meta.unfoldThmSuffix
+      if (env.find? unfold).any (·.type.getUsedConstants.contains name) then
+        (Meta.declFromEqLikeName env unfold).map (·.1)
+      else none) <|>
+    spellings.findSome? fun f =>
+      let helper := Compiler.mkUnsafeRecName f
+      if valueUses env helper name then some helper else none
+
+/-- The first of the auxiliary declarations `users` whose type or value uses `name` and that is
+itself related: by a use of its own (`auxiliaryOwner?`), or, within `fuel` further steps, by
+another of `users` in the same way. No declaration uses itself through others, so a chain of
+uses visits each of `users` at most once, and `users.size` steps of fuel reach every one. -/
+private def auxiliaryUser? (env : Environment) (users : Array Name) : Nat → Name → Option Name
+  | 0, _ => none
+  | fuel + 1, name => users.find? fun user =>
+      user != name &&
+        (env.find? user).any (fun info => info.type.getUsedConstants.contains name ||
+          (valueOf? info).any (·.getUsedConstants.contains name)) &&
+        ((auxiliaryOwner? env user).isSome || (auxiliaryUser? env users fuel user).isSome)
+
 /-- The declaration Lean generated `name` from, one step, if `name` belongs to `family`, as the
 environment records it. Each clause rests on (a) a fact Lean's generator records in the
 environment: a mark or extension entry, an equation information, or a use in a kernel value or
-in the statement of an `eq_def`; or on (c) the generator's own precondition, checked on the
-environment, for a declaration Lean generates whenever that precondition holds, so that no other
-declaration can have its name. None rests on a name alone; the name only says which declaration a
+in the statement of an `eq_def` or in another auxiliary declaration; or on (c) the generator's
+own precondition, checked on the environment, for a declaration Lean generates whenever that
+precondition holds, so that no other declaration can have its name. None rests on a name alone; the name only says which declaration a
 marked one is named under, as Lean's own `findDeclarationRanges?` reads it. The enumeration of the
 families Lean v4.34.0 generates, with their generators, is in
 `docs/guides/proofs-and-boundaries.md#generated-declaration-families`.
@@ -619,7 +665,12 @@ families Lean v4.34.0 generates, with their generators, is in
   the statement `WF.mkUnfoldEq` gives it from the pre-definition it cleans separately; otherwise
   `f._unsafe_rec` when its value uses it, the recursion helper `addAndCompilePartialRec` compiles
   from `f`'s pre-definition, whose own step to `f` is its admitted authorization
-  (`Findings.stepOf`), not its name; `f` for the wrapper
+  (`Findings.stepOf`), not its name; otherwise another such auxiliary declaration of its module
+  whose type or value uses it and that is itself related, by one of those uses or by a further
+  auxiliary declaration in the same way (`auxiliaryUser?`), one named under the same declaration
+  first, then the first in name order: Lean abstracts a proof nested in a proof, so the lemma
+  that uses it can be named under another declaration, such as a `where` helper's; `f` for the
+  wrapper
   `f._rpc_wrapped` Lean records for an RPC method `f` (`Server.userRpcProcedures`); and `id` for
   the action of an `initialize id : T ← e` declaration, which Lean records on `id`
   (`getInitFnNameFor?`), among the declarations of the action's own module, where the command
@@ -684,22 +735,12 @@ def generatedBy? (family : GeneratedFamily) (name : Name) : MetaM (Option Name) 
     let some (spellings, s) := namedUnder? name | return none
     if s == "_rpc_wrapped" then
       return spellings.find? fun f => Server.userRpcProcedures.find? env f == some name
-    let some kind := auxiliaryKind? s | return none
-    if let some f := spellings.find? fun f => valueUses env f name ||
-        (Elab.WF.eqnInfoExt.find? env f).any (fun info =>
-          info.value.getUsedConstants.contains name || valueUses env info.declNameNonRec name) ||
-        (Elab.Structural.eqnInfoExt.find? env f).any (·.value.getUsedConstants.contains name) ||
-        ((kind == "_simp" || kind == "_cbv_eval") && valueUses env name f) then
-      return some f
-    if let some f := spellings.findSome? fun f =>
-        let unfold := f.str Meta.unfoldThmSuffix
-        if (env.find? unfold).any (·.type.getUsedConstants.contains name) then
-          (Meta.declFromEqLikeName env unfold).map (·.1)
-        else none then
-      return some f
-    return spellings.findSome? fun f =>
-      let helper := Compiler.mkUnsafeRecName f
-      if valueUses env helper name then some helper else none
+    if (auxiliaryKind? s).isNone then return none
+    if let some owner := auxiliaryOwner? env name then return some owner
+    let auxiliaries := (moduleConstants env name).filter isAuxiliaryName |>.qsort Name.lt
+    let (near, far) := auxiliaries.partition fun user =>
+      (namedUnder? user).any (·.1 == spellings)
+    return auxiliaryUser? env (near ++ far) auxiliaries.size name
   | .constructorLemma =>
     let some (p :: _, s) := namedUnder? name | return none
     let some (.ctorInfo ctor) := env.find? p | return none

@@ -217,10 +217,12 @@ metadata, not authenticated binary identity.
   and `_sunfold` by its equation information; auxiliary declarations `mkAuxDeclName` names under
   `f`, such as `f._proof_n`, when `f`'s value, equation information or `f.eq_def`'s statement uses
   them, or, with the chain running through the recursion helper below, `f._unsafe_rec`'s value
-  does, and an RPC wrapper or `initialize` action by the extension that records it; constructor
-  lemmas and type constructions where the environment shows their generator ran on the type (its
-  precondition, under Lean's default options, or the mark it leaves on a sibling it generates in
-  the same run); and field defaults by Lean's own lookup (`getEffectiveDefaultFnForField?`). A
+  does, or, with the chain running through it, another such auxiliary declaration that is itself
+  related does, and an RPC wrapper or `initialize` action by the extension that records it;
+  constructor lemmas and type constructions where the environment shows their generator ran on
+  the type (its precondition, under Lean's default options, or the mark it leaves on a sibling it
+  generates in the same run); and field defaults by Lean's own lookup
+  (`getEffectiveDefaultFnForField?`). A
   compiled recursion helper `f._unsafe_rec`, which the environment ties to `f` only by its name, is
   related to `f` when the admitted scope authorizes it (`Findings.stepOf` over
   `authorizedUnsafeRecHelpers`), and `Findings.helperStep_base` proves `f` is then an audited
