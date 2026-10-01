@@ -222,7 +222,7 @@ metadata, not authenticated binary identity.
   about byte counts, and it bounds source text only: a string elsewhere in the document is
   written where it occurs. Project configuration text stays inline in `request`, `effective` and
   `scope.configuration`.
-- **Execution accounts:** since schema 8 a result file holds each environment report's
+- **Execution accounts:** since schema 8 a result file can hold each environment report's
   `execution` in a shared form: `names` (every name its roots reach, in the order of
   `canonicalNames`), `modules` and `nameModules` (each name's module), the seven edge channels
   (`compilerEdges`, `logicalEdges`, `candidateEdges`, `historyEdges`, `currentReplacementEdges`,
@@ -234,11 +234,12 @@ metadata, not authenticated binary identity.
   every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
   file through `SharedExecution.read`. The reader (`SharedExecution.restore?`,
   `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
-  from the root over the edges the collector follows (`SharedExecution.walkLoop`), unless the
-  entry lists them; its reached names are the visited ones; each channel's edges are those leaving
-  a reached name; its required code is the targets of its compiler edges, and the root if its
-  entry says so; its boundaries are its visited names' records in visit order, each with the
-  reached names that call it. An entry can also hold a root's account as it is (`explicit`).
+  from the root over the edges the collector follows (`SharedExecution.walkLoop`); its reached
+  names are the visited ones; each channel's edges are those leaving a reached name; its required
+  code is the targets of its compiler edges, and the root if its entry says so; its boundaries
+  are its visited names' records in visit order, each with the reached names that call it. An
+  entry can instead hold a root's account as it is (`explicit`), which the writer uses for a
+  root whose account that derivation does not reproduce.
   The writer proposes a shared form (`ExecutionShare.proposals`) and keeps it only if the reader
   returns the logical value itself from it, decided by `SharedExecution.same`
   (`same_eq`: a `true` answer is an equality); otherwise it writes the logical value as it is.
@@ -252,15 +253,15 @@ metadata, not authenticated binary identity.
   derives, which `Probe.executionWalk` is written to produce (it queues names in the order of
   `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for which
   the account codecs and the reader list each object's members in key order, as the JSON parser
-  inserts them. The `history` qualification and `RegistryChecks` observe both. The written
-  member then holds each reached name, edge and boundary record once per environment and a
-  constant-size entry per root, where the logical member repeats them for every root that
-  reaches them.
+  inserts them. The `history` qualification and `RegistryChecks` observe both. A kept
+  proposal whose every root entry is derived holds each reached name, edge and boundary record
+  once per environment and a constant-size entry per root, where the logical member repeats
+  them for every root that reaches them.
 - **Kernel types:** since schema 8 a result file carries a declaration's `type`, the `repr` of
   its kernel type expression, in a report's `declarations` and in a frontend transcript's
-  `addedDeclarations` only when the audit is run with `--kernel-types`
-  (`ProducerReport.declarationResultJson`, `Frontend.commandResultJson`); `prettyType` is the
-  type as Lean prints it. The in-memory report and worker transport always keep `type`, which
+  `addedDeclarations` only when the audit is run with `axiomGate --kernel-types`, an option
+  `lake lint` does not take (`ProducerReport.declarationResultJson`,
+  `Frontend.commandResultJson`); `prettyType` is the type as Lean prints it. The in-memory report and worker transport always keep `type`, which
   the role decisions compare. The producer qualification runs its controls with
   `--kernel-types`, because its oracle compares the kernel expression, which two different
   types that print alike would not show in `prettyType`.

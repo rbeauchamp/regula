@@ -210,7 +210,7 @@ list every module of the imported environment (the whole import closure) and are
 recomputable from the pinned inputs, and, unless `kernelTypes`, except each declaration's `type`
 (`declarationResultJson`). Owned modules remain in `census.modules`. Source texts, in
 `sourceBindings` and completed `histories`, are `sourceText` members. `execution` is the array of
-root accounts; a result file stores it in the shared form (`SharedExecution.intern`). Checker
+root accounts; a result file holds what `SharedExecution.intern` writes for it. Checker
 decisions use the in-memory report; worker transport keeps the full `ToJson` shape. -/
 def Environment.resultJson (r : Environment) (kernelTypes : Bool := false) : Json := Json.mkObj [
   ("toolchain", toJson r.toolchain),

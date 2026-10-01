@@ -14,8 +14,8 @@ whatever these functions return. What depends on them is only how small the writ
 root is written as an entry of constant size when the reader's derivation reproduces its account:
 its visits are the walk over the environment's edges, its edges those leaving its reached names,
 and its boundaries its visited names' records. The collector (`Regula.Probe`) is written to
-produce accounts of that form, which is unproved; a root whose account differs is written with
-its visits listed, or in full.
+produce accounts of that form, which is unproved; a root whose account differs is written in
+full.
 
 The typed accounts give the names and their indices. The members the reader copies into a
 rebuilt account (a boundary's kind, correspondence, evidence and toolchain origin, a root's
@@ -164,13 +164,6 @@ def entryMembers (tables : Tables) (root : ExecutionRoot) (account : Json) :
 def derivedEntry (tables : Tables) (root : ExecutionRoot) (account : Json) : Json :=
   Json.mkObj (entryMembers tables root account)
 
-/-- A root entry that lists the root's visits, each as its name's index and the position of the
-visit that queued it; the reader derives the rest. -/
-def listedEntry (tables : Tables) (root : ExecutionRoot) (account : Json) : Json :=
-  Json.mkObj (entryMembers tables root account ++
-    [("visits", .arr (root.closure.visits.map fun visit =>
-      Json.arr #[number (tables.node visit.name), toJson visit.parent]))])
-
 /-- A root entry that holds the root's account as it is. -/
 def explicitEntry (account : Json) : Json := Json.mkObj [("explicit", account)]
 
@@ -196,8 +189,7 @@ def derived (value : Json) : Json :=
   | none => value
 
 /-- The shared form in which each root has the smallest entry from which the reader rebuilds its
-account: derived, else with its visits listed, else explicit. `value` itself when it is not an
-array of root accounts. -/
+account: derived, else explicit. `value` itself when it is not an array of root accounts. -/
 def fitted (value : Json) : Json :=
   match roots? value with
   | some (roots, accounts) =>
@@ -210,10 +202,7 @@ def fitted (value : Json) : Json :=
             | none => false
           sharedForm tables <| (roots.zip accounts).map fun (root, account) =>
             let entry := derivedEntry tables root account
-            if fits entry account then entry
-            else
-              let entry := listedEntry tables root account
-              if fits entry account then entry else explicitEntry account
+            if fits entry account then entry else explicitEntry account
       | none => value
   | none => value
 

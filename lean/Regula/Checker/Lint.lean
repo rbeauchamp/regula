@@ -33,9 +33,6 @@ structure Options where
   declaration, the execution roots and toolchain trusted-base entries it lists on request, and
   its timing spans. -/
   verbose : Bool := false
-  /-- `--kernel-types`: pass `--kernel-types` to the audit, which then also writes each
-  declaration's kernel type expression in `--json-out`. -/
-  kernelTypes : Bool := false
   /-- `--explain-config`: print the configuration an audit would use, run no audit and exit
   with the configuration class. -/
   explain : Bool := false
@@ -45,16 +42,14 @@ structure Options where
 
 /-- The usage text: the accepted arguments and the meaning of each exit code. -/
 def usage : String :=
-  "usage: lake lint [-- [--fresh] [--project DIR] [--manifest PATH] [--json-out PATH \
-    [--kernel-types]] [--verbose]]\n" ++
+  "usage: lake lint [-- [--fresh] [--project DIR] [--manifest PATH] [--json-out PATH] \
+    [--verbose]]\n" ++
   "       lake lint -- --explain-config [--fresh] [--project DIR] [--manifest PATH]\n" ++
   "Checks every manifested Lake surface: incremental elaboration with current policy\n" ++
   "inspection by default, or an isolated fresh build with --fresh.\n" ++
   "--verbose also prints every classified declaration, timing spans, each execution root with a \
     boundary the toolchain does not own or an unresolved path and every entry of the toolchain \
     trusted base.\n" ++
-  "--kernel-types also writes, in --json-out, each declaration's kernel type expression as \
-    `type`; the result otherwise carries only the printed `prettyType`.\n" ++
   "exit codes: 0 accepted, 1 violation, 2 invalid configuration or invocation, 3 incomplete\n" ++
   "--explain-config and --help run no audit, establish no result and exit 2."
 
@@ -79,9 +74,6 @@ def parseArgs : List String → Options → Except String Options
       parseArgs rest { options with fresh := ← setFlag "--fresh" options.fresh }
   | "--verbose" :: rest, options => do
       parseArgs rest { options with verbose := ← setFlag "--verbose" options.verbose }
-  | "--kernel-types" :: rest, options => do
-      parseArgs rest
-        { options with kernelTypes := ← setFlag "--kernel-types" options.kernelTypes }
   | "--explain-config" :: rest, options => do
       parseArgs rest { options with explain := ← setFlag "--explain-config" options.explain }
   | "--help" :: rest, options | "-h" :: rest, options =>
@@ -94,8 +86,7 @@ def gateArgs (options : Options) : List String :=
   (options.project.map (["--project", ·])).getD [] ++
   (options.manifest.map (["--manifest", ·])).getD [] ++
   (options.jsonOut.map (["--json-out", ·])).getD [] ++
-  (if options.verbose then ["--verbose"] else []) ++
-  (if options.kernelTypes then ["--kernel-types"] else [])
+  (if options.verbose then ["--verbose"] else [])
 
 /-- The evidence mode an audit of this invocation must report. -/
 def requestedMode (fresh : Bool) : EvidenceMode :=
@@ -184,8 +175,6 @@ private unsafe def lint (args : List String) : IO Outcome := do
   match parsed with
   | .error message => refuse message
   | .ok options =>
-    if options.kernelTypes && options.jsonOut.isNone then
-      return ← refuse "--kernel-types applies only to --json-out"
     if options.help || options.explain then
       if options.jsonOut.isSome || options.verbose then
         return ← refuse "--json-out and --verbose apply only to an audit"

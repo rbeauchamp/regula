@@ -9,9 +9,10 @@ the document a checker builds and a reader consumes (the *logical* document) tha
 array with one complete account per root: the root's reached names, visits, edges and boundaries.
 A root that reaches what another root reaches lists it again, so the logical member grows with the
 roots times what each reaches. In the document a result file holds (the *written* document) the
-member is the *shared form*: every reached name, edge and boundary record of the environment
-once, and one entry of constant size per root. `restore?` is the reader: it rebuilds each root's
-account from the shared form. `intern` writes a document and `expand` reads one.
+member can be the *shared form*: every reached name, edge and boundary record of the environment
+once, and one entry per root, of constant size when the root's account is derived from the
+shared part. `restore?` is the reader: it rebuilds each root's account from the shared form.
+`intern` writes a document and `expand` reads one.
 
 The laws do not depend on how a shared form is produced. `internValue` keeps a proposed written
 value only when `restore?` returns the logical value itself from it, decided by `same`, an
@@ -276,20 +277,6 @@ def pair? : Json → Option (Nat × Nat)
       | _ => none
   | _ => none
 
-/-- A visit as a written root entry lists it: a name index below `size` and the position of the
-visit that queued it, `null` for the root's own visit. -/
-def visit? (size : Nat) : Json → Option (Nat × Option Nat)
-  | .arr elems =>
-      match elems.toList with
-      | [node, parent] => do
-          let node ← SourceTexts.refOf? node
-          let parent ← match parent with
-            | .null => some none
-            | position => some <$> SourceTexts.refOf? position
-          if node < size then some (node, parent) else none
-      | _ => none
-  | _ => none
-
 /-! The objects of a root's account, as the reader builds them. `Regula.Report`'s codecs for
 `RegulaPolicy.ExecutionVisit`, `ExecutionBoundary`, `ExecutionClosure` and `ExecutionRoot` build
 the same objects (`ExecutionShare.visit_toJson` and its companions, by `rfl`), so a codec and the
@@ -447,13 +434,13 @@ def distinct (sorted : Array Nat) : Array Nat :=
 /-- The account of one root, rebuilt from the shared part and the root's written entry.
 
 An entry with an `explicit` member is that member. Any other entry gives the root's name index,
-its `module` and `unresolved` paths, whether the root itself requires code, and optionally its
-`visits`; without them the visits are the walk from the root (`walk`). From the visits follow: the
-reached names, in name order; each channel's edges, those leaving a reached name; the required
-code, the targets of the reached compiler edges and the root if it requires code; the unavailable
-code among it; and the boundaries, each visited name's records in visit order, numbered by
-position, with the reached names that call the boundary's name in visit order. `none` when a
-member is missing or malformed. -/
+its `module` and `unresolved` paths, and whether the root itself requires code; its visits are
+the walk from the root (`walk`). From the visits follow: the reached names, in name order; each
+channel's edges, those leaving a reached name; the required code, the targets of the reached
+compiler edges and the root if it requires code; the unavailable code among it; and the
+boundaries, each visited name's records in visit order, numbered by position, with the reached
+names that call the boundary's name in visit order. `none` when a member is missing or
+malformed. -/
 def rebuildRoot (graph : Graph) (entry : Json) : Option Json :=
   match field? "explicit" entry with
   | some root => some root
@@ -465,9 +452,7 @@ def rebuildRoot (graph : Graph) (entry : Json) : Option Json :=
     let requiresCode ← match ← field? "requiresCode" entry with
       | .bool required => some required
       | _ => none
-    let visits ← match field? "visits" entry with
-      | some listed => (← array? listed).mapM (visit? graph.names.size)
-      | none => some (walk graph root)
+    let visits := walk graph root
     let order := visits.map (·.1)
     let reached := order.qsort fun a b => decide (a < b)
     let name (node : Nat) : Json := graph.names.getD node .null
@@ -646,13 +631,12 @@ theorem read_write {proposals : List (Json → Json)} {document written : Json}
   exact expand_intern proposals document
 
 /-- Whether a written account is a shared form whose every root entry is derived from the shared
-part alone: none lists its `visits` and none is `explicit`. An observation for controls; no law
-depends on it. -/
+part alone: none is `explicit`. An observation for controls; no law depends on it. -/
 def derivedOnly (written : Json) : Bool :=
   match field? rootsKey written with
   | some (.arr entries) =>
       (graphOf? written).isSome && !entries.isEmpty && entries.all fun entry =>
-        (field? "explicit" entry).isNone && (field? "visits" entry).isNone
+        (field? "explicit" entry).isNone
   | _ => false
 
 end Regula.SharedExecution

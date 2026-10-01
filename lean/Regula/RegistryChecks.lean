@@ -240,14 +240,18 @@ def main : IO Unit := do
         (storedNone.getObjValD SharedExecution.accountKey) == some (Json.arr #[]) &&
       (SharedExecution.expand storedNone).toOption == some rootless)
     "an environment without roots is stored as a shared form without roots"
-  -- Visits the walk does not produce: the root's entry lists them, and the reader still
-  -- returns the account.
+  -- Visits the walk does not produce: the root's entry holds its account as it is, and the
+  -- reader still returns the account.
   let other := report #[account `first #[⟨`shared, some `M, none⟩, ⟨`first, some `M, some 0⟩],
     account `second (walked `second)]
-  let listed := SharedExecution.intern ExecutionShare.proposals other
-  require (!SharedExecution.derivedOnly (listed.getObjValD SharedExecution.accountKey) &&
-    (SharedExecution.expand listed).toOption == some other)
-    "an account the walk does not reproduce is written with its visits and read back"
+  let full := SharedExecution.intern ExecutionShare.proposals other
+  let entries := (SharedExecution.field? SharedExecution.rootsKey
+    (full.getObjValD SharedExecution.accountKey)).bind SharedExecution.array?
+  require
+    (entries.map (·.map fun entry => (SharedExecution.field? "explicit" entry).isSome) ==
+        some #[true, false] &&
+      (SharedExecution.expand full).toOption == some other)
+    "an account the walk does not reproduce is written as `explicit` and read back"
   let claim := Json.mkObj [(SharedExecution.accountKey, .str "checked")]
   require (SharedExecution.intern ExecutionShare.proposals claim == claim &&
     (SharedExecution.expand claim).toOption == some claim)

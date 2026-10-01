@@ -19,11 +19,14 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 8 stores each environment's execution account once and omits kernel-expression
-text. In a result file, the `execution` member of an environment report is the shared form: the
-`names` its roots reach, their `modules` and `nameModules`, each edge channel as pairs of name
-indices, the `boundaries` records and `unavailableCode`, each once, and `roots`, one entry per
-root (`SharedExecution.restore?` states what each stands for). Readers of this checker take the
+/-- Result schema 8 can store what the roots of an environment's execution account share once,
+and omits kernel-expression text. In a result file, the `execution` member of an environment
+report is what `SharedExecution.internValue` writes for its roots' accounts: the shared form when
+the reader returns the accounts from it (the `names` its roots reach, their `modules` and
+`nameModules`, each edge channel as pairs of name indices, the `boundaries` records and
+`unavailableCode`, each once, and `roots`, one entry per root), and otherwise the accounts in
+full (`SharedExecution.restore?` states what each written value stands for); every observation
+of each root is recoverable either way. Readers of this checker take the
 document through `SharedExecution.read`, which rebuilds each root's account, so the document they
 see holds an array of complete root accounts as before: `SharedExecution.read_write` proves it is
 the document the writer was given. A declaration of a report and a declaration a frontend
@@ -343,9 +346,8 @@ def requestJson (kind project subject : String) (claim execution : Option String
   toJson (⟨kind, project, subject, claim, execution,
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
-/-- Write a result document to `path` with its execution accounts and source texts stored once:
-the `SharedExecution.write` of `document` (its `SharedExecution.intern` with the proposals of
-`ExecutionShare`, then `SourceTexts.intern`) as compact JSON and a final newline, creating the
+/-- Write a result document to `path` in its written form: the `SharedExecution.write` of
+`document` (its `SharedExecution.intern` with the proposals of `ExecutionShare`, then `SourceTexts.intern`) as compact JSON and a final newline, creating the
 parent directories. `SharedExecution.read_write` proves a reader's `SharedExecution.read` of the
 written value is `document` itself; that law is about `Json` values, not the file's text. A
 document `SourceTexts.intern` refuses (one without the `null` `sourceTexts` member of `sourceTextsField`,
