@@ -125,6 +125,7 @@ checker behavior:
 | --- | --- |
 | `fixtures` | Positive controls and intentionally invalid Lean declarations. |
 | `structural` | Surface discovery, ownership, contamination, and required application contracts. |
+| `execution` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration. |
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
@@ -159,10 +160,11 @@ coverage already obtained for the same inputs rather than repeating the same roo
 invocation. Diagnostics do not replace a failed acceptance run.
 
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers`,
-`history` and `lint-driver` as parallel jobs, each with its own hard 420-second limit, when the
-checker, rules, rule examples, the adopter fixtures in `examples/lake-lint-toml` and
-`examples/build-lint`, Lake configuration or manifests change, on every push to `main`, and
-nightly; it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml)
+`history`, `lint-driver`, `structural` and `execution` as parallel jobs, each with its own
+hard 420-second limit, when the checker, rules, rule examples, the adopter fixtures in
+`examples/lake-lint-toml` and `examples/build-lint`, the application and fixture sources the
+structural and execution controls mutate, Lake configuration or manifests change, on every
+push to `main`, and nightly; it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml)
 runs both shards on every pull request and push to `main`, where they feed
 `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.

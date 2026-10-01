@@ -1170,6 +1170,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
+| checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec and source cases | registry, diagnostic and source codecs | Proved in part | round-trip theorems; open: state the remaining refusals as theorems |
@@ -1321,30 +1322,58 @@ accepts with some `raw` from which `recordTargets` returns `m`), `parseValue_ok`
 (`parseValue` accepts a value with `m` exactly when `m.Valid` and the value `Encodes` `m`, so
 `Manifest.Valid` is exactly what the value stage admits) and
 `toJson_encodes` give `parseValue_toJson`; `structuralManifest_valid` shows the structural copy
-of a valid manifest is valid whenever it claims an actual surface. The schema-version check
+of a valid manifest is valid whenever it claims an actual surface, and `restrict_valid` the
+same of a restriction that keeps a surface. The schema-version check
 compares `JsonNumber` fields with derived equality (`schemaVersion2`) rather than `Json`'s
 `partial` `BEq`, with the same runtime meaning.
 
-**The structural partition.** `Manifest.structuralManifest` derives each structural copy's
-manifests from the repository's; `structural_libraries` and `structural_executables` prove the
-base classifies exactly the actual targets, and `structural_roundtrip` (with `parseValue_toJson`:
-`parseValue (toJson m) = .ok m ↔ m.Valid`, and the identity stage returning the copy unchanged)
-covers what the gate reads at the `Json` value
-boundary for any accepted manifest and claim set selecting an actual surface. `structuralBase`
-checks that claim hypothesis at run time, and no theorem links that check to the hypothesis. The
+**The structural and execution partitions.** The structural clusters, and the correspondence
+clusters of the execution partition, run in the structural project: this repository's package
+restricted to its application. `structuralProject` (in
+`CheckerSelftest.lean`) derives it from the workspace Lake loads: the `AuditApp` library, the
+executables the manifest claims on it, the fixture module the contamination controls import,
+and every root-package module those import (`Lean.parseImports'`, `Workspace.findModule?`),
+each kept target with its configured roots, globs, source directory and Lean options. That
+derivation is IO over Lake's data with no theorem; it refuses a missing library, module or
+claimed executable, a source outside the repository and a target built with extra `lean`
+arguments. The project has no `RegulaPolicy` library and requires no package, so a gate in it
+builds and inspects the application alone, and the checker probe's own imports resolve to the
+running checker's artifacts. `Manifest.restrict` derives the project's manifest from the
+repository's: `restrict_libraries` proves it classifies exactly the kept libraries the actual
+manifest classifies, `restrict_executables` that it names only actual executables, and
+`restrict_roundtrip` (with `parseValue_toJson`: `parseValue (toJson m) = .ok m ↔ m.Valid`, and
+the identity stage returning the restriction unchanged) covers what the gate reads at the `Json`
+value boundary for any accepted manifest whose restriction keeps a surface. `structuralBase`
+checks that hypothesis at run time, and that the application is the project's only claimed
+library; no theorem links those checks to the hypothesis. The
 text boundary is trusted: `Json.compress` is `partial` and `PolicyCodec.parse` runs core `partial`
 parsers, so no theorem describes them; `parse_of_encodes` names what they must deliver. The
 variants that rewrite the `AuditApp` surface after derivation are not covered. The lib-only
 variant excludes every actual `AuditApp` executable it stops claiming, and app-omitted-exe
 leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
-executable, so two claimed roots each define `main`. `RegulaPolicy` stays
-claimed in each copy because the checker probe's own imports resolve to it in a self-hosted copy;
+executable, so two claimed roots each define `main`.
+
+One structural control needs the checker's own package as the audited project: a claimed module
+that imports the probe's report records must be refused as contamination although the force
+import brings those modules into every report. It runs in a copy of the repository whose
+manifest `Manifest.structuralManifest` derives (`structural_libraries`,
+`structural_executables` and `structural_roundtrip`, under the claim hypothesis its guard
+checks at run time). `RegulaPolicy` stays claimed there because the checker probe's own imports
+resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
 states what it does not see).
-`diagnostics structural` passed locally in 572 s without the deadline (observed 2026-09-27);
-meeting the 420-second budget remains open, so it is not a CI job.
+
+Before the structural project, every cluster ran in a copy of the whole repository claiming
+`RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
+controls: an instrumented run took 513 s, in which 21 gate runs each inspected the unchanged
+`RegulaPolicy` library (about 475 s of roughly 1,200 s of control work). `diagnostics
+structural` and `diagnostics execution` now each run under the 420-second deadline, locally and
+as jobs of the diagnostics workflow. Observed on 2026-10-01 on a 14-core machine that other
+builds kept at a load average of 10 to 13, `structural` passed in 96 s and `execution` in 90 s
+(102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not
+a bound: the deadline itself is what refuses a slower run.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at

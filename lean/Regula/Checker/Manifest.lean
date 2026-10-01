@@ -33,8 +33,9 @@ target names are recorded and some entry's recorded spelling is none of them, it
 `unknownTarget` of the first such library entry as the text writes it, and of the first such
 executable entry when every library entry is known
 (`unknownEntry?_some`); a text `parse` refuses keeps that earlier refusal. `parseValue_toJson`
-is the round trip at the `Json` value boundary; `structural_roundtrip` applies it, with the
-identity stage, to the structural copy. The text boundary (`Json.compress`, which is `partial`,
+is the round trip at the `Json` value boundary; `structural_roundtrip` and `restrict_roundtrip`
+apply it, with the identity stage, to the self-hosted structural copy and to the structural
+project's manifest. The text boundary (`Json.compress`, which is `partial`,
 and `PolicyCodec.parse`, which runs core `partial` parsers) stays trusted.
 The refusal-class theorems prove the message of malformed JSON, an unknown top-level or surface
 key, a non-2 schema version, empty surfaces and a bad surface `execution`, each given an
@@ -1771,6 +1772,62 @@ theorem structuralManifest_valid {actual : Manifest} {claimed : Array String} (h
     obtain ⟨executable, ⟨he, -⟩, rfl⟩ := he
     exact ⟨hexeName executable he, hwhy⟩
 
+/-- The actual manifest's classification of the libraries `kept` alone: its surfaces on a kept
+library, each with every executable it claims, and its exclusions of a kept library. It
+excludes no executable, so it classifies the targets of a project whose root libraries are the
+kept libraries the actual manifest names and whose root executables are those the kept surfaces
+claim. -/
+def restrict (actual : Manifest) (kept : Array String) : Manifest :=
+  { surfaces := actual.surfaces.filter (kept.contains ·.library)
+    excludedLibraries := actual.excludedLibraries.filter (kept.contains ·.library)
+    excludedExecutables := #[] }
+
+/-- The restriction's libraries: the actual manifest's kept ones, in its order. -/
+theorem libraries_restrict (actual : Manifest) (kept : Array String) :
+    libraries (restrict actual kept) = (libraries actual).filter (kept.contains ·) := by
+  apply Array.ext'
+  simp [restrict, libraries, List.filter_map, Function.comp_def]
+
+/-- The restriction's executables: those the kept surfaces claim. -/
+theorem executables_restrict (actual : Manifest) (kept : Array String) :
+    executables (restrict actual kept) =
+      (actual.surfaces.filter (kept.contains ·.library)).flatMap (·.executables) := by
+  simp [restrict, executables]
+
+/-- The restriction classifies exactly the kept libraries the actual manifest classifies. -/
+theorem restrict_libraries (actual : Manifest) (kept : Array String) (l : String) :
+    l ∈ libraries (restrict actual kept) ↔ l ∈ libraries actual ∧ l ∈ kept := by
+  rw [libraries_restrict]
+  simp [Array.mem_filter]
+
+/-- The restriction names only executables the actual manifest names. -/
+theorem restrict_executables (actual : Manifest) (kept : Array String) (e : String)
+    (he : e ∈ executables (restrict actual kept)) : e ∈ executables actual := by
+  rw [executables_restrict] at he
+  simp only [Array.mem_flatMap, Array.mem_filter] at he
+  obtain ⟨s, ⟨hs, -⟩, he⟩ := he
+  exact Array.mem_append_left _ (Array.mem_flatMap.mpr ⟨s, hs, he⟩)
+
+/-- The restriction of a valid manifest is valid whenever it keeps at least one surface. -/
+theorem restrict_valid {actual : Manifest} {kept : Array String} (hv : actual.Valid)
+    (hne : actual.surfaces.filter (kept.contains ·.library) ≠ #[]) :
+    (restrict actual kept).Valid := by
+  obtain ⟨-, hlibs, hexes, hsok, hlok, -⟩ := hv
+  refine ⟨hne, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [libraries_restrict, Array.toList_filter]
+    exact hlibs.filter _
+  · rw [executables_restrict]
+    refine List.Nodup.sublist ?_ hexes
+    simp only [executables, Array.toList_flatMap, Array.toList_filter, Array.toList_append,
+      Array.toList_map]
+    exact (flatMap_filter_sublist _ _ _).trans (List.sublist_append_left _ _)
+  · intro s hs
+    exact hsok s (Array.mem_filter.mp hs).1
+  · intro l hl
+    exact hlok l (Array.mem_filter.mp hl).1
+  · intro e he
+    simp [restrict] at he
+
 /-- One surface in the checker's own JSON schema. -/
 def surfaceJson (s : Surface) : Json :=
   Json.mkObj [
@@ -1862,10 +1919,11 @@ theorem structuralManifest_recorded {actual : Manifest} {claimed : Array String}
   ⟨fun l hl => hr.1 l ((structural_libraries actual claimed l).mp hl),
     fun e he => hr.2 e ((structural_executables actual claimed e).mp he)⟩
 
-/-- What the structural gate reads: for any manifest the executed `parse` accepted, the JSON value
-stage recovers the in-memory structural copy exactly from its `toJson`, and the identity stage
-returns that copy unchanged, whenever the copy claims an actual surface (the guard
-`structuralBase` runs before building it). -/
+/-- What the gate reads in the self-hosted structural copy: for any manifest the executed `parse`
+accepted, the JSON value stage recovers the in-memory structural copy exactly from its `toJson`,
+and the identity stage returns that copy unchanged, whenever the copy claims an actual surface
+(the self-test's guard requires an actual surface for each claimed library before building
+it). -/
 theorem structural_roundtrip {path text : String} {actual : Manifest} {claimed : Array String}
     (h : parse path text = .ok actual)
     (hne : actual.surfaces.filter (claimed.contains ·.library) ≠ #[]) :
@@ -1876,6 +1934,25 @@ theorem structural_roundtrip {path text : String} {actual : Manifest} {claimed :
   have hv := structuralManifest_valid (parse_sound h) hne
   ⟨parseValue_toJson.mpr hv,
     recordTargets_of_recorded hv (structuralManifest_recorded (parse_recorded h))⟩
+
+/-- The restriction names only libraries and executables of the actual manifest, so its names
+are recorded spellings whenever the actual manifest's are. -/
+theorem restrict_recorded {actual : Manifest} {kept : Array String} (hr : Recorded actual) :
+    Recorded (restrict actual kept) :=
+  ⟨fun l hl => hr.1 l ((restrict_libraries actual kept l).mp hl).1,
+    fun e he => hr.2 e (restrict_executables actual kept e he)⟩
+
+/-- What the gate reads in the structural project: for any manifest the executed `parse`
+accepted, the JSON value stage recovers its in-memory restriction exactly from its `toJson`,
+and the identity stage returns that restriction unchanged, whenever the restriction keeps a
+surface (the guard `structuralBase` runs before building it). -/
+theorem restrict_roundtrip {path text : String} {actual : Manifest} {kept : Array String}
+    (h : parse path text = .ok actual)
+    (hne : actual.surfaces.filter (kept.contains ·.library) ≠ #[]) :
+    parseValue (toJson (restrict actual kept)) = .ok (restrict actual kept) ∧
+      recordTargets (restrict actual kept) = .ok (restrict actual kept) :=
+  have hv := restrict_valid (parse_sound h) hne
+  ⟨parseValue_toJson.mpr hv, recordTargets_of_recorded hv (restrict_recorded (parse_recorded h))⟩
 
 end Regula.Checker.Manifest
 
@@ -1906,7 +1983,11 @@ run_cmd do
       ``Regula.Checker.Manifest.parseValue_complete, ``Regula.Checker.Manifest.toJson_encodes,
       ``Regula.Checker.Manifest.parseValue_toJson, ``Regula.Checker.Manifest.parse_of_encodes,
       ``Regula.Checker.Manifest.structuralManifest_valid,
-      ``Regula.Checker.Manifest.structural_roundtrip] do
+      ``Regula.Checker.Manifest.structural_roundtrip,
+      ``Regula.Checker.Manifest.restrict_libraries,
+      ``Regula.Checker.Manifest.restrict_executables,
+      ``Regula.Checker.Manifest.restrict_valid,
+      ``Regula.Checker.Manifest.restrict_roundtrip] do
     let axioms ← Lean.collectAxioms name
     unless axioms.all (fun ax => #[`propext, `Quot.sound, `Classical.choice].contains ax) do
       throwError "manifest theorem {name} exceeds Standard-Logical: {axioms}"

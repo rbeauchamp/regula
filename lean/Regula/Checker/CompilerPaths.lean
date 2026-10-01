@@ -238,15 +238,16 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     let output := scratch / ".lake" / "build" / "lib" / "lean"
     let prefixDirectory := lookalikeRoot.toString
     IO.FS.createDirAll (output / prefixDirectory)
-    let link (source destination : FilePath) := do
-      let result ← runProcess scratch "ln" #["-s", source.toString, destination.toString]
-      if !result.succeeded then
-        throw <| IO.userError s!"could not expose toolchain control: {result.output}"
-    for entry in ← toolchainLib.readDir do
-      if entry.fileName.startsWith s!"{prefixDirectory}." then
-        link entry.path (output / entry.fileName)
-    for entry in ← (toolchainLib / prefixDirectory).readDir do
-      link entry.path (output / prefixDirectory / entry.fileName)
+    -- One `ln` per directory links every source under its own file name.
+    let link (sources : Array FilePath) (directory : FilePath) := do
+      unless sources.isEmpty do
+        let result ← runProcess scratch "ln"
+          (#["-s"] ++ sources.map (·.toString) ++ #[directory.toString])
+        if !result.succeeded then
+          throw <| IO.userError s!"could not expose toolchain control: {result.output}"
+    link (((← toolchainLib.readDir).filter
+      (·.fileName.startsWith s!"{prefixDirectory}.")).map (·.path)) output
+    link ((← (toolchainLib / prefixDirectory).readDir).map (·.path)) (output / prefixDirectory)
   IO.FS.writeFile (scratch / "foundation_manifest.json")
     ("{\"schema-version\":2,\"surfaces\":[{\"library\":\"Wrapper\",\"claim\":\"standard-logical\","
         ++
@@ -297,18 +298,31 @@ private def phase (repo scratch : FilePath) (test : Case) (negative : Bool) : IO
     failures := failures ++ check (← runProcess scratch binary args)
   return failures
 
+/-- One case: a positive, one mutation, and a separately rebuilt restoration, each in a scratch
+tree of its own below `scratch`. -/
+private def qualifyCase (repo scratch : FilePath) (test : Case) : IO (Array String) := do
+  let mut failures := #[]
+  for (name, negative) in [("positive", false), ("negative", true), ("restored", false)] do
+    let result ← withScratch scratch s!"{test.name}-{name}" fun isolated =>
+      phase repo isolated test negative
+    failures := failures ++ result
+  IO.println
+      s!"self-test compiler paths: {test.name} completed (positive/mutation/fresh restoration)"
+  (← IO.getStdout).flush
+  return failures
+
+/-- Every case's qualification, named after the case. Each writes only below its own scratch
+trees and reads only the checker's built output in `repo`, so a caller may run them in any
+order or concurrently. The enclosing caller owns and removes all scratch artifacts. -/
+def qualifications (repo scratch : FilePath) : Array (String × IO (Array String)) :=
+  cases.map fun test => (test.name, qualifyCase repo scratch test)
+
 /-- Every case pays for a positive, one mutation, and a separately rebuilt
 restoration. The enclosing caller owns and removes all scratch artifacts. -/
 def qualify (repo scratch : FilePath) : IO (Array String) := do
   let mut failures := #[]
-  for test in cases do
-    for (name, negative) in [("positive", false), ("negative", true), ("restored", false)] do
-      let result ← withScratch scratch s!"{test.name}-{name}" fun isolated =>
-        phase repo isolated test negative
-      failures := failures ++ result
-    IO.println
-        s!"self-test compiler paths: {test.name} completed (positive/mutation/fresh restoration)"
-    (← IO.getStdout).flush
+  for (_, run) in qualifications repo scratch do
+    failures := failures ++ (← run)
   return failures
 
 end Regula.Checker.CompilerPaths
