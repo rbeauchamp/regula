@@ -17,7 +17,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  compiler:
+    uses: ./.github/workflows/compiler.yml
+
   verify:
+    needs: compiler
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; each verify.sh step enforces exactly 420 seconds.
     timeout-minutes: 45
@@ -56,6 +60,7 @@ jobs:
   # The rule-example corpus: detector qualification (standard §7.8) and the only
   # source of the site's examples. Diagnostics, not a partition of acceptance.
   rule-examples:
+    needs: compiler
     name: diagnostics rule-examples ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30

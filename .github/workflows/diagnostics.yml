@@ -16,6 +16,10 @@ on:
       - lean/RegulaCore/**
       - lean/RegulaQualification/**
       - lean/RegulaVerification.lean
+      - lean/RegulaProvision.lean
+      - lean/RegulaCompiler.lean
+      - dependency-build-mode
+      - .github/compiler-source.json
       - lean/AuditApp/**
       - lean/AuditApp.lean
       - lean/Main.lean
@@ -32,6 +36,7 @@ on:
       - foundation_manifest.json
       - scripts/verify.sh
       - .github/workflows/diagnostics.yml
+      - .github/workflows/compiler.yml
       - .github/actions/provision/**
   push:
     branches: [main]
@@ -47,7 +52,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  compiler:
+    uses: ./.github/workflows/compiler.yml
+
   campaign:
+    needs: compiler
     name: ${{ matrix.campaign }}
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; verify.sh enforces exactly 420 seconds.
@@ -75,6 +84,7 @@ jobs:
   # run nightly on an unchanged main, where a failure shows drift in the runner image or the
   # restored dependency caches rather than in the pinned sources.
   rule-examples-nightly:
+    needs: compiler
     name: nightly diagnostics rule-examples ${{ matrix.shard }}
     if: github.event_name == 'schedule'
     runs-on: ubuntu-24.04

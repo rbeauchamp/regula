@@ -54,6 +54,39 @@ distinguish its artifacts by compiler commit and mode. See
 entry points and trusted effects. Pin selection and a successful setup do not establish
 checker qualification or repository acceptance.
 
+### Reproduce a source compiler in CI
+
+An adaptation using a local Elan alias also commits `.github/compiler-source.json`:
+
+```json
+{
+  "owner": "rbeauchamp",
+  "repository": "lean4",
+  "revision": "6751f97b0c3dbefec2aaf1ce9e07b877101c5662",
+  "selector": "regula-lean4-6751f97",
+  "bootstrap": "leanprover/lean4-nightly:nightly-2026-10-01",
+  "bootstrapRevision": "77f336f7ae6a60419d3882e0d5ca7ac3a2155528"
+}
+```
+
+The alias must match `lean-toolchain` and the artifact mode must be `source`.
+`lean/RegulaCompiler.lean` checks the specification, obtains the exact source commit,
+checks the bootstrap's CLI and library identity, configures Lean's release preset with
+that preceding stage, and runs the documented `make -j… -C build/release` command.
+It checks both identities of the resulting compiler before linking the alias. An existing
+alias is reused only when both reports match; a mismatch is refused. Source and build
+directories remain under `~/.cache/regula-compilers` for inspection or resumption.
+
+CI first runs the reusable compiler preparation job, then restores that compiler in the
+existing check jobs. Its cache key includes the specification, selector and installer
+source. The shell bootstrap installs fixed Lean 4.34.0 to run this Lean installer even
+when the repository's compiler is not installed yet. With no source specification, the
+installer asks Elan for the committed official release or dated nightly.
+Compiler preparation does not establish checker support. The existing acceptance and
+diagnostic commands keep their deadlines, and their results must still pass at the
+reviewed revision. Compiler self-reports, the build tools, cache storage and filesystem
+effects remain trusted; the identity predicate proves agreement of supplied values.
+
 ## Qualify that exact revision
 
 From the original Regula checkout:
