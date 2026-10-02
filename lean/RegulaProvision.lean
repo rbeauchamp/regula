@@ -72,10 +72,13 @@ theorem buildMode?_sound (text : String) (mode : BuildMode)
       simp_all [BuildMode.spelling]
     · simp at h
 
-/-- Environment passed to every dependency command and its descendants. -/
-def buildEnvironment : BuildMode → Array (String × Option String)
+/-- Environment passed to every dependency command and its descendants. Source mode uses
+an owned fresh artifact cache, retained with the workspace if package settings enable it. -/
+def buildEnvironment (sourceCache : String) : BuildMode → Array (String × Option String)
   | .upstreamCache => #[]
-  | .source => #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1")]
+  | .source => #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1"),
+      ("LAKE_ARTIFACT_CACHE", some "false"), ("LAKE_CACHE_DIR", some sourceCache),
+      ("LAKE_RESTORE_ARTIFACTS", some "true")]
 
 /-- Lake options for a dependency build; source mode also preserves the selected toolchain. -/
 def lakeOptions : BuildMode → Array String
@@ -88,13 +91,16 @@ def mathlibCommands : BuildMode → List (Array String)
       #["build", "Mathlib", "Mathlib:static.export"]]
   | .source => [#["build", "Mathlib", "Mathlib:static.export"]]
 
-/-- Source provisioning schedules only the source build, with both automatic cache routes
-disabled. The invoked Lake, package hooks and process environment remain trusted. -/
-theorem source_plan :
+/-- Source provisioning schedules only the source build with package-cache downloads and
+artifact-cache reuse disabled, a supplied isolated artifact location, and restoration requested.
+The invoked Lake, package hooks, cache freshness and process environment remain trusted. -/
+theorem source_plan (sourceCache : String) :
     mathlibCommands .source = [#["build", "Mathlib", "Mathlib:static.export"]] ∧
     lakeOptions .source = #["--no-cache", "--keep-toolchain"] ∧
-    buildEnvironment .source =
-      #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1")] := by
+    buildEnvironment sourceCache .source =
+      #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1"),
+        ("LAKE_ARTIFACT_CACHE", some "false"), ("LAKE_CACHE_DIR", some sourceCache),
+        ("LAKE_RESTORE_ARTIFACTS", some "true")] := by
   exact ⟨rfl, rfl, rfl⟩
 
 /-- A full-length lowercase hexadecimal Git object name, the form of Lake's pinned
@@ -379,6 +385,24 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String)
 
 private def say (line : String) : IO Unit := IO.println s!"provisioning: {line}"
 
+private def nonce : IO String := do
+  let bytes ← IO.getRandomBytes 8
+  return s!"{← IO.Process.getPID}-{bytes.foldl (fun value byte => value * 256 + byte.toNat) 0}"
+
+/-- Source commands get a newly created cache directory, so an explicit package cache opt-in
+cannot read an inherited remote mapping. Retain it: such a package may store outputs there
+despite the environment's requested defaults. Creation and package hooks remain trusted. -/
+private def freshBuildEnvironment (root : FilePath) (mode : BuildMode) :
+    IO (Array (String × Option String)) := do
+  match mode with
+  | .upstreamCache => return buildEnvironment "" mode
+  | .source =>
+    let parent := root / ".lake" / "regula-source-caches"
+    IO.FS.createDirAll parent
+    let cache := parent / (← nonce)
+    IO.FS.createDir cache
+    return buildEnvironment (← IO.FS.realPath cache).toString mode
+
 /-- Read the repository's explicit artifact mode. Missing configuration retains the stable
 cache route; malformed configuration is refused. -/
 def readBuildMode (repo : FilePath) : IO BuildMode := do
@@ -393,8 +417,9 @@ def readBuildMode (repo : FilePath) : IO BuildMode := do
 directory stays at its package-cache root as required by Mathlib's cache tool. -/
 private def buildMathlib (cwd : FilePath) (mode : BuildMode)
     (workspaceArgs : Array String := #[]) : IO Unit := do
+  let env ← freshBuildEnvironment cwd mode
   for command in mathlibCommands mode do
-    stream cwd "lake" (lakeOptions mode ++ workspaceArgs ++ command) (buildEnvironment mode)
+    stream cwd "lake" (lakeOptions mode ++ workspaceArgs ++ command) env
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
@@ -426,10 +451,6 @@ private def removeObserved (path : FilePath) : Observed → IO Unit
   | .link _ => IO.FS.removeFile path
   | .directory .. => IO.FS.removeDirAll path
   | _ => pure ()
-
-private def nonce : IO String := do
-  let bytes ← IO.getRandomBytes 8
-  return s!"{← IO.Process.getPID}-{bytes.foldl (fun value byte => value * 256 + byte.toNat) 0}"
 
 /-- Replace `path` by a symbolic link to `target`: the link is made beside it and renamed
 over it, so readers see the old entry or the new link. -/
@@ -808,7 +829,7 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     throw <| IO.userError "provisioning: website/lean-toolchain differs from the root"
   let mode ← readBuildMode repo
   stream (repo / "website") "lake"
-    (lakeOptions mode ++ #["build", "verso/VersoManual"]) (buildEnvironment mode)
+    (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
 
 /-- Emit the exact compiler and artifact mode for CI cache keys and preserve source mode
 for later commands in that job. GitHub's output and environment protocols are trusted IO. -/
@@ -824,14 +845,14 @@ def ciIdentity (repo : FilePath) : IO Unit := do
     handle.putStr s!"identity={value}\n"
   if let some path ← IO.getEnv "GITHUB_ENV" then
     let handle ← IO.FS.Handle.mk path .append
-    for (name, value) in buildEnvironment mode do
+    for (name, value) in ← freshBuildEnvironment repo mode do
       if let some value := value then handle.putStr s!"{name}={value}\n"
 
 /-- Run an argv command with the repository's artifact policy inherited by its descendants.
 The caller chooses the process; no shell interprets its arguments. -/
 def execute (repo dir : FilePath) (command : String) (args : Array String) : IO Unit := do
   let mode ← readBuildMode repo
-  stream (repo / dir) command args (buildEnvironment mode)
+  stream (repo / dir) command args (← freshBuildEnvironment repo mode)
 
 end RegulaProvision
 
