@@ -50,10 +50,10 @@ commit without matching artifacts, set `dependency-build-mode` to `source` in th
 and run `./scripts/provision.sh`, then `lean --run lean/RegulaProvision.lean verso`.
 An interrupted source setup retains its staging directory. A later invocation resumes only
 when its compiler/mode/policy key, pre-build artifact-policy marker, Lake configuration,
-manifest and toolchain selector match exactly. Existing package checkouts must retain their
+manifest, toolchain selector and generated import module match exactly. Existing package checkouts must retain their
 pinned origins and commits, without working-tree edits, stashes or additional local branch
-work. Unknown stages and local changes are preserved. It still runs the complete dependency
-build before publishing the read-only store. A setup
+work. Unknown stages and local changes are preserved. It still completes the requested
+transitive dependency build before publishing the read-only store. A setup
 timeout remains a failed invocation. Finish setup before running acceptance; this does not
 divide either acceptance step or change its deadline.
 The source plan disables Lake and Mathlib cache downloads; shared receipts and CI keys
