@@ -1173,11 +1173,12 @@ historical version-string guard's refusal of Lean 4.33.0 and 4.34.1 through the 
 line and when a checker executable loaded the workspace. Those historical observations do not
 qualify the new exact-identity guard. Its retained control, in the `lint-driver` partition,
 loads a fresh copy of the lakefile and policy source through `lake`: an inherited
-`LEAN_SYSROOT` whose `lean` does not compile the policy is refused, and the same package then
-loads with the inherited environment. A child that reports another compiler's identity, a
-compiler the policy refuses, an in-process load by a checker executable and `doctor`'s
-resolution of a pin need a second installed compiler or current observations and have no
-retained control.
+`LEAN_SYSROOT` whose `lean` fails on the policy source is refused, one whose `lean` exits
+successfully without printing the running compiler's identity is refused by the identity
+comparison, and the same package then loads with the inherited environment. Neither child is
+a compiler. A compiler the policy refuses, an in-process load by a checker executable and
+`doctor`'s resolution of a pin need a second installed compiler or current observations and
+have no retained control.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the

@@ -8,9 +8,10 @@ identity used by the cold Lake guard, compiled probe, inventory admission, and p
 **Status.** This is the first, partial delivery of
 [#191](https://github.com/rbeauchamp/regula/issues/191): the identity policy, the preparation
 and qualification workflow, and the refusals are in place, but no checker revision is
-qualified for a compiler newer than Lean 4.34.0. Until the ports tracked by
-[#192](https://github.com/rbeauchamp/regula/issues/192) and
-[#193](https://github.com/rbeauchamp/regula/issues/193) are reviewed and a compatibility
+qualified for a compiler newer than Lean 4.34.0. Until the work tracked by
+[#192](https://github.com/rbeauchamp/regula/issues/192),
+[#193](https://github.com/rbeauchamp/regula/issues/193) and
+[#195](https://github.com/rbeauchamp/regula/issues/195) is reviewed and a compatibility
 revision is promoted, code elaborated with a newer compiler cannot receive a supported result.
 
 ## Prepare an isolated candidate
@@ -114,13 +115,16 @@ both newer compilers and these observations add neither to the supported stable 
 | --- | --- | --- |
 | `build` | met | met |
 | `candidate-refusal` | met | met |
-| `fixtures` | not met: removed legacy compiler axiom, obsolete LRAT bytes | not met: positive controls refused over `ctorIdx._impl` |
-| `producers` | met | encountered that declaration family; outcome not recorded here |
-| `history` | met | not recorded here |
-| `structural` | met | encountered that declaration family; outcome not recorded here |
-| `execution` | met | not met: `replacement-cycle` stops in compilation |
-| `lint-driver` | met | not recorded here |
-| `self-audit` | met | not recorded here |
+| `fixtures` | not met: removed legacy compiler axiom, obsolete LRAT bytes ([#192](https://github.com/rbeauchamp/regula/issues/192)) | not met: the same legacy axiom and LRAT controls, and controls over `ctorIdx._impl` ([#193](https://github.com/rbeauchamp/regula/issues/193)) |
+| `producers` | met | not met: `uncaught exception: declaration documentation` after the RG5001 controls passed; cause unknown ([#195](https://github.com/rbeauchamp/regula/issues/195)) |
+| `history` | met | met |
+| `structural` | met | not met: fresh gates refused over `ctorIdx._impl` (#193) |
+| `execution` | met | not met: correspondence controls refused over `ctorIdx._impl`, and `replacement-cycle` stops in compilation (#193) |
+| `lint-driver` | met | met |
+| `self-audit` | met | met |
+
+Each cell is the receipt's `observationMet` for that campaign, with the cause its log shows.
+These are historical results for those two candidate commits, not for this revision.
 
 The portable changes preserve Lake's path-dependency `copy` flag during relocation, inspect
 loaded dependency locations, avoid the newly reserved binder name `given`, and use generated
@@ -145,9 +149,14 @@ that retired direct-axiom control.
 The development compiler also generates unsafe `ctorIdx._impl` declarations outside the
 standard's current recursion-helper exception. They cause genuine positive controls to be
 refused. [#193](https://github.com/rbeauchamp/regula/issues/193) tracks separate authentication
-against Lean's generator, its precise policy and execution boundaries, and the remaining
-development-compiler controls. Preserve these failures until the required port and review
-are complete; compiling the checker or completing a subset of diagnostics does not qualify it.
+against Lean's generator, its precise policy and execution boundaries, and the
+`replacement-cycle` control that stops in compilation. Its producer campaign stopped with
+`uncaught exception: declaration documentation` after the RG5001 controls passed. The RG5002
+fixtures that follow declare no inductive type, so that failure is not attributed to the
+constructor-index helpers; its cause is unknown and
+[#195](https://github.com/rbeauchamp/regula/issues/195) tracks it separately. Preserve these
+failures until the required ports and review are complete; compiling the checker or
+completing a subset of diagnostics does not qualify it.
 
 ## Guarantees and trusted boundaries
 
@@ -174,9 +183,12 @@ policy source. It passes only when that child accepts its own identity and print
 and commit of the Lean elaborating the lakefile; a child that fails, cannot be run, or reports
 another identity is refused. Lake reuses an elaborated configuration, so the guard runs when
 the configuration is elaborated, and the compiled guards remain in force otherwise. The
-retained `lint-driver` control refuses an inherited `LEAN_SYSROOT` whose `lean` does not
-compile the policy and then loads the same package again; a child reporting another
-compiler's identity needs a second installed compiler and has no retained control.
+retained `lint-driver` control gives the guard, through an inherited `LEAN_SYSROOT`, two
+children that are not the running compiler: one that fails on the policy source, and one that
+exits successfully without printing the running compiler's identity. Each is refused on its
+own branch, the second by the identity comparison, and the same package then loads again.
+Neither child is a compiler; a compiler of another identity as the child, or as the Lean
+running Lake, has no retained control.
 
 Compiler self-reports, Elan resolution, Git, native compilation, JSON serialization, process
 exit observations, filesystem reads, and GNU timeout remain trusted operational mechanisms.
