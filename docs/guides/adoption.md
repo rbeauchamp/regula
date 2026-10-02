@@ -66,13 +66,14 @@ keeps the Mathlib revision it pins.
 
 ### When your Lean release has no Regula release
 
-Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
-patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
-runs, and with any other Lean Regula's `lakefile.lean` stops before anything compiles, naming both
-releases:
+Each Regula revision declares one exact compiler version and commit in
+`RegulaPolicy.Compiler`. A Lean patch release such as `v4.34.1` is another compiler.
+Lake loads Regula with the Lean your project runs. A fresh configuration invokes that same
+identity guard before building the checker; inventory, plan, and probe admission retain it.
+Elan aliases may differ when they resolve to the same compiler. A mismatch reports both identities:
 
 ```text
-error: …/regula/lakefile.lean:…: this Regula release supports only Lean leanprover/lean4:v4.34.0, but Lake is running Lean 4.33.0. …
+unsupported Regula compiler: expected Lean 4.34.0 (293d5d0c0c3f3dded4688b3ccd6a33939ac5102b), observed Lean …
 ```
 
 Move your project to the supported Lean release first: set `lean-toolchain`, move Mathlib (if you
@@ -82,6 +83,10 @@ is one. When no other dependency pins a
 toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's release and restarts.
 When Mathlib pins another one, `lake update` prints `toolchain not updated; multiple toolchain
 candidates` and keeps yours, so the stop above follows.
+
+For release candidates, nightlies, and source-built compilers, use the
+[development toolchain workflow](toolchains.md). Preparing a candidate does not qualify it or
+extend the support of the stable revision.
 
 ## 2. Run `lake exe regula init`
 

@@ -899,15 +899,18 @@ private def localClosure (ws : _root_.Lake.Workspace) (captured : _root_.Lake.Pa
   return closure
 
 /-- The packages the Verso package at `dir` requires by local path, other than the accepted
-project at `project`, whose sources the link accepts: each by its name and its directory as the
-Verso package's lock manifest records it, relative to `dir`. -/
-private def localPackages (project dir : FilePath) : IO (Array (Name × FilePath)) := do
+project at `project`, whose sources the link accepts: each by its manifest name and the directory
+Lake actually loaded, relative to `dir`. This includes materialized copies and overrides. -/
+private def localPackages (project dir : FilePath) (ws : _root_.Lake.Workspace) :
+    IO (Array (Name × FilePath)) := do
   let some manifest ← _root_.Lake.Manifest.load? (dir / "lake-manifest.json") | return #[]
   let accepted ← IO.FS.realPath project
   manifest.packages.filterMapM fun entry => do
-    let .path relative := entry.src | return none
-    if (← IO.FS.realPath (dir / relative)) == accepted then return none
-    return some (entry.name, relative)
+    let .path .. := entry.src | return none
+    let some pkg := ws.findPackageByName? entry.name
+      | throw <| IO.userError s!"Verso package {dir} requires {entry.name}, which Lake did not load"
+    if (← IO.FS.realPath pkg.dir) == accepted then return none
+    return some (entry.name, pkg.relDir)
 
 /-- Every library module of each package the Verso package requires by local path other than the
 accepted project (`localPackages`), with its source file: for this repository, the modules of the
@@ -917,8 +920,8 @@ the Verso package's workspace, so an example's owned logical dependencies stay c
 import and pass kernel admission with it. -/
 def versoLocalModules (project : FilePath) (verso : VersoPackage) :
     IO (Array (Name × FilePath)) := do
-  let locals ← localPackages project verso.dir
   Workspace.withRootWorkspace verso.dir fun ws => do
+    let locals ← localPackages project verso.dir ws
     let mut modules := #[]
     for (name, _) in locals do
       let some pkg := ws.findPackageByName? name
@@ -943,8 +946,8 @@ the documentation itself. -/
 def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
     IO (Array RegulaPolicy.SourceSnapshot) := do
   let dir := verso.dir
-  let locals ← localPackages project dir
-  let modules ← Workspace.withRootWorkspace dir fun ws => do
+  let (locals, modules) ← Workspace.withRootWorkspace dir fun ws => do
+    let locals ← localPackages project dir ws
     let some lib := ws.root.leanLibs.find? (·.name == verso.library)
       | throw <| IO.userError s!"Verso package {dir} has no library {verso.library}"
     let some render := ws.root.leanExes.find?
@@ -960,7 +963,7 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
     let mut roots ← lib.getModuleArray
     for key in lib.config.needs do roots := roots ++ (← neededModules ws captured key)
     let closure ← localClosure ws captured (roots.push render.root)
-    closure.mapM fun m => do
+    let modules ← closure.mapM fun m => do
       let some (_, anchor) := anchors.find? (·.1 == m.pkg.keyName)
         | throw <| IO.userError s!"Verso package source {m.leanFile} is outside its packages"
       let real := (← IO.FS.realPath anchor).normalize.components
@@ -969,6 +972,7 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
         throw <| IO.userError s!"Verso package source {m.leanFile} is outside its package {anchor}"
       return (components.drop real.length).foldl
           (fun (acc : FilePath) (part : String) => acc / part) anchor
+    return (locals, modules)
   let packageDirs := #[dir] ++ locals.map fun (_, relative) => dir / relative
   let config ← packageDirs.flatMapM fun (packageDir : FilePath) =>
     (#["lakefile.toml", "lakefile.lean", "lake-manifest.json", "lean-toolchain",

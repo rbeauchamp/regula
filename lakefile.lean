@@ -1,22 +1,14 @@
 import Lake
 open Lake DSL
 
--- Each Regula release supports only the Lean release in its `lean-toolchain`. Loading this
--- package with any other Lean (`lake update`, `lake build`, `lake exe regula …`, `lake lint`)
--- stops here, with the remedy, before Lake compiles a module. The check uses only long-stable core
--- API; it was observed to elaborate and refuse on Lean 4.33.0 and 4.34.1. Lake reuses an
--- elaborated configuration while this file's text and the running Lean are unchanged, and
--- `lake update` elaborates it again, so the check runs whenever either changes or a revision is
--- resolved.
+-- Execute the same source guard used by compiled policy. A fresh dependency has no Regula
+-- artifacts yet; this module imports only Init and checks the running compiler's full identity.
 run_cmd do
-  let file ← IO.FS.readFile (__dir__ / "lean-toolchain")
-  let supported := ((file.splitOn "\n").headD "").replace "\r" ""
-  unless supported == "leanprover/lean4:v" ++ Lean.versionString do
-    Lean.logError m!"this Regula release supports only Lean {supported}, but Lake is running \
-      Lean {Lean.versionString}. Move the project, and Mathlib if it uses it, to {supported} \
-      (its lean-toolchain, then `lake update`), or require a Regula release that supports \
-      your Lean: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
-      #when-your-lean-release-has-no-regula-release"
+  let checked ← IO.Process.output {
+    cmd := ((← IO.appDir) / "lean").toString
+    args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString] }
+  unless checked.exitCode == 0 do
+    Lean.logError m!"{checked.stdout}{checked.stderr}"
 
 -- The package adopters require: the checker, lint driver, `regula` CLI, rule registry and
 -- editor linter, with no dependency beyond the Lean toolchain. Everything that imports Mathlib
@@ -120,6 +112,9 @@ lean_exe «checkerSelftest» where
 lean_exe «qualify» where
   root := `Regula.Qualification.Main
   supportInterpreter := true
+
+lean_exe «toolchain» where
+  root := `Regula.Toolchain
 
 lean_exe «ruleExamples» where
   root := `Regula.Checker.RuleExamples

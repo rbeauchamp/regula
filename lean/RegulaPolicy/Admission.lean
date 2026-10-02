@@ -1,6 +1,7 @@
 module
 
 public import RegulaPolicy.Domain
+public import RegulaPolicy.Compiler
 public import Std.Data.ExtHashSet.Lemmas
 
 /-! # Observation admission
@@ -179,7 +180,7 @@ def InventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Tra
   UniqueNames (transcripts.map (·.module)) ∧
   (∀ t ∈ transcripts, Named t.module ∧ t.source ≠ "" ∧
     t.sourceBytes = t.sourceContent.utf8ByteSize ∧
-    t.leanVersion = "4.34.0" ∧ t.leanGitHash = "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b" ∧
+    t.leanVersion = Compiler.version ∧ t.leanGitHash = Compiler.commit ∧
     t.validCoordinates = true ∧
     ∀ d ∈ decls, d.module = t.module → d.ranges.all (·.validFor t.sourceContent) = true)
 /-- Decide the unchanged declaration-coordinate relation using one supplied line list. -/
