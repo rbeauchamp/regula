@@ -658,7 +658,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         -- Equal to `Policy.admitExecution report.execution` (`Admitted.admitExecution_eq`).
         let executionInventory := admitted.execution
         failures := failures ++ Policy.executionFailures executionInventory surface.execution
-        for failure in Policy.executionFailureRecords executionInventory surface.execution do
+        for failure in Policy.executionFindings executionInventory surface.execution do
           let location ← match report.declarations.find? (·.name == failure.root.name) with
             | some decl => do
                 let snapshot := snapshotFor decl.module
@@ -1056,7 +1056,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                 findings := findings.push finding
             let executionInventory ← IO.ofExcept <| Policy.admitExecution inspected.report.execution
             let executionViolations := Policy.executionFailures executionInventory execution
-            for failure in Policy.executionFailureRecords executionInventory execution do
+            for failure in Policy.executionFindings executionInventory execution do
               let location ← match declarations.find? (·.name == failure.root.name) with
                 | some decl => IO.ofExcept <| RuleDiagnostics.declarationLocation decl
                                 (some ⟨path.toString, source⟩)

@@ -61,6 +61,23 @@
   "expect": "pass",
   "claim": "standard-logical"
  },
+ "Fixtures.Positive.ReducibilityChange": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "[OK] fixtures_local_irreducible._unsafe_rec",
+   "[OK] fixtures_later_irreducible._unsafe_rec",
+   "[OK] fixtures_unsealed._unsafe_rec",
+   "[OK] fixtures_alias_sum._unsafe_rec",
+   "[OK] fixtures_remaining_call._unsafe_rec",
+   "[OK] fixtures_alias_binary._unsafe_rec",
+   "[OK] fixtures_abbrev_irreducible._unsafe_rec",
+   "[OK] fixtures_cases_on_irreducible._unsafe_rec",
+   "[OK] fixtures_overlapping_irreducible._unsafe_rec",
+   "[OK] fixtures_equation_irreducible._unsafe_rec",
+   "[OK] fixtures_literal_irreducible._unsafe_rec"
+  ]
+ },
  "Fixtures.Positive.AliasedContract": {
   "expect": "pass",
   "claim": "standard-logical",
@@ -231,12 +248,26 @@
    "[VIOLATION[escape-hatch]] fixtures_dropped._unsafe_rec"
   ]
  },
- "Fixtures.Mutations.KnownLimitReducibilityChange": {
+ "Fixtures.Mutations.FakeMatcherUnsafeRecForge": {
   "expect": "fail",
   "reason": "escape-hatch",
   "output": [
-   "[VIOLATION[escape-hatch]] fixtures_local_irreducible._unsafe_rec",
-   "[VIOLATION[escape-hatch]] fixtures_later_irreducible._unsafe_rec"
+   "[OK] fixtures_fake_threaded._unsafe_rec",
+   "[OK] fixtures_fake_direct._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_fake_forged._unsafe_rec",
+   "[OK] fixtures_fake_motive_threaded._unsafe_rec",
+   "[OK] fixtures_fake_motive_direct._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_fake_motive_forged._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.KnownLimitReducibleAfter": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_reducible_fixed._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_reducible_structural._unsafe_rec",
+   "[VIOLATION[escape-hatch]] FixturesReducibleTree.count._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_reducible_then_not._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.ForgedMatchElaborator": {
@@ -269,6 +300,18 @@
    "[OK] fixtures_forged_measured_honest._unsafe_rec",
    "[OK] fixtures_forged_measured_faithful._unsafe_rec",
    "[VIOLATION[escape-hatch]] fixtures_forged_measured_divergent._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.ReducibilityChangeUnsafeRecForge": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[OK] fixtures_forged_threaded_honest._unsafe_rec",
+   "[OK] fixtures_forged_threaded_faithful._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_threaded_divergent._unsafe_rec",
+   "[OK] fixtures_forged_alias_honest._unsafe_rec",
+   "[OK] fixtures_forged_alias_faithful._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_alias_divergent._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.UnsafeDef": {

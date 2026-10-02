@@ -360,7 +360,13 @@ def guide : RuleId → Guide
           the helper does not matter, and neither do declaration order, a nested proof shared with \
           an earlier declaration, a proof written as a tactic block or as a term, or whether a \
           `public` definition of a `module` file is exposed: the comparison uses no name of a \
-          theorem Lean abstracts from a nested proof.",
+          theorem Lean abstracts from a nested proof. Nor, for the forms standard §7.4 lists, \
+          does it matter which definitions were irreducible where the definition was elaborated \
+          (`attribute [local irreducible]`, `attribute [irreducible]` afterwards, `unseal`): the \
+          regeneration runs a second time with no definition irreducible (each given the status \
+          its declaration shows), and the comparison \
+          takes a `match` that passes a variable through as the `match` that uses it directly, \
+          where Lean's kernel checks that the two are equal for that matcher.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -396,26 +402,32 @@ def guide : RuleId → Guide
         "A helper is not admitted where the regeneration does not reproduce its base. The \
           regeneration is given the helper's value and its base's termination argument, and it \
           reruns Lean's structural and well-founded compilers in the environment the audit \
-          inspects (at the end of the audit) with Lean's default options and the toolchain's own \
-          rules, not with the options, rules and \
-          attributes in force where the definition was compiled. The forms known to fall outside \
-          are a `partial_fixpoint` definition, a base compiled through a fixpoint combinator other \
+          inspects (at the end of the audit), and there again with no definition irreducible, \
+          with Lean's default options and the toolchain's own rules, not with the options, rules \
+          and attributes in force where the definition was compiled. The forms known to fall \
+          outside are a `partial_fixpoint` definition, a base compiled through a fixpoint \
+          combinator other \
           than `WellFounded.fix` and `WellFounded.Nat.fix`, a base whose compilation used a \
           `wf_preprocess` rule registered outside the Lean toolchain, one elaborated with \
           `set_option wf.preprocess false` or with a toolchain rule removed by \
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
-          one for which the reducibility in force at the end of the audit differs from the \
-          reducibility in force where Lean elaborated the definition, so that the regeneration \
-          passes the recursive-call function through a `match` differently. That last form covers \
-          both an attribute local to the definition's section (`attribute [local irreducible]` on \
-          a function the measure calls) and a global attribute applied after the definition \
-          (`attribute [irreducible] g` after a definition measured through `g`).",
+          one that calls a function made reducible after the definition (`attribute [reducible] g` \
+          after a definition that calls `g`), where that changes which parameters Lean finds \
+          fixed or which `wf_preprocess` rule of the toolchain applies, or, under \
+          `set_option allowUnsafeReducibility true`, calls a `@[reducible]` function that is \
+          not an `abbrev` and is made irreducible afterwards, or calls an `abbrev` that was \
+          irreducible where the definition was compiled (argued from the checker's code, not \
+          run). Otherwise a definition for which the only difference is that ordinary \
+          (semireducible) definitions are irreducible at one of the two points \
+          (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
+          `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
         characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
-        each a regenerated, safe base with Standard-Logical axioms, and \
+        each a recorded regeneration observation and a safe base with Standard-Logical axioms \
+        (neither proves the observation truthful), and \
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
         `partial def`'s helper under the `partial def`."
       sources :=
@@ -822,6 +834,7 @@ def guide : RuleId → Guide
       residuals := [.qualify, .invariant, .intent]
       checklist := ["COMP-03", "SCOPE-05", "SCOPE-03", "THEOREM-05", "BUILD-01", "BUILD-03"]
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+        `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
         Extracting the execution closure from compiler IR is operational."
       sources :=
@@ -845,6 +858,21 @@ def guide : RuleId → Guide
           Such a boundary is the toolchain's trusted base: it passes and is reported once for the \
           whole audit, with every environment and root that reaches it, in the audit's toolchain \
           trusted base.",
+        "A `partial` implementation that a trusted boundary names as the code run in its place \
+          is reported with that boundary where both are trusted and neither is the toolchain's, \
+          as one finding that names both and one counted boundary. A `partial` implementation is \
+          a constant of `partial` definition safety: the implementation a metaprogram such as \
+          Mathlib's `compile_inductive%` adds for a recursor, named as the target of a `csimp` \
+          candidate or of an `implemented_by` replacement, or the `_unsafe_rec` helper Lean \
+          generates for a `partial def`, named by that `partial def`'s own boundary. A \
+          `partial def` named as the target of a candidate or replacement is not one: it is an \
+          opaque constant compiled through that helper, so it keeps its own finding and count, \
+          and only its helper is reported with it. A second record of one trusted boundary (the \
+          same constant, kind, replacement and toolchain origin, as two constants of one \
+          equality's type give a `csimp` candidate) is reported and counted with the first in \
+          the same way. The account in `--json-out` keeps every record, and `--verbose` lists \
+          the implementation under its boundary as its `implementation` and a later record as \
+          `restated`.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
           logical axioms and no extra premises."]
@@ -857,6 +885,12 @@ def guide : RuleId → Guide
         "Every reached boundary of a checked surface without an admitted toolchain origin has \
           kernel-admitted correspondence; each one without it has a failure record in every root \
           whose account contains it (`RegulaPolicy.project_boundary_reported`).",
+        "Every such failure record is reported: as its boundary's own finding, or, for a \
+          `partial` implementation reported with the boundary that runs it, in that boundary's \
+          finding, which names it, or, for a later record of a trusted boundary, in the finding \
+          that reports the first record (`RegulaPolicy.failure_reported`). Every finding is a \
+          record (`RegulaPolicy.executionFindings_sound`), and the findings are empty exactly \
+          when the records are (`RegulaPolicy.executionFindings_empty_iff`).",
         "Each toolchain-owned boundary of every environment an audit inspects is in exactly one \
           entry of the audit's toolchain trusted base, which lists exactly the environments and \
           roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]
@@ -882,8 +916,10 @@ def guide : RuleId → Guide
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+        `RegulaPolicy.executionFindings_empty_iff`, \
         `Regula.Checker.Policy.checked_executionFailures`, `executionRule_injective`, \
-        `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported` and \
+        `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported`, \
+        `RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound` and \
         `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
         Extracting the execution closure from compiler IR and observing module origins are \
         operational."
