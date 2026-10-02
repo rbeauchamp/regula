@@ -116,6 +116,16 @@ attributed to, where the finding carries the attribution (`Findings.findingLocat
 declaration without a recorded range otherwise falls back to module attribution, and an
 inconsistent supplied range fails rather than acquiring an invented location. `sourceFromReport`
 additionally requires the recorded code-point and UTF-16 coordinates to agree with that text.
+A declaration's admitted ranges (`Declaration.ranges`) are the pair Lean recorded
+(`recordedRanges`, the `ranges` member of a report) when its selection range lies within its full
+range, and otherwise the full range as its own selection range (`Ranges.admitted`). Lean relates
+the two ranges only for a declaration it elaborates from the source as parsed: `macro_rules` over
+several syntax kinds gives a kind's definition a selection range that ends after its range.
+Admission and finding locations read the admitted pair, so nothing is enlarged and a selection
+range outside its range is never used. The producer's source evidence still requires the recorded
+selection range to be valid in the source (`recordedRangesValid_of`), and
+`Ranges.validForLines_iff_admitted` proves that the requirement on a recorded pair is the former
+one without the containment of the selection range, a condition that does not read the source.
 Report lines are one-based and columns count Unicode code points; `startUtf16` and `endUtf16` are
 zero-based UTF-16 columns within their lines, computed with Lean's
 `leanPosToLspPos`. Native messages use Lean code-point positions, and the same validated

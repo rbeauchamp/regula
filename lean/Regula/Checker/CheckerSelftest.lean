@@ -1538,7 +1538,10 @@ structure's namespace, and user-written theorems named like auxiliary proofs or 
 two of a definition that does not use them, one using the other and a theorem named under the
 definition using the first; one in a namespace, which a theorem of the namespace uses; and two
 declared before the definition they are named under, which uses the one named like an auxiliary
-proof. Every one exceeds a Kernel-only claim, so each has an RG1005 finding. -/
+proof. Every one exceeds a Kernel-only claim, so each has an RG1005 finding. Last, a
+`macro_rules` command over two syntax kinds, whose first kind's definition carries a proof that
+uses `propext`: Lean records for that definition a selection range that leaves its range
+(`RegulaPolicy.Ranges.admitted`). -/
 private def sourceAttributionSource : String :=
   "import Lean\n\n/-! # Source attribution control\n\nDeclarations Lean generates. -/\n\n" ++
   "open Lean Elab Command\n\n" ++
@@ -1601,6 +1604,11 @@ private def sourceAttributionSource : String :=
   "/-- A reference whose initialization action carries a proof that uses `propext`. -/\n" ++
   "initialize counter : IO.Ref Nat ← do\n" ++
   "  have _ : (True ∧ True) = True := propext ⟨And.left, fun h => ⟨h, h⟩⟩\n  IO.mkRef 0\n\n" ++
+  "/-- A command that expands to nothing. -/\nsyntax \"#nothing\" : command\n\n" ++
+  "/-- The same command with a marker. -/\nsyntax \"#nothing!\" : command\n\n" ++
+  "macro_rules\n  | `(#nothing) => do\n" ++
+  "    have _ : (True ∧ True ∧ True) = True := propext ⟨fun _ => trivial, fun h => ⟨h, h, h⟩⟩\n" ++
+  "    `(section end)\n  | `(#nothing!) => `(section end)\n\n" ++
   "run_cmd liftTermElabM do\n  addDecl <| .thmDecl {\n" ++
   "    name := `Channel.fact, levelParams := []\n" ++
   "    type := mkApp3 (mkConst ``Eq [1]) (mkConst ``Nat) (mkConst ``pick) (mkConst ``pick)\n" ++
@@ -1634,7 +1642,10 @@ range. Neither is a user-written theorem named like a generated declaration, whi
 declaration range where the ones Lean generates have none: `middle._proof_8`, which the
 user-written `middle._proof_9` and `middle.spec` use, `middle._proof_9`, which nothing uses,
 `Util._proof_8`, which `Util.spec` uses in a namespace no declaration names, and `later._proof_8`
-and `later.eq_7`, declared before `later`, which uses the first. Each keeps its own range. -/
+and `later.eq_7`, declared before `later`, which uses the first. Each keeps its own range. The
+definition Lean generates for the first syntax kind of the `macro_rules` command has a recorded
+selection range that ends after its range does, and its finding is located at its recorded
+range, which is the admitted selection range too (`RegulaPolicy.Ranges.admitted`). -/
 private def sourceAttributionFailure (report : Json) : Option String := Id.run do
   let some diagnostics := (report.getObjValAs? (Array Json) "diagnostics").toOption
     | return some "no diagnostics"
@@ -1713,6 +1724,29 @@ private def sourceAttributionFailure (report : Json) : Option String := Id.run d
   unless source elaborator == .null && kind elaborator == .str "source" &&
       selection elaborator != selection channel && elaborator.getObjValD "related" == Json.arr #[] do
     return some "the vzero elaborator, which Lean did not generate from Channel, was attributed"
+  let rulesName (name : Json) : Bool :=
+    match Regula.RegistryCodec.parsePrintedNameJson name with
+    | .ok (.str .anonymous s) =>
+      s.startsWith "_aux_" && s.endsWith "___macroRules_command#nothing_1"
+    | _ => false
+  let some recorded := (((report.getObjValD "scope").getObjValD "report").getObjValAs?
+      (Array Json) "declarations").toOption.bind
+        (·.find? fun declaration => rulesName (declaration.getObjValD "name"))
+    | return some "no record of the macro_rules definition of the first syntax kind"
+  let recordedEnd (range : String) : Json :=
+    ((recorded.getObjValD "ranges").getObjValD range).getObjValD "end"
+  if recordedEnd "range" == recordedEnd "selectionRange" then
+    return some "Lean recorded a selection range inside the range of the macro_rules definition"
+  let some rules := diagnostics.find? fun d =>
+      rulesName ((d.getObjValD "arguments").getObjValD "declaration")
+    | return some "no finding for the macro_rules definition of the first syntax kind"
+  let lastLine := (((rules.getObjValD "location").getObjValD "lspRange").getObjValD
+    "end").getObjValD "line"
+  unless source rules == .null && kind rules == .str "source" &&
+      (rules.getObjValD "location").getObjValD "range" == selection rules &&
+      (lastLine.getNat?.toOption.map (· + 1)) ==
+        ((recordedEnd "range").getObjValD "line").getNat?.toOption do
+    return some "the macro_rules definition is not located at its recorded range"
   return none
 
 /-- External-boundary controls for source attribution through the public `axiomGate --file`
@@ -1724,7 +1758,11 @@ negative controls are a theorem a metaprogram adds without a source range under 
 name, a user-written `ofNat` under a structure's, an elaborator Lean names `«_aux_…»` in a
 structure's namespace, and user-written theorems named like a definition's auxiliary proofs or
 equation lemma that the definition or a declaration named beside them uses, none of which Lean
-generated from it (`sourceAttributionFailure`). -/
+generated from it (`sourceAttributionFailure`). The same audit is the control for a recorded
+selection range that leaves its range: which ranges Lean records for the definitions of a
+`macro_rules` command over several syntax kinds is the compiler's behavior, which no theorem here
+states; `RegulaPolicy.Ranges.admitted_validForLines` states what admission requires of a recorded
+pair, and the audit is refused with RG2005 unless it admits this one. -/
 private def sourceAttributionControls (dir : FilePath)
     (gate : Array String → IO ProcessResult) : IO (Array String) := do
   let report := dir / "source-attribution.json"

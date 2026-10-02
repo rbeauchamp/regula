@@ -71,10 +71,6 @@ def Position.validForLines (p : Position) (lines : List String) : Bool :=
 def Position.validFor (p : Position) (source : String) : Bool :=
   p.validForLines (source.splitOn "\n")
 
-/-- `a` is at or before `b`: lines compared first, then columns on the same line. -/
-def positionLE (a b : Position) : Bool :=
-  a.line < b.line || (a.line == b.line && a.column ≤ b.column)
-
 /-- The UTF-16 column of `p`: the UTF-16 code units of the first `p.column` characters of
 line `p.line` (a character above U+FFFF counts two). A missing line counts as empty. -/
 def utf16ColumnLines (p : Position) (lines : List String) : Nat :=
@@ -110,6 +106,64 @@ theorem Ranges.validForLines_eq (r : Ranges) (source : String) :
       (r.range.validFor source && r.selectionRange.validFor source &&
         positionLE r.range.start r.selectionRange.start &&
         positionLE r.selectionRange.end r.range.end) := rfl
+
+/-- Valid ranges have a valid full range and a valid selection range. -/
+theorem Ranges.validForLines_parts {r : Ranges} {lines : List String}
+    (valid : r.validForLines lines = true) :
+    r.range.validForLines lines = true ∧ r.selectionRange.validForLines lines = true := by
+  simp only [Ranges.validForLines, Bool.and_eq_true] at valid
+  exact valid.1.1
+
+theorem positionLE_refl (a : Position) : positionLE a a = true := by simp [positionLE]
+
+/-- A recorded pair whose selection range lies within its full range is admitted as it is. -/
+theorem Ranges.admitted_eq_self {r : Ranges} (nested : r.nested = true) : r.admitted = r := by
+  simp [Ranges.admitted, nested]
+
+/-- The admitted pair keeps the recorded full range: nothing is enlarged. -/
+theorem Ranges.admitted_range (r : Ranges) : r.admitted.range = r.range := by
+  unfold Ranges.admitted
+  split <;> rfl
+
+/-- The admitted pair's selection range lies within its full range, whatever was recorded. -/
+theorem Ranges.admitted_nested (r : Ranges) : r.admitted.nested = true := by
+  unfold Ranges.admitted
+  split
+  · assumption
+  · simp [Ranges.nested, positionLE_refl]
+
+/-- What the admitted pair's validity requires of the recorded pair: all of
+`Ranges.validForLines` when the recorded selection range lies within the recorded full range,
+and otherwise the validity of the recorded full range. -/
+theorem Ranges.admitted_validForLines (r : Ranges) (lines : List String) :
+    r.admitted.validForLines lines =
+      if r.nested then r.validForLines lines else r.range.validForLines lines := by
+  unfold Ranges.admitted
+  split
+  · rfl
+  · simp [Ranges.validForLines, positionLE_refl]
+
+/-- The requirement on a recorded pair before the admitted pair existed, `Ranges.validForLines`
+of the recorded pair, is the present requirement (the admitted pair is valid and the recorded
+selection range is valid) together with the recorded selection range lying within the recorded
+full range. That last condition relates the two recorded ranges alone and does not read the
+source. -/
+theorem Ranges.validForLines_iff_admitted (r : Ranges) (lines : List String) :
+    r.validForLines lines = true ↔
+      (r.admitted.validForLines lines = true ∧ r.selectionRange.validForLines lines = true) ∧
+        r.nested = true := by
+  rw [Ranges.admitted_validForLines]
+  cases nested : r.nested
+  · simp only [Bool.false_eq_true, and_false, iff_false, Bool.not_eq_true]
+    simp only [Ranges.nested, Bool.and_eq_false_iff] at nested
+    simp only [Ranges.validForLines, Bool.and_eq_false_iff]
+    rcases nested with starts | ends
+    · exact .inl (.inr starts)
+    · exact .inr ends
+  · simp only [↓reduceIte, and_true]
+    refine ⟨fun valid => ⟨valid, ?_⟩, And.left⟩
+    simp only [Ranges.validForLines, Bool.and_eq_true] at valid
+    exact valid.1.1.2
 
 /-- Every command's `added` names are exactly its `addedDeclarations` names, none anonymous. -/
 def Frontend.Transcript.validCoordinates (t : Frontend.Transcript) : Bool :=

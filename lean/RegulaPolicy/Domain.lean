@@ -549,6 +549,10 @@ structure Position where
   column : Nat
   deriving Repr, DecidableEq
 
+/-- `a` is at or before `b`: lines compared first, then columns on the same line. -/
+def positionLE (a b : Position) : Bool :=
+  a.line < b.line || (a.line == b.line && a.column ≤ b.column)
+
 /-- Lean one-based lines and zero-based codepoint columns, with corresponding
 zero-based UTF-16 columns (not absolute offsets). -/
 structure Range where
@@ -569,6 +573,22 @@ structure Ranges where
   /-- The range of its name, which an editor selects. -/
   selectionRange : Range
   deriving Repr, DecidableEq
+
+/-- The selection range lies within the full range. -/
+def Ranges.nested (r : Ranges) : Bool :=
+  positionLE r.range.start r.selectionRange.start && positionLE r.selectionRange.end r.range.end
+
+/-- The pair admission and finding locations use for a recorded pair: the recorded pair itself
+when its selection range lies within its full range, and otherwise the full range as its own
+selection range. Nothing is enlarged and nothing about the declaration is consulted. Lean records
+the two ranges from two pieces of syntax (`Lean.Elab.addDeclarationRangesFromSyntax`) that it
+does not relate: for a declaration it elaborates from the source as parsed the second is the
+first or a part of it, but for a definition `aux_def` generates the first is the position of the
+command that called `aux_def` and the second the positions of that caller's name suggestions, so
+`macro_rules` over several syntax kinds gives a kind's definition a selection range that ends
+after its range. -/
+def Ranges.admitted (r : Ranges) : Ranges :=
+  if r.nested then r else { range := r.range, selectionRange := r.range }
 
 /-- The collector's observation of a registered proof-bearing executable contract.
 The actual contract is checked during elaboration and admission; this record contains
@@ -649,8 +669,9 @@ structure Declaration where
   /-- For a replay candidate with a statement: whether an independent native evaluation of
   `e` returned `true` (`false` also when the replay failed). -/
   nativeReplay : Option Bool
-  /-- Lean's declaration ranges, when it recorded them. -/
-  ranges : Option Ranges
+  /-- Lean's declaration ranges as it recorded them, when it did: the raw evidence. Admission and
+  finding locations read the admitted pair (`Declaration.ranges`), not this. -/
+  recordedRanges : Option Ranges
   /-- The declaration Lean generated this one from, one step, as the environment records it
   (`Regula.Collect.generatedFrom?`): a constructor's inductive type, a projection's structure
   constructor, a recursor's or equation lemma's declaration, and so on; `none` when Lean did not
@@ -662,6 +683,11 @@ structure Declaration where
   /-- The collector's observation when the constant registers an executable contract. -/
   executableContract : Option ExecutableContract := none
   deriving Repr, DecidableEq
+
+/-- The declaration's admitted ranges: the pair Lean recorded (`recordedRanges`) when its
+selection range lies within its full range, and otherwise that full range as its own selection
+range (`Ranges.admitted`). -/
+def Declaration.ranges (d : Declaration) : Option Ranges := d.recordedRanges.map Ranges.admitted
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`
 and `Lean`. A module under one of them is toolchain code only with an admitted origin
