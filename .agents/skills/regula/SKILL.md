@@ -55,7 +55,7 @@ theorem commute (x y : BitVec 8) : x * y = y * x := BitVec.mul_comm x y
 
 ### [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1006/) Unsafe and partial declarations require exact helper authentication
 
-Claimed modules declare nothing `unsafe` or `partial`; recursion is structural or proved terminating.
+Claimed modules contain no authored `unsafe` or `partial` declarations. Generated recursion and constructor-index helpers require their exact §7.4 authentication.
 Fix: Write a safe, terminating definition (structural recursion or `termination_by`), or move the unsafe/partial code out of the claimed surface.
 
 ```lean

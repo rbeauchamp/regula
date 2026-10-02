@@ -166,6 +166,7 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("levelParams", toJson d.levelParams), ("all", toJson d.all), ("hints", toJson d.hints),
   ("valueConstants", toJson d.valueConstants),
   ("unsafeRecRegenerated", toJson d.unsafeRecRegenerated),
+  ("constructorIndex", toJson d.constructorIndex),
   ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
   ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract)]⟩
@@ -173,7 +174,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
-              "valueConstants", "unsafeRecRegenerated", "nativeStatement", "nativeReplay",
+              "valueConstants", "unsafeRecRegenerated", "constructorIndex", "nativeStatement", "nativeReplay",
                   "ranges", "generatedFrom", "axioms", "executableContract"]
   return {
     name := ← j.getObjValAs? _ "name"
@@ -200,6 +201,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     hints := ← j.getObjValAs? _ "hints"
     valueConstants := ← j.getObjValAs? _ "valueConstants"
     unsafeRecRegenerated := ← j.getObjValAs? _ "unsafeRecRegenerated"
+    constructorIndex := ← j.getObjValAs? _ "constructorIndex"
     nativeStatement := ← j.getObjValAs? _ "nativeStatement"
     nativeReplay := ← j.getObjValAs? _ "nativeReplay"
     recordedRanges := ← j.getObjValAs? _ "ranges"

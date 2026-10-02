@@ -67,7 +67,7 @@ def operationalView (t : ToolchainAxioms) (d : Declaration) : Declaration :=
   { d with isUnsafe := false, isPartial := false, axioms := operationalAxioms t d }
 
 /-- Operational declaration decision: the conforming Standard-Logical decision on the view,
-with no teaching-native or recursive-helper roles. -/
+with no generated roles. -/
 def operationalFailure (t : ToolchainAxioms) (d : Declaration) : Option DeclarationFailure :=
   declarationFailure (operationalView t d) (.conforming .standardLogical) #[] #[]
 

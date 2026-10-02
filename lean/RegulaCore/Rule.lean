@@ -550,8 +550,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.declarationInventory]
       applicability := "escape-hatch"
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Claimed modules declare nothing `unsafe` or `partial`; recursion is \
-        structural or proved terminating."
+      requirement := "Claimed modules contain no authored `unsafe` or `partial` declarations. \
+        Generated recursion and constructor-index helpers require their exact §7.4 authentication."
       rationale := "A positive proof surface must consist of kernel-checked definitions. Unsafe \
         and partial code can be executed, but it cannot serve as logical evidence, and reasoning \
         about it silently depends on its runtime behavior."
