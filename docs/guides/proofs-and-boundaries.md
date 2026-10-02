@@ -788,16 +788,47 @@ checked. The termination argument read only selects which regeneration runs
 (`Collect.unsafeRecRegeneration` returns an origin only when the definitions that regeneration
 added match the observed ones), so what is read cannot admit a helper the comparison rejects; this
 is read from the code, with no theorem.
-`Fixtures.Mutations.KnownLimitReducibilityChange` pins the limit that remains (standard §7.4): a
-helper Lean generated is rejected when the reducibility in force at the end of the audit differs
-from the reducibility in force where Lean elaborated the definition, so that the regeneration passes
-the recursive-call function through a `match` differently. This covers both an attribute local to
-the definition's section (`attribute [local irreducible]` on a function the measure calls) and a
-global attribute applied after the definition (`attribute [irreducible] g` after a definition
-measured through `g`). Both forms are observed rejections on Lean 4.34.0; the condition is argued
-from Lean's `MatcherApp.addArg`, which decides the threading by `isDefEq` on the refined type, not
-checked. The rejection is a false rejection of a helper Lean generated, not intended behaviour, and
-[#188](https://github.com/rbeauchamp/regula/issues/188) tracks closing the class; the fixture's
+That admission does not depend on which definitions were irreducible where a definition was
+elaborated is observed as well, for the shapes of issue #188: the same command admits every helper
+of `Fixtures.Positive.ReducibilityChange` (a measure through a function that is irreducible only in
+the definition's section, only after the definition, or everywhere except at the definition,
+structural recursion on an argument whose type is a definition made irreducible afterwards, and a
+`match` applied to a recursive call), and in `Fixtures.Mutations.ReducibilityChangeUnsafeRecForge`
+admits a faithful copy of such a helper and rejects one that computes with another function, on
+each of the two paths. Lean records no reducibility with a definition, so nothing is restored. The
+first path is the comparison: `Collect.equalErased` takes a `match` that passes a variable through
+(`Collect.threadedMatch?`: the same matcher or `casesOn`, applied to the variable as one more
+argument, every alternative binding it once more) as the `match` that uses the variable directly,
+comparing each alternative's body with the bound variable standing for the one passed. Lean's
+compilers choose between these two forms by `isDefEq` on the type of the recursive-call function
+(`MatcherApp.addArg`), so the choice depends on what unfolds. The second path is the regeneration:
+where nothing it generates in the inspected environment matches, `Collect.unsafeRecRegeneration`
+runs it once more with every irreducible definition made semireducible
+(`Collect.withoutIrreducible`). What is machine-checked is `mem_standingFor_left` and
+`mem_standingFor_right`: the pairs under which the bound variable stands for the passed one relate
+the bound variable alone, and to exactly the variables the passed one was paired with; they state
+nothing about the comparison that uses the pairs. The rest is argued, with no theorem. Selecting an
+alternative of a matcher and applying it to a variable computes what that alternative computes
+with the variable in place of the one it binds. For one matcher that is a Lean theorem by case
+analysis (`fixtures_match_passes_variable` in `Fixtures.Positive.ReducibilityChange` proves it for
+the `match` of the first control, over every result type, pair of alternatives and variable); over
+all matchers it is a statement about Lean's matchers, which no Lean theorem quantifies over. It is
+also the step Lean's own compilers take wherever they pass the function through a `match`, so the
+comparison trusts nothing about a matcher that the regeneration behind it does not already trust,
+and a constant Lean only recognizes as a matcher is trusted by both alike. The second environment, like the termination argument, only selects which
+regeneration runs. That the two paths admit every definition for which only which definitions are
+irreducible differs is argued from Lean 4.34.0's source (an irreducible definition differs from an
+ordinary one only where Lean unfolds at default transparency, and with none irreducible Lean
+unfolds at least what it unfolded where the definition was elaborated), not checked.
+`Fixtures.Mutations.KnownLimitReducibleAfter` pins the limit that remains (standard §7.4): a helper
+Lean generated is rejected when its definition calls a function made reducible afterwards
+(`attribute [reducible] g` after a definition that calls `g`), where that changes a decision Lean's
+well-founded compiler takes at reducible transparency: which parameters it finds fixed
+(`getFixedParamPerms`), or which `wf_preprocess` rule of the toolchain applies. Both forms are
+observed rejections on Lean 4.34.0, and each cause was observed by elaborating the same definition
+before and after the attribute; `instance_reducible` and `implicit_reducible` were not run. The
+rejection is a false rejection of a helper Lean generated, not intended behaviour, and
+[#196](https://github.com/rbeauchamp/regula/issues/196) tracks closing the class; the fixture's
 expectation is to be inverted when that issue is fixed.
 No theorem covers the regeneration itself, which runs in Lean's elaborator. The comparison
 never uses `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of

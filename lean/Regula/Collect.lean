@@ -123,11 +123,70 @@ erases. -/
 private def erasedByCompilation (e : Expr) : MetaM Bool := do
   return (← Meta.isProof e) || (← Meta.isType e)
 
+/-- `threaded` and `direct` as the two forms of one `match` that Lean's recursion compilers choose
+between (`MatcherApp.addArg`): applications of the same matcher or `casesOn`
+(`Meta.matchMatcherApp?`) where `threaded` passes a variable as one more argument after the
+alternatives and binds it once more, after the pattern variables, in every alternative. Returns the
+two applications and that variable. The matcher's universe levels must agree except the motive's,
+which the added binder changes. -/
+private def threadedMatch? (threaded direct : Expr) :
+    MetaM (Option (Meta.MatcherApp × Meta.MatcherApp × FVarId)) := do
+  unless threaded.getAppNumArgs == direct.getAppNumArgs + 1 do return none
+  let some threaded ← Meta.matchMatcherApp? (alsoCasesOn := true) threaded | return none
+  let some direct ← Meta.matchMatcherApp? (alsoCasesOn := true) direct | return none
+  let levels := fun (app : Meta.MatcherApp) => match app.uElimPos? with
+    | some motiveLevel => app.matcherLevels.eraseIdxIfInBounds motiveLevel
+    | none => app.matcherLevels
+  unless threaded.matcherName == direct.matcherName && threaded.uElimPos? == direct.uElimPos?
+      && levels threaded == levels direct do return none
+  let some (Expr.fvar passed) := threaded.remaining[0]? | return none
+  return some (threaded, direct, passed)
+
+/-- The pairs under which `bound`, a variable the threaded side has just bound, stands for
+`passed`, a variable of the same side: `bound` with every variable of the other side that `passed`
+is paired with. The threaded side is the left one when `left`. -/
+private def standingFor (left : Bool) (pairs : Array (FVarId × FVarId)) (passed bound : FVarId) :
+    Array (FVarId × FVarId) :=
+  pairs.filterMap fun (x, y) =>
+    if left then (if x.name == passed.name then some (bound, y) else none)
+    else (if y.name == passed.name then some (x, bound) else none)
+
+/-- With the threaded side on the left, `standingFor` pairs `bound` alone, and with exactly the
+variables `passed` is paired with: it relates no two variables that `pairs` does not, other than
+through `bound`. This states nothing about the comparison that uses the pairs. -/
+private theorem mem_standingFor_left (pairs : Array (FVarId × FVarId))
+    (passed bound x y : FVarId) :
+    (x, y) ∈ standingFor true pairs passed bound ↔ x = bound ∧ (passed, y) ∈ pairs := by
+  cases passed
+  simp only [standingFor, Array.mem_filterMap, Prod.exists]
+  constructor
+  · rintro ⟨⟨a⟩, b, member, selected⟩
+    split at selected <;> simp_all
+  · rintro ⟨rfl, member⟩
+    exact ⟨_, _, member, by simp⟩
+
+/-- `mem_standingFor_left` with the threaded side on the right. -/
+private theorem mem_standingFor_right (pairs : Array (FVarId × FVarId))
+    (passed bound x y : FVarId) :
+    (x, y) ∈ standingFor false pairs passed bound ↔ y = bound ∧ (x, passed) ∈ pairs := by
+  cases passed
+  simp only [standingFor, Array.mem_filterMap, Prod.exists]
+  constructor
+  · rintro ⟨a, ⟨b⟩, member, selected⟩
+    split at selected <;> simp_all
+  · rintro ⟨rfl, member⟩
+    exact ⟨_, _, member, by simp⟩
+
 /-- Whether `a` and `b` are equal up to compilation erasure: the same expression after every proof
 and every type of each side, decided in that side's own local context, is erased, with the
-variables they bind paired and each well-founded fixpoint reduced to `fixpointArguments?`. The two
-sides then compile to the same code; their recursion, relations and termination proofs may
-differ. `fuel` bounds the depth; exhausting it answers `false`. -/
+variables they bind paired, each well-founded fixpoint reduced to `fixpointArguments?`, and a
+`match` that passes a variable through (`threadedMatch?`) taken as the `match` that uses the
+variable directly: `(match d with | pᵢ => fun w => bᵢ) v` against `match d with | pᵢ => bᵢ'`
+compares each `bᵢ` with `bᵢ'`, `w` standing for `v`. Selecting an alternative and applying it to
+`v` computes what the alternative with `v` for `w` computes, so the two sides still compile to code
+that computes the same; their recursion, relations and termination proofs may differ. A pair
+`(x, y)` of `pairs` reads: `x` on the left and `y` on the right are the same variable. `fuel`
+bounds the depth; exhausting it answers `false`. -/
 private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : Expr) :
     MetaM Bool := do
   match fuel with
@@ -135,10 +194,32 @@ private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : E
   | fuel + 1 =>
     if a == b && !a.hasFVar && !b.hasFVar then return true
     if (← erasedByCompilation a) && (← erasedByCompilation b) then return true
-    let all := fun (xs ys : Array Expr) => do
+    let all := fun (pairs : Array (FVarId × FVarId)) (xs ys : Array Expr) => do
       if xs.size != ys.size then return false
       for i in [:xs.size] do
         unless ← equalErased fuel pairs xs[i]! ys[i]! do return false
+      return true
+    -- `threaded` on the left when `left`, on the right otherwise.
+    let threadedEqual := fun (left : Bool) (threaded direct : Meta.MatcherApp)
+        (passed : FVarId) => do
+      let sides := fun (pairs : Array (FVarId × FVarId)) (xs ys : Array Expr) =>
+        if left then all pairs xs ys else all pairs ys xs
+      unless ← sides pairs (threaded.params.push threaded.motive ++ threaded.discrs
+          ++ threaded.remaining.extract 1)
+          (direct.params.push direct.motive ++ direct.discrs ++ direct.remaining) do
+        return false
+      for i in [:threaded.alts.size] do
+        let numParams := threaded.altNumParams[i]!
+        let equal ← Meta.lambdaBoundedTelescope threaded.alts[i]! numParams fun xs body =>
+          Meta.lambdaBoundedTelescope direct.alts[i]! numParams fun ys body' => do
+            unless xs.size == numParams && ys.size == numParams do return false
+            let .lam name type body info := body | return false
+            Meta.withLocalDecl name info type fun bound => do
+              let pair := fun (x y : FVarId) => if left then (x, y) else (y, x)
+              let params := (xs.zip ys).map fun (x, y) => pair x.fvarId! y.fvarId!
+              sides (pairs ++ params ++ standingFor left pairs passed bound.fvarId!)
+                #[body.instantiate1 bound] #[body']
+        unless equal do return false
       return true
     match a, b with
     | .mdata _ a', _ => equalErased fuel pairs a' b
@@ -150,9 +231,14 @@ private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : E
     | .proj s i e, .proj s' i' e' => return s == s' && i == i' && (← equalErased fuel pairs e e')
     | .app .., .app .. =>
       match fixpointArguments? a, fixpointArguments? b with
-      | some xs, some ys => all xs ys
+      | some xs, some ys => all pairs xs ys
       | none, none =>
-        if ← equalErased fuel pairs a.getAppFn b.getAppFn then all a.getAppArgs b.getAppArgs
+        if let some (threaded, direct, passed) ← threadedMatch? a b then
+          threadedEqual true threaded direct passed
+        else if let some (threaded, direct, passed) ← threadedMatch? b a then
+          threadedEqual false threaded direct passed
+        else if ← equalErased fuel pairs a.getAppFn b.getAppFn then
+          all pairs a.getAppArgs b.getAppArgs
         else return false
       | _, _ => return false
     | .lam n t body bi, .lam _ t' body' bi' | .forallE n t body bi, .forallE _ t' body' bi' =>
@@ -366,6 +452,24 @@ private def regenerationEnvironment (env : Environment) (rules : Meta.SimpTheore
   let env ← builtinHandlersOnly Lean.Elab.Tactic.tacticElabAttribute env
   builtinHandlersOnly Lean.Elab.Term.termElabAttribute env
 
+/-- `env` with every irreducible definition semireducible instead: each name that an imported
+module's reducibility entries, the current file's, or the scoped ones in force mark irreducible, and
+that is irreducible in `env`, is overridden, so that Lean unfolds it wherever it unfolds an ordinary
+definition. Reducibility guides elaboration and is no part of a declaration: nothing records which
+definitions were irreducible where a definition was elaborated, and whatever the assignment, a
+recursion compiler's result is a definition the kernel checks. -/
+private def withoutIrreducible (env : Environment) : Environment :=
+  let marked := fun (names : Array Name) (name : Name) (status : ReducibilityStatus) =>
+    if status matches .irreducible then names.push name else names
+  let recorded := (Array.range env.header.moduleNames.size).foldl (init := #[]) fun names index =>
+    (reducibilityCoreExt.getModuleEntries env index).foldl (init := names) fun names entry =>
+      marked names entry.1 entry.2
+  let recorded := (reducibilityCoreExt.getState env).foldl marked recorded
+  let recorded := (reducibilityExtraExt.getState env).fold marked recorded
+  let irreducible := recorded.filter (getReducibilityStatusCore env · matches .irreducible)
+  reducibilityExtraExt.modifyState env fun statuses =>
+    irreducible.foldl (fun statuses name => statuses.insert name .semireducible) statuses
+
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
 to the group's helpers standing for the recursive calls, and compare what it generates with the
@@ -384,9 +488,15 @@ goal), since the comparison erases proofs and the observed base's own kernel-che
 them. A termination argument only selects which regeneration runs: whatever is read, a helper is
 admitted only when the definitions that regeneration adds match the observed ones. The compiler
 runs in `regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is
-generated for them. A regeneration that reports an error does not count. Every change is undone
-before the comparison, which reads the observed definitions and decides erasure in the inspected
-environment: whatever code runs during a regeneration, only the definitions it adds are compared,
+generated for them. Where none of these attempts matches, all run once more in that environment
+with no definition irreducible (`withoutIrreducible`): Lean does not record which definitions were
+irreducible where the base was compiled, and what it unfolds decides which argument its structural
+compiler finds and where the function is passed through a `match`. That, too, only selects which
+regeneration runs. Lean's elaboration caches are emptied on entering and leaving each attempt,
+since the environments differ in what unfolds and `saveState` does not cover the caches. A
+regeneration that reports an error does not count. Every change is undone before the comparison,
+which reads the observed definitions and decides erasure in the inspected environment: whatever
+code runs during a regeneration, only the definitions it adds are compared,
 each with the theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so
 the result does not depend on how Lean named or shared those theorems. A comparison that throws
 does not count either. A `checkerLimit?` reached is rethrown. -/
@@ -414,42 +524,51 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
                 value := rename value.value, termination := .none } : PreDefinition)
     let regenerating ← regenerationEnvironment (← getEnv)
       (← cachedPreprocessRules preprocessRules env)
-    let attempt (run : TermElabM Unit) : TermElabM Bool := do
+    let attempt (environment : Environment) (run : TermElabM Unit) : TermElabM Bool := do
       let saved ← saveState
       try
         Core.resetMessageLog
-        setEnv regenerating
+        setEnv environment
+        Meta.resetCache
         withOptions (·.setBool `debug.rawDecreasingByGoal true) run
         let failed := (← Core.getMessageLog).hasErrors
         let after ← getEnv
         saved.restore
+        Meta.resetCache
         if failed then return false
-        let some regenerated := regeneratedDefinitions regenerating after | return false
+        let some regenerated := regeneratedDefinitions environment after | return false
         regenerationMatches regenerated
       catch ex =>
         saved.restore
+        Meta.resetCache
         if (← checkerLimit? ex).isSome then throw ex
         return false
       finally
         -- A runtime limit (heartbeats, recursion depth) bypasses `catch`; undo the run anyway.
         saved.restore
+        Meta.resetCache
     let docCtx := (← getLCtx, ← Meta.getLocalInstances)
     let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
-    if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
-    let recursionArguments ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
-      try
-        let arity ← Meta.lambdaTelescope preDef.value fun params _ => pure params.size
-        observedRecursionArgument? bases[i]! preDef.levelParams arity
-      catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
-    if recursionArguments.any (·.isSome) then
-      if ← attempt (structuralRecursion docCtx preDefs recursionArguments) then
-        return some .structural
     let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)
     let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
       { preDef with termination := { TerminationHints.none with
           decreasingBy? := some ({ ref := .missing, tactic := elided } : DecreasingBy) } }
-    if ← attempt (wfRegeneration regenerationRoot docCtx wfDefs) then return some .wellFounded
-    return none
+    let regenerate (environment : Environment) : TermElabM (Option RecursionOrigin) := do
+      if ← attempt environment (structuralRecursion docCtx preDefs noMeasures) then
+        return some .structural
+      let recursionArguments ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
+        try
+          let arity ← Meta.lambdaTelescope preDef.value fun params _ => pure params.size
+          observedRecursionArgument? bases[i]! preDef.levelParams arity
+        catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
+      if recursionArguments.any (·.isSome) then
+        if ← attempt environment (structuralRecursion docCtx preDefs recursionArguments) then
+          return some .structural
+      if ← attempt environment (wfRegeneration regenerationRoot docCtx wfDefs) then
+        return some .wellFounded
+      return none
+    if let some origin ← regenerate regenerating then return some origin
+    regenerate (withoutIrreducible regenerating)
 
 /-- The Boolean expression `e` of a type `e = true`. -/
 private def assertedBool? (type : Expr) : Option Expr := do

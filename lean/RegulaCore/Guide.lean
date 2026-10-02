@@ -360,7 +360,11 @@ def guide : RuleId → Guide
           the helper does not matter, and neither do declaration order, a nested proof shared with \
           an earlier declaration, a proof written as a tactic block or as a term, or whether a \
           `public` definition of a `module` file is exposed: the comparison uses no name of a \
-          theorem Lean abstracts from a nested proof.",
+          theorem Lean abstracts from a nested proof. Nor, for the forms standard §7.4 lists, \
+          does it matter which definitions were irreducible where the definition was elaborated \
+          (`attribute [local irreducible]`, `attribute [irreducible]` afterwards, `unseal`): the \
+          regeneration runs a second time with no definition irreducible, and the comparison \
+          takes a `match` that passes a variable through as the `match` that uses it directly.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -396,20 +400,20 @@ def guide : RuleId → Guide
         "A helper is not admitted where the regeneration does not reproduce its base. The \
           regeneration is given the helper's value and its base's termination argument, and it \
           reruns Lean's structural and well-founded compilers in the environment the audit \
-          inspects (at the end of the audit) with Lean's default options and the toolchain's own \
-          rules, not with the options, rules and \
-          attributes in force where the definition was compiled. The forms known to fall outside \
-          are a `partial_fixpoint` definition, a base compiled through a fixpoint combinator other \
+          inspects (at the end of the audit), and there again with no definition irreducible, \
+          with Lean's default options and the toolchain's own rules, not with the options, rules \
+          and attributes in force where the definition was compiled. The forms known to fall \
+          outside are a `partial_fixpoint` definition, a base compiled through a fixpoint \
+          combinator other \
           than `WellFounded.fix` and `WellFounded.Nat.fix`, a base whose compilation used a \
           `wf_preprocess` rule registered outside the Lean toolchain, one elaborated with \
           `set_option wf.preprocess false` or with a toolchain rule removed by \
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
-          one for which the reducibility in force at the end of the audit differs from the \
-          reducibility in force where Lean elaborated the definition, so that the regeneration \
-          passes the recursive-call function through a `match` differently. That last form covers \
-          both an attribute local to the definition's section (`attribute [local irreducible]` on \
-          a function the measure calls) and a global attribute applied after the definition \
-          (`attribute [irreducible] g` after a definition measured through `g`).",
+          one that calls a function made reducible after the definition (`attribute [reducible] g` \
+          after a definition that calls `g`), where that changes which parameters Lean finds \
+          fixed or which `wf_preprocess` rule of the toolchain applies. A definition for which \
+          only which definitions are irreducible differs (`attribute [local irreducible]`, \
+          `attribute [irreducible]` after the definition, `unseal`) is admitted.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
