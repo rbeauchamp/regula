@@ -240,6 +240,78 @@ private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Boo
     unless ← equalErased 100000 #[] value observed.value do return false
   return true
 
+/-- The measure and the argument of a well-founded fixpoint application, as Lean 4.34.0 builds
+them (`WF.mkFix` from the relation of `WF.elabWFRel`): `h` and `x` of `WellFounded.Nat.fix α motive
+h F x`, and `f` and `x` of `WellFounded.fix α C (invImage f inst).1 hwf F x`. -/
+private def fixpointMeasure? (e : Expr) : Option (Expr × Expr) :=
+  let args := e.getAppArgs
+  if e.isAppOfArity ``WellFounded.Nat.fix 5 then some (args[2]!, args[4]!)
+  else if e.isAppOfArity ``WellFounded.fix 6 then
+    match args[2]! with
+    | .proj ``WellFoundedRelation 0 relation =>
+      if relation.isAppOfArity ``invImage 4 then some (relation.getArg! 2, args[5]!) else none
+    | _ => none
+  else none
+
+/-- `e` with the eliminations of Lean's argument packing at its head carried out, at most `fuel` of
+them: `PSigma.casesOn` on a `PSigma.mk` and `PSum.casesOn` on a `PSum.inl` or `PSum.inr`, each
+with the beta reductions it exposes. `ArgsPacker.uncurryND` wraps the measures of a recursive group
+in exactly these eliminators, so this takes a packed measure applied to one function's packed
+arguments back to that function's own measure. -/
+private def unpacked (fuel : Nat) (e : Expr) : Expr :=
+  match fuel with
+  | 0 => e
+  | fuel + 1 =>
+    let e := e.headBeta
+    let args := e.getAppArgs
+    if e.isAppOfArity ``PSigma.casesOn 5 && args[3]!.isAppOfArity ``PSigma.mk 4 then
+      unpacked fuel (mkApp2 args[4]! (args[3]!.getArg! 2) (args[3]!.getArg! 3))
+    else if e.isAppOfArity ``PSum.casesOn 6 && args[3]!.isAppOfArity ``PSum.inl 3 then
+      unpacked fuel (mkApp args[4]! (args[3]!.getArg! 2))
+    else if e.isAppOfArity ``PSum.casesOn 6 && args[3]!.isAppOfArity ``PSum.inr 3 then
+      unpacked fuel (mkApp args[5]! (args[3]!.getArg! 2))
+    else e
+
+/-- The observed definition `base` applied to `arity` parameters of its type, for `k`; `none` unless
+it is a definition with the level parameters `levelParams` and at least `arity` parameters. -/
+private def withObservedBase {α : Type} (base : Name) (levelParams : List Name) (arity : Nat)
+    (k : Array Expr → Expr → MetaM (Option α)) : MetaM (Option α) := do
+  let some (.defnInfo observed) := (← getEnv).find? base | return none
+  unless observed.levelParams == levelParams do return none
+  Meta.forallBoundedTelescope observed.type arity fun params _ => do
+    unless params.size == arity do return none
+    k params (observed.value.beta params)
+
+/-- The termination measure Lean compiled the well-founded definition `base` with, as a function of
+its `arity` parameters, read from its observed value: the measure of the fixpoint it applies
+(`fixpointMeasure?`), directly or through the one definition Lean packs a recursive group into
+(`base._unary`, `_mutual`), applied to the packed arguments and unpacked (`unpacked`). `packing`
+bounds the eliminations of that unpacking. `none` if the value is no such fixpoint. -/
+private def observedMeasure? (base : Name) (levelParams : List Name) (arity packing : Nat) :
+    MetaM (Option TerminationMeasure) :=
+  withObservedBase base levelParams arity fun params applied => do
+    let env ← getEnv
+    let packed := match applied.getAppFn with
+      | .const unary levels => match env.find? unary with
+        | some (.defnInfo group) =>
+          (group.value.instantiateLevelParams group.levelParams levels).beta applied.getAppArgs
+        | _ => applied
+      | _ => applied
+    let some (measure, argument) := fixpointMeasure? applied <|> fixpointMeasure? packed
+      | return none
+    let fn ← Meta.mkLambdaFVars params (unpacked packing (mkApp measure argument))
+    return some { ref := .missing, structural := false, fn }
+
+/-- The parameter Lean compiled the structurally recursive definition `base` on, as a function of
+its `arity` parameters: the position Lean recorded for it (`Structural.eqnInfoExt`). `none` if Lean
+recorded none. -/
+private def observedRecursionArgument? (base : Name) (levelParams : List Name) (arity : Nat) :
+    MetaM (Option TerminationMeasure) := do
+  let some recorded := Structural.eqnInfoExt.find? (← getEnv) base | return none
+  withObservedBase base levelParams arity fun params _ => do
+    let some argument := params[recorded.recArgPos]? | return none
+    return some { ref := .missing, structural := true, fn := ← Meta.mkLambdaFVars params argument }
+
 /-- The `wf_preprocess` rules of the running Lean toolchain: the global entries of the modules Lean
 loaded from the toolchain's own library directory, recognized by canonical path, since a module's
 name does not establish toolchain ownership. Rules a project or dependency adds are left out. -/
@@ -289,11 +361,18 @@ private def regenerationEnvironment (env : Environment) (rules : Meta.SimpTheore
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
 to the group's helpers standing for the recursive calls, and compare what it generates with the
-observed base and its auxiliary definitions (`regenerationMatches`). Structural recursion is tried
-first, with no hint; then well-founded recursion, with Lean's measure inference and every
+observed base and its auxiliary definitions (`regenerationMatches`). Each compiler is given the
+termination argument of the observed bases, since the value it generates depends on that argument:
+the well-founded compiler passes the recursive-call function through a `match` where that
+function's type, which holds the measure, changes in an alternative. Structural recursion is tried
+first, on the argument position Lean recorded for each base (`observedRecursionArgument?`), or
+Lean's automatic choice for a base with none; then well-founded recursion, with the measure each
+base's fixpoint applies (`observedMeasure?`), not tried unless every base has one, and with every
 decreasing proof elided (`all_goals exact sorry`, on the raw goal), since the comparison erases
-proofs and the observed base's own kernel-checked value supplies them. The compiler runs in
-`regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is generated
+proofs and the observed base's own kernel-checked value supplies them. A termination argument only
+selects which regeneration runs: whatever is read, a helper is admitted only when the definitions
+that regeneration adds match the observed ones. A read that throws reads nothing. The compiler runs
+in `regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is generated
 for them. A regeneration that reports an error does not count. Every change is undone before the
 comparison, which reads the observed definitions and decides erasure in the inspected environment:
 whatever code runs during a regeneration, only the definitions it adds are compared, each with the
@@ -322,7 +401,15 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
                 modifiers := { computeKind := .noncomputable },
                 declName := regenerationRoot ++ bases[i]!, binders := .missing, type := value.type,
                 value := rename value.value, termination := .none } : PreDefinition)
-    let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
+    let arities ← preDefs.mapM fun (preDef : PreDefinition) =>
+      Meta.lambdaTelescope preDef.value fun params _ => pure params.size
+    let packing := group.size + arities.foldl (· + ·) 0
+    let observed (read : Name → List Name → Nat → MetaM (Option TerminationMeasure)) :=
+      preDefs.mapIdxM fun i (preDef : PreDefinition) => do
+        try read bases[i]! preDef.levelParams arities[i]!
+        catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
+    let recursionArguments ← observed observedRecursionArgument?
+    let measures ← observed (observedMeasure? · · · packing)
     let regenerating ← regenerationEnvironment (← getEnv)
       (← cachedPreprocessRules preprocessRules env)
     let attempt (run : TermElabM Unit) : TermElabM Bool := do
@@ -345,12 +432,14 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         -- A runtime limit (heartbeats, recursion depth) bypasses `catch`; undo the run anyway.
         saved.restore
     let docCtx := (← getLCtx, ← Meta.getLocalInstances)
-    if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
+    if ← attempt (structuralRecursion docCtx preDefs recursionArguments) then
+      return some .structural
+    let some measures := measures.mapM id | return none
     let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)
     let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
       { preDef with termination := { TerminationHints.none with
           decreasingBy? := some ({ ref := .missing, tactic := elided } : DecreasingBy) } }
-    if ← attempt (wfRecursion docCtx wfDefs noMeasures) then return some .wellFounded
+    if ← attempt (wfRecursion docCtx wfDefs (measures.map some)) then return some .wellFounded
     return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/
