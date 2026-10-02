@@ -360,9 +360,24 @@ def implementationsText (implementations : Array ExecutionBoundary) : String :=
 (`boundaryFailures`) with the implementations it carries named after its detail. -/
 def boundaryFindings (root : ExecutionRoot) (claim : ExecutionClaim)
     (b : ExecutionBoundary) : Array ExecutionFailure :=
-  if root.folded b then #[]
-  else (boundaryFailures root claim b).map fun f =>
+  let failures := boundaryFailures root claim b
+  if failures.isEmpty then #[]
+  else if root.folded b then #[]
+  else failures.map fun f =>
     { f with detail := f.detail ++ implementationsText (root.implementations b) }
+
+/-- Skipping folding when there are no failures preserves every finding and its detail,
+in order, for arbitrary supplied accounts. -/
+theorem boundaryFindings_eq (root : ExecutionRoot) (claim : ExecutionClaim)
+    (b : ExecutionBoundary) :
+    boundaryFindings root claim b =
+      if root.folded b then #[]
+      else (boundaryFailures root claim b).map fun f =>
+        { f with detail := f.detail ++ implementationsText (root.implementations b) } := by
+  by_cases empty : (boundaryFailures root claim b).isEmpty = true
+  · have failures : boundaryFailures root claim b = #[] := Array.isEmpty_iff.mp empty
+    simp [boundaryFindings, failures]
+  · simp [boundaryFindings, empty]
 
 /-- A root's findings: each unresolved path, then each boundary's findings, in the order of
 `rootFailures`. -/
@@ -397,7 +412,7 @@ private theorem boundaryFindings_reported {r : ExecutionRoot} (c : ExecutionClai
     boundaryFindings r c a = (boundaryFailures r c a).map fun f =>
       { f with detail := f.detail ++ implementationsText (r.implementations a) } := by
   have unfolded : r.folded a = false := by simpa using (Array.mem_filter.mp ha).2
-  simp [boundaryFindings, unfolded]
+  simp [boundaryFindings_eq, unfolded]
 
 /-- A root whose boundaries have no findings has no boundary failure: a folded boundary passes
 with the boundary it is reported with. -/
@@ -549,7 +564,7 @@ theorem executionFindings_sound {i : ExecutionInventory} {c : ExecutionClaim}
     simp only [executionFailureRecords, rootFailures, Array.mem_flatMap, Array.mem_append,
       Array.mem_map]
     exact ⟨r, hr, Or.inl path⟩
-  · unfold boundaryFindings at hg
+  · rw [boundaryFindings_eq] at hg
     split at hg
     · simp at hg
     · obtain ⟨f, hf, rfl⟩ := Array.mem_map.mp hg
@@ -574,7 +589,7 @@ theorem rootFindings_ids (r : ExecutionRoot) (c : ExecutionClaim) :
   rw [ExecutionRoot.reported, ← flatMap_unless]
   congr 1
   funext b
-  unfold boundaryFindings
+  rw [boundaryFindings_eq]
   split <;> simp [Function.comp_def]
 
 /-- Named execution-coverage counts rendered by gate output. -/
@@ -712,7 +727,7 @@ theorem executionFindings_unresolved (inventory : ExecutionInventory) (claim : E
     Array.countP_flatMap]
   congr 3
   funext b
-  unfold boundaryFindings
+  rw [boundaryFindings_eq]
   split
   next folded =>
     have count := boundaryFailures_unresolved root claim b
