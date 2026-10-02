@@ -89,9 +89,13 @@ changes, stashes or commits that no remote-tracking branch holds is refused.
 
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared
-directories of other pins and toolchains that no registered copy still links, and drops the
+directories of other pins, toolchains, artifact modes and source artifact policies that no
+registered copy still links, and drops the
 registrations of copies that are gone or link elsewhere. Only a directory whose receipt names
-it is removed; a removal a killed run began is finished by the next run. A copy left with a
+it, under the artifact policy that receipt records, is removed; this retention step leaves
+staging directories and anything else there as they are. A source directory is named
+`…-source-v<policy>-<hash>`; one named in an earlier form is not identified and stays until
+removed by hand. A removal a killed run began is finished by the next run. A copy left with a
 dangling link is relinked by its next provisioning, which recreates the directory. One lock,
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
 so copies wait while another copy creates a new pin.
@@ -107,7 +111,10 @@ so copies wait while another copy creates a new pin.
   by the next run that creates one while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
-- GitHub Actions runs the same Lean-defined Mathlib plan. Source mode provisions the shared
+- GitHub Actions runs the Mathlib plan defined in the same Lean program. Its upstream-cache
+  route only fetches Mathlib's published artifacts into the job's writable `.lake/packages`,
+  where later builds compile the native objects they link; only the read-only shared
+  directory needs them built in advance. Source mode provisions the shared
   read-only store and caches it alongside the package links. Its cache keys include the exact
   compiler commit, artifact mode, pinned manifests and source-plan inputs. A shared directory
   is never modified, only removed whole.
@@ -122,7 +129,8 @@ uses a separate workspace with independent configuration and build caches, leavi
 the acceptance commands still check all their sources and documentation.
 Source artifacts have a separate key containing their policy version and an import-source
 hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
-another scope. CI keys contain this generated-source hash and source cache hits repeat receipt
+another scope. Source admission also requires the current policy version, so a source store
+recorded under another policy is never served, only removed once no registered copy links it. CI keys contain this generated-source hash and source cache hits repeat receipt
 admission. Old receipts without a mode describe the upstream-cache route and cannot admit source
 requests. Missing configuration retains that route; an unknown spelling is refused.
 Each source invocation also receives a fresh artifact-cache directory under
