@@ -45,7 +45,10 @@ def check (evidence : Option FilePath) : IO Unit := do
           -- Fixed runs from a cleared build; Violation keeps the prior Fixed build.
           if kind == "Fixed" then clearBuild project
           let output := project / s!"result-{records.size}.json"
-          let (result, report) ← observeProject root project output flags
+          -- The oracle compares the theorem's kernel type expression across the controls; a
+          -- result carries it only on request.
+          let (result, report) ← observeProject root project output
+            (flags.push "--kernel-types")
           let account ← IO.ofExcept (RegulaQualification.Producer.account report)
           let declarations ← IO.ofExcept (account.getObjValAs? (Array Json) "declarations")
           let some declaration := declarations[0]? | throw <|

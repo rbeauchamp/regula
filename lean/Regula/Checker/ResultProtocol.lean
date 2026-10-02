@@ -5,6 +5,7 @@ import Regula.Checker.Producer
 import Regula.Checker.RuleDiagnostics
 import Regula.DiagnosticCodec
 import Regula.SourceTexts
+import Regula.ExecutionShare
 import Regula.Checker.Common
 
 /-! # Versioned result protocol
@@ -18,7 +19,29 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 7 stores each source text once. A result file's top-level `sourceTexts` lists
+/-- Result schema 8 can store what the roots of an environment's execution account share once,
+and omits kernel-expression text. In a result file, the `execution` member of an environment
+report is what `SharedExecution.internValue` writes for its roots' accounts: the shared form when
+the reader returns the accounts from it (the `names` its roots reach, their `modules` and
+`nameModules`, each edge channel as pairs of name indices, the `boundaries` records and
+`unavailableCode`, each once, and `roots`, one entry per root), and otherwise the accounts in
+full (`SharedExecution.restore?` states what each written value stands for); every observation
+of each root is recoverable either way. Readers of this checker take the document through
+`SharedExecution.read`, which rebuilds each root's account, so the document they see holds an
+array of complete root accounts as before. `SharedExecution.read_write` proves that `read` of
+the `Json` value the writer wrote is the document the writer was given. A reader holds the parse
+of the file instead, which has that value's members but in general not its object trees; that
+`read` of it returns a document with the members of the writer's is observed (`RegistryChecks`,
+the `history` qualification), not proved. The writer treats every member named `execution` this
+way, so the acceptance account's per-environment counts, which earlier schemas also named
+`execution`, are `executionSummary` (`accountJson`); every other member of that name is a string
+or `null`, which the writer leaves as it is. A declaration of a report and a declaration a
+frontend transcript records carry `type`, the `repr` of the kernel type expression, only when the
+audit was asked for it (`axiomGate --kernel-types`); `prettyType` is the declaration's type as
+Lean prints it (`ProducerReport.declarationResultJson`, `Frontend.transcriptResultJson`). Earlier
+schemas wrote each root's account in full, so a name, edge or boundary that several roots reach
+was repeated for each, and always wrote that `repr`.
+Schema 7 stores each source text once. A result file's top-level `sourceTexts` lists
 every distinct source text of the document, and each `sourceText` member, wherever it occurs (a
 source location of `diagnostics`, the `sourceAccount`, the sources, frontend transcripts, source
 bindings and histories of `scope`, and the snapshots of `acceptance`), is the index of its text
@@ -59,7 +82,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 7
+def schemaVersion : Nat := 8
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -252,9 +275,11 @@ def resultJson (scope : Json) (mode : EvidenceMode) (status : Status)
     guidanceFields (acceptedStatus (statusText status)) expected completed findings)
 
 /-- Every document `resultJson` builds has exactly one `sourceTexts` member, `null`, as
-`SourceTexts.intern` requires: by `SourceTexts.intern_isOk_iff`, `writeDocument` refuses such a
-document only if one of its `sourceText` members is not a string. A member added to the document
-afterwards (`request`, `effective`, `sourceAccount`, `acceptance`) is outside this statement. -/
+`SourceTexts.intern` requires, and keeps it when its execution accounts are written
+(`SharedExecution.slots_intern`): by `SourceTexts.intern_isOk_iff`, `writeDocument` refuses such
+a document only if a `sourceText` member of that written form is not a string. A member added to
+the document afterwards (`request`, `effective`, `sourceAccount`, `acceptance`) is outside this
+statement. -/
 theorem resultJson_slots (scope : Json) (mode : EvidenceMode) (status : Status)
     (findings : Array Finding) (expected completed : List Stage) (unresolved : Array String) :
     SourceTexts.slots (resultJson scope mode status findings expected completed unresolved) =
@@ -327,17 +352,19 @@ def requestJson (kind project subject : String) (claim execution : Option String
   toJson (⟨kind, project, subject, claim, execution,
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
-/-- Write a result document to `path` with its source texts stored once: the
-`SourceTexts.intern` of `document` as compact JSON and a final newline, creating the parent
-directories. `SourceTexts.expand_intern` proves a reader's `SourceTexts.expand` of the written
-value is `document` itself; a document `intern` refuses (one without the `null` `sourceTexts`
-member of `sourceTextsField`, or with a `sourceText` member that is not a string) is an error and
-nothing is written. `span` names the write in timing output (`timingSpan`). -/
+/-- Write a result document to `path` in its written form: the `SharedExecution.write` of
+`document` (its `SharedExecution.intern` with the proposal of `ExecutionShare`, then
+`SourceTexts.intern`) as compact JSON and a final newline, creating the parent directories.
+`SharedExecution.read_write` proves a reader's `SharedExecution.read` of the written value is
+`document` itself; that law is about `Json` values, not the file's text. A document
+`SourceTexts.intern` refuses (one without the `null` `sourceTexts` member of `sourceTextsField`,
+or with a `sourceText` member that is not a string) is an error and nothing is written. `span`
+names the write in timing output (`timingSpan`). -/
 def writeDocument (path : System.FilePath) (document : Json) (span : String := "writeDocument") :
     IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   let spanStart ← IO.monoMsNow
-  let written ← IO.ofExcept (SourceTexts.intern document)
+  let written ← IO.ofExcept (SharedExecution.write ExecutionShare.proposals document)
   let encoded := Json.compress written ++ "\n"
   timingSpan s!"diagnostic span: {span} encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
@@ -345,10 +372,11 @@ def writeDocument (path : System.FilePath) (document : Json) (span : String := "
   timingSpan s!"diagnostic span: {span} write: {(← IO.monoMsNow) - writeStart}ms"
 
 /-- Read the result document `writeDocument` wrote at `path`: parsed strictly
-(`PolicyCodec.parse`) and expanded (`SourceTexts.expand`), so every `sourceText` member holds its
-text. A file that is not a written result document is an error. -/
+(`PolicyCodec.parse`) and read (`SharedExecution.read`), so every `sourceText` member holds its
+text and every `execution` member its roots' accounts. A file that is not a written result
+document is an error. -/
 def readDocument (path : System.FilePath) : IO Json := do
-  IO.ofExcept (SourceTexts.expand (← readJson path))
+  IO.ofExcept (SharedExecution.read (← readJson path))
 
 /-- Write the `resultJson` of these arguments to `path` (`writeDocument`). -/
 def write (path : System.FilePath) (scope : Json) (mode : EvidenceMode) (status : Status)
@@ -390,10 +418,10 @@ private def subjectJson : RegulaPolicy.JobSubject → Json
       ("expectation", toJson (reprStr key.expectation))]
 
 /-- Machine rendering of the report account (an unproved adapter): coverage, the acceptance
-theorem and job count, contracts, execution counts, fence kinds, trusted mechanisms and
-residual identifiers; mode, scope, surfaces and toolchain are rendered by `acceptedJson`.
-Contract entries keep their rule, implementation and requirement with the review they leave
-open; `unresolvedReview` names open obligations, never completed reviews. -/
+theorem and job count, contracts, execution counts (`executionSummary`), fence kinds, trusted
+mechanisms and residual identifiers; mode, scope, surfaces and toolchain are rendered by
+`acceptedJson`. Contract entries keep their rule, implementation and requirement with the review
+they leave open; `unresolvedReview` names open obligations, never completed reviews. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -409,7 +437,7 @@ def accountJson (account : Regula.Checker.Account) : Json :=
       ("implementation", RegistryCodec.printedNameJson contract.implementation),
       ("requirement", toJson contract.requirement),
       ("unresolvedReview", residuals Regula.Checker.Account.ContractAccount.unresolved)])),
-    ("execution", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
+    ("executionSummary", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
       ("environment", toJson environment), ("roots", toJson summary.roots),
       ("boundaries", toJson summary.boundaries), ("checked", toJson summary.checked),
       ("trusted", toJson summary.trusted), ("unresolved", toJson summary.unresolved)])),
