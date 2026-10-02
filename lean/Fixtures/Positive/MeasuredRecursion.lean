@@ -32,11 +32,18 @@ can therefore compile a different value where its choice differs from Lean's.
 - `fixtures_structural_even` and `fixtures_structural_odd` are mutually
   recursive, each structurally on its last argument, after a fixed parameter
   and an argument that changes.
+- `fixtures_structural_nested` accumulates in a nested inductive type before
+  a `List` of it; Lean's automatic choice compiles it through the nested type
+  former of the accumulator's type. A recorded position does not determine
+  Lean's structural compilation, since the same position can be reached
+  through another argument's inductive group (found in review).
 
-Exact match admits every helper: the regeneration is given the termination
-argument of the observed base, the relation its well-founded fixpoint applies
-(its measure together with the instance Lean resolved for it) or the argument
-position Lean recorded for it.
+Exact match admits every helper: structural recursion is tried with Lean's
+automatic choice, then on the argument position Lean recorded for each base,
+which admits a definition recursing on an argument `termination_by structural`
+selects; well-founded recursion is given the relation the observed base's
+fixpoint applies (its measure together with the instance Lean resolved for
+it).
 -/
 
 def fixtures_measured_later (index remaining : Nat) : Nat :=
@@ -134,3 +141,13 @@ def fixtures_structural_odd (xs : Array Nat) (acc a b : Nat) : Nat :=
   | a + 1, b + 1 => fixtures_structural_even xs (acc + 2) a b
 termination_by structural b
 end
+
+inductive FixturesAst where
+  | var : String → FixturesAst
+  | app : FixturesAst → FixturesAst → FixturesAst
+  | call : String → List FixturesAst → FixturesAst
+
+def fixtures_structural_nested (f : FixturesAst) (args : List FixturesAst) : FixturesAst :=
+  match args with
+  | [] => f
+  | a :: rest => fixtures_structural_nested (FixturesAst.app f a) rest

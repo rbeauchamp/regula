@@ -369,13 +369,16 @@ private def regenerationEnvironment (env : Environment) (rules : Meta.SimpTheore
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
 to the group's helpers standing for the recursive calls, and compare what it generates with the
-observed base and its auxiliary definitions (`regenerationMatches`). Each compiler is given the
-termination argument of the observed bases, since the value it generates depends on that argument:
+observed base and its auxiliary definitions (`regenerationMatches`). The regeneration reads the
+termination argument of the observed bases, since the value a compiler generates depends on it:
 the well-founded compiler passes the recursive-call function through a `match` where that
 function's type, which holds the relation and the measure, changes in an alternative. Structural
-recursion is tried first, on the argument position Lean recorded for each base
-(`observedRecursionArgument?`; a read that throws reads nothing), or Lean's automatic choice for a
-base with none; then well-founded recursion, with the relation of the base's own fixpoint
+recursion is tried first with Lean's automatic choice, then, where that does not match and Lean
+recorded an argument position for a base, on the recorded positions (`observedRecursionArgument?`;
+a read that throws reads nothing), which admits a definition recursing on an argument
+`termination_by structural` selects. A recorded position alone does not determine Lean's structural
+compilation: the automatic choice can reach the same position through another argument's inductive
+group. Well-founded recursion is tried last, with the relation of the base's own fixpoint
 (`wfRegeneration`) and with every decreasing proof elided (`all_goals exact sorry`, on the raw
 goal), since the comparison erases proofs and the observed base's own kernel-checked value supplies
 them. A termination argument only selects which regeneration runs: whatever is read, a helper is
@@ -409,11 +412,6 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
                 modifiers := { computeKind := .noncomputable },
                 declName := regenerationRoot ++ bases[i]!, binders := .missing, type := value.type,
                 value := rename value.value, termination := .none } : PreDefinition)
-    let recursionArguments ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
-      try
-        let arity ← Meta.lambdaTelescope preDef.value fun params _ => pure params.size
-        observedRecursionArgument? bases[i]! preDef.levelParams arity
-      catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
     let regenerating ← regenerationEnvironment (← getEnv)
       (← cachedPreprocessRules preprocessRules env)
     let attempt (run : TermElabM Unit) : TermElabM Bool := do
@@ -436,8 +434,16 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         -- A runtime limit (heartbeats, recursion depth) bypasses `catch`; undo the run anyway.
         saved.restore
     let docCtx := (← getLCtx, ← Meta.getLocalInstances)
-    if ← attempt (structuralRecursion docCtx preDefs recursionArguments) then
-      return some .structural
+    let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
+    if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
+    let recursionArguments ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
+      try
+        let arity ← Meta.lambdaTelescope preDef.value fun params _ => pure params.size
+        observedRecursionArgument? bases[i]! preDef.levelParams arity
+      catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
+    if recursionArguments.any (·.isSome) then
+      if ← attempt (structuralRecursion docCtx preDefs recursionArguments) then
+        return some .structural
     let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)
     let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
       { preDef with termination := { TerminationHints.none with
