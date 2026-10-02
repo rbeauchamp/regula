@@ -255,11 +255,13 @@ linter feed it into admission. This linkage trusts compiler execution, installat
 import loading and canonical filesystem paths. It does not prove those IO mechanisms.
 `ProducerReport.validate_sound` and `fromJson_admissible` also require this agreement for every
 raw or decoded admitted report, without relying on sampled transport mutations. When the
-capability is absent, the checked decision theorems show that a retired name cannot become a
-compiler axiom or an authenticated native axiom and its singleton axiom set is unknown. A
-dependent non-axiom declaration without an earlier proof-hole failure receives the unknown-axiom
-refusal even in teaching mode. Native-proof authentication
-retains its separate statement, replay and command-provenance requirements.
+capability is absent (unsatisfiable on this stable revision, whose compiled capability is
+`present`; it holds once a prepared revision compiles `absent`), the checked decision
+theorems show that a retired name cannot become a compiler axiom or an authenticated native
+axiom and its singleton axiom set is unknown. A dependent non-axiom declaration without an
+earlier proof-hole failure receives the unknown-axiom refusal even in teaching mode.
+Native-proof authentication retains its separate statement, replay and command-provenance
+requirements.
 
 **Admission by construction** (`RegulaPolicy.Domain`, `Admission`): declaration kinds, boundary
 kinds, correspondence, foundation classes, profiles, modes, safety and evaluator roles are closed
@@ -797,6 +799,10 @@ parent, base and wrapper in the same inventory and module with exact metadata, a
 relation. `Roles.safetyHelpers_iff` preserves which of the two helper families supplied admission.
 These are proofs about the observations; native object-tag correspondence remains trusted.
 The owned unsafe and runtime-replacement boundaries remain in execution reports.
+The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
+observer's positive path, admission, transport and mutations only on a compiler that has
+`getObjTagNat`, such as the selected release-candidate and source compilers; on Lean 4.34.0,
+which generates no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
@@ -1548,8 +1554,8 @@ again. The compiled admission guards remain in force when a configuration is cac
 
 `doctor` reads the project's own `lean-toolchain`, resolves it to a toolchain
 `elan toolchain list` names, and reads the version and commit that compiler reports,
-independently of the compiler running `regula`. `elan run` installs a known release that is
-missing, so only a listed name is run: `Regula.Toolchain.installedName?_spec` proves that the
+independently of the compiler running `regula`. Only a listed name is run, without Elan's
+`--install`, and no channel is resolved: `Regula.Toolchain.installedName?_spec` proves that the
 name is one of those supplied as listed, spelled as the selector or as its release name.
 `Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
 decision reports no toolchain issue exactly when that resolved identity
@@ -1661,13 +1667,13 @@ trusted.
 
 **Proved** in `lean/Regula/DiagnosticsGate.lean`, checked by the kernel in ordinary acceptance's
 build and each time a step of the [diagnostics workflow](../../.github/workflows/diagnostics.yml)
-elaborates it (its `applies` and `diagnostics` jobs, on every pull request): `verdict`, the
-decision of the required `diagnostics` check over the workflow's `needs` context, passes exactly
-when the job `applies` succeeded, every job it decided is one the gate needs, and every job the
-gate needs passed when it was decided to apply and was skipped when it was decided not to
-(`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one that ran
-out of time, which GitHub reports as one of the two, and as is a job decided to apply that was
-skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
+elaborates it (its `diagnostics` job on every pull request, and `applies` whenever it runs):
+`verdict`, the decision of the required `diagnostics` check over the workflow's `needs` context,
+passes exactly when the job `applies` succeeded, every job it decided is one the gate needs, and
+every job the gate needs passed when it was decided to apply and was skipped when it was decided
+not to (`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one
+that ran out of time, which GitHub reports as one of the two, and as is a job decided to apply that
+was skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
 `applies` writes and each partition job's `if:` reads, runs the campaigns on every run other than
 a pull request's (`campaign_of_ne`) and on a pull request's exactly when an input of `inputs`,
 the only statement of the campaigns' paths, covers one of its changed paths
@@ -1683,7 +1689,10 @@ timeouts, cancellation, that an `always()` job runs on a cancelled run, and the 
 requires `diagnostics`) and `git` (the commits it fetched and the paths `diff-tree` lists). That
 every partition job of the workflow is in the gate's `needs` and has its `if:` read its own
 decision is the workflow's wiring, which no step observes; a needed job without a decision and a
-decided job the gate does not need fail the gate.
+decided job the gate does not need fail the gate. The
+compiler-preparation job `compiler` is not a partition job: `applies` needs it and has no `if:`,
+so `applies` runs, and the gate can pass, only once `compiler` succeeded (GitHub's implicit
+`success()`, trusted, and also the workflow's wiring).
 
 ## Rule examples and the corpus runner
 
@@ -1974,21 +1983,20 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see). The control was changed when the structural partition was
-divided into shards, and is now two clusters. `structuralSelfHosted` builds the copy, runs the
-incremental gate on the mutation and restores it. No fresh gate runs on that mutated and
-restored copy any more: the accepting gate there is replaced by a checked identity of the
-restored copy's fresh input with that of a copy prepared anew, and by the accepting fresh gate
-of `structuralSelfHostedPositive` on a copy prepared the same way (`prepareSelfHosted`), which
-is in the other shard. `freshInput` takes what the gate's copy operation copies from each of
-the two copies, and any differing path or byte fails the first cluster. That the two together
-stand for the replaced gate rests on two facts, neither of them a theorem. First, a fresh gate
-reads the audited project only through `copyProject`, which prunes the project's `.lake`, and
-builds that copy from empty output; without `--with-docs`, as here, it reads no other file of
-the project, and the packages directory it links is the repository's for every copy. So equal
-fresh input gives the same gate run, and the setup build, the incremental gate and the
-restoration are observed to leave the prepared input. Second, the two shards are jobs of one
-workflow matrix, so whenever the diagnostics workflow runs them it starts both on the one commit
+states what it does not see). The controls are two clusters in different shards.
+`structuralSelfHosted` builds the copy and runs an accepting fresh gate on it, then the
+incremental gate on each of the three contaminations, restoring each before the next. It then
+checks the restored copy's fresh input against that of a copy prepared anew, and runs an
+accepting fresh gate on the restored copy itself. Both accepting gates audit that cluster's own
+copy, so neither depends on the other shard. `freshInput` takes what the gate's copy operation
+copies from each of the two copies, and any differing path or byte fails the cluster.
+`structuralSelfHostedPositive`, in the other shard, runs the accepting fresh gate on a copy
+prepared the same way (`prepareSelfHosted`). That equal fresh input gives the same gate run, so
+that the restored gate and that positive audit the same input, rests on a fact that is not a
+theorem: a fresh gate reads the audited project only through `copyProject`, which prunes the
+project's `.lake`, and builds that copy from empty output; without `--with-docs`, as here, it
+reads no other file of the project, and the packages directory it links is the repository's for
+every copy. The two shards are jobs of one workflow matrix, which starts both on the one commit
 it checks out. That both pass before merging is enforced by the ruleset of `main`, not by the
 self-test, which observes nothing of the other job: the workflow runs the matrix on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists, and its
