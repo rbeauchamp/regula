@@ -48,21 +48,24 @@ def selectedEnv (selector : String) (lean : FilePath) : IO
     ("PATH", some (System.SearchPath.toString (bin :: inherited)))]
 
 /-- The selected compiler's identity and isolated Core capability, admitted by `parseIdentity`.
-The embedded observer is also the collector's source; Lake tracks it as a library input. -/
+The embedded observer is also the collector's source; Lake tracks it as a library input.
+It runs as a standalone program in an automatically removed temporary directory. -/
 def probe (root : FilePath) (selector : String) : IO Identity := do
   let lean ← selectedLean root selector
-  let out ← IO.Process.output {
-    cmd := lean.toString, args := #["--stdin"], cwd := some root
-    env := ← selectedEnv selector lean }
-    (some ((include_str "CompilerObservation.lean") ++ "\n\
-      #eval do\n\
+  IO.FS.withTempDir fun scratch => do
+    let source := scratch / "Identity.lean"
+    IO.FS.writeFile source ((include_str "CompilerObservation.lean") ++ "\n\
+      def main : IO Unit := do\n\
       \x20 let capability ← Regula.CompilerObservation.legacyPresent \
         (← Lean.getLibDir (← Lean.getBuildDir))\n\
       \x20 IO.println Lean.versionString\n\
       \x20 IO.println Lean.githash\n\
-      \x20 IO.println (if capability then \"present\" else \"absent\")\n"))
-  unless out.exitCode == 0 do
-    throw <| IO.userError s!"compiler probe failed: {out.stdout}{out.stderr}"
-  IO.ofExcept (parseIdentity out.stdout)
+      \x20 IO.println (if capability then \"present\" else \"absent\")\n")
+    let out ← IO.Process.output {
+      cmd := lean.toString, args := #["--run", source.toString], cwd := some root
+      env := ← selectedEnv selector lean }
+    unless out.exitCode == 0 do
+      throw <| IO.userError s!"compiler probe failed: {out.stdout}{out.stderr}"
+    IO.ofExcept (parseIdentity out.stdout)
 
 end Regula.Toolchain
