@@ -207,10 +207,11 @@ metadata, not authenticated binary identity.
   `acceptance` and `documentationAcceptance`, the snapshot's sources and an environment's
   `fileSource`) is the index of its text there. Checker code builds and reads the
   document with the text in each member and `sourceTexts` `null`; `ResultProtocol.writeDocument`
-  writes its `SourceTexts.intern`, and each reader that decodes a diagnostic or reads a text
-  (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the file through
-  `SourceTexts.expand`, which refuses a list that is not distinct strings and an index outside
-  it; a rule-example record keeps that expanded document. `SourceTexts.expand_intern` proves
+  writes the `SourceTexts.intern` of it with its execution accounts written (next item), and
+  each reader that decodes a diagnostic or reads a text (`ResultProtocol.readDocument`, the
+  qualification drivers' `readResult`) first takes the file through `SourceTexts.expand`, which
+  refuses a list that is not distinct strings and an index outside it; a rule-example record
+  keeps the document so read. `SourceTexts.expand_intern` proves
   `expand` returns exactly the document `intern` was given, `intern_table` that the written list
   has no text twice, exactly the texts of the document's `sourceText` members, and that every
   such member of the written document is an index, and `intern_isOk_iff` that `intern` writes
@@ -255,15 +256,15 @@ metadata, not authenticated binary identity.
   round trip. It is observed: `RegistryChecks` compares the two on one account (`expand` of a
   parsed shared form with the built account), and the `history` qualification reads the
   collector's real output this way and validates the document it gets, without the writer's to
-  compare it with. That the proposal is kept, and so that the file is
-  small, is not a theorem: it holds when the collector's accounts have the form the reader
-  derives, which `Probe.executionWalk` is written to produce (it queues names in the order of
+  compare it with. That the proposal is kept, and so that the file is small, is not a theorem:
+  it holds when the collector's accounts have the form the reader derives, which
+  `Probe.executionWalk` is written to produce (it queues names in the order of
   `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for which
   the account codecs and the reader list each object's members in key order, as the JSON parser
-  inserts them. The `history` qualification and `RegistryChecks` observe both. A kept
-  proposal whose every root entry is derived holds each reached name, edge and boundary record
-  once per environment and a constant-size entry per root, where the logical member repeats
-  them for every root that reaches them.
+  inserts them. The `history` qualification and `RegistryChecks` observe both. A kept proposal
+  whose every root entry is derived holds each reached name, edge and boundary record once per
+  environment and a constant-size entry per root, where the logical member repeats them for
+  every root that reaches them.
 - **Kernel types:** since schema 8 a result file carries a declaration's `type`, the `repr` of
   its kernel type expression, in a report's `declarations` and in a frontend transcript's
   `addedDeclarations` only when the audit is run with `axiomGate --kernel-types`, an option
@@ -353,8 +354,9 @@ metadata, not authenticated binary identity.
   implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
   per-environment `executionSummary` counts (named `execution` before schema 8, when the writer
   began storing every `execution` member's root accounts once), `fences` by expectation,
-  `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's `mode` is the account's, and a listed
-  identifier names an open obligation, not a completed review.
+  `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's
+  `mode` is the account's, and a listed identifier names an open obligation, not a completed
+  review.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content

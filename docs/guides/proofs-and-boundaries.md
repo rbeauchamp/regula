@@ -851,15 +851,15 @@ that order, while `Json.mkObj` inserts them as listed. So the `history` oracle's
 (`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`) are about the
 document `readResult` returns, and that this document has the members of the document the writer
 was given, with the account the collector produced, is a further correspondence the laws do not
-give. It is not proved and
-does not reduce to a JSON round trip; it is observed, by `RegistryChecks` on one account
-(`expand` of a parsed shared form is the built account) and by the `history` qualification,
-which reads the collector's real output through `readResult` and validates the document it
-gets, without the writer's to compare it with. The laws do not prove either that the written
-form is smaller than the logical one. That holds when the writer's proposal is kept, which is checked at each write and observed
-on the collector's real output by the `history` qualification (`derivedOnly`) and on built and
-parsed accounts by `RegistryChecks`, not proved. In the excluded library,
-`RegistryCodec.mode_roundtrip`, `mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
+give. It is not proved and does not reduce to a JSON round trip; it is observed, by
+`RegistryChecks` on one account (`expand` of a parsed shared form is the built account) and by
+the `history` qualification, which reads the collector's real output through `readResult` and
+validates the document it gets, without the writer's to compare it with. The laws do not prove
+either that the written form is smaller than the logical one. That holds when the writer's
+proposal is kept, which is checked at each write and observed on the collector's real output by
+the `history` qualification (`derivedOnly`) and on built and parsed accounts by
+`RegistryChecks`, not proved. In the excluded library, `RegistryCodec.mode_roundtrip`,
+`mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
 `nameParts_roundtrip`, `name_roundtrip` and `Regula.sortFindings_entries` on `propext`,
 `Classical.choice` and `Quot.sound`; `RegistryChecks` bounds them to Standard-Logical.
 
