@@ -1592,10 +1592,15 @@ builds that copy from empty output; without `--with-docs`, as here, it reads no 
 the project, and the packages directory it links is the repository's for every copy. So equal
 fresh input gives the same gate run, and the setup build, the incremental gate and the
 restoration are observed to leave the prepared input. Second, the two shards are jobs of one
-workflow matrix, so a run of that workflow starts both on the one commit it checks out, and
-merging requires both to pass on the pull request's head, so the accepting gate runs on that
-same input whenever the identity is checked. The self-test observes nothing of the other job:
-that requirement is the repository's merge rule and its required checks, not a check here.
+workflow matrix, so whenever the diagnostics workflow runs for a pull request it starts both on
+the one commit it checks out. That both pass before merging is the repository's process rule in
+[AGENTS.md](../../AGENTS.md#changes-and-verification) (applicable diagnostics pass before
+merge), not a GitHub required check, and it applies only to a pull request that triggers the
+workflow, which is filtered by path. The self-test observes nothing of the other job, and the
+ruleset does not refuse a merge when either job fails:
+[#206](https://github.com/rbeauchamp/regula/issues/206) tracks enforcement by the ruleset. The
+division into shards did not change that enforcement, since the undivided job was not a
+required check either.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in

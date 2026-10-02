@@ -1428,11 +1428,15 @@ them a theorem:
    it links is the repository's for every copy. `freshInput` is that operation's output. So
    equal fresh input gives the same gate run, and the setup build, the incremental gate and the
    restoration are observed to leave the prepared input.
-2. The two shards are jobs of one workflow matrix, so a run of that workflow starts both on
-   the one commit it checks out, where `prepareSelfHosted` prepares the same copy for each.
-   Merging requires both jobs to pass on the pull request's head, so the accepting gate runs
-   on that same input whenever the identity is checked. Nothing in this module observes the
-   other job; the requirement is the repository's merge rule and its required checks. -/
+2. The two shards are jobs of one workflow matrix, so whenever the diagnostics workflow runs
+   for a pull request it starts both on the one commit it checks out, where
+   `prepareSelfHosted` prepares the same copy for each. That both pass before merging is the
+   repository's process rule in `AGENTS.md` (applicable diagnostics pass before merge), not a
+   GitHub required check, and it applies only to a pull request that triggers the workflow,
+   which is filtered by path. Nothing in this module observes the other job, and the ruleset
+   does not refuse a merge when either job fails; enforcement by the ruleset is tracked in
+   https://github.com/rbeauchamp/regula/issues/206. The division into shards did not change
+   that enforcement: the undivided job was not a required check either. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
