@@ -93,8 +93,10 @@ fails and removes `_site/`:
   existing artifact file (and fragment) under `/regula/`. CSS and JavaScript files,
   `srcset` and `meta refresh` targets are not scanned. External links are not fetched.
 - **Rule IDs are links.** Every rule ID in the prose of each page of the development edition is
-  a registered rule inside a link that resolves to that rule's page in the same edition
-  (`Regula.Prose.htmlErrors_nil_iff`, `pageTarget_iff`), for the text the scanner reads as prose
+  a registered rule inside a link that resolves to that rule's page in the same edition, with a
+  rule page's own title and top heading read as linked to that page
+  (`Regula.Prose.htmlErrors_nil_iff`, `pageTarget_iff`, `ownPage`), for the text the scanner reads
+  as prose
   ([rule IDs in documentation](contributing.md#rule-ids-in-documentation)). The pages link by
   the rule's route relative to the edition root, so a release's edition, which is the same
   rendering, links within `v/<version>/`. Editions frozen at an earlier release are not checked.

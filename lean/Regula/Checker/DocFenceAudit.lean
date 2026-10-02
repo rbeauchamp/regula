@@ -11,9 +11,9 @@ block of that Verso library, the standard, whose build and rendering are also re
 `--verso`, every fence elaborates in the freshly built Verso package's workspace, which requires
 the project and the other packages the standard's examples import), and whose rendered pages
 must define every anchor the rule registry and the Markdown link, with the checklist's rows
-exactly `Regula.checklistRows`. With `--rule-links`, every rule ID in the prose of that Markdown,
-of the project's `README.md` and of the rendered Verso pages must be a link to its rule page
-(`Regula.Prose`). -/
+exactly `Regula.checklistRows`. With `--rule-links`, every rule ID in the prose of every Markdown
+document the project's repository tracks (`trackedMarkdown`) and of the rendered Verso pages must
+be a link to its rule page (`Regula.Prose`). -/
 
 namespace Regula.Checker.DocFenceAudit
 
@@ -38,9 +38,9 @@ structure Options where
   /-- `--verso DIR:LIBRARY:RENDER`: the Verso library whose `lean` blocks are also audited,
   and which is then built fresh, rendered and checked for the anchors and rows it must define. -/
   verso : Option VersoPackage := none
-  /-- `--rule-links`: refuse a rule ID in the prose of the Markdown below the documentation root
-  or of the project's `README.md` that is not a link to its development rule page and, with
-  `--verso`, one in the prose of a rendered page that is not a link to its rule page. -/
+  /-- `--rule-links`: refuse a rule ID in the prose of a Markdown document the project's
+  repository tracks that is not a link to its development rule page and, with `--verso`, one in
+  the prose of a rendered page that is not a link to its rule page. -/
   ruleLinks : Bool := false
   /-- `--verbose`: print the full detail of each failed fence instead of its first part. -/
   verbose : Bool := false
@@ -99,6 +99,18 @@ private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
       if let some (_, url', rev') := requiredPins.find? (·.1 == name) then
         unless url == url' && rev == rev' do return some s!"{name} (against {dir})"
   return none
+
+/-- The project's Markdown documents: every file below `repo` that Git tracks and whose name ends
+in `.md`, by its path below `repo`, in Git's order. A document is covered because it is tracked,
+wherever it lies; none is excluded. Git, its index and the process are trusted, and a listing
+that fails or is empty is refused. -/
+private def trackedMarkdown (repo : FilePath) : IO (Array String) := do
+  let listed ← runProcess repo "git" #["ls-files", "-z", "--", "*.md"]
+  let paths := ((listed.stdout.splitOn "\x00").filter (!·.isEmpty)).toArray
+  unless listed.succeeded && !paths.isEmpty do
+    throw <| IO.userError s!"could not list the Markdown documents Git tracks below {repo}: \
+      {listed.stderr}"
+  return paths
 
 /-- The rendered HTML files below `root`, each by its path below it with its text. -/
 private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
@@ -202,19 +214,16 @@ unsafe def run (args : List String) : IO UInt32 := do
   -- The linked identity also brackets the Verso package's inputs.
   let linked ← sources.captureLinked repo
   if options.ruleLinks then
-    let readme := repo / "README.md"
-    let mut markdown := documents.filter fun d => (FilePath.mk d.uri).extension == some "md"
-    if ← readme.pathExists then
-      markdown := markdown.push ⟨readme.toString, ← IO.FS.readFile readme⟩
-    let bare := markdown.toList.flatMap fun d =>
-      Regula.Prose.markdownErrors (d.uri.dropPrefix (repo.toString ++ "/")).toString d.source
+    let markdown ← trackedMarkdown repo
+    let bare ← markdown.toList.flatMapM fun (path : String) => do
+      return Regula.Prose.markdownErrors path (← IO.FS.readFile (repo / path))
     unless bare.isEmpty do
       for line in bare do IO.println s!"FAIL: {line}"
       IO.println s!"FAIL: {bare.length} rule ID(s) in documentation prose are not links to their \
         development rule pages"
       return 1
-    IO.println s!"rule links: every rule ID in the prose of {markdown.size} Markdown documents \
-      links to its development rule page"
+    IO.println s!"rule links: every rule ID in the prose of the {markdown.size} tracked Markdown \
+      documents links to its development rule page"
   withScratch repo "doc-fence-audit" fun scratch => do
     let copy := scratch / "project"
     copyProject repo copy scratch

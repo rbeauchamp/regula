@@ -49,7 +49,7 @@ lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, refuses a rule ID in the prose of `README.md`, the `docs/` Markdown or the rendered standard that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+requires both packages), builds and renders the standard fresh, refuses a rule ID in the prose of any Markdown document the repository tracks or of the rendered standard that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -333,19 +333,22 @@ is prose is a property of the document's structure, not of its file or its wordi
 
 | Document | Not prose | The link |
 | --- | --- | --- |
-| `README.md` and the Markdown below `docs/` | Fenced code blocks, code spans, headings, link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document; an inline link is accepted too. |
-| A rendered page of the standard or of the rule-reference site | The `code`, `pre`, `samp`, `kbd`, `title`, `h1` to `h6`, `script` and `style` elements, and comments | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
+| Every Markdown document the repository tracks (`git ls-files -- '*.md'`), wherever it lies; none is excluded | Fenced code blocks, code spans, link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
+| A rendered page of the standard or of the rule-reference site | The `code`, `pre`, `script` and `style` elements, and comments | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
 
 Pasted tool output is a fenced block or a `pre` element, and a Lean identifier is written as
 code. A rule table that is an index of rule pages names each rule as a link to its page, so its
-IDs are already linked. A heading names a section and is what links target, so it is not prose.
-`./scripts/verify.sh docs` checks the Markdown and the standard rendered alone
+IDs are already linked. A heading is prose in both formats, so a rule ID in one is a link. The
+one rule ID that is not written as a link is a rule page's own, in that page's `title` and `h1`,
+because a page cannot usefully link to itself (`Prose.ownPage`); any other rule's ID there, and
+any rule ID in the `title` or `h1` of another page, is refused.
+`./scripts/verify.sh docs` checks the tracked Markdown and the standard rendered alone
 (`docFenceAudit --rule-links`), and `./scripts/verify.sh site` checks every page of the
 development edition; each failure names the file, the line and the ID. The scanners are small
-and strict, not complete Markdown or HTML parsers: an indented code block, a setext heading and
-text between raw HTML tags in Markdown are read as prose, and a document with a fenced block,
-`code` element, comment or script that is never closed is refused, since that would hide the
-text after it. The release editions already published are frozen copies and are not rewritten.
+and strict, not complete Markdown or HTML parsers: an indented code block and text between raw
+HTML tags in Markdown are read as prose, and a document with a fenced block, a `code`, `pre`,
+`title` or `h1` element, a comment or a script that is never closed is refused, since the text
+after it could not be read as prose. The release editions already published are frozen copies and are not rewritten.
 
 ## Change an acceptance boundary
 

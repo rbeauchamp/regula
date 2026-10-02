@@ -18,33 +18,36 @@ rule ID in prose that is not such a link, and rewrites generated prose so that i
 - `developmentTarget`, `pageTarget`, `pageTarget_iff`: the page of a rule for a Markdown document
   of `main` (the development page, `Edition.url`, the definition `helpUrl` and `citation` use) and
   for a rendered page of an edition (the rule's page file of that edition).
-- `markdownRuns`, `htmlRuns`: the prose of a Markdown document and of an HTML page.
+- `markdownRuns`, `htmlRuns`, `ownPage`: the prose of a Markdown document and of an HTML page, and
+  the one place a rule ID is not written as a link, a rule page's own title and top heading.
 - `markdownErrors`, `htmlErrors`, `markdownErrors_nil_iff`, `htmlErrors_nil_iff`: the two executed
   document checks, each reporting the file, the line and the ID.
-- `relativeCitation`, `rewriteIds`, `linkVerso`: the link a generated page gives a rule, relative
-  to its edition's root (`RuleId.route`), and the rewriting of generated prose that inserts it.
+- `relativeCitation`, `rewriteIds`, `linkIds`, `linkVerso`: the link a generated page gives a
+  rule, relative to its edition's root (`RuleId.route`), and the rewriting of generated prose that
+  inserts a link.
 
 ## What prose is
 
 In a Markdown document, prose is the text outside fenced code blocks (`fenceRun?`), code spans,
-headings, link reference definitions, link destinations, HTML tags and comments, autolinks and
-bare URLs. In an HTML page, prose is the text outside the `code`, `pre`, `samp`, `kbd`, `title`,
-`h1` to `h6`, `script` and `style` elements (`exemptElement`). Pasted tool output is a fenced block
-or a `pre` element; a Lean identifier is code. A rule table that is the index of rule pages names
-each rule as a link to its page, so its IDs are linked mentions. A heading names a section and is
-the target of links, so it is not prose.
+link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs.
+In an HTML page, prose is the text outside the `code`, `pre`, `script` and `style` elements
+(`exemptElement`). Pasted tool output is a fenced block or a `pre` element; a Lean identifier is
+code. A rule table that is the index of rule pages names each rule as a link to its page, so its
+IDs are linked mentions. A heading is prose in both formats. The one rule ID that is not written
+as a link is a rule page's own, in that page's `title` and `h1`, because a page cannot usefully
+link to itself (`ownPage`): those two elements are read as text linked to the page they name.
 
 ## Boundaries
 
 `bareMentions_nil_iff` is about the runs it is given. `markdownRuns` and `htmlRuns` are small
 scanners for this repository's documents and the builder's own output, not complete CommonMark
-or HTML parsers: an indented code block, a setext heading and text between raw HTML tags are
-read as prose, so an ID there must be linked, and only the constructs listed above are skipped.
+or HTML parsers: an indented code block and text between raw HTML tags are read as prose, so an
+ID there must be linked, and only the constructs listed above are skipped.
 A fenced block, element, comment or script that is never closed would hide the text after it, so
 `markdownErrors` and `htmlErrors` refuse such a document; an element closed and reopened out of
-order is not detected. `linkVerso` rewrites the prose `scanInline` finds; that its output has no
-bare rule ID is established by `htmlErrors` on the rendered pages, not by a theorem about the
-rewriting.
+order is not detected. `linkIds` rewrites the prose `scanInline` finds; that its output has no
+bare rule ID is established by `htmlErrors` on the rendered pages and `markdownErrors` on the
+committed agent skill, not by a theorem about the rewriting.
 -/
 
 namespace Regula.Prose
@@ -226,13 +229,6 @@ def closingFence (line : String) (character : Char) (minimum : Nat) : Bool :=
   | some (found, count, rest) => found == character && count >= minimum && rest.isEmpty
   | none => false
 
-/-- Whether `line` is an ATX heading: after leading spaces, one to six `#` and then a space or the
-end of the line. -/
-def isHeading (line : String) : Bool :=
-  let chars := line.toList.dropWhile (· == ' ')
-  let hashes := (chars.takeWhile (· == '#')).length
-  1 ≤ hashes && hashes ≤ 6 && (chars.drop hashes).head?.all (· == ' ')
-
 /-- The index of the `closer` that matches an opener already read, counting nested pairs;
 `depth` is the number of nested openers still open. -/
 def closeIndex (opener closer : Char) : Nat → List Char → Option Nat
@@ -310,14 +306,13 @@ private def closeBlock (line : Nat) (acc : List String) : List (Nat × String) :
   if acc.isEmpty then [] else [(line - acc.length, "\n".intercalate acc.reverse)]
 
 /-- The paragraphs of a document: maximal runs of consecutive lines that are not in a fenced code
-block, blank, a heading or a link reference definition, each with the line it starts on. `acc`
+block, blank or a link reference definition, each with the line it starts on. `acc`
 holds the lines of the paragraph in progress, reversed, which ends before line `line`. -/
 def paragraphs : Nat → List String → List (Nat × Option String) → List (Nat × String)
   | line, acc, [] => closeBlock line acc
   | _, acc, (line, none) :: rest => closeBlock line acc ++ paragraphs (line + 1) [] rest
   | _, acc, (line, some text) :: rest =>
-    if text.toList.all Char.isWhitespace || isHeading text ||
-        (referenceDefinition? text).isSome then
+    if text.toList.all Char.isWhitespace || (referenceDefinition? text).isSome then
       closeBlock line acc ++ paragraphs (line + 1) [] rest
     else paragraphs (line + 1) (text :: acc) rest
 
@@ -441,9 +436,9 @@ def runsOf (line : Nat) (pieces : List Piece) : List Run :=
       | .prose text link => ⟨acc.1, text, link⟩ :: acc.2
       | .skip _ => acc.2)) (line, [])).2.reverse
 
-/-- The prose of a Markdown document: for each paragraph outside fenced code blocks, headings and
-link reference definitions, its text outside code spans, link destinations, HTML tags and
-comments, autolinks and bare URLs. -/
+/-- The prose of a Markdown document: for each paragraph outside fenced code blocks and link
+reference definitions, its text outside code spans, link destinations, HTML tags and comments,
+autolinks and bare URLs. -/
 def markdownRuns (text : String) : List Run :=
   let lines := proseLines 1 none (text.splitOn "\n")
   let defined := definitions lines
@@ -469,10 +464,22 @@ theorem markdownErrors_nil_iff (file text : String) :
 
 /-! ## HTML prose -/
 
-/-- The elements whose text is not prose: code and sample output, the document title and
-headings. The text of `script` and `style` elements is never read. -/
-def exemptElement (name : String) : Bool :=
-  ["code", "pre", "samp", "kbd", "title", "h1", "h2", "h3", "h4", "h5", "h6"].contains name
+/-- The elements whose text is not prose: code and pasted output. The text of `script` and `style`
+elements is never read. -/
+def exemptElement (name : String) : Bool := ["code", "pre"].contains name
+
+/-- The elements that name the page itself: its title and its top heading. -/
+def namingElement (name : String) : Bool := ["title", "h1"].contains name
+
+/-- The destination that the title and top heading of the rendered file `path` are read as linked
+to, in the edition whose artifact root is `root`: the file itself when it is a rule's page, and
+none otherwise. A page cannot usefully link to itself, so a rule's own ID in its own page's title
+and top heading is the one rule ID in prose that is not written as a link. A heading of any other
+page, any other heading of a rule's page and any other rule's ID are prose like the rest. -/
+def ownPage (root path : String) : Option String :=
+  if RuleId.all.any fun id => path == root ++ id.route ++ "index.html" then
+    some (basePath ++ path)
+  else none
 
 /-- The state of the prose scan of an HTML page. -/
 structure HtmlScan where
@@ -480,6 +487,10 @@ structure HtmlScan where
   mode : ScanMode
   /-- The number of open exempt elements. -/
   exempt : Nat
+  /-- The number of open elements that name the page (`namingElement`). -/
+  naming : Nat
+  /-- The destination the text of those elements is read as linked to (`ownPage`), if any. -/
+  own : Option String
   /-- The `href` of the open `a` element, if there is one. -/
   link : Option String
   /-- The 1-based line at the scan position. -/
@@ -488,7 +499,9 @@ structure HtmlScan where
   runs : List Run
 
 private def HtmlScan.withText (s : HtmlScan) (line : Nat) (text : String) : List Run :=
-  if s.exempt == 0 && !text.isEmpty then ⟨line, text, s.link⟩ :: s.runs else s.runs
+  if s.exempt == 0 && !text.isEmpty then
+    ⟨line, text, s.link <|> (if s.naming == 0 then none else s.own)⟩ :: s.runs
+  else s.runs
 
 private def isSpace (c : Char) : Bool :=
   c == ' ' || c == '\n' || c == '\t' || c == '\r' || c == '\x0c'
@@ -513,6 +526,7 @@ def htmlStep (s : HtmlScan) (chunk : String) : HtmlScan :=
     let closed := { s with
       mode := .markup,
       exempt := if exemptElement name then s.exempt - 1 else s.exempt,
+      naming := if namingElement name then s.naming - 1 else s.naming,
       link := if name == "a" then none else s.link }
     { closed with line := next, runs := closed.withText textLine text }
   match s.mode with
@@ -533,44 +547,50 @@ def htmlStep (s : HtmlScan) (chunk : String) : HtmlScan :=
       let opened := { s with
         exempt := if exemptElement name && body.getLast? != some '/' then s.exempt + 1
           else s.exempt,
+        naming := if namingElement name && body.getLast? != some '/' then s.naming + 1
+          else s.naming,
         link := if name == "a" then tag.get? "href" else s.link }
       { opened with line := next, runs := opened.withText textLine text }
 
-/-- The prose scan of a whole HTML page. -/
-def htmlScan (html : String) : HtmlScan :=
-  let start : HtmlScan := ⟨.markup, 0, none, 1, []⟩
+/-- The prose scan of a whole HTML page, whose title and top heading are read as linked to `own`. -/
+def htmlScan (own : Option String) (html : String) : HtmlScan :=
+  let start : HtmlScan :=
+    { mode := .markup, exempt := 0, naming := 0, own, link := none, line := 1, runs := [] }
   match html.splitOn "<" with
   | [] => start
   | first :: chunks =>
     chunks.foldl htmlStep { start with line := 1 + newlines first, runs := start.withText 1 first }
 
 /-- The prose of an HTML page: its text outside `exemptElement` elements, comments and `script`
-and `style` elements, each run with the `href` of the `a` element it lies in. -/
-def htmlRuns (html : String) : List Run := (htmlScan html).runs.reverse
+and `style` elements, each run with the `href` of the `a` element it lies in or, in the title and
+top heading (`namingElement`) outside an `a` element, with `own`. -/
+def htmlRuns (own : Option String) (html : String) : List Run := (htmlScan own html).runs.reverse
 
-/-- Whether the page's scan ends in markup with every exempt element closed. An unclosed `code`
-element, comment or script would hide the text after it, so such a page is refused instead of
-read short. -/
+/-- Whether the page's scan ends in markup with every exempt and naming element closed. An
+unclosed `code` element, comment or script would hide the text after it, and an unclosed title or
+top heading would read it as naming the page, so such a page is refused instead of read short. -/
 def htmlClosed (html : String) : Bool :=
-  match (htmlScan html).mode with
-  | .markup => (htmlScan html).exempt == 0
+  match (htmlScan none html).mode with
+  | .markup => (htmlScan none html).exempt == 0 && (htmlScan none html).naming == 0
   | _ => false
 
 /-- What the rendered page `html` at artifact path `path` is refused for: an element, comment or
 script that hides text and is never closed, and each rule ID in its prose that is not a link to
 its page in the edition whose artifact root is `root`, reported with the path, its line and the
-ID. -/
+ID. A rule page's own title and top heading name its rule without a link (`ownPage`). -/
 def htmlErrors (root path html : String) : List String :=
   (if htmlClosed html then [] else
-    [s!"{path}: a code, title or heading element, a comment or a script is not closed, so the \
-      text after it is not read as prose"]) ++
-  (bareMentions (pageTarget root (Page.ofHtml path html)) (htmlRuns html)).map (·.describe path)
+    [s!"{path}: a code, pre, title or h1 element, a comment or a script is not closed, so the \
+      text after it cannot be read as prose"]) ++
+  (bareMentions (pageTarget root (Page.ofHtml path html)) (htmlRuns (ownPage root path) html)).map
+    (·.describe path)
 
 /-- The page check reports nothing exactly when the page's scan is closed and every rule-ID token
-in the page's prose is a registered rule ID linked to its page under `root`. -/
+in the page's prose is a registered rule ID linked to its page under `root`, where the title and
+top heading of a rule's own page count as linked to that page (`ownPage`). -/
 theorem htmlErrors_nil_iff (root path html : String) :
     htmlErrors root path html = [] ↔ htmlClosed html = true ∧
-      ∀ run ∈ htmlRuns html, ∀ m ∈ run.mentions,
+      ∀ run ∈ htmlRuns (ownPage root path) html, ∀ m ∈ run.mentions,
         m.Linked (pageTarget root (Page.ofHtml path html)) := by
   unfold htmlErrors
   cases htmlClosed html <;> simp [bareMentions_nil_iff]
@@ -591,17 +611,22 @@ def rewriteIds (plain : String → String) (rule : RuleId → String) (text : St
       | some id => rule id
       | none => plain token)
 
-/-- Generated Verso prose with each registered rule ID in prose made a link to its page in the
-same edition (`relativeCitation`). Code spans, existing links and URLs are kept as written. -/
-def linkVerso (text : String) : String :=
+/-- Generated prose, in the link syntax Markdown and Verso share, with each registered rule ID in
+its prose replaced by `rule` of it. Code spans, existing links and URLs are kept as written. -/
+def linkIds (rule : RuleId → String) (text : String) : String :=
   String.join ((pieces [] text).map fun
-    | .prose between none => rewriteIds id relativeCitation between
+    | .prose between none => rewriteIds id rule between
     | piece => piece.raw)
+
+/-- Generated Verso prose with each registered rule ID in prose made a link to its page in the
+same edition (`relativeCitation`). -/
+def linkVerso (text : String) : String := linkIds relativeCitation text
 
 /-! Evaluated controls (observations of the compiled scanners, not proofs). A bare ID in prose is
 refused in both formats, with its file and line; an unregistered ID and a link to another page are
-refused; and each exempt construct is accepted: fenced and inline code, pasted tool output, a rule
-index table whose IDs are links, Lean identifiers written as code, and headings. -/
+refused; a heading is prose, so a bare ID in one is refused, except a rule's own ID in the title
+and top heading of its own page; and each exempt construct is accepted: fenced and inline code,
+pasted tool output, a rule index table whose IDs are links and Lean identifiers written as code. -/
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Intro.\n\nBuild warnings are\nreported as RG2003 here.\n" ==
   ["a.md:4: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
@@ -625,8 +650,27 @@ index table whose IDs are links, Lean identifiers written as code, and headings.
 #guard markdownErrors "a.md" ("| Rule | Checks |\n| --- | --- |\n| [`RG1001`](" ++
   Edition.dev.url RuleId.projectAxiom.route ++ ") | axioms |\n") == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard markdownErrors "a.md" "## RG1001 in a heading\n\nSee <https://x/rules/RG1001/> and \
-  https://x/rules/RG1002/, in xRG1001, RG10012 and RG1001_a.\n" == []
+#guard markdownErrors "a.md" "See <https://x/rules/RG1001/> and https://x/rules/RG1002/, in \
+  xRG1001, RG10012 and RG1001_a.\n" == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "## Why RG2003 fires first\n\nText.\n" ==
+  ["a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+  ("### [RG2003](" ++ Edition.dev.url RuleId.sourceBuild.route ++ ") fires first\n\nText.\n") == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard htmlErrors "dev/" "dev/enforcement/index.html"
+    "<base href=\"./../\"><title>RG2003</title><h1>About RG2003</h1><h2>RG2003 and warnings</h2>" ==
+  List.replicate 3
+    "dev/enforcement/index.html:1: RG2003 is a bare rule ID in prose; make it a link to its rule \
+      page"
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard htmlErrors "dev/" "dev/rules/RG1001/index.html"
+    "<base href=\"./../../\"><h1>RG1001: like RG1002</h1><h2>RG1001 again</h2>" ==
+  ["dev/rules/RG1001/index.html:1: RG1002 is linked to /regula/dev/rules/RG1001/index.html, \
+      which is not its rule page",
+    "dev/rules/RG1001/index.html:1: RG1001 is a bare rule ID in prose; make it a link to its rule \
+      page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard htmlErrors "dev/" "dev/enforcement/index.html"
     "<base href=\"./../\"><p>It is\nreported as RG2003.</p>" ==

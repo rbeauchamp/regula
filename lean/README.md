@@ -13,7 +13,7 @@ relative path and Mathlib.
 | Purpose | Start here | Boundary |
 | --- | --- | --- |
 | Use the proof-bearing contract interface | [Regula.Contract](Regula/Contract.lean) | Public interface tying evidence to the named executable definition. |
-| Register a material claim | [Regula.MaterialClaim](Regula/MaterialClaim.lean) | Public `@[regula_material]` attribute selecting the RG5002/RG5003 docstring and Intent-section obligations. |
+| Register a material claim | [Regula.MaterialClaim](Regula/MaterialClaim.lean) | Public `@[regula_material]` attribute selecting the [RG5002]/[RG5003] docstring and Intent-section obligations. |
 | Inspect mathematical/specification examples | [Audit](../audit/Audit.lean) | Claimed abstract-specification surface of the Mathlib-dependent package; representative checks of the standard's claims. |
 | Inspect the verified application | [Main](Main.lean), [AuditApp](AuditApp.lean) | Claimed limiter application; proofs concern its actual definitions and its IO boundary remains reported. |
 | Use typed policy data and admission | [RegulaPolicy](RegulaPolicy.lean), [proofs and boundaries](../docs/guides/proofs-and-boundaries.md#keys-census-and-collection) | Separate claimed pure library; representation proofs do not authenticate compiler observations or establish complete acceptance. |
@@ -50,3 +50,6 @@ For runnable consumers with their own configurations, use the
 use the [contributor guide](../docs/guides/contributing.md).
 
 The [architecture](../docs/guides/architecture.md) fixes the registry, diagnostic, editor and site modules and how the rules cover the standard.
+
+[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
+[RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

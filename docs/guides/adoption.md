@@ -154,10 +154,11 @@ never a mixture of bare and linked IDs. IDs in code blocks and code spans, in pa
 in a rule table that is itself the index of rule pages, and in Lean identifiers stay as they are.
 The briefing tells an agent the same, with the link for your installed build.
 
-Regula's own documentation follows this. The guides and the README on `main` link to the
-development pages, as [RG3002] does here; each page of the rule-reference site links within its
-own edition; and the documentation step of acceptance and the site check refuse a rule ID in
-prose that is not such a link
+Regula's own documentation follows this. Every Markdown document tracked on `main`, the generated
+agent skill among them, links to the development pages, as [RG3002] does here; each page of the
+rule-reference site links within its own edition, where only a rule page's own title and top
+heading name its rule without a link; and the documentation step of acceptance and the site check
+refuse a rule ID in prose, headings included, that is not such a link
 ([how to write one](contributing.md#rule-ids-in-documentation)).
 
 ## 3. Review the claimed surface
