@@ -29,6 +29,14 @@ inductive Mode where
   | structural
   /-- `diagnostics execution`: the self-test's execution partition. -/
   | execution
+  /-- `diagnostics structural 1/2`: the first of the structural partition's two shards. -/
+  | structuralFirst
+  /-- `diagnostics structural 2/2`: the second of the structural partition's two shards. -/
+  | structuralSecond
+  /-- `diagnostics execution 1/2`: the first of the execution partition's two shards. -/
+  | executionFirst
+  /-- `diagnostics execution 2/2`: the second of the execution partition's two shards. -/
+  | executionSecond
   /-- `diagnostics cli`: the self-test's command-line partition. -/
   | cli
   /-- `diagnostics environments`: the self-test's environments partition. -/
@@ -64,6 +72,10 @@ def arguments : Mode → List String
   | .fixtures => ["diagnostics", "fixtures"]
   | .structural => ["diagnostics", "structural"]
   | .execution => ["diagnostics", "execution"]
+  | .structuralFirst => ["diagnostics", "structural", "1/2"]
+  | .structuralSecond => ["diagnostics", "structural", "2/2"]
+  | .executionFirst => ["diagnostics", "execution", "1/2"]
+  | .executionSecond => ["diagnostics", "execution", "2/2"]
   | .cli => ["diagnostics", "cli"]
   | .environments => ["diagnostics", "environments"]
   | .buildPolicy => ["diagnostics", "build-policy"]
@@ -79,7 +91,8 @@ def arguments : Mode → List String
 
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
-  .execution, .cli, .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint,
+  .execution, .structuralFirst, .structuralSecond, .executionFirst, .executionSecond, .cli,
+  .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint,
   .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site]
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
@@ -148,6 +161,17 @@ private def ruleExampleShard (index : Nat) : List Command := [
   lake #["exe", "qualify", "--under-deadline", "rule-examples", "--evidence", shardEvidence index,
     "--shard", s!"{index}/2"]]
 
+/-- A checker self-test run with the `checkerSelftest` arguments `selection`. The first command
+builds the self-test together with `axiomGate`, which the baseline build of every partition
+names, and with the further checker executables `tools` of the selection's baseline, so Lake
+schedules the jobs of these builds in one invocation; run one after the other, the gate's own
+modules would start only once the self-test's last module is linked. That command selects
+nothing: the self-test's baseline build still names and builds its targets, finds these built
+and builds any it names that are not here. -/
+private def selftest (selection : Array String) (tools : Array String := #[]) : List Command := [
+  lake (#["build", "checkerSelftest", "axiomGate"] ++ tools),
+  lake (#["exe", "checkerSelftest", "--build-bound"] ++ selection ++ #["--jobs", "4"])]
+
 /-- Existing acceptance and diagnostic recipes, executed inside the outer deadline.
 Qualification's private flag retains the already timed process group. -/
 def commands : Mode → List Command
@@ -170,7 +194,7 @@ def commands : Mode → List Command
       lakeIn auditPackage #["exe", "axiomGate"],
       lake #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .graph => [lake #["exe", "freshChecker", "--verbose"]]
-  | .diagnostics => [lake #["exe", "checkerSelftest", "--build-bound", "--jobs", "4"]]
+  | .diagnostics => selftest #[]
   | .producers => [
       lake #["build", "axiomGate", "qualify"],
       lake #["exe", "qualify", "--under-deadline", "producers"]]
@@ -196,12 +220,19 @@ def commands : Mode → List Command
       lake
           (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++
               #[shardEvidence 1, shardEvidence 2])]
-  | mode => [lake (#["exe", "checkerSelftest", "--build-bound", "--partition"] ++
-      ((arguments mode).drop 1).toArray ++ #["--jobs", "4"])]
+  | .structural => selftest #["--partition", "structural"] #["docFenceAudit", "freshChecker"]
+  -- A shard of a partition: the partition's name, then the shard after `--shard`.
+  | .structuralFirst =>
+      selftest #["--partition", "structural", "--shard", "1/2"] #["docFenceAudit", "freshChecker"]
+  | .structuralSecond =>
+      selftest #["--partition", "structural", "--shard", "2/2"] #["freshChecker"]
+  | .executionFirst => selftest #["--partition", "execution", "--shard", "1/2"]
+  | .executionSecond => selftest #["--partition", "execution", "--shard", "2/2"]
+  | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)
 
 /-- Every mode schedules actual work rather than accepting an empty campaign. -/
 theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
-  cases mode <;> simp [commands, ruleExampleShard]
+  cases mode <;> simp [commands, ruleExampleShard, selftest]
 
 /-- Interpret sequentially; a nonzero process exit raises before any success report.
 No theorem here purports to prove the OS's process execution or signal delivery. -/
@@ -215,8 +246,8 @@ def execute (command : Command) : IO Unit := do
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics \
-    [fixtures|structural|execution|cli|environments|build-policy|lint-driver|producers|history|\
-    self-lint|self-audit|rule-examples [1/2|2/2]]]"
+    [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
+    lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
 
 /-- The earlier verdict an attempt of `mode` invalidates, with the constant text recording it
 as incomplete. -/

@@ -1578,14 +1578,57 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see).
+states what it does not see). The control is two clusters. `structuralSelfHosted` builds the
+copy, runs the incremental gate on the mutation and restores it. `structuralSelfHostedPositive`
+runs the fresh gate, which must accept, on a copy prepared the same way (`prepareSelfHosted`);
+it may run in another invocation. A fresh gate audits its own copy of a project's files
+(`copyProject`) from empty build output, so of the first cluster's copy it would read only
+those files. The first cluster checks that link: `freshInput` takes what that copy operation
+copies from its restored copy and from a copy prepared anew, and any differing path or byte
+fails the cluster. So the setup build, the incremental gate and the restoration are observed
+to leave a fresh gate the prepared files. What stays unobserved is that another invocation
+prepares those same files; it rests on that invocation running the same sources.
+
+Each partition's baseline build names what its controls read from the repository's own build
+(`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
+projects of their own, where the gate builds that project's targets itself, and the manifest
+controls run `axiomGate` on the repository with a manifest it refuses before any build. So the
+structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its second shard runs
+no `docFenceAudit`), the execution baseline is `axiomGate` alone, and neither builds the
+repository's claimed surface; the other partitions keep the complete baseline. That is a
+reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
+`toolPath` refuses an executable that build did not name (for every checker executable the
+self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
+baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run by its path. A
+claimed-surface `.olean` that a control read from the repository's build without the baseline
+naming it would be absent on a clean checkout and fail that control there; on a warm local
+build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate` and, for a
+structural selection, its other checker executables in one Lake invocation
+(`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
+ones instead of after its link; that command selects nothing, and the baseline build still
+names and builds its targets. The frozen-artifact, library cycle and manifest
+controls run in the structural clusters' queue, so no more of them run at once than the queue
+has workers.
+
+The controls of each of these two partitions are divided into two shards, `1/2` and `2/2`
+(`--shard`), which the diagnostics workflow runs as separate jobs. Every control carries its one
+shard where the partition lists it, and a shard runs the controls that carry it (`inShard`);
+`inShard_cover` proves that the two selections together are a rearrangement of the whole list,
+so each control runs in exactly one shard. Both shards list the same controls because they run
+the same sources, which no theorem states. The structural shards are the mutation clusters
+`self-hosted`, `a` and `b` with the frozen-artifact controls, and `self-hosted-positive`, `c`
+and `d` with the library cycle and manifest controls; the execution shards hold one
+correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
+controls it ran and is not the partition's.
 
 Before the structural project, every cluster ran in a copy of the whole repository claiming
 `RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
 controls: an instrumented run took 513 s, in which 21 gate runs each inspected the unchanged
 `RegulaPolicy` library (about 475 s of roughly 1,200 s of control work). `diagnostics
-structural` and `diagnostics execution` now each run under the 420-second deadline, locally and
-as jobs of the diagnostics workflow. Observed on 2026-10-01 on a 14-core machine that other
+structural` and `diagnostics execution` then each ran under the 420-second deadline, locally
+and as jobs of the diagnostics workflow, where the slowest hosted `structural` run observed
+(2026-10-02) took 413 s; the workflow now runs each partition as two shards, a job each.
+Observed on 2026-10-01 on a 14-core machine that other
 builds kept at a load average of 10 to 13, `structural` passed in 96 s and `execution` in 90 s
 (102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not
 a bound: the deadline itself is what refuses a slower run. The `structural` run predates that
