@@ -43,12 +43,17 @@ structure Snapshot where
   dependencies : Array DependencyState
   deriving Repr, DecidableEq
 
-/- Repeated jobs share one immutable snapshot. Lean's established pointer-equality
-shortcut decides the same equality and otherwise runs full structural comparison;
-no digest, identity token or assumed equality replaces source bytes. -/
+/- Use Lean's safe pointer shortcut when available; newer compilers that require a
+type-specific runtime implementation use the generated structural comparison. -/
 attribute [-instance] instDecidableEqSnapshot
-instance snapshotDecidableEq : DecidableEq Snapshot := fun left right =>
-  withPtrEqDecEq left right (fun _ => instDecidableEqSnapshot left right)
+instance snapshotDecidableEq : DecidableEq Snapshot := fun left right => by
+  first
+  | exact withPtrEqDecEq left right (fun _ => instDecidableEqSnapshot left right)
+  | exact instDecidableEqSnapshot left right
+
+/-- Either compiler path decides exactly the generated structural equality. -/
+theorem snapshotDecidableEq_eq (left right : Snapshot) :
+    snapshotDecidableEq left right = instDecidableEqSnapshot left right := Subsingleton.elim _ _
 
 /-- Structural validity of exact content maps; truthful acquisition stays operational. -/
 def Snapshot.Valid (s : Snapshot) : Prop :=
@@ -284,8 +289,15 @@ structure ClaimCandidate where
 
 attribute [-instance] instDecidableEqClaimCandidate
 /-- Preserve exact structural fallback when requests are not shared at runtime. -/
-instance claimCandidateDecidableEq : DecidableEq ClaimCandidate := fun left right =>
-  withPtrEqDecEq left right (fun _ => instDecidableEqClaimCandidate left right)
+instance claimCandidateDecidableEq : DecidableEq ClaimCandidate := fun left right => by
+  first
+  | exact withPtrEqDecEq left right (fun _ => instDecidableEqClaimCandidate left right)
+  | exact instDecidableEqClaimCandidate left right
+
+/-- Compiler API selection does not change the equality being decided. -/
+theorem claimCandidateDecidableEq_eq (left right : ClaimCandidate) :
+    claimCandidateDecidableEq left right = instDecidableEqClaimCandidate left right :=
+  Subsingleton.elim _ _
 
 /-- Supported scope/mode combinations. Fresh files never acquire whole-project scope. -/
 def scopeModeCompatible : Scope → EvidenceMode → Bool

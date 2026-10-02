@@ -1178,11 +1178,14 @@ private def optionValues (flag : String) : List String → List String
       else optionValues flag (value :: rest)
   | _ => []
 
-/-- Before any argument validation, mark every recognisable `--json-out` destination
+/-- Before any argument validation, mark every recognisable result and acceptance-link destination
 incomplete, so an earlier completed result cannot be mistaken for this attempt's. -/
 def invalidateResults (args : List String) : IO Unit := do
-  let destinations := (optionValues "--json-out" args).eraseDups.map FilePath.mk
-  let invalidate (path : FilePath) :=
+  let destinations :=
+    (optionValues "--json-out" args).eraseDups.map (fun path => (FilePath.mk path, false)) ++
+    (optionValues "--acceptance-link" args).eraseDups.map (fun path => (FilePath.mk path, true))
+  let invalidate (path : FilePath) (link : Bool) :=
+    if link then AcceptanceLink.invalidate path else
     ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
       ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
       ("diagnostics", toJson (#[] : Array Json)),
@@ -1190,14 +1193,14 @@ def invalidateResults (args : List String) : IO Unit := do
       ResultProtocol.sourceTextsField] ++
       ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
   -- Absolute destinations do not depend on project configuration being valid.
-  for path in destinations.filter (·.isAbsolute) do invalidate path
-  let relative := destinations.filter (!·.isAbsolute)
+  for (path, link) in destinations.filter (·.1.isAbsolute) do invalidate path link
+  let relative := destinations.filter (!·.1.isAbsolute)
   if !relative.isEmpty then
     let root ← match optionValues "--project" args with
       | [dir] => findRepoRoot dir
       | [] => repoRoot
       | _ => throw <| IO.userError "duplicate --project option"
-    for path in relative do invalidate (resolve root path)
+    for (path, link) in relative do invalidate (resolve root path) link
 
 /-- The options of an audit invocation: parsed, without a duplicated option, and in a
 combination the usage text allows; otherwise an error naming the problem. -/

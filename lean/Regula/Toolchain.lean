@@ -128,6 +128,7 @@ private def qualify (root candidate : FilePath) : IO UInt32 := do
   for campaign in campaigns do
     unchanged
     IO.println s!"{identity.version}: {campaign.name} (420-second limit)"
+    (← IO.getStdout).flush
     let env := baseEnv ++ #[("REGULA_COMPILER_QUALIFICATION",
       if campaign.diagnostic then some "1" else none)]
     let out ← IO.Process.output {
@@ -139,6 +140,7 @@ private def qualify (root candidate : FilePath) : IO UInt32 := do
     writeReceipt results false
     unchanged
     IO.println s!"  exit {out.exitCode}; {metadata / s!"{campaign.name}.log"}"
+    (← IO.getStdout).flush
     if campaign.name == "build" && out.exitCode != 0 then break
   unchanged
   writeReceipt results true

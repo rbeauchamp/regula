@@ -1070,6 +1070,9 @@ private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Na
   if structural.isEmpty && failCount == 0 then
     failures := failures.push "scanner/corpus: malformed corpus unexpectedly passed"
   for (name, _, expected) in fenceCorpusCases repo do
+    let expected := expected.replace " PASS_TRUSTED" (" " ++ statusName .passTrusted)
+      |>.replace " PASS_NEG" (" " ++ statusName .passNegative)
+      |>.replace " PASS" (" " ++ statusName .pass)
     if !(fenceOriginOutput output s!"{name}.md").contains expected then
       failures :=
           failures.push s!"scanner/corpus/{name}: missing diagnostic {repr expected}:\n{output}"
@@ -2221,7 +2224,7 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
       "```lean\nimport AuditApp.Limiter\n\ntheorem fence_uses_owned : 1 = 1 := rfl\n```\n"
     let result ← runScrubbed dir "docFenceAudit"
       #["--jobs", "4", "--docs-root", corpus.toString]
-    if !result.succeeded || !result.output.contains "conforming-positive-pass=1/1" then
+    if !result.succeeded || !result.output.contains s!"{Documentation.positiveSummary}=1/1" then
       failures.modify (·.push
         s!"fence-env/doc-fences: fence importing an owned module failed from unbuilt \
           state:\n{result.output}")
@@ -2802,7 +2805,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
         else if phase == "invalid-source" || phase == "invalid-companion" then
           !result.succeeded && result.output.contains "project-axiom"
             && !(result.output.contains "fence compilation: start")
-        else result.succeeded && result.output.contains "conforming-positive-pass=1/1"
+        else result.succeeded && result.output.contains s!"{Documentation.positiveSummary}=1/1"
       if !accepted then failures := failures.push s!"combined snapshot/{phase}: {result.output}"
     return failures
 
