@@ -79,13 +79,13 @@ runs:
         path: |
           .lake/packages
           ~/.cache/mathlib-packages
-        key: lean-dependencies-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ steps.dependency-plan.outputs.mode == 'source' && hashFiles('audit/**', 'docs/**', 'website/**/*.lean', 'lean/Regula/DependencyScope.lean', 'lean/RegulaProvision.lean', 'lakefile.lean') || hashFiles('audit/lake-manifest.json', 'audit/lakefile.lean') }}
+        key: lean-dependencies-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ steps.dependency-plan.outputs.scope }}-${{ hashFiles('audit/lake-manifest.json', 'audit/lakefile.lean') }}
 
     # Run from the repository root: `cache get` unpacks Mathlib's dependencies' archives
     # relative to its working directory (`.lake/packages/<name>`), not the `audit/`
     # workspace's packages directory, so this lands them in the shared root one.
-    - name: Provision Mathlib artifacts on cache miss
-      if: inputs.dependencies == 'true' && steps.dependencies.outputs.cache-hit != 'true'
+    - name: Provision or admit Mathlib artifacts
+      if: inputs.dependencies == 'true' && (steps.dependencies.outputs.cache-hit != 'true' || steps.dependency-plan.outputs.mode == 'source')
       shell: bash
       run: lean --run lean/RegulaProvision.lean mathlib
 
