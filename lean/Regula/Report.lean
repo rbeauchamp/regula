@@ -144,9 +144,24 @@ instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
   }⟩
 
 /-- The Lean-semantic record of one owned constant (`RegulaPolicy.Declaration`), with its
-exact-field JSON codec. -/
+exact-field JSON codec. The `ranges` member is the pair Lean recorded (`recordedRanges`); the
+admitted pair (`RegulaPolicy.Declaration.ranges`) is computed from it and is not transported. -/
 abbrev Declaration := RegulaPolicy.Declaration
-deriving instance ToJson for RegulaPolicy.Declaration
+instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
+  ("name", toJson d.name), ("module", toJson d.module), ("kind", toJson d.kind),
+  ("type", toJson d.type), ("prettyType", toJson d.prettyType), ("isProp", toJson d.isProp),
+  ("isUnsafe", toJson d.isUnsafe), ("isPartial", toJson d.isPartial),
+  ("safety", toJson d.safety), ("instance", toJson d.instance),
+  ("noncomputable", toJson d.noncomputable), ("implementedBy", toJson d.implementedBy),
+  ("extern", toJson d.extern), ("internal", toJson d.internal), ("private", toJson d.private),
+  ("projection", toJson d.projection), ("matcher", toJson d.matcher),
+  ("recursive", toJson d.recursive), ("unsafeRecBase", toJson d.unsafeRecBase),
+  ("levelParams", toJson d.levelParams), ("all", toJson d.all), ("hints", toJson d.hints),
+  ("valueConstants", toJson d.valueConstants),
+  ("unsafeRecRegenerated", toJson d.unsafeRecRegenerated),
+  ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
+  ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
+  ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract)]⟩
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
@@ -180,7 +195,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     unsafeRecRegenerated := ← j.getObjValAs? _ "unsafeRecRegenerated"
     nativeStatement := ← j.getObjValAs? _ "nativeStatement"
     nativeReplay := ← j.getObjValAs? _ "nativeReplay"
-    ranges := ← j.getObjValAs? _ "ranges"
+    recordedRanges := ← j.getObjValAs? _ "ranges"
     generatedFrom := ← j.getObjValAs? _ "generatedFrom"
     axioms := ← j.getObjValAs? _ "axioms"
     executableContract := ← j.getObjValAs? _ "executableContract"

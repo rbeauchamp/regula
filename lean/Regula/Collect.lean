@@ -1011,7 +1011,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     unsafeRecRegenerated
     nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
-    ranges := ranges?.map rangesReport
+    recordedRanges := ranges?.map rangesReport
     generatedFrom := ← liftTermElabM (generatedFrom? name)
     axioms := RegulaPolicy.canonicalNames axioms
     executableContract := ← executableContract? env scope info

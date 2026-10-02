@@ -235,13 +235,16 @@ theorem Environment.resultJson_imports_independent (r : Environment) (modules : 
       r.resultJson kernelTypes := rfl
 
 /-- Every owned source binding is unique, located, loaded and covers each claimed
-module and each declaration's ranges. -/
+module and each declaration's ranges: its admitted ranges (`Declaration.ranges`) and the
+selection range Lean recorded (`Declaration.recordedRanges`), which the admitted pair drops when
+it leaves the full range. -/
 def Environment.sourceEvidenceOK (r : Environment) : Bool :=
   (canonicalNames (r.sourceBindings.map (·.moduleName))).size == r.sourceBindings.size &&
     r.sourceBindings.all (fun s => !s.path.isEmpty && r.modules.contains s.moduleName) &&
     r.census.modules.all (fun m => r.sourceBindings.any (·.moduleName == m)) &&
     r.declarations.all (fun d => r.sourceBindings.any (fun s => s.moduleName == d.module &&
-      d.ranges.all (·.validFor s.content)))
+      d.ranges.all (·.validFor s.content) &&
+      d.recordedRanges.all (·.selectionRange.validFor s.content)))
 
 /-- Succeed when `sourceEvidenceOK` holds, and otherwise fail with a `producer-source`
 admission failure. -/
@@ -464,6 +467,15 @@ def Environment.SourceEvidenceSound (r : Environment) : Prop :=
   (∀ d ∈ r.declarations, ∃ s ∈ r.sourceBindings, s.moduleName = d.module ∧
     ∀ range, d.ranges = some range → range.validFor s.content = true)
 
+/-- Every declaration has a source binding of its module in which the full range and the
+selection range Lean recorded for it (`Declaration.recordedRanges`) are valid.
+`SourceEvidenceSound` states this of the admitted pair, which drops a recorded selection range
+that leaves the full range. -/
+def Environment.RecordedRangesSound (r : Environment) : Prop :=
+  ∀ d ∈ r.declarations, ∃ s ∈ r.sourceBindings, s.moduleName = d.module ∧
+    ∀ range, d.recordedRanges = some range →
+      range.range.validFor s.content = true ∧ range.selectionRange.validFor s.content = true
+
 /-- The replay receipt exists, admits exactly its unique requirements, each a key of one of its
 unique replayed modules or of a reused module, replays or reuses every claimed module, requires
 every safe total declaration, and lists no module as both replayed and reused. That a key of a
@@ -550,7 +562,7 @@ def Environment.HistoryEdgesSound (r : Environment) : Prop :=
 /-- Everything a successful transport validation establishes about a report. -/
 def Environment.Admissible (r : Environment) : Prop :=
   r.CensusSound ∧ r.ExecutionCensusSound ∧ ExecutionValid r.execution ∧
-  r.SourceEvidenceSound ∧ r.AdmissionSound ∧ r.DocumentationSound ∧
+  r.SourceEvidenceSound ∧ r.RecordedRangesSound ∧ r.AdmissionSound ∧ r.DocumentationSound ∧
   r.HistoryRequestsSound ∧ r.HistoriesSound ∧ r.ReplacementsSound ∧
   r.ClosureAccountSound ∧ r.HistoryEdgesSound
 
@@ -590,8 +602,34 @@ theorem sourceEvidenceSound_of (r : Environment) (h : r.validateSourceEvidence =
     decide_eq_true_eq, Array.any_eq_true', and_assoc, ite_throw_eq_ok, pure_eq_ok, and_true] at h
   obtain ⟨h₁, h₂, h₃, h₄⟩ := h
   refine ⟨nodup_of_canonicalNames_size _ (by simpa using h₁), h₂, h₃, fun d hd => ?_⟩
-  obtain ⟨s, hs, hm, hr⟩ := h₄ d hd
+  obtain ⟨s, hs, hm, hr, -⟩ := h₄ d hd
   exact ⟨s, hs, hm, (Option.all_eq_true _ _).mp hr⟩
+
+/-- Admitted source evidence also holds every range Lean recorded, not only the admitted pair:
+each declaration's recorded full and selection ranges are valid in its module's source. With
+`sourceEvidenceSound_of` this is all of the requirement on the recorded pair that reads the
+source (`Ranges.validForLines_iff_admitted`): what it no longer includes is that the recorded
+selection range lies within the recorded full range. -/
+theorem recordedRangesValid_of (r : Environment) (h : r.validateSourceEvidence = .ok ()) :
+    r.RecordedRangesSound := by
+  unfold Environment.validateSourceEvidence at h
+  simp only [Environment.sourceEvidenceOK, Array.contains_eq_mem, Bool.and_eq_true, beq_iff_eq,
+    Array.all_eq_true', Bool.not_eq_eq_eq_not, Bool.not_true, String.isEmpty_eq_false_iff, ne_eq,
+    decide_eq_true_eq, Array.any_eq_true', and_assoc, ite_throw_eq_ok, pure_eq_ok, and_true] at h
+  intro d hd
+  obtain ⟨s, hs, hm, admitted, selection⟩ := h.2.2.2 d hd
+  refine ⟨s, hs, hm, fun range recorded => ?_⟩
+  simp only [RegulaPolicy.Declaration.ranges, recorded, Option.map_some, Option.all_some]
+    at admitted selection
+  refine ⟨?_, selection⟩
+  have full := RegulaPolicy.Ranges.admitted_validForLines range (s.content.splitOn "\n")
+  change range.admitted.validFor s.content = _ at full
+  rw [admitted] at full
+  cases nested : range.nested
+  · simp only [nested, Bool.false_eq_true, ↓reduceIte] at full
+    exact full.symm
+  · simp only [nested, ↓reduceIte] at full
+    exact (RegulaPolicy.Ranges.validForLines_parts full.symm).1
 
 private theorem mem_of_foldl_insert {l : List (Name × Name)} {s : Std.HashSet (Name × Name)}
     {k : Name × Name} (h : (l.foldl (fun s k => s.insert k) s).contains k = true) :
@@ -801,6 +839,7 @@ theorem validate_sound (r : Environment) (h : r.validate = .ok ()) : r.Admissibl
   have roots := fun root hroot => validateRoot_eq_ok r root (hroots root hroot)
   exact ⟨censusSound_of r hm hd, executionCensusSound_of r he,
     (admitExecution_preserves _ i hi).2, sourceEvidenceSound_of r hs,
+    recordedRangesValid_of r hs,
     admissionSound_of r receipt hr hro, documentationSound_of r docs hdo hdok,
     historyRequestsSound_of r hq, historiesSound_of r hh,
     fun root hroot b hb hk => replacementBoundary_sound r root b ((roots root hroot).1 b hb) hk,
