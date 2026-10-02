@@ -2,14 +2,14 @@ import RegulaCore.Toolchain
 
 /-! # Selected compiler identity
 
-Resolve an Elan toolchain selector to its `lean` executable and read the version and commit
-that compiler reports about itself. The development toolchain driver and `regula doctor` share
-this. `elan run` installs a known release that is missing, so a selector is first resolved to
-a toolchain `elan toolchain list` names, and only that name is run: a selector naming none is
-refused, and a release channel such as `stable` names none. Elan's listing, that it runs a
-toolchain it lists without installing, its naming of release selectors, process execution and
-the compiler's self-report are trusted; a compiler built from a tree with uncommitted changes
-reports that tree's commit, with no marker for them. -/
+Resolve an Elan toolchain selector to its `lean` executable and read its version, commit and
+origin-checked Core capability. The development toolchain driver and `regula doctor` share
+this. A selector is resolved only to a toolchain `elan toolchain list` names, spelled as the
+selector or as its release name (`installedName?`), and only that listed name is run, without
+Elan's `--install`: a selector naming none is refused, and no channel is resolved and nothing
+is installed. Elan's listing, that it runs a listed toolchain without installing, its naming of
+release selectors, process execution and the compiler's self-report are trusted; a compiler built
+from a tree with uncommitted changes reports that tree's commit, with no marker for them. -/
 
 namespace Regula.Toolchain
 open System
@@ -21,8 +21,8 @@ def compilerEnv : Array (String × Option String) :=
       (fun name => (name, none))
 
 /-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
-`elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`,
-which would install any other known release. -/
+`elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`, without
+`--install`. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
   let listed ← IO.Process.output {
     cmd := "elan", args := #["toolchain", "list"], cwd := some root, env := compilerEnv }
@@ -47,15 +47,25 @@ def selectedEnv (selector : String) (lean : FilePath) : IO
   return compilerEnv ++ #[("ELAN_TOOLCHAIN", some selector),
     ("PATH", some (System.SearchPath.toString (bin :: inherited)))]
 
-/-- The identity the compiler that `selector` resolves to reports, admitted by `parseIdentity`. -/
+/-- The selected compiler's identity and isolated Core capability, admitted by `parseIdentity`.
+The embedded observer is also the collector's source; Lake tracks it as a library input.
+It runs as a standalone program in an automatically removed temporary directory. -/
 def probe (root : FilePath) (selector : String) : IO Identity := do
   let lean ← selectedLean root selector
-  let out ← IO.Process.output {
-    cmd := lean.toString, args := #["--stdin"], cwd := some root
-    env := ← selectedEnv selector lean }
-    (some "#eval IO.println Lean.versionString\n#eval IO.println Lean.githash\n")
-  unless out.exitCode == 0 do
-    throw <| IO.userError s!"compiler probe failed: {out.stdout}{out.stderr}"
-  IO.ofExcept (parseIdentity out.stdout)
+  IO.FS.withTempDir fun scratch => do
+    let source := scratch / "Identity.lean"
+    IO.FS.writeFile source ((include_str "CompilerObservation.lean") ++ "\n\
+      def main : IO Unit := do\n\
+      \x20 let capability ← Regula.CompilerObservation.legacyPresent \
+        (← Lean.getLibDir (← Lean.getBuildDir))\n\
+      \x20 IO.println Lean.versionString\n\
+      \x20 IO.println Lean.githash\n\
+      \x20 IO.println (if capability then \"present\" else \"absent\")\n")
+    let out ← IO.Process.output {
+      cmd := lean.toString, args := #["--run", source.toString], cwd := some root
+      env := ← selectedEnv selector lean }
+    unless out.exitCode == 0 do
+      throw <| IO.userError s!"compiler probe failed: {out.stdout}{out.stderr}"
+    IO.ofExcept (parseIdentity out.stdout)
 
 end Regula.Toolchain
