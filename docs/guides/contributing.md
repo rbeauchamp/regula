@@ -117,6 +117,11 @@ the full pinned Mathlib library and its exported native objects with that compil
 artifacts have a separate `-source` shared-directory suffix; their receipt must record source
 mode. Old receipts without a mode describe the upstream-cache route and cannot admit source
 requests. Missing configuration retains that route; an unknown spelling is refused.
+Each source invocation also receives a fresh artifact-cache directory under
+`.lake/regula-source-caches/`, disables Lake's separate artifact-cache default, and requests
+restoration of outputs to package build directories. A package's explicit cache setting can
+override those defaults, so the isolated cache is retained with the workspace; it has no
+inherited remote mappings. Package build hooks remain trusted code.
 
 Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso in either mode.
 For direct development commands on a source adaptation, use
