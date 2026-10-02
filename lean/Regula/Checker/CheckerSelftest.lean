@@ -2786,8 +2786,11 @@ private def runBuildPolicy (repo : FilePath) (jobs : Nat)
     IO.println <| "self-test build policy linter: " ++
       (if buildLint.isEmpty then "PASS" else "FAIL")
 
-/-- `lake lint` driver controls: Lake dispatch in both lakefile formats and exit classes.
-The shared audit body's detectors are qualified by the build-policy partition. -/
+/-- `lake lint` driver controls: Lake dispatch in both lakefile formats and exit classes, and
+the cold compiler guard of `lakefile.lean`, which refuses an inherited `LEAN_SYSROOT` child
+that fails and one that succeeds without reporting the running compiler's identity, then loads
+the same package again. The shared audit body's detectors are qualified by the build-policy
+partition. -/
 private def runLintDriver (repo : FilePath) (jobs : Nat)
     (failures : IO.Ref (Array String)) : IO Unit := do
   withScratch repo "checker-lake-lint" fun scratch => do
