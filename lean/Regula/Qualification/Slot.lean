@@ -412,7 +412,7 @@ def prepareSlot (originalRoot : FilePath) (slot : ProducerSlot)
         let name ← IO.ofExcept (entry.getObjValAs? String "name")
         let some dep := deps.find? (·.package == name)
           | throw <| IO.userError s!"slot manifest package without captured dependency: {name}"
-        pure (entry.setObjVal! "dir" (.str dep.root.toString))
+        pure ((entry.setObjVal! "dir" (.str dep.root.toString)).setObjVal! "copy" (.bool false))
     IO.FS.writeFile manifestPath
       ((manifest.setObjVal! "packages" (toJson relocated)).compress ++ "\n")
     provenance := provenance.push ⟨"root/lake-manifest.json", "config", "relocated"⟩
@@ -473,21 +473,12 @@ def prepareSlotProject (slot : ProducerSlot) (project : FilePath)
   let manifest ← readJson (slot.root / "root" / "lake-manifest.json")
   let packages ← IO.ofExcept (manifest.getObjValAs? (Array Json) "packages")
   -- Genuine path-class entries: `regula` at the slot-private ROOT copy, and
-  -- each inherited entry at the `dir` that `prepareSlot` relocated to its captured
-  -- shared dependency root. Neither is copied per producer. Pinned Lake
-  -- v4.34.0 (`Lake/Load/Manifest.lean`: `PackageEntry.fromJson?`,
-  -- v4.34.0 :123-153) decodes `type: "path"` (requiring
-  -- name/type/inherited/dir) to an in-place filesystem source and ignores
-  -- unknown keys; `Lake/Load/Materialize.lean`'s `.path` branch
-  -- (v4.34.0 :180) then materializes with no remote fetch (the `.git` branch
-  -- is v4.34.0 :183). `Lake/Load/Resolve.lean` materializes every entry by
-  -- class (v4.34.0 :310/:322/:613; `resolveDepsCore` at :625). Pin fields
-  -- (url/rev/inputRev) are retained as inert provenance in the captured
-  -- manifest bytes. Path entries replace the inherited `type: "git"` entries,
-  -- which would materialize (clone/copy) into each fresh workspace's own
-  -- `.lake/packages`.
+  -- each inherited entry at the captured shared dependency root. Explicit copy=false
+  -- retains in-place materialization on Lake versions with copied path dependencies;
+  -- older Lake ignores that field. Git pin fields remain inert provenance.
   let packages := packages.map (fun entry =>
-    (entry.setObjVal! "inherited" (.bool true)).setObjVal! "type" (.str "path")) |>.push
+    let entry := (entry.setObjVal! "inherited" (.bool true)).setObjVal! "type" (.str "path")
+    entry.setObjVal! "copy" (.bool false)) |>.push
         (Json.mkObj [
     ("name", .str "regula"), ("scope", .str ""), ("type", .str "path"),
     ("dir", .str (slot.root / "root").toString), ("configFile", .str "lakefile.lean"),

@@ -53,6 +53,10 @@
   ],
   "excluded-executables": [
     {
+      "executable": "toolchain",
+      "rationale": "Development compiler adaptation driver. RegulaCore.Toolchain proves its identity parsing and campaign completion decisions; Git, Elan, compiler self-reports, filesystem and process observations remain trusted. Its receipts grant no compiler support or audit authority."
+    },
+    {
       "executable": "qualify",
       "rationale": "Operational qualification dispatcher and IO adapters in the excluded Regula library. It invokes proved observation oracles from the positive RegulaQualification library; filesystem, process and compiler observations are not authenticated by those proofs."
     },

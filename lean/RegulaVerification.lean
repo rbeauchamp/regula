@@ -154,7 +154,7 @@ def commands : Mode → List Command
   | .ordinary => [
       lake
           #["build", "RegulaPolicy", "RegulaCore", "RegulaQualification", "axiomGate",
-              "docFenceAudit", "qualify",
+              "docFenceAudit", "qualify", "toolchain",
         "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
         "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
         "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
