@@ -349,15 +349,22 @@ metadata, not authenticated binary identity.
   `FAIL` summary into one count; the JSON keeps them one per declaration, in the same order
   (`groupFindings_flatten`).
 - **Execution findings:** a root's account can hold two boundaries for one replaced
-  implementation: that of a constant compiled to a `partial` definition (a `csimp` candidate or
-  an `implemented_by` replacement whose target is one, or an opaque constant with its
-  `_unsafe_rec` helper) and that definition's own. Where both are trusted and neither is the
-  toolchain's, the RG3002 diagnostic of the first names the second in its `detail`
+  implementation: that of a constant and that of the `partial` implementation it names as the
+  code run in its place. A `partial` implementation is a constant of `partial` definition safety:
+  the one a metaprogram such as Mathlib's `compile_inductive%` adds, named as the target of a
+  `csimp` candidate or an `implemented_by` replacement, or the `_unsafe_rec` helper Lean
+  generates for a `partial def`, named by a helper edge from that `partial def`'s opaque
+  constant. Where both are trusted and neither is the toolchain's, the RG3002 diagnostic of the
+  first names the second in its `detail`
   (`…, with its implementation NAME (partial-computation)`), and the second has no diagnostic
   and no count of its own, in text and JSON alike (`RegulaPolicy.executionFindings`,
-  `failure_reported`, `executionFindings_empty_iff`). A later record of one trusted boundary
+  `failure_reported`, `executionFindings_empty_iff`). A `partial def` named as the target of a
+  candidate or replacement is that opaque constant, not a `partial` implementation
+  (`RegulaPolicy.ExecutionRoot.foldable`): it keeps its own diagnostic and count, and only its
+  helper is reported with it. A later record of one trusted boundary
   (the same constant, kind, replacement and toolchain origin, as two constants of one equality's
-  type give a `csimp` candidate) likewise has no diagnostic and no count of its own. Both
+  type give a `csimp` candidate) likewise has no diagnostic and no count of its own: it is
+  reported and counted with the first. Both
   relations are read from the account's members and helper edges, not from a name. `scope`
   keeps every boundary record in the root's account, and the decision's records
   (`executionFailureRecords`) one failure for each.
@@ -378,7 +385,9 @@ metadata, not authenticated binary identity.
   implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
   per-environment `executionSummary` counts (named `execution` before schema 8, when the writer
   began storing every `execution` member's root accounts once; `boundaries`, `checked` and
-  `trusted` range over the boundaries reported on their own, `RegulaPolicy.checked_summary`),
+  `trusted` range over the boundaries reported on their own, so a later record of one trusted
+  boundary and a `partial` implementation reported with the boundary that runs it are counted
+  with that boundary, not again, `RegulaPolicy.checked_summary`),
   `fences` by expectation,
   `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's
   `mode` is the account's, and a listed identifier names an open obligation, not a completed

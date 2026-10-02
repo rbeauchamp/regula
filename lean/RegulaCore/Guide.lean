@@ -846,16 +846,21 @@ def guide : RuleId → Guide
           Such a boundary is the toolchain's trusted base: it passes and is reported once for the \
           whole audit, with every environment and root that reaches it, in the audit's toolchain \
           trusted base.",
-        "A `partial` definition that a trusted boundary names as the code run in its place is \
-          reported with that boundary where both are trusted and neither is the toolchain's, as \
-          one finding that names both and one counted boundary: the target of a `csimp` \
-          candidate or of an `implemented_by` replacement (such as the implementation Mathlib's \
-          `compile_inductive%` registers for a recursor), or the helper Lean compiles a \
-          `partial def` through. A second record of one trusted boundary (the same constant, \
-          kind, replacement and toolchain origin, as two constants of one equality's type give \
-          a `csimp` candidate) is reported with the first in the same way. The account in \
-          `--json-out` keeps every record, and `--verbose` lists the definition under its \
-          boundary as its `implementation` and a later record as `restated`.",
+        "A `partial` implementation that a trusted boundary names as the code run in its place \
+          is reported with that boundary where both are trusted and neither is the toolchain's, \
+          as one finding that names both and one counted boundary. A `partial` implementation is \
+          a constant of `partial` definition safety: the implementation a metaprogram such as \
+          Mathlib's `compile_inductive%` adds for a recursor, named as the target of a `csimp` \
+          candidate or of an `implemented_by` replacement, or the `_unsafe_rec` helper Lean \
+          generates for a `partial def`, named by that `partial def`'s own boundary. A \
+          `partial def` named as the target of a candidate or replacement is not one: it is an \
+          opaque constant compiled through that helper, so it keeps its own finding and count, \
+          and only its helper is reported with it. A second record of one trusted boundary (the \
+          same constant, kind, replacement and toolchain origin, as two constants of one \
+          equality's type give a `csimp` candidate) is reported and counted with the first in \
+          the same way. The account in `--json-out` keeps every record, and `--verbose` lists \
+          the implementation under its boundary as its `implementation` and a later record as \
+          `restated`.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
           logical axioms and no extra premises."]
@@ -869,11 +874,11 @@ def guide : RuleId → Guide
           kernel-admitted correspondence; each one without it has a failure record in every root \
           whose account contains it (`RegulaPolicy.project_boundary_reported`).",
         "Every such failure record is reported: as its boundary's own finding, or, for a \
-          `partial` definition reported with the boundary that runs it, in that boundary's \
+          `partial` implementation reported with the boundary that runs it, in that boundary's \
           finding, which names it, or, for a later record of a trusted boundary, in the finding \
-          of the first record (`RegulaPolicy.failure_reported`). Every finding is a record \
-          (`RegulaPolicy.executionFindings_sound`), and the findings are empty exactly when the \
-          records are (`RegulaPolicy.executionFindings_empty_iff`).",
+          that reports the first record (`RegulaPolicy.failure_reported`). Every finding is a \
+          record (`RegulaPolicy.executionFindings_sound`), and the findings are empty exactly \
+          when the records are (`RegulaPolicy.executionFindings_empty_iff`).",
         "Each toolchain-owned boundary of every environment an audit inspects is in exactly one \
           entry of the audit's toolchain trusted base, which lists exactly the environments and \
           roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]

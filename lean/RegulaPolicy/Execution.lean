@@ -156,18 +156,26 @@ each constant whose type is that equality, so two such constants give two record
 replacement: the same constant, kind, replacement, correspondence and toolchain origin, differing
 only in the candidate they cite as evidence.
 
-*A `partial` implementation.* The boundary of a constant whose compiled code is a `partial`
-definition already trusts, without checked correspondence, that the definition's code runs in the
-constant's place; the definition's own partial-computation boundary adds that it is `partial`.
-Three recorded relations give such a pair: a `csimp` candidate whose target is a `partial`
-definition (the implementation Mathlib's `compile_inductive%` registers for a recursor), an
-`implemented_by` replacement whose target is one, and an opaque constant with the `partial` helper
-Lean compiles it through (an author's `partial def` and its `_unsafe_rec`).
+*A `partial` implementation.* A `partial` implementation is a constant of `partial` definition
+safety (`DefinitionSafety.partial`): the implementation a metaprogram such as Mathlib's
+`compile_inductive%` adds for a recursor, or the `_unsafe_rec` helper Lean generates for a
+`partial def`. The account records one as a partial-computation boundary whose constant is the
+source of no helper edge (`ExecutionRoot.foldable`). The boundary of a constant whose compiled
+code is such an implementation already trusts, without checked correspondence, that the
+implementation's code runs in the constant's place; the implementation's own boundary adds that
+it is `partial`. Three recorded relations give such a pair: a `csimp` candidate whose target is a
+`partial` implementation, an `implemented_by` replacement whose target is one, and an opaque
+constant with the `partial` helper Lean compiles it through (an author's `partial def` and its
+`_unsafe_rec`). An author's `partial def` is not itself a `partial` implementation: it is that
+opaque constant, recorded under the same kind with a helper edge from it. Named as the target of
+a `csimp` candidate or an `implemented_by` replacement, it keeps its own finding and count, and
+only its helper is reported with it.
 
 The account keeps every record, and the decision's records (`executionFailureRecords`) one failure
 for each. The findings (`executionFindings`) and the coverage counts (`executionSummary`) report a
-restated boundary with the first record of it and an implementation with the boundary that runs
-it: one finding, which names the implementation, and one counted boundary. Both relations are read
+restated boundary with the first record of it and a `partial` implementation with the boundary
+that runs it, where both are trusted and neither is the toolchain's: one finding, which names the
+implementation, and one counted boundary. Both relations are read
 from the account's own members and edges, which the collector takes from the declared equalities,
 the `implemented_by` attribute and the compiler's helper lookup; no name is parsed. Only trusted
 records are folded, and a folded record fails and passes with the record it is reported with
@@ -187,18 +195,22 @@ def ExecutionRoot.repeated (r : ExecutionRoot) (b : ExecutionBoundary) : Bool :=
   b.correspondence == .trusted &&
     r.boundaries.any fun a => a.occurrence < b.occurrence && a.restates b
 
-/-- `b` is the boundary of a `partial` definition that the project or a dependency owns: a
-trusted partial-computation boundary with no toolchain origin, whose constant is the source of no
-helper edge. The account records an opaque constant compiled through a partial helper under the
-same kind (`BoundaryKind.partialComputation`), with a helper edge from it
-(`ExecutionClosure.helperEdges`); that boundary is not foldable. -/
+/-- `b` is the boundary the account records for a `partial` implementation (a constant of
+`partial` definition safety) that the project or a dependency owns: a trusted partial-computation
+boundary with no toolchain origin, whose constant is the source of no helper edge. The account
+records an opaque constant compiled through a partial helper (an author's `partial def`) under
+the same kind (`BoundaryKind.partialComputation`), with a helper edge from it
+(`ExecutionClosure.helperEdges`); that boundary is not foldable, whichever boundary names its
+constant. -/
 def ExecutionRoot.foldable (r : ExecutionRoot) (b : ExecutionBoundary) : Bool :=
   b.boundary == .partialComputation && b.correspondence == .trusted &&
     b.toolchainOrigin?.isNone && !r.closure.helperEdges.any (·.1 == b.name)
 
 /-- Boundary `a` of root `r` carries boundary `b`: `a` names `b`'s constant as the code that
 runs in its place, by its replacement or, for an opaque constant, by a helper edge; `a` is
-trusted, has no toolchain origin and is not itself foldable; and `b` is foldable. -/
+trusted, has no toolchain origin and is not itself foldable; and `b` is foldable. A boundary
+whose replacement names an author's `partial def` does not carry it, because that opaque
+constant's boundary is not foldable; the `partial def`'s own boundary carries its helper. -/
 def ExecutionRoot.carries (r : ExecutionRoot) (a b : ExecutionBoundary) : Bool :=
   (a.replacement == some b.name ||
       (a.boundary == .partialComputation && r.closure.helperEdges.contains (a.name, b.name))) &&
@@ -305,8 +317,9 @@ theorem ExecutionRoot.first_record (r : ExecutionRoot) {b : ExecutionBoundary}
 /-- **What is folded, and with what it is reported.** Every boundary `b` of a root is, or
 restates, a boundary `b'` of the root that is itself reported on its own or is an implementation
 of a boundary reported on its own. So a boundary without a finding or a count of its own is a
-later record of a trusted boundary that has them, or a trusted `partial` definition that the
-toolchain does not own (or a later record of one) carried by a boundary that has them. -/
+later record of a trusted boundary that has them, or a trusted `partial` implementation
+(`ExecutionRoot.foldable`) that the toolchain does not own (or a later record of one) carried by
+a boundary that has them. -/
 theorem ExecutionRoot.boundary_reported (r : ExecutionRoot) {b : ExecutionBoundary}
     (hb : b ∈ r.boundaries) :
     ∃ a ∈ r.reported, ∃ b' ∈ r.boundaries, (b' = b ∨ b'.restates b = true) ∧
@@ -569,11 +582,14 @@ structure ExecutionSummary where
   /-- The number of execution-root observations. -/
   roots : Nat
   /-- The number of boundary observations reported on their own, over all roots
-  (`ExecutionRoot.reported`). -/
+  (`ExecutionRoot.reported`). A folded observation (`ExecutionRoot.folded`), a later record of
+  one trusted boundary of its root or a `partial` implementation reported with the boundary that
+  runs it, is counted with the boundary it is reported with, not again. -/
   boundaries : Nat
   /-- The number of those boundary observations with checked correspondence. -/
   checked : Nat
-  /-- The number of those boundary observations with trusted correspondence. -/
+  /-- The number of those boundary observations with trusted correspondence. Every folded
+  observation is trusted (`ExecutionRoot.folded_trusted`). -/
   trusted : Nat
   /-- The number of unresolved diagnostics: unresolved root paths plus unresolved boundaries. -/
   unresolved : Nat
@@ -584,14 +600,17 @@ def ExecutionInventory.boundaries (inventory : ExecutionInventory) : Array Execu
   inventory.roots.flatMap (·.boundaries)
 
 /-- Every boundary observation reported on its own (`ExecutionRoot.reported`), in root order,
-without deduplication: the account's boundaries without each `partial` implementation that is
-reported with the boundary that runs it. -/
+without deduplication across roots: the account's boundaries without each folded one
+(`ExecutionRoot.folded`), which is a later record of one trusted boundary of its root, reported
+with the first, or a `partial` implementation reported with the boundary that runs it. -/
 def ExecutionInventory.reported (inventory : ExecutionInventory) : Array ExecutionBoundary :=
   inventory.roots.flatMap (·.reported)
 
 /-- Required meaning of the rendered counts. Roots and boundaries count observations, not
-distinct runtime paths, and a `partial` implementation reported with the boundary that runs it
-is counted with that boundary, not again (`ExecutionInventory.reported`). `unresolved` is the
+distinct runtime paths. The boundary counts range over the boundaries reported on their own
+(`ExecutionInventory.reported`): a later record of one trusted boundary of a root is counted
+with the first, and a `partial` implementation reported with the boundary that runs it is
+counted with that boundary, not again. `unresolved` is the
 number of unresolved diagnostics the execution decision reports, for every claim: each
 unresolved root path and each unresolved boundary. -/
 def SummaryContract (summary : ExecutionInventory → ExecutionSummary) : Prop :=
