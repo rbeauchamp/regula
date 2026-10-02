@@ -107,15 +107,22 @@ so copies wait while another copy creates a new pin.
   by the next run that creates one while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
-- GitHub Actions runs the same Lean-defined Mathlib plan in its own package directory. Its
-  cache keys include the exact compiler commit, artifact mode and pinned manifests. The
-  local-sharing command does nothing there. A shared directory is never modified, only removed whole.
+- GitHub Actions runs the same Lean-defined Mathlib plan. Source mode provisions the shared
+  read-only store and caches it alongside the package links. Its cache keys include the exact
+  compiler commit, artifact mode, pinned manifests and source-plan inputs. A shared directory
+  is never modified, only removed whole.
 
 `dependency-build-mode` contains `upstream-cache` on the stable branch. Compiler adaptations
-may select `source`, which disables automatic Lake and Mathlib artifact downloads and builds
-the full pinned Mathlib library and its exported native objects with that compiler. These
-artifacts have a separate `-source` shared-directory suffix; their receipt must record source
-mode. Old receipts without a mode describe the upstream-cache route and cannot admit source
+may select `source`, which disables automatic Lake and Mathlib artifact downloads. The planner
+reads the Audit libraries and the standard's Verso library through Lake, and uses the existing
+documentation scanners and Lean header parser to collect their Mathlib imports and those of
+the Markdown examples. Lake builds a generated executable with interpreter support, so it
+builds exported native objects for the complete transitive import closure. The planner itself
+uses a separate build directory, leaving the acceptance build cold. This is dependency setup;
+the acceptance commands still check all their sources and documentation.
+Source artifacts have a separate key containing their policy version and an import-source
+hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
+another scope. Old receipts without a mode describe the upstream-cache route and cannot admit source
 requests. Missing configuration retains that route; an unknown spelling is refused.
 Each source invocation also receives a fresh artifact-cache directory under
 `.lake/regula-source-caches/`, disables Lake's separate artifact-cache default, and requests
