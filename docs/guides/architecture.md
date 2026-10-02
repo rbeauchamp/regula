@@ -13,8 +13,8 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaPolicy` | Pure policy: domain types, admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
-| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
+| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
+| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the development-compiler qualification decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
 | `RegulaVerification`, `RegulaProvision`, `RegulaCompiler` | Toolchain-only acceptance runner, dependency provisioning and exact-compiler installation. Pure decision contracts surround trusted process and filesystem effects. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
@@ -30,7 +30,8 @@ examples can import their modules, each in its own helper process.
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
 `lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,
 `freshChecker` (optional serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples`
-and `ruleExampleQualification` (qualification), `site` (the rule reference) and `auditApp`.
+and `ruleExampleQualification` (qualification), `toolchain` (unqualified candidates for other
+compilers, [development toolchains](toolchains.md)), `site` (the rule reference) and `auditApp`.
 
 ## The rule registry
 
