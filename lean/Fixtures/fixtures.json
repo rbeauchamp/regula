@@ -57,6 +57,10 @@
   "expect": "pass",
   "claim": "standard-logical"
  },
+ "Fixtures.Positive.MeasuredRecursion": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
  "Fixtures.Positive.AliasedContract": {
   "expect": "pass",
   "claim": "standard-logical",
@@ -227,6 +231,14 @@
    "[VIOLATION[escape-hatch]] fixtures_dropped._unsafe_rec"
   ]
  },
+ "Fixtures.Mutations.KnownLimitReducibilityChange": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_local_irreducible._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_later_irreducible._unsafe_rec"
+  ]
+ },
  "Fixtures.Mutations.ForgedMatchElaborator": {
   "expect": "fail",
   "reason": "escape-hatch",
@@ -248,6 +260,15 @@
    "[OK] fixtures_shared_honest._unsafe_rec",
    "[OK] fixtures_shared_faithful._unsafe_rec",
    "[VIOLATION[escape-hatch]] fixtures_shared_divergent._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.MeasuredMatchUnsafeRecForge": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[OK] fixtures_forged_measured_honest._unsafe_rec",
+   "[OK] fixtures_forged_measured_faithful._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_measured_divergent._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.UnsafeDef": {

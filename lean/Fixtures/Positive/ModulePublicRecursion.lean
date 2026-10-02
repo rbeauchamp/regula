@@ -14,6 +14,12 @@ inductive, whose `DecidableEq` carries proofs. The same definitions
 `@[expose] public` and not public stand beside them. Exact match admits every
 helper: the comparison puts each theorem the regeneration abstracted back as
 its value and erases the proof, so neither its name nor its privacy takes part.
+
+Two forms of issue #183 are here too, `public` only: a `match` on the measured
+argument after an argument that also changes, and structural recursion on a
+later argument selected by `termination_by structural`. The regeneration is
+given each one's termination argument although Lean does not export the body:
+the relation from the base's value, the argument position from Lean's record.
 -/
 
 public def fixtures_module_positive (n : Nat) (_ : 0 < n) : Nat := n
@@ -66,6 +72,19 @@ termination_by (a, b)
     fixtures_module_positive a (by omega) + fixtures_module_two_args_exposed (a - 1) 5
   else fixtures_module_two_args_exposed a (b - 1)
 termination_by (a, b)
+
+public def fixtures_module_measured_later (index remaining : Nat) : Nat :=
+  match remaining with
+  | 0 => index
+  | count + 1 => fixtures_module_measured_later (index + 1) count
+termination_by remaining
+
+public def fixtures_module_structural_later (a b : Nat) : Nat :=
+  match a, b with
+  | _, 0 => a
+  | 0, _ => b
+  | a + 1, b + 1 => fixtures_module_structural_later a b + 1
+termination_by structural b
 
 public inductive FixturesModuleTree where
   | leaf (value : Nat)

@@ -393,14 +393,23 @@ def guide : RuleId → Guide
       configuration := [
         "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
       limitations := [
-        "A helper is not admitted where the regeneration does not reproduce its base: a \
-          structural recursion on an argument other than the first one Lean's automatic choice \
-          accepts (selectable by `termination_by structural`), a `partial_fixpoint` definition, \
-          a base compiled through a fixpoint combinator other than `WellFounded.fix` and \
-          `WellFounded.Nat.fix`, a base whose compilation used a `wf_preprocess` rule registered \
-          outside the Lean toolchain, or one elaborated with `set_option wf.preprocess false` or \
-          with a toolchain rule removed by `attribute [-wf_preprocess]` when a rule so disabled \
-          would have rewritten its body.",
+        "A helper is not admitted where the regeneration does not reproduce its base. The \
+          regeneration is given the helper's value and its base's termination argument, and it \
+          reruns Lean's structural and well-founded compilers in the environment the audit \
+          inspects (at the end of the audit) with Lean's default options and the toolchain's own \
+          rules, not with the options, rules and \
+          attributes in force where the definition was compiled. The forms known to fall outside \
+          are a `partial_fixpoint` definition, a base compiled through a fixpoint combinator other \
+          than `WellFounded.fix` and `WellFounded.Nat.fix`, a base whose compilation used a \
+          `wf_preprocess` rule registered outside the Lean toolchain, one elaborated with \
+          `set_option wf.preprocess false` or with a toolchain rule removed by \
+          `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
+          one for which the reducibility in force at the end of the audit differs from the \
+          reducibility in force where Lean elaborated the definition, so that the regeneration \
+          passes the recursive-call function through a `match` differently. That last form covers \
+          both an attribute local to the definition's section (`attribute [local irreducible]` on \
+          a function the measure calls) and a global attribute applied after the definition \
+          (`attribute [irreducible] g` after a definition measured through `g`).",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]

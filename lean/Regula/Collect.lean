@@ -240,6 +240,86 @@ private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Boo
     unless ← equalErased 100000 #[] value observed.value do return false
   return true
 
+/-- The relation of a well-founded fixpoint, as `WF.mkFix` of Lean 4.34.0 takes it: `w` of
+`WellFounded.fix α C w.1 hwf F`, and `invImage h Nat.lt_wfRel` of `WellFounded.Nat.fix α motive h
+F`, the one form of relation from which `mkFix` builds that fixpoint. -/
+private def fixpointRelation? (e : Expr) : Option Expr :=
+  let args := e.getAppArgs
+  if e.isAppOfArity ``WellFounded.Nat.fix 4 then
+    match e.getAppFn with
+    | .const _ [u, _] => some <| mkApp4 (.const ``invImage [u, 1]) args[0]! (mkConst ``Nat)
+        args[2]! (mkConst ``Nat.lt_wfRel)
+    | _ => none
+  else if e.isAppOfArity ``WellFounded.fix 5 then
+    match args[2]! with
+    | .proj ``WellFoundedRelation 0 relation => some relation
+    | _ => none
+  else none
+
+/-- Lean 4.34.0's `wfRecursion` up to the definitions it adds, with one change: the relation is
+the observed base's own. Where `wfRecursion` elaborates a relation from termination measures
+(`WF.elabWFRel`, which synthesizes a `WellFoundedRelation` instance in the current environment),
+this reads it from the fixpoint of the observed definition that has the name of the unary
+definition Lean packs the group into, less `root`, applied to the group's fixed parameters
+(`fixpointRelation?`). Every step is Lean's own function, in `wfRecursion`'s order; what
+`wfRecursion` does after adding the definitions (helper compilation, equation lemmas, attributes)
+is left out. Throws if the observed definition applies no such fixpoint. -/
+private def wfRegeneration (root : Name) (docCtx : LocalContext × LocalInstances)
+    (preDefs : Array PreDefinition) : TermElabM Unit := do
+  let names := preDefs.map (·.declName)
+  let preDefs ← preDefs.mapM fun preDef =>
+    return { preDef with value := (← WF.floatRecApp preDef.value) }
+  let (fixedParamPerms, argsPacker, unaryPreDef) ← withoutModifyingEnv do
+    for preDef in preDefs do
+      addAsAxiom preDef
+    let fixedParamPerms ← getFixedParamPerms preDefs
+    let varNamess ← preDefs.mapIdxM fun i preDef => WF.varyingVarNames fixedParamPerms i preDef
+    for varNames in varNamess, preDef in preDefs do
+      if varNames.isEmpty then
+        throwError "`{preDef.declName}` does not take any (non-fixed) arguments"
+    let argsPacker : Meta.ArgsPacker := { varNamess }
+    let numSectionVars := preDefs[0]!.numSectionVars
+    let unfolded ← preDefs.mapM fun preDef =>
+      return { preDef with
+        value := (← Meta.unfoldIfArgIsAppOf names numSectionVars preDef.value) }
+    return (fixedParamPerms, argsPacker, ← WF.packMutual fixedParamPerms argsPacker unfolded)
+  let processed ← withoutModifyingEnv do
+    addAsAxiom unaryPreDef
+    return { unaryPreDef with value := (← WF.preprocess unaryPreDef.value).expr }
+  let preDefNonRec ← Meta.forallBoundedTelescope unaryPreDef.type fixedParamPerms.numFixed
+    fun fixedArgs type => do
+      unless (← Meta.whnfForall type).isForall do
+        throwError "expected unary function type: {type}"
+      let some (.defnInfo observed) :=
+          (← getEnv).find? (unaryPreDef.declName.replacePrefix root .anonymous)
+        | throwError "no observed definition for {unaryPreDef.declName}"
+      unless observed.levelParams == unaryPreDef.levelParams do
+        throwError "level parameters of {observed.name} differ"
+      let some relation := fixpointRelation? (observed.value.beta fixedArgs)
+        | throwError "{observed.name} applies no well-founded fixpoint"
+      let (value, added) ← withoutModifyingEnv' do
+        addAsAxiom unaryPreDef
+        let value ← WF.mkFix processed fixedArgs argsPacker relation names
+          (preDefs.map (·.termination.decreasingBy?))
+        eraseRecAppSyntaxExpr value
+      return { processed with value := (← Meta.unfoldDeclsFrom added value) }
+  let preDefsNonRec ← WF.preDefsFromUnaryNonRec fixedParamPerms argsPacker preDefs preDefNonRec
+  Mutual.addPreDefsFromUnary (cacheProofs := false) docCtx preDefs preDefsNonRec preDefNonRec
+
+/-- The parameter Lean compiled the structurally recursive definition `base` on, as a function of
+the `arity` parameters of the observed type: the position Lean recorded for it
+(`Structural.eqnInfoExt`). `none` if Lean recorded none, or `base` is no definition with the level
+parameters `levelParams` and that many parameters. -/
+private def observedRecursionArgument? (base : Name) (levelParams : List Name) (arity : Nat) :
+    MetaM (Option TerminationMeasure) := do
+  let some recorded := Structural.eqnInfoExt.find? (← getEnv) base | return none
+  let some (.defnInfo observed) := (← getEnv).find? base | return none
+  unless observed.levelParams == levelParams do return none
+  Meta.forallBoundedTelescope observed.type arity fun params _ => do
+    unless params.size == arity do return none
+    let some argument := params[recorded.recArgPos]? | return none
+    return some { ref := .missing, structural := true, fn := ← Meta.mkLambdaFVars params argument }
+
 /-- The `wf_preprocess` rules of the running Lean toolchain: the global entries of the modules Lean
 loaded from the toolchain's own library directory, recognized by canonical path, since a module's
 name does not establish toolchain ownership. Rules a project or dependency adds are left out. -/
@@ -289,17 +369,27 @@ private def regenerationEnvironment (env : Environment) (rules : Meta.SimpTheore
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
 to the group's helpers standing for the recursive calls, and compare what it generates with the
-observed base and its auxiliary definitions (`regenerationMatches`). Structural recursion is tried
-first, with no hint; then well-founded recursion, with Lean's measure inference and every
-decreasing proof elided (`all_goals exact sorry`, on the raw goal), since the comparison erases
-proofs and the observed base's own kernel-checked value supplies them. The compiler runs in
-`regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is generated
-for them. A regeneration that reports an error does not count. Every change is undone before the
-comparison, which reads the observed definitions and decides erasure in the inspected environment:
-whatever code runs during a regeneration, only the definitions it adds are compared, each with the
-theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so the result
-does not depend on how Lean named or shared those theorems. A comparison that throws does not
-count either. A `checkerLimit?` reached is rethrown. -/
+observed base and its auxiliary definitions (`regenerationMatches`). The regeneration reads the
+termination argument of the observed bases, since the value a compiler generates depends on it:
+the well-founded compiler passes the recursive-call function through a `match` where that
+function's type, which holds the relation and the measure, changes in an alternative. Structural
+recursion is tried first with Lean's automatic choice, then, where that does not match and Lean
+recorded an argument position for a base, on the recorded positions (`observedRecursionArgument?`;
+a read that throws reads nothing), which admits a definition recursing on an argument
+`termination_by structural` selects. A recorded position alone does not determine Lean's structural
+compilation: the automatic choice can reach the same position through another argument's inductive
+group. Well-founded recursion is tried last, with the relation of the base's own fixpoint
+(`wfRegeneration`) and with every decreasing proof elided (`all_goals exact sorry`, on the raw
+goal), since the comparison erases proofs and the observed base's own kernel-checked value supplies
+them. A termination argument only selects which regeneration runs: whatever is read, a helper is
+admitted only when the definitions that regeneration adds match the observed ones. The compiler
+runs in `regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is
+generated for them. A regeneration that reports an error does not count. Every change is undone
+before the comparison, which reads the observed definitions and decides erasure in the inspected
+environment: whatever code runs during a regeneration, only the definitions it adds are compared,
+each with the theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so
+the result does not depend on how Lean named or shared those theorems. A comparison that throws
+does not count either. A `checkerLimit?` reached is rethrown. -/
 private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo)
     (preprocessRules : IO.Ref (Option Meta.SimpTheorems)) :
     CommandElabM (Option RecursionOrigin) := do
@@ -322,7 +412,6 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
                 modifiers := { computeKind := .noncomputable },
                 declName := regenerationRoot ++ bases[i]!, binders := .missing, type := value.type,
                 value := rename value.value, termination := .none } : PreDefinition)
-    let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
     let regenerating ← regenerationEnvironment (← getEnv)
       (← cachedPreprocessRules preprocessRules env)
     let attempt (run : TermElabM Unit) : TermElabM Bool := do
@@ -345,12 +434,21 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         -- A runtime limit (heartbeats, recursion depth) bypasses `catch`; undo the run anyway.
         saved.restore
     let docCtx := (← getLCtx, ← Meta.getLocalInstances)
+    let noMeasures := preDefs.map fun _ => (none : Option TerminationMeasure)
     if ← attempt (structuralRecursion docCtx preDefs noMeasures) then return some .structural
+    let recursionArguments ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
+      try
+        let arity ← Meta.lambdaTelescope preDef.value fun params _ => pure params.size
+        observedRecursionArgument? bases[i]! preDef.levelParams arity
+      catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
+    if recursionArguments.any (·.isSome) then
+      if ← attempt (structuralRecursion docCtx preDefs recursionArguments) then
+        return some .structural
     let elided ← `(Lean.Parser.Tactic.tacticSeq| all_goals exact sorry)
     let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
       { preDef with termination := { TerminationHints.none with
           decreasingBy? := some ({ ref := .missing, tactic := elided } : DecreasingBy) } }
-    if ← attempt (wfRecursion docCtx wfDefs noMeasures) then return some .wellFounded
+    if ← attempt (wfRegeneration regenerationRoot docCtx wfDefs) then return some .wellFounded
     return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/
