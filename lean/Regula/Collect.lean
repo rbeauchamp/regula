@@ -380,13 +380,13 @@ base with none; then well-founded recursion, with the relation of the base's own
 goal), since the comparison erases proofs and the observed base's own kernel-checked value supplies
 them. A termination argument only selects which regeneration runs: whatever is read, a helper is
 admitted only when the definitions that regeneration adds match the observed ones. The compiler
-runs in `regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is generated
-for them. A regeneration that reports an error does not count. Every change is undone before the
-comparison, which reads the observed definitions and decides erasure in the inspected environment:
-whatever code runs during a regeneration, only the definitions it adds are compared, each with the
-theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so the result
-does not depend on how Lean named or shared those theorems. A comparison that throws does not
-count either. A `checkerLimit?` reached is rethrown. -/
+runs in `regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is
+generated for them. A regeneration that reports an error does not count. Every change is undone
+before the comparison, which reads the observed definitions and decides erasure in the inspected
+environment: whatever code runs during a regeneration, only the definitions it adds are compared,
+each with the theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so
+the result does not depend on how Lean named or shared those theorems. A comparison that throws
+does not count either. A `checkerLimit?` reached is rethrown. -/
 private def unsafeRecRegeneration (env : Environment) (name : Name) (info : ConstantInfo)
     (preprocessRules : IO.Ref (Option Meta.SimpTheorems)) :
     CommandElabM (Option RecursionOrigin) := do
