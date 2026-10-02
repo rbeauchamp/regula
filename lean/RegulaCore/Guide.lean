@@ -415,10 +415,12 @@ def guide : RuleId → Guide
           after a definition that calls `g`), where that changes which parameters Lean finds \
           fixed or which `wf_preprocess` rule of the toolchain applies, or, under \
           `set_option allowUnsafeReducibility true`, calls a `@[reducible]` function that is \
-          not an `abbrev` and is made irreducible afterwards. A definition for which the only \
-          difference is that ordinary definitions or `abbrev`s are irreducible at one of the \
-          two points (`attribute [local irreducible]`, `attribute [irreducible]` after the \
-          definition, `unseal`) is admitted.",
+          not an `abbrev` and is made irreducible afterwards, or calls an `abbrev` that was \
+          irreducible where the definition was compiled (argued from the checker's code, not \
+          run). Otherwise a definition for which the only difference is that ordinary \
+          (semireducible) definitions are irreducible at one of the two points \
+          (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
+          `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]

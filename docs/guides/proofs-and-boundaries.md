@@ -834,10 +834,12 @@ for the passed one is the comparison, up to erasure, of the law's right-hand sid
 side; that ignoring the motive's universe level of the matcher loses nothing, universe levels
 being erased; and that the second environment, like the termination argument, only selects which
 regeneration runs. That the two paths admit every definition for which the only difference is
-that ordinary definitions or `abbrev`s are irreducible at one of the two points is argued from Lean
-4.34.0's source (with those given back their declared status Lean unfolds at least what it
-unfolded where the definition was elaborated), not checked; the `abbrev` case was found in review
-as a rejection and is a control (`fixtures_abbrev_irreducible`). A definition that was
+that ordinary (semireducible) definitions are irreducible at one of the two points, or that an
+`abbrev` is irreducible at the end of the audit, is argued from Lean 4.34.0's source (with those
+given back their declared status Lean unfolds at least what it unfolded where the definition was
+elaborated), not checked, except where the definition also calls an `abbrev` that is irreducible
+at both points (below); the `abbrev` made irreducible afterwards was found in review as a
+rejection and is a control (`fixtures_abbrev_irreducible`). A definition that was
 `instance_reducible` or `implicit_reducible` before it was made irreducible is given back as an
 ordinary one, and whether that changes what the compilers generate was not run. A matcher for
 which the search finds no proof is compared strictly, which rejects and never admits; a resource
@@ -856,6 +858,15 @@ and is made irreducible after the definition, which Lean allows only under
 `set_option allowUnsafeReducibility true`; nothing in the final environment tells it from an
 ordinary definition made irreducible, so it is given back as semireducible and the parameter Lean
 found fixed is not (found in review).
+Two more forms are argued from `Collect.withoutIrreducible` to fall under the same limit, each
+where the `abbrev` changes one of those decisions; they were not run and no fixture pins them. A
+definition that calls an `abbrev` that is irreducible only where the definition was compiled
+(`attribute [local irreducible]`, which Lean allows for an `abbrev` only under
+`set_option allowUnsafeReducibility true`): the `abbrev` is reducible at the end of the audit, so
+`withoutIrreducible` changes nothing for it and both regenerations unfold it where Lean did not. A
+definition that calls an `abbrev` that is irreducible at both points and that the regeneration in
+the inspected environment does not reproduce for another reason: the second regeneration gives the
+`abbrev` back as reducible and unfolds it where Lean did not.
 `attribute [instance_reducible]` and `attribute [implicit_reducible]` applied after the definition
 were observed not to change either decision; their `local` forms were not run. The rejection is a
 false rejection of a helper Lean generated, not intended behaviour, and
