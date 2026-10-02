@@ -1,11 +1,7 @@
-import ConstructorIndexTypes
-import Regula.Collect
-import Regula.Report
-import RegulaPolicy.Decision
-
 /-! Collector qualification on real generated declarations and isolated, unchecked copies.
 The altered environments are never exported or executed. This checks the actual observer and
-transport, not kernel admission or native correspondence of the mutated declarations. -/
+transport, not kernel admission or native correspondence of the mutated declarations.
+The harness prefixes imports and the positive fixture's source so its declarations are local. -/
 
 open Lean Elab Command
 open scoped Regula.Report
@@ -23,11 +19,8 @@ run_cmd do
     unless (← observe env helper) == expected do
       throwError "constructor-index observer: {label}"
   let mut parents : Array Name := #[]
-  for (moduleName, index) in original.header.moduleNames.zipIdx do
-    if moduleName == `ConstructorIndexTypes then
-      let some data := original.header.moduleData[index]? | throwError "missing control module"
-      for name in data.constNames do
-        if let some (.inductInfo _) := original.find? name then parents := parents.push name
+  for (name, info) in original.constants.map₂ do
+    if let .inductInfo _ := info then parents := parents.push name
   unless parents.size == 6 do throwError "constructor-index control lost a parent"
   let newCompiler := original.contains `getObjTagNat
   for parent in parents do
@@ -45,8 +38,18 @@ run_cmd do
   let some (.defnInfo cases) := original.find? (mkCasesOnName parent)
     | throwError "missing real eliminator"
   -- Kernel-level insertion changes only this constant; no compiler or evaluator runs it.
-  let replace (decl : DefinitionVal) :=
-    ofExceptKernelException <| original.toKernelEnv.addDeclWithoutChecking (.defnDecl decl)
+  let replace (decl : DefinitionVal) := do
+    let changed := Environment.ofKernelEnv
+      (← ofExceptKernelException <|
+        original.toKernelEnv.addDeclWithoutChecking (.defnDecl decl))
+    unless changed.find? decl.name == some (.defnInfo decl) do
+      throwError "constructor-index mutation not visible: {decl.name}"
+    unless changed.toKernelEnv.constants.map₁ == original.toKernelEnv.constants.map₁ do
+      throwError "constructor-index mutation changed imported constants"
+    for (name, info) in original.constants.map₂ do
+      unless changed.find? name == some (if name == decl.name then .defnInfo decl else info) do
+        throwError "constructor-index mutation changed another local constant: {name}"
+    return changed
   let body := helper.value.replace fun e =>
     if e.isAppOfArity `getObjTagNat 2 then some (mkRawNatLit 0) else none
   let callee := helper.value.replace fun e =>
@@ -75,12 +78,19 @@ run_cmd do
       ("eliminator type", {cases with type := mkConst ``Nat}),
       ("eliminator group", {cases with all := []}),
       ("eliminator universes", {cases with levelParams := []})] do
-    check label (.ofKernelEnv (← replace decl)) helperName none
+    check label (← replace decl) helperName none
     check s!"restored {label}" original helperName (some (parent, baseName))
   for (label, sourceName, target) in #[
       ("base replacement", baseName, baseName),
       ("helper replacement", helperName, baseName)] do
-    let changed ← ofExcept <| Compiler.setImplementedBy original sourceName target
+    let changed := Compiler.implementedByAttr.ext.modifyState original fun state =>
+      (state.1, state.2.insert sourceName target)
+    unless Compiler.getImplementedBy? changed sourceName == some target do
+      throwError "constructor-index replacement mutation not visible: {sourceName}"
+    for name in #[baseName, helperName] do
+      if name != sourceName &&
+          Compiler.getImplementedBy? changed name != Compiler.getImplementedBy? original name then
+        throwError "constructor-index mutation changed another replacement: {name}"
     check label changed helperName none
     check s!"restored {label}" original helperName (some (parent, baseName))
   let h ← Regula.Collect.declaration helperName .replayCandidate

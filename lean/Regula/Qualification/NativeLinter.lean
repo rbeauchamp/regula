@@ -115,8 +115,6 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
         { label := "RetiredCompilerName", source := base ++
             "axiom Lean.trustCompiler : True\n", ids := ["RG1001"] }
     let controls : List Control := [
-      { label := "ConstructorIndexTypes", source :=
-          ← IO.FS.readFile (root / "lean/Fixtures/Positive/ConstructorIndex.lean"), output := true },
       { label := "PromotedMissing", source := missing, ids := ["RG5001", "RG5002"], errors := true,
         options := #["-DwarningAsError=true"] },
       { label := "MissingIntent", source :=
@@ -267,7 +265,9 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
     let _ ← Launcher.environment root launcher env
     let dependent : Array (Control × Array (String × Option String)) := #[
       ({ label := "ConstructorIndexObserver", source :=
-          ← IO.FS.readFile (root / "lean/Fixtures/Controls/ConstructorIndex.lean") }, env),
+          "import Regula.Collect\nimport Regula.Report\nimport RegulaPolicy.Decision\n" ++
+          (← IO.FS.readFile (root / "lean/Fixtures/Positive/ConstructorIndex.lean")) ++ "\n" ++
+          (← IO.FS.readFile (root / "examples/qualification/ConstructorIndex.lean")) }, env),
       ({ label := "Imported", source := observer }, env),
       ({ label := "ImportedVerso", source := observer.replace "Control" "Verso" }, env),
       ({ label := "ImportedMissing", source := ((observer.replace "Control" "Missing").replace
