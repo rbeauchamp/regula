@@ -45,6 +45,10 @@
   "expect": "pass",
   "claim": "standard-logical"
  },
+ "Fixtures.Positive.ConstructorIndex": {
+  "expect": "pass",
+  "claim": "standard-logical"
+ },
  "Fixtures.Positive.RegenerationHandlerOverride": {
   "expect": "pass",
   "claim": "standard-logical"
@@ -225,7 +229,10 @@
  },
  "Fixtures.Mutations.CommandElaboratorInstaller": {
   "expect": "fail",
-  "reason": "escape-hatch",
+  "reasons": {
+   "constructor-index": ["escape-hatch", "execution-unresolved"],
+   "no-constructor-index": ["escape-hatch"]
+  },
   "output": [
    "[VIOLATION[escape-hatch]] fixtures_forged_by_command._unsafe_rec"
   ]

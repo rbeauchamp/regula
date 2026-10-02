@@ -342,15 +342,14 @@ def guide : RuleId → Guide
           ["lean/RegulaPolicy/Foundation.lean", "lean/RegulaCore/Policy.lean",
               "website/RegulaStandard/MathematicalFoundations.lean"] }
   | .escapeHatch => {
-      problem := "An owned declaration is marked `unsafe` or `partial` and is not the \
-        code-generation helper of a safe recursive definition that Lean's own recursion compiler \
-        regenerates from the helper, up to compilation erasure."
+      problem := "An owned declaration is marked `unsafe` or `partial` and satisfies neither \
+        the recursion-helper regeneration relation nor the constructor-index structural relation."
       trigger := [
         "Authored `unsafe` and `partial` declarations are escape hatches: an unsafe declaration is \
           checked only in Lean's unsafe mode, cannot be used by safe declarations or proofs and is \
           not replayed as logical evidence, and a partial definition has no termination proof. \
           They are rejected with applicability `escape-hatch`.",
-        "The only exception is the range-less partial helper Lean generates for a safe, \
+        "One exception is the range-less partial helper Lean generates for a safe, \
           termination-checked recursive `def` (structural or well-founded recursion, a `where` \
           or `mutual` definition, a recursive `abbrev`, or a derived `DecidableEq`, `BEq`, \
           `Hashable` or `Repr` function on a recursive inductive that is neither nested nor \
@@ -368,6 +367,10 @@ def guide : RuleId → Guide
           its declaration shows), and the comparison \
           takes a `match` that passes a variable through as the `match` that uses it directly, \
           where Lean's kernel checks that the two are equal for that matcher.",
+        "The separate constructor-index exception requires an owned safe inductive and safe \
+          base, the kernel-generated eliminator, exact constructor-index alternatives, and the \
+          closed `getObjTagNat` wrapper with matching types, levels and metadata. It retains \
+          unsafe and runtime-replacement boundaries with trusted execution correspondence.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -380,14 +383,16 @@ def guide : RuleId → Guide
           and prove the relation to the intended function."]
       established := [
         "No authored unsafe or partial declaration is on the claimed surface. Every admitted \
-          generated helper is Lean's compilation of a safe definition: its base, of the same \
+          recursion helper is Lean's compilation of a safe definition: its base, of the same \
           module and type, is what Lean's own recursion compiler regenerates from the helper's \
           recursion, up to compilation erasure, and is kernel-checked with Standard-Logical \
-          axioms; whenever the helper returns, it returns the base's value."]
+          axioms; whenever the helper returns, it returns the base's value.",
+        "Every admitted constructor-index wrapper has the recorded structural relation to its \
+          owned safe parent and base. This observation does not prove native correspondence."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
-        "That the helper terminates whenever the base does. Lean compiles the base from a body \
+        "That a recursion helper terminates whenever the base does. Lean compiles the base from a body \
           its `wf_preprocess` rules rewrote and the helper from the original, and Lean documents \
           that a rewrite can remove a subterm the compiled code still evaluates or delay one \
           under a binder; a toolchain rule can, through a reducible definition that ignores an \
@@ -422,7 +427,8 @@ def guide : RuleId → Guide
           (semireducible) definitions are irreducible at one of the two points \
           (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
           `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",
-        "Editor feedback may be pending until the project command completes the regeneration."]
+        "Editor feedback may be pending until the project command completes the relevant \
+          regeneration or constructor-index comparison."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
@@ -430,7 +436,9 @@ def guide : RuleId → Guide
         each a recorded regeneration observation and a safe base with Standard-Logical axioms \
         (neither proves the observation truthful), and \
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
-        `partial def`'s helper under the `partial def`."
+        `partial def`'s helper under the `partial def`. \
+        `authorizedConstructorIndexHelpers_iff` characterizes the separate constructor relation, \
+        and `Roles.safetyHelpers_iff` binds both families to the same inventory."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/Regula/Collect.lean",
               "lean/RegulaCore/Policy.lean"] }

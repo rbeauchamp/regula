@@ -661,6 +661,11 @@ structure Declaration where
   well-founded recursion with every decreasing proof elided. `none` when neither did, and for every
   other declaration or inspection stage. -/
   unsafeRecRegenerated : Option RecursionOrigin
+  /-- For a replay candidate matching the pinned constructor-index generator: its inductive
+  parent and safe base. The observer checks the kernel-generated eliminator, the base's exact
+  alternatives, and the closed `getObjTagNat` wrapper without compiling any declaration.
+  This records a structural observation, not native execution correspondence. -/
+  constructorIndex : Option (Lean.Name × Lean.Name)
   /-- For an axiom whose name the `nativeEqTrue` scheme generates for a native tactic
   (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
   (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
@@ -689,6 +694,12 @@ structure Declaration where
 selection range lies within its full range, and otherwise that full range as its own selection
 range (`Ranges.admitted`). -/
 def Declaration.ranges (d : Declaration) : Option Ranges := d.recordedRanges.map Ranges.admitted
+
+/-- A constructor-index helper spelling selects a candidate parent and base; it authorizes
+neither declaration. The replay observer and inventory relation establish its role. -/
+def constructorIndexOrigin? : Lean.Name → Option (Lean.Name × Lean.Name)
+  | .str (.str parent "ctorIdx") "_impl" => some (parent, parent.str "ctorIdx")
+  | _ => none
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`
 and `Lean`. A module under one of them is toolchain code only with an admitted origin
