@@ -1,6 +1,7 @@
 import RegulaQualification.Checks
 import Regula.Scratch
 import Regula.SharedExecution
+import Regula.Checker.CompilerMode
 import Lean
 
 /-! # Operational qualification support
@@ -77,7 +78,7 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
 
 /-- Parse using the pinned Lean JSON implementation; malformed output is an error. -/
 def readJson (path : FilePath) : IO Json := do
-  IO.ofExcept (Json.parse (← IO.FS.readFile path))
+  Regula.Checker.CompilerMode.readObservation (← IO.ofExcept (Json.parse (← IO.FS.readFile path)))
 
 /-- Read a result file (`--json-out`) as a logical result document: parsed with the pinned
 Lean JSON implementation and read (`Regula.SharedExecution.read`), so each `sourceText` member

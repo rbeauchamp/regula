@@ -1,5 +1,6 @@
 import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
+import Regula.Checker.CompilerMode
 import Regula.Scratch
 import RegulaPolicy.ResultState
 import Lean
@@ -386,10 +387,10 @@ def copyProject (repo target exclude : FilePath) : IO Unit := do
       throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
   relocatePathDependencies repo target
 
-/-- Read the file at `path` and parse it with the strict `PolicyCodec.parse`. -/
+/-- Strict JSON parsing; an explicit candidate diagnostic may unpack its observation envelope. -/
 def readJson (path : FilePath) : IO Json := do
   let text ← IO.FS.readFile path
-  IO.ofExcept <| Regula.Checker.PolicyCodec.parse text
+  CompilerMode.readObservation (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse text)
 
 /-- Write `value` as compact JSON and a final newline to `path`, creating its parent
 directories, and report how long encoding and writing took when timing output is on. -/

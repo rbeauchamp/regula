@@ -18,6 +18,40 @@ def version : String := "4.34.0"
 /-- The full compiler commit declared by this source revision. -/
 def commit : String := "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b"
 
+/-- Prepared revisions are candidates until reviewed qualification permits promotion. -/
+def candidate : Bool := false
+
+/-- Ordinary audit entrypoints refuse candidates. Explicit diagnostics may observe them. -/
+def mayRun (isCandidate diagnostic : Bool) : Bool := !isCandidate || diagnostic
+
+/-- A candidate can run only with an explicit diagnostic purpose. -/
+theorem candidate_mayRun_iff (diagnostic : Bool) :
+    mayRun true diagnostic = true ↔ diagnostic = true := by
+  simp [mayRun]
+
+/-- Public output keeps candidate observations distinct from supported audit evidence. -/
+inductive Publication (α : Type) where
+  /-- Output of a revision whose compiler support has been qualified. -/
+  | audit (value : α)
+  /-- Development observations, which confer no support or conformance. -/
+  | diagnostic (value : α)
+
+/-- The classifier executed by result writers. -/
+def publication {α : Type} (isCandidate : Bool) (value : α) : Publication α :=
+  if isCandidate then .diagnostic value else .audit value
+
+/-- Candidate observations cannot be classified as supported audit output. -/
+theorem candidate_not_audit {α : Type} (value other : α) :
+    publication true value ≠ .audit other := by
+  simp [publication]
+
+/-- The public acceptance label; candidate diagnostics never say PASS. -/
+def verdict (isCandidate : Bool) : String :=
+  if isCandidate then "DIAGNOSTIC ACCEPTED (unqualified compiler)" else "PASS"
+
+/-- Exact public text classification for a candidate. -/
+theorem candidate_verdict : verdict true = "DIAGNOSTIC ACCEPTED (unqualified compiler)" := rfl
+
 /-- The exact identity relation used by inventory and plan admission. -/
 def Supports (observedVersion observedCommit : String) : Prop :=
   observedVersion = version ∧ observedCommit = commit

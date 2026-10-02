@@ -411,9 +411,10 @@ theorem Status.completed_accepted (s : Status) (h : s.spelling = "completed") :
 
 private def residualList (rs : List Residual) : String := ", ".intercalate (rs.map (·.spelling))
 
-/-- The success line: `label: PASS — coverage`. Only an account can produce it. -/
+/-- An accepted account's coverage, explicitly diagnostic on an unqualified candidate. -/
 def pass (label : String) (a : Account) : String :=
-  s!"{label}: PASS — {a.val.coverage.text}"
+  s!"{label}: {RegulaPolicy.Compiler.verdict RegulaPolicy.Compiler.candidate} — \
+    {a.val.coverage.text}"
 
 /-- Human account lines: the checked relation, each contract with its open review, the
 execution counts, fence kinds, trusted mechanisms, and the unresolved review identifiers. -/

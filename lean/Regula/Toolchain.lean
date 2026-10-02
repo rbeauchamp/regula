@@ -11,7 +11,24 @@ namespace Regula.Toolchain
 open Lean System
 
 private def compilerEnv : Array (String × Option String) :=
-  #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LEAN_SYSROOT", none)]
+  #["LEAN_PATH", "LEAN_SRC_PATH", "LEAN_SYSROOT", "LEAN", "LEAN_AR", "LEAN_CC", "LEAN_GITHASH",
+    "LAKE", "LAKE_HOME", "LAKE_OVERRIDE_LEAN", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"].map
+      (fun name => (name, none))
+
+private def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
+  let out ← IO.Process.output {
+    cmd := "elan", args := #["run", selector, "elan", "which", "lean"]
+    cwd := some root, env := compilerEnv }
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"cannot resolve selected compiler: {out.stderr}"
+  IO.FS.realPath out.stdout.trimAscii.toString
+
+private def selectedEnv (selector : String) (lean : FilePath) : IO
+    (Array (String × Option String)) := do
+  let some bin := lean.parent | throw <| IO.userError "compiler has no binary directory"
+  let inherited := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
+  return compilerEnv ++ #[("ELAN_TOOLCHAIN", some selector),
+    ("PATH", some (System.SearchPath.toString (bin :: inherited)))]
 
 private def checked (root : FilePath) (cmd : String) (args : Array String) : IO String := do
   let out ← IO.Process.output { cmd, args, cwd := some root }
@@ -25,6 +42,7 @@ private def cleanHead (root : FilePath) : IO String := do
   checked root "git" #["rev-parse", "HEAD"]
 
 private def probe (root : FilePath) (selector : String) : IO Identity := do
+  let lean ← selectedLean root selector
   Qualification.withScratch root "compiler-identity" fun scratch => do
     let source := scratch / "Identity.lean"
     IO.FS.writeFile source "import Init\n\
@@ -32,9 +50,8 @@ private def probe (root : FilePath) (selector : String) : IO Identity := do
       \x20 IO.println Lean.versionString\n\
       \x20 IO.println Lean.githash\n"
     let out ← IO.Process.output {
-      cmd := "elan"
-      args := #["run", selector, "lean", "--run", source.toString], cwd := some root
-      env := compilerEnv }
+      cmd := lean.toString, args := #["--run", source.toString], cwd := some root
+      env := ← selectedEnv selector lean }
     unless out.exitCode == 0 do
       throw <| IO.userError s!"compiler probe failed: {out.stdout}{out.stderr}"
     IO.ofExcept (parseIdentity out.stdout)
@@ -58,6 +75,7 @@ private def prepare (root : FilePath) (selector : String) (destination : FilePat
   -- Lean string literals specializes the same policy; the candidate recompiles its proofs.
   let policy := template.replace (reprStr RegulaPolicy.Compiler.version) (reprStr identity.version)
     |>.replace (reprStr RegulaPolicy.Compiler.commit) (reprStr identity.commit)
+    |>.replace "def candidate : Bool := false" "def candidate : Bool := true"
   IO.FS.writeFile (candidate / "lean/RegulaPolicy/Compiler.lean") policy
   IO.FS.writeFile (candidate / "lean-toolchain") (selector ++ "\n")
   let _ ← checked candidate "git" #["add", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"]
@@ -85,14 +103,16 @@ private def qualify (root candidate : FilePath) : IO UInt32 := do
   let identity : Identity := {
     version := ← IO.ofExcept (compiler.getObjValAs? String "version")
     commit := ← IO.ofExcept (compiler.getObjValAs? String "commit") }
-  let mut results : List (Campaign × UInt32) := []
-  let writeReceipt (results : List (Campaign × UInt32)) (unchanged : Bool) : IO Unit :=
+  let mut results : List Observation := []
+  let writeReceipt (results : List Observation) (unchanged : Bool) : IO Unit :=
     Qualification.writeJson receipt (Json.mkObj [
       ("purpose", .str "development compiler qualification observations"),
       ("status", .str (if unchanged && complete results then "complete" else "incomplete")),
       ("grantsSupport", .bool false), ("prepared", prepared),
-      ("campaigns", toJson (results.map fun (c, exit) => Json.mkObj [
-        ("name", .str c.name), ("lakeArguments", toJson c.args), ("exitCode", toJson exit.toNat)]))])
+      ("campaigns", toJson (results.map fun r => Json.mkObj [
+        ("name", .str r.campaign.name), ("lakeArguments", toJson r.campaign.args),
+        ("expectedExit", toJson r.campaign.expectedExit.toNat),
+        ("exitCode", toJson r.exitCode.toNat), ("observationMet", .bool r.meets)]))])
   -- Invalidate prior success before probing identity, finding a timer, or starting a process.
   writeReceipt [] false
   let unchanged : IO Unit := do
@@ -102,15 +122,20 @@ private def qualify (root candidate : FilePath) : IO UInt32 := do
       throw <| IO.userError "selected compiler identity changed"
   unchanged
   let timer ← Qualification.timeoutCommand
+  let lean ← selectedLean root selector
+  let some bin := lean.parent | throw <| IO.userError "compiler has no binary directory"
+  let baseEnv ← selectedEnv selector lean
   for campaign in campaigns do
     unchanged
     IO.println s!"{identity.version}: {campaign.name} (420-second limit)"
+    let env := baseEnv ++ #[("REGULA_COMPILER_QUALIFICATION",
+      if campaign.diagnostic then some "1" else none)]
     let out ← IO.Process.output {
       cmd := timer
-      args := #["--signal=KILL", "420s", "elan", "run", selector, "lake"] ++ campaign.args.toArray,
-      cwd := some candidate, env := compilerEnv }
+      args := #["--signal=KILL", "420s", (bin / "lake").toString] ++ campaign.args.toArray
+      cwd := some candidate, env }
     IO.FS.writeFile (metadata / s!"{campaign.name}.log") (out.stdout ++ out.stderr)
-    results := results ++ [(campaign, out.exitCode)]
+    results := results ++ [⟨campaign, out.exitCode, out.stdout ++ out.stderr⟩]
     writeReceipt results false
     unchanged
     IO.println s!"  exit {out.exitCode}; {metadata / s!"{campaign.name}.log"}"
