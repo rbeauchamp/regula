@@ -7,10 +7,11 @@ Operational adapter over the claimed `RegulaCore.Policy` projections: it binds
 scope admission to the frontend's source-coordinate check and renders policy results
 as text. This file defines `admitScope` (running `checked_scope`), `executionSummary` (running
 `RegulaPolicy.checked_summary`), `toolchainBase` (running `RegulaPolicy.checked_toolchainBase`)
-and the unproved renderers `describeBoundary`, `describeToolchainBoundary`,
+and the unproved renderers `describeBoundaryAs`, `describeBoundary`, `describeToolchainBoundary`,
 `executionAccountLines`, `toolchainBaseLines`, `toolchainBaseJson`, `classify`, `classifyMember`
-and `subjectDetail`; `executionFailureRecords` is the claimed decision itself. The rules, member
-labels and `executionFailures` in this namespace are defined in claimed `RegulaCore.Policy`. -/
+and `subjectDetail`; `executionFindings` is the claimed findings of the decision itself. The
+rules, member labels and `executionFailures` in this namespace are defined in claimed
+`RegulaCore.Policy`. -/
 
 namespace Regula.Checker.Policy
 
@@ -53,20 +54,27 @@ abbrev admitExecution := RegulaPolicy.admitExecution
 /-- One execution-claim failure: its rule, root and detail (`RegulaPolicy.ExecutionFailure`). -/
 abbrev ExecutionFailure := RegulaPolicy.ExecutionFailure
 
-/-- The decision's own records, unchanged: kind, root, detail and order are preserved by
-identity rather than by a second record type. -/
-abbrev executionFailureRecords := RegulaPolicy.executionFailureRecords
+/-- The findings the gate reports: the decision's records
+(`RegulaPolicy.executionFailureRecords`) with each folded boundary's record (a later record of a
+trusted boundary, or a `partial` implementation) reported in the finding of the boundary it is
+reported with (`RegulaPolicy.executionFindings`). Kind, root and order are the records' own,
+preserved by identity rather than by a second record type. -/
+abbrev executionFindings := RegulaPolicy.executionFindings
 
-/-- One-line rendering of a single execution boundary. -/
-def describeBoundary (boundary : Regula.Report.ExecutionBoundary) : String :=
+/-- One-line rendering of a single execution boundary, introduced by `label`. -/
+def describeBoundaryAs (label : String) (boundary : Regula.Report.ExecutionBoundary) : String :=
   let replacement := boundary.replacement.map (fun value => s!" replacement={value}") |>.getD ""
   let evidence := boundary.evidence.map (fun value => s!" evidence={value}") |>.getD ""
   let owned := if boundary.owned then " owned" else ""
   let callers := if boundary.compilerCallers.isEmpty then "" else
     s!" compiler-callers={boundary.compilerCallers}"
-  s!"boundary {boundary.name} [{boundary.boundary}] " ++
+  s!"{label} {boundary.name} [{boundary.boundary}] " ++
     s!"correspondence={boundary.correspondence}{replacement}{evidence}{owned}{callers} " ++
     s!"(module {boundary.«module»})"
+
+/-- One-line rendering of a single execution boundary. -/
+def describeBoundary (boundary : Regula.Report.ExecutionBoundary) : String :=
+  describeBoundaryAs "boundary" boundary
 
 /-- The toolchain trusted base of an audit's labeled execution accounts: each toolchain-owned
 boundary once, with every environment and root that reaches it, through
@@ -109,16 +117,23 @@ def toolchainBaseJson (base : Array RegulaPolicy.ToolchainBoundary) : Lean.Json 
   Lean.Json.arr (base.map toolchainBoundaryJson)
 
 /-- The text lines of one execution account: each root with a boundary the toolchain does not
-own or an unresolved path, listing those boundaries and paths. Toolchain-owned boundaries are
+own or an unresolved path, listing those boundaries and paths. A folded boundary
+(`RegulaPolicy.ExecutionRoot.folded`) is not listed as a boundary of its own: a later record of
+a trusted boundary is listed under the first record as `restated`, and a `partial` implementation
+under each boundary that carries it as its `implementation`. Toolchain-owned boundaries are
 listed by `toolchainBaseLines` instead. -/
 def executionAccountLines (inventory : ExecutionInventory) : Array String := Id.run do
   let mut lines : Array String := #[]
   for root in inventory.roots do
-    let reported := root.boundaries.filter (·.toolchainOrigin?.isNone)
+    let reported := root.reported.filter (·.toolchainOrigin?.isNone)
     if !reported.isEmpty || !root.unresolved.isEmpty then
       lines := lines.push s!"  execution root {root.name}"
       for boundary in reported do
         lines := lines.push s!"    {describeBoundary boundary}"
+        for restated in root.restatements boundary do
+          lines := lines.push s!"      {describeBoundaryAs "restated" restated}"
+        for implementation in root.implementations boundary do
+          lines := lines.push s!"      {describeBoundaryAs "implementation" implementation}"
       for item in root.unresolved do
         lines := lines.push s!"    unresolved {item}"
   return lines
