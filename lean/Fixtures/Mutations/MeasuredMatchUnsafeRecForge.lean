@@ -3,8 +3,8 @@ import Lean
 /-
 Mutation (issue #183, adversarial) at the compiler boundary: a forged helper
 on the path that admits a helper by regenerating its base with the base's own
-measure. `fixtures_forged_measured_honest` matches on its measured argument
-after an argument that also changes, so its base holds the measure the
+relation. `fixtures_forged_measured_honest` matches on its measured argument
+after an argument that also changes, so its base holds the relation the
 regeneration reads. A custom command copies its base, the unary definition
 that holds its well-founded fixpoint and its range-less `_unsafe_rec` helper
 twice:
@@ -16,7 +16,7 @@ twice:
   definition the kernel checked.
 
 Exact match admits the honest helper and the faithful copy, and rejects the
-divergent one alone: the measure read from a base selects only which
+divergent one alone: the relation read from a base selects only which
 regeneration runs, and the regenerated functional, which calls
 `fixtures_forged_measured_skip`, still has to equal the observed one, which
 calls `fixtures_forged_measured_step`.

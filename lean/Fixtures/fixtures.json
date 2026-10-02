@@ -231,6 +231,13 @@
    "[VIOLATION[escape-hatch]] fixtures_dropped._unsafe_rec"
   ]
  },
+ "Fixtures.Mutations.LocalIrreducibleMeasure": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_local_irreducible._unsafe_rec"
+  ]
+ },
  "Fixtures.Mutations.ForgedMatchElaborator": {
   "expect": "fail",
   "reason": "escape-hatch",

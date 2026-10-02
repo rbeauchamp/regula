@@ -752,7 +752,7 @@ the type's constants, closed under unfolding, and only modules that import `Regu
 contribute constants. For a recursion helper it reruns Lean's own recursion compiler on the
 helper's group (structural recursion first, then well-founded recursion with every decreasing proof
 elided), each on the termination argument of the observed base (the argument position Lean recorded
-for it, the measure its fixpoint applies), with only the toolchain's own `wf_preprocess` rules and
+for it, the relation its fixpoint applies), with only the toolchain's own `wf_preprocess` rules and
 the checker's built-in macros, tactic and term elaborators, generating no code for the fresh
 definitions, and compares each regenerated definition with the observed one up to compilation
 erasure: proofs and types, each classified in its own side's context, are erased and a well-founded
@@ -773,13 +773,19 @@ and in `Fixtures.Mutations.SharedProofUnsafeRecForge` admits a faithful copy of 
 one that computes with another function. That the regeneration reproduces a base whose compiled
 value depends on its termination argument is observed too: the same command admits every helper of
 `Fixtures.Positive.MeasuredRecursion` (the shapes of issue #183: a `match` on the measured argument
-after an argument that also changes, lexicographic and computed measures, a `mutual` block, and
-structural recursion on a later argument), and in `Fixtures.Mutations.MeasuredMatchUnsafeRecForge`
-admits a faithful copy of such a helper and rejects one that computes with another function. The
-termination argument read only selects which regeneration runs (`Collect.unsafeRecRegeneration`
-returns an origin only when the definitions that regeneration added match the observed ones), so
-what is read cannot admit a helper the comparison rejects; this is read from the code, with no
-theorem. No theorem covers the regeneration itself, which runs in Lean's elaborator. The comparison
+after an argument that also changes, lexicographic and computed measures, a `mutual` block, a
+measure under a `WellFoundedRelation` instance local to its section, and structural recursion on a
+later argument), and in `Fixtures.Mutations.MeasuredMatchUnsafeRecForge` admits a faithful copy of
+such a helper and rejects one that computes with another function. For well-founded recursion
+`Collect.wfRegeneration` runs the steps of Lean's `wfRecursion` in its order up to the definitions
+it adds, with the base's own relation in place of one elaborated from termination measures; that it
+follows Lean's compiler is read from Lean 4.34.0's source, not checked. The termination argument
+read only selects which regeneration runs (`Collect.unsafeRecRegeneration` returns an origin only
+when the definitions that regeneration added match the observed ones), so what is read cannot admit
+a helper the comparison rejects; this is read from the code, with no theorem.
+`Fixtures.Mutations.LocalIrreducibleMeasure` is the control for the limit that remains (standard
+§7.4): a helper Lean generated is rejected where an attribute local to the definition's section
+decided whether a `match` changes the measure. No theorem covers the regeneration itself, which runs in Lean's elaborator. The comparison
 never uses `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of
 the self-referential helper does not terminate. The regeneration runs Lean's elaborator in the report
 worker and is undone before the comparison, which reads the observed definitions and decides erasure

@@ -19,7 +19,7 @@ Two forms of issue #183 are here too, `public` only: a `match` on the measured
 argument after an argument that also changes, and structural recursion on a
 later argument selected by `termination_by structural`. The regeneration is
 given each one's termination argument although Lean does not export the body:
-the measure from the base's value, the argument position from Lean's record.
+the relation from the base's value, the argument position from Lean's record.
 -/
 
 public def fixtures_module_positive (n : Nat) (_ : 0 < n) : Nat := n

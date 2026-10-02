@@ -3,8 +3,8 @@ Positive control (issue #183) at the compiler boundary: safe recursive
 definitions whose compiled value depends on the termination argument Lean
 compiled them with. Lean's well-founded compiler passes the recursive-call
 function through a `match` where that function's type, which holds the
-measure, changes in an alternative; its structural compiler recurses on
-one chosen argument. A regeneration that chooses its own termination argument
+relation and the measure, changes in an alternative; its structural compiler
+recurses on one chosen argument. A regeneration that chooses its own termination argument
 can therefore compile a different value where its choice differs from Lean's.
 
 - `fixtures_measured_later` is the issue's reproduction: a `match` on the
@@ -21,6 +21,11 @@ can therefore compile a different value where its choice differs from Lean's.
   each measured on its later argument.
 - `fixtures_measured_list` measures on a list, not a `Nat`, where structural
   recursion would also be accepted.
+- `fixtures_measured_local_relation` is measured by a pair under a
+  `WellFoundedRelation` instance local to its section, which reads the second
+  component only; at the end of the module Lean would resolve the
+  lexicographic instance, under which the `match` on `a` changes the measure
+  (found in review).
 - `fixtures_structural_later` recurses structurally on its second argument,
   selected by `termination_by structural`, where Lean's automatic choice
   accepts the first.
@@ -29,8 +34,9 @@ can therefore compile a different value where its choice differs from Lean's.
   and an argument that changes.
 
 Exact match admits every helper: the regeneration is given the termination
-argument of the observed base, the measure its well-founded fixpoint applies
-or the argument position Lean recorded for it.
+argument of the observed base, the relation its well-founded fixpoint applies
+(its measure together with the instance Lean resolved for it) or the argument
+position Lean recorded for it.
 -/
 
 def fixtures_measured_later (index remaining : Nat) : Nat :=
@@ -88,6 +94,24 @@ def fixtures_measured_list (acc : Nat) (xs : List Nat) : Nat :=
   | [] => acc
   | x :: rest => fixtures_measured_list (acc + x) rest
 termination_by xs
+
+section
+local instance fixtures_second_relation : WellFoundedRelation (Nat × Nat) :=
+  invImage Prod.snd Nat.lt_wfRel
+
+def fixtures_measured_local_relation (a n : Nat) : Nat :=
+  match a with
+  | 0 =>
+    match n with
+    | 0 => 0
+    | k + 1 => fixtures_measured_local_relation 1 k
+  | a' + 1 =>
+    match n with
+    | 0 => a' + 1
+    | k + 1 => fixtures_measured_local_relation (a' + 2) k
+termination_by (a, n)
+decreasing_by all_goals exact Nat.lt_succ_self _
+end
 
 def fixtures_structural_later (a b : Nat) : Nat :=
   match a, b with
