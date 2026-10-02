@@ -1,4 +1,4 @@
-import RegulaCore.Site
+import RegulaCore.Prose
 import RegulaCore.Guide
 
 /-! # Rule-reference page sources
@@ -155,9 +155,11 @@ def blobUrl (ident : Identity) (path : String) : String :=
 /-- The GitHub URL of the repository tree at the build revision. -/
 def treeUrl (ident : Identity) : String := repository ++ "/tree/" ++ ident.revision.val
 
-/-- Resolve the `@repo/` link token of guide prose to the build revision. -/
+/-- Resolve the `@repo/` link token of guide prose to the build revision, and make each rule ID in
+its prose a link to that rule's page in the same edition (`Prose.linkVerso`). -/
 def resolveProse (ident : Identity) (text : String) : String :=
-  text.replace "(@repo/" ("(" ++ repository ++ "/blob/" ++ ident.revision.val ++ "/")
+  Prose.linkVerso
+    (text.replace "(@repo/" ("(" ++ repository ++ "/blob/" ++ ident.revision.val ++ "/"))
 
 /-- Repository paths linked by `@repo/` tokens in a prose string. -/
 def proseLinks (text : String) : List String :=
@@ -181,12 +183,17 @@ private def link (url text : String) : String :=
 `id`. -/
 def pageAnchor (tag : String) : String := "<span id=\"" ++ escape tag ++ "\"></span>"
 
+/-- The rule's ID as a link to its page in the same edition (`RuleId.route`, resolved through the
+page's `<base href>`). -/
+def ruleLink (id : RuleId) : String := link id.route id.spelling
+
 /-- Inline text whose only markup is backtick code spans (the registry's one-line fields): the
-spans become `code` elements and all text is escaped, so no backtick survives. -/
+spans become `code` elements, each rule ID outside them becomes a link to its page (`ruleLink`)
+and all other text is escaped, so no backtick survives. -/
 def inlineHtml (text : String) : String :=
   let parts := text.splitOn "`"
   String.join ((List.range parts.length).zip parts |>.map fun (i, part) =>
-    if i % 2 == 1 then code part else escape part)
+    if i % 2 == 1 then code part else Prose.rewriteIds escape ruleLink part)
 
 /-- The label of the edition line: `development` for an unreleased build, otherwise the release. -/
 def buildLabel : Build → String
@@ -252,7 +259,7 @@ def chipsHtml (id : RuleId) : String :=
   chip ("Subreason " ++ code d.applicability) ++
   (match d.lifecycle with
     | .active _ => ""
-    | .retired .. => chip ("<strong>" ++ escape (lifecycleText d.lifecycle) ++ "</strong>"))
+    | .retired .. => chip ("<strong>" ++ inlineHtml (lifecycleText d.lifecycle) ++ "</strong>"))
         ++ "</ul>"
 
 private def fact (term value : String) : String := "<dt>" ++ term ++ "</dt><dd>" ++ value ++ "</dd>"

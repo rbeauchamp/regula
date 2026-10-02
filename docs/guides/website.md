@@ -18,7 +18,7 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 | Violating and corrected inputs, findings, statuses | [`examples/rules/<ID>/`](../../examples/rules/) and [`corpus.json`](../../examples/rules/corpus.json), run by the rule-example campaign | The builder reads the campaign's exports for the same commit and renders the recorded bytes and findings. |
 | What every rule shares: strict impact, local options, where rules run, the message form, open obligations, trusted mechanisms and example kinds | [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) `enforcementPage`; each obligation's text is `Residual.description` and each mechanism's `Trusted.detail` in [`RegulaCore.Account`](../../lean/RegulaCore/Account.lean) | Stated once on the *How rules are enforced* page, which every rule page links; each obligation is defined there under the element id of its identifier, which rule pages and the coverage page link (`residualRoute`). |
 | Checklist coverage: every module 8 row with the rules that list it and the review obligations it carries | `coveragePage`, from `Regula.checklistRows` ([`RegulaCore.Standard`](../../lean/RegulaCore/Standard.lean)), each rule's `checklist` and each obligation's `Residual.rows` | `rulesOfRow` and `residualsOfRow` invert them (`mem_rulesOfRow`, `mem_residualsOfRow`), so the page cannot disagree with the rule pages or the obligations ([architecture](architecture.md#coverage-of-the-standard)). |
-| Page construction, escaping, filters, diffs, banners, the site root's target, link checking | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
+| Page construction, escaping, filters, diffs, banners, the site root's target, link checking, rule-ID links | [`RegulaCore.Site`](../../lean/RegulaCore/Site.lean), [`Prose`](../../lean/RegulaCore/Prose.lean), [`SitePage`](../../lean/RegulaCore/SitePage.lean), [`SiteDocs`](../../lean/RegulaCore/SiteDocs.lean) (claimed, proved) | Pure functions the builder executes. |
 | Releases, editions, help links and the route policy | [`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean) (claimed, proved) | `installed`, `releases`, `published`, `helpUrl` and `sitePath`. |
 | Evidence admission, generation, rendering, release copies, assembly, artifact check | [`Regula.Site`](../../lean/Regula/Site/) (`lake exe site`, operational) | Writes `website/Generated/`, runs Verso, writes `_site/`. |
 | The standard: normative text, checked Lean examples, section and checklist-row anchors | [`website/RegulaStandard.lean`](../../website/RegulaStandard.lean) and [`website/RegulaStandard/`](../../website/RegulaStandard/) (Verso, the only source), with the code blocks of [`RegulaExample`](../../website/RegulaExample.lean) | Included by the generated home page under `standard/`. Each `lean` block is elaborated where it is written, in a fresh [`regula-example`](../../website/RegulaExampleMain.lean) process with exactly its own imports. |
@@ -38,7 +38,8 @@ development standard (`Regula.Site.documentAnchors`), and the rendered checklist
 exactly `Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`; a row is the `id` of an
 element of class `Regula.checklistRowClass`). Every row a rule lists is one of them
 (`guide_checklist_listed`). It also requires each cited section's source to be a module of the
-library. Which rows a rule lists is reviewed with the rule; the artifact's
+library, and every rule ID in the rendered standard's prose to be a link to its rule page
+([rule IDs in documentation](contributing.md#rule-ids-in-documentation)). Which rows a rule lists is reviewed with the rule; the artifact's
 link check requires every anchor in the rendered site. The generator refuses a cited repository
 path that does not exist.
 
@@ -91,6 +92,12 @@ fails and removes `_site/`:
   for schemes; `linkErrors_nil_iff` proves an empty result means each of those links reaches an
   existing artifact file (and fragment) under `/regula/`. CSS and JavaScript files,
   `srcset` and `meta refresh` targets are not scanned. External links are not fetched.
+- **Rule IDs are links.** Every rule ID in the prose of each page of the development edition is
+  a registered rule inside a link that resolves to that rule's page in the same edition
+  (`Regula.Prose.htmlErrors_nil_iff`, `pageTarget_iff`), for the text the scanner reads as prose
+  ([rule IDs in documentation](contributing.md#rule-ids-in-documentation)). The pages link by
+  the rule's route relative to the edition root, so a release's edition, which is the same
+  rendering, links within `v/<version>/`. Editions frozen at an earlier release are not checked.
 - **Registry validation.** The registry's own `axiomGate --validate-site` accepts the page
   inventory, the pages whose example content the check verified, and every rule ID the
   examples emitted.
@@ -363,7 +370,7 @@ JavaScript; only Verso's search feature is enabled, so the site ships no KaTeX.
 `prefers-reduced-motion` turns transitions off.
 
 Lighthouse's accessibility category (Chrome headless, 2026-09-26, a local preview of the theme
-change) scored 1.0 for the rule index and RG1002 in both themes at 1280 pixels, and for RG1002
+change) scored 1.0 for the rule index and [RG1002] in both themes at 1280 pixels, and for [RG1002]
 on a 390-pixel phone viewport. These are bounded observations, not proofs of usability. The site
 sets no cookies and has no accounts or analytics.
 
@@ -373,3 +380,5 @@ The credits page is generated from `creditsPage` in
 [`RegulaCore.SiteDocs`](../../lean/RegulaCore/SiteDocs.lean); that definition owns the page's
 text. The attribution and license account it summarizes is
 [design influences](design-influences.md).
+
+[RG1002]: https://rbeauchamp.github.io/regula/dev/rules/RG1002/

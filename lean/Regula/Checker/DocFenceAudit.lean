@@ -1,7 +1,7 @@
 import Regula.Checker.Documentation
 import Regula.Checker.Lake
 import Regula.Checker.AcceptanceLink
-import RegulaCore.Site
+import RegulaCore.Prose
 
 /-! # Documentation fence audit executable
 
@@ -11,7 +11,9 @@ block of that Verso library, the standard, whose build and rendering are also re
 `--verso`, every fence elaborates in the freshly built Verso package's workspace, which requires
 the project and the other packages the standard's examples import), and whose rendered pages
 must define every anchor the rule registry and the Markdown link, with the checklist's rows
-exactly `Regula.checklistRows`. -/
+exactly `Regula.checklistRows`. With `--rule-links`, every rule ID in the prose of that Markdown,
+of the project's `README.md` and of the rendered Verso pages must be a link to its rule page
+(`Regula.Prose`). -/
 
 namespace Regula.Checker.DocFenceAudit
 
@@ -36,6 +38,10 @@ structure Options where
   /-- `--verso DIR:LIBRARY:RENDER`: the Verso library whose `lean` blocks are also audited,
   and which is then built fresh, rendered and checked for the anchors and rows it must define. -/
   verso : Option VersoPackage := none
+  /-- `--rule-links`: refuse a rule ID in the prose of the Markdown below the documentation root
+  or of the project's `README.md` that is not a link to its development rule page and, with
+  `--verso`, one in the prose of a rendered page that is not a link to its rule page. -/
+  ruleLinks : Bool := false
   /-- `--verbose`: print the full detail of each failed fence instead of its first part. -/
   verbose : Bool := false
   /-- `--help` or `-h`: print the usage text and exit. -/
@@ -43,7 +49,8 @@ structure Options where
 
 private def usage : String :=
   "usage: lake exe docFenceAudit -- [--jobs N] [--verbose] [--docs-root PATH] " ++
-  "[--project DIR] [--manifest PATH] [--acceptance-link PATH] [--verso DIR:LIBRARY:RENDER]"
+  "[--project DIR] [--manifest PATH] [--acceptance-link PATH] [--verso DIR:LIBRARY:RENDER] " ++
+  "[--rule-links]"
 
 private def parseArgs : List String → Options → IO Options
   | [], options => return options
@@ -61,6 +68,7 @@ private def parseArgs : List String → Options → IO Options
       parseArgs rest { options with acceptanceLink := some (FilePath.mk value) }
   | "--verso" :: value :: rest, options => do
       parseArgs rest { options with verso := some (← IO.ofExcept (parseVersoOption value)) }
+  | "--rule-links" :: rest, options => parseArgs rest { options with ruleLinks := true }
   | "--verbose" :: rest, options => parseArgs rest { options with verbose := true }
   | "--help" :: rest, options | "-h" :: rest, options =>
       parseArgs rest { options with help := true }
@@ -92,13 +100,13 @@ private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
         unless url == url' && rev == rev' do return some s!"{name} (against {dir})"
   return none
 
-/-- The rendered pages below `root`, by their paths below it. -/
-private def renderedPages (root : FilePath) : IO (List Regula.Site.Page) := do
+/-- The rendered HTML files below `root`, each by its path below it with its text. -/
+private def renderedHtml (root : FilePath) : IO (List (String × String)) := do
   let components := root.normalize.components
   (← root.walkDir).toList.filterMapM fun path => do
     if path.extension != some "html" then return none
     let relative := "/".intercalate (path.normalize.components.drop components.length)
-    return some (Regula.Site.Page.ofHtml relative (← IO.FS.readFile path))
+    return some (relative, ← IO.FS.readFile path)
 
 /-- Build the Verso library in the isolated copy, where every `lean` block is elaborated where it
 is written by the library's own code block. The copy's library sources and Verso package inputs
@@ -133,10 +141,11 @@ private def workspaceSearchPath (dir : FilePath) : IO (Array FilePath) :=
 every cross-reference. The rendered pages must define every section and checklist-row anchor the
 rule registry links (`Regula.Site.standardAnchors`) and every anchor the linked Markdown below
 `docsRoot` links (`Regula.Site.documentAnchors`); the rendered checklist's rows must be exactly
-`Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`); and each cited section's source
-must be a module of the library. -/
+`Regula.checklistRows`, in order (`Regula.Site.rowsMismatch`); each cited section's source must be
+a module of the library; and, with `ruleLinks`, every rule ID in the prose of a rendered page must
+be a link to its rule page, relative to the rendered root (`Regula.Prose.htmlErrors`). -/
 private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
-    (linked : Array RegulaPolicy.SourceSnapshot) : IO (Option String) := do
+    (linked : Array RegulaPolicy.SourceSnapshot) (ruleLinks : Bool) : IO (Option String) := do
   let package := copy / verso.dir.toString
   let library ← captureVerso { verso with dir := repo / verso.dir.toString }
   let output := scratch / "verso-render"
@@ -146,7 +155,8 @@ private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
   unless rendered.succeeded do
     return some s!"Verso rendering failed ({rendered.exitCode}): {rendered.output}"
   let html := output / "html-multi"
-  let pages ← renderedPages html
+  let htmlFiles ← renderedHtml html
+  let pages := htmlFiles.map fun (path, source) => Regula.Site.Page.ofHtml path source
   let missing := Regula.Site.missingAnchors pages Regula.Site.standardAnchors
   unless missing.isEmpty do
     return some s!"the rendered standard does not define anchors the rule registry links: {missing}"
@@ -165,6 +175,11 @@ private def renderVerso (repo copy scratch : FilePath) (verso : VersoPackage)
     return some
         s!"cited sections whose source is not a module \
           of {verso.library}: {unknown.map (·.heading)}"
+  if ruleLinks then
+    let bare := htmlFiles.flatMap fun (path, source) => Regula.Prose.htmlErrors "" path source
+    unless bare.isEmpty do
+      return some ("rule IDs in the rendered prose are not links to their rule pages:\n" ++
+        "\n".intercalate bare)
   return none
 
 /-- Run one documentation fence audit and return its exit code. In an isolated copy of the
@@ -186,6 +201,20 @@ unsafe def run (args : List String) : IO UInt32 := do
   let documents ← sources.capture
   -- The linked identity also brackets the Verso package's inputs.
   let linked ← sources.captureLinked repo
+  if options.ruleLinks then
+    let readme := repo / "README.md"
+    let mut markdown := documents.filter fun d => (FilePath.mk d.uri).extension == some "md"
+    if ← readme.pathExists then
+      markdown := markdown.push ⟨readme.toString, ← IO.FS.readFile readme⟩
+    let bare := markdown.toList.flatMap fun d =>
+      Regula.Prose.markdownErrors (d.uri.dropPrefix (repo.toString ++ "/")).toString d.source
+    unless bare.isEmpty do
+      for line in bare do IO.println s!"FAIL: {line}"
+      IO.println s!"FAIL: {bare.length} rule ID(s) in documentation prose are not links to their \
+        development rule pages"
+      return 1
+    IO.println s!"rule links: every rule ID in the prose of {markdown.size} Markdown documents \
+      links to its development rule page"
   withScratch repo "doc-fence-audit" fun scratch => do
     let copy := scratch / "project"
     copyProject repo copy scratch
@@ -231,14 +260,17 @@ unsafe def run (args : List String) : IO UInt32 := do
                 options.verbose (verso := verso) (environment := environment)
         if result != 0 then return result
         let some requested := options.verso | return result
-        if let some failure ← renderVerso repo copy scratch requested linked then
+        if let some failure ← renderVerso repo copy scratch requested linked
+            options.ruleLinks then
           IO.println s!"FAIL: Verso documentation {requested.library}: {failure}"
           return 1
         Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ repo linked
         SourceBinding.unchanged sources
+        let linkedIds := if options.ruleLinks then
+          ", and every rule ID in its rendered prose links to its rule page" else ""
         IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block \
           elaborated where it is written), rendered, defines every anchor the rule registry and \
-          the documentation link, and its checklist rows are exactly Regula.checklistRows"
+          the documentation link, and its checklist rows are exactly Regula.checklistRows{linkedIds}"
         return 0
     let outcome := outcome.bind id
     match outcome with

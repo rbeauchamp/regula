@@ -95,7 +95,7 @@ lake exe regula init            # or: lake exe regula init --skill
 | Piece | What `init` writes when it is missing |
 | --- | --- |
 | Lint driver | `lintDriver = "regula/lint"` (`lakefile.toml`, top level) or `lintDriver := "regula/lint"` (`lakefile.lean`, in the `package` declaration), so `lake lint` runs Regula. |
-| Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value and no `-D` in the target's `weakLeanArgs` or `moreLeanArgs` (its own or the package's) sets it: in the package's configuration when every root target is claimed (as the starter manifest claims them all) and no claimed target's `-D` sets the option, and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes or a target whose `-D` sets it; while an existing manifest does not load or classify every root target, none, until `doctor`'s RG2002 finding is fixed. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
+| Options | The `leanOptions` the rules require for every claimed target, each only where neither the package nor the target gives it a value and no `-D` in the target's `weakLeanArgs` or `moreLeanArgs` (its own or the package's) sets it: in the package's configuration when every root target is claimed (as the starter manifest claims them all) and no claimed target's `-D` sets the option, and otherwise in each claimed target's own `[[lean_lib]]`/`[[lean_exe]]` table or `lean_lib`/`lean_exe` declaration, so no option reaches a target the manifest excludes or a target whose `-D` sets it; while an existing manifest does not load or classify every root target, none, until `doctor`'s [RG2002] finding is fixed. They are `autoImplicit` and `relaxedAutoImplicit` false and `linter.missingDocs` true, and, when your workspace contains Mathlib, Mathlib's standard linter set with its three exclusions ([community linters](#community-conventions-and-linters)). |
 | Manifest | A starter `foundation_manifest.json` that claims every `lean_lib` as `standard-logical` with `report` execution and lists every `lean_exe` with the first library that contains its root module, or with the first library when none does ([step 3](#3-review-the-claimed-surface)). A manifest claims each surface per library, a `lean_exe` belonging to a library's surface, so a package with no `lean_lib` (such as Lake's `exe` template) gets none: `init` writes the other pieces and `doctor` asks you to add a library, after which `init` writes the starter. |
 | Agent guidance | A short `## Lean standard: Regula` section in your repository's `AGENTS.md`, or with `--skill` the briefing as `.agents/skills/regula/SKILL.md` at the repository root: the root of the Git repository that contains the Lake project (the nearest directory holding `.git`), or the Lake project outside a Git repository. `init` looks for `AGENTS.md` from the Lake project's directory up to the repository root and adds the section to the nearest one, so a Lake project in a subdirectory such as `lean/` without its own `AGENTS.md` uses the repository's root one; there the section ends by naming the directory its `lake` commands run in. When there is none, it creates `AGENTS.md` at the repository root and says so. `doctor` and `init` print each path relative to the Lake project, such as `../AGENTS.md` or `../.agents/skills/regula/SKILL.md`. A section already in a nearer `AGENTS.md` counts; if an earlier `init` created `lean/AGENTS.md` with only the section, or `lean/.agents/skills/regula/SKILL.md`, delete that file and run `init` again. In a repository with several Lake projects, the first to run `init` adds the section; name the other projects' directories in it by hand. `init` also rewrites `.claude/skills/regula/SKILL.md` at the repository root, where Claude Code discovers project skills, whenever that file exists and differs from the installed briefing, but never creates it (copy the `.agents` file there for Claude Code). Both files are generated and owned by `init`: re-running it replaces local edits and prints each file it replaced. |
 
@@ -103,8 +103,8 @@ It never changes a value you set: a lint driver of your own, an option with anot
 existing manifest stay as they are, and `lake exe regula doctor` reports each with its fix. A
 required option that a `-D` extra `lean` argument of a target sets counts as set for that target:
 `init` adds it to no configuration that reaches the target (`Regula.Setup.added_unargued`, over the
-modelled setup and reading every `-D` candidate as RG2006 does, and checked again after writing,
-target by target, as `Regula.Setup.arguedBy_run` states), and `doctor` reports once that RG2006
+modelled setup and reading every `-D` candidate as [RG2006] does, and checked again after writing,
+target by target, as `Regula.Setup.arguedBy_run` states), and `doctor` reports once that [RG2006]
 requires those options in `leanOptions`, naming the entries to write there. It edits the lakefile
 in place, in its own format, then reads the project again and restores every file it wrote unless
 nothing is left to write. A second run therefore writes nothing:
@@ -116,7 +116,7 @@ setup, and that runtime check confirms the files as written match it. `init` end
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
 guidance, toolchain and any module below a library root that no library includes but a claimed
 module imports (which `lake lint` rejects), and, once a manifest exists, the linter's own
-manifest validation (RG2002) and option decision (RG2006) for every claimed target, one RG2006
+manifest validation ([RG2002]) and option decision ([RG2006]) for every claimed target, one [RG2006]
 finding naming every target with the same claim and failures, where `lake lint` prints one per
 target. It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out
@@ -140,10 +140,25 @@ lake exe regula rules            # the index of every rule
 ```
 
 Each prints Markdown generated from the installed package's registry, so it needs no network and
-matches your pinned release. The briefing also tells the agent to link each rule ID it mentions
-in an issue, a comment, a pull request or a document to the rule's page for the installed build,
-the [rule link](#read-a-finding) a finding prints. This repository dogfoods the skill in
+matches your pinned release. This repository dogfoods the skill in
 [`.agents/skills/regula/SKILL.md`](../../.agents/skills/regula/SKILL.md).
+
+### Cite a rule
+
+Wherever an issue, a comment, a pull request or a document mentions a rule ID in prose, the ID is
+a link to that rule's page for the Regula version the text is about, the
+[rule link](#read-a-finding) a finding prints:
+`[RG3002](https://rbeauchamp.github.io/regula/v/<version>/rules/RG3002/)` for a release, with
+`dev` in place of `v/<version>` only for unreleased `main`. A document uses one form throughout,
+never a mixture of bare and linked IDs. IDs in code blocks and code spans, in pasted tool output,
+in a rule table that is itself the index of rule pages, and in Lean identifiers stay as they are.
+The briefing tells an agent the same, with the link for your installed build.
+
+Regula's own documentation follows this. The guides and the README on `main` link to the
+development pages, as [RG3002] does here; each page of the rule-reference site links within its
+own edition; and the documentation step of acceptance and the site check refuse a rule ID in
+prose that is not such a link
+([how to write one](contributing.md#rule-ids-in-documentation)).
 
 ## 3. Review the claimed surface
 
@@ -169,14 +184,14 @@ Name a library or an executable by its Lake target name, the `name` of its `lean
 A name that is not a Lean identifier has a second spelling, `«widget-tool»`, which is how Lean
 prints it: `init` writes that spelling and reports show it. Both name the same target, so a
 manifest that names both has a duplicate. A library or executable entry, claimed or excluded, that names no root
-target of its kind is refused (RG2002): the finding quotes the entry as you wrote it and lists
+target of its kind is refused ([RG2002]): the finding quotes the entry as you wrote it and lists
 the root libraries, or the root executables, by Lake target name.
 
 An executable's root may live inside a library's namespace, such as ``root := `Widget.Cli` `` under
 the ``.andSubmodules `Widget`` glob, so no glob needs to leave executable roots out. List such an
 executable in the `executables` of that library's surface: its root keeps the library's claim
 and is inspected once, in the executable's own environment with its import closure, while the
-library's other modules stay in the library's environment. RG2002 rejects the other
+library's other modules stay in the library's environment. [RG2002] rejects the other
 combinations: a claimed executable whose root is in an excluded library or in another surface's
 library, and an excluded executable whose root is in a claimed library. An excluded executable
 may keep its root in an excluded library. A claimed library still needs one module that is not
@@ -248,9 +263,9 @@ workspace that dispatched it. Its exit status separates the outcome:
 | Exit | Outcome |
 | --- | --- |
 | 0 | `ACCEPTED`: the audit constructed its accepted result for the selected mode. |
-| 1 | `VIOLATION`: completed policy rejections, for example RG1001–RG1007, RG3002, or RG2004 for a claimed import of a module outside every library. |
-| 2 | `INVALID CONFIGURATION`: only RG2002 manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
-| 3 | `INCOMPLETE`: an incomplete finding, for example RG2001, RG2003, RG2005 or RG3001, a failed audit-worker build, a failed audit worker (RG2001, whose detail carries the worker's error), a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
+| 1 | `VIOLATION`: completed policy rejections, for example [RG1001]–[RG1007], [RG3002], or [RG2004] for a claimed import of a module outside every library. |
+| 2 | `INVALID CONFIGURATION`: only [RG2002] manifest/scope rejections, an invalid driver argument, a working directory that is not the dispatching workspace, or `--help`/`--explain-config`, which run no audit. |
+| 3 | `INCOMPLETE`: an incomplete finding, for example [RG2001], [RG2003], [RG2005] or [RG3001], a failed audit-worker build, a failed audit worker ([RG2001], whose detail carries the worker's error), a working directory outside any Lean project or whose workspace fails to load, or an error that escaped the audit. It takes precedence over violations reported in the same run. |
 
 The success line names its coverage: an incremental run is "incremental project acceptance over
 existing build state, not a fresh-source audit"; only `--fresh` is fresh whole-project
@@ -279,10 +294,10 @@ copies, until the next Regula run in the project removes it. `.lake/` is Lake's 
 directory, so a tool that walks your sources and skips it never sees these files.
 
 **A first run usually stops at build warnings.** Rules are inspected only after a build without
-warnings (RG2003), so a warning, such as a missing docstring, makes the run `INCOMPLETE` (exit 3)
+warnings ([RG2003]), so a warning, such as a missing docstring, makes the run `INCOMPLETE` (exit 3)
 with the compiler's message before any foundation rule is checked. The same holds for your first
-`sorry`: Lean warns `declaration uses 'sorry'`, so it is reported as RG2003, not RG1002; silencing
-the warning does not help, because the hole is then reported as RG1002.
+`sorry`: Lean warns `declaration uses 'sorry'`, so it is reported as [RG2003], not [RG1002]; silencing
+the warning does not help, because the hole is then reported as [RG1002].
 
 For CI, provision the toolchain and dependencies, then run the driver as its own step so its
 exit status fails the job; use `--fresh` where the claim is fresh-source conformance, since
@@ -378,10 +393,10 @@ under `/dev/`), where the [rule index](https://rbeauchamp.github.io/regula/dev/r
 rule's scope, reason and a violating and corrected example produced by the real checker.
 
 Lean also generates declarations from the ones you write. In a project or file audit, a
-declaration-policy finding about one of them, such as RG1005, is reported
+declaration-policy finding about one of them, such as [RG1005], is reported
 at the declaration Lean generated it from, following the chain to its end, and, unless Lean
 recorded a range of its own for it, as for a constructor or a field, located at that
-declaration's range, when it belongs to one of the families the RG1005 guidance names (`lake exe
+declaration's range, when it belongs to one of the families the [RG1005] guidance names (`lake exe
 regula explain RG1005`), from the same list the checker runs:
 
 > `lake lint` groups a declaration Lean generated under the one it came from if it is a constructor; projection; recursor such as `casesOn`; equation lemma; reserved name such as `f.induct`; matcher; fixpoint helper; structural helper; auxiliary declaration such as `f._proof_1`; constructor lemma; type construction; field default; recursion helper `f._unsafe_rec`. Other declarations keep their own location. Fix the one reported or a definition it uses that adds the axiom.
@@ -390,7 +405,7 @@ Each family is named by an example, not by every member; the
 [enumeration of the declarations Lean v4.34.0 generates](proofs-and-boundaries.md#generated-declaration-families)
 lists them all, with the family that covers each or why it keeps its own location. So
 `Channel.mk.injEq`, generated from the constructor `Channel.mk`, is reported at the structure
-`Channel`. The RG1005 findings under one declaration at one location print as one block, which
+`Channel`. The [RG1005] findings under one declaration at one location print as one block, which
 lists each declaration's axioms and says where to fix them; a generated declaration with a range
 of its own, such as a constructor or a field, prints as its own block under the same declaration.
 The closing `FAIL` summary counts the attributed ones in one line; the JSON report keeps one
@@ -430,7 +445,7 @@ run's. Its main members:
 | `schemaVersion` | `8`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
-| `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example (RG1005 and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one (RG5002, RG5003) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |
+| `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example ([RG1005] and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one ([RG5002], [RG5003]) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |
 | `rules` | Once per fired rule: `requirement`, `rationale`, `remedy`, `rewrites`, `compliantExample`, `correction`, `helpUrl` and the offline `explain` command. |
 | `sourceTexts` | Every distinct source text of the document, once each. A `sourceText` member, wherever it occurs, is the index of its text in this array. |
 
@@ -539,7 +554,7 @@ warnings with codes `Regula.RG1001`–`RG1007`, `RG2002` and `RG2005` at the dec
 offline `explain` command; the infoview adds a **View explanation** link. `RG2005` means a
 finding needs evidence only `lake lint` collects.
 
-Execution closure (RG3001/RG3002), coverage (RG2004), build and warning checks (RG2003) and fresh
+Execution closure ([RG3001]/[RG3002]), coverage ([RG2004]), build and warning checks ([RG2003]) and fresh
 admission run only in `lake lint`, the build-lint `policy` target or `axiomGate`. A clean editor
 buffer means no current local findings, not a project result, and `set_option linter.regula
 false` changes only local feedback. `lake lint` turns the local linter off for its own build
@@ -581,11 +596,11 @@ core-only code.
   The last four lines apply only with Mathlib. The excluded linters enforce Mathlib's
   contribution header, its ban on `#` commands such as a passing `#guard`, and its file-length
   limit; turning off the header linter also turns off its checks that the module docstring comes
-  first and that no import repeats, which RG5001 checks instead (standard §5.3 and §6.4).
+  first and that no import repeats, which [RG5001] checks instead (standard §5.3 and §6.4).
   In `lakefile.lean` the same options are
   ``leanOptions := #[⟨`linter.missingDocs, true⟩, ⟨`autoImplicit, false⟩, ⟨`relaxedAutoImplicit, false⟩, ⟨`weak.linter.mathlibStandardSet, true⟩, ⟨`weak.linter.style.header, false⟩, ⟨`weak.linter.hashCommand, false⟩, ⟨`weak.linter.style.longFile, .ofNat 0⟩]``.
-  The linters report through build warnings, so `lake lint` reports each as RG2003 (`INCOMPLETE`,
-  exit 3). RG2006 checks every option above in Lake's resolved configuration of each claimed
+  The linters report through build warnings, so `lake lint` reports each as [RG2003] (`INCOMPLETE`,
+  exit 3). [RG2006] checks every option above in Lake's resolved configuration of each claimed
   target, and rejects a target-wide `false` for any other linter and any `-D` in `moreLeanArgs`
   or `weakLeanArgs` that overrides them (`VIOLATION`, exit 1); it does not read `set_option` in
   source, which review checks. Where the community's guidance accepts an exception, disable that
@@ -595,7 +610,7 @@ core-only code.
 
   To keep Mathlib's header linter on, replace `weak.linter.style.header = false` with `true` and
   give the license line it expects in `weak.linter.style.header.license`, a `String` that defaults
-  to Mathlib's Apache 2.0 statement at the pinned Mathlib. RG2006 accepts the header linter only
+  to Mathlib's Apache 2.0 statement at the pinned Mathlib. [RG2006] accepts the header linter only
   with that option set to a nonempty string in `leanOptions`, and the linter then also checks the
   copyright and authors lines of every module that the library root imports. A TOML key cannot
   both hold a value and have sub-keys, so Lake rejects `weak.linter.style.header.license` beside
@@ -617,7 +632,7 @@ core-only code.
 
   In `lakefile.lean` add both to the same `leanOptions`:
   ``⟨`weak.linter.style.header, true⟩, ⟨`weak.linter.style.header.license, "Released under the MIT license as described in the repository LICENSE."⟩``.
-  A `-D` extra `lean` argument does not configure the license line for RG2006.
+  A `-D` extra `lean` argument does not configure the license line for [RG2006].
 - **Batteries' environment linters** (`docBlame`, `simpNF`, `unusedArguments` and others) are
   recommended. They report through their own command and lint the built modules, so run
   `lake build` first. Keep one lint driver and run the other as its own command:
@@ -650,9 +665,9 @@ not the linter alone.
 - `lake lint` exits 0 only for an accepted run: `Regula.Checker.Lint.accepted_sound` and
   `RegulaPolicy.accept_iff` prove the success direction. Which rule a failure receives is proved
   only where a rule page's *Proved linkage* says so.
-- Some adapters are operational code, not proved: RG2001/RG2002 routing of escaped errors by
-  message prefix, RG1007 contract extraction, RG2004 inventory checks, the documentation fence
-  scanner and the RG5001 header observation. `init`'s lakefile edits are text edits confirmed by
+- Some adapters are operational code, not proved: [RG2001]/[RG2002] routing of escaped errors by
+  message prefix, [RG1007] contract extraction, [RG2004] inventory checks, the documentation fence
+  scanner and the [RG5001] header observation. `init`'s lakefile edits are text edits confirmed by
   reading the project again, not proved to realize the model.
 - The command-line transcript names a finding's file and declaration; exact source ranges are in
   `--json-out` and the editor.
@@ -671,3 +686,19 @@ not the linter alone.
   checker unchanged does not rerun them.
 - **`freshChecker`** (fresh `leanchecker` over the serialized module graph) is optional
   defense in depth for the separate `MUT-05` claim, not part of the ordinary loop.
+
+[RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
+[RG1002]: https://rbeauchamp.github.io/regula/dev/rules/RG1002/
+[RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
+[RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
+[RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
+[RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
+[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
+[RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
+[RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
+[RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
+[RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
+[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
+[RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/
