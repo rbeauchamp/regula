@@ -746,19 +746,6 @@ private def executableRoots (env : Environment) (own : Array (Name × ConstantIn
     | _ => continue
   return roots
 
-/-- Emit flushed timing spans inside the trusted command observation when requested by the
-runner. Elapsed times describe the run, not the collected declarations or execution account. -/
-private def reportPhase {α : Type} (enabled : Bool) (label : String)
-    (action : CommandElabM α) : CommandElabM α := do
-  if !enabled then return ← action
-  let label := s!"worker {← IO.Process.getPID} {label}"
-  IO.println s!"verification phase {label}: start"
-  (← IO.getStdout).flush
-  let started ← IO.monoNanosNow
-  try action finally
-    IO.println s!"verification phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms (finished)"
-    (← IO.getStdout).flush
-
 /-- Build the complete report for exact requested module names. The trusted
 runner calls this function directly, without parsing a command in the audited
 module's frontend extension environment. -/
