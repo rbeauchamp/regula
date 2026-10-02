@@ -215,7 +215,7 @@ number := false
   * Inspect the transitive sets for the selected surface profile. Qualification: direct and transitive choice mutations fail the Choice-Free claim; a positive Standard-Logical control passes with its exact label.
 *
   * {checklistRow}[FOUND-05]
-  * Native/compiler-generated proof axioms are classified separately and rejected from the conforming positive proof surface; final-environment metadata alone cannot spoof the classification.
+  * Native/compiler-generated proof axioms are classified separately and rejected from the conforming positive proof surface; final-environment metadata alone cannot spoof the classification, and retired compiler-trust names have no compiler exception.
   * {ref "75-proof-completeness-and-foundation-strength"}[7 §7.5–§7.6]
   * Inspect generated proof axioms and dependent declarations; the compiler-trusting classification requires a name the `nativeEqTrue` scheme generates under a declaration of the axiom's module, the tactic's exact asserted statement with a successful independent native replay, and fresh-transcript provenance: the one command introducing that declaration adds the axiom, and no `axiom` declaration occurs in that command's recorded syntax or macro expansions. Qualification: a real native proof is compiler-trusting; a native-named `axiom` declared directly, through a macro, or through a macro whose declaration fails after adding the axiom stays a project axiom; a custom frontend forging the final semantic shape of a natively true proof is classified compiler-trusting, never logical.
 :::

@@ -45,10 +45,13 @@ private def probe (root : FilePath) (selector : String) : IO Identity := do
   let lean ← selectedLean root selector
   Qualification.withScratch root "compiler-identity" fun scratch => do
     let source := scratch / "Identity.lean"
-    IO.FS.writeFile source "import Init\n\
+    IO.FS.writeFile source ((include_str "CompilerObservation.lean") ++ "\n\
       def main : IO Unit := do\n\
+      \x20 let capability ← Regula.CompilerObservation.legacyPresent \
+        (← Lean.getLibDir (← Lean.getBuildDir))\n\
       \x20 IO.println Lean.versionString\n\
-      \x20 IO.println Lean.githash\n"
+      \x20 IO.println Lean.githash\n\
+      \x20 IO.println (if capability then \"present\" else \"absent\")\n")
     let out ← IO.Process.output {
       cmd := lean.toString, args := #["--run", source.toString], cwd := some root
       env := ← selectedEnv selector lean }
@@ -57,7 +60,8 @@ private def probe (root : FilePath) (selector : String) : IO Identity := do
     IO.ofExcept (parseIdentity out.stdout)
 
 private def identityJson (i : Identity) : Json := Json.mkObj [
-  ("version", .str i.version), ("commit", .str i.commit)]
+  ("version", .str i.version), ("commit", .str i.commit),
+  ("legacyCompilerTrust", .str i.legacyCompilerTrust.spelling)]
 
 private def metadataDir (root : FilePath) : FilePath := root / ".lake/regula-toolchain"
 
@@ -75,6 +79,9 @@ private def prepare (root : FilePath) (selector : String) (destination : FilePat
   -- Lean string literals specializes the same policy; the candidate recompiles its proofs.
   let policy := template.replace (reprStr RegulaPolicy.Compiler.version) (reprStr identity.version)
     |>.replace (reprStr RegulaPolicy.Compiler.commit) (reprStr identity.commit)
+    |>.replace
+      s!"def legacyCompilerTrust : LegacyCompilerTrust := .{RegulaPolicy.Compiler.legacyCompilerTrust.spelling}"
+      s!"def legacyCompilerTrust : LegacyCompilerTrust := .{identity.legacyCompilerTrust.spelling}"
     |>.replace "def candidate : Bool := false" "def candidate : Bool := true"
   IO.FS.writeFile (candidate / "lean/RegulaPolicy/Compiler.lean") policy
   IO.FS.writeFile (candidate / "lean-toolchain") (selector ++ "\n")
@@ -100,9 +107,13 @@ private def qualify (root candidate : FilePath) : IO UInt32 := do
   let selector ← IO.ofExcept (prepared.getObjValAs? String "selector")
   let revision ← IO.ofExcept (prepared.getObjValAs? String "candidateRevision")
   let compiler ← IO.ofExcept (prepared.getObjVal? "compiler")
+  let capability ← IO.ofExcept (compiler.getObjValAs? String "legacyCompilerTrust")
+  let some legacyCompilerTrust := RegulaPolicy.Compiler.LegacyCompilerTrust.parse? capability
+    | throw <| IO.userError "prepared compiler capability is unknown"
   let identity : Identity := {
     version := ← IO.ofExcept (compiler.getObjValAs? String "version")
-    commit := ← IO.ofExcept (compiler.getObjValAs? String "commit") }
+    commit := ← IO.ofExcept (compiler.getObjValAs? String "commit")
+    legacyCompilerTrust }
   let mut results : List Observation := []
   let writeReceipt (results : List Observation) (unchanged : Bool) : IO Unit :=
     Qualification.writeJson receipt (Json.mkObj [

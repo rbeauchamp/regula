@@ -96,6 +96,19 @@ styles.
 
 ## Findings and locations
 
+`RegulaPolicy.Compiler` fixes the legacy compiler-trust capability for each checker revision.
+`Regula.CompilerObservation` loads a separate `Init.Core` environment, checks its resolved module
+paths and the legacy axioms' types and owners, and observes the complete family or its absence.
+`Regula.Collect.compilerCapability` confirms the selected compiler's identity and memoizes that
+observation. Strict report decoders and policy admission require it to match the compiled
+capability. An `Inventory` carries this agreement as a proof-bearing field; declaration and
+execution classification use that same compiled capability.
+
+The observer imports Lean's environment API in the operational library. It is infrastructure
+only when its artifact is canonical and every incoming import is from authenticated reporter
+infrastructure or an authenticated, force-only collector. A claimed import of the observer or
+collector keeps it in the audit. The pure policy library still imports no environment API.
+
 `Diagnostic id` ([`Regula.Diagnostic`](../../lean/Regula/Diagnostic.lean)) carries `Payload id`
 (structural declaration names, execution roots or context arguments), a primary location, related
 locations, evidence mode, claim context, strict impact and display severity; collections store

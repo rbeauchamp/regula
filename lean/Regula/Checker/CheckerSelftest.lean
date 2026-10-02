@@ -44,8 +44,8 @@ Their disjoint union is the full run; no partition alone reports full qualificat
 
 The structural and correspondence clusters run in the structural project
 (`StructuralProject`): the repository's package restricted to the application, so a gate there
-builds and inspects the application alone. The one control that needs the checker's own
-package as the audited project runs in copies of the repository (`structuralSelfHosted`,
+builds and inspects the application alone. The controls that need the checker's own
+package as the audited project run in copies of the repository (`structuralSelfHosted`,
 `structuralSelfHostedPositive`).
 
 The controls of the structural and of the execution partition each carry one of two shards
@@ -456,6 +456,17 @@ private def loadSourceLayout (repo : FilePath) : IO SourceLayout := do
         "self-test: package source directory must stay inside the copied repository"
     return { relativeDir, project := ← structuralProject manifest ws }
 
+private inductive ConstructorIndexProbe where
+  | first
+  | second
+
+/-- The actual compiler's generated shape, observed while compiling this diagnostic.
+This selects an exact fixture expectation; it supplies no policy authorization. -/
+private def constructorIndexReplacements : Bool := by_elab do
+  let base := Lean.mkCtorIdxName ``ConstructorIndexProbe
+  return Lean.toExpr (Lean.Compiler.getImplementedBy? (← Lean.getEnv) base ==
+    some (base.str "_impl"))
+
 private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
     (Array FixtureSpec) := do
   let path := (repo / layout.relativeDir) / "Fixtures" / "fixtures.json"
@@ -480,10 +491,30 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
       | "pass" => pure Expectation.pass
       | "fail" => pure Expectation.fail
       | _ => throw <| IO.userError s!"{moduleName}: expect must be pass or fail"
-    let reason ← optionalString spec "reason" moduleName
+    let reason ← match spec.getObjVal? "reason" with
+      | .error _ => pure none
+      | .ok reason =>
+        match reason.getStr? with
+        | .ok text => pure (some text)
+        | .error _ =>
+          IO.ofExcept <| PolicyCodec.exactFields reason ["present", "absent"]
+          let present ← requiredString reason "present" moduleName
+          let absent ← requiredString reason "absent" moduleName
+          pure (some (match RegulaPolicy.Compiler.legacyCompilerTrust with
+            | .present => present
+            | .absent => absent))
     let reasons ← match spec.getObjVal? "reasons" with
       | .error _ => pure #[]
-      | .ok value => jsonStringArray s!"{moduleName}.reasons" value
+      | .ok value =>
+        match value.getArr? with
+        | .ok _ => jsonStringArray s!"{moduleName}.reasons" value
+        | .error _ => do
+          IO.ofExcept <| PolicyCodec.exactFields value ["constructor-index", "no-constructor-index"]
+          let withHelpers ← jsonStringArray s!"{moduleName}.reasons.constructor-index"
+            (← IO.ofExcept (value.getObjVal? "constructor-index"))
+          let withoutHelpers ← jsonStringArray s!"{moduleName}.reasons.no-constructor-index"
+            (← IO.ofExcept (value.getObjVal? "no-constructor-index"))
+          pure (if constructorIndexReplacements then withHelpers else withoutHelpers)
     if reason.isSome && !reasons.isEmpty then
       throw <| IO.userError s!"{moduleName}: use exactly one of reason or reasons"
     let reasons := match reason with
@@ -642,11 +673,12 @@ private def disjointNames (left right : Array String) : Bool :=
 /-- Render the exact per-declaration and execution-coverage lines the public
 `axiomGate --file --verbose` audit prints for one elaborated fixture, using the same
 `Policy` functions, so the shared assessment sees an equivalent report. -/
-private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
+private def renderFileAudit (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
+    (fixture : FixtureSpec) (_moduleName : String)
     (declarations : Array Regula.Report.Declaration)
     (roots : Array Regula.Report.ExecutionRoot)
     (transcripts : Array Frontend.Transcript) : String × Bool := Id.run do
-  let .ok scope := Policy.admitScope declarations transcripts
+  let .ok scope := Policy.admitScope observed declarations transcripts
     | return ("invalid policy observation inventory", false)
   let execution := match fixture.execution with
     | some mode => (ExecutionClaim.parse? mode).getD .report
@@ -769,7 +801,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
   -- Complete all transcript workers before starting isolated report workers.
   let transcripts ← IO.ofExcept (← IO.wait transcriptTask)
   let mut inspected : Array (CompiledFixture × Array Regula.Report.Declaration ×
-      Array Regula.Report.ExecutionRoot) := #[]
+      Array Regula.Report.ExecutionRoot × RegulaPolicy.Compiler.LegacyCompilerTrust) := #[]
   Lean.searchPathRef.set scopedPath
   try
     for (_, items) in groups do
@@ -797,7 +829,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             let declarations := report.declarations.filter (·.«module» == moduleName.toName)
               |>.qsort fun left right => Name.quickLt left.name right.name
             let roots := report.execution.filter (·.«module» == moduleName.toName)
-            inspected := inspected.push (item, declarations, roots)
+            inspected := inspected.push (item, declarations, roots, report.compilerCapability)
       catch error =>
         -- An inspection that throws has no report: the gate reports it as incomplete.
         for item in items do
@@ -805,12 +837,12 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             (assessFixtureOutput item.fixture .incomplete error.toString)
     pure ()
   finally Lean.searchPathRef.set oldSearchPath
-  for (item, declarations, roots) in inspected do
+  for (item, declarations, roots, observed) in inspected do
     let moduleName := item.compilation.spec.«module»
     if Policy.needsFrontendTranscript declarations then
       match transcripts.find? (·.1 == moduleName) with
       | some (_, some transcript) =>
-        let (output, succeeded) := renderFileAudit item.fixture moduleName
+        let (output, succeeded) := renderFileAudit observed item.fixture moduleName
           declarations roots #[transcript]
         results := results.set! item.index
           (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
@@ -822,7 +854,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             else
               s!"transcript need pre-filter diverged for {moduleName}"))
     else
-      let (output, succeeded) := renderFileAudit item.fixture moduleName
+      let (output, succeeded) := renderFileAudit observed item.fixture moduleName
         declarations roots #[]
       results := results.set! item.index
         (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
@@ -1502,50 +1534,55 @@ private def freshInputDifference (before after : Array (String × Option ByteArr
     | some (b, a) => if b.1 == a.1 then b.1 else s!"{b.1} / {a.1}"
     | none => s!"{before.size} entries before, {after.size} after"
 
-/-- The one structural control that needs the checker's own package as the audited project: in
+/-- Structural controls that need the checker's own package as the audited project: in
 a copy of the repository, the probe modules are exempt from the environment-level exclusion
 check (the force import always brings them in), and a claimed module importing the probe's
-report records must still be rejected as excluded-module contamination. The structural
+report records, collector or compiler observer must still be rejected as excluded-module contamination. The structural
 project has no source for that module, so the import there could not be this contamination.
-The copy claims `selfHostedManifestText`, so its gate builds and inspects `RegulaPolicy` too.
+The copy claims `selfHostedManifestText`, so its gates build and inspect `RegulaPolicy` too.
 
-This control was changed when the partition was divided into shards. No fresh gate runs on
-the copy this cluster mutated and restored. That accepting gate is replaced by two things: a
-checked identity, here, of the restored copy's fresh input (`freshInput`) with that of a copy
-prepared anew, and the accepting fresh gate on a copy prepared anew
-(`structuralSelfHostedPositive`), which is in the other shard and so may be another
-invocation's. The identity is compared path by path and byte by byte, and any difference fails
-this cluster. That the two together stand for the replaced gate rests on two facts, neither of
-them a theorem:
-
-1. A fresh gate reads the audited project only through its copy operation (`copyProject`,
-   which prunes the project's `.lake`), and builds that copy from empty output; without
-   `--with-docs`, as here, it reads no other file of the project, and the packages directory
-   it links is the repository's for every copy. `freshInput` is that operation's output. So
-   equal fresh input gives the same gate run, and the setup build, the incremental gate and the
-   restoration are observed to leave the prepared input.
-2. The two shards are jobs of one workflow matrix, so whenever the diagnostics workflow runs
-   them it starts both on the one commit it checks out, where `prepareSelfHosted` prepares the
-   same copy for each. That both pass before merging is enforced by the ruleset of `main`, not
-   by this module, which observes nothing of the other job. The workflow runs the matrix on a
-   pull request exactly when the pull request changes one of the paths
-   `Regula.DiagnosticsGate.inputs` lists, and its last job, `diagnostics`, a required check that
-   reports on every pull request, passes on a run where the matrix applies only when the matrix
-   job succeeded in that run (`Regula.DiagnosticsGate.verdict_iff`). That GitHub reports a
-   matrix job succeeded only when every job of it did is GitHub's behaviour, trusted. -/
+On its own copy, the cluster runs an accepting fresh gate before any mutation, the incremental
+gate on each of the three contaminations, each restored before the next, and an accepting fresh
+gate on the restored copy. Both accepting gates are actual fresh gates on this cluster's copy;
+neither depends on the other shard. Before the restored gate, the cluster also checks the
+restored copy's fresh input (`freshInput`) path by path and byte by byte against that of a copy
+prepared anew (`prepareSelfHosted`), and any difference fails this cluster. The accepting fresh
+gate on such a copy prepared anew (`structuralSelfHostedPositive`) is in the other shard. That
+equal fresh input gives the same gate run, so that the restored gate here and that positive
+audit the same input, rests on a fact that is not a theorem: a fresh gate reads the audited
+project only through its copy operation (`copyProject`, which prunes the project's `.lake`), and
+builds that copy from empty output; without `--with-docs`, as here, it reads no other file of
+the project, and the packages directory it links is the repository's for every copy.
+`freshInput` is that operation's output. The two shards are jobs of one workflow matrix, which
+starts both on the one commit it checks out. That both pass before merging is enforced by the
+ruleset of `main`, not by this module, which observes nothing of the other job. The workflow
+runs the matrix on a pull request exactly when the pull request changes one of the paths
+`Regula.DiagnosticsGate.inputs` lists, and its last job, `diagnostics`, a required check that
+reports on every pull request, passes on a run where the matrix applies only when the matrix
+job succeeded in that run (`Regula.DiagnosticsGate.verdict_iff`). That GitHub reports a matrix
+job succeeded only when every job of it did is GitHub's behaviour, trusted. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
-  let gate (args : Array String := #["--incremental"]) :=
-    runBinaryFrom repo copy "axiomGate" args
+  let gate (label : String) (args : Array String := #["--incremental"]) := do
+    Regula.Checker.timedPhase s!"structural/self-hosted/{label}" do
+      if ← timing.get then
+        runProcessShowing copy (← toolPath repo "axiomGate").toString
+          args #[(timingVariable, some "1")] (·.startsWith "verification phase ")
+      else
+        runBinaryFrom repo copy "axiomGate" args
   let appRoot := copy / layout.relativeDir / "AuditApp.lean"
   let originalRoot ← IO.FS.readFile appRoot
-  let probeContaminated := originalRoot.replace "import AuditApp.Demo\n"
-    "import AuditApp.Demo\nimport Regula.Report\n"
-  withReplacedFile appRoot probeContaminated do
-    if let some failure := expectedFailure "probe-contamination" (← gate)
-        #["unexpected-project-module", "Regula.Report"] then
-      failures.modify (·.push failure)
+  let positive ← gate "positive" #[]
+  if !positive.succeeded then
+    return #[s!"structural/self-hosted/positive: fresh gate failed:\n{positive.output}"]
+  for name in #["Regula.Report", "Regula.Collect", "Regula.CompilerObservation"] do
+    let contaminated := originalRoot.replace "import AuditApp.Demo\n"
+      s!"import AuditApp.Demo\nimport {name}\n"
+    withReplacedFile appRoot contaminated do
+      if let some failure := expectedFailure s!"probe-contamination/{name}" (← gate name)
+          #["unexpected-project-module", name] then
+        failures.modify (·.push failure)
   let some parent := copy.parent
     | throw <| IO.userError s!"self-test: the self-hosted copy {copy} has no parent directory"
   let prepared := parent / "self-hosted-prepared"
@@ -1555,13 +1592,17 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
   if let some difference := freshInputDifference before after then
     failures.modify (·.push s!"structural/self-hosted/restored: the restored copy is not the \
       prepared one for a fresh gate; first difference: {difference}")
+  let restored ← gate "restored" #[]
+  if !restored.succeeded then
+    failures.modify (·.push
+      s!"structural/self-hosted/restored: final fresh gate failed:\n{restored.output}")
   failures.get
 
-/-- The positive of `structuralSelfHosted`: the fresh gate accepts the self-hosted copy without
-the mutation. It is not a gate on the mutated and restored copy, which no fresh gate audits any
-more. Its project is the copy as prepared (`prepareSelfHosted`), whose fresh input
-`structuralSelfHosted` checks equal to that of its own copy once the mutation is restored; the
-docstring there states the substitution and the two facts it rests on. -/
+/-- The standalone positive beside `structuralSelfHosted`: the fresh gate accepts the
+self-hosted copy as prepared (`prepareSelfHosted`), in the other shard. It is not a gate on the
+copy `structuralSelfHosted` mutates and restores; that cluster runs its own accepting fresh
+gates before the mutations and after their restoration, and checks the restored copy's fresh
+input equal to that of a copy prepared this way. -/
 private unsafe def structuralSelfHostedPositive (repo copy : FilePath) : IO (Array String) := do
   prepareSelfHosted repo copy
   let accepted ← runBinaryFrom repo copy "axiomGate" #[]
@@ -2829,8 +2870,11 @@ private def runBuildPolicy (repo : FilePath) (jobs : Nat)
     IO.println <| "self-test build policy linter: " ++
       (if buildLint.isEmpty then "PASS" else "FAIL")
 
-/-- `lake lint` driver controls: Lake dispatch in both lakefile formats and exit classes.
-The shared audit body's detectors are qualified by the build-policy partition. -/
+/-- `lake lint` driver controls: Lake dispatch in both lakefile formats and exit classes, and
+the cold compiler guard of `lakefile.lean`, which refuses an inherited `LEAN_SYSROOT` child
+that fails and one that succeeds without reporting the running compiler's identity, then loads
+the same package again. The shared audit body's detectors are qualified by the build-policy
+partition. -/
 private def runLintDriver (repo : FilePath) (jobs : Nat)
     (failures : IO.Ref (Array String)) : IO Unit := do
   withScratch repo "checker-lake-lint" fun scratch => do

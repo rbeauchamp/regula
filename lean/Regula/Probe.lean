@@ -688,6 +688,8 @@ def environmentReport (modules : List Name)
     throwError "environmentReport: no owned module names were supplied"
   unless RegulaPolicy.Compiler.accepts Lean.versionString Lean.githash do
     throwError "unsupported compiler identity {Lean.versionString} ({Lean.githash})"
+  let compilerCapability ← liftIO Regula.Collect.compilerCapability
+  let _ ← IO.ofExcept (RegulaPolicy.Compiler.admitCapability compilerCapability)
   let env ← getEnv
   -- Execution trust checks always need canonical origins. Logical-only
   -- documentation inspection may omit this otherwise unused report payload.
@@ -755,6 +757,7 @@ def environmentReport (modules : List Name)
     else pure #[]
   return {
     toolchain := Lean.versionString
+    compilerCapability
     modules := RegulaPolicy.canonicalNames env.header.moduleNames
     moduleOrigins
     declarations := entries

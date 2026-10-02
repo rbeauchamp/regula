@@ -203,7 +203,9 @@ private unsafe def freezeGraph (plan : Plan) (snapshot : RegulaPolicy.AdmittedSn
             (⟨key.name.name, path.toString, data.imports.map (·.module)⟩ :
                 RegulaPolicy.ModuleOrigin)
     finally Lean.searchPathRef.set previous
-  let policy ← IO.ofExcept <| RegulaPolicy.admitInventory #[] #[]
+  let compiler ← IO.ofExcept <|
+    RegulaPolicy.Compiler.admitCapability (← Regula.Collect.compilerCapability)
+  let policy ← IO.ofExcept <| RegulaPolicy.admitInventory compiler #[] #[]
   let execution ← IO.ofExcept <| RegulaPolicy.admitExecution #[]
   let request : RegulaPolicy.EnvironmentRequest := { key := ⟨snapshot, 0⟩, modules }
   let environment : RegulaPolicy.EnvironmentCensus := {

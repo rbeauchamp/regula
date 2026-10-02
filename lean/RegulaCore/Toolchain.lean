@@ -12,12 +12,14 @@ authority and proves nothing about the processes, compiler executable, or filesy
 
 namespace Regula.Toolchain
 
-/-- A compiler's self-reported version and full source commit. -/
+/-- A compiler's identity and the observed capability used by declaration policy. -/
 structure Identity where
   /-- The complete version string, including a prerelease suffix. -/
   version : String
   /-- The full forty-character Git commit. -/
   commit : String
+  /-- Whether the compiler's origin-checked Core declares the legacy compiler-trust family. -/
+  legacyCompilerTrust : RegulaPolicy.Compiler.LegacyCompilerTrust
   deriving BEq, DecidableEq, Repr
 
 /-- A nonempty version and a complete lowercase hexadecimal source commit. -/
@@ -25,23 +27,28 @@ def Identity.valid (i : Identity) : Bool :=
   !i.version.isEmpty && i.commit.length == 40 &&
     i.commit.toList.all (fun c => c.isDigit || ('a' ≤ c && c ≤ 'f'))
 
-/-- Admit the compiler probe's exact two-line output, including its final newline. -/
+/-- Admit the compiler probe's exact three-line output, including its final newline. -/
 def parseIdentity (output : String) : Except String Identity :=
   match output.splitOn "\n" with
-  | [v, h, ""] =>
-    let i := Identity.mk v h
-    if i.valid then .ok i else .error "compiler identity is incomplete"
-  | _ => .error "compiler probe did not return exactly a version and full commit"
+  | [v, h, capability, ""] =>
+    match RegulaPolicy.Compiler.LegacyCompilerTrust.parse? capability with
+    | none => .error "compiler capability is unknown"
+    | some capability =>
+      let i := Identity.mk v h capability
+      if i.valid then .ok i else .error "compiler identity is incomplete"
+  | _ => .error "compiler probe did not return exactly a version, full commit and capability"
 
 /-- Parsing cannot replace a malformed or incomplete identity with a default. -/
 theorem parseIdentity_valid {output : String} {i : Identity}
     (h : parseIdentity output = .ok i) : i.valid = true := by
   unfold parseIdentity at h
   split at h
-  · dsimp only at h
-    split at h
-    · cases h; assumption
+  · split at h
     · cases h
+    · dsimp only at h
+      split at h
+      · cases h; assumption
+      · cases h
   · cases h
 
 /-- One existing build or detector campaign, in dependency order. -/

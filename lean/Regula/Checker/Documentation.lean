@@ -488,10 +488,11 @@ private def compilationFailure (compilation : SourceAudit.Compilation)
   else "emitted warning: " ++ " | ".intercalate (warnings.extract 0 4).toList
   { task, status := .fail, detail, incomplete := !SourceAudit.sourceDiagnosticFailure compilation }
 
-private def assessPositive (task : Task) (unitName : Name)
+private def assessPositive (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
+    (task : Task) (unitName : Name)
     (declarations : Array Regula.Report.Declaration)
     (transcripts : Array Frontend.Transcript) : Result := Id.run do
-  let .ok scope := Policy.admitScope declarations transcripts
+  let .ok scope := Policy.admitScope observed declarations transcripts
     | return { task, status := .fail, detail := "invalid policy observation inventory",
                  incomplete := true }
   let claim := if task.kind == .trusted then Profile.compilerTrusting
@@ -662,7 +663,8 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
               | throw <| IO.userError "unreachable admission outcome"
             let units := group.items.map fun item => (item.task, item.compilation)
             return group.items.map fun item =>
-              let assessed := assessPositive item.task item.compilation.spec.module.toName
+              let assessed := assessPositive inspected.report.compilerCapability
+                item.task item.compilation.spec.module.toName
                 inspected.report.declarations inspected.transcripts
               (item.index, { assessed with raw := some ⟨item.compilation, some inspected, units⟩ })
           catch error =>
@@ -755,7 +757,8 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
       let some group := raw.group | throw <| IO.userError "missing example group inspection"
       IO.ofExcept (ProducerReport.checked_validate.run group.report)
       IO.ofExcept <| group.report.validateSourceEvidence.mapError (·.detail)
-      let scope ← IO.ofExcept <| Policy.admitScope group.report.declarations group.transcripts
+      let scope ← IO.ofExcept <|
+        Policy.admitScope group.report.compilerCapability group.report.declarations group.transcripts
       let some replay := group.report.admission
         | throw <| IO.userError "missing example logical admission"
       pure (group.report.census.declarations,

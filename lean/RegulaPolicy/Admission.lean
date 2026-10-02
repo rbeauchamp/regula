@@ -219,6 +219,8 @@ theorem inventoryValid_append_false_of_shared_name
 
 /-- No raw constructor or decoder can omit the inventory-validity proof. -/
 structure Inventory where
+  /-- The observed compiler capability, proved equal to this compiled policy's expectation. -/
+  compiler : Compiler.Capability
   /-- The admitted declaration observations, in the order supplied. -/
   declarations : Array Declaration
   /-- The admitted frontend transcripts, one per module, in the order supplied. -/
@@ -228,14 +230,16 @@ structure Inventory where
   deriving DecidableEq
 
 /-- Validate without dropping, substituting, or deduplicating result observations. -/
-def admitInventory (decls : Array Declaration) (transcripts : Array Frontend.Transcript) :
+def admitInventory (compiler : Compiler.Capability) (decls : Array Declaration)
+    (transcripts : Array Frontend.Transcript) :
     Except String Inventory :=
-  if h : InventoryValid decls transcripts then .ok ⟨decls, transcripts, h⟩
+  if h : InventoryValid decls transcripts then .ok ⟨compiler, decls, transcripts, h⟩
   else .error "invalid policy inventory: anonymous, duplicate, or malformed identity"
 
 /-- Every valid inventory is admitted with exactly its input fields. -/
-theorem admitInventory_exact (ds : Array Declaration) (ts : Array Frontend.Transcript)
-    (h : InventoryValid ds ts) : admitInventory ds ts = .ok ⟨ds, ts, h⟩ := by
+theorem admitInventory_exact (compiler : Compiler.Capability)
+    (ds : Array Declaration) (ts : Array Frontend.Transcript)
+    (h : InventoryValid ds ts) : admitInventory compiler ds ts = .ok ⟨compiler, ds, ts, h⟩ := by
   simp [admitInventory, h]
 /-- Boundary toolchain-origin receipts must refer to this observation's module. -/
 def ExecutionBoundary.Valid (b : ExecutionBoundary) : Prop :=

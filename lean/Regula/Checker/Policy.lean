@@ -34,9 +34,11 @@ abbrev ExecutionClaim.toString (x : ExecutionClaim) : String :=
 `checked_coordinates.run`. `ScopeContract`, instantiated at `Frontend.validateCoordinates`,
 is its exact relation, and `CoordinateContract` that check's. Transcript bytes are not
 authenticated. -/
-def admitScope (ds : Array Declaration) (ts : Array Frontend.Transcript := #[]) :
-    Except String PolicyScope :=
-  checked_scope.run Frontend.validateCoordinates ds ts
+def admitScope (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
+    (ds : Array Declaration) (ts : Array Frontend.Transcript := #[]) :
+    Except String PolicyScope := do
+  let compiler ← RegulaPolicy.Compiler.admitCapability observed
+  checked_scope.run compiler Frontend.validateCoordinates ds ts
 
 /-- Whether a declaration with these fields could receive a generated-role exception and so
 needs a fresh frontend transcript (`RegulaPolicy.declarationNeedsTranscript`). -/
