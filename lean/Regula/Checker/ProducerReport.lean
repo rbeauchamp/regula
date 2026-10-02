@@ -44,25 +44,33 @@ instance : FromJson Census := ⟨fun j => do
 
 /-- Replay scope can exceed report scope. Required keys come from the replayed modules' own data
 in the original environment; admitted keys are observed in the separately replayed kernel after
-`Environment.replay` and the copy checks (`Admission.validate`). -/
+`Environment.replay` and the copy checks (`Admission.validate`). The keys of a reused module that
+the environment itself reports come from that module's own data too, and are admitted by the
+earlier environment that replayed it (`Admission.reuseJustified_admitted`). -/
 structure AdmissionReceipt where
-  /-- The modules whose owned declarations were replayed: the owned modules other than `reused`
-  and the checker reporter modules that import one of them, without duplicates. -/
+  /-- The replay set: the owned modules other than `reused` and the checker reporter modules that
+  import one of them, without duplicates. The environment replays those of them it loaded. One
+  with a key in `required` is a loaded module with at least one constant that is neither `unsafe`
+  nor `partial`; a loaded module with no such constant has no key, and a module the environment
+  did not load is listed here too. -/
   modules : Array Name
   /-- The `(module, declaration)` key of every constant a replayed module's own data contains
   that is neither `unsafe` nor `partial`; a name several replayed modules contain has one key per
-  module. -/
+  module. Then the same keys of each reused module among the environment's requested modules. -/
   required : Array (Name × Name)
-  /-- The required keys admitted by replay and the copy checks, in the same order. -/
+  /-- The required keys admitted by replay and the copy checks, or, for a reused module's, by
+  the environment that replayed it, in the same order. -/
   admitted : Array (Name × Name)
-  /-- The owned, unrequested modules not replayed here because an earlier environment of the same
-  audit admitted them over the identical import closure (`Admission.reusedModules`). -/
+  /-- The owned modules not replayed here because an earlier environment of the same audit
+  admitted them over the identical import closure (`Admission.reusedModules`). One of the
+  environment's own requested modules is among them only when an earlier environment loaded it
+  first (claimed libraries that import one another). -/
   reused : Array Name
   /-- The replayed modules containing a copy of a name that the replay base or another replayed
   module also declares. Their admission depends on which copy this environment keeps, so no
   later environment reuses it. -/
   shared : Array Name
-  deriving Repr, ToJson
+  deriving Repr, DecidableEq, ToJson
 
 instance : FromJson AdmissionReceipt := ⟨fun j => do
   exactFields j ["modules", "required", "admitted", "reused", "shared"]
@@ -265,17 +273,20 @@ def Environment.validateExecutionCensus (r : Environment) : Except String Unit :
       throw "producer-census: execution root coverage mismatch"
 
 /-- The replay receipt covers unique modules and requirements, admits exactly what it
-requires, and requires every safe total declaration. -/
+requires, requires only keys of replayed or reused modules, replays or reuses every claimed
+module, requires every safe total declaration, and lists no module as both replayed and
+reused. -/
 def Environment.receiptOK (r : Environment) (receipt : AdmissionReceipt) : Bool :=
   let requiredSet := receipt.required.foldl (fun s k => s.insert k)
     ({} : Std.HashSet (Name × Name))
   (canonicalNames receipt.modules).size == receipt.modules.size &&
     (canonicalEdges receipt.required).size == receipt.required.size &&
     receipt.admitted == receipt.required &&
-    receipt.required.all (fun k => receipt.modules.contains k.1) &&
-    r.census.modules.all receipt.modules.contains &&
+    receipt.required.all (fun k => receipt.modules.contains k.1 || receipt.reused.contains k.1) &&
+    r.census.modules.all (fun m => receipt.modules.contains m || receipt.reused.contains m) &&
     r.declarations.all (fun d => d.isUnsafe || d.isPartial ||
-      requiredSet.contains (d.module, d.name))
+      requiredSet.contains (d.module, d.name)) &&
+    receipt.reused.all (fun m => !receipt.modules.contains m)
 
 /-- Documentation observations cover exactly the claimed modules, and exactly the
 unique material declarations the census contains, in order. -/
@@ -453,15 +464,19 @@ def Environment.SourceEvidenceSound (r : Environment) : Prop :=
   (∀ d ∈ r.declarations, ∃ s ∈ r.sourceBindings, s.moduleName = d.module ∧
     ∀ range, d.ranges = some range → range.validFor s.content = true)
 
-/-- The replay receipt exists, admits exactly its unique requirements from its unique
-modules, covers every claimed module, and requires every safe total declaration. -/
+/-- The replay receipt exists, admits exactly its unique requirements, each a key of one of its
+unique replayed modules or of a reused module, replays or reuses every claimed module, requires
+every safe total declaration, and lists no module as both replayed and reused. That a key of a
+reused module was admitted by the environment that replayed the module is the coordinator's
+check (`Admission.reuseJustified_admitted`), not this one. -/
 def Environment.AdmissionSound (r : Environment) : Prop :=
   ∃ receipt, r.admission = some receipt ∧ receipt.admitted = receipt.required ∧
     receipt.modules.toList.Nodup ∧ receipt.required.toList.Nodup ∧
-    (∀ k ∈ receipt.required, k.1 ∈ receipt.modules) ∧
-    (∀ m ∈ r.census.modules, m ∈ receipt.modules) ∧
-    ∀ d ∈ r.declarations,
-      d.isUnsafe = true ∨ d.isPartial = true ∨ (d.module, d.name) ∈ receipt.required
+    (∀ k ∈ receipt.required, k.1 ∈ receipt.modules ∨ k.1 ∈ receipt.reused) ∧
+    (∀ m ∈ r.census.modules, m ∈ receipt.modules ∨ m ∈ receipt.reused) ∧
+    (∀ d ∈ r.declarations,
+      d.isUnsafe = true ∨ d.isPartial = true ∨ (d.module, d.name) ∈ receipt.required) ∧
+    ∀ m ∈ receipt.reused, m ∉ receipt.modules
 
 /-- Documentation observations exist, cover exactly the claimed modules in order, and
 record exactly the unique census-declared material selection in order. -/
@@ -605,12 +620,13 @@ private theorem mem_of_requiredSet_contains {required : Array (Name × Name)} {k
 theorem admissionSound_of (r : Environment) (receipt : AdmissionReceipt)
     (hr : r.admission = some receipt) (h : r.receiptOK receipt = true) : r.AdmissionSound := by
   simp only [Environment.receiptOK, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨h₁, h₂⟩, h₃⟩, h₄⟩, h₅⟩, h₆⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨h₁, h₂⟩, h₃⟩, h₄⟩, h₅⟩, h₆⟩, h₇⟩ := h
   simp only [beq_iff_eq, Array.contains_eq_mem, Array.all_eq_true', decide_eq_true_eq,
-    Prod.forall] at h₁ h₂ h₃ h₄ h₅
+    Bool.or_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not,
+    Prod.forall] at h₁ h₂ h₃ h₄ h₅ h₇
   rw [Array.all_eq_true'] at h₆
   refine ⟨receipt, hr, h₃, nodup_of_canonicalNames_size _ h₁,
-    nodup_of_canonicalEdges_size _ h₂, fun k hk => h₄ k.1 k.2 hk, h₅, fun d hd => ?_⟩
+    nodup_of_canonicalEdges_size _ h₂, fun k hk => h₄ k.1 k.2 hk, h₅, fun d hd => ?_, h₇⟩
   have h₆ := h₆ d hd
   simp only [Bool.or_eq_true] at h₆
   rcases h₆ with (hu | hp) | hc

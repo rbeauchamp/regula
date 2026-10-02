@@ -124,7 +124,7 @@ checker behavior:
 | Partition | Focus |
 | --- | --- |
 | `fixtures` | Positive controls and intentionally invalid Lean declarations. |
-| `structural` | Surface discovery, ownership, contamination, and required application contracts. |
+| `structural` | Surface discovery, ownership, contamination, required application contracts, and admission reuse between environments. |
 | `execution` | Execution evidence: each compiler-path mutation and correspondence control with its positive and fresh restoration. |
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |

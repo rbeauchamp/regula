@@ -5,6 +5,7 @@ import Regula.Checker.CompilerPaths
 import Regula.Checker.PolicyQualification
 import Regula.Checker.BuildLintQualification
 import Regula.Checker.LintQualification
+import Regula.Checker.Inspection
 
 /-!
 # Checker qualification suite
@@ -2207,10 +2208,143 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
       (if corpus.isEmpty then "PASS" else "FAIL") ++
       s!" (scanner controls + {(fenceCorpusCases repo).size} in-process corpus cases)"
 
+/-- External-boundary control for the frozen `.olean` parts that admission reuse rests on, where
+reading the files is the external mechanism (`Admission.reuseJustified_frozen`,
+`Admission.replayed_of_changed` and `Admission.replayed_of_changed_import` state the decision
+over the readings). It reads through the coordinator's own path (`Inspection.readings`, then
+`Admission.currentOffers`) with one completed admission that replayed the module. For a module
+with all three parts and for one with only its `.olean`, the admission is offered while nothing
+changes, is not offered when a byte of the `.olean`, `.olean.server` or `.olean.private` changes
+at the same size, when such a part is removed and when an absent part appears, and is offered
+again once the part is restored; `Inspection.changedArtifact?` reports the same changes. -/
+private def frozenArtifactControls (scratch : FilePath) : IO (Array String) := do
+  let olean := scratch / "Frozen.olean"
+  let levels := #[(Lean.OLeanLevel.exported, ".olean"), (.server, ".olean.server"),
+    (.private, ".olean.private")]
+  let frozenBytes := ByteArray.mk #[1, 2, 3]
+  let mut failures := #[]
+  for (layout, present) in #[("three parts", #[true, true, true]),
+      ("one part", #[true, false, false])] do
+    for ((level, _), isPresent) in levels.zip present do
+      let part := level.adjustFileName olean
+      if isPresent then IO.FS.writeBinFile part frozenBytes
+      else if ← part.pathExists then IO.FS.removeFile part
+    let some artifact ← Inspection.freezeArtifact `Frozen olean
+      | failures := failures.push s!"frozen-artifact/{layout}: the artifact was not frozen"
+        continue
+    -- A completed admission that replayed the module, loaded from the frozen path.
+    let completed : Admission.Completed := {
+      receipt := { modules := #[`Frozen], required := #[(`Frozen, `frozenFact)],
+                   admitted := #[(`Frozen, `frozenFact)], reused := #[], shared := #[] }
+      origins := #[{ name := `Frozen, olean := artifact.canonical, imports := #[] }] }
+    let offered : IO Bool := do
+      let offers := Admission.currentOffers (NameSet.empty.insert `Frozen)
+        (← Inspection.readings #[artifact]) #[completed]
+      return offers.any (·.modules.contains `Frozen)
+    let reportedChanged : IO Bool := do
+      return !(← offered) && (← Inspection.changedArtifact? #[artifact]) == some `Frozen
+    let reportedUnchanged : IO Bool := do
+      return (← offered) && (← Inspection.changedArtifact? #[artifact]).isNone
+    unless ← reportedUnchanged do
+      failures := failures.push s!"frozen-artifact/{layout}: not offered while unchanged"
+    for ((level, extension), isPresent) in levels.zip present do
+      let part := level.adjustFileName olean
+      let restore : IO Unit :=
+        if isPresent then IO.FS.writeBinFile part frozenBytes else IO.FS.removeFile part
+      let mutations : Array (String × IO Unit) :=
+        if isPresent then #[("changed", IO.FS.writeBinFile part (ByteArray.mk #[1, 2, 4])),
+          ("removed", IO.FS.removeFile part)]
+        else #[("added", IO.FS.writeBinFile part frozenBytes)]
+      for (mutation, mutate) in mutations do
+        mutate
+        unless ← reportedChanged do
+          failures := failures.push
+            s!"frozen-artifact/{layout}: still offered with a {mutation} {extension}"
+        restore
+        unless ← reportedUnchanged do
+          failures := failures.push
+            s!"frozen-artifact/{layout}: not offered again with the {extension} restored"
+  return failures
+
+/-- External-boundary control for claimed libraries that import one another, where the report
+workers, Lean's import and the kernel are the external mechanism
+(`Admission.reuseJustified_admitted` and `Admission.replayed_of_loaded` state the coordinator's
+decision). `Left.Top` imports `Right.Base` and `Right.Top` imports `Left.Base`: the modules form
+no cycle, the two libraries do, so the first library's environment loads a module of the second
+before the second's own environment does. The fresh audit must accept; the first environment
+replays `Right.Base`; the second reuses it, though it is one of its own requested modules, and
+still requires its declaration's key; so each of the four modules is replayed in exactly one
+environment. -/
+private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
+  withScratch repo "library-cycle-control" fun project =>
+    withScratch repo "library-cycle-result" fun output => do
+  IO.FS.writeFile (project / "lean-toolchain") (← IO.FS.readFile (repo / "lean-toolchain"))
+  IO.FS.writeFile (project / "lakefile.toml") <|
+    "name = \"library_cycle_control\"\n[leanOptions]\nautoImplicit = false\n" ++
+      "relaxedAutoImplicit = false\nlinter.missingDocs = true\n" ++
+      "[[lean_lib]]\nname = \"Left\"\nglobs = [\"Left.+\"]\n" ++
+      "[[lean_lib]]\nname = \"Right\"\nglobs = [\"Right.+\"]\n"
+  let surface (library : String) : String :=
+    "{\"library\":\"" ++ library ++ "\",\"executables\":[],\"claim\":\"standard-logical\"," ++
+      "\"execution\":\"report\",\"rationale\":\"Library cycle control\"}"
+  IO.FS.writeFile (Manifest.defaultPath project) <|
+    "{\"schema-version\":2,\"surfaces\":[" ++ surface "Left" ++ "," ++ surface "Right" ++
+      "],\"excluded-libraries\":[],\"excluded-executables\":[]}"
+  for (library, other, fact, otherFact) in #[("Left", "Right", "left", "right"),
+      ("Right", "Left", "right", "left")] do
+    IO.FS.createDirAll (project / library)
+    IO.FS.writeFile (project / library / "Base.lean") <|
+      s!"/-! The base module of the {library} library. -/\n\n" ++
+        s!"theorem {fact}Base : True := True.intro\n"
+    IO.FS.writeFile (project / library / "Top.lean") <|
+      s!"import {other}.Base\n\n/-! Uses the base module of the {other} library. -/\n\n" ++
+        s!"theorem {fact}Top : True := {otherFact}Base\n"
+  -- Lake writes the lock manifest of this package without dependencies; without one the fresh
+  -- copy's build would create it, a configuration change during the audit.
+  let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
+  unless locked.succeeded do return #[s!"library-cycle/setup: lake update failed:\n{locked.output}"]
+  let result := output / "result.json"
+  let gate ← runProcess project (repo / ".lake/build/bin/axiomGate").toString
+    #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
+  unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
+  let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
+  let json ← IO.ofExcept (Json.parse (← IO.FS.readFile result))
+  let surfaces ← IO.ofExcept <|
+    (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
+  let mut found : Array (String × Array String × Array String × Array (String × String)) := #[]
+  for surface in surfaces do
+    let library ← IO.ofExcept <| surface.getObjValAs? String "library"
+    let admission ← IO.ofExcept <|
+      (surface.getObjVal? "report").bind (·.getObjVal? "admission")
+    let reused ← IO.ofExcept <| admission.getObjValAs? (Array String) "reused"
+    let required ← IO.ofExcept <| admission.getObjValAs? (Array (String × String)) "required"
+    let replayed := modules.filter fun m => !reused.contains m && required.any (·.1 == m)
+    found := found.push (library, replayed, modules.filter reused.contains, required)
+  let expected : Array (String × Array String × Array String) := #[
+    ("Left", #["Left.Base", "Left.Top", "Right.Base"], #[]),
+    ("Right", #["Right.Top"], #["Left.Base", "Right.Base"])]
+  let mut failures := #[]
+  unless found.map (fun (library, replayed, reused, _) => (library, replayed, reused)) ==
+      expected do
+    failures := failures.push s!"library-cycle/replayed-once: expected {expected}, found \
+      {found.map fun (library, replayed, reused, _) => (library, replayed, reused)}"
+  unless found.any (fun (library, _, _, required) =>
+      library == "Right" && required.contains ("Right.Base", "rightBase")) do
+    failures := failures.push "library-cycle/reused-key: the Right environment does not require \
+      the key of its reused module Right.Base"
+  return failures
+
 /-- Structural mutations and manifest controls retain their isolated projects, task joins,
 and complete failure accumulation. -/
 private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
     (failures : IO.Ref (Array String)) : IO Unit := do
+  let frozen ← withScratch repo "checker-frozen-artifacts" frozenArtifactControls
+  for failure in frozen do failures.modify (·.push failure)
+  IO.println <| "self-test frozen artifacts: " ++ (if frozen.isEmpty then "PASS" else "FAIL") ++
+    " (an admission is offered over an unchanged artifact and not over a changed, removed or \
+      added .olean, .olean.server or .olean.private; restored parts are offered again)"
+  let cycleTask ← IO.asTask (prio := .dedicated) do
+    timedPhase "library cycle control" <| libraryCycleControl repo
   let structuralTask ← IO.asTask (prio := .dedicated) do
     timedPhase "structural controls" <| withScratch repo "checker-structural" fun scratch =>
       structuralQualification layout repo scratch jobs
@@ -2229,6 +2363,11 @@ private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs
     "app missing/trivial/weakened update evidence, missing proof field, weakened admission, " ++
     "fresh coverage, realized and unchecked duplicate copies, restore; " ++
     "isolated projects, bounded parallelism)"
+  let cycle ← IO.ofExcept (← IO.wait cycleTask)
+  for failure in cycle do failures.modify (·.push failure)
+  IO.println <| "self-test library cycle: " ++ (if cycle.isEmpty then "PASS" else "FAIL") ++
+    " (two claimed libraries that import one another: accepted, each module replayed in one \
+      environment, a requested module reused with its keys)"
 
 /-- Execution-evidence controls: the correspondence controls and every compiler-path case,
 each with its positive, mutation and fresh restoration in an isolated project. -/

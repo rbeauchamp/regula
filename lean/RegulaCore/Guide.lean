@@ -648,9 +648,9 @@ def guide : RuleId → Guide
         INCOMPLETE."
       trigger := [
         "Before accepting proof evidence the checker replays every owned logical declaration and \
-          its owned dependencies through Lean's kernel (`Admission.validate`); an executable's \
-          environment reuses, instead of repeating, a library environment's replay of a module \
-          over the identical import closure and frozen `.olean` parts (including \
+          its owned dependencies through Lean's kernel (`Admission.validate`); an environment \
+          reuses, instead of repeating, an earlier environment's replay of a claimed library \
+          module over the identical import closure and frozen `.olean` parts (including \
           `.olean.private`). Each replayed module's own copy of a name is checked: a lemma \
           Lean realizes in two modules, such as an equation lemma, is admitted when the copies \
           are theorems of the same statement, universe parameters and mutual block and each \

@@ -313,6 +313,16 @@ private theorem nodup_of_keys {β : Type} {l : List (Nat × β)} (h : (l.map Pro
     l.Nodup :=
   List.Pairwise.of_map Prod.fst (fun _ _ hne heq => hne (heq ▸ rfl)) h
 
+-- `Except.mapError` on each constructor, by reduction. `simp only [Except.mapError]` would
+-- realize `Except.mapError.eq_1` and `eq_2` in this module; the toolchain's
+-- `Std.Do.WP.SimpLemmas` holds copies of both, so this module would share a name with it and no
+-- later environment of an audit could reuse its kernel admission (`Admission.offers`).
+private theorem mapError_error {ε ε' α : Type} (f : ε → ε') (e : ε) :
+    (Except.error e : Except ε α).mapError f = .error (f e) := rfl
+
+private theorem mapError_ok {ε ε' α : Type} (f : ε → ε') (v : α) :
+    (Except.ok v : Except ε α).mapError f = .ok v := rfl
+
 /-- Exact success relation of the actual indexed admission, for every payload type. -/
 theorem admitIndexedResults_ok_iff {α : Type} (count : Nat) (binding : Nat → α → Bool)
     (responses : List (Nat × α)) (out : Array α) :
@@ -327,7 +337,7 @@ theorem admitIndexedResults_ok_iff {α : Type} (count : Nat) (binding : Nat → 
   rw [unfold_]
   cases hc : initial.collect responses with
   | error f =>
-    simp only [Except.mapError, Except.bind, reduceCtorEq, false_iff]
+    simp only [mapError_error, Except.bind, reduceCtorEq, false_iff]
     rintro ⟨hs, hb, hp⟩
     have keys : (responses.map Prod.fst).Perm (List.range count) := by
       have := hp.map Prod.fst
@@ -353,7 +363,7 @@ theorem admitIndexedResults_ok_iff {α : Type} (count : Nat) (binding : Nat → 
       cases final.entries[i]? <;> simp
     have zipNodup (l : List α) (hl : l.length = count) : ((List.range count).zip l).Nodup :=
       nodup_of_keys (by rw [List.map_fst_zip (by simp [hl])]; exact List.nodup_range)
-    simp only [Except.mapError, Except.bind]
+    simp only [mapError_ok, Except.bind]
     constructor
     · intro h
       cases hm : (List.range count).mapM (slotResult final.entries) with
