@@ -1250,6 +1250,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     let admitted ← (admitOptions args).toBaseIO
     if let .error invalid := admitted then return ← refuseInvocation invalid.toString
     throw error
+  CompilerMode.requireAllowed
   if let ["--validate-site", registryPath, artifactPath] := args then
     let registry ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile registryPath)
     let artifact ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile artifactPath)

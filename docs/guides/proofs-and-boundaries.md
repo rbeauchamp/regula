@@ -1127,10 +1127,22 @@ the nearest `AGENTS.md` with the section, else the nearest that exists, else the
 root's; the skill files are read and written at that repository root (the Lake root outside a Git
 repository).
 
-Regula's own `lakefile.lean` refuses to load, before any module compiles, when the running Lean's
-`Lean.versionString` is not the release its `lean-toolchain` names. This is an elaboration-time
-check, not a theorem; Lake reuses an elaborated configuration while the file's text and the
-running Lean are unchanged, and `lake update` elaborates it again.
+Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
+configuration is elaborated. The source guard compares both the running compiler version and
+full commit with the revision's declared identity; the compiled probe, inventory admission,
+and plan admission use that same pair. `Compiler.accepts_iff` proves the executed Boolean
+matches the predicate; `transcript_plan_compiler` proves admitted transcripts and a valid plan
+agree on both fields. Compiler self-reports and locating and launching the compiler are trusted
+IO. Lake may reuse an elaborated configuration; `lake update` elaborates it again. The compiled
+admission guards remain in force when a configuration is cached.
+
+Prepared compatibility revisions have a compiled candidate marker. Ordinary audit entrypoints
+refuse them. An explicit qualification invocation may inspect the same internal accounts, but
+public result files wrap those observations with `status: unsupported`, diagnostic purpose and
+`grantsSupport: false`; accepted text labels them diagnostic rather than PASS. The pure
+`Compiler.mayRun` and `publication` functions decide these boundaries. The diagnostic switch is
+not support authority. See [development toolchains](toolchains.md) for promotion and evidence
+requirements; none of this qualifies every build sharing a development version string.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
 which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and
@@ -1142,8 +1154,10 @@ manifest excludes, with options written into bare and configured claimed targets
 with no `lean_lib`, a package-level `-D` setting Mathlib's options as in the first adopter, a
 `-D` in one library's own `moreLeanArgs` in both formats, and a Lake project in a subdirectory of
 a Git repository with and without a root `AGENTS.md`) are bounded observations, as are the
-lakefile's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command line and when a checker
-executable loads the workspace.
+historical version-string guard's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command
+line and when a checker executable loaded the workspace. Those historical observations do not
+qualify the new exact-identity guard; its command-line and in-process paths require current
+qualification.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
