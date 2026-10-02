@@ -140,6 +140,19 @@ private def observing {α : Type} (env : Environment) (name : Name) (observation
         apply to the checker. Report this as a Regula issue."
     throwError "module {owner}, declaration {name}: {observation} failed: {ex.toMessageData}"
 
+/-- Emit flushed timing spans inside the trusted command observation when requested by the
+runner. Elapsed times describe the run, not the collected declarations or execution account. -/
+private def reportPhase {α : Type} (enabled : Bool) (label : String)
+    (action : CommandElabM α) : CommandElabM α := do
+  if !enabled then return ← action
+  let label := s!"worker {← IO.Process.getPID} {label}"
+  IO.println s!"verification phase {label}: start"
+  (← IO.getStdout).flush
+  let started ← IO.monoNanosNow
+  try action finally
+    IO.println s!"verification phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms (finished)"
+    (← IO.getStdout).flush
+
 /-- Kernel heartbeat budget for one correspondence check: Lean's per-declaration default
 (`maxHeartbeats` at its default value, in the kernel's raw unit), so a checker-added
 correspondence obligation costs no more than a declaration the adopter could write. -/
@@ -432,7 +445,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
-    (recursorHelpers : Array Name) (root : Name) : CommandElabM
+    (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
     (Array Regula.Report.ExecutionBoundary ×
       Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
   let mut visited : Std.HashSet Name := {}
@@ -468,7 +481,8 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     if let some result := (← liftIO proofCache.get)[(reference, target)]? then return result
     let proofs := ((candidates.find? reference).getD #[]).filterMap fun candidate =>
       if candidate.toDeclName == target then some candidate.thmName else none
-    let result ← replacementCorrespondence env reference target proofs
+    let result ← reportPhase timing s!"correspondence {reference} -> {target}" <|
+      replacementCorrespondence env reference target proofs
     liftIO <| proofCache.modify (·.insert (reference, target) result)
     return result
   while !queue.isEmpty do
@@ -674,19 +688,6 @@ private def executableRoots (env : Environment) (own : Array (Name × ConstantIn
     | _ => continue
   return roots
 
-/-- Emit flushed timing spans inside the trusted command observation when requested by the
-runner. Elapsed times describe the run, not the collected declarations or execution account. -/
-private def reportPhase {α : Type} (enabled : Bool) (label : String)
-    (action : CommandElabM α) : CommandElabM α := do
-  if !enabled then return ← action
-  let label := s!"worker {← IO.Process.getPID} {label}"
-  IO.println s!"verification phase {label}: start"
-  (← IO.getStdout).flush
-  let started ← IO.monoNanosNow
-  try action finally
-    IO.println s!"verification phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms (finished)"
-    (← IO.getStdout).flush
-
 /-- Build the complete report for exact requested module names. The trusted
 runner calls this function directly, without parsing a command in the audited
 module's frontend extension environment. -/
@@ -762,6 +763,7 @@ def environmentReport (modules : List Name)
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
             loadReplacementHistory name) candidates proofCache dependencyCache recursorHelpers root
+            timing
       return ({
         name := root
         «module» := moduleName
