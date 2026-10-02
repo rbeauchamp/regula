@@ -676,6 +676,19 @@ private def executableRoots (env : Environment) (own : Array (Name × ConstantIn
     | _ => continue
   return roots
 
+/-- Emit flushed timing spans inside the trusted command observation when requested by the
+runner. Elapsed times describe the run, not the collected declarations or execution account. -/
+private def reportPhase {α : Type} (enabled : Bool) (label : String)
+    (action : CommandElabM α) : CommandElabM α := do
+  if !enabled then return ← action
+  let label := s!"worker {← IO.Process.getPID} {label}"
+  IO.println s!"verification phase {label}: start"
+  (← IO.getStdout).flush
+  let started ← IO.monoNanosNow
+  try action finally
+    IO.println s!"verification phase {label}: {((← IO.monoNanosNow) - started) / 1000000}ms (finished)"
+    (← IO.getStdout).flush
+
 /-- Build the complete report for exact requested module names. The trusted
 runner calls this function directly, without parsing a command in the audited
 module's frontend extension environment. -/
@@ -684,6 +697,8 @@ def environmentReport (modules : List Name)
       fun _ => pure (.error "trusted source-history loader was not supplied"))
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true) :
     CommandElabM Regula.Report.Collected := do
+  let timing := (← IO.getEnv "REGULA_TIMING") == some "1"
+  let label := String.intercalate ", " (modules.map toString)
   if modules.isEmpty then
     throwError "environmentReport: no owned module names were supplied"
   unless RegulaPolicy.Compiler.accepts Lean.versionString Lean.githash do
@@ -702,9 +717,9 @@ def environmentReport (modules : List Name)
       | throwError "declaration census has no owner for {name}"
     return (env.header.modules[(idx : Nat)]!.module, name)
   let scope ← Regula.Collect.ContractScope.new env
-  let entries ← own.mapM fun (name, _) =>
+  let entries ← reportPhase timing s!"declaration records [{label}]" <| own.mapM fun (name, _) =>
     observing env name "declaration record" (Regula.Collect.declaration name .replayCandidate scope)
-  let roots ← if includeExecution then do
+  let roots ← reportPhase timing s!"execution root census [{label}]" <| if includeExecution then do
     let mut roots ← executableRoots env own
     for entry in entries do
       if let some contract := entry.executableContract then
@@ -718,7 +733,7 @@ def environmentReport (modules : List Name)
   -- Documentation consumes only `declarations`; avoid constructing unused
   -- execution graphs. The full gate and all other callers retain them.
   let historyRequests ← liftIO <| IO.mkRef (#[] : Array (Name × Name))
-  let execution ← if includeExecution then do
+  let execution ← reportPhase timing s!"execution walks [{label}]" <| if includeExecution then do
     -- Names alone do not establish toolchain ownership: an adopter or dependency
     -- can supply Init.*, Std.* or Lean.* modules. Resolve each candidate once, and require
     -- the exact canonical artifact path in the pinned toolchain's library directory.
@@ -744,7 +759,7 @@ def environmentReport (modules : List Name)
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
-        observing env root "execution walk" <|
+        reportPhase timing s!"execution walk {root}" <| observing env root "execution walk" <|
           executionWalk env modules toolchainModules (fun name => do
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
