@@ -124,6 +124,7 @@ lean_exe «qualify» where
 
 lean_exe «toolchain» where
   root := `Regula.Toolchain
+  needs := #[`@/compilerObservationSource]
 
 lean_exe «ruleExamples» where
   root := `Regula.Checker.RuleExamples
