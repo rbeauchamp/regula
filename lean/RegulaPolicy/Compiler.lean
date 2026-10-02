@@ -21,7 +21,8 @@ def commit : String := "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b"
 /-- Prepared revisions are candidates until reviewed qualification permits promotion. -/
 def candidate : Bool := false
 
-/-- Ordinary audit entrypoints refuse candidates. Explicit diagnostics may observe them. -/
+/-- The entrypoints that call this decision (`axiomGate`, so also the `lake lint` audit,
+`docFenceAudit` and `freshChecker`) refuse candidates. Explicit diagnostics may observe them. -/
 def mayRun (isCandidate diagnostic : Bool) : Bool := !isCandidate || diagnostic
 
 /-- A candidate can run only with an explicit diagnostic purpose. -/
@@ -91,13 +92,27 @@ theorem unique {v₁ h₁ v₂ h₂ : String} (a : Supports v₁ h₁) (b : Supp
     v₁ = v₂ ∧ h₁ = h₂ :=
   ⟨a.1.trans b.1.symm, a.2.trans b.2.symm⟩
 
+/-- The refusal of a compiler this source revision does not support, with the adopter's remedy. -/
+def refusal (observedVersion observedCommit : String) : String :=
+  s!"unsupported Regula compiler: expected Lean {version} ({commit}), observed Lean \
+    {observedVersion} ({observedCommit}). Move the project, and Mathlib if it uses it, to the \
+    supported Lean release (its lean-toolchain, then `lake update`), or require a Regula \
+    revision qualified for this exact compiler: \
+    https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
+    #when-your-lean-release-has-no-regula-release. For release candidates, nightlies and \
+    source-built compilers see \
+    https://github.com/rbeauchamp/regula/blob/main/docs/guides/toolchains.md."
+
 /-- Cold Lake configuration and compilation run this guard from this source file.
-It needs no package artifacts or dependency resolution. -/
+It needs no package artifacts or dependency resolution. After accepting the compiler that
+elaborates it, it prints that compiler's version and commit when `REGULA_COMPILER_GUARD` is `1`:
+the cold guard requires them to be those of the Lean running Lake. -/
 def checkCurrent : IO Unit := do
   unless accepts Lean.versionString Lean.githash do
-    throw <| IO.userError s!"unsupported Regula compiler: expected Lean {version} ({commit}), \
-      observed Lean {Lean.versionString} ({Lean.githash}). Select a Regula revision qualified \
-      for this exact compiler; see docs/guides/toolchains.md."
+    throw <| IO.userError (refusal Lean.versionString Lean.githash)
+  if (← IO.getEnv "REGULA_COMPILER_GUARD") == some "1" then
+    IO.println Lean.versionString
+    IO.println Lean.githash
 
 end RegulaPolicy.Compiler
 

@@ -1,4 +1,4 @@
-import RegulaCore.Toolchain
+import Regula.CompilerProbe
 import Regula.Qualification.Support
 
 /-! # Isolated compiler adaptation
@@ -10,26 +10,6 @@ authority. Git, Elan, GNU timeout, compiler identity, and filesystem stability a
 namespace Regula.Toolchain
 open Lean System
 
-private def compilerEnv : Array (String × Option String) :=
-  #["LEAN_PATH", "LEAN_SRC_PATH", "LEAN_SYSROOT", "LEAN", "LEAN_AR", "LEAN_CC", "LEAN_GITHASH",
-    "LAKE", "LAKE_HOME", "LAKE_OVERRIDE_LEAN", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"].map
-      (fun name => (name, none))
-
-private def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
-  let out ← IO.Process.output {
-    cmd := "elan", args := #["run", selector, "elan", "which", "lean"]
-    cwd := some root, env := compilerEnv }
-  unless out.exitCode == 0 do
-    throw <| IO.userError s!"cannot resolve selected compiler: {out.stderr}"
-  IO.FS.realPath out.stdout.trimAscii.toString
-
-private def selectedEnv (selector : String) (lean : FilePath) : IO
-    (Array (String × Option String)) := do
-  let some bin := lean.parent | throw <| IO.userError "compiler has no binary directory"
-  let inherited := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
-  return compilerEnv ++ #[("ELAN_TOOLCHAIN", some selector),
-    ("PATH", some (System.SearchPath.toString (bin :: inherited)))]
-
 private def checked (root : FilePath) (cmd : String) (args : Array String) : IO String := do
   let out ← IO.Process.output { cmd, args, cwd := some root }
   unless out.exitCode == 0 do
@@ -40,21 +20,6 @@ private def cleanHead (root : FilePath) : IO String := do
   unless (← checked root "git" #["status", "--porcelain", "--untracked-files=normal"]).isEmpty do
     throw <| IO.userError s!"commit or preserve changes before qualification: {root}"
   checked root "git" #["rev-parse", "HEAD"]
-
-private def probe (root : FilePath) (selector : String) : IO Identity := do
-  let lean ← selectedLean root selector
-  Qualification.withScratch root "compiler-identity" fun scratch => do
-    let source := scratch / "Identity.lean"
-    IO.FS.writeFile source "import Init\n\
-      def main : IO Unit := do\n\
-      \x20 IO.println Lean.versionString\n\
-      \x20 IO.println Lean.githash\n"
-    let out ← IO.Process.output {
-      cmd := lean.toString, args := #["--run", source.toString], cwd := some root
-      env := ← selectedEnv selector lean }
-    unless out.exitCode == 0 do
-      throw <| IO.userError s!"compiler probe failed: {out.stdout}{out.stderr}"
-    IO.ofExcept (parseIdentity out.stdout)
 
 private def identityJson (i : Identity) : Json := Json.mkObj [
   ("version", .str i.version), ("commit", .str i.commit)]

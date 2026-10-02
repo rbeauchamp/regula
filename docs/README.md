@@ -29,7 +29,8 @@ block of the standard and every Lean fence below `docs/` follows the
 - [Work on this repository](guides/contributing.md): layout, development, verification, the
   repository's own conformance, review, and releases.
 - [Development toolchains](guides/toolchains.md): exact compiler identities, isolated
-  compatibility revisions, qualification, and using Regula while fixing Lean.
+  compatibility revisions, qualification, and using Regula while fixing Lean. No revision is
+  qualified yet for a compiler newer than Lean 4.34.0.
 - [Architecture](guides/architecture.md): packages, the rule registry, findings, output
   schemas, enforcement paths, rule examples and how the rules cover the standard.
 - [Proofs and boundaries](guides/proofs-and-boundaries.md): what the implementation proves,
