@@ -71,6 +71,7 @@
    "[OK] fixtures_alias_sum._unsafe_rec",
    "[OK] fixtures_remaining_call._unsafe_rec",
    "[OK] fixtures_alias_binary._unsafe_rec",
+   "[OK] fixtures_abbrev_irreducible._unsafe_rec",
    "[OK] fixtures_cases_on_irreducible._unsafe_rec",
    "[OK] fixtures_overlapping_irreducible._unsafe_rec",
    "[OK] fixtures_equation_irreducible._unsafe_rec",
@@ -265,7 +266,8 @@
   "output": [
    "[VIOLATION[escape-hatch]] fixtures_reducible_fixed._unsafe_rec",
    "[VIOLATION[escape-hatch]] fixtures_reducible_structural._unsafe_rec",
-   "[VIOLATION[escape-hatch]] FixturesReducibleTree.count._unsafe_rec"
+   "[VIOLATION[escape-hatch]] FixturesReducibleTree.count._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_reducible_then_not._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.ForgedMatchElaborator": {

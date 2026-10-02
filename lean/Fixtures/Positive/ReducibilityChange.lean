@@ -40,6 +40,11 @@ refined type, so the answer depends on what unfolds.
   its type, and with no definition irreducible Lean's automatic choice takes
   the first argument, so the base is reproduced only on the position Lean
   recorded, read against the parameters its helper binds (found in review).
+- `fixtures_abbrev_irreducible` passes a parameter through an `abbrev`, so Lean
+  finds the parameter fixed, and the `abbrev` is made `irreducible` afterwards
+  (which needs `allowUnsafeReducibility`). The regeneration with no definition
+  irreducible gives an `abbrev` back its `reducible` status, read from the
+  kernel's reducibility hint (found in review).
 - `fixtures_cases_on_irreducible`, `fixtures_overlapping_irreducible`,
   `fixtures_equation_irreducible` and `fixtures_literal_irreducible` are
   `fixtures_local_irreducible` over other eliminators: a `casesOn` applied
@@ -136,6 +141,17 @@ def fixtures_alias_binary : FixturesBinary
 termination_by structural _ b => b
 
 attribute [irreducible] FixturesBinary
+
+abbrev fixtures_abbrev_keep (a : Nat) : Nat := a
+
+def fixtures_abbrev_irreducible (a n : Nat) : Nat :=
+  match n with
+  | 0 => a
+  | k + 1 => fixtures_abbrev_irreducible (fixtures_abbrev_keep a) k
+termination_by n
+
+set_option allowUnsafeReducibility true in
+attribute [irreducible] fixtures_abbrev_keep
 
 def fixtures_last (_ _ n : Nat) : Nat := n
 

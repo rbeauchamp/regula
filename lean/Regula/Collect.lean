@@ -143,8 +143,10 @@ search for a proof (`Split.splitMatch`, or `cases` on the major premise, then `r
 rests on the kernel alone: `Environment.addDeclCore` must accept the theorem, whose proof may use
 no axiom outside `threadingLawAxioms`. The right-hand side is well typed only where `A ds` and each
 `A (pᵢ xs)` are definitionally equal, which the kernel decides whatever is irreducible. Nothing is
-kept: the theorem, and every constant the search realizes, is discarded. A search or check that
-fails answers `false`; a `checkerLimit?` reached is rethrown. -/
+kept: the theorem, and every constant the search realizes, is discarded. A search that fails, or a
+theorem the kernel rejects, answers `false`. A `checkerLimit?` reached is rethrown, in the search
+or in the kernel (its deterministic timeout, deep recursion or excessive memory): the helper is
+then undecided, not rejected. -/
 private def threadingLawChecked (threaded : Meta.MatcherApp) : MetaM Bool := do
   let ambient := (← getLCtx).getFVars
   let numDiscrs := threaded.discrs.size
@@ -195,7 +197,9 @@ private def threadingLawChecked (threaded : Meta.MatcherApp) : MetaM Bool := do
         match (← getEnv).addDeclCore (Core.getMaxHeartbeats options).toUSize
             (maxRecDepth.get options).toUSize
             (.thmDecl { name, levelParams, type, value }) none with
-        | .error _ => return false
+        -- Thrown, not answered: a resource limit of the kernel is the checker's, and `catch` below
+        -- tells it from a rejected proof by `checkerLimit?`.
+        | .error rejected => throwKernelException rejected
         | .ok checked =>
           setEnv checked
           return (← collectAxioms name).all threadingLawAxioms.contains
@@ -542,12 +546,15 @@ private def regenerationEnvironment (env : Environment) (rules : Meta.SimpTheore
   let env ← builtinHandlersOnly Lean.Elab.Tactic.tacticElabAttribute env
   builtinHandlersOnly Lean.Elab.Term.termElabAttribute env
 
-/-- `env` with every irreducible definition semireducible instead: each name that an imported
-module's reducibility entries, the current file's, or the scoped ones in force mark irreducible, and
-that is irreducible in `env`, is overridden, so that Lean unfolds it wherever it unfolds an ordinary
-definition. Reducibility guides elaboration and is no part of a declaration: nothing records which
-definitions were irreducible where a definition was elaborated, and whatever the assignment, a
-recursion compiler's result is a definition the kernel checks. -/
+/-- `env` with no definition irreducible: each name that an imported module's reducibility entries,
+the current file's, or the scoped ones in force mark irreducible, and that is irreducible in `env`,
+is given the status its declaration shows instead, `reducible` for an `abbrev` (the kernel's
+reducibility hint, fixed when the definition was admitted) and semireducible otherwise.
+Reducibility guides elaboration and is no part of a declaration: nothing records which definitions
+were irreducible where a definition was elaborated, and whatever the assignment, a recursion
+compiler's result is a definition the kernel checks. A definition that was `@[reducible]` without
+being an `abbrev`, `instance_reducible` or `implicit_reducible` before it was made irreducible is
+not told apart from an ordinary one. -/
 private def withoutIrreducible (env : Environment) : Environment :=
   let marked := fun (names : Array Name) (name : Name) (status : ReducibilityStatus) =>
     if status matches .irreducible then names.push name else names
@@ -557,8 +564,12 @@ private def withoutIrreducible (env : Environment) : Environment :=
   let recorded := (reducibilityCoreExt.getState env).foldl marked recorded
   let recorded := (reducibilityExtraExt.getState env).fold marked recorded
   let irreducible := recorded.filter (getReducibilityStatusCore env · matches .irreducible)
+  let declared := fun (name : Name) => match env.find? name with
+    | some (.defnInfo definition) =>
+      if definition.hints matches .abbrev then ReducibilityStatus.reducible else .semireducible
+    | _ => .semireducible
   reducibilityExtraExt.modifyState env fun statuses =>
-    irreducible.foldl (fun statuses name => statuses.insert name .semireducible) statuses
+    irreducible.foldl (fun statuses name => statuses.insert name (declared name)) statuses
 
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
@@ -579,14 +590,15 @@ them. A termination argument only selects which regeneration runs: whatever is r
 admitted only when the definitions that regeneration adds match the observed ones. The compiler
 runs in `regenerationEnvironment`, with the fresh definitions `noncomputable` so that no code is
 generated for them. Where none of these attempts matches, all run once more in that environment
-with no definition irreducible (`withoutIrreducible`): Lean does not record which definitions were
-irreducible where the base was compiled, and what it unfolds decides which argument its structural
-compiler finds and where the function is passed through a `match`. That, too, only selects which
-regeneration runs. Lean's elaboration caches are emptied on entering and leaving each attempt,
-since the environments differ in what unfolds and `saveState` does not cover the caches. A
-regeneration that reports an error does not count. Every change is undone before the comparison,
-which reads the observed definitions and decides erasure in the inspected environment: whatever
-code runs during a regeneration, only the definitions it adds are compared,
+with no definition irreducible, each given the status its declaration shows (`withoutIrreducible`):
+Lean does not record which definitions were irreducible where the base was compiled, and what it
+unfolds decides which argument its structural compiler finds and where the function is passed
+through a `match`. That, too, only selects which regeneration runs. Lean's elaboration caches
+are emptied on entering and leaving each attempt, since the environments differ in what unfolds
+and `saveState` does not cover the caches. A regeneration that reports an error does not count.
+Every change is undone before the comparison, which reads the observed definitions and decides
+erasure in the inspected environment: whatever code runs during a regeneration, only the
+definitions it adds are compared,
 each with the theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so
 the result does not depend on how Lean named or shared those theorems. A comparison that throws
 does not count either. A `checkerLimit?` reached is rethrown. -/

@@ -819,8 +819,10 @@ compute different values are the two forms of one `match`, and a helper forged w
 is rejected, where the law cannot be stated for the constant and where it can and is false
 (without the kernel check both forged helpers are admitted; observed). The second path is the
 regeneration: where nothing it generates in the inspected environment matches,
-`Collect.unsafeRecRegeneration` runs it once more with every irreducible definition made
-semireducible (`Collect.withoutIrreducible`), reading the recorded structural argument against the
+`Collect.unsafeRecRegeneration` runs it once more with no definition irreducible, each irreducible
+definition given the status its declaration shows (`Collect.withoutIrreducible`: `reducible` for an
+`abbrev`, by the kernel's reducibility hint, and semireducible otherwise), reading the recorded
+structural argument against the
 parameters the helper's value binds, since the observed type need not show them. What is
 machine-checked: at each use of the first path, the kernel's check of the threading law, relative
 to the inspected environment, whose owned declarations the gate replays (standard §7.3); and
@@ -831,18 +833,29 @@ is argued, with no theorem: that comparing an alternative's body with the bound 
 for the passed one is the comparison, up to erasure, of the law's right-hand side with the other
 side; that ignoring the motive's universe level of the matcher loses nothing, universe levels
 being erased; and that the second environment, like the termination argument, only selects which
-regeneration runs. That the two paths admit every definition for which only which definitions are
-irreducible differs is argued from Lean 4.34.0's source (an irreducible definition differs from an
-ordinary one only where Lean unfolds at default transparency, and with none irreducible Lean
-unfolds at least what it unfolded where the definition was elaborated), not checked; a matcher for
-which the search finds no proof is compared strictly, which rejects and never admits.
+regeneration runs. That the two paths admit every definition for which the only difference is
+that ordinary definitions or `abbrev`s are irreducible at one of the two points is argued from Lean
+4.34.0's source (with those given back their declared status Lean unfolds at least what it
+unfolded where the definition was elaborated), not checked; the `abbrev` case was found in review
+as a rejection and is a control (`fixtures_abbrev_irreducible`). A definition that was
+`instance_reducible` or `implicit_reducible` before it was made irreducible is given back as an
+ordinary one, and whether that changes what the compilers generate was not run. A matcher for
+which the search finds no proof is compared strictly, which rejects and never admits; a resource
+limit of the kernel reached while it checks the law (its deterministic timeout, deep recursion or
+excessive memory) is rethrown as the checker's limit, so the helper is then undecided, not
+rejected.
 `Fixtures.Mutations.KnownLimitReducibleAfter` pins the limit that remains (standard §7.4): a helper
 Lean generated is rejected when its definition calls a function made reducible afterwards
 (`attribute [reducible] g` after a definition that calls `g`), where that changes a decision Lean's
 recursion compilers take at reducible transparency: which parameters they find fixed
 (`getFixedParamPerms`), under well-founded or structural recursion, or which `wf_preprocess` rule of
 the toolchain applies. All three forms are observed rejections on Lean 4.34.0, and the two causes
-were observed by elaborating the same well-founded definition before and after the attribute.
+were observed by elaborating the same well-founded definition before and after the attribute. The
+fixture pins a fourth form, the other way round: a `@[reducible]` function that is not an `abbrev`
+and is made irreducible after the definition, which Lean allows only under
+`set_option allowUnsafeReducibility true`; nothing in the final environment tells it from an
+ordinary definition made irreducible, so it is given back as semireducible and the parameter Lean
+found fixed is not (found in review).
 `attribute [instance_reducible]` and `attribute [implicit_reducible]` applied after the definition
 were observed not to change either decision; their `local` forms were not run. The rejection is a
 false rejection of a helper Lean generated, not intended behaviour, and

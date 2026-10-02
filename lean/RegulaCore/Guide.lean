@@ -363,7 +363,8 @@ def guide : RuleId → Guide
           theorem Lean abstracts from a nested proof. Nor, for the forms standard §7.4 lists, \
           does it matter which definitions were irreducible where the definition was elaborated \
           (`attribute [local irreducible]`, `attribute [irreducible]` afterwards, `unseal`): the \
-          regeneration runs a second time with no definition irreducible, and the comparison \
+          regeneration runs a second time with no definition irreducible (each given the status \
+          its declaration shows), and the comparison \
           takes a `match` that passes a variable through as the `match` that uses it directly, \
           where Lean's kernel checks that the two are equal for that matcher.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
@@ -412,9 +413,12 @@ def guide : RuleId → Guide
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
           one that calls a function made reducible after the definition (`attribute [reducible] g` \
           after a definition that calls `g`), where that changes which parameters Lean finds \
-          fixed or which `wf_preprocess` rule of the toolchain applies. A definition for which \
-          only which definitions are irreducible differs (`attribute [local irreducible]`, \
-          `attribute [irreducible]` after the definition, `unseal`) is admitted.",
+          fixed or which `wf_preprocess` rule of the toolchain applies, or, under \
+          `set_option allowUnsafeReducibility true`, calls a `@[reducible]` function that is \
+          not an `abbrev` and is made irreducible afterwards. A definition for which the only \
+          difference is that ordinary definitions or `abbrev`s are irreducible at one of the \
+          two points (`attribute [local irreducible]`, `attribute [irreducible]` after the \
+          definition, `unseal`) is admitted.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
