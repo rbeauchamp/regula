@@ -29,6 +29,13 @@ policy. On a compiler that removed the family, recreating a retired name in proj
 code cannot give it compiler trust. The qualification receipt retains the observed capability
 alongside the exact version and commit.
 
+The RG5002 qualification fixture has no whitespace between its final documentation character
+and the closing delimiter. Lean's newer Markdown parser stores that whitespace as source
+information instead of documentation text; the older parser retained it in the string. This
+fixture therefore gives both parsers the same complete documentation value, which the producer
+oracle still compares exactly. The theorem and Fixed/Violation/restored Fixed controls are
+unchanged ([#195](https://github.com/rbeauchamp/regula/issues/195)).
+
 If the candidate needs source changes, make them in a feature branch, review and commit them,
 and run `prepare` from that clean revision into a new directory. Keep changes that work on
 stable Lean on the main development branch; keep incompatible adaptations on a compatibility

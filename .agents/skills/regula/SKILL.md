@@ -40,7 +40,7 @@ Compliant example: as [RG1002](https://rbeauchamp.github.io/regula/dev/rules/RG1
 
 ### [RG1004](https://rbeauchamp.github.io/regula/dev/rules/RG1004/) Compiler-trusting proofs require separate classification
 
-Claimed declarations use no compiler-trusting proof: no `native_decide`, `decide +native`, `bv_decide`, `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`.
+Claimed declarations use no compiler-trusting proof: no native proof or legacy compiler-trust axiom declared by the selected compiler.
 Fix: Prove the same statement with a kernel-checked proof, for example `decide` (kernel reduction), `rfl` or an ordinary proof.
 
 ```lean
@@ -128,7 +128,7 @@ Reflexivity for every natural number; `reflexive` supplies its evidence. -/
 /-- Every natural number equals itself, without additional hypotheses.
 
 # Intent
-Equality on natural numbers must be reflexive for every value, with no side condition. -/
+Equality on natural numbers must be reflexive for every value, with no side condition.-/
 @[regula_material] theorem reflexive (n : Nat) : n = n := rfl
 ```
 
