@@ -1578,16 +1578,24 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see). The control is two clusters. `structuralSelfHosted` builds the
-copy, runs the incremental gate on the mutation and restores it. `structuralSelfHostedPositive`
-runs the fresh gate, which must accept, on a copy prepared the same way (`prepareSelfHosted`);
-it may run in another invocation. A fresh gate audits its own copy of a project's files
-(`copyProject`) from empty build output, so of the first cluster's copy it would read only
-those files. The first cluster checks that link: `freshInput` takes what that copy operation
-copies from its restored copy and from a copy prepared anew, and any differing path or byte
-fails the cluster. So the setup build, the incremental gate and the restoration are observed
-to leave a fresh gate the prepared files. What stays unobserved is that another invocation
-prepares those same files; it rests on that invocation running the same sources.
+states what it does not see). The control was changed when the structural partition was
+divided into shards, and is now two clusters. `structuralSelfHosted` builds the copy, runs the
+incremental gate on the mutation and restores it. No fresh gate runs on that mutated and
+restored copy any more: the accepting gate there is replaced by a checked identity of the
+restored copy's fresh input with that of a copy prepared anew, and by the accepting fresh gate
+of `structuralSelfHostedPositive` on a copy prepared the same way (`prepareSelfHosted`), which
+is in the other shard. `freshInput` takes what the gate's copy operation copies from each of
+the two copies, and any differing path or byte fails the first cluster. That the two together
+stand for the replaced gate rests on two facts, neither of them a theorem. First, a fresh gate
+reads the audited project only through `copyProject`, which prunes the project's `.lake`, and
+builds that copy from empty output; without `--with-docs`, as here, it reads no other file of
+the project, and the packages directory it links is the repository's for every copy. So equal
+fresh input gives the same gate run, and the setup build, the incremental gate and the
+restoration are observed to leave the prepared input. Second, the two shards are jobs of one
+workflow matrix, so a run of that workflow starts both on the one commit it checks out, and
+merging requires both to pass on the pull request's head, so the accepting gate runs on that
+same input whenever the identity is checked. The self-test observes nothing of the other job:
+that requirement is the repository's merge rule and its required checks, not a check here.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in

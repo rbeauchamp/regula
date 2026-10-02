@@ -1413,15 +1413,26 @@ report records must still be rejected as excluded-module contamination. The stru
 project has no source for that module, so the import there could not be this contamination.
 The copy claims `selfHostedManifestText`, so its gate builds and inspects `RegulaPolicy` too.
 
-The fresh gate that accepts this copy without the mutation runs in a copy of its own
-(`structuralSelfHostedPositive`), which may be another invocation's. What links the two is
-checked here. Of a project's own files a fresh gate audits its copy of them (`copyProject`),
-which `freshInput` returns; the packages directory it links is the repository's for both
-copies. That input, taken here once the mutation is restored, must equal the one taken from a
-copy prepared anew. So the build of the setup, the incremental gate and the restoration leave
-a fresh gate the files of the prepared copy, which are what the other control's fresh gate
-audits. That another invocation prepares the same copy rests on its running the same sources,
-which no check here observes. -/
+This control was changed when the partition was divided into shards. No fresh gate runs on
+the copy this cluster mutated and restored. That accepting gate is replaced by two things: a
+checked identity, here, of the restored copy's fresh input (`freshInput`) with that of a copy
+prepared anew, and the accepting fresh gate on a copy prepared anew
+(`structuralSelfHostedPositive`), which is in the other shard and so may be another
+invocation's. The identity is compared path by path and byte by byte, and any difference fails
+this cluster. That the two together stand for the replaced gate rests on two facts, neither of
+them a theorem:
+
+1. A fresh gate reads the audited project only through its copy operation (`copyProject`,
+   which prunes the project's `.lake`), and builds that copy from empty output; without
+   `--with-docs`, as here, it reads no other file of the project, and the packages directory
+   it links is the repository's for every copy. `freshInput` is that operation's output. So
+   equal fresh input gives the same gate run, and the setup build, the incremental gate and the
+   restoration are observed to leave the prepared input.
+2. The two shards are jobs of one workflow matrix, so a run of that workflow starts both on
+   the one commit it checks out, where `prepareSelfHosted` prepares the same copy for each.
+   Merging requires both jobs to pass on the pull request's head, so the accepting gate runs
+   on that same input whenever the identity is checked. Nothing in this module observes the
+   other job; the requirement is the repository's merge rule and its required checks. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
@@ -1447,10 +1458,10 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
   failures.get
 
 /-- The positive of `structuralSelfHosted`: the fresh gate accepts the self-hosted copy without
-the mutation. Its project is the copy as prepared (`prepareSelfHosted`), which
-`structuralSelfHosted` checks is what a fresh gate reads of its own copy once the mutation is
-restored; a fresh gate builds in a copy of its own from empty output, so it reads nothing of
-the project's earlier builds. -/
+the mutation. It is not a gate on the mutated and restored copy, which no fresh gate audits any
+more. Its project is the copy as prepared (`prepareSelfHosted`), whose fresh input
+`structuralSelfHosted` checks equal to that of its own copy once the mutation is restored; the
+docstring there states the substitution and the two facts it rests on. -/
 private unsafe def structuralSelfHostedPositive (repo copy : FilePath) : IO (Array String) := do
   prepareSelfHosted repo copy
   let accepted ← runBinaryFrom repo copy "axiomGate" #[]
