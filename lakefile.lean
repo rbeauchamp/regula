@@ -36,6 +36,9 @@ run_cmd do
 -- editor linter, with no dependency beyond the Lean toolchain. Everything that imports Mathlib
 -- (the standard's Mathlib examples) is the separate `regula_audit` package in `audit/`.
 package «regula» where
+  -- Dependency planning builds its own tool before setup, without warming acceptance builds.
+  buildDir := if (get_config? dependencyPlanner).isSome then
+    ".lake/dependency-planner" else ".lake/build"
   -- Regula's semantic version: the latest release's, which only the release pull request
   -- changes and CI checks against `Regula.releases` (docs/guides/contributing.md#release). Each
   -- release is tagged `v<version>`. The first release, tagged `v4.34.0` for its Lean release,
