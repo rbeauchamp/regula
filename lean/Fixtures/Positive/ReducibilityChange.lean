@@ -6,7 +6,8 @@ accepts each, and each helper is exactly what Lean generated. Lean does not
 record the reducibility a definition was elaborated under, so the checker
 regenerates in the environment it inspects, and where that reproduces nothing
 again with no definition irreducible, and compares a `match` that passes a
-variable through as the `match` that uses the variable directly.
+variable through as the `match` that uses the variable directly, where the
+kernel checks that the two are equal for that matcher.
 
 Lean's recursion compilers pass the function that stands for the recursive
 calls through a `match` where an alternative changes that function's type,
@@ -33,12 +34,18 @@ refined type, so the answer depends on what unfolds.
   with `fixtures_remaining_second` `irreducible` at the end of the module, its
   own compiler rejects the definition, and the regeneration with no definition
   irreducible reproduces the base.
-
-`fixtures_match_passes_variable` states, for the `match` on `a` above, the law
-the comparison applies: passing a variable through the `match` and binding it
-in each alternative equals using it directly, for every result type, pair of
-alternatives and variable. The kernel checks it for this `match`; that it
-holds of every matcher is argued in standard §7.4, not proved.
+- `fixtures_alias_binary` has a type that is a definition made `irreducible`
+  afterwards and recurses on its second argument, selected by
+  `termination_by structural`. The inspected environment shows no parameter in
+  its type, and with no definition irreducible Lean's automatic choice takes
+  the first argument, so the base is reproduced only on the position Lean
+  recorded, read against the parameters its helper binds (found in review).
+- `fixtures_cases_on_irreducible`, `fixtures_overlapping_irreducible`,
+  `fixtures_equation_irreducible` and `fixtures_literal_irreducible` are
+  `fixtures_local_irreducible` over other eliminators: a `casesOn` applied
+  directly, two discriminants with overlapping alternatives, a `match` that
+  names the equation with its discriminant, and numeric literals. The kernel
+  check of the two forms has to succeed for each kind.
 -/
 def fixtures_second (_ n : Nat) : Nat := n
 
@@ -120,12 +127,83 @@ decreasing_by all_goals exact Nat.lt_succ_self _
 
 attribute [irreducible] fixtures_remaining_second
 
-theorem fixtures_match_passes_variable {T : Sort u} {R : Nat → Sort v} (a : Nat) (passed : T)
-    (zero : T → R 0) (succ : (a' : Nat) → T → R (a' + 1)) :
-    (match (motive := (a : Nat) → T → R a) a with
-      | 0 => fun bound => zero bound
-      | a' + 1 => fun bound => succ a' bound) passed
-    = (match (motive := (a : Nat) → R a) a with
-      | 0 => zero passed
-      | a' + 1 => succ a' passed) := by
-  cases a <;> rfl
+def FixturesBinary := Nat → Nat → Nat
+
+def fixtures_alias_binary : FixturesBinary
+  | a, 0 => a
+  | 0, b => b
+  | a + 1, b + 1 => fixtures_alias_binary a b + 1
+termination_by structural _ b => b
+
+attribute [irreducible] FixturesBinary
+
+def fixtures_last (_ _ n : Nat) : Nat := n
+
+theorem fixtures_last_eq (a b n : Nat) : fixtures_last a b n = n := rfl
+
+def fixtures_last_option (_ : Option Nat) (n : Nat) : Nat := n
+
+theorem fixtures_last_option_eq (o : Option Nat) (n : Nat) : fixtures_last_option o n = n := rfl
+
+section
+attribute [local irreducible] fixtures_last fixtures_last_option
+
+def fixtures_cases_on_irreducible (a b n : Nat) : Nat :=
+  Nat.casesOn (motive := fun _ => Nat) a
+    (match n with
+     | 0 => b
+     | k + 1 => fixtures_cases_on_irreducible 1 b k)
+    (fun a' =>
+      match n with
+      | 0 => a' + 1
+      | k + 1 => fixtures_cases_on_irreducible (a' + 2) b k)
+termination_by fixtures_last a b n
+decreasing_by all_goals (simp only [fixtures_last_eq]; exact Nat.lt_succ_self _)
+
+def fixtures_overlapping_irreducible (a b n : Nat) : Nat :=
+  match a, b with
+  | 0, _ =>
+    match n with
+    | 0 => 0
+    | k + 1 => fixtures_overlapping_irreducible 1 b k
+  | _, 0 =>
+    match n with
+    | 0 => 1
+    | k + 1 => fixtures_overlapping_irreducible a 1 k
+  | a' + 1, b' + 1 =>
+    match n with
+    | 0 => a' + b'
+    | k + 1 => fixtures_overlapping_irreducible a' b' k
+termination_by fixtures_last a b n
+decreasing_by all_goals (simp only [fixtures_last_eq]; exact Nat.lt_succ_self _)
+
+def fixtures_equation_irreducible (o : Option Nat) (n : Nat) : Nat :=
+  match _h : o with
+  | none =>
+    match n with
+    | 0 => 0
+    | k + 1 => fixtures_equation_irreducible (some k) k
+  | some x =>
+    match n with
+    | 0 => x
+    | k + 1 => fixtures_equation_irreducible none k
+termination_by fixtures_last_option o n
+decreasing_by all_goals (simp only [fixtures_last_option_eq]; exact Nat.lt_succ_self _)
+
+def fixtures_literal_irreducible (a b n : Nat) : Nat :=
+  match a with
+  | 5 =>
+    match n with
+    | 0 => b
+    | k + 1 => fixtures_literal_irreducible 7 b k
+  | 7 =>
+    match n with
+    | 0 => b + 1
+    | k + 1 => fixtures_literal_irreducible 0 b k
+  | _ =>
+    match n with
+    | 0 => a
+    | k + 1 => fixtures_literal_irreducible 5 b k
+termination_by fixtures_last a b n
+decreasing_by all_goals (simp only [fixtures_last_eq]; exact Nat.lt_succ_self _)
+end

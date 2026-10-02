@@ -364,7 +364,8 @@ def guide : RuleId → Guide
           does it matter which definitions were irreducible where the definition was elaborated \
           (`attribute [local irreducible]`, `attribute [irreducible]` afterwards, `unseal`): the \
           regeneration runs a second time with no definition irreducible, and the comparison \
-          takes a `match` that passes a variable through as the `match` that uses it directly.",
+          takes a `match` that passes a variable through as the `match` that uses it directly, \
+          where Lean's kernel checks that the two are equal for that matcher.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -419,7 +420,8 @@ def guide : RuleId → Guide
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
         characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
-        each a regenerated, safe base with Standard-Logical axioms, and \
+        each a recorded regeneration observation and a safe base with Standard-Logical axioms \
+        (neither proves the observation truthful), and \
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
         `partial def`'s helper under the `partial def`."
       sources :=
