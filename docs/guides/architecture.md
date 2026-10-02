@@ -240,15 +240,22 @@ metadata, not authenticated binary identity.
   are its visited names' records in visit order, each with the reached names that call it. An
   entry can instead hold a root's account as it is (`explicit`), which the writer uses for a
   root whose account that derivation does not reproduce.
-  The writer proposes a shared form (`ExecutionShare.proposals`) and keeps it only if the reader
+  The writer proposes one shared form (`ExecutionShare.fitted`) and keeps it only if the reader
   returns the logical value itself from it, decided by `SharedExecution.same`
   (`same_eq`: a `true` answer is an equality); otherwise it writes the logical value as it is.
   So `SharedExecution.expand_intern` and `read_write` hold for every `Json` value whatever is
-  proposed: reading what was written returns exactly the document the writer was given, so the
-  checker's and the qualification oracles' theorems about the document they read are theorems
-  about the document that was written. The law is about `Json` values; that parsing a file's
-  text returns the value that was compressed into it is the JSON implementation's round trip,
-  trusted as it was for earlier schemas. That the proposal is kept, and so that the file is
+  proposed: `read` of the `Json` value the writer wrote is exactly the document the writer was
+  given. The law is about that written value, not about a file. A reader holds the parse of the
+  file's text, which the JSON implementation is trusted, as for earlier schemas, to give the
+  members of the written value, but in general not its object trees: the printer lists an
+  object's members in key order and the parser inserts them in that order, while `Json.mkObj`
+  inserts them as listed. So `read_write` does not apply to the parsed value, and the checker's
+  and the qualification oracles' theorems are about the document `read` returns for it. That
+  this document has the members of the writer's is not proved and does not reduce to a JSON
+  round trip. It is observed: `RegistryChecks` compares the two on one account (`expand` of a
+  parsed shared form with the built account), and the `history` qualification reads the
+  collector's real output this way and validates the document it gets, without the writer's to
+  compare it with. That the proposal is kept, and so that the file is
   small, is not a theorem: it holds when the collector's accounts have the form the reader
   derives, which `Probe.executionWalk` is written to produce (it queues names in the order of
   `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for which

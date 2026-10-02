@@ -28,8 +28,11 @@ the reader returns the accounts from it (the `names` its roots reach, their `mod
 full (`SharedExecution.restore?` states what each written value stands for); every observation
 of each root is recoverable either way. Readers of this checker take the document through
 `SharedExecution.read`, which rebuilds each root's account, so the document they see holds an
-array of complete root accounts as before: `SharedExecution.read_write` proves it is the document
-the writer was given. A declaration of a report and a declaration a frontend transcript records
+array of complete root accounts as before. `SharedExecution.read_write` proves that `read` of
+the `Json` value the writer wrote is the document the writer was given. A reader holds the parse
+of the file instead, which has that value's members but in general not its object trees; that
+`read` of it returns a document with the members of the writer's is observed (`RegistryChecks`,
+the `history` qualification), not proved. A declaration of a report and a declaration a frontend transcript records
 carry `type`, the `repr` of the kernel type expression, only when the audit was asked for it
 (`axiomGate --kernel-types`); `prettyType` is the declaration's type as Lean prints it
 (`ProducerReport.declarationResultJson`, `Frontend.transcriptResultJson`). Earlier schemas wrote
@@ -347,7 +350,7 @@ def requestJson (kind project subject : String) (claim execution : Option String
     configuration.map fun (path, source) => (path.toString, source)⟩ : Website.ExampleRequest)
 
 /-- Write a result document to `path` in its written form: the `SharedExecution.write` of
-`document` (its `SharedExecution.intern` with the proposals of `ExecutionShare`, then
+`document` (its `SharedExecution.intern` with the proposal of `ExecutionShare`, then
 `SourceTexts.intern`) as compact JSON and a final newline, creating the parent directories.
 `SharedExecution.read_write` proves a reader's `SharedExecution.read` of the written value is
 `document` itself; that law is about `Json` values, not the file's text. A document

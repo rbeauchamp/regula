@@ -842,14 +842,21 @@ is what a result file's writer and readers run), `same_eq` (the comparison the w
 with answers `true` only for equal values) and `slots_intern` (writing the accounts keeps the
 `null` `sourceTexts` member), for every `Json` value and every list of writer proposals, bounded
 to Standard-Logical by `RegistryChecks`. The equality is of `Json` values, object trees
-included, so any function of the document a reader holds is that function of the document the
-writer was given. In particular the `history` oracle's theorems
-(`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`), which are about
-the document `readResult` returns, are about the account the collector produced, with no
-further correspondence to assume between the shared form and the root accounts. The laws do not
-prove that JSON text round-trips (what `Json.parse` returns for the file's text, trusted here
-as it is for every earlier schema), or that the written form is smaller than the logical one.
-The last holds when the writer's proposal is kept, which is checked at each write and observed
+included, and `read_write` is about the value the writer wrote: any function of `read` of that
+value is that function of the document the writer was given. It is not about the value a reader
+parses from the file. The JSON implementation is trusted, as for every earlier schema, to parse
+the file's text to a value with the members of the written one, but in general not with its
+object trees: the printer lists an object's members in key order and the parser inserts them in
+that order, while `Json.mkObj` inserts them as listed. So the `history` oracle's theorems
+(`History.validate_importedRootExecuted`, `validate_unsupported_unresolved`) are about the
+document `readResult` returns, and that this document has the members of the document the writer
+was given, with the account the collector produced, is a further correspondence the laws do not
+give. It is not proved and
+does not reduce to a JSON round trip; it is observed, by `RegistryChecks` on one account
+(`expand` of a parsed shared form is the built account) and by the `history` qualification,
+which reads the collector's real output through `readResult` and validates the document it
+gets, without the writer's to compare it with. The laws do not prove either that the written
+form is smaller than the logical one. That holds when the writer's proposal is kept, which is checked at each write and observed
 on the collector's real output by the `history` qualification (`derivedOnly`) and on built and
 parsed accounts by `RegistryChecks`, not proved. In the excluded library,
 `RegistryCodec.mode_roundtrip`, `mem_firedRules` and `firedRules_nodup` depend on `propext` alone, and `rule_roundtrip`,
@@ -1189,7 +1196,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
-| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems; that the shared form is kept is observed; open: state the remaining refusals as theorems |
+| ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values; that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
 | standalone | `qualify acceptance fences` packet mutations | worker-packet admission through a real proxy | External transport | admission proved (`checked_indexedResults`) |
 | standalone | snapshots, input inventory, receipts, frozen exits, documentation source, closure, configuration and fence evidence | Git, Lake, filesystem, elaboration-time IO, signals | External | observed |

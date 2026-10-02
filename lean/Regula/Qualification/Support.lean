@@ -79,13 +79,15 @@ def withScratch {α : Type} (root : FilePath) (stem : String) (action : FilePath
 def readJson (path : FilePath) : IO Json := do
   IO.ofExcept (Json.parse (← IO.FS.readFile path))
 
-/-- Read a result file (`--json-out`) as the document its writer built: parsed with the pinned
+/-- Read a result file (`--json-out`) as a logical result document: parsed with the pinned
 Lean JSON implementation and read (`Regula.SharedExecution.read`), so each `sourceText` member
 holds its text and each `execution` member its roots' accounts.
-`Regula.SharedExecution.read_write` proves that `read` of the value the writer wrote is the
-writer's document; that the parse of the file's text is that value is the JSON implementation's
-round trip, which is trusted here as it was before the shared form. A file that is not a written
-result document is an error. -/
+`Regula.SharedExecution.read_write` proves that `read` of the `Json` value the writer wrote is
+the writer's document. The parse of the file's text is not that value: the JSON implementation
+is trusted to give it the same members, but its object trees are in general balanced
+differently. That `read` of it returns a document with the members of the writer's is observed
+(`RegistryChecks`, the `history` qualification), not proved, and does not reduce to a JSON round
+trip. A file that is not a written result document is an error. -/
 def readResult (path : FilePath) : IO Json := do
   IO.ofExcept (Regula.SharedExecution.read (← readJson path))
 

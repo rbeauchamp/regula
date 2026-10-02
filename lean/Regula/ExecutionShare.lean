@@ -3,13 +3,13 @@ import Regula.SharedExecution
 
 /-! # Shared forms of execution accounts
 
-The proposals a result writer offers `SharedExecution.internValue` for an `execution` member: the
-shared form of an array of root accounts, with every reached name, edge and boundary record of the
-environment once and one entry per root.
+The proposal a result writer offers `SharedExecution.internValue` for an `execution` member: the
+shared form of an array of root accounts (`fitted`), with every reached name, edge and boundary
+record of the environment once and one entry per root.
 
-Nothing here is trusted or proved to be a correct encoding. `SharedExecution.internValue` keeps a
-proposal only when the reader (`SharedExecution.restore?`) returns the logical value itself from
-it, and otherwise writes the logical value as it is, so `SharedExecution.expand_intern` holds
+Nothing here is trusted or proved to be a correct encoding. `SharedExecution.internValue` keeps
+the proposal only when the reader (`SharedExecution.restore?`) returns the logical value itself
+from it, and otherwise writes the logical value as it is, so `SharedExecution.expand_intern` holds
 whatever these functions return. What depends on them is only how small the written member is. A
 root is written as an entry of constant size when the reader's derivation reproduces its account:
 its visits are the walk over the environment's edges, its edges those leaving its reached names,
@@ -56,7 +56,7 @@ theorem root_toJson (root : ExecutionRoot) :
       rootObject (toJson root.name) (toJson root.module) (toJson root.boundaries)
         (toJson root.unresolved) (toJson root.compilerEdges) (toJson root.closure) := rfl
 
-/-! ### Proposals -/
+/-! ### The proposal -/
 
 /-- An index as a written account carries it. -/
 private def number (index : Nat) : Json := SourceTexts.refJson index
@@ -178,16 +178,6 @@ private def roots? (value : Json) : Option (Array ExecutionRoot × Array Json) :
   | .ok roots, some accounts => if roots.size == accounts.size then some (roots, accounts) else none
   | _, _ => none
 
-/-- The shared form in which every root entry is derived; `value` itself when it is not an array
-of root accounts. -/
-def derived (value : Json) : Json :=
-  match roots? value with
-  | some (roots, accounts) =>
-      let tables := tables roots accounts
-      sharedForm tables ((roots.zip accounts).map fun (root, account) =>
-        derivedEntry tables root account)
-  | none => value
-
 /-- The shared form in which each root has the smallest entry from which the reader rebuilds its
 account: derived, else explicit. `value` itself when it is not an array of root accounts. -/
 def fitted (value : Json) : Json :=
@@ -206,7 +196,7 @@ def fitted (value : Json) : Json :=
       | none => value
   | none => value
 
-/-- The proposals of a result writer, in the order it tries them. -/
-def proposals : List (Json → Json) := [derived, fitted]
+/-- The proposals of a result writer: `fitted` alone. -/
+def proposals : List (Json → Json) := [fitted]
 
 end Regula.ExecutionShare
