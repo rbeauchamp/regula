@@ -41,6 +41,19 @@ and run `prepare` from that clean revision into a new directory. Keep changes th
 stable Lean on the main development branch; keep incompatible adaptations on a compatibility
 revision. Preparation does not declare that either revision supports the new compiler.
 
+### Build dependencies with the selected compiler
+
+Full repository acceptance also needs coherent Mathlib, Verso and transitive pins in the
+`audit/` and `website/` packages, with all three `lean-toolchain` files naming the selected
+compiler. Upstream artifacts are usable only when their compiler matches. For a development
+commit without matching artifacts, set `dependency-build-mode` to `source` in the adaptation
+and run `./scripts/provision.sh`, then `lean --run lean/RegulaProvision.lean verso`.
+The source plan disables Lake and Mathlib cache downloads; shared receipts and CI keys
+distinguish its artifacts by compiler commit and mode. See
+[dependency provisioning](contributing.md#share-one-mathlib-across-local-copies) for the
+entry points and trusted effects. Pin selection and a successful setup do not establish
+checker qualification or repository acceptance.
+
 ## Qualify that exact revision
 
 From the original Regula checkout:

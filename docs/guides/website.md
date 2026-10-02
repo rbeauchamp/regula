@@ -129,7 +129,7 @@ After provisioning the shared Mathlib and the pinned Verso package once:
 
 ```sh
 ./scripts/provision.sh                                # root setup (shared, read-only Mathlib)
-(cd website && lake build verso/VersoManual)         # Verso setup
+lean --run lean/RegulaProvision.lean verso          # Verso setup
 ./scripts/verify.sh diagnostics rule-examples 1/2    # corpus shard 1
 ./scripts/verify.sh diagnostics rule-examples 2/2    # corpus shard 2
 ./scripts/verify.sh site                             # build and check _site/
