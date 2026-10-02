@@ -98,6 +98,16 @@ theorem admitsIdentity_iff (expected cli library : String) :
       objectName expected = true ∧ cli = expected ∧ library = expected := by
   simp [admitsIdentity, and_assoc]
 
+/-- System package installation is confined to the declared Linux CI environment. -/
+def installsSystemPackages (githubActions runnerOS : Option String) : Bool :=
+  githubActions == some "true" && runnerOS == some "Linux"
+
+/-- The installer admits system package changes exactly in Linux GitHub Actions jobs. -/
+theorem installsSystemPackages_iff (githubActions runnerOS : Option String) :
+    installsSystemPackages githubActions runnerOS = true ↔
+      githubActions = some "true" ∧ runnerOS = some "Linux" := by
+  simp [installsSystemPackages]
+
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
   let result ← IO.Process.output { cmd, args, cwd := some cwd, stdin := .null }
   unless result.exitCode == 0 do
@@ -175,6 +185,10 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
     stream root "elan" #["toolchain", "install", spec.bootstrap]
     checkIdentity root "elan" #["run", spec.bootstrap, "lean"] spec.bootstrapRevision
     let previous ← require root "elan" #["run", spec.bootstrap, "lean", "--print-prefix"]
+    if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
+      stream root "sudo" #["apt-get", "update"]
+      stream root "sudo" #["apt-get", "install", "--yes", "build-essential", "cmake",
+        "pkg-config", "libgmp-dev", "libuv1-dev", "libssl-dev"]
     stream path "cmake" #["--preset", "release", s!"-DSTAGE1_PREV_STAGE={previous}",
       "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON"]
     let jobs ← if System.Platform.isOSX then require root "sysctl" #["-n", "hw.logicalcpu"]
