@@ -328,12 +328,37 @@ private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.removeFile (repo / ".lake" / "build" / "bin" / "axiomGate")
   expect adopter (accepted "toml/absent-worker")
 
+/-- The cold compiler guard of Regula's own `lakefile.lean`, through `lake` in a fresh package
+holding only that file, its toolchain pin and the policy source it executes. An inherited
+`LEAN_SYSROOT` whose `lean` is not the compiler running Lake is refused, naming that `lean`, and
+the same package then loads with the inherited environment. The foreign `lean` is this
+toolchain's `lake` under that name: it does not compile the policy, and no second installed
+compiler is needed. A child that reports another compiler's identity is not exercised here. -/
+private def compilerGuard (repo project : FilePath) : IO (Array String) := do
+  for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"] do
+    if let some parent := (project / name).parent then IO.FS.createDirAll parent
+    IO.FS.writeFile (project / name) (← IO.FS.readFile (repo / name))
+  let foreign := project / "foreign"
+  IO.FS.createDirAll (foreign / "bin")
+  let lake := (← Lean.findSysroot) / "bin" / "lake"
+  let linked ← runProcess project "ln" #["-s", lake.toString, (foreign / "bin" / "lean").toString]
+  if !linked.succeeded then throw <| IO.userError linked.output
+  let load (env : Array (String × Option String)) : IO ProcessResult :=
+    runProcess project "lake" #["check-lint"] (scrubbedLeanPathEnv ++ env)
+  let refused ← assess {
+      label := "guard/foreign-sysroot", exitCode := 1,
+      contains := #[(foreign / "bin" / "lean").toString, "which LEAN_SYSROOT or PATH selects"] }
+    (← load #[("LEAN_SYSROOT", some foreign.toString)])
+  return refused ++ (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
+
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then both independent adopters, each in its own disposable workspace. -/
+then both independent adopters and the cold compiler guard, each in its own disposable
+workspace. -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
-  let results ← mapConcurrent jobs #[("lean", leanAdopter), ("toml", tomlAdopter)]
+  let results ← mapConcurrent jobs
+    #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]

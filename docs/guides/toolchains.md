@@ -5,10 +5,22 @@ default remains Lean 4.34.0. A version such as `4.36.0-pre` identifies many comp
 it is insufficient to select compatible checker code. `RegulaPolicy.Compiler` is the shared
 identity used by the cold Lake guard, compiled probe, inventory admission, and plan admission.
 
+**Status.** This is the first, partial delivery of
+[#191](https://github.com/rbeauchamp/regula/issues/191): the identity policy, the preparation
+and qualification workflow, and the refusals are in place, but no checker revision is
+qualified for a compiler newer than Lean 4.34.0. Until the ports tracked by
+[#192](https://github.com/rbeauchamp/regula/issues/192) and
+[#193](https://github.com/rbeauchamp/regula/issues/193) are reviewed and a compatibility
+revision is promoted, code elaborated with a newer compiler cannot receive a supported result.
+
 ## Prepare an isolated candidate
 
 Start in a clean, committed Regula checkout. Install the desired release candidate or nightly
-with Elan first. For a local Lean build, register its complete toolchain directory:
+with Elan first. A compiler's identity is the version and commit it reports about itself, and
+Lean records the Git commit of its source tree with no marker for uncommitted changes.
+Build a local compiler from a clean, committed Lean tree: two builds of one commit with
+different uncommitted edits report the same identity, and nothing here tells them apart.
+Register the build's complete toolchain directory:
 
 ```sh
 elan toolchain link lean-issue /absolute/path/to/lean4/build/release/stage1
@@ -17,10 +29,12 @@ lake exe toolchain prepare lean-issue /absolute/path/to/new-regula-candidate
 
 For an installed release candidate, substitute its full selector, for example
 `leanprover/lean4:v4.35.0-rc3`. The command probes the selected compiler for its version and
-full commit and legacy compiler-trust capability, creates a detached Git worktree from the current commit, changes only the
-compiler declaration, capability, candidate marker and `lean-toolchain`, and commits the candidate. It never installs a
-toolchain, changes the caller's branch, or overrides the stable guard. The new worktree is
-retained for inspection, source adaptation, and ordinary Git worktree management.
+full commit and legacy compiler-trust capability, creates a detached Git worktree from the
+current commit, changes only the compiler declaration, capability, candidate marker and
+`lean-toolchain`, and commits the candidate.
+It never installs a toolchain, changes the caller's branch, or overrides the stable guard. The
+new worktree is retained for inspection, source adaptation, and ordinary Git worktree
+management.
 
 The capability probe executes the same isolated Core observer used by the checker. It accepts
 only the complete legacy axiom family with the expected types and origins, or all three names
@@ -108,20 +122,26 @@ From the original Regula checkout:
 lake exe toolchain qualify /absolute/path/to/new-regula-candidate
 ```
 
-This runs an ordinary-invocation refusal control and existing core checker campaigns: build, fixture policy,
-producer boundaries, history, structural checks, execution checks, lint dispatch, and the
-operational self-audit. Each command has its own external 420-second limit. These are separate
+This runs an ordinary-invocation refusal control and existing core checker campaigns: build,
+fixture policy, producer boundaries, history, structural checks, execution checks, lint
+dispatch, and the operational self-audit. Each command has its own external 420-second limit. These are separate
 diagnostics, not partitions of repository acceptance. The immutable candidate commit and
 compiler identity are checked before and after commands. Logs and `qualification.json` are in
 the candidate's `.lake/regula-toolchain/` directory. A prior receipt is invalidated before any
 probe or process begins. Build failure stops dependent campaigns; other failures remain in
 the receipt. A failure, timeout, missing command, or changed input prevents completion.
 
-The receipt has `grantsSupport: false`, including when all its campaigns complete. Ordinary
-candidate audit commands refuse. The driver selects the explicit diagnostic purpose
+The receipt has `grantsSupport: false`, including when all its campaigns complete. On a
+candidate, an ordinary invocation of `axiomGate` (so also the audit `lake lint` runs),
+`docFenceAudit` or `freshChecker` refuses. The other executables do not call that guard
+themselves, among them `regula` (`doctor`, `init` and the offline guidance commands),
+`ruleExamples`, `toolchain`, `qualify` and `checkerSelftest`: whatever they print on a
+candidate is unqualified. The driver selects the explicit diagnostic purpose
 (`REGULA_COMPILER_QUALIFICATION=1`) for its children; this does not enable supported PASS
-results. Candidate result files have an outer `status: unsupported`, `purpose:
-compiler-qualification`, and `grantsSupport: false`, with the detector result under
+results, and a diagnostic run that accepts its controls still exits 0, so an exit status alone
+never distinguishes a diagnostic observation from a supported result. Candidate result files
+have an outer `status: unsupported`, `purpose: compiler-qualification`, and
+`grantsSupport: false`, with the detector result under
 `observation`. Their text labels accepted controls as diagnostic observations. Only diagnostic
 readers in that candidate invocation unpack the observation; ordinary readers refuse it.
 These results cannot establish that an unrelated Lean fix conforms. Mathlib, the Verso standard,
@@ -138,7 +158,8 @@ claims whose relevant source, dependencies, compiler identity, and invocation pa
 ## Use it for a Lean fix
 
 Select a reviewed Regula compatibility revision whose declared identity matches the compiler
-used to elaborate the fix. A fix normally targets Lean's current development branch; an issue
+used to elaborate the fix. None exists yet for a compiler newer than Lean 4.34.0 (see the
+status above). A fix normally targets Lean's current development branch; an issue
 should still name the released compiler on which the defect was observed. These may need
 different Regula revisions and evidence. Record both identities rather than substituting one.
 
@@ -156,16 +177,36 @@ candidate `3fc295bc179835ad19505fcde016b7b0888b4a3c`, prepared from
 `09f030381119fc57e217863b58748feb158ba1fa`. The development receipt covers checker candidate
 `d0e9e3c650de78dc420d2b558a8a10a05824c2e7`, prepared from
 `16fba8111c4861bd6483b04c0367b835a1b1eb68`. Both built Regula and remained **unqualified**;
-their ordinary audit commands refused. These receipts predate the final documentation-label
-and LRAT changes described below. The final source remains unqualified on both newer compilers;
-these observations do not add either compiler to the supported stable release.
+their ordinary audit commands refused. The candidate commits and their receipts and logs are
+local to the machine that ran them and are not published. The receipts predate later changes
+on this branch: the shared documentation labels, compiler-specific LRAT generation, the cold
+guard's binding to the running compiler, the identity probe, and `doctor`'s check of the
+project's pin. No receipt exercised those paths, so the final source remains unqualified on
+both newer compilers and these observations add neither to the supported stable release.
+
+| Campaign | Lean 4.35.0-rc3, candidate `3fc295b` | Lean `6751f97`, candidate `d0e9e3c` |
+| --- | --- | --- |
+| `build` | met | met |
+| `candidate-refusal` | met | met |
+| `fixtures` | not met: removed legacy compiler axiom, obsolete LRAT bytes | not met: positive controls refused over `ctorIdx._impl` |
+| `producers` | met | encountered that declaration family; outcome not recorded here |
+| `history` | met | not recorded here |
+| `structural` | met | encountered that declaration family; outcome not recorded here |
+| `execution` | met | not met: `replacement-cycle` stops in compilation |
+| `lint-driver` | met | not recorded here |
+| `self-audit` | met | not recorded here |
 
 The portable changes preserve Lake's path-dependency `copy` flag during relocation, inspect
-loaded dependency locations, avoid the newly reserved binder name `given`, compare actual
-compiler identities in `doctor`, and use generated structural equality where Lean no longer
-offers its former safe generic pointer shortcut. The two equality instances have pointwise
-contracts proving that they decide the same equality. LRAT qualification setup now generates
-separate direct and grind certificates with the selected compiler before checking them.
+loaded dependency locations, avoid the newly reserved binder name `given`, and use generated
+structural equality where Lean no longer offers its former safe generic pointer shortcut.
+Whichever instance a compiler elaborates decides the same proposition, as every `Decidable`
+instance of it does; `snapshotDecidableEq_eq` and `claimCandidateDecidableEq_eq` state only
+that, and say nothing about which implementation was compiled or what it costs. `regula
+doctor` asks Elan for the compiler the project's own `lean-toolchain` selects and compares the
+version and commit that compiler reports with the supported identity, so two selectors of one
+compiler agree and an override cannot hide a project pinned to another. LRAT qualification
+setup now generates separate direct and grind certificates with the selected compiler before
+checking them.
 
 The release candidate's initial campaign completed build, ordinary refusal, producer, history,
 structural, execution, lint-driver and operational self-audit controls. Its fixture campaign
@@ -188,8 +229,28 @@ are complete; compiling the checker or completing a subset of diagnostics does n
 `refuses_other_commit` rejects every other commit even with the same version, and
 `transcript_plan_compiler` binds admitted transcripts to the plan's identity. The actual
 `parseIdentity` and `complete` functions have contracts proving valid parsed identities and
-complete, ordered campaign observations meeting each required exit and output. These are kernel-checked statements about
-supplied values. They do not authenticate compiler binaries or Git commits, prove subprocess
-behavior, establish detector completeness, or prevent a filesystem change-and-restore race.
+complete, ordered campaign observations meeting each required exit and output.
+`Regula.Setup.toolchainIssues_eq_nil_iff` proves that `doctor`'s decision reports no toolchain
+issue exactly when the project's pin resolved to a compiler whose reported identity
+`Compiler.Supports`; a pin that resolves to no installed compiler is an issue. These are
+kernel-checked statements about supplied values. They do not authenticate compiler binaries
+or Git commits, prove subprocess behavior, establish detector completeness, or prevent a
+filesystem change-and-restore race.
+
+The supplied identity is a self-report: `Lean.versionString` and `Lean.githash`. It names the
+Git commit of the tree a compiler was built from, not the bytes of its executable and not
+uncommitted source edits, so every statement here assumes a compiler built from a clean,
+committed tree. Nothing checks that hypothesis, and no correspondence between an executable
+and its source is claimed.
+
+The cold guard in `lakefile.lean` runs the `lean` that `LEAN_SYSROOT` or `PATH` selects on the
+policy source. It passes only when that child accepts its own identity and prints the version
+and commit of the Lean elaborating the lakefile; a child that fails, cannot be run, or reports
+another identity is refused. Lake reuses an elaborated configuration, so the guard runs when
+the configuration is elaborated, and the compiled guards remain in force otherwise. The
+retained `lint-driver` control refuses an inherited `LEAN_SYSROOT` whose `lean` does not
+compile the policy and then loads the same package again; a child reporting another
+compiler's identity needs a second installed compiler and has no retained control.
+
 Compiler self-reports, Elan resolution, Git, native compilation, JSON serialization, process
 exit observations, filesystem reads, and GNU timeout remain trusted operational mechanisms.
