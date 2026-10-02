@@ -48,6 +48,11 @@ Full repository acceptance also needs coherent Mathlib, Verso and transitive pin
 compiler. Upstream artifacts are usable only when their compiler matches. For a development
 commit without matching artifacts, set `dependency-build-mode` to `source` in the adaptation
 and run `./scripts/provision.sh`, then `lean --run lean/RegulaProvision.lean verso`.
+An interrupted source setup retains its staging directory. A later invocation resumes only
+when its compiler/mode key, Lake configuration, manifest and toolchain selector match exactly;
+it still runs the complete dependency build before publishing the read-only store. A setup
+timeout remains a failed invocation. Finish setup before running acceptance; this does not
+divide either acceptance step or change its deadline.
 The source plan disables Lake and Mathlib cache downloads; shared receipts and CI keys
 distinguish its artifacts by compiler commit and mode. See
 [dependency provisioning](contributing.md#share-one-mathlib-across-local-copies) for the

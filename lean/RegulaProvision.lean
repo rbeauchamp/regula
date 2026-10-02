@@ -152,6 +152,26 @@ structure Receipt where
 /-- Receipt schema this program writes and accepts. -/
 def receiptSchema : Nat := 1
 
+/-- The three source inputs of one staged dependency workspace. -/
+structure StageInputs where
+  /-- Lake configuration selecting the pinned Mathlib source. -/
+  configuration : String
+  /-- Exact package manifest serialized by this program. -/
+  manifest : String
+  /-- The repository's complete toolchain selector file. -/
+  toolchain : String
+  deriving DecidableEq, Repr
+
+/-- Only a source-mode stage with exactly the requested inputs may be resumed. The caller
+also restricts discovery to real directories under the current compiler/mode key. -/
+def resumes (mode : BuildMode) (expected observed : StageInputs) : Bool :=
+  mode == .source && expected == observed
+
+/-- Resumption binds every staged source input and is unavailable to the upstream-cache route. -/
+theorem resumes_iff (mode : BuildMode) (expected observed : StageInputs) :
+    resumes mode expected observed = true ↔ mode = .source ∧ expected = observed := by
+  simp [resumes]
+
 /-- The shared directory serves a copy only when its revision, compiler and artifact mode
 match and it records no package the copy pins at a different revision. -/
 def admits (receipt : Receipt) (mode : BuildMode) (mathlibRev githash : String)
@@ -588,23 +608,54 @@ private def makeReadOnly (staging : FilePath) (packages : Array FilePath) : IO U
     let _ ← require package "git" #["update-index", "-q", "--refresh"]
     let _ ← require package "chmod" #["a-w", (git / "index").toString, git.toString]
 
-/-- Create the shared directory `final` from a fresh staging directory using the selected
-artifact plan, record and seal it, and make it visible with one rename. The caller holds
-the lock. -/
-private def create (repo parent final : FilePath) (key : String) (manifest : Json)
-    (pins : Pins) (mode : BuildMode) : IO Unit := do
-  let staging := parent / s!"{key}.staging-{← nonce}"
-  IO.FS.createDir staging
-  try
-    IO.FS.writeFile (staging / "lakefile.toml") <|
+/-- The complete dependency workspace input written before a build begins. -/
+private def stageInputs (repo : FilePath) (manifest : Json) (pins : Pins) : IO StageInputs := do
+  return {
+    configuration :=
       "name = \"regula_mathlib_packages\"\n\n[[require]]\nname = \"mathlib\"\n" ++
-      s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n"
-    IO.FS.writeBinFile (staging / "lean-toolchain") (← IO.FS.readBinFile (repo / "lean-toolchain"))
-    -- The repository's own lock entries, unchanged: Lake materializes the same revisions.
-    IO.FS.writeFile (staging / "lake-manifest.json") <| (manifest
+        s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n"
+    manifest := (manifest
       |>.setObjVal! "name" (.str "regula_mathlib_packages")
       |>.setObjVal! "packagesDir" (.str ".lake/packages")
       |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n"
+    toolchain := ← IO.FS.readFile (repo / "lean-toolchain") }
+
+/-- Recover exact inputs from an interrupted stage. Unknown or incomplete stages are left
+untouched. Filesystem content and Lake's dependency traces remain trusted observations. -/
+private def readStageInputs (path : FilePath) : IO (Option StageInputs) := do
+  try
+    return some {
+      configuration := ← IO.FS.readFile (path / "lakefile.toml")
+      manifest := ← IO.FS.readFile (path / "lake-manifest.json")
+      toolchain := ← IO.FS.readFile (path / "lean-toolchain") }
+  catch _ => return none
+
+/-- Source mode reuses only a stage for this exact compiler/mode key with identical inputs.
+The exclusive provisioning lock excludes a concurrent writer owned by this program. -/
+private def prepareStage (parent : FilePath) (key : String) (mode : BuildMode)
+    (expected : StageInputs) : IO FilePath := do
+  if mode == .source then
+    for entry in ← parent.readDir do
+      if entry.fileName.startsWith s!"{key}.staging-" && (← kind? entry.path) == some .dir then
+        if let some observed ← readStageInputs entry.path then
+          if resumes mode expected observed then
+            say s!"resuming source dependencies in {entry.path}"
+            let _ ← require entry.path "chmod" #["-R", "u+w", entry.path.toString]
+            return entry.path
+  let staging := parent / s!"{key}.staging-{← nonce}"
+  IO.FS.createDir staging
+  IO.FS.writeFile (staging / "lakefile.toml") expected.configuration
+  IO.FS.writeFile (staging / "lake-manifest.json") expected.manifest
+  IO.FS.writeFile (staging / "lean-toolchain") expected.toolchain
+  return staging
+
+/-- Create the shared directory `final` from a fresh or exact-input resumed staging directory,
+run the complete selected build plan, record and seal it, and publish with one rename.
+The caller holds the lock. -/
+private def create (repo parent final : FilePath) (key : String) (manifest : Json)
+    (pins : Pins) (mode : BuildMode) : IO Unit := do
+  let staging ← prepareStage parent key mode (← stageInputs repo manifest pins)
+  try
     let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do
       throw <|
@@ -636,7 +687,9 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     makeReadOnly staging dirs
     IO.FS.rename staging final
   catch error =>
-    if (← kind? staging) matches some .dir then removeReadOnly staging
+    if mode == .source then
+      say s!"retained interrupted source dependencies in {staging}"
+    else if (← kind? staging) matches some .dir then removeReadOnly staging
     throw error
 
 /-- The admitted shared directory `parent/key` for these pins, created once. The caller holds
@@ -652,10 +705,11 @@ private def ensureShared (repo parent : FilePath) (key : Component) (manifest : 
     throw <| IO.userError s!"provisioning: {final} exists but its receipt does not admit \
       Mathlib {pins.mathlibRev} for Lean {Lean.githash} ({mode.spelling}); move it aside and \
       provision again"
-  -- Under the lock, a staging directory can only belong to a process that died.
-  for entry in ← parent.readDir do
-    if entry.fileName.startsWith s!"{key.val}.staging-" then
-      if (← kind? entry.path) matches some .dir then removeReadOnly entry.path
+  -- Source stages retain compilation work and are resumed only after exact-input admission.
+  if mode == .upstreamCache then
+    for entry in ← parent.readDir do
+      if entry.fileName.startsWith s!"{key.val}.staging-" then
+        if (← kind? entry.path) matches some .dir then removeReadOnly entry.path
   say s!"creating the shared Mathlib {pins.mathlibRev} for Lean {Lean.versionString} \
     ({mode.spelling}) in {final}"
   let started ← IO.monoMsNow
