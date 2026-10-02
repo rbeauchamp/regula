@@ -74,6 +74,36 @@ and `lake lint` workflow. The audit needs its own claimed surfaces and implement
 contracts. In particular, a theorem about a separately written Lake model does not verify the
 Lake implementation. Checker qualification establishes only its exercised detector behavior.
 
+## Initial compatibility observations
+
+The workflow was exercised while implementing [#191](https://github.com/rbeauchamp/regula/issues/191)
+against Lean 4.35.0-rc3 (`470d5ce1400764999581fd26d5d72b00d990b0f4`) and the local Lean development
+build at `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`. Both built Regula after the shared source
+adaptations below. Both remained **unqualified**; their ordinary audit commands refused.
+These observations do not add either compiler to the supported stable release.
+
+The portable changes preserve Lake's path-dependency `copy` flag during relocation, inspect
+loaded dependency locations, avoid the newly reserved binder name `given`, compare actual
+compiler identities in `doctor`, and use generated structural equality where Lean no longer
+offers its former safe generic pointer shortcut. The two equality instances have pointwise
+contracts proving that they decide the same equality. LRAT qualification setup now generates
+separate direct and grind certificates with the selected compiler before checking them.
+
+The release candidate's initial campaign completed build, ordinary refusal, producer, history,
+structural, execution, lint-driver and operational self-audit controls. Its fixture campaign
+failed on the removed legacy compiler axiom and obsolete LRAT certificate bytes. The legacy
+fixture and the compiler-trust policy need the capability-aware port tracked by
+[#192](https://github.com/rbeauchamp/regula/issues/192), including refusal of dependency spoofs
+when those builtin names no longer exist. A native-proof control is not a replacement for
+that retired direct-axiom control.
+
+The development compiler also generates unsafe `ctorIdx._impl` declarations outside the
+standard's current recursion-helper exception. They cause genuine positive controls to be
+refused. [#193](https://github.com/rbeauchamp/regula/issues/193) tracks separate authentication
+against Lean's generator, its precise policy and execution boundaries, and the remaining
+development-compiler controls. Preserve these failures until the required port and review
+are complete; compiling the checker or completing a subset of diagnostics does not qualify it.
+
 ## Guarantees and trusted boundaries
 
 `Compiler.accepts_iff` connects the executed identity guard to the admission predicate;

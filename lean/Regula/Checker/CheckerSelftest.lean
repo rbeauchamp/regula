@@ -879,14 +879,32 @@ private def scannerQualification : Array String := Id.run do
     failures := failures.push "scanner/pattern: ordered/alternative matching failed"
   failures
 
-/-- A committed LRAT certificate for `(x &&& y) + (x ||| y) = x + y` over `BitVec 2`, which
-`bv_check` reads by absolute path because a fence compiles in a scratch directory. -/
-private def bvCheckCertificate (repo : FilePath) : FilePath :=
-  repo / "lean" / "Fixtures" / "BvCheck.lrat"
+/-- Generate certificates with the compiler that will check them. The direct and grind
+frontends may normalize differently, so each keeps its own certificate. Setup failure or
+ambiguous output aborts qualification; the corpus still executes `bv_check` independently. -/
+private def bvCheckCertificates (repo scratch : FilePath) : IO (FilePath × FilePath) := do
+  let generate (name tactic : String) : IO FilePath := do
+    let dir := scratch / s!"certificate-{name}"
+    IO.FS.createDirAll dir
+    let source := dir / "Certificate.lean"
+    IO.FS.writeFile source <| "import Std.Tactic.BVDecide\n" ++
+      s!"theorem certificate (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by {tactic}\n"
+    let result ← runProcess repo "lake" #["env", "lean", source.toString]
+    unless result.succeeded do
+      throw <| IO.userError s!"{name} LRAT setup failed: {result.output}"
+    let files := (← dir.readDir).filter (·.path.extension == some "lrat")
+    let [entry] := files.toList
+      | throw <| IO.userError s!"{name} LRAT setup requires exactly one generated certificate"
+    let path := entry.path
+    if (← IO.FS.readBinFile path).isEmpty then
+      throw <| IO.userError s!"{name} LRAT setup generated an empty certificate"
+    return path
+  return (← generate "direct" "bv_decide? -binaryProofs",
+    ← generate "grind" "grind => bv_decide? -binaryProofs")
 
 /-- The adversarial fence corpus shared by the in-process default-tier audit
 and the end-to-end public `docFenceAudit` control in the conditional tier. -/
-private def fenceCorpusCases (repo : FilePath) : Array (String × String × String) := #[
+private def fenceCorpusCases (certificate grindCertificate : FilePath) : Array (String × String × String) := #[
   ("unclosed", "```lean\ntheorem x : True := trivial\n", "never closed"),
   ("empty-pattern", "<!-- lean-fail: -->\n```lean\ndef n : Nat := \"x\"\n```\n",
       "pattern is empty"),
@@ -966,7 +984,7 @@ private def fenceCorpusCases (repo : FilePath) : Array (String × String × Stri
     ```\n", "trusted-bv-trace.md:2 PASS_TRUSTED"),
   ("trusted-bv-check", s!"<!-- lean-trusted-compiler -->\n```lean\nimport Std.Tactic.BVDecide\n\
     theorem docs_bv_check (x y : BitVec 2) : (x &&& y) + (x ||| y) = x + y := by\n  bv_check \
-    -binaryProofs \"{bvCheckCertificate repo}\"\n```\n", "trusted-bv-check.md:2 PASS_TRUSTED"),
+    -binaryProofs \"{certificate}\"\n```\n", "trusted-bv-check.md:2 PASS_TRUSTED"),
   -- Authentication does not depend on the surrounding syntax: `grind =>` and `sym =>` blocks,
   -- namespaced names, attributes, `set_option … in` and reverted parameters are all covered.
   ("trusted-grind-native", s!"<!-- lean-trusted-compiler -->\n```lean\nimport \
@@ -974,7 +992,7 @@ private def fenceCorpusCases (repo : FilePath) : Array (String × String × Stri
     x + y := by grind => bv_decide\ntheorem docs_sym_bv_trace (x y : BitVec 2) : (x &&& y) + \
     (x ||| y) = x + y := by sym => bv_decide?\ntheorem docs_grind_bv_check (x y : BitVec 2) : \
     (x &&& y) + (x ||| y) = x + y := by\n  grind => bv_check -binaryProofs \
-    \"{bvCheckCertificate repo}\"\n```\n", "trusted-grind-native.md:2 PASS_TRUSTED"),
+    \"{grindCertificate}\"\n```\n", "trusted-grind-native.md:2 PASS_TRUSTED"),
   ("trusted-namespaced-native", "<!-- lean-trusted-compiler -->\n```lean\nimport \
     Std.Tactic.BVDecide\ntheorem Docs.namespaced_native_decide : (2 : Nat) = 2 := by \
     native_decide\ntheorem Docs.Grind.namespaced_bv_decide (x y : BitVec 2) : (x &&& y) + \
@@ -1115,9 +1133,11 @@ checker's own `Documentation.auditTasks` batch auditor without the
 clean-checkout rebuild. -/
 private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Nat)
     : IO (Array String) := do
+  let (certificate, grindCertificate) ← bvCheckCertificates repo scratch
+  let cases := fenceCorpusCases certificate grindCertificate
   let mut tasks : Array Documentation.Task := #[]
   let mut structural : Array String := #[]
-  for (name, text, _) in fenceCorpusCases repo do
+  for (name, text, _) in cases do
     let scan := Documentation.scan text s!"{name}.md"
     structural := structural ++ scan.problems
     for fence in scan.fences do
@@ -1141,7 +1161,7 @@ private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Na
     if result.status == .fail then failCount := failCount + 1
   if structural.isEmpty && failCount == 0 then
     failures := failures.push "scanner/corpus: malformed corpus unexpectedly passed"
-  for (name, _, expected) in fenceCorpusCases repo do
+  for (name, _, expected) in cases do
     let expected := expected.replace " PASS_TRUSTED" (" " ++ statusName .passTrusted)
       |>.replace " PASS_NEG" (" " ++ statusName .passNegative)
       |>.replace " PASS" (" " ++ statusName .pass)
@@ -1153,7 +1173,8 @@ private unsafe def fenceCorpusQualification (repo scratch : FilePath) (jobs : Na
 /-- End-to-end public `docFenceAudit` control over the adversarial corpus
 (conditional tier: it re-runs the auditor against a clean-checkout copy). -/
 private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Array String) := do
-  let cases := fenceCorpusCases repo ++ publicOnlyFenceCases
+  let (certificate, grindCertificate) ← bvCheckCertificates repo scratch
+  let cases := fenceCorpusCases certificate grindCertificate ++ publicOnlyFenceCases
   let docsRoot := scratch / "docs"
   IO.FS.createDirAll docsRoot
   for (name, text, _) in cases do
@@ -2525,7 +2546,7 @@ private unsafe def runFixtures (repo : FilePath) (jobs : Nat)
     for failure in corpus do failures.modify (·.push failure)
     IO.println <| "self-test Markdown: " ++
       (if corpus.isEmpty then "PASS" else "FAIL") ++
-      s!" (scanner controls + {(fenceCorpusCases repo).size} in-process corpus cases)"
+      s!" (scanner controls + {(fenceCorpusCases "" "").size} in-process corpus cases)"
 
 /-- External-boundary control for the frozen `.olean` parts that admission reuse rests on, where
 reading the files is the external mechanism (`Admission.reuseJustified_frozen`,
@@ -2777,7 +2798,7 @@ private unsafe def runEnvironments (layout : SourceLayout) (repo : FilePath)
     for failure in ← timedPhase "public fence corpus" (publicScannerQualification repo scratch) do
       failures.modify (·.push failure)
   IO.println s!"self-test public fence corpus: completed \
-    ({(fenceCorpusCases repo ++ publicOnlyFenceCases).size} end-to-end cases)"
+    ({(fenceCorpusCases "" "" ++ publicOnlyFenceCases).size} end-to-end cases)"
   withScratch repo "checker-adopter" fun scratch => do
     let adopter ← timedPhase "external adopters" (adopterQualification repo scratch)
     for failure in adopter do failures.modify (·.push failure)
@@ -3059,7 +3080,7 @@ unsafe def run (args : List String) : IO UInt32 := do
     (if options.buildBound then
         s!"{fixtures.size} real-CLI controls (including all smoke controls); "
       else s!"{smokeFixtureNames.size} real-CLI smoke controls; ") ++
-    s!"{(fenceCorpusCases repo).size + publicOnlyFenceCases.size} Markdown cases plus import-setup \
+    s!"{(fenceCorpusCases "" "").size + publicOnlyFenceCases.size} Markdown cases plus import-setup \
       controls; 9 manifest cases; structural controls including explicit contract mutations; " ++
     s!"{CompilerPaths.caseCount} imported compiler-path mutations with fresh restorations; " ++
     (if options.buildBound then
