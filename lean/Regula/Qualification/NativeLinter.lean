@@ -93,9 +93,27 @@ artifacts and the `Restored` controls, which follow every malformed control. -/
 def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat := 4) : IO Unit := do
     let check := check root scratch launcher
     let _ ← check { label := "Control", source := base, output := true }
+    let retired : Array (String × String) := match RegulaPolicy.Compiler.legacyCompilerTrust with
+      | .present => #[]
+      | .absent => #[
+          ("RetiredTrustCompiler", "Lean.trustCompiler"),
+          ("RetiredOfReduceBool", "Lean.ofReduceBool"),
+          ("RetiredOfReduceNat", "Lean.ofReduceNat")]
+    let _ ← Regula.Checker.mapWorkQueue jobs retired fun (label, name) =>
+      check { label, source := "import Regula.Linter\n/-! Retired compiler-name dependency. -/\n" ++
+        s!"axiom {name} : True\n", ids := ["RG1001"], output := true }
     let axiomSource := base ++ "\naxiom forbidden : False\n"
     let missing := base.replace "/-! Collector qualification control. -/\n" ""
         |>.replace claimDoc ""
+    let compilerTrust : Control := match RegulaPolicy.Compiler.legacyCompilerTrust with
+      | .present =>
+        { label := "CompilerTrust", source := base ++
+            "theorem trustedCompiler : True := Lean.trustCompiler\n", ids := ["RG1004"],
+          compiler := [⟨"warning", "`Lean.trustCompiler` has been deprecated: in-kernel native \
+            reduction is deprecated; assert native evaluations with axioms instead"⟩] }
+      | .absent =>
+        { label := "RetiredCompilerName", source := base ++
+            "axiom Lean.trustCompiler : True\n", ids := ["RG1001"] }
     let controls : List Control := [
       { label := "PromotedMissing", source := missing, ids := ["RG5001", "RG5002"], errors := true,
         options := #["-DwarningAsError=true"] },
@@ -143,11 +161,7 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       { label := "UnknownAxiom", source := base ++
           "private axiom assumed : False\ntheorem dependent : False := assumed\n",
         ids := ["RG1001", "RG1003"] },
-      { label := "CompilerTrust", source := base ++
-          "theorem trustedCompiler : True := Lean.trustCompiler\n", ids := ["RG1004"],
-        compiler :=
-            [⟨"warning", "`Lean.trustCompiler` has been deprecated: in-kernel native reduction is \
-              deprecated; assert native evaluations with axioms instead"⟩] },
+      compilerTrust,
       { label := "Escape", source := base ++ "unsafe def escape : Nat := 0\n", ids := ["RG1006"] },
       { label := "Contract", source := base ++ "def implementation (n : Nat) : Nat := n\n" ++
         "theorem unsupported (n : Nat) : Regula.ExecutableContract (implementation n) (fun value \
@@ -255,10 +269,13 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       ({ label := "ImportedMissing", source := ((observer.replace "Control" "Missing").replace
         "== true" "== false").replace "some true" "some false" }, env),
       ({ label := "RestoredRange", source := restored, ids := ["RG1001"] }, #[]),
-      ({ label := "Restored", source := base }, #[])]
+      ({ label := "Restored", source := base }, #[])] ++ retired.map fun (label, name) =>
+      ({ label := label ++ "Importer", source := s!"import {label}\n" ++
+          "/-! An imported retired compiler name remains an unknown axiom. -/\n" ++
+          s!"theorem retiredDependency : True := {name}\n", ids := ["RG1003"] }, env)
     let _ ← Regula.Checker.mapWorkQueue jobs dependent fun (control, env) =>
       NativeLinter.check root scratch launcher control env
-    IO.println s!"native bridge qualification: PASS ({1 + independent.size + dependent.size} \
+    IO.println s!"native bridge qualification: PASS ({1 + retired.size + independent.size + dependent.size} \
       actual Lean source controls)"
 
 /-- Normal acceptance uses the cached actual Lake environment, never a cached verdict. -/

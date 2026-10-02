@@ -516,9 +516,10 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           throw <| IO.userError "producer-census: report does not match requested project scope"
         let forcedNameCodec ← Environment.forcedStructuralName report
         let forcedCollector ← Environment.forcedCollectorOnly report
+        let forcedCompilerObserver ← Environment.forcedCompilerObserverOnly report
         let envModules := report.modules.filter
           (fun n => !(Environment.probeModuleNames.map String.toName).contains n &&
-            n != forcedNameCodec && some n != forcedCollector)
+            n != forcedNameCodec && some n != forcedCollector && some n != forcedCompilerObserver)
         for moduleName in info.modules do
           if !envModules.contains moduleName then
             failures :=
@@ -581,7 +582,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
             reportRoot.toString failure (if fresh then .freshProject else .incrementalProject)
                 .incomplete)
-        let scope ← IO.ofExcept <| Policy.admitScope report.declarations transcripts
+        let scope ← IO.ofExcept <|
+          Policy.admitScope report.compilerCapability report.declarations transcripts
         let native := scope.native
         let unsafeHelpers := scope.helpers
         totalDeclarations := totalDeclarations + report.declarations.size
@@ -1023,7 +1025,8 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
         | some (.ok (.ok inspected)) =>
             let declarations := inspected.report.declarations.qsort fun left right =>
               Name.quickLt left.name right.name
-            let scope ← IO.ofExcept <| Policy.admitScope declarations inspected.transcripts
+            let scope ← IO.ofExcept <|
+              Policy.admitScope inspected.report.compilerCapability declarations inspected.transcripts
             let native := scope.native
             let unsafeHelpers := scope.helpers
             let mut reasons : Array String := #[]

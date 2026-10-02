@@ -13,12 +13,18 @@ and the truth of the observed contract/replay fields remain operational boundari
 namespace RegulaPolicy
 open Lean (Name)
 
-/-- Compiler trust consists of the three pinned compiler axioms and inventory-validated
-native proof roles. This is separate from the permitted logical foundations. -/
+/-- Compiler trust consists of the legacy family when the selected compiler declares it,
+and inventory-validated native proof roles, separately from the logical foundations. -/
 def CompilerAxiom (native : Array Name) (n : Name) : Prop :=
-  n = `Lean.trustCompiler ∨ n = `Lean.ofReduceBool ∨ n = `Lean.ofReduceNat ∨ n ∈ native
+  (Compiler.legacyCompilerTrust = .present ∧
+    (n = `Lean.trustCompiler ∨ n = `Lean.ofReduceBool ∨ n = `Lean.ofReduceNat)) ∨ n ∈ native
 instance (native : Array Name) (n : Name) : Decidable (CompilerAxiom native n) := by
   unfold CompilerAxiom; infer_instance
+
+/-- On a compiler without the legacy family, only authenticated native roles can confer trust. -/
+theorem compilerAxiom_absent (h : Compiler.legacyCompilerTrust = .absent)
+    (native : Array Name) (n : Name) : CompilerAxiom native n ↔ n ∈ native := by
+  simp [CompilerAxiom, h]
 
 /-- Every transitive dependency has a known logical or compiler-trusting classification. -/
 def KnownDependencies (d : Declaration) (native : Array Name) : Prop :=

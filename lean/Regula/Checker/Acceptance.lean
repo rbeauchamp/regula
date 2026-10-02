@@ -103,7 +103,8 @@ private def freezeEnvironment (claim : Claim) (request : EnvironmentRequest)
     | throw <| IO.userError "missing completed logical admission"
   let some documentation := report.documentation
     | throw <| IO.userError "missing completed documentation observation"
-  let scope ← IO.ofExcept <| Policy.admitScope report.declarations inspected.transcripts
+  let scope ← IO.ofExcept <|
+    Policy.admitScope report.compilerCapability report.declarations inspected.transcripts
   -- Equal to `admitExecution report.execution` (`Admitted.admitExecution_eq`).
   let execution := inspected.admitted.execution
   let origins := report.moduleOrigins

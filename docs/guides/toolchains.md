@@ -17,10 +17,17 @@ lake exe toolchain prepare lean-issue /absolute/path/to/new-regula-candidate
 
 For an installed release candidate, substitute its full selector, for example
 `leanprover/lean4:v4.35.0-rc3`. The command probes the selected compiler for its version and
-full commit, creates a detached Git worktree from the current commit, changes only the
-compiler declaration, its candidate marker and `lean-toolchain`, and commits the candidate. It never installs a
+full commit and legacy compiler-trust capability, creates a detached Git worktree from the current commit, changes only the
+compiler declaration, capability, candidate marker and `lean-toolchain`, and commits the candidate. It never installs a
 toolchain, changes the caller's branch, or overrides the stable guard. The new worktree is
 retained for inspection, source adaptation, and ordinary Git worktree management.
+
+The capability probe executes the same isolated Core observer used by the checker. It accepts
+only the complete legacy axiom family with the expected types and origins, or all three names
+absent. Each report carries the observation, and admission requires agreement with the compiled
+policy. On a compiler that removed the family, recreating a retired name in project or dependency
+code cannot give it compiler trust. The qualification receipt retains the observed capability
+alongside the exact version and commit.
 
 If the candidate needs source changes, make them in a feature branch, review and commit them,
 and run `prepare` from that clean revision into a new directory. Keep changes that work on

@@ -100,7 +100,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
   unless refusals.isEmpty do
     throw <| IO.userError s!"environment inspection refused: {"; ".intercalate refusals.toList}"
   for requested in reports do
-    let _ ← IO.ofExcept <| Policy.admitScope requested.report.declarations requested.transcripts
+    let _ ← IO.ofExcept <| Policy.admitScope requested.report.compilerCapability
+      requested.report.declarations requested.transcripts
   SourceBinding.unchanged sources
   SourceBinding.configurationUnchanged configuration
   if let some name ← Inspection.changedArtifact? frozenArtifacts then
@@ -123,7 +124,8 @@ private unsafe def checkCore (attempt : String) (path : FilePath) : IO Unit := d
     (right.report.declarations.filter (·.name == a.name)).map fun b =>
       Json.mkObj
           [("name", toJson a.name), ("leftOwner", toJson a.module), ("rightOwner", toJson b.module)]
-  let joined := Policy.admitScope (left.report.declarations ++ right.report.declarations)
+  let joined := Policy.admitScope left.report.compilerCapability
+    (left.report.declarations ++ right.report.declarations)
     (left.transcripts ++ right.transcripts)
   records := records.push <| Json.mkObj [("case", toJson "concatenated-inventory"),
     ("collisions", toJson collisions), ("refusal", toJson (joined.toOption.isNone))]

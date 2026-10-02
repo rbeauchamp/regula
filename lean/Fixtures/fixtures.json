@@ -178,7 +178,7 @@
  },
  "Fixtures.Mutations.TrustCompiler": {
   "expect": "fail",
-  "reason": "compiler-trusting"
+  "reason": { "present": "compiler-trusting", "absent": "project-axiom" }
  },
  "Fixtures.Mutations.PrivateChoice": {
   "expect": "fail",

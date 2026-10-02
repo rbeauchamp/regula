@@ -348,7 +348,18 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
       | "pass" => pure Expectation.pass
       | "fail" => pure Expectation.fail
       | _ => throw <| IO.userError s!"{moduleName}: expect must be pass or fail"
-    let reason ← optionalString spec "reason" moduleName
+    let reason ← match spec.getObjVal? "reason" with
+      | .error _ => pure none
+      | .ok reason =>
+        match reason.getStr? with
+        | .ok text => pure (some text)
+        | .error _ =>
+          IO.ofExcept <| PolicyCodec.exactFields reason ["present", "absent"]
+          let present ← requiredString reason "present" moduleName
+          let absent ← requiredString reason "absent" moduleName
+          pure (some (match RegulaPolicy.Compiler.legacyCompilerTrust with
+            | .present => present
+            | .absent => absent))
     let reasons ← match spec.getObjVal? "reasons" with
       | .error _ => pure #[]
       | .ok value => jsonStringArray s!"{moduleName}.reasons" value
@@ -460,11 +471,12 @@ private def disjointNames (left right : Array String) : Bool :=
 /-- Render the exact per-declaration and execution-coverage lines the public
 `axiomGate --file --verbose` audit prints for one elaborated fixture, using the same
 `Policy` functions, so the shared assessment sees an equivalent report. -/
-private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
+private def renderFileAudit (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
+    (fixture : FixtureSpec) (_moduleName : String)
     (declarations : Array Regula.Report.Declaration)
     (roots : Array Regula.Report.ExecutionRoot)
     (transcripts : Array Frontend.Transcript) : String × Bool := Id.run do
-  let .ok scope := Policy.admitScope declarations transcripts
+  let .ok scope := Policy.admitScope observed declarations transcripts
     | return ("invalid policy observation inventory", true)
   let execution := match fixture.execution with
     | some mode => (ExecutionClaim.parse? mode).getD .report
@@ -588,7 +600,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
   -- Complete all transcript workers before starting isolated report workers.
   let transcripts ← IO.ofExcept (← IO.wait transcriptTask)
   let mut inspected : Array (CompiledFixture × Array Regula.Report.Declaration ×
-      Array Regula.Report.ExecutionRoot) := #[]
+      Array Regula.Report.ExecutionRoot × RegulaPolicy.Compiler.LegacyCompilerTrust) := #[]
   Lean.searchPathRef.set scopedPath
   try
     for (_, items) in groups do
@@ -606,18 +618,18 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
           let declarations := report.declarations.filter (·.«module» == moduleName.toName)
             |>.qsort fun left right => Name.quickLt left.name right.name
           let roots := report.execution.filter (·.«module» == moduleName.toName)
-          inspected := inspected.push (item, declarations, roots)
+          inspected := inspected.push (item, declarations, roots, report.compilerCapability)
       catch error =>
         for item in items do
           results := results.set! item.index (assessFixtureOutput item.fixture false error.toString)
     pure ()
   finally Lean.searchPathRef.set oldSearchPath
-  for (item, declarations, roots) in inspected do
+  for (item, declarations, roots, observed) in inspected do
     let moduleName := item.compilation.spec.«module»
     if Policy.needsFrontendTranscript declarations then
       match transcripts.find? (·.1 == moduleName) with
       | some (_, some transcript) =>
-        let (output, succeeded) := renderFileAudit item.fixture moduleName
+        let (output, succeeded) := renderFileAudit observed item.fixture moduleName
           declarations roots #[transcript]
         results := results.set! item.index (assessFixtureOutput item.fixture succeeded output)
       | _ =>
@@ -628,7 +640,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             else
               s!"transcript need pre-filter diverged for {moduleName}"))
     else
-      let (output, succeeded) := renderFileAudit item.fixture moduleName
+      let (output, succeeded) := renderFileAudit observed item.fixture moduleName
         declarations roots #[]
       results := results.set! item.index (assessFixtureOutput item.fixture succeeded output)
   return results
@@ -1275,10 +1287,10 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
     failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
   failures.get
 
-/-- The one structural control that needs the checker's own package as the audited project: in
+/-- Structural controls that need the checker's own package as the audited project: in
 a copy of the repository, the probe modules are exempt from the environment-level exclusion
 check (the force import always brings them in), and a claimed module importing the probe's
-report records must still be rejected as excluded-module contamination. The structural
+report records, collector or compiler observer must still be rejected as excluded-module contamination. The structural
 project has no source for that module, so the import there could not be this contamination.
 The copy claims `selfHostedManifestText`, so its gates build and inspect `RegulaPolicy` too. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
@@ -1288,12 +1300,16 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
     runBinaryFrom repo copy "axiomGate" args
   let appRoot := copy / layout.relativeDir / "AuditApp.lean"
   let originalRoot ← IO.FS.readFile appRoot
-  let probeContaminated := originalRoot.replace "import AuditApp.Demo\n"
-    "import AuditApp.Demo\nimport Regula.Report\n"
-  withReplacedFile appRoot probeContaminated do
-    if let some failure := expectedFailure "probe-contamination" (← gate)
-        #["unexpected-project-module", "Regula.Report"] then
-      failures.modify (·.push failure)
+  let positive ← gate #[]
+  if !positive.succeeded then
+    return #[s!"structural/self-hosted/positive: fresh gate failed:\n{positive.output}"]
+  for name in #["Regula.Report", "Regula.Collect", "Regula.CompilerObservation"] do
+    let contaminated := originalRoot.replace "import AuditApp.Demo\n"
+      s!"import AuditApp.Demo\nimport {name}\n"
+    withReplacedFile appRoot contaminated do
+      if let some failure := expectedFailure s!"probe-contamination/{name}" (← gate)
+          #["unexpected-project-module", name] then
+        failures.modify (·.push failure)
   let restored ← gate #[]
   if !restored.succeeded then
     failures.modify (·.push

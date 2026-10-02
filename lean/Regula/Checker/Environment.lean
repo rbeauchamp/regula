@@ -101,6 +101,17 @@ def forcedCollectorOnly (report : Regula.Checker.ProducerReport.Environment) : I
     return none
   return some name
 
+/-- The compiler observer is infrastructure only through authenticated reporters or an
+already force-only collector. A claimed import of either module keeps it in the owned scan. -/
+def forcedCompilerObserverOnly (report : Regula.Checker.ProducerReport.Environment) : IO
+    (Option Name) := do
+  let name ← forcedPublicModule report `Regula.CompilerObservation "compiler capability observer"
+  let collector ← forcedCollectorOnly report
+  if report.moduleOrigins.any (fun origin => origin.imports.contains name &&
+      !(RegulaPolicy.reporterModuleNames.contains origin.name || some origin.name == collector)) then
+    return none
+  return some name
+
 /-- Authenticate the narrow infrastructure partition against the running checker's
 canonical artifacts, retaining the request snapshot. Import restrictions are subsequently
 rechecked over the complete census by `InfrastructureOK`; these receipts alone do not
@@ -110,9 +121,11 @@ def infrastructureOrigins (snapshot : RegulaPolicy.AdmittedSnapshot)
   let some lib ← checkerPackageLibDir
     | throw <| IO.userError "checker library path unavailable"
   let collector ← forcedCollectorOnly report
+  let observer ← forcedCompilerObserverOnly report
   let mut receipts := #[]
   for name in RegulaPolicy.infrastructureModuleNames do
     if name == `Regula.Collect && collector.isNone then continue
+    if name == `Regula.CompilerObservation && observer.isNone then continue
     let origins := report.moduleOrigins.filter (·.name == name)
     let some origin := origins[0]?
       | throw <| IO.userError s!"missing infrastructure origin: {name}"

@@ -246,7 +246,7 @@ theorem checked_memberFoundation :
 
 @[simp] theorem compilerAxiom_iff (native : Array Name) (n : Name) :
     compilerAxiom native n = true ↔ CompilerAxiom native n := by
-  simp [compilerAxiom, builtinCompilerAxiom, CompilerAxiom, or_assoc]
+  simp [compilerAxiom, builtinCompilerAxiom, legacyCompilerAxiom, CompilerAxiom, or_assoc]
 
 @[simp] theorem permits_false_iff (p : ConformingProfile) (n : Name) :
     p.permits n = false ↔ ¬ Permitted p n := by
@@ -302,6 +302,60 @@ theorem native_not_logical (i : Inventory) (roles : Roles i) (n : Name)
     rw [ha, hp] at hshape
     simp at hshape
 
+/-- The compiled classifier uses exactly the legacy capability retained by inventory admission. -/
+theorem builtinCompilerAxiom_inventory (i : Inventory) (n : Name) :
+    builtinCompilerAxiom n =
+      (decide (i.compiler.legacy = .present) && legacyCompilerAxiom n) := by
+  rw [i.compiler.agrees]
+  rfl
+
+/-- None of the legacy family has the name shape required of an authenticated native role. -/
+theorem legacy_not_native (i : Inventory) (roles : Roles i) (n : Name)
+    (legacy : legacyCompilerAxiom n = true) : n ∉ roles.native := by
+  intro hn
+  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
+  rcases hn with ⟨a, _, ha, hrole⟩
+  rcases hrole.2.2 with ⟨_, _, _, hparent, _⟩
+  obtain ⟨_, _, hshape⟩ := nativeAxiomOrigin?_shape hparent
+  simp only [legacyCompilerAxiom, Bool.or_eq_true, beq_iff_eq] at legacy
+  rcases legacy with (legacy | legacy) | legacy
+  all_goals
+    rw [ha, legacy] at hshape
+    simp at hshape
+
+/-- A retired compiler name receives no compiler classification, including through generated roles. -/
+theorem retired_not_compiler (i : Inventory) (roles : Roles i) (n : Name)
+    (absent : i.compiler.legacy = .absent) (legacy : legacyCompilerAxiom n = true) :
+    compilerAxiom roles.native n = false := by
+  have h := builtinCompilerAxiom_absent (i.compiler.agrees.symm.trans absent) n
+  simp [compilerAxiom, h, legacy_not_native i roles n legacy]
+
+/-- Retired names are unknown axioms, never logical or compiler-trusting labels. -/
+theorem retired_label (i : Inventory) (roles : Roles i) (n : Name)
+    (absent : i.compiler.legacy = .absent) (legacy : legacyCompilerAxiom n = true) :
+    labelOf #[n] roles.native = .unknownAxiom := by
+  have hc := retired_not_compiler i roles n absent legacy
+  simp only [legacyCompilerAxiom, Bool.or_eq_true, beq_iff_eq] at legacy
+  rcases legacy with (rfl | rfl) | rfl <;>
+    simp [labelOf, standardLogicalAxiom, ConformingProfile.permits, hc]
+
+/-- An imported retired axiom is refused even for compiler-trust teaching. The earlier hole
+and owned-axiom priorities are excluded explicitly; every remaining request has the same refusal. -/
+theorem retired_dependency_failure (i : Inventory) (roles : Roles i) (d : Declaration)
+    (request : InspectionRequest) (n : Name) (absent : i.compiler.legacy = .absent)
+    (legacy : legacyCompilerAxiom n = true) (used : n ∈ d.axioms)
+    (notAxiom : d.kind ≠ .«axiom») (noHole : `sorryAx ∉ d.axioms) :
+    declarationFailure d request roles.native roles.helpers = some .unknownAxiom := by
+  have hc := retired_not_compiler i roles n absent legacy
+  have logical : standardLogicalAxiom n = false := by
+    simp only [legacyCompilerAxiom, Bool.or_eq_true, beq_iff_eq] at legacy
+    rcases legacy with (rfl | rfl) | rfl <;>
+      simp [standardLogicalAxiom, ConformingProfile.permits]
+  have unknown : (d.axioms.any fun name =>
+      !standardLogicalAxiom name && !compilerAxiom roles.native name) = true :=
+    Array.any_eq_true'.mpr ⟨n, used, by simp [logical, hc]⟩
+  simp [declarationFailure, notAxiom, noHole, unknown]
+
 /-- Every authenticated native role is a name the `nativeEqTrue` scheme generates for a native
 tactic, under a generated prefix of an inventory declaration in that declaration's own module
 (`GeneratedPrefix`, characterized by `generatedPrefix_iff`). -/
@@ -349,7 +403,7 @@ theorem native_provenance (i : Inventory) (roles : Roles i) (n : Name) (hn : n �
 /-- The compiler-trusting and logical sets are disjoint for actual inventory-bound roles. -/
 theorem compiler_not_logical (i : Inventory) (roles : Roles i) (n : Name)
     (hc : CompilerAxiom roles.native n) : ¬ Permitted .standardLogical n := by
-  rcases hc with hc | hc | hc | hc
+  rcases hc with ⟨_, hc | hc | hc⟩ | hc
   · subst n; simp [Permitted]
   · subst n; simp [Permitted]
   · subst n; simp [Permitted]

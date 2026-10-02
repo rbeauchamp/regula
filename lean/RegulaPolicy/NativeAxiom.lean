@@ -183,7 +183,7 @@ def GeneratedPrefix (m parent pfx : Name) : Prop :=
 instance (m parent pfx : Name) : Decidable (GeneratedPrefix m parent pfx) := by
   unfold GeneratedPrefix; infer_instance
 
-/-- Name-level compiler trust: one of Lean's three compiler axioms or a name the `nativeEqTrue`
+/-- Name-level compiler trust: an enabled legacy compiler axiom or a name the `nativeEqTrue`
 scheme generates for a native tactic. The execution probe classifies by this definition; the
 declaration policy additionally authenticates the generated axiom itself. -/
 def compilerTrustingAxiomName (n : Name) : Bool :=
@@ -348,7 +348,7 @@ theorem nativeAxiomOrigin?_isSome_iff (hAppend : RuntimeStringAppend) (n : Name)
     rw [nativeAxiomOrigin?_nativeAxiomName hAppend hg]
     rfl
 
-/-- Every name classified compiler-trusting is one of Lean's three compiler axioms or generated
+/-- Every name classified compiler-trusting is an enabled legacy compiler axiom or generated
 by the `nativeEqTrue` scheme for a native tactic. -/
 theorem compilerTrustingAxiomName_sound {n : Name} (h : compilerTrustingAxiomName n = true) :
     builtinCompilerAxiom n = true ∨ GeneratedNativeAxiom n := by
@@ -359,8 +359,8 @@ theorem compilerTrustingAxiomName_sound {n : Name} (h : compilerTrustingAxiomNam
     obtain ⟨idxs, hg, rfl⟩ := nativeAxiomOrigin?_sound ho
     exact Or.inr ⟨parent, t, idxs, hg, rfl⟩
 
-/-- Every name the `nativeEqTrue` scheme generates for a native tactic, and each of Lean's three
-compiler axioms, classifies as compiler-trusting, and no other name does. -/
+/-- Every name the `nativeEqTrue` scheme generates for a native tactic, and each enabled legacy
+compiler axiom, classifies as compiler-trusting, and no other name does. -/
 theorem compilerTrustingAxiomName_iff (hAppend : RuntimeStringAppend) (n : Name) :
     compilerTrustingAxiomName n = true ↔
       builtinCompilerAxiom n = true ∨ GeneratedNativeAxiom n := by

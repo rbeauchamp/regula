@@ -12,6 +12,52 @@ executable remain trusted observations; these contracts compare the supplied str
 
 namespace RegulaPolicy.Compiler
 
+/-- Whether the selected compiler's origin-checked Core declares the legacy compiler axioms.
+Native proof axioms have their separate per-invocation authentication. -/
+inductive LegacyCompilerTrust where
+  /-- Core declares the complete legacy compiler-trust family. -/
+  | present
+  /-- Core declares none of the legacy compiler-trust family. -/
+  | absent
+  deriving BEq, DecidableEq, Repr
+
+/-- Canonical transport spelling of the observed capability. -/
+def LegacyCompilerTrust.spelling : LegacyCompilerTrust → String
+  | .present => "present"
+  | .absent => "absent"
+
+/-- Unknown and missing capability spellings cannot supply a default. -/
+def LegacyCompilerTrust.parse? : String → Option LegacyCompilerTrust
+  | "present" => some .present
+  | "absent" => some .absent
+  | _ => none
+
+@[simp] theorem LegacyCompilerTrust.roundtrip (c : LegacyCompilerTrust) :
+    parse? c.spelling = some c := by cases c <;> rfl
+
+/-- The capability declared by this source revision and re-observed before policy admission. -/
+def legacyCompilerTrust : LegacyCompilerTrust := .present
+
+/-- An observed capability equal to the one used by this compiled policy.
+Its proof concerns the supplied observation; compiler installation and extraction are trusted. -/
+structure Capability where
+  /-- The actual observation retained at admission. -/
+  legacy : LegacyCompilerTrust
+  /-- Observation and compiled classification policy agree. -/
+  agrees : legacy = legacyCompilerTrust
+  deriving DecidableEq, Repr
+
+/-- Admit precisely the capability this compiled policy expects. -/
+def admitCapability (observed : LegacyCompilerTrust) : Except String Capability :=
+  if h : observed = legacyCompilerTrust then .ok ⟨observed, h⟩
+  else .error "compiler capability differs from this Regula build"
+
+/-- Successful capability admission retains the supplied observation and occurs exactly on a match. -/
+theorem admitCapability_iff (observed : LegacyCompilerTrust) :
+    (∃ c, admitCapability observed = .ok c) ↔ observed = legacyCompilerTrust := by
+  simp only [admitCapability]
+  split <;> simp_all
+
 /-- The compiler version declared by this source revision. Publication requires qualification. -/
 def version : String := "4.34.0"
 
