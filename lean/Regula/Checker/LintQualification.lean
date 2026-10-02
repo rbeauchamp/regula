@@ -328,12 +328,45 @@ private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.removeFile (repo / ".lake" / "build" / "bin" / "axiomGate")
   expect adopter (accepted "toml/absent-worker")
 
+/-- The cold compiler guard of Regula's own `lakefile.lean`, through `lake` in a fresh package
+holding only that file, its toolchain pin and the policy source it executes. An inherited
+`LEAN_SYSROOT` whose `lean` is not the compiler running Lake is refused on each branch of the
+guard, naming that `lean`, and the same package then loads with the inherited environment. Two
+programs stand in for that `lean`, neither of them a compiler: this toolchain's `lake`, which
+fails on the policy source, and the `true` utility, which exits successfully without printing
+the running compiler's identity and so reaches the identity comparison. A compiler of another
+identity as the child is not exercised here. -/
+private def compilerGuard (repo project : FilePath) : IO (Array String) := do
+  for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"] do
+    if let some parent := (project / name).parent then IO.FS.createDirAll parent
+    IO.FS.writeFile (project / name) (← IO.FS.readFile (repo / name))
+  let path := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
+  let some silent ← path.findM? fun dir => (dir / "true").pathExists
+    | throw <| IO.userError "lake-lint: the compiler-guard control found no `true` on PATH"
+  let load (env : Array (String × Option String)) : IO ProcessResult :=
+    runProcess project "lake" #["check-lint"] (scrubbedLeanPathEnv ++ env)
+  let refused (label : String) (program : FilePath) (branch : String) : IO (Array String) := do
+    let sysroot := project / label
+    let lean := sysroot / "bin" / "lean"
+    IO.FS.createDirAll (sysroot / "bin")
+    let linked ← runProcess project "ln" #["-s", program.toString, lean.toString]
+    if !linked.succeeded then throw <| IO.userError linked.output
+    assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
+      (← load #[("LEAN_SYSROOT", some sysroot.toString)])
+  let failing ← refused "failing-child" ((← Lean.findSysroot) / "bin" / "lake")
+    "refused Regula's compiler policy or could not compile it"
+  let unidentified ← refused "unidentified-child" (silent / "true") "is not the Lean running Lake"
+  return failing ++ unidentified ++
+    (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
+
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then both independent adopters, each in its own disposable workspace. -/
+then both independent adopters and the cold compiler guard, each in its own disposable
+workspace. -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
-  let results ← mapConcurrent jobs #[("lean", leanAdopter), ("toml", tomlAdopter)]
+  let results ← mapConcurrent jobs
+    #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]

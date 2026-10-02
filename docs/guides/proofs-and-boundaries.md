@@ -65,8 +65,10 @@ path; their coherence hypotheses are not instantiated for the operational collec
 operational equivalence is claimed. File runs bind the requested and compiled sources by
 `FileSourceBinding.sameBytes`; graph runs freeze their selected roots in `Census.graphRoots`, and
 `GraphOK` cannot select fewer roots than `GraphPlanOK` admitted. Repeated immutable requests use
-Lean's `withPtrEqDecEq` shortcut with structural equality as fallback; the kernel sees the
-structural computation and the pointer shortcut has Lean's runtime trust boundary. No wall-clock
+Lean's `withPtrEqDecEq` shortcut with structural equality as fallback where the compiler
+elaborates that shortcut, as Lean 4.34.0 does, and the generated structural equality alone
+otherwise; the kernel sees the structural computation and the pointer shortcut has Lean's
+runtime trust boundary. No wall-clock
 bound follows from these proofs.
 
 The stage relations `PolicyOK` combines, each a declarative relation whose decision function is
@@ -1155,16 +1157,36 @@ root's; the skill files are read and written at that repository root (the Lake r
 repository).
 
 Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
-configuration is elaborated. The source guard compares both the running compiler version and
-full commit with the revision's declared identity; the compiled probe, inventory admission,
-and plan admission use that same pair. `Compiler.accepts_iff` proves the executed Boolean
-matches the predicate; `transcript_plan_compiler` proves admitted transcripts and a valid plan
-agree on both fields. Compiler self-reports and locating and launching the compiler are trusted
-IO. Lake may reuse an elaborated configuration; `lake update` elaborates it again. The compiled
-admission guards remain in force when a configuration is cached.
+configuration is elaborated, in a child `lean` that `LEAN_SYSROOT` or `PATH` selects. The
+source guard compares that child's version and full commit with the revision's declared
+identity and then prints them; the lakefile passes only when the child succeeds and the
+printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
+lakefile, so a child that is another compiler, fails or cannot be run is refused, with the
+adopter's remedy. That comparison is an elaboration-time check, not a theorem. The compiled
+probe, inventory admission, and plan admission use the same declared pair.
+`Compiler.accepts_iff` proves the executed Boolean matches the predicate;
+`transcript_plan_compiler` proves admitted transcripts and a valid plan agree on both fields.
+Compiler self-reports and locating and launching the compiler are trusted IO, and a
+self-report names the Git commit of a build's source tree, not uncommitted source edits or the
+executable's bytes. Lake may reuse an elaborated configuration; `lake update` elaborates it
+again. The compiled admission guards remain in force when a configuration is cached.
 
-Prepared compatibility revisions have a compiled candidate marker. Ordinary audit entrypoints
-refuse them. An explicit qualification invocation may inspect the same internal accounts, but
+`doctor` reads the project's own `lean-toolchain`, resolves it to a toolchain
+`elan toolchain list` names, and reads the version and commit that compiler reports,
+independently of the compiler running `regula`. `elan run` installs a known release that is
+missing, so only a listed name is run: `Regula.Toolchain.installedName?_spec` proves that the
+name is one of those supplied as listed, spelled as the selector or as its release name.
+`Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
+decision reports no toolchain issue exactly when that resolved identity
+`RegulaPolicy.Compiler.Supports`, under any selector; an unresolved selector or a failed probe
+is an issue `init` does not fix. Elan's listing, that it runs a listed toolchain without
+installing, its naming of release selectors (transcribed from Elan 4.1.2, not proved to agree
+with it) and the report are trusted.
+
+Prepared compatibility revisions have a compiled candidate marker. The ordinary audit
+entrypoints that call `CompilerMode.requireAllowed` refuse them: `axiomGate`, so also the audit
+`lake lint` runs, `docFenceAudit` and `freshChecker`. `regula`, `ruleExamples`, `toolchain` and
+the qualification executables do not call it themselves. An explicit qualification invocation may inspect the same internal accounts, but
 public result files wrap those observations with `status: unsupported`, diagnostic purpose and
 `grantsSupport: false`; accepted text labels them diagnostic rather than PASS. The pure
 `Compiler.mayRun` and `publication` functions decide these boundaries. The diagnostic switch is
@@ -1183,8 +1205,14 @@ with no `lean_lib`, a package-level `-D` setting Mathlib's options as in the fir
 a Git repository with and without a root `AGENTS.md`) are bounded observations, as are the
 historical version-string guard's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command
 line and when a checker executable loaded the workspace. Those historical observations do not
-qualify the new exact-identity guard; its command-line and in-process paths require current
-qualification.
+qualify the new exact-identity guard. Its retained control, in the `lint-driver` partition,
+loads a fresh copy of the lakefile and policy source through `lake`: an inherited
+`LEAN_SYSROOT` whose `lean` fails on the policy source is refused, one whose `lean` exits
+successfully without printing the running compiler's identity is refused by the identity
+comparison, and the same package then loads with the inherited environment. Neither child is
+a compiler. A compiler the policy refuses, an in-process load by a checker executable and
+`doctor`'s resolution of a pin need a second installed compiler or current observations and
+have no retained control.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
@@ -1346,7 +1374,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
-| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
+| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values; that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
