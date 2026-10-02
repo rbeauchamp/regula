@@ -754,11 +754,13 @@ contribute constants. For a recursion helper it reruns Lean's own recursion comp
 helper's group (structural recursion with Lean's automatic choice, then on the argument position
 Lean recorded for each base, which admits a definition recursing on an argument
 `termination_by structural` selects, then well-founded recursion with the relation the base's
-fixpoint applies and every decreasing proof elided), with only the toolchain's own
+fixpoint applies and every decreasing proof elided; where none of these reproduces the base, the
+same attempts once more with no definition irreducible, below), with only the toolchain's own
 `wf_preprocess` rules and the checker's built-in macros, tactic and term elaborators, generating
 no code for the fresh definitions, and compares each regenerated definition with the observed one
-up to compilation erasure: proofs and types, each classified in its own side's context, are erased
-and a well-founded fixpoint is compared without its relation or measure
+up to compilation erasure: proofs and types, each classified in its own side's context, are erased,
+a well-founded fixpoint is compared without its relation or measure, and a `match` that passes a
+variable through is taken as the direct one where the kernel checks the two equal, below
 (`Declaration.unsafeRecRegenerated`). Each theorem the regeneration abstracted from a nested proof
 is first put back as its value, so the comparison uses no such theorem's name:
 Lean names it from a counter and from the propositions it already abstracted in the same process,
