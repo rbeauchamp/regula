@@ -84,6 +84,11 @@ that preceding stage, and runs the documented `make -j… -C build/release` comm
 It checks both identities of the resulting compiler before linking the alias. An existing
 alias is reused only when both reports match; a mismatch is refused. Source and build
 directories remain under `~/.cache/regula-compilers` for inspection or resumption.
+Before a fresh Linux CI build, the Lean installer installs the compiler toolset and
+development packages for GMP, LibUV and OpenSSL through Apt. CMake enforces the source
+revision's library requirements. Other environments must provide those prerequisites.
+The proved package-installation predicate requires both `GITHUB_ACTIONS=true` and
+`RUNNER_OS=Linux`; these environment observations and Apt's effects remain trusted.
 
 CI first runs the reusable compiler preparation job, then restores that compiler in the
 existing check jobs. Its cache key includes the specification, selector and installer
