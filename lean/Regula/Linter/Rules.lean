@@ -34,9 +34,11 @@ def request (value : String) : Except String InspectionRequest :=
 
 /-- Assess the selected records, retaining original structural identities/ranges.
 This runs no native replay, external process, project build or global role scan. -/
-def declarations (ds : Array RegulaPolicy.Declaration) (source : SourceSnapshot)
+def declarations (observed : Compiler.LegacyCompilerTrust)
+    (ds : Array RegulaPolicy.Declaration) (source : SourceSnapshot)
     (inspection : InspectionRequest) : Except String SnapshotResult := do
-  let inventory ← admitInventory ds #[]
+  let compiler ← Compiler.admitCapability observed
+  let inventory ← admitInventory compiler ds #[]
   let roles := authorize inventory
   let claim := match inspection with
     | .conforming p => some p.spelling

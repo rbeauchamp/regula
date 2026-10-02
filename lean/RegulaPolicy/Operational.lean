@@ -39,7 +39,7 @@ structure ToolchainAxioms where
   names : Array Name
   /-- `sorryAx` is not among them. -/
   not_hole : `sorryAx ∉ names
-  /-- None of them is `Lean.trustCompiler`, `Lean.ofReduceBool` or `Lean.ofReduceNat`. -/
+  /-- No legacy compiler axiom enabled by this compiler's admitted capability occurs. -/
   not_compiler : ∀ n ∈ names, ¬ CompilerAxiom #[] n
 
 /-- Admission of an observed toolchain axiom set; it refuses a hole or compiler axiom. -/
@@ -111,7 +111,7 @@ theorem operationalFailure_none_iff (t : ToolchainAxioms) (d : Declaration) :
     have hnc : ∀ n, n ∈ d.axioms ∧ (d.isProp = false → n ∉ t.names) →
         ¬ CompilerAxiom #[] n := fun n h hc => by
       have hs := hlog n h
-      rcases hc with rfl | rfl | rfl | hc
+      rcases hc with ⟨_, rfl | rfl | rfl⟩ | hc
       · simp [Permitted] at hs
       · simp [Permitted] at hs
       · simp [Permitted] at hs

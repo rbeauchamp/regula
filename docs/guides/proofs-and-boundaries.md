@@ -221,6 +221,21 @@ preserves each requested environment separately and never deduplicates job respo
 occurrences or positive owned declarations; the full admission module, required and admitted
 inventories survive the infrastructure partition.
 
+**Compiler capability** (`RegulaPolicy.Compiler`, `Decision`): every admitted inventory contains
+`Compiler.Capability`, whose `agrees` field equates the supplied legacy-family observation with
+the capability used by the compiled classifier. `admitCapability_iff` proves that admission
+exists exactly on a match. `Regula.Collect` obtains the observation from the isolated Core
+observer after checking the resolved compiler identity; both report decoders and the native
+linter feed it into admission. This linkage trusts compiler execution, installation integrity,
+import loading and canonical filesystem paths. It does not prove those IO mechanisms.
+`ProducerReport.validate_sound` and `fromJson_admissible` also require this agreement for every
+raw or decoded admitted report, without relying on sampled transport mutations. When the
+capability is absent, the checked decision theorems show that a retired name cannot become a
+compiler axiom or an authenticated native axiom and its singleton axiom set is unknown. A
+dependent non-axiom declaration without an earlier proof-hole failure receives the unknown-axiom
+refusal even in teaching mode. Native-proof authentication
+retains its separate statement, replay and command-provenance requirements.
+
 **Admission by construction** (`RegulaPolicy.Domain`, `Admission`): declaration kinds, boundary
 kinds, correspondence, foundation classes, profiles, modes, safety and evaluator roles are closed
 types whose parsers refuse unknown tags (pretty types and messages remain open text);
@@ -257,7 +272,7 @@ interfaces do not imply a library-wide exemption.
 | Classification | `foundationFor_iff`, `declarationFailure_iff`, `policyFor_ordered`, `OrderedDecision.unique` | Each of the six foundation classes (three labels, hole, unknown axiom, compiler-trusting) has its exact meaning; a declaration's diagnostic is its first failed requirement (invalid membership, owned axiom, hole, unknown, escape hatch, compiler trust, contract failure, profile excess). For an axiom set outside Standard-Logical, classification keeps the diagnostic precedence hole, then unknown axiom, then compiler-trusting. Renderer strings are not proved. |
 | Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. A conforming request requires its permitted foundation, safety relation and recorded contract obligations. |
 | Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` reads no transcript: it requires the regeneration observation (`unsafeRecRegenerated`), the helper's exact metadata, and a safe base of the same module and type whose axioms are within Standard-Logical, with the exact group mapping. `authorizedUnsafeRecHelpers_base` states those facts for every authorized helper; `partialParent_not_authorized` excludes the helper of an opaque (`partial def`) base. The observed replay and regeneration fields are inputs; the predicates do not prove them truthful. |
-| Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and Lean's three compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
+| Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and the enabled legacy compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. A toolchain-owned boundary never fails; every boundary without an admitted toolchain origin or checked evidence has its own failure record, in every root whose account contains it, under a checked claim; the audit's toolchain trusted base has each toolchain-owned boundary (constant and kind) of every labeled environment account in exactly one entry, which lists exactly the environments and roots that reach it. |
 | Execution findings | `executionFindings_empty_iff`, `failure_reported`, `unresolved_reported`, `executionFindings_sound`, `rootFindings_ids`, `executionFindings_unresolved`, `ExecutionRoot.boundary_reported`, `ExecutionRoot.first_record`, `ExecutionRoot.folded_trusted`, `ExecutionRoot.carries_spec`, `ExecutionBoundary.restates_spec`, `boundaryFailures_restates`, `ExecutionInventory.reported_or_folded` | The findings the gate reports are the failure records with each folded boundary's record reported in the finding of the boundary it is reported with. A boundary is folded in two cases only. It repeats an earlier record: a boundary of the same root with a smaller occurrence number is trusted like it and has the same constant, kind, replacement and toolchain origin, so the two have the same failures for every claim. Or it is a trusted partial-computation boundary without a toolchain origin whose constant is the source of no helper edge, and a boundary of the same root that is trusted, not toolchain-owned and not itself foldable names its constant, by its `replacement` or, as a partial-computation boundary, by a helper edge. Every folded boundary is trusted, and every boundary of a root is, or restates, one that is reported on its own or is an implementation of one reported on its own. So the findings are empty exactly when `ExecutionOK` holds; every failure record is its boundary's own finding, is named in the finding of a boundary whose implementations include it, or is a later record of a boundary that is; every unresolved path is a finding unchanged; every finding has the kind, root and detail of a record, followed by its implementations; a root has one finding per failing boundary reported on its own; the unresolved findings are as many as the unresolved records; and every boundary of the account is counted by the coverage counts or folded. These are statements about the supplied account: that the collector records a `partial` definition and the constant compiled to it, and two candidates of one equality, in this form is its observation of the environment, not proved. |
 | Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. |
@@ -1582,9 +1597,9 @@ variant excludes every actual `AuditApp` executable it stops claiming, and app-o
 leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
 executable, so two claimed roots each define `main`.
 
-One structural control needs the checker's own package as the audited project: a claimed module
-that imports the probe's report records must be refused as contamination although the force
-import brings those modules into every report. It runs in a copy of the repository whose
+The infrastructure controls need the checker's own package as the audited project: a claimed module
+that imports the probe's report records, collector or compiler observer must be refused as
+contamination although the force import brings those modules into every report. They run in a copy of the repository whose
 manifest `Manifest.structuralManifest` derives (`structural_libraries`,
 `structural_executables` and `structural_roundtrip`, under the claim hypothesis its guard
 checks at run time). `RegulaPolicy` stays claimed there because the checker probe's own imports
@@ -1592,29 +1607,24 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see). The control was changed when the structural partition was
-divided into shards, and is now two clusters. `structuralSelfHosted` builds the copy, runs the
-incremental gate on the mutation and restores it. No fresh gate runs on that mutated and
-restored copy any more: the accepting gate there is replaced by a checked identity of the
-restored copy's fresh input with that of a copy prepared anew, and by the accepting fresh gate
-of `structuralSelfHostedPositive` on a copy prepared the same way (`prepareSelfHosted`), which
-is in the other shard. `freshInput` takes what the gate's copy operation copies from each of
-the two copies, and any differing path or byte fails the first cluster. That the two together
-stand for the replaced gate rests on two facts, neither of them a theorem. First, a fresh gate
-reads the audited project only through `copyProject`, which prunes the project's `.lake`, and
-builds that copy from empty output; without `--with-docs`, as here, it reads no other file of
-the project, and the packages directory it links is the repository's for every copy. So equal
-fresh input gives the same gate run, and the setup build, the incremental gate and the
-restoration are observed to leave the prepared input. Second, the two shards are jobs of one
-workflow matrix, so whenever the diagnostics workflow runs for a pull request it starts both on
-the one commit it checks out. That both pass before merging is the repository's process rule in
+states what it does not see). The controls are two clusters in different shards.
+`structuralSelfHosted` builds the copy and runs an accepting fresh gate on it, then the
+incremental gate on each of the three contaminations, restoring each before the next. It then
+checks the restored copy's fresh input against that of a copy prepared anew, and runs an
+accepting fresh gate on the restored copy itself. Both accepting gates audit that cluster's own
+copy, so neither depends on the other shard. `freshInput` takes what the gate's copy operation
+copies from each of the two copies, and any differing path or byte fails the cluster.
+`structuralSelfHostedPositive`, in the other shard, runs the accepting fresh gate on a copy
+prepared the same way (`prepareSelfHosted`). That equal fresh input gives the same gate run, so
+that the restored gate and that positive audit the same input, rests on a fact that is not a
+theorem: a fresh gate reads the audited project only through `copyProject`, which prunes the
+project's `.lake`, and builds that copy from empty output; without `--with-docs`, as here, it
+reads no other file of the project, and the packages directory it links is the repository's for
+every copy. That both shards pass before merging is the repository's process rule in
 [AGENTS.md](../../AGENTS.md#changes-and-verification) (applicable diagnostics pass before
 merge), not a GitHub required check, and it applies only to a pull request that triggers the
-workflow, which is filtered by path. The self-test observes nothing of the other job, and the
-ruleset does not refuse a merge when either job fails:
-[#206](https://github.com/rbeauchamp/regula/issues/206) tracks enforcement by the ruleset. The
-division into shards did not change that enforcement, since the undivided job was not a
-required check either.
+workflow, which is filtered by path: [#206](https://github.com/rbeauchamp/regula/issues/206)
+tracks enforcement by the ruleset.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in

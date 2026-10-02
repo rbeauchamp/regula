@@ -19,6 +19,13 @@ scoped instance : ToJson Name := ⟨Regula.RegistryCodec.printedNameJson⟩
 scoped instance : FromJson Name := ⟨Regula.RegistryCodec.parsePrintedNameJson⟩
 open scoped Regula.Report
 
+instance : ToJson Compiler.LegacyCompilerTrust := ⟨fun x => .str x.spelling⟩
+instance : FromJson Compiler.LegacyCompilerTrust := ⟨fun j => do
+  let s ← j.getStr?
+  match Compiler.LegacyCompilerTrust.parse? s with
+  | some x => return x
+  | none => throw "unknown legacy compiler capability"⟩
+
 instance : ToJson DeclarationKind := ⟨fun x => .str x.spelling⟩
 instance : FromJson DeclarationKind := ⟨fun j => do
   let s ← j.getStr?
@@ -307,9 +314,12 @@ exact-field JSON codec. -/
 abbrev Environment := RegulaPolicy.Environment
 deriving instance ToJson for RegulaPolicy.Environment
 instance : FromJson RegulaPolicy.Environment := ⟨fun j => do
-  exactFields j ["toolchain", "modules", "moduleOrigins", "declarations", "execution"]
+  exactFields j ["toolchain", "compilerCapability", "modules", "moduleOrigins", "declarations", "execution"]
+  let compilerCapability ← j.getObjValAs? _ "compilerCapability"
+  let _ ← Compiler.admitCapability compilerCapability
   return {
     toolchain := ← j.getObjValAs? _ "toolchain"
+    compilerCapability
     modules := ← j.getObjValAs? _ "modules"
     moduleOrigins := ← j.getObjValAs? _ "moduleOrigins"
     declarations := ← j.getObjValAs? _ "declarations"

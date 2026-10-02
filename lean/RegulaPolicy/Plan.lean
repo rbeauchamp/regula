@@ -58,10 +58,10 @@ import leaves every reporter-only import restriction unchanged. -/
 theorem publishedInterface_not_reporterOnly :
     ∀ n ∈ publishedInterfaceModuleNames, n ∉ reporterOnlyModuleNames := by decide +kernel
 
-/-- Only the existing force-loaded reporter, public name codec and conditional collector
-can enter the infrastructure partition. This is not a whole-library exemption. -/
+/-- Exact reporter and observation modules eligible for authenticated infrastructure.
+The collector and compiler observer additionally require their force-only import conditions. -/
 def infrastructureModuleNames : Array Name :=
-  reporterModuleNames ++ #[`Regula.StructuralName, `Regula.Collect]
+  reporterModuleNames ++ #[`Regula.StructuralName, `Regula.Collect, `Regula.CompilerObservation]
 
 /-- Canonical-artifact equality for one exact infrastructure module and snapshot. The
 adapter obtains both paths independently from actual resolution and the checker library;
@@ -229,6 +229,10 @@ def InfrastructureOK (c : Claim) (i : EnvironmentCensus) : Prop :=
       ∃ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = origin.name) ∧
   (∀ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = `Regula.Collect →
     ∀ origin ∈ i.origins, `Regula.Collect ∈ origin.imports → origin.name ∈ reporterModuleNames) ∧
+  (∀ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = `Regula.CompilerObservation →
+    ∀ origin ∈ i.origins, `Regula.CompilerObservation ∈ origin.imports →
+      (origin.name ∈ reporterModuleNames ∨ origin.name = `Regula.Collect) ∧
+        ∃ importer ∈ i.infrastructure, importer.moduleKey.name.name = origin.name) ∧
   i.infrastructureSources.toList.Pairwise (fun a b => a.1 ≠ b.1) ∧
   (∀ entry ∈ i.infrastructureSources,
     entry.1 ∈ i.infrastructureModules ∧ entry.2 ∈ snapshotSources c)

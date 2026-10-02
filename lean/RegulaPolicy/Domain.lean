@@ -2,6 +2,7 @@ module
 
 public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
+public import RegulaPolicy.Compiler
 
 /-! # Policy vocabulary and observation data
 
@@ -91,8 +92,8 @@ inductive BoundaryKind where
   | «partialComputation»
   /-- Any other opaque constant; its body is checked only when no compiled helper replaces it. -/
   | «opaqueComputation»
-  /-- An axiom that trusts the compiler, reached by execution: `Lean.trustCompiler`,
-  `Lean.ofReduceBool`, `Lean.ofReduceNat` or a name the `nativeEqTrue` scheme generates for
+  /-- An axiom that trusts the compiler, reached by execution: the enabled legacy
+  compiler-trust family or a name the `nativeEqTrue` scheme generates for
   `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
   deriving Repr, DecidableEq, Inhabited
@@ -1015,6 +1016,8 @@ structure ModuleOrigin where
 structure Environment where
   /-- The Lean version string of the toolchain that loaded the environment. -/
   toolchain : String
+  /-- The legacy compiler capability observed in an isolated, origin-checked Core environment. -/
+  compilerCapability : Compiler.LegacyCompilerTrust
   /-- Every module of the loaded environment, sorted and without duplicates. -/
   modules : Array Lean.Name
   /-- The origin of each loaded module; empty when the report omits origins. -/

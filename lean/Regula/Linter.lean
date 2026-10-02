@@ -115,7 +115,8 @@ initialize addLinter {
       -- A recoverable compiler error may still leave a real declaration with
       -- a hole. Diagnose that actual observation; retain the compiler error.
       let source : SourceSnapshot := ⟨(← read).fileName, (← read).fileMap.source⟩
-      let result ← IO.ofExcept <| Rules.declarations ds source request
+      let compilerCapability ← liftIO Collect.compilerCapability
+      let result ← IO.ofExcept <| Rules.declarations compilerCapability ds source request
       for finding in result.findings do emit finding
       if !result.pending.isEmpty then
         unavailable s!"fresh generated-role evidence remains required for {result.pending}; run \

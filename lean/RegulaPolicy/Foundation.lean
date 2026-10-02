@@ -57,11 +57,18 @@ def ConformingProfile.permits : ConformingProfile → Name → Bool
 def standardLogicalAxiom (name : Name) : Bool :=
   ConformingProfile.permits .standardLogical name
 
-/-- `name` is one of Lean's compiler-trust axioms: `Lean.trustCompiler`, `Lean.ofReduceBool` or
-`Lean.ofReduceNat`. -/
+/-- Legacy compiler-trust names, independently of whether the selected compiler declares them. -/
+def legacyCompilerAxiom (name : Name) : Bool :=
+  name == `Lean.trustCompiler || name == `Lean.ofReduceBool || name == `Lean.ofReduceNat
+
+/-- A legacy name is compiler-trusting only when this compiler's Core declares that family. -/
 def builtinCompilerAxiom (name : Name) : Bool :=
-  name == `Lean.trustCompiler || name == `Lean.ofReduceBool
-    || name == `Lean.ofReduceNat
+  decide (Compiler.legacyCompilerTrust = .present) && legacyCompilerAxiom name
+
+/-- A compiler with no legacy family grants no built-in compiler-axiom classification. -/
+theorem builtinCompilerAxiom_absent (h : Compiler.legacyCompilerTrust = .absent) (name : Name) :
+    builtinCompilerAxiom name = false := by
+  simp [builtinCompilerAxiom, h]
 
 
 /-- The three permitted sets, specified by membership rather than a classifier result. -/
