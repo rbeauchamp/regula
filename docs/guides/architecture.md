@@ -351,8 +351,9 @@ metadata, not authenticated binary identity.
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
   implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
-  per-environment `execution` counts, `fences` by expectation, `trusted` mechanisms and the run's
-  `unresolvedReview` identifiers. A completed envelope's `mode` is the account's, and a listed
+  per-environment `executionSummary` counts (named `execution` before schema 8, when the writer
+  began storing every `execution` member's root accounts once), `fences` by expectation,
+  `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's `mode` is the account's, and a listed
   identifier names an open obligation, not a completed review.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`

@@ -32,12 +32,15 @@ array of complete root accounts as before. `SharedExecution.read_write` proves t
 the `Json` value the writer wrote is the document the writer was given. A reader holds the parse
 of the file instead, which has that value's members but in general not its object trees; that
 `read` of it returns a document with the members of the writer's is observed (`RegistryChecks`,
-the `history` qualification), not proved. A declaration of a report and a declaration a frontend transcript records
-carry `type`, the `repr` of the kernel type expression, only when the audit was asked for it
-(`axiomGate --kernel-types`); `prettyType` is the declaration's type as Lean prints it
-(`ProducerReport.declarationResultJson`, `Frontend.transcriptResultJson`). Earlier schemas wrote
-each root's account in full, so a name, edge or boundary that several roots reach was repeated
-for each, and always wrote that `repr`.
+the `history` qualification), not proved. The writer treats every member named `execution` this
+way, so the acceptance account's per-environment counts, which earlier schemas also named
+`execution`, are `executionSummary` (`accountJson`); every other member of that name is a string
+or `null`, which the writer leaves as it is. A declaration of a report and a declaration a
+frontend transcript records carry `type`, the `repr` of the kernel type expression, only when the
+audit was asked for it (`axiomGate --kernel-types`); `prettyType` is the declaration's type as
+Lean prints it (`ProducerReport.declarationResultJson`, `Frontend.transcriptResultJson`). Earlier
+schemas wrote each root's account in full, so a name, edge or boundary that several roots reach
+was repeated for each, and always wrote that `repr`.
 Schema 7 stores each source text once. A result file's top-level `sourceTexts` lists
 every distinct source text of the document, and each `sourceText` member, wherever it occurs (a
 source location of `diagnostics`, the `sourceAccount`, the sources, frontend transcripts, source
@@ -415,8 +418,8 @@ private def subjectJson : RegulaPolicy.JobSubject → Json
       ("expectation", toJson (reprStr key.expectation))]
 
 /-- Machine rendering of the report account (an unproved adapter): coverage, the acceptance
-theorem and job count, contracts, execution counts, fence kinds, trusted mechanisms and
-residual identifiers; mode, scope, surfaces and toolchain are rendered by `acceptedJson`.
+theorem and job count, contracts, execution counts (`executionSummary`), fence kinds, trusted
+mechanisms and residual identifiers; mode, scope, surfaces and toolchain are rendered by `acceptedJson`.
 Contract entries keep their rule, implementation and requirement with the review they leave
 open; `unresolvedReview` names open obligations, never completed reviews. -/
 def accountJson (account : Regula.Checker.Account) : Json :=
@@ -434,7 +437,7 @@ def accountJson (account : Regula.Checker.Account) : Json :=
       ("implementation", RegistryCodec.printedNameJson contract.implementation),
       ("requirement", toJson contract.requirement),
       ("unresolvedReview", residuals Regula.Checker.Account.ContractAccount.unresolved)])),
-    ("execution", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
+    ("executionSummary", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
       ("environment", toJson environment), ("roots", toJson summary.roots),
       ("boundaries", toJson summary.boundaries), ("checked", toJson summary.checked),
       ("trusted", toJson summary.trusted), ("unresolved", toJson summary.unresolved)])),

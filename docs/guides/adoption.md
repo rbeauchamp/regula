@@ -497,6 +497,11 @@ only when its reader would not return the accounts from the shared form. Earlier
 `unresolved`, `compilerEdges` and a `closure` of `nodes`, `visits` and the edge lists), so a
 name, edge or boundary several roots reach was written once for each.
 
+The other members named `execution` are a surface's or a file audit's execution claim and the
+request's execution mode: strings or `null`, written unchanged. The acceptance account's
+per-environment counts, which earlier schemas also named `execution`, are
+`acceptance.account.executionSummary`.
+
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it
 can). Only where Lean's own parser (`String.toName`) would not read that text back as the same
