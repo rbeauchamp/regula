@@ -128,8 +128,8 @@ setup, and that runtime check confirms the files as written match it. `init` end
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
-guidance, the compiler your `lean-toolchain` selects (resolved with Elan, which must have it
-installed; `doctor` installs nothing) and any module below a library root that no library includes but a claimed
+guidance, the compiler your `lean-toolchain` selects (resolved with Elan, which must list it
+as installed, so name a release, not a channel such as `stable`; `doctor` installs nothing) and any module below a library root that no library includes but a claimed
 module imports (which `lake lint` rejects), and, once a manifest exists, the linter's own
 manifest validation (RG2002) and option decision (RG2006) for every claimed target, one RG2006
 finding naming every target with the same claim and failures, where `lake lint` prints one per

@@ -33,7 +33,9 @@ For an installed release candidate, substitute its full selector, for example
 full commit and legacy compiler-trust capability, creates a detached Git worktree from the
 current commit, changes only the compiler declaration, capability, candidate marker and
 `lean-toolchain`, and commits the candidate.
-It never installs a toolchain, changes the caller's branch, or overrides the stable guard. The
+It refuses a selector that names no toolchain `elan toolchain list` prints, a release channel
+such as `stable` included, so it
+never installs a toolchain, changes the caller's branch, or overrides the stable guard. The
 new worktree is retained for inspection, source adaptation, and ordinary Git worktree
 management.
 
@@ -241,7 +243,10 @@ completing a subset of diagnostics does not qualify it.
 complete, ordered campaign observations meeting each required exit and output.
 `Regula.Setup.toolchainIssues_eq_nil_iff` proves that `doctor`'s decision reports no toolchain
 issue exactly when the project's pin resolved to a compiler whose reported identity
-`Compiler.Supports`; a pin that resolves to no installed compiler is an issue. These are
+`Compiler.Supports`; a pin that resolves to no installed compiler is an issue.
+`installedName?_spec` proves that `prepare`, `qualify` and `doctor` give `elan run` only a
+name among those `elan toolchain list` printed, spelled as the selector or as its release
+name; Elan would install any other known release. These are
 kernel-checked statements about supplied values. They do not authenticate compiler binaries
 or Git commits, prove subprocess behavior, establish detector completeness, or prevent a
 filesystem change-and-restore race.
@@ -264,5 +269,5 @@ own branch, the second by the identity comparison, and the same package then loa
 Neither child is a compiler; a compiler of another identity as the child, or as the Lean
 running Lake, has no retained control.
 
-Compiler self-reports, Elan resolution, Git, native compilation, JSON serialization, process
+Compiler self-reports, Elan's listing, naming and resolution, Git, native compilation, JSON serialization, process
 exit observations, filesystem reads, and GNU timeout remain trusted operational mechanisms.

@@ -51,6 +51,41 @@ theorem parseIdentity_valid {output : String} {i : Identity}
       · cases h
   · cases h
 
+/-- The toolchains `elan toolchain list` printed, one name on each line. A line with a space,
+such as Elan's notice that none is installed, names no toolchain. -/
+def listedToolchains (output : String) : List String :=
+  (output.splitOn "\n").map (·.trimAscii.toString) |>.filter
+    (fun line => !line.isEmpty && !line.contains ' ')
+
+/-- The full name Elan 4.1.2 gives a release selector: its default origin when the selector
+names none, `-nightly` on the origin of a nightly, and `v` before a version number. A
+transcription of Elan's rule, not proved to agree with Elan. -/
+def releaseName (selector : String) : String :=
+  let (origin, release) := match selector.splitOn ":" with
+    | [origin, release] => (origin, release)
+    | _ => ("leanprover/lean4", selector)
+  (if release.startsWith "nightly" && !origin.endsWith "-nightly" then origin ++ "-nightly"
+    else origin) ++ ":" ++ (if release.front.isDigit then "v" ++ release else release)
+
+/-- The listed toolchain `selector` names: itself when listed (a linked toolchain or a full
+name), else its release name. A release channel such as `stable` names none. -/
+def installedName? (listed : List String) (selector : String) : Option String :=
+  listed.find? (· == selector) <|> listed.find? (· == releaseName selector)
+
+/-- A selector resolves only to a listed toolchain, spelled as the selector or as its release
+name. -/
+theorem installedName?_spec {listed : List String} {selector name : String}
+    (h : installedName? listed selector = some name) :
+    name ∈ listed ∧ (name = selector ∨ name = releaseName selector) := by
+  unfold installedName? at h
+  cases first : listed.find? (· == selector) with
+  | some found =>
+    obtain rfl : found = name := by simpa [first] using h
+    exact ⟨List.mem_of_find?_eq_some first, .inl (by simpa using List.find?_some first)⟩
+  | none =>
+    replace h : listed.find? (· == releaseName selector) = some name := by simpa [first] using h
+    exact ⟨List.mem_of_find?_eq_some h, .inr (by simpa using List.find?_some h)⟩
+
 /-- One existing build or detector campaign, in dependency order. -/
 structure Campaign where
   /-- A stable receipt/log name. -/
