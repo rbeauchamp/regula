@@ -18,8 +18,8 @@ finding for the targets that share a claim and failures.
 
 - `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
   package, the files and the import headers of the root package's modules.
-- `pinned`: the compiler the project's own `lean-toolchain` selects, resolved by Elan and
-  identified by its reported version and commit.
+- `pinned`: the compiler the project's own `lean-toolchain` selects, resolved to a toolchain
+  `elan toolchain list` names and identified by its reported version and commit.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
   agent-guidance section, searched from the Lake root up to the Git repository root, and that
   root, where the skill files are.
@@ -47,9 +47,9 @@ package's configuration and each claimed target's as the plan decides, located t
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
 `RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
-linter's decision. Elan's resolution of the pinned toolchain and that compiler's report of its
-own version and commit are trusted; nothing is installed, and a pin that does not resolve is a
-setup issue. -/
+linter's decision. Elan's listing, Regula's transcription of its release naming, and that
+compiler's report of its own version and commit are trusted; nothing is installed, and a pin
+that does not resolve is a setup issue. -/
 
 namespace Regula.Cli.Setup
 
@@ -131,11 +131,11 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
       found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
   return (found.find? (·.hasSection) <|> found.head?).getD (file (dirs.length - 1) false false)
 
-/-- The compiler the `lean-toolchain` of the project at `root` selects: Elan resolves the file's
-selector to an installed compiler, which reports its version and commit
-(`Regula.Toolchain.probe`). An override or the compiler running `regula` does not enter. A
-selector naming no toolchain Elan lists as installed, or a failed probe, is `Pin.unresolved`. The
-file exists: `findRepoRoot` finds the project root by it. -/
+/-- The compiler the `lean-toolchain` of the project at `root` selects: the file's
+selector resolves to a toolchain `elan toolchain list` names (`installedName?`), whose compiler
+reports its version and commit (`Regula.Toolchain.probe`). An override or the compiler running
+`regula` does not enter. A selector naming no toolchain Elan lists as installed, or a failed
+probe, is `Pin.unresolved`. The file exists: `findRepoRoot` finds the project root by it. -/
 def pinned (root : FilePath) : IO Pin := do
   let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
   match ← (Regula.Toolchain.probe root selector).toBaseIO with
@@ -678,7 +678,10 @@ def doctor (root : FilePath) : IO UInt32 := do
   for entry in o.unimported do IO.println (unimportedNote project.lakefile entry)
   let count := setup.length + findings.size
   if count == 0 then
-    IO.println "regula doctor: the setup is complete; run `lake lint`"
+    IO.println <| if RegulaPolicy.Compiler.candidate then
+        "regula doctor: the setup is complete, but this Regula revision declares Lean " ++
+          RegulaPolicy.Compiler.version ++ Regula.Setup.candidateNote
+      else "regula doctor: the setup is complete; run `lake lint`"
     return 0
   IO.println s!"regula doctor: {count} problem{if count == 1 then "" else "s"}"
   let edits := plan .agentsMd o
