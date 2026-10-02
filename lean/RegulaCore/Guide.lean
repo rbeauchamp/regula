@@ -366,7 +366,15 @@ def guide : RuleId → Guide
           regeneration runs a second time with no definition irreducible (each given the status \
           its declaration shows), and the comparison \
           takes a `match` that passes a variable through as the `match` that uses it directly, \
-          where Lean's kernel checks that the two are equal for that matcher.",
+          where Lean's kernel checks that the two are equal for that matcher. Nor does a global \
+          reducibility attribute given after the definition to a function it calls matter \
+          (`attribute [reducible]`, `[instance_reducible]`, `[implicit_reducible]`, or \
+          `[irreducible]` after one of those): where neither regeneration reproduces the base, \
+          the checker searches the statuses such an attribute can have replaced, for the \
+          definitions of the helper's module that the helper reaches, and an assignment only \
+          selects which regeneration runs. The regeneration and the comparison run with Lean's \
+          smart unfolding off, so no declaration named `g._sunfold` is read for the unfolding \
+          of `g`.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
@@ -403,6 +411,7 @@ def guide : RuleId → Guide
           regeneration is given the helper's value and its base's termination argument, and it \
           reruns Lean's structural and well-founded compilers in the environment the audit \
           inspects (at the end of the audit), and there again with no definition irreducible, \
+          and in both under the reducibility assignments it searches, \
           with Lean's default options and the toolchain's own rules, not with the options, rules \
           and attributes in force where the definition was compiled. The forms known to fall \
           outside are a `partial_fixpoint` definition, a base compiled through a fixpoint \
@@ -411,16 +420,24 @@ def guide : RuleId → Guide
           `wf_preprocess` rule registered outside the Lean toolchain, one elaborated with \
           `set_option wf.preprocess false` or with a toolchain rule removed by \
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
-          one that calls a function made reducible after the definition (`attribute [reducible] g` \
-          after a definition that calls `g`), where that changes which parameters Lean finds \
-          fixed or which `wf_preprocess` rule of the toolchain applies, or, under \
-          `set_option allowUnsafeReducibility true`, calls a `@[reducible]` function that is \
-          not an `abbrev` and is made irreducible afterwards, or calls an `abbrev` that was \
-          irreducible where the definition was compiled (argued from the checker's code, not \
-          run). Otherwise a definition for which the only difference is that ordinary \
-          (semireducible) definitions are irreducible at one of the two points \
+          one that calls a function whose status where the definition was compiled the search \
+          does not try, where that changes which parameters Lean finds fixed or which \
+          `wf_preprocess` rule of the toolchain applies: a status that holds only where the \
+          definition is compiled (`attribute [local reducible]` or a `reducible` function made \
+          semireducible afterwards, under `set_option allowUnsafeReducibility true`; \
+          `attribute [local instance_reducible]` or `[local implicit_reducible]`), an `abbrev` \
+          that is not `reducible` where the definition is compiled, a function of another \
+          module whose status changes afterwards, or a change Lean's validation does not admit, \
+          such as `reducible` given to an `instance_reducible` function (all under that option). Give such a function \
+          its reducibility where it is declared. Otherwise a definition for which the only \
+          difference is that ordinary (semireducible) definitions are irreducible at one of the \
+          two points \
           (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
           `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",
+        "A helper whose reached definitions allow more than 63 assignments of an earlier \
+          reducibility status is searched over single changes only. If none reproduces its base \
+          the helper is undecided, neither admitted nor rejected: the checker stops with an \
+          error that names it, and the audit is incomplete.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]

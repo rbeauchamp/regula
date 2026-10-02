@@ -79,7 +79,8 @@ structure FixtureSpec where
   /-- Whether the checker must accept or reject the fixture. -/
   expectation : Expectation
   /-- For a rejection, the exact set of `VIOLATION[...]` and `INCOMPLETE[...]` reasons expected,
-  or `#["compile-error"]` for a fixture that must fail to compile. -/
+  `#["compile-error"]` for a fixture that must fail to compile, or `#["audit-incomplete"]` for one
+  whose audit must stop without a verdict. -/
   reasons : Array String := #[]
   /-- The foundation profile passed as `--claim`, when the entry sets one. -/
   claim : Option Profile := none
@@ -87,7 +88,8 @@ structure FixtureSpec where
   execution : Option String := none
   /-- For an accepted fixture, a foundation label some declaration must be reported with. -/
   label : Option String := none
-  /-- For a compile-error fixture, the pattern its output must match (default `error`). -/
+  /-- For a compile-error or audit-incomplete fixture, the pattern its output must match (default
+  `error`). -/
   pattern : Option String := none
   /-- Texts the checker output must contain, whatever the verdict. -/
   output : Array String := #[]
@@ -518,6 +520,33 @@ private def toolPath (repo : FilePath) (name : String) : IO FilePath := do
         {name}; add it to the baseline of the partition that runs it (Partition.baseline)"
   return repo / ".lake" / "build" / "bin" / name
 
+/-- How a fixture's run ended, apart from what it printed. -/
+inductive RunEnd where
+  /-- The gate accepted: exit 0, or a report with no failure. -/
+  | accepted
+  /-- The gate ended with a verdict against the fixture: exit 1 or 2, a report with a failure, a
+  source that does not compile, or a refusal that is a violation. -/
+  | rejected
+  /-- The audit stopped without a verdict: exit 3, an inspection that threw, or a refused
+  admission. -/
+  | incomplete
+  deriving Repr, BEq
+
+/-- The run end an `axiomGate` exit code states (`Lint.Observation.exitCode`). -/
+def RunEnd.ofExit (code : UInt32) : RunEnd :=
+  if code == 0 then .accepted else if code == 3 then .incomplete else .rejected
+
+/-- Whether a rejected fixture is assessed by its `pattern` over the whole output, not by its
+violation tags: one that must fail to compile, or one whose audit must stop without a verdict. -/
+private def assessedByPattern (fixture : FixtureSpec) : Bool :=
+  fixture.reasons == #["compile-error"] || fixture.reasons == #["audit-incomplete"]
+
+/-- Whether a fixture's inspection fails as a whole, so that it is inspected alone: a
+kernel-admission failure invalidates an environment before it has a report, and an incomplete
+audit stops the report of every module inspected with it. -/
+private def inspectedAlone (fixture : FixtureSpec) : Bool :=
+  fixture.reasons.contains "kernel-admission" || fixture.reasons.contains "audit-incomplete"
+
 private def runBinary (repo : FilePath) (name : String)
     (args : Array String) : IO ProcessResult := do
   runProcess repo (← toolPath repo name).toString args
@@ -529,26 +558,35 @@ private def runBinaryFrom (binaryRepo cwd : FilePath) (name : String)
 /-- Exact verdict assessment for one fixture against gate (or gate-equivalent)
 output. The same function assesses real CLI output and the in-process batch
 verdicts, so both paths assert identical intended reasons. -/
-private def assessFixtureOutput (fixture : FixtureSpec) (succeeded : Bool)
+private def assessFixtureOutput (fixture : FixtureSpec) (ended : RunEnd)
     (output : String) : Option String := Id.run do
   if let some missing := fixture.output.find? fun needle => !output.contains needle then
     return some s!"{fixture.moduleName}: missing expected output {repr missing}:\n{output}"
   match fixture.expectation with
   | .pass =>
-      if !succeeded then
+      if ended != .accepted then
         return some s!"{fixture.moduleName}: expected PASS:\n{output}"
       if let some label := fixture.label then
         if !output.contains s!"-> {label}" then
           return some s!"{fixture.moduleName}: no declaration had expected label {label}:\n{output}"
       return none
   | .fail =>
-      if succeeded then
+      if ended == .accepted then
         return some s!"{fixture.moduleName}: expected failure, checker passed"
-      if fixture.reasons == #["compile-error"] then
+      -- An incomplete audit is its own outcome: no verdict, so no violation, and exit 3. A
+      -- rejection whose text happens to match the pattern does not satisfy it.
+      if fixture.reasons == #["audit-incomplete"] then
+        if ended != .incomplete then
+          return some
+            s!"{fixture.moduleName}: expected an incomplete audit, got a verdict:\n{output}"
+        if (output.splitOn "VIOLATION[").length > 1 then
+          return some
+            s!"{fixture.moduleName}: an incomplete audit reported a violation:\n{output}"
+      if assessedByPattern fixture then
         let pattern := fixture.pattern.getD "error"
         if !Documentation.matchesPattern pattern.toLower output.toLower then
           return some
-              s!"{fixture.moduleName}: compile failure missed pattern {repr pattern}:\n{output}"
+              s!"{fixture.moduleName}: failure missed pattern {repr pattern}:\n{output}"
         return none
       let actual := violationReasons output
       let expected := uniqueSorted fixture.reasons
@@ -567,7 +605,7 @@ private def checkFixtureCli (repo : FilePath) (fixture : FixtureSpec) : IO (Opti
     | some mode => #["--execution", mode]
     | none => #[]
   let result ← runBinary repo "axiomGate" args
-  return assessFixtureOutput fixture result.succeeded result.output
+  return assessFixtureOutput fixture (.ofExit result.exitCode) result.output
 
 private structure CompiledFixture where
   index : Nat
@@ -588,7 +626,7 @@ private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
     (roots : Array Regula.Report.ExecutionRoot)
     (transcripts : Array Frontend.Transcript) : String × Bool := Id.run do
   let .ok scope := Policy.admitScope declarations transcripts
-    | return ("invalid policy observation inventory", true)
+    | return ("invalid policy observation inventory", false)
   let execution := match fixture.execution with
     | some mode => (ExecutionClaim.parse? mode).getD .report
     | none => .report
@@ -603,7 +641,7 @@ private def renderFileAudit (fixture : FixtureSpec) (_moduleName : String)
           Policy.subjectDetail decl scope h)
     lines := lines.push s!"[{verdict}] {classification}"
   let .ok executionInventory := Policy.admitExecution roots
-    | return ("invalid execution inventory", true)
+    | return ("invalid execution inventory", false)
   let executionViolations := Policy.executionFailures executionInventory execution
   let toolchainBase := Policy.toolchainBase #[(fixture.source.toString, executionInventory)]
   lines := lines ++ Policy.executionAccountLines executionInventory ++
@@ -636,7 +674,7 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
   for (index, fixture, compilation) in compilations do
     if !SourceAudit.compilationPassed compilation then
       results := results.set! index
-        (assessFixtureOutput fixture false compilation.process.output)
+        (assessFixtureOutput fixture .rejected compilation.process.output)
     else
       let (moduleData, _) ← Lean.readModuleData compilation.oleanPath
       pending := pending.push {
@@ -661,10 +699,9 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
     let mut placed := false
     for groupIndex in [:groups.size] do
       let (names, items) := groups[groupIndex]!
-      -- Admission failures invalidate an environment before it has a report.
-      -- Keep those single-fault controls isolated from unrelated fixtures.
-      if !item.fixture.reasons.contains "kernel-admission" &&
-          !(items.any (·.fixture.reasons.contains "kernel-admission")) &&
+      -- Keep the single-fault controls whose inspection fails as a whole isolated from
+      -- unrelated fixtures.
+      if !inspectedAlone item.fixture && !(items.any (inspectedAlone ·.fixture)) &&
           (items.all fun other => other.importNames == item.importNames) &&
           disjointNames item.constantNames names then
         groups := groups.set! groupIndex (names ++ item.constantNames, items.push item)
@@ -722,17 +759,29 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
             moduleName := item.compilation.spec.module.toName
             path := item.compilation.sourcePath.toString
             content := item.compilation.spec.source })
-        let inspectedGroup ← IO.ofExcept <| outcome.mapError (·.detail)
-        let report := inspectedGroup.report
-        for item in items do
-          let moduleName := item.compilation.spec.«module»
-          let declarations := report.declarations.filter (·.«module» == moduleName.toName)
-            |>.qsort fun left right => Name.quickLt left.name right.name
-          let roots := report.execution.filter (·.«module» == moduleName.toName)
-          inspected := inspected.push (item, declarations, roots)
+        match outcome with
+        | .error refusal =>
+          -- The refusal keeps its type: a refused admission is incomplete evidence, and owned
+          -- build output outside every owned module is a violation.
+          let ended : RunEnd := match refusal with
+            | .admission _ => .incomplete
+            | .unowned _ => .rejected
+          for item in items do
+            results := results.set! item.index
+              (assessFixtureOutput item.fixture ended refusal.detail)
+        | .ok inspectedGroup =>
+          let report := inspectedGroup.report
+          for item in items do
+            let moduleName := item.compilation.spec.«module»
+            let declarations := report.declarations.filter (·.«module» == moduleName.toName)
+              |>.qsort fun left right => Name.quickLt left.name right.name
+            let roots := report.execution.filter (·.«module» == moduleName.toName)
+            inspected := inspected.push (item, declarations, roots)
       catch error =>
+        -- An inspection that throws has no report: the gate reports it as incomplete.
         for item in items do
-          results := results.set! item.index (assessFixtureOutput item.fixture false error.toString)
+          results := results.set! item.index
+            (assessFixtureOutput item.fixture .incomplete error.toString)
     pure ()
   finally Lean.searchPathRef.set oldSearchPath
   for (item, declarations, roots) in inspected do
@@ -742,10 +791,11 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
       | some (_, some transcript) =>
         let (output, succeeded) := renderFileAudit item.fixture moduleName
           declarations roots #[transcript]
-        results := results.set! item.index (assessFixtureOutput item.fixture succeeded output)
+        results := results.set! item.index
+          (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
       | _ =>
         results := results.set! item.index
-          (assessFixtureOutput item.fixture false
+          (assessFixtureOutput item.fixture .rejected
             (if item.wantsTranscript then
               s!"fresh frontend elaboration failed for {moduleName}"
             else
@@ -753,7 +803,8 @@ private unsafe def fixtureVerdicts (repo scratch : FilePath) (jobs : Nat)
     else
       let (output, succeeded) := renderFileAudit item.fixture moduleName
         declarations roots #[]
-      results := results.set! item.index (assessFixtureOutput item.fixture succeeded output)
+      results := results.set! item.index
+        (assessFixtureOutput item.fixture (if succeeded then .accepted else .rejected) output)
   return results
 
 /-- Real-CLI smoke tier: a small diverse set of fixtures through actual
