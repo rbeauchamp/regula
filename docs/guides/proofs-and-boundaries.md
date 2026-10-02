@@ -465,10 +465,12 @@ inferred from any pure proof.
   `ConstantInfo.getUsedConstantsAsSet`, the dependencies `Kernel.Environment.replay` replays
   first); (4) every constant of the module is attributed to it in this environment and is the
   copy this environment keeps (`Admission.uniquelyKept`), so no module here declares a different
-  copy of its names; and (5) every owned module of the closure is reused too: a candidate whose
-  closure contains an owned module that is not a candidate is removed, round after round until
-  none is (`Admission.narrow`), so a module that cannot be reused takes only the modules above it
-  out, and should the remaining set still miss (5), nothing is reused. Every other owned module is
+  copy of its names; and (5) every owned module of the closure is reused too: a candidate
+  (`Admission.candidates`, a module meeting (1) to (4)) whose closure contains an owned module
+  that is not a candidate is removed, so a module that cannot be reused takes the modules above
+  it out with it. One pass settles this: a member's closure lies within the closure
+  (`Admission.importClosure_trans`), so every owned module of a kept candidate's closure is a
+  candidate that is kept too. Every other owned module is
   replayed (`Admission.replaySet`). A module of the environment's own request is reused under the
   same conditions, which arises only when an earlier environment loaded it first (claimed
   libraries that import one another): the receipt then still requires the key of each of its
@@ -480,7 +482,14 @@ inferred from any pure proof.
   admission its worker published is the one the report records (`Completed.ofReport`, compared by
   decidable equality); otherwise the environment is RG2005, incomplete. **Proved** about the
   executed definitions: `Admission.mem_reusedModules` (a reused module is owned and satisfies the
-  offer of (1), (3), (4) and (5)); `Admission.mem_replaySet` (every owned module that is not
+  offer of (1), (3), (4) and (5)); `Admission.importClosure_some` and
+  `Admission.importClosure_trans` (over an index that holds every origin under its own name, as
+  `Admission.originIndex_keyed` proves of the executed index: each origin of a closure is the one
+  the index holds under its name, its name has every property of the module's name that passes
+  from a name to the imports its origin records, so it is the module or one it transitively
+  imports, and every import it records is the name of an origin of the closure; and the closure
+  of a member's name lies within the closure, which is why one pass decides (5));
+  `Admission.mem_replaySet` (every owned module that is not
   reused is in the set `Admission.validate` replays); `Admission.replayed_unless_offered` (a
   changed import forces a replay: an owned module is replayed unless an offer covers it over
   exactly the closure it has here); `Admission.unchanged?_eq_some`, `Admission.mem_unchangedOf`
@@ -509,8 +518,11 @@ inferred from any pure proof.
   a module it lists as replayed or reused, never both); and `Inspection.prerequisites_earlier`
   (every environment waits only for environments strictly before it in the start order, so the
   waits have no cycle). **Checked at run time, not proved:** the equality of the published and
-  reported admission, and that a closure contains every module its members import
-  (`Admission.validate` still refuses a base module that imports a replayed one). **Observed,
+  reported admission, and that no base module imports a replayed one (`Admission.validate` reads
+  this from each module's own data: a closure contains every import its origins record,
+  `Admission.importClosure_some`, but that an origin records its loaded module's imports is not
+  proved).
+  **Observed,
   an external boundary:** reading the `.olean` parts (`Inspection.readings`; the `checkerSelftest`
   structural partition observes, through `Admission.currentOffers`, that a changed, removed or
   added `.olean`, `.olean.server` or `.olean.private` withdraws the offer and a restored part

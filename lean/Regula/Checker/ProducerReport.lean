@@ -49,8 +49,10 @@ the environment itself reports come from that module's own data too, and are adm
 earlier environment that replayed it (`Admission.reuseJustified_admitted`). -/
 structure AdmissionReceipt where
   /-- The replay set: the owned modules other than `reused` and the checker reporter modules that
-  import one of them, without duplicates. The environment replays those of them it loaded, which
-  are the modules with a key in `required`; a module it did not load is listed here too. -/
+  import one of them, without duplicates. The environment replays those of them it loaded. One
+  with a key in `required` is a loaded module with at least one constant that is neither `unsafe`
+  nor `partial`; a loaded module with no such constant has no key, and a module the environment
+  did not load is listed here too. -/
   modules : Array Name
   /-- The `(module, declaration)` key of every constant a replayed module's own data contains
   that is neither `unsafe` nor `partial`; a name several replayed modules contain has one key per

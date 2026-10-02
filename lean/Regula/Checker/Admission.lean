@@ -12,7 +12,9 @@ only imported modules outside the replayed inventory. Unsafe and partial entries
 remain subject to generated-role policy; they cannot supply logical evidence.
 An owned module that an earlier environment of the same audit admitted over the
 identical, frozen import closure is reused instead of replayed again (`reusedModules`,
-`offers`, `reuseJustified_frozen`); every other owned module is replayed (`mem_replaySet`).
+`offers`, `reuseJustified_frozen`); every other owned module is replayed (`mem_replaySet`). A
+member's import closure lies within the closure (`importClosure_trans`), so one pass decides
+which candidates have every owned module of their closure reused too.
 Replay reads each replayed module's own constants (`Copy`), so a name that several
 modules contain, such as an equation lemma Lean realizes in each module that needs it,
 has every owned copy checked (`replayMap_sound`, `checkCopies_sound`).
@@ -50,28 +52,279 @@ def originIndex (origins : Array RegulaPolicy.ModuleOrigin) :
     Std.HashMap Name RegulaPolicy.ModuleOrigin :=
   origins.foldl (fun index origin => index.insert origin.name origin) {}
 
+/-- Whether `index` holds every origin under that origin's own name. -/
+def Keyed (index : Std.HashMap Name RegulaPolicy.ModuleOrigin) : Prop :=
+  ∀ (n : Name) (origin : RegulaPolicy.ModuleOrigin), index[n]? = some origin → origin.name = n
+
+/-- `originIndex` holds every origin under its own name. -/
+theorem originIndex_keyed (origins : Array RegulaPolicy.ModuleOrigin) :
+    Keyed (originIndex origins) := by
+  unfold originIndex
+  rw [← Array.foldl_toList]
+  suffices step : ∀ (rest : List RegulaPolicy.ModuleOrigin)
+      (index : Std.HashMap Name RegulaPolicy.ModuleOrigin), Keyed index →
+      Keyed (rest.foldl (fun index origin => index.insert origin.name origin) index) by
+    exact step origins.toList {} (by simp [Keyed])
+  intro rest
+  induction rest with
+  | nil => intro index hindex; exact hindex
+  | cons head rest ih =>
+    intro index hindex
+    simp only [List.foldl_cons]
+    refine ih _ fun n origin hn => ?_
+    rw [Std.HashMap.getElem?_insert] at hn
+    split at hn
+    · rename_i heq
+      obtain rfl := Option.some.inj hn
+      exact beq_iff_eq.mp heq
+    · exact hindex n origin hn
+
+/-- Push `m` onto the pending names unless it was seen before. -/
+private def pushNew (acc : List Name × Std.HashSet Name) (m : Name) :
+    List Name × Std.HashSet Name :=
+  if acc.2.contains m then acc else (m :: acc.1, acc.2.insert m)
+
+/-- `pushNew` leaves a seen name's state unchanged. -/
+private theorem pushNew_seen {p : List Name} {s : Std.HashSet Name} {m : Name}
+    (h : s.contains m = true) : pushNew (p, s) m = (p, s) := by
+  simp [pushNew, h]
+
+/-- `pushNew` pushes and records an unseen name. -/
+private theorem pushNew_unseen {p : List Name} {s : Std.HashSet Name} {m : Name}
+    (h : ¬ s.contains m = true) : pushNew (p, s) m = (m :: p, s.insert m) := by
+  simp [pushNew, h]
+
+/-- What folding `pushNew` over `names` does to the pending names `p` and the seen names `s`. -/
+private theorem foldl_pushNew (names p : List Name) (s : Std.HashSet Name) :
+    (∀ x, x ∈ (names.foldl pushNew (p, s)).2 ↔ x ∈ s ∨ x ∈ names) ∧
+    (∀ x ∈ (names.foldl pushNew (p, s)).1, x ∈ p ∨ x ∈ names) ∧
+    (∀ x ∈ p, x ∈ (names.foldl pushNew (p, s)).1) ∧
+    (∀ x ∈ (names.foldl pushNew (p, s)).2, x ∈ s ∨ x ∈ (names.foldl pushNew (p, s)).1) := by
+  induction names generalizing p s with
+  | nil => exact ⟨by simp, by simp, by simp, fun x hx => .inl hx⟩
+  | cons m names ih =>
+    simp only [List.foldl_cons]
+    by_cases hm : s.contains m
+    · rw [pushNew_seen hm]
+      obtain ⟨h1, h2, h3, h4⟩ := ih p s
+      have hms : m ∈ s := Std.HashSet.mem_iff_contains.mpr hm
+      refine ⟨fun x => ?_, fun x hx => ?_, h3, h4⟩
+      · rw [h1 x, List.mem_cons]
+        constructor
+        · rintro (hx | hx)
+          · exact .inl hx
+          · exact .inr (.inr hx)
+        · rintro (hx | rfl | hx)
+          · exact .inl hx
+          · exact .inl hms
+          · exact .inr hx
+      · rcases h2 x hx with hx | hx
+        · exact .inl hx
+        · exact .inr (List.mem_cons_of_mem _ hx)
+    · rw [pushNew_unseen hm]
+      obtain ⟨h1, h2, h3, h4⟩ := ih (m :: p) (s.insert m)
+      refine ⟨fun x => ?_, fun x hx => ?_, fun x hx => h3 x (List.mem_cons_of_mem _ hx),
+        fun x hx => ?_⟩
+      · rw [h1 x, Std.HashSet.mem_insert, List.mem_cons, beq_iff_eq]
+        constructor
+        · rintro ((rfl | hx) | hx)
+          · exact .inr (.inl rfl)
+          · exact .inl hx
+          · exact .inr (.inr hx)
+        · rintro (hx | rfl | hx)
+          · exact .inl (.inr hx)
+          · exact .inl (.inl rfl)
+          · exact .inr hx
+      · rcases h2 x hx with hx | hx
+        · rcases List.mem_cons.mp hx with rfl | hx
+          · exact .inr List.mem_cons_self
+          · exact .inl hx
+        · exact .inr (List.mem_cons_of_mem _ hx)
+      · rcases h4 x hx with hx | hx
+        · rcases Std.HashSet.mem_insert.mp hx with hx | hx
+          · rw [← beq_iff_eq.mp hx]
+            exact .inr (h3 m List.mem_cons_self)
+          · exact .inl hx
+        · exact .inr hx
+
+/-- Settle the `pending` modules, recording in `seen` every name ever pushed: the origin of each
+goes into `closure` and its imports not yet seen become pending. It returns the closure once
+nothing is pending, or `none` when a pending module has no origin or `fuel` runs out first. -/
+def closureLoop (origins : Std.HashMap Name RegulaPolicy.ModuleOrigin) :
+    Nat → List Name → Std.HashSet Name → Array RegulaPolicy.ModuleOrigin →
+      Option (Array RegulaPolicy.ModuleOrigin)
+  | _, [], _, closure => some closure
+  | 0, _ :: _, _, _ => none
+  | fuel + 1, name :: rest, seen, closure =>
+    match origins[name]? with
+    | none => none
+    | some origin =>
+      let next := origin.imports.toList.foldl pushNew (rest, seen)
+      closureLoop origins fuel next.1 next.2 (closure.push origin)
+
 /-- The import closure of `m` in one environment: the origin of `m` and of every module it
 transitively imports, ordered by name, or `none` when a reached module has no origin. Two
 environments have equal closures of `m` exactly when they loaded `m` and every module below it
-under the same names, from the same canonical `.olean` files, with the same import edges. -/
+under the same names, from the same canonical `.olean` files, with the same import edges.
+`importClosure_some` and `importClosure_trans` state what a closure holds. -/
 def importClosure (origins : Std.HashMap Name RegulaPolicy.ModuleOrigin) (m : Name) :
-    Option (Array RegulaPolicy.ModuleOrigin) := Id.run do
-  let mut pending := #[m]
-  let mut seen : NameSet := ({} : NameSet).insert m
-  let mut closure := #[]
+    Option (Array RegulaPolicy.ModuleOrigin) :=
   -- Each step settles one name and each name is pushed once, so a closure whose every module
   -- has an origin is settled within `origins.size` steps.
-  for _ in [:origins.size] do
-    let some name := pending.back? | break
-    pending := pending.pop
-    let some origin := origins[name]? | return none
-    closure := closure.push origin
-    for imported in origin.imports do
-      unless seen.contains imported do
-        seen := seen.insert imported
-        pending := pending.push imported
-  unless pending.isEmpty do return none
-  return some (closure.qsort fun a b => Name.quickLt a.name b.name)
+  (closureLoop origins origins.size [m] (({} : Std.HashSet Name).insert m) #[]).map
+    (·.mergeSort fun a b => !Name.quickLt b.name a.name)
+
+/-- What `closureLoop` maintains, for a property `P` of names. -/
+private structure ClosureInv (origins : Std.HashMap Name RegulaPolicy.ModuleOrigin)
+    (P : Name → Prop) (pending : List Name) (seen : Std.HashSet Name)
+    (closure : Array RegulaPolicy.ModuleOrigin) : Prop where
+  /-- Every pending name satisfies `P`. -/
+  ofPending : ∀ x ∈ pending, P x
+  /-- Every seen name is pending or the name of a settled origin. -/
+  ofSeen : ∀ x ∈ seen, x ∈ pending ∨ ∃ origin ∈ closure, origin.name = x
+  /-- Every settled origin is the one `origins` holds under its name, has a name satisfying `P`,
+  and has every import seen. -/
+  ofSettled : ∀ origin ∈ closure, origins[origin.name]? = some origin ∧ P origin.name ∧
+    ∀ imported ∈ origin.imports, imported ∈ seen
+
+/-- With nothing pending, every import of a settled origin is the name of a settled origin. -/
+private theorem ClosureInv.done {origins : Std.HashMap Name RegulaPolicy.ModuleOrigin}
+    {P : Name → Prop} {seen : Std.HashSet Name} {closure : Array RegulaPolicy.ModuleOrigin}
+    (h : ClosureInv origins P [] seen closure) :
+    ∀ origin ∈ closure, origins[origin.name]? = some origin ∧ P origin.name ∧
+      ∀ imported ∈ origin.imports, ∃ other ∈ closure, other.name = imported := by
+  intro origin horigin
+  obtain ⟨hself, hP, himports⟩ := h.ofSettled origin horigin
+  refine ⟨hself, hP, fun imported himported => ?_⟩
+  rcases h.ofSeen imported (himports imported himported) with hpending | hsettled
+  · simp at hpending
+  · exact hsettled
+
+/-- One step of `closureLoop` keeps `ClosureInv`, where `origins` holds every origin under its
+own name and `P` passes from a name to the imports of its origin. -/
+private theorem ClosureInv.step {origins : Std.HashMap Name RegulaPolicy.ModuleOrigin}
+    (hkey : Keyed origins) {P : Name → Prop}
+    (hstep : ∀ (n : Name) (origin : RegulaPolicy.ModuleOrigin), P n →
+      origins[n]? = some origin → ∀ imported ∈ origin.imports, P imported)
+    {name : Name} {rest : List Name} {seen : Std.HashSet Name}
+    {closure : Array RegulaPolicy.ModuleOrigin} {origin : RegulaPolicy.ModuleOrigin}
+    (h : ClosureInv origins P (name :: rest) seen closure) (ho : origins[name]? = some origin) :
+    ClosureInv origins P (origin.imports.toList.foldl pushNew (rest, seen)).1
+      (origin.imports.toList.foldl pushNew (rest, seen)).2 (closure.push origin) := by
+  have hname : origin.name = name := hkey name origin ho
+  have hPname : P name := h.ofPending name List.mem_cons_self
+  obtain ⟨f1, f2, f3, f4⟩ := foldl_pushNew origin.imports.toList rest seen
+  refine ⟨fun x hx => ?_, fun x hx => ?_, fun other hother => ?_⟩
+  · rcases f2 x hx with hx | hx
+    · exact h.ofPending x (List.mem_cons_of_mem _ hx)
+    · exact hstep name origin hPname ho x (Array.mem_toList_iff.mp hx)
+  · rcases f4 x hx with hx | hx
+    · rcases h.ofSeen x hx with hpending | ⟨held, hheld, hx⟩
+      · rcases List.mem_cons.mp hpending with hx | hpending
+        · exact .inr ⟨origin, Array.mem_push_self, hname.trans hx.symm⟩
+        · exact .inl (f3 x hpending)
+      · exact .inr ⟨held, Array.mem_push_of_mem _ hheld, hx⟩
+    · exact .inl hx
+  · rcases Array.mem_push.mp hother with hother | hother
+    · obtain ⟨hself, hP, himports⟩ := h.ofSettled other hother
+      exact ⟨hself, hP, fun imported himported =>
+        (f1 imported).mpr (.inl (himports imported himported))⟩
+    · subst hother
+      exact ⟨by rw [hname]; exact ho, by rw [hname]; exact hPname, fun imported himported =>
+        (f1 imported).mpr (.inr (Array.mem_toList_iff.mpr himported))⟩
+
+/-- A completed `closureLoop` that started from a state satisfying `ClosureInv` returns only
+origins that `origins` holds under their names, whose names satisfy `P`, and whose imports are
+all names of returned origins. -/
+private theorem closureLoop_some {origins : Std.HashMap Name RegulaPolicy.ModuleOrigin}
+    (hkey : Keyed origins) {P : Name → Prop}
+    (hstep : ∀ (n : Name) (origin : RegulaPolicy.ModuleOrigin), P n →
+      origins[n]? = some origin → ∀ imported ∈ origin.imports, P imported) :
+    ∀ (fuel : Nat) (pending : List Name) (seen : Std.HashSet Name)
+      (closure result : Array RegulaPolicy.ModuleOrigin),
+      ClosureInv origins P pending seen closure →
+      closureLoop origins fuel pending seen closure = some result →
+      ∀ origin ∈ result, origins[origin.name]? = some origin ∧ P origin.name ∧
+        ∀ imported ∈ origin.imports, ∃ other ∈ result, other.name = imported := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro pending seen closure result hinv h
+    cases pending with
+    | nil =>
+      simp only [closureLoop, Option.some.injEq] at h
+      subst h
+      exact hinv.done
+    | cons name rest => simp [closureLoop] at h
+  | succ fuel ih =>
+    intro pending seen closure result hinv h
+    cases pending with
+    | nil =>
+      simp only [closureLoop, Option.some.injEq] at h
+      subst h
+      exact hinv.done
+    | cons name rest =>
+      simp only [closureLoop] at h
+      cases ho : origins[name]? with
+      | none => simp [ho] at h
+      | some origin =>
+        simp only [ho] at h
+        exact ih _ _ _ result (hinv.step hkey hstep ho) h
+
+/-- What a closure holds, where `origins` holds every origin under its own name (`Keyed`,
+`originIndex_keyed`): each of its origins is the one `origins` holds under its name; that name
+satisfies every property `P` that `m` has and that passes from a name to the imports of its
+origin, so it is `m` or a module `m` transitively imports; and every import of one of its origins
+is the name of one of its origins. -/
+theorem importClosure_some {origins : Std.HashMap Name RegulaPolicy.ModuleOrigin}
+    (hkey : Keyed origins) {P : Name → Prop} {m : Name}
+    (hm : P m)
+    (hstep : ∀ (n : Name) (origin : RegulaPolicy.ModuleOrigin), P n →
+      origins[n]? = some origin → ∀ imported ∈ origin.imports, P imported)
+    {closure : Array RegulaPolicy.ModuleOrigin} (h : importClosure origins m = some closure) :
+    ∀ origin ∈ closure, origins[origin.name]? = some origin ∧ P origin.name ∧
+      ∀ imported ∈ origin.imports, ∃ other ∈ closure, other.name = imported := by
+  unfold importClosure at h
+  obtain ⟨settled, hloop, rfl⟩ := Option.map_eq_some_iff.mp h
+  have hinv : ClosureInv origins P [m] (({} : Std.HashSet Name).insert m) #[] := by
+    refine ⟨fun x hx => ?_, fun x hx => ?_, fun origin horigin => ?_⟩
+    · rw [List.mem_singleton.mp hx]
+      exact hm
+    · rcases Std.HashSet.mem_insert.mp hx with hx | hx
+      · exact .inl (List.mem_singleton.mpr (beq_iff_eq.mp hx).symm)
+      · simp at hx
+    · simp at horigin
+  intro origin horigin
+  obtain ⟨hself, hP, himports⟩ :=
+    closureLoop_some hkey hstep _ _ _ _ settled hinv hloop origin (Array.mem_mergeSort.mp horigin)
+  refine ⟨hself, hP, fun imported himported => ?_⟩
+  obtain ⟨other, hother, hname⟩ := himports imported himported
+  exact ⟨other, Array.mem_mergeSort.mpr hother, hname⟩
+
+/-- A member's closure lies within the closure: where `origins` holds every origin under its own
+name (`Keyed`, `originIndex_keyed`), the closure of the name of an origin of `m`'s closure holds
+only origins of `m`'s closure. -/
+theorem importClosure_trans {origins : Std.HashMap Name RegulaPolicy.ModuleOrigin}
+    (hkey : Keyed origins) {m : Name}
+    {closure : Array RegulaPolicy.ModuleOrigin} (h : importClosure origins m = some closure)
+    {origin : RegulaPolicy.ModuleOrigin} (ho : origin ∈ closure)
+    {inner : Array RegulaPolicy.ModuleOrigin}
+    (hi : importClosure origins origin.name = some inner) :
+    ∀ other ∈ inner, other ∈ closure := by
+  have outer := importClosure_some hkey (P := fun _ => True) trivial
+    (fun _ _ _ _ _ _ => trivial) h
+  have within := importClosure_some hkey (P := fun n => ∃ held ∈ closure, held.name = n)
+    ⟨origin, ho, rfl⟩ (fun n found ⟨held, hheld, hn⟩ hfound imported himported => by
+      obtain ⟨hself, -, himports⟩ := outer held hheld
+      rw [hn, hfound] at hself
+      obtain rfl := Option.some.inj hself
+      exact himports imported himported) hi
+  intro other hother
+  obtain ⟨hself, ⟨held, hheld, hn⟩, -⟩ := within other hother
+  obtain ⟨hheldSelf, -, -⟩ := outer held hheld
+  rw [hn, hself] at hheldSelf
+  obtain rfl := Option.some.inj hheldSelf
+  exact hheld
 
 -- Structural equality for the constant records Lean derives none for, so that `identical`
 -- covers every kind of constant.
@@ -163,55 +416,81 @@ def closureWithin (owned names : Std.HashSet Name)
     (entry : Name × Array RegulaPolicy.ModuleOrigin) : Bool :=
   entry.2.all fun origin => !owned.contains origin.name || names.contains origin.name
 
-/-- The entries left when those whose closure contains an owned module outside the entries are
-removed, again and again until none is removed or `fuel` runs out. An entry that depends on a
-removed one goes in the next round, so one module that cannot be reused takes only the modules
-above it out, not every entry. -/
-def narrow (owned : Std.HashSet Name) :
-    Nat → Array (Name × Array RegulaPolicy.ModuleOrigin) →
-      Array (Name × Array RegulaPolicy.ModuleOrigin)
-  | 0, entries => entries
-  | fuel + 1, entries =>
-    let kept := entries.filter
-      (closureWithin owned (Std.HashSet.ofList (entries.map (·.1)).toList))
-    if kept.size == entries.size then entries else narrow owned fuel kept
+/-- `closureWithin` holds exactly when every `owned` module of the entry's closure is one of
+`names`. -/
+theorem closureWithin_iff {owned names : Std.HashSet Name}
+    {entry : Name × Array RegulaPolicy.ModuleOrigin} :
+    closureWithin owned names entry = true ↔
+      ∀ origin ∈ entry.2, origin.name ∈ owned → origin.name ∈ names := by
+  simp only [closureWithin, Array.all_eq_true', Bool.or_eq_true, Bool.not_eq_eq_eq_not,
+    Bool.not_true, Std.HashSet.mem_iff_contains]
+  constructor
+  · intro h origin horigin howned
+    exact (h origin horigin).resolve_left (by simp [howned])
+  · intro h origin horigin
+    cases howned : owned.contains origin.name
+    · exact .inl rfl
+    · exact .inr (h origin horigin howned)
 
-/-- `narrow` only removes entries. -/
-theorem mem_of_mem_narrow {owned : Std.HashSet Name} {fuel : Nat}
-    {entries : Array (Name × Array RegulaPolicy.ModuleOrigin)}
-    {entry : Name × Array RegulaPolicy.ModuleOrigin} (h : entry ∈ narrow owned fuel entries) :
-    entry ∈ entries := by
-  induction fuel generalizing entries with
-  | zero => exact h
-  | succ fuel ih =>
-    unfold narrow at h
-    simp only at h
-    split at h
-    · exact h
-    · exact (Array.mem_filter.mp (ih h)).1
+/-- The reuse candidates of `env`: each owned module that an earlier environment of the same
+audit replayed and offers over the import closure the module has here (`offeredClosure`), whose
+declarations refer only to constants of that closure (`referencesWithin`) and whose constants
+are attributed to it and are the copies this environment keeps (`uniquelyKept`), with that
+closure. -/
+def candidates (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
+    (owned : Array Name) (priors : Array PriorAdmission) :
+    Array (Name × Array RegulaPolicy.ModuleOrigin) :=
+  let here := originIndex origins
+  let earlier := indexPriors priors
+  owned.filterMap fun m =>
+    (offeredClosure earlier here m).bind fun closure =>
+      if referencesWithin env m closure && uniquelyKept env m then some (m, closure) else none
+
+/-- Every candidate is an owned module with the import closure it has here, which some prior
+offers it over, whose declarations refer only to that closure and whose constants are uniquely
+kept here. -/
+theorem mem_candidates {env : Environment} {origins : Array RegulaPolicy.ModuleOrigin}
+    {owned : Array Name} {priors : Array PriorAdmission}
+    {entry : Name × Array RegulaPolicy.ModuleOrigin}
+    (h : entry ∈ candidates env origins owned priors) :
+    entry.1 ∈ owned ∧ importClosure (originIndex origins) entry.1 = some entry.2 ∧
+      referencesWithin env entry.1 entry.2 = true ∧ uniquelyKept env entry.1 = true ∧
+      ∃ prior ∈ priors, entry.1 ∈ prior.modules ∧
+        importClosure (originIndex prior.origins) entry.1 = some entry.2 := by
+  unfold candidates at h
+  simp only at h
+  obtain ⟨a, ha, hf⟩ := Array.mem_filterMap.mp h
+  cases ho : offeredClosure (indexPriors priors) (originIndex origins) a with
+  | none => simp [ho] at hf
+  | some found =>
+    simp only [ho, Option.bind_some] at hf
+    split at hf
+    · rename_i hrefs
+      obtain ⟨hrefs, hunique⟩ := Bool.and_eq_true_iff.mp hrefs
+      obtain rfl := Option.some.inj hf
+      obtain ⟨hclosure, offering, hoffering, hm, hc⟩ := offeredClosure_eq_some.mp ho
+      obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hoffering
+      exact ⟨ha, hclosure, hrefs, hunique, prior, hprior, hm, hc⟩
+    · simp at hf
 
 /-- The owned modules of `env` whose kernel admission this environment reuses instead of
 replaying: an earlier environment of the same audit replayed and offers each one over the
 identical import closure (`offeredClosure`), every declaration of every owned module in that
 closure refers only to constants of its own closure (`referencesWithin`), every constant of the
 module is attributed to it and is the copy this environment keeps (`uniquelyKept`), and every
-owned module the closure contains is reused too (`narrow`, one round for each candidate at
-most). Should the narrowed set still miss the last condition, nothing is reused. Every other
+owned module the closure contains is reused too. The last condition removes each candidate
+(`candidates`) whose closure contains an owned module that is not a candidate; the closure of
+every owned module of a kept candidate's closure lies within that closure
+(`importClosure_trans`), so that module is kept as well and one pass settles the set. Every other
 owned module is replayed. A module of this environment's own request is reused under the same
 conditions, which happens only when an earlier environment loaded it before its own did (claimed
 libraries that import one another). `mem_reusedModules` states this contract. -/
 def reusedModules (env : Environment) (origins : Array RegulaPolicy.ModuleOrigin)
     (owned : Array Name) (priors : Array PriorAdmission) : Array Name :=
-  let here := originIndex origins
-  let earlier := indexPriors priors
-  let settled := owned.filterMap fun m =>
-    (offeredClosure earlier here m).bind fun closure =>
-      if referencesWithin env m closure && uniquelyKept env m then some (m, closure) else none
+  let settled := candidates env origins owned priors
   let ownedSet := Std.HashSet.ofList owned.toList
-  let kept := narrow ownedSet settled.size settled
-  if kept.all (closureWithin ownedSet (Std.HashSet.ofList (kept.map (·.1)).toList)) then
-    kept.map (·.1)
-  else #[]
+  (settled.filter
+    (closureWithin ownedSet (Std.HashSet.ofList (settled.map (·.1)).toList))).map (·.1)
 
 /-- Every reused module is an owned module that some prior offers over the import closure it has
 here, whose declarations refer only to that closure, whose constants are uniquely kept here, and
@@ -229,37 +508,27 @@ theorem mem_reusedModules {env : Environment} {origins : Array RegulaPolicy.Modu
         origin.name ∈ reusedModules env origins owned priors := by
   unfold reusedModules at h ⊢
   simp only at h ⊢
-  split at h
-  · rename_i hall
-    simp only [hall, ↓reduceIte]
-    obtain ⟨⟨m', closure⟩, hkept, rfl⟩ := Array.mem_map.mp h
-    have hsettled := mem_of_mem_narrow hkept
-    obtain ⟨a, ha, hf⟩ := Array.mem_filterMap.mp hsettled
-    cases ho : offeredClosure (indexPriors priors) (originIndex origins) a with
-    | none => simp [ho] at hf
-    | some found =>
-      simp only [ho, Option.bind_some] at hf
-      split at hf
-      · rename_i hrefs
-        obtain ⟨hrefs, hunique⟩ := Bool.and_eq_true_iff.mp hrefs
-        simp only [Option.some.injEq, Prod.mk.injEq] at hf
-        obtain ⟨rfl, rfl⟩ := hf
-        obtain ⟨hclosure, entry, hentry, hm, hc⟩ := offeredClosure_eq_some.mp ho
-        obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hentry
-        refine ⟨ha, found, hclosure, hrefs, hunique, ⟨prior, hprior, hm, hc⟩, ?_⟩
-        intro origin horigin howned
-        have hw := Array.all_eq_true'.mp hall _ hkept
-        simp only [closureWithin, Array.all_eq_true', Bool.or_eq_true, Bool.not_eq_eq_eq_not,
-          Bool.not_true, Std.HashSet.contains_ofList, List.contains_iff_mem,
-          Array.mem_toList_iff] at hw
-        exact (hw origin horigin).resolve_left (by simpa using howned)
-      · simp at hf
-  · simp at h
+  obtain ⟨entry, hkept, rfl⟩ := Array.mem_map.mp h
+  obtain ⟨hsettled, hwithin⟩ := Array.mem_filter.mp hkept
+  obtain ⟨ha, hclosure, hrefs, hunique, hprior⟩ := mem_candidates hsettled
+  refine ⟨ha, entry.2, hclosure, hrefs, hunique, hprior, fun origin horigin howned => ?_⟩
+  have hname := closureWithin_iff.mp hwithin origin horigin
+    (Std.HashSet.mem_ofList.mpr (by simpa using howned))
+  rw [Std.HashSet.mem_ofList, List.contains_iff_mem, Array.mem_toList_iff] at hname
+  obtain ⟨other, hother, hotherName⟩ := Array.mem_map.mp hname
+  refine Array.mem_map.mpr ⟨other, Array.mem_filter.mpr ⟨hother, ?_⟩, hotherName⟩
+  obtain ⟨-, hotherClosure, -⟩ := mem_candidates hother
+  simp only [hotherName] at hotherClosure
+  exact closureWithin_iff.mpr fun inner hinner hinnerOwned =>
+    closureWithin_iff.mp hwithin inner
+      (importClosure_trans (originIndex_keyed origins) hclosure horigin hotherClosure inner
+        hinner) hinnerOwned
 
 /-- Whether a report's admission reused only what `priors` offered: each reused module is one a
 prior offers over the import closure the report's own module origins give it, and each key the
 receipt requires in a reused module (a module of the report's own request) is one such a prior
-admitted. -/
+admitted. The priors offering a module over that closure are selected once, and their admitted
+keys are collected only for a module the receipt requires a key in. -/
 def reuseJustified (priors : Array PriorAdmission) (report : ProducerReport.Environment) :
     Bool :=
   let here := originIndex report.moduleOrigins
@@ -270,11 +539,12 @@ def reuseJustified (priors : Array PriorAdmission) (report : ProducerReport.Envi
       match importClosure here m with
       | none => false
       | some closure =>
-        earlier.any (fun entry =>
-          entry.1.modules.contains m && importClosure entry.2 m == some closure) &&
-        receipt.required.all fun key => key.1 != m || earlier.any fun entry =>
-          entry.1.modules.contains m && importClosure entry.2 m == some closure &&
-            entry.1.admitted.contains key
+        let offering := earlier.filter fun entry =>
+          entry.1.modules.contains m && importClosure entry.2 m == some closure
+        let keys := receipt.required.filter (·.1 == m)
+        !offering.isEmpty && (keys.isEmpty ||
+          let admitted := Std.HashSet.ofList (offering.flatMap (·.1.admitted)).toList
+          keys.all admitted.contains)
 
 /-- An accepted report reused only modules that some prior offers over the import closure the
 report's own module origins give them, and every key its receipt requires in a reused module is
@@ -293,16 +563,32 @@ theorem reuseJustified_sound {priors : Array PriorAdmission} {report : ProducerR
   cases hc : importClosure (originIndex report.moduleOrigins) m with
   | none => simp [hc] at hmod
   | some closure =>
-    simp only [hc, Bool.and_eq_true, Array.any_eq_true', Array.all_eq_true',
-      Array.contains_eq_mem, decide_eq_true_eq, beq_iff_eq, Bool.or_eq_true, bne_iff_ne,
-      ne_eq] at hmod
-    obtain ⟨⟨entry, hentry, hmem, hsame⟩, hkeys⟩ := hmod
-    obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hentry
+    simp only [hc, Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true]
+      at hmod
+    obtain ⟨hoffering, hkeys⟩ := hmod
+    have offered : ∀ entry ∈ (indexPriors priors).filter (fun entry =>
+        entry.1.modules.contains m && importClosure entry.2 m == some closure),
+        ∃ prior ∈ priors, entry.1 = prior ∧ m ∈ prior.modules ∧
+          importClosure (originIndex prior.origins) m = some closure := by
+      intro entry hentry
+      obtain ⟨hentry, hoffers⟩ := Array.mem_filter.mp hentry
+      obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hentry
+      simp only [Bool.and_eq_true, Array.contains_eq_mem, decide_eq_true_eq, beq_iff_eq]
+        at hoffers
+      exact ⟨prior, hprior, rfl, hoffers.1, hoffers.2⟩
+    obtain ⟨entry, hentry⟩ := Array.isEmpty_eq_false_iff_exists_mem.mp hoffering
+    obtain ⟨prior, hprior, -, hmem, hsame⟩ := offered entry hentry
     refine ⟨closure, rfl, ⟨prior, hprior, hmem, hsame⟩, fun key hkey hkm => ?_⟩
-    rcases hkeys key hkey with hne | ⟨entry, hentry, ⟨hmem, hsame⟩, hadmitted⟩
-    · exact absurd hkm hne
-    · obtain ⟨prior, hprior, rfl⟩ := Array.mem_map.mp hentry
-      exact ⟨prior, hprior, hmem, hsame, hadmitted⟩
+    have hkeyOf : key ∈ receipt.required.filter (·.1 == m) :=
+      Array.mem_filter.mpr ⟨hkey, beq_iff_eq.mpr hkm⟩
+    rcases hkeys with hnone | hall
+    · rw [Array.isEmpty_iff.mp hnone] at hkeyOf
+      simp at hkeyOf
+    · have hadmitted := Array.all_eq_true'.mp hall key hkeyOf
+      rw [Std.HashSet.contains_ofList, List.contains_iff_mem, Array.mem_toList_iff] at hadmitted
+      obtain ⟨entry, hentry, hadmitted⟩ := Array.mem_flatMap.mp hadmitted
+      obtain ⟨prior, hprior, hsource, hmem, hsame⟩ := offered entry hentry
+      exact ⟨prior, hprior, hmem, hsame, hsource ▸ hadmitted⟩
 
 /-! ## What an environment offers the environments after it
 
@@ -491,10 +777,12 @@ def offer (owned : NameSet) (frozen : Std.HashMap Name String) (completed : Comp
   let offered := completed.receipt.modules.filter fun m =>
     !completed.receipt.shared.contains m && !completed.receipt.reused.contains m &&
       frozenClosure owned frozen index m
-  if offered.isEmpty then none else some {
-    modules := offered
-    admitted := completed.receipt.admitted.filter fun key => offered.contains key.1
-    origins := completed.origins }
+  if offered.isEmpty then none else
+    let names := Std.HashSet.ofList offered.toList
+    some {
+      modules := offered
+      admitted := completed.receipt.admitted.filter fun key => names.contains key.1
+      origins := completed.origins }
 
 /-- The offers of several completed admissions (`offer`). -/
 def offers (owned : NameSet) (frozen : Std.HashMap Name String) (completed : Array Completed) :
@@ -788,74 +1076,6 @@ theorem Reach.tail {find : Name → Option ConstantInfo} {n x y : Name} (h : Rea
   induction h with
   | refl => exact .step hy (.refl y)
   | step hm _ ih => exact .step hm (ih hy)
-
-/-- Push `m` onto the pending names unless it was seen before. -/
-private def pushNew (acc : List Name × Std.HashSet Name) (m : Name) :
-    List Name × Std.HashSet Name :=
-  if acc.2.contains m then acc else (m :: acc.1, acc.2.insert m)
-
-/-- `pushNew` leaves a seen name's state unchanged. -/
-private theorem pushNew_seen {p : List Name} {s : Std.HashSet Name} {m : Name}
-    (h : s.contains m = true) : pushNew (p, s) m = (p, s) := by
-  simp [pushNew, h]
-
-/-- `pushNew` pushes and records an unseen name. -/
-private theorem pushNew_unseen {p : List Name} {s : Std.HashSet Name} {m : Name}
-    (h : ¬ s.contains m = true) : pushNew (p, s) m = (m :: p, s.insert m) := by
-  simp [pushNew, h]
-
-/-- What folding `pushNew` over `names` does to the pending names `p` and the seen names `s`. -/
-private theorem foldl_pushNew (names p : List Name) (s : Std.HashSet Name) :
-    (∀ x, x ∈ (names.foldl pushNew (p, s)).2 ↔ x ∈ s ∨ x ∈ names) ∧
-    (∀ x ∈ (names.foldl pushNew (p, s)).1, x ∈ p ∨ x ∈ names) ∧
-    (∀ x ∈ p, x ∈ (names.foldl pushNew (p, s)).1) ∧
-    (∀ x ∈ (names.foldl pushNew (p, s)).2, x ∈ s ∨ x ∈ (names.foldl pushNew (p, s)).1) := by
-  induction names generalizing p s with
-  | nil => exact ⟨by simp, by simp, by simp, fun x hx => .inl hx⟩
-  | cons m names ih =>
-    simp only [List.foldl_cons]
-    by_cases hm : s.contains m
-    · rw [pushNew_seen hm]
-      obtain ⟨h1, h2, h3, h4⟩ := ih p s
-      have hms : m ∈ s := Std.HashSet.mem_iff_contains.mpr hm
-      refine ⟨fun x => ?_, fun x hx => ?_, h3, h4⟩
-      · rw [h1 x, List.mem_cons]
-        constructor
-        · rintro (hx | hx)
-          · exact .inl hx
-          · exact .inr (.inr hx)
-        · rintro (hx | rfl | hx)
-          · exact .inl hx
-          · exact .inl hms
-          · exact .inr hx
-      · rcases h2 x hx with hx | hx
-        · exact .inl hx
-        · exact .inr (List.mem_cons_of_mem _ hx)
-    · rw [pushNew_unseen hm]
-      obtain ⟨h1, h2, h3, h4⟩ := ih (m :: p) (s.insert m)
-      refine ⟨fun x => ?_, fun x hx => ?_, fun x hx => h3 x (List.mem_cons_of_mem _ hx),
-        fun x hx => ?_⟩
-      · rw [h1 x, Std.HashSet.mem_insert, List.mem_cons, beq_iff_eq]
-        constructor
-        · rintro ((rfl | hx) | hx)
-          · exact .inr (.inl rfl)
-          · exact .inl hx
-          · exact .inr (.inr hx)
-        · rintro (hx | rfl | hx)
-          · exact .inl (.inr hx)
-          · exact .inl (.inl rfl)
-          · exact .inr hx
-      · rcases h2 x hx with hx | hx
-        · rcases List.mem_cons.mp hx with rfl | hx
-          · exact .inr List.mem_cons_self
-          · exact .inl hx
-        · exact .inr (List.mem_cons_of_mem _ hx)
-      · rcases h4 x hx with hx | hx
-        · rcases Std.HashSet.mem_insert.mp hx with hx | hx
-          · rw [← beq_iff_eq.mp hx]
-            exact .inr (h3 m List.mem_cons_self)
-          · exact .inl hx
-        · exact .inr hx
 
 /-- Expand the `pending` names, recording in `seen` every name ever pushed. It returns the seen
 names once nothing is pending, or `none` when `fuel` runs out first. -/

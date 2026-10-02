@@ -74,8 +74,10 @@ its claimed executables' roots), and each claimed executable has its own `execut
 with its own `modules` and `report`. A report's `admission` also lists as `reused` the modules
 its environment did not replay because a library's environment admitted them over the identical
 import closure; a library's own report lists the modules of the claimed libraries it imports
-there. The environment that replayed a module is one whose `required` holds a key of that module
-and whose `reused` does not list it; `modules` does not identify it, since it lists every owned
+there. The environment that replayed a module with at least one safe, total constant (neither
+`unsafe` nor `partial`) is one whose `required` holds a key of that module and whose `reused`
+does not list it. A module with no such constant has no key, so the result does not identify the
+environment that replayed it. `modules` does not identify it either, since it lists every owned
 module the environment did not reuse, loaded or not.
 Where claimed libraries import one another, `reused` can hold one of the report's own claimed
 modules, which an earlier environment replayed; `required` and `admitted` then keep that module's
