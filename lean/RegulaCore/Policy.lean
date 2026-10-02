@@ -76,6 +76,9 @@ structure PolicyScope where
 def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
 /-- The `_unsafe_rec` helpers admitted as generated roles (`Roles.helpers`). -/
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers
+/-- The separately authenticated unsafe constructor-index wrappers. -/
+def PolicyScope.constructorHelpers (s : PolicyScope) : Array Lean.Name :=
+  s.roles.constructorHelpers
 
 /-- A transcript-coordinate check over the declaration inventory. The operational
 adapter supplies `Frontend.validateCoordinates`, which runs `checked_coordinates`. -/
@@ -303,7 +306,7 @@ theorem subject_contract : SubjectContract subject :=
   checked_subject.evidence
 
 /-- A member with a partial parent always has a finding, for every claim: it is `partial` and,
-by `RegulaPolicy.partialParent_not_authorized`, not an authorized recursion helper, so
+by `RegulaPolicy.Roles.partialParent_not_safetyHelper`, in neither generated safety family, so
 `SafetyOK` fails, and a native axiom (`NativeAxiomShape`) is never partial. Its finding names
 that parent (`subject_contract`). -/
 theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope : PolicyScope)
@@ -314,8 +317,7 @@ theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope 
   rw [ruleForMember_eq, Ne, (ruleFor_contract decl claim scope).1,
     RegulaPolicy.policyFor_none_iff]
   rintro ⟨_, ok⟩
-  have notHelper := RegulaPolicy.partialParent_not_authorized unique member hp parent
-  rw [← scope.roles.helpers_exact] at notHelper
+  have notHelper := scope.roles.partialParent_not_safetyHelper member hp parent
   rcases ok with ⟨_, native, _⟩ | ⟨_, _, _, safety, _⟩
   · rw [scope.roles.native_exact] at native
     obtain ⟨a, ha, hname, shape, _⟩ :=

@@ -166,7 +166,7 @@ private def cases : Array Case := #[
     body := "def left (n : Nat) := n\ndef right (n : Nat) := n\n" ++
       "@[csimp] theorem forward : left = right := rfl\n" ++
       "theorem backward : right = left := rfl\n" ++
-      "-- reverse registration\ndef entry (n : Nat) := left n\n"
+      "def entry (n : Nat) := left n\n-- reverse registration\n"
     before := "-- reverse registration", after := "attribute [csimp] backward"
     expected := #["replacement-only cycle"], reason := "execution-unresolved" },
   { name := "unsupported-history-evaluator"

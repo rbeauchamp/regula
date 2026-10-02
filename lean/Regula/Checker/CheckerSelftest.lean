@@ -324,6 +324,17 @@ private def loadSourceLayout (repo : FilePath) : IO SourceLayout := do
         "self-test: package source directory must stay inside the copied repository"
     return { relativeDir, project := ← structuralProject manifest ws }
 
+private inductive ConstructorIndexProbe where
+  | first
+  | second
+
+/-- The actual compiler's generated shape, observed while compiling this diagnostic.
+This selects an exact fixture expectation; it supplies no policy authorization. -/
+private def constructorIndexReplacements : Bool := by_elab do
+  let base := Lean.mkCtorIdxName ``ConstructorIndexProbe
+  return Lean.toExpr (Lean.Compiler.getImplementedBy? (← Lean.getEnv) base ==
+    some (base.str "_impl"))
+
 private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
     (Array FixtureSpec) := do
   let path := (repo / layout.relativeDir) / "Fixtures" / "fixtures.json"
@@ -362,7 +373,16 @@ private def loadFixtureManifest (layout : SourceLayout) (repo : FilePath) : IO
             | .absent => absent))
     let reasons ← match spec.getObjVal? "reasons" with
       | .error _ => pure #[]
-      | .ok value => jsonStringArray s!"{moduleName}.reasons" value
+      | .ok value =>
+        match value.getArr? with
+        | .ok _ => jsonStringArray s!"{moduleName}.reasons" value
+        | .error _ => do
+          IO.ofExcept <| PolicyCodec.exactFields value ["constructor-index", "no-constructor-index"]
+          let withHelpers ← jsonStringArray s!"{moduleName}.reasons.constructor-index"
+            (← IO.ofExcept (value.getObjVal? "constructor-index"))
+          let withoutHelpers ← jsonStringArray s!"{moduleName}.reasons.no-constructor-index"
+            (← IO.ofExcept (value.getObjVal? "no-constructor-index"))
+          pure (if constructorIndexReplacements then withHelpers else withoutHelpers)
     if reason.isSome && !reasons.isEmpty then
       throw <| IO.userError s!"{moduleName}: use exactly one of reason or reasons"
     let reasons := match reason with

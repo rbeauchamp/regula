@@ -32,8 +32,8 @@ def KnownDependencies (d : Declaration) (native : Array Name) : Prop :=
 instance (d : Declaration) (native : Array Name) : Decidable (KnownDependencies d native) := by
   unfold KnownDependencies; infer_instance
 
-/-- Authored unsafe/partial code is refused; the only data-level exception is an
-inventory-validated recursive helper. The public theorem substitutes authenticated roles. -/
+/-- Authored unsafe/partial code is refused; the data-level exceptions are inventory-validated
+recursion and constructor-index helpers. The public theorem substitutes authenticated roles. -/
 def SafetyOK (d : Declaration) (helpers : Array Name) : Prop :=
   (d.isUnsafe = false ∧ d.isPartial = false) ∨ d.name ∈ helpers
 instance (d : Declaration) (helpers : Array Name) : Decidable (SafetyOK d helpers) := by
