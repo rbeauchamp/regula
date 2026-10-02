@@ -76,8 +76,10 @@ runs:
         # or duplicate Mathlib download archives. No cross-pin restore fallback. The root
         # `regula` package requires nothing; the Mathlib package in `audit/` pins every
         # dependency here and names the root `.lake/packages` as its packages directory.
-        path: .lake/packages
-        key: lean-dependencies-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ hashFiles('audit/lake-manifest.json', 'audit/lakefile.lean') }}
+        path: |
+          .lake/packages
+          ~/.cache/mathlib-packages
+        key: lean-dependencies-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ steps.dependency-plan.outputs.mode == 'source' && hashFiles('audit/**', 'docs/**', 'website/**/*.lean', 'lean/Regula/DependencyScope.lean', 'lean/RegulaProvision.lean', 'lakefile.lean') || hashFiles('audit/lake-manifest.json', 'audit/lakefile.lean') }}
 
     # Run from the repository root: `cache get` unpacks Mathlib's dependencies' archives
     # relative to its working directory (`.lake/packages/<name>`), not the `audit/`
@@ -92,7 +94,9 @@ runs:
       if: inputs.dependencies == 'true' && steps.dependencies.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: .lake/packages
+        path: |
+          .lake/packages
+          ~/.cache/mathlib-packages
         key: ${{ steps.dependencies.outputs.cache-primary-key }}
 
     # The website package's own dependencies (Verso, SubVerso, MD4Lean, illuminate), pinned by
