@@ -395,8 +395,9 @@ def guide : RuleId → Guide
       limitations := [
         "A helper is not admitted where the regeneration does not reproduce its base. The \
           regeneration is given the helper's value and its base's termination argument, and it \
-          reruns Lean's structural and well-founded compilers at the end of the module with Lean's \
-          default options and the toolchain's own rules, not with the options, rules and \
+          reruns Lean's structural and well-founded compilers in the environment the audit \
+          inspects (at the end of the audit) with Lean's default options and the toolchain's own \
+          rules, not with the options, rules and \
           attributes in force where the definition was compiled. The forms known to fall outside \
           are a `partial_fixpoint` definition, a base compiled through a fixpoint combinator other \
           than `WellFounded.fix` and `WellFounded.Nat.fix`, a base whose compilation used a \
