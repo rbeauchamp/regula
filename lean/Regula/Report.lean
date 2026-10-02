@@ -197,11 +197,16 @@ instance : FromJson RegulaPolicy.ToolchainOrigin := ⟨fun j => do
   RegulaPolicy.admitToolchainOrigin (← j.getObjValAs? Name "module")
     (← j.getObjValAs? String "actual") (← j.getObjValAs? String "expected")⟩
 
+/- The four objects of a root's account list their members in the order of their keys, as the
+result reader builds them (`Regula.SharedExecution`; `Regula.ExecutionShare` proves each codec
+builds the reader's object), so an account this codec writes, one the reader rebuilds and one the
+JSON parser reads are the same tree. This module is in the probe's import closure, so it does not
+import the reader. -/
 instance : ToJson ExecutionBoundary := ⟨fun b => Json.mkObj [
-  ("occurrence", toJson b.occurrence), ("name", toJson b.name), ("module", toJson b.module),
-  ("boundary", toJson b.boundary), ("correspondence", toJson b.correspondence),
+  ("boundary", toJson b.boundary), ("compilerCallers", toJson b.compilerCallers),
+  ("correspondence", toJson b.correspondence), ("evidence", toJson b.evidence),
+  ("module", toJson b.module), ("name", toJson b.name), ("occurrence", toJson b.occurrence),
   ("owned", toJson b.owned), ("replacement", toJson b.replacement),
-  ("evidence", toJson b.evidence), ("compilerCallers", toJson b.compilerCallers),
   ("toolchainOrigin", toJson b.toolchainOrigin?)]⟩
 instance : FromJson ExecutionBoundary := ⟨fun j => do
   exactFields j
@@ -224,13 +229,21 @@ instance : FromJson ExecutionBoundary := ⟨fun j => do
 /-- The execution account of one owned executable root (`RegulaPolicy.ExecutionRoot`), with
 the exact-field JSON codecs of it, its closure and its visits. -/
 abbrev ExecutionRoot := RegulaPolicy.ExecutionRoot
-deriving instance ToJson for RegulaPolicy.ExecutionVisit
+instance : ToJson RegulaPolicy.ExecutionVisit := ⟨fun v => Json.mkObj [
+  ("moduleName", toJson v.moduleName), ("name", toJson v.name), ("parent", toJson v.parent)]⟩
 instance : FromJson RegulaPolicy.ExecutionVisit := ⟨fun j => do
   exactFields j ["name", "moduleName", "parent"]
   return { name := ← j.getObjValAs? _ "name"
            moduleName := ← j.getObjValAs? _ "moduleName"
            parent := ← j.getObjValAs? _ "parent" }⟩
-deriving instance ToJson for RegulaPolicy.ExecutionClosure
+instance : ToJson RegulaPolicy.ExecutionClosure := ⟨fun c => Json.mkObj [
+  ("activeSimplificationEdges", toJson c.activeSimplificationEdges),
+  ("candidateEdges", toJson c.candidateEdges),
+  ("currentReplacementEdges", toJson c.currentReplacementEdges),
+  ("helperEdges", toJson c.helperEdges), ("historyEdges", toJson c.historyEdges),
+  ("logicalEdges", toJson c.logicalEdges), ("nodes", toJson c.nodes),
+  ("requiredCode", toJson c.requiredCode), ("unavailableCode", toJson c.unavailableCode),
+  ("visits", toJson c.visits)]⟩
 instance : FromJson RegulaPolicy.ExecutionClosure := ⟨fun j => do
   exactFields j ["nodes", "visits", "logicalEdges", "candidateEdges", "historyEdges",
     "currentReplacementEdges", "activeSimplificationEdges", "helperEdges", "requiredCode",
@@ -247,7 +260,10 @@ instance : FromJson RegulaPolicy.ExecutionClosure := ⟨fun j => do
     requiredCode := ← j.getObjValAs? _ "requiredCode"
     unavailableCode := ← j.getObjValAs? _ "unavailableCode"
   }⟩
-deriving instance ToJson for RegulaPolicy.ExecutionRoot
+instance : ToJson RegulaPolicy.ExecutionRoot := ⟨fun r => Json.mkObj [
+  ("boundaries", toJson r.boundaries), ("closure", toJson r.closure),
+  ("compilerEdges", toJson r.compilerEdges), ("module", toJson r.module),
+  ("name", toJson r.name), ("unresolved", toJson r.unresolved)]⟩
 instance : FromJson RegulaPolicy.ExecutionRoot := ⟨fun j => do
   exactFields j ["name", "module", "boundaries", "unresolved", "compilerEdges", "closure"]
   return {

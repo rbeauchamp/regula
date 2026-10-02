@@ -67,7 +67,7 @@ unsafe def inspectNegative (repo path output : FilePath) : IO UInt32 := do
           ("diagnosticOnly", toJson true), ("compilerOutput", toJson compilation.process.output),
           ("report", inspected.report.resultJson),
           ("frontendTranscripts",
-            toJson (inspected.transcripts.map Frontend.transcriptResultJson))], findings)
+            toJson (inspected.transcripts.map (Frontend.transcriptResultJson ·)))], findings)
   ResultProtocol.write output scopeJson .freshFile
     (if findings.isEmpty then .classified else .rejected) findings
     (ResultProtocol.stagesOf .freshFile) [.discovery, .build, .admission, .declarationPolicy]

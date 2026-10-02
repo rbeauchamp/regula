@@ -173,7 +173,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 7, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 8, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -188,7 +188,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 7:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 8:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -207,10 +207,11 @@ metadata, not authenticated binary identity.
   `acceptance` and `documentationAcceptance`, the snapshot's sources and an environment's
   `fileSource`) is the index of its text there. Checker code builds and reads the
   document with the text in each member and `sourceTexts` `null`; `ResultProtocol.writeDocument`
-  writes its `SourceTexts.intern`, and each reader that decodes a diagnostic or reads a text
-  (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the file through
-  `SourceTexts.expand`, which refuses a list that is not distinct strings and an index outside
-  it; a rule-example record keeps that expanded document. `SourceTexts.expand_intern` proves
+  writes the `SourceTexts.intern` of it with its execution accounts written (next item), and
+  each reader that decodes a diagnostic or reads a text (`ResultProtocol.readDocument`, the
+  qualification drivers' `readResult`) first takes the file through `SourceTexts.expand`, which
+  refuses a list that is not distinct strings and an index outside it; a rule-example record
+  keeps the document so read. `SourceTexts.expand_intern` proves
   `expand` returns exactly the document `intern` was given, `intern_table` that the written list
   has no text twice, exactly the texts of the document's `sourceText` members, and that every
   such member of the written document is an index, and `intern_isOk_iff` that `intern` writes
@@ -221,9 +222,57 @@ metadata, not authenticated binary identity.
   carries one index for each member. That is an argument from the construction, not a theorem
   about byte counts, and it bounds source text only: a string elsewhere in the document is
   written where it occurs. Project configuration text stays inline in `request`, `effective` and
-  `scope.configuration`. `scope` also records every owned declaration with its kernel type as
-  text, and each execution root's account lists its own reached names, edges and boundaries, so
-  that member grows with the declarations and with the roots times what each reaches.
+  `scope.configuration`.
+- **Execution accounts:** since schema 8 a result file can hold each environment report's
+  `execution` in a shared form: `names` (every name its roots reach, in the order of
+  `canonicalNames`), `modules` and `nameModules` (each name's module), the seven edge channels
+  (`compilerEdges`, `logicalEdges`, `candidateEdges`, `historyEdges`, `currentReplacementEdges`,
+  `activeSimplificationEdges`, `helperEdges`) as pairs of name indices, `boundaries` (each
+  boundary record once, with the index of its name as `node`), `unavailableCode`, and `roots`,
+  one entry per root. Checker code builds and reads the document with `execution` as an array of
+  complete root accounts (name, module, boundaries, unresolved paths, compiler edges and
+  closure), as before; `ResultProtocol.writeDocument` writes `SharedExecution.write` of it and
+  every reader (`ResultProtocol.readDocument`, the qualification drivers' `readResult`) takes the
+  file through `SharedExecution.read`. The reader (`SharedExecution.restore?`,
+  `SharedExecution.rebuildRoot`) derives a root's account from its entry: its visits are the walk
+  from the root over the edges the collector follows (`SharedExecution.walkLoop`); its reached
+  names are the visited ones; each channel's edges are those leaving a reached name; its required
+  code is the targets of its compiler edges, and the root if its entry says so; its boundaries
+  are its visited names' records in visit order, each with the reached names that call it. An
+  entry can instead hold a root's account as it is (`explicit`), which the writer uses for a
+  root whose account that derivation does not reproduce.
+  The writer proposes one shared form (`ExecutionShare.fitted`) and keeps it only if the reader
+  returns the logical value itself from it, decided by `SharedExecution.same`
+  (`same_eq`: a `true` answer is an equality); otherwise it writes the logical value as it is.
+  So `SharedExecution.expand_intern` and `read_write` hold for every `Json` value whatever is
+  proposed: `read` of the `Json` value the writer wrote is exactly the document the writer was
+  given. The law is about that written value, not about a file. A reader holds the parse of the
+  file's text, which the JSON implementation is trusted, as for earlier schemas, to give the
+  members of the written value, but in general not its object trees: the printer lists an
+  object's members in key order and the parser inserts them in that order, while `Json.mkObj`
+  inserts them as listed. So `read_write` does not apply to the parsed value, and the checker's
+  and the qualification oracles' theorems are about the document `read` returns for it. That
+  this document has the members of the writer's is not proved and does not reduce to a JSON
+  round trip. It is observed: `RegistryChecks` compares the two on one account (`expand` of a
+  parsed shared form with the built account), and the `history` qualification reads the
+  collector's real output this way and validates the document it gets, without the writer's to
+  compare it with. That the proposal is kept, and so that the file is small, is not a theorem:
+  it holds when the collector's accounts have the form the reader derives, which
+  `Probe.executionWalk` is written to produce (it queues names in the order of
+  `canonicalNames`), and when a rebuilt account is the same tree as the logical one, for which
+  the account codecs and the reader list each object's members in key order, as the JSON parser
+  inserts them. The `history` qualification and `RegistryChecks` observe both. A kept proposal
+  whose every root entry is derived holds each reached name, edge and boundary record once per
+  environment and a constant-size entry per root, where the logical member repeats them for
+  every root that reaches them.
+- **Kernel types:** since schema 8 a result file carries a declaration's `type`, the `repr` of
+  its kernel type expression, in a report's `declarations` and in a frontend transcript's
+  `addedDeclarations` only when the audit is run with `axiomGate --kernel-types`, an option
+  `lake lint` does not take (`ProducerReport.declarationResultJson`,
+  `Frontend.commandResultJson`); `prettyType` is the type as Lean prints it. The in-memory report
+  and worker transport always keep `type`, which the role decisions compare. The producer
+  qualification runs its controls with `--kernel-types`, because its oracle compares the kernel
+  expression, which two different types that print alike would not show in `prettyType`.
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does
@@ -303,9 +352,11 @@ metadata, not authenticated binary identity.
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
   implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
-  per-environment `execution` counts, `fences` by expectation, `trusted` mechanisms and the run's
-  `unresolvedReview` identifiers. A completed envelope's `mode` is the account's, and a listed
-  identifier names an open obligation, not a completed review.
+  per-environment `executionSummary` counts (named `execution` before schema 8, when the writer
+  began storing every `execution` member's root accounts once), `fences` by expectation,
+  `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's
+  `mode` is the account's, and a listed identifier names an open obligation, not a completed
+  review.
 - **Snapshot rendering:** `acceptance.snapshot` renders the audited sources in full, the
   configuration by URI and each dependency by package, pinned revision and input-scoped `dirty`
   bit (a dirty or path dependency as `{package, revision, dirty: true}`, with no content

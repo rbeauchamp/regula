@@ -35,7 +35,9 @@ private def beforeBytes (source marker : String) : Nat :=
   (source.splitOn marker).head!.utf8ByteSize
 
 /-- Build all preserved source-producer requirements. `theoremType` is the first
-observed type shared across invocations; equality is checked, never parsed from prose. -/
+observed type shared across invocations; equality is checked, never parsed from prose. It is the
+declaration's `type`, the `repr` of its kernel type expression, which a result carries only when
+the audit was asked for it (`axiomGate --kernel-types`): a report without it is refused. -/
 def requirements (report : Json) (code : Nat) (rule mode source : String)
     (fixed : Bool) (theoremType : Json) : Except String (List Check) := do
   let account ← account report

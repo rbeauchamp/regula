@@ -76,6 +76,15 @@ def check : IO Unit := do
           continue
         IO.ofExcept (RegulaQualification.History.checked_validation.run report result.exitCode.toNat
           mode source (invocation == "file") (phase == "unsupported"))
+        -- `report` is the document the reader rebuilt (`readResult`). The file itself holds the
+        -- account in the shared form, every root as an entry its account is derived from: that
+        -- the collector's accounts have the form the reader derives is not proved, so it is
+        -- observed here on the real collector's output.
+        let file ← readJson output
+        let written ← IO.ofExcept do
+          (← RegulaQualification.History.account file (invocation == "file")).getObjVal? "execution"
+        requireChecks [⟨"execution account stored once, every root derived",
+          Regula.SharedExecution.derivedOnly written⟩]
         if invocation == "file" && phase == "positive" then
           let scope ← IO.ofExcept (report.getObjVal? "scope")
           let account ← IO.ofExcept (scope.getObjVal? "report")
