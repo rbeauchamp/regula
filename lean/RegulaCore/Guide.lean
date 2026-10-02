@@ -851,8 +851,11 @@ def guide : RuleId → Guide
           one finding that names both and one counted boundary: the target of a `csimp` \
           candidate or of an `implemented_by` replacement (such as the implementation Mathlib's \
           `compile_inductive%` registers for a recursor), or the helper Lean compiles a \
-          `partial def` through. The account in `--json-out` keeps both boundaries, and \
-          `--verbose` lists the definition under its boundary as its `implementation`.",
+          `partial def` through. A second record of one trusted boundary (the same constant, \
+          kind, replacement and toolchain origin, as two constants of one equality's type give \
+          a `csimp` candidate) is reported with the first in the same way. The account in \
+          `--json-out` keeps every record, and `--verbose` lists the definition under its \
+          boundary as its `implementation` and a later record as `restated`.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
           logical axioms and no extra premises."]
@@ -867,7 +870,8 @@ def guide : RuleId → Guide
           whose account contains it (`RegulaPolicy.project_boundary_reported`).",
         "Every such failure record is reported: as its boundary's own finding, or, for a \
           `partial` definition reported with the boundary that runs it, in that boundary's \
-          finding, which names it (`RegulaPolicy.failure_reported`). Every finding is a record \
+          finding, which names it, or, for a later record of a trusted boundary, in the finding \
+          of the first record (`RegulaPolicy.failure_reported`). Every finding is a record \
           (`RegulaPolicy.executionFindings_sound`), and the findings are empty exactly when the \
           records are (`RegulaPolicy.executionFindings_empty_iff`).",
         "Each toolchain-owned boundary of every environment an audit inspects is in exactly one \

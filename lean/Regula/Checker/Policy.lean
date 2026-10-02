@@ -55,9 +55,10 @@ abbrev admitExecution := RegulaPolicy.admitExecution
 abbrev ExecutionFailure := RegulaPolicy.ExecutionFailure
 
 /-- The findings the gate reports: the decision's records
-(`RegulaPolicy.executionFailureRecords`) with each `partial` implementation's record reported in
-the finding of the boundary that runs it (`RegulaPolicy.executionFindings`). Kind, root and order
-are the records' own, preserved by identity rather than by a second record type. -/
+(`RegulaPolicy.executionFailureRecords`) with each folded boundary's record (a later record of a
+trusted boundary, or a `partial` implementation) reported in the finding of the boundary it is
+reported with (`RegulaPolicy.executionFindings`). Kind, root and order are the records' own,
+preserved by identity rather than by a second record type. -/
 abbrev executionFindings := RegulaPolicy.executionFindings
 
 /-- One-line rendering of a single execution boundary, introduced by `label`. -/
@@ -116,10 +117,11 @@ def toolchainBaseJson (base : Array RegulaPolicy.ToolchainBoundary) : Lean.Json 
   Lean.Json.arr (base.map toolchainBoundaryJson)
 
 /-- The text lines of one execution account: each root with a boundary the toolchain does not
-own or an unresolved path, listing those boundaries and paths. A `partial` implementation that is
-reported with the boundary that runs it (`RegulaPolicy.ExecutionRoot.folded`) is listed under
-each boundary that carries it, as its `implementation`, not as a boundary of its own.
-Toolchain-owned boundaries are listed by `toolchainBaseLines` instead. -/
+own or an unresolved path, listing those boundaries and paths. A folded boundary
+(`RegulaPolicy.ExecutionRoot.folded`) is not listed as a boundary of its own: a later record of
+a trusted boundary is listed under the first record as `restated`, and a `partial` implementation
+under each boundary that carries it as its `implementation`. Toolchain-owned boundaries are
+listed by `toolchainBaseLines` instead. -/
 def executionAccountLines (inventory : ExecutionInventory) : Array String := Id.run do
   let mut lines : Array String := #[]
   for root in inventory.roots do
@@ -128,6 +130,8 @@ def executionAccountLines (inventory : ExecutionInventory) : Array String := Id.
       lines := lines.push s!"  execution root {root.name}"
       for boundary in reported do
         lines := lines.push s!"    {describeBoundary boundary}"
+        for restated in root.restatements boundary do
+          lines := lines.push s!"      {describeBoundaryAs "restated" restated}"
         for implementation in root.implementations boundary do
           lines := lines.push s!"      {describeBoundaryAs "implementation" implementation}"
       for item in root.unresolved do

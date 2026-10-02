@@ -440,8 +440,9 @@ def executionFailureLine (failure : RegulaPolicy.ExecutionFailure) : String :=
 
 /-- Required meaning of the rendered execution failures: line `k` renders the gate's
 finding `k` (`RegulaPolicy.executionFindings`), with no line added or dropped. The findings are
-the decision's records with each `partial` implementation's record reported in the finding of
-the boundary that runs it (`RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound`).
+the decision's records with each folded boundary's record (a later record of a trusted boundary,
+or a `partial` implementation) reported in the finding of the boundary it is reported with
+(`RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound`).
 The lines are empty exactly when `ExecutionOK` holds, so rendering cannot hide a failure. -/
 def ExecutionFailuresContract
     (render : RegulaPolicy.ExecutionInventory → RegulaPolicy.ExecutionClaim → Array String) :

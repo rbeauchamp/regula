@@ -355,10 +355,12 @@ metadata, not authenticated binary identity.
   toolchain's, the RG3002 diagnostic of the first names the second in its `detail`
   (`…, with its implementation NAME (partial-computation)`), and the second has no diagnostic
   and no count of its own, in text and JSON alike (`RegulaPolicy.executionFindings`,
-  `failure_reported`, `executionFindings_empty_iff`). The relation is read from the account's
-  `replacement` members and helper edges, not from a name. `scope` keeps both boundary records in
-  the root's account, and the decision's records (`executionFailureRecords`) one failure for
-  each.
+  `failure_reported`, `executionFindings_empty_iff`). A later record of one trusted boundary
+  (the same constant, kind, replacement and toolchain origin, as two constants of one equality's
+  type give a `csimp` candidate) likewise has no diagnostic and no count of its own. Both
+  relations are read from the account's members and helper edges, not from a name. `scope`
+  keeps every boundary record in the root's account, and the decision's records
+  (`executionFailureRecords`) one failure for each.
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,

@@ -140,7 +140,9 @@ private def cases : Array Case := #[
       "boundary CompilerPath.loop._unsafe_rec ["] },
   -- The registration is written after Mathlib's `compile_inductive%`: a `partial` copy of the
   -- reference, and a `partial` constant of the equality's type as its `csimp` lemma. It is a
-  -- copy of that construction, not a run of Mathlib's command.
+  -- copy of that construction, not a run of Mathlib's command. A second constant of the same
+  -- type gives the reference a second record of the same trusted boundary, which is reported
+  -- with the first: one finding and one counted boundary for the three records.
   { name := "csimp-partial-implementation"
     body := "def reference (n : Nat) := n\n-- registration\ndef entry (n : Nat) := reference n\n"
     before := "-- registration"
@@ -149,17 +151,19 @@ private def cases : Array Case := #[
       "  addAndCompile <| .mutualDefnDecl [{ reference with\n" ++
       "    name := `CompilerPath.implementation, hints := .opaque, safety := .partial,\n" ++
       "    all := [`CompilerPath.implementation] }]\n" ++
-      "  addDecl <| .mutualDefnDecl [{\n" ++
-      "    name := `CompilerPath.registered, levelParams := [],\n" ++
-      "    type := mkApp3 (mkConst ``Eq [.one]) reference.type\n" ++
-      "      (mkConst ``CompilerPath.reference) (mkConst `CompilerPath.implementation),\n" ++
-      "    value := mkConst `CompilerPath.registered, hints := .opaque, safety := .partial,\n" ++
-      "    all := [`CompilerPath.registered] }]\n" ++
+      "  for name in [`CompilerPath.registered, `CompilerPath.registeredAgain] do\n" ++
+      "    addDecl <| .mutualDefnDecl [{\n" ++
+      "      name, levelParams := [],\n" ++
+      "      type := mkApp3 (mkConst ``Eq [.one]) reference.type\n" ++
+      "        (mkConst ``CompilerPath.reference) (mkConst `CompilerPath.implementation),\n" ++
+      "      value := mkConst name, hints := .opaque, safety := .partial, all := [name] }]\n" ++
       "  Compiler.CSimp.add `CompilerPath.registered .global"
     expected := #["reaches CompilerPath.reference (compiler-simplification), with its " ++
         "implementation CompilerPath.implementation (partial-computation)",
       "implementation CompilerPath.implementation [partial-computation]",
-      "1 boundary(ies) (0 checked, 1 trusted)"]
+      "restated CompilerPath.reference [compiler-simplification]",
+      "1 boundary(ies) (0 checked, 1 trusted)",
+      "file audit: FAIL (1 violation(s), 0 incomplete finding(s))"]
     absent := #["reaches CompilerPath.implementation",
       "boundary CompilerPath.implementation ["]
     importLean := true },
