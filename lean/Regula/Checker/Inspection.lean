@@ -97,6 +97,25 @@ instance : FromJson ReportWorkerRequest := ⟨fun j => do
     publish := ← j.getObjValAs? _ "publish"
   }⟩
 
+/-- Request only the imported module graph, with the same source and search bindings as the
+declaration worker. This phase can refuse a scope but cannot admit declarations. -/
+structure ModuleGraphRequest where
+  /-- The exact modules assigned to one environment. -/
+  modules : Array Name
+  /-- The Lake-resolved module search path. -/
+  searchRoots : Array String
+  /-- The coordinator's captured source bytes. -/
+  sourceBindings : Array ProducerReport.SourceBinding
+  deriving ToJson
+
+instance : FromJson ModuleGraphRequest := ⟨fun j => do
+  Regula.Checker.PolicyCodec.exactFields j ["modules", "searchRoots", "sourceBindings"]
+  return {
+    modules := ← j.getObjValAs? _ "modules"
+    searchRoots := ← j.getObjValAs? _ "searchRoots"
+    sourceBindings := ← j.getObjValAs? _ "sourceBindings"
+  }⟩
+
 /-- One Lean environment the project audit loads for a claimed surface, in the order of
 `RegulaPolicy.SurfaceAssignment.environments`: the surface's library, or one claimed
 executable whose root module it loads without any other executable root. -/
