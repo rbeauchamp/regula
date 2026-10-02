@@ -431,13 +431,8 @@ private def runBinary (repo : FilePath) (name : String)
   runProcess repo (repo / ".lake" / "build" / "bin" / name).toString args
 
 private def runBinaryFrom (binaryRepo cwd : FilePath) (name : String)
-    (args : Array String) : IO ProcessResult := do
-  let binary := (binaryRepo / ".lake" / "build" / "bin" / name).toString
-  if ← timing.get then
-    runProcessShowing cwd binary args #[(timingVariable, some "1")]
-      (·.startsWith "verification phase ")
-  else
-    runProcess cwd binary args
+    (args : Array String) : IO ProcessResult :=
+  runProcess cwd (binaryRepo / ".lake" / "build" / "bin" / name).toString args
 
 /-- Exact verdict assessment for one fixture against gate (or gate-equivalent)
 output. The same function assesses real CLI output and the in-process batch
@@ -1321,9 +1316,13 @@ The copy claims `selfHostedManifestText`, so its gates build and inspect `Regula
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
-  let gate (label : String) (args : Array String := #["--incremental"]) :=
-    Regula.Checker.timedPhase s!"structural/self-hosted/{label}" <|
-      runBinaryFrom repo copy "axiomGate" args
+  let gate (label : String) (args : Array String := #["--incremental"]) := do
+    Regula.Checker.timedPhase s!"structural/self-hosted/{label}" do
+      if ← timing.get then
+        runProcessShowing copy (repo / ".lake" / "build" / "bin" / "axiomGate").toString
+          args #[(timingVariable, some "1")] (·.startsWith "verification phase ")
+      else
+        runBinaryFrom repo copy "axiomGate" args
   let appRoot := copy / layout.relativeDir / "AuditApp.lean"
   let originalRoot ← IO.FS.readFile appRoot
   let positive ← gate "positive" #[]
