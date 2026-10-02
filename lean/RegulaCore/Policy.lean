@@ -434,7 +434,7 @@ theorem executionRule_injective : Function.Injective executionRule := by
   intro a b h
   cases a <;> cases b <;> first | rfl | cases h
 
-/-- One failure's text: its registry rule's applicability and the decision's detail. -/
+/-- One finding's text: its registry rule's applicability and its detail. -/
 def executionFailureLine (failure : RegulaPolicy.ExecutionFailure) : String :=
   s!"{(descriptor (executionRule failure.id)).applicability}: {failure.detail}"
 

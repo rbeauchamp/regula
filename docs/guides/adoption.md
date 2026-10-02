@@ -512,8 +512,9 @@ per-environment counts, which earlier schemas also named `execution`, are
 `acceptance.account.executionSummary`. Its `boundaries`, `checked` and `trusted` count the
 boundaries reported on their own, as the text does: a `partial` implementation (a constant of
 `partial` definition safety, such as a `partial def`'s `_unsafe_rec` helper) is counted with the
-trusted boundary that names it as the code run in its place, and a later record of one trusted
-boundary of a root with the first, while a root's account above keeps every boundary record.
+trusted boundary that names it as the code run in its place where neither is the toolchain's,
+and a later record of one trusted boundary of a root with the first, while a root's account
+above keeps every boundary record.
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it
