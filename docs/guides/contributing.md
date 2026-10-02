@@ -125,7 +125,7 @@ reads the Audit libraries and the standard's Verso library through Lake, and use
 documentation scanners and Lean header parser to collect their Mathlib imports and those of
 the Markdown examples. Lake builds a generated executable with interpreter support, so it
 builds exported native objects for the complete transitive import closure. The planner itself
-uses a separate workspace with independent configuration and build caches, leaving the acceptance build cold. This is dependency setup;
+uses a separate workspace with independent configuration and build caches, leaving the root acceptance build cold; its Lake loads of the Audit and standard packages may write those packages' configuration caches. This is dependency setup;
 the acceptance commands still check all their sources and documentation.
 Source artifacts have a separate key containing their policy version and an import-source
 hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
@@ -196,13 +196,16 @@ coverage already obtained for the same inputs rather than repeating the same roo
 invocation. Diagnostics do not replace a failed acceptance run.
 
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on every pull request,
-every push to `main`, nightly and on dispatch. Its first job, `applies`
-(`lean --run lean/Regula/DiagnosticsGate.lean applies`), decides which of its jobs apply. It runs
+every push to `main`, nightly and on dispatch. Its first job, `compiler`, prepares the selected
+compiler. The next, `applies` (`lean --run lean/Regula/DiagnosticsGate.lean applies`), runs only
+once `compiler` succeeded and decides which of its jobs apply. It runs
 `producers`, `history`, `lint-driver` and the two shards each of `structural` and `execution` as
 parallel jobs, each with its own hard 420-second limit, on a pull request exactly when it changes
 one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
-fixture sources the structural and execution controls mutate, Lake configuration or manifests),
+fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
+the compiler and dependency setup: the installer, the provisioning program,
+`dependency-build-mode`, `.github/compiler-source.json` and the compiler-preparation workflow),
 and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
 passes exactly when `applies` succeeded and each of the other jobs passed and applies, or was
@@ -215,8 +218,8 @@ documentation, passes it without running a campaign
 where they feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
-as parallel jobs under the same limit when Lean sources, Lake configuration or manifests
-change, on every push to `main`, and nightly. They are not part of acceptance.
+as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
+that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
 
 ## Implementation and qualification layout
 
