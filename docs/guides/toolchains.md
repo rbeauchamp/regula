@@ -18,7 +18,7 @@ lake exe toolchain prepare lean-issue /absolute/path/to/new-regula-candidate
 For an installed release candidate, substitute its full selector, for example
 `leanprover/lean4:v4.35.0-rc3`. The command probes the selected compiler for its version and
 full commit, creates a detached Git worktree from the current commit, changes only the
-compiler declaration and `lean-toolchain`, and commits the candidate. It never installs a
+compiler declaration, its candidate marker and `lean-toolchain`, and commits the candidate. It never installs a
 toolchain, changes the caller's branch, or overrides the stable guard. The new worktree is
 retained for inspection, source adaptation, and ordinary Git worktree management.
 
@@ -35,7 +35,7 @@ From the original Regula checkout:
 lake exe toolchain qualify /absolute/path/to/new-regula-candidate
 ```
 
-This runs existing core checker campaigns with the candidate compiler: build, fixture policy,
+This runs an ordinary-invocation refusal control and existing core checker campaigns: build, fixture policy,
 producer boundaries, history, structural checks, execution checks, lint dispatch, and the
 operational self-audit. Each command has its own external 420-second limit. These are separate
 diagnostics, not partitions of repository acceptance. The immutable candidate commit and
@@ -44,15 +44,20 @@ the candidate's `.lake/regula-toolchain/` directory. A prior receipt is invalida
 probe or process begins. Build failure stops dependent campaigns; other failures remain in
 the receipt. A failure, timeout, missing command, or changed input prevents completion.
 
-The receipt has `grantsSupport: false`, including when all its campaigns complete. It records
-development observations, not a published support decision. Positive audit output inside a
-candidate campaign is a qualification control. It is not evidence that the compiler/checker
-combination is supported or that an unrelated Lean fix conforms. Mathlib, the Verso standard,
+The receipt has `grantsSupport: false`, including when all its campaigns complete. Ordinary
+candidate audit commands refuse. The driver selects the explicit diagnostic purpose
+(`REGULA_COMPILER_QUALIFICATION=1`) for its children; this does not enable supported PASS
+results. Candidate result files have an outer `status: unsupported`, `purpose:
+compiler-qualification`, and `grantsSupport: false`, with the detector result under
+`observation`. Their text labels accepted controls as diagnostic observations. Only diagnostic
+readers in that candidate invocation unpack the observation; ordinary readers refuse it.
+These results cannot establish that an unrelated Lean fix conforms. Mathlib, the Verso standard,
 website examples, editor interactions, serialized graphs, and additional adopter paths need
 their own applicable qualification before a revision claims those capabilities.
 
 Review the actual source adaptations and affected standard checklist rows before promoting a
-compatibility revision. Run complete repository acceptance and required CI under the declared
+compatibility revision and changing its compiled candidate marker to false. That is a reviewed
+source change, not a receipt import or runtime override. Run complete repository acceptance and required CI under the declared
 dependency pins for a release. Do not point a stable release at a newer compiler merely because
 these core campaigns succeeded. When a compiler or checker changes, reuse evidence only for
 claims whose relevant source, dependencies, compiler identity, and invocation path are unchanged.
@@ -75,7 +80,7 @@ Lake implementation. Checker qualification establishes only its exercised detect
 `refuses_other_commit` rejects every other commit even with the same version, and
 `transcript_plan_compiler` binds admitted transcripts to the plan's identity. The actual
 `parseIdentity` and `complete` functions have contracts proving valid parsed identities and
-complete, ordered, zero-exit campaign observations. These are kernel-checked statements about
+complete, ordered campaign observations meeting each required exit and output. These are kernel-checked statements about
 supplied values. They do not authenticate compiler binaries or Git commits, prove subprocess
 behavior, establish detector completeness, or prevent a filesystem change-and-restore race.
 Compiler self-reports, Elan resolution, Git, native compilation, JSON serialization, process

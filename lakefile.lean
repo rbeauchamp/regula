@@ -5,7 +5,7 @@ open Lake DSL
 -- artifacts yet; this module imports only Init and checks the running compiler's full identity.
 run_cmd do
   let checked ← IO.Process.output {
-    cmd := ((← IO.appDir) / "lean").toString
+    cmd := ((← Lean.findSysroot) / "bin" / "lean").toString
     args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString] }
   unless checked.exitCode == 0 do
     Lean.logError m!"{checked.stdout}{checked.stderr}"

@@ -279,6 +279,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       | [] => repoRoot
       | _ => throw <| IO.userError "duplicate --project option"
     for path in relative do invalidate (resolve root path)
+  CompilerMode.requireAllowed
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
   let repo ← match options.project with
@@ -326,7 +327,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           "acceptance" (ResultProtocol.acceptedJson receipt)
       | none =>
           value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
-    writeJson (resolve repo path) value
+    writeJson (resolve repo path) (CompilerMode.envelope value)
   IO.println
       s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"
   if !failures.isEmpty then
