@@ -97,7 +97,7 @@ An adaptation using a local Elan alias also commits `.github/compiler-source.jso
 
 The alias must match `lean-toolchain` and the artifact mode must be `source`.
 `lean/RegulaCompiler.lean` checks the specification, obtains the exact source commit,
-checks the bootstrap's CLI and library identity, configures Lean's release preset with
+installs the bootstrap unless Elan already lists it, checks the bootstrap's CLI and library identity, configures Lean's release preset with
 that preceding stage, and runs the documented `make -j… -C build/release` command.
 It checks both identities of the resulting compiler before linking the alias. An existing
 alias is reused only when both reports match; a mismatch is refused. Source and build
@@ -112,7 +112,8 @@ CI first runs the reusable compiler preparation job, then restores that compiler
 existing check jobs. Its cache key includes the specification, selector and installer
 source. The shell bootstrap installs fixed Lean 4.34.0 to run this Lean installer even
 when the repository's compiler is not installed yet. With no source specification, the
-installer asks Elan for the committed official release or dated nightly.
+installer asks Elan for the committed official release or dated nightly unless Elan already
+lists it, and then runs that compiler.
 Compiler preparation does not establish checker support. The existing acceptance and
 diagnostic commands keep their deadlines, and their results must still pass at the
 reviewed revision. Compiler self-reports, the build tools, cache storage and filesystem

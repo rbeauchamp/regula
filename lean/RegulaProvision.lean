@@ -3,7 +3,7 @@ import Lean.Data.Json
 /-! # Shared Mathlib provisioning
 
 Dependency provisioning: one shared, read-only Mathlib per pinned revision, exact
-compiler and artifact mode, reused by local copies. CI uses the same build plan.
+compiler and artifact mode, reused by local copies. CI runs the build plan defined here.
 
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache
 (`~/.cache/mathlib`) but unpacks them into every copy's `.lake/packages`. This program
@@ -25,14 +25,17 @@ The shared directory is created from a staging directory and made visible by one
 it is complete and sealed, so a half-created directory is never used. Its receipt records the
 revisions it holds; a copy uses it only when that receipt admits the copy's pins. A registry
 beside it records the copies provisioned to link it, and each run removes the shared
-directories of other pins and toolchains that no registered copy still links. One exclusive
+directories of other pins, toolchains, artifact modes and source artifact policies that no
+registered copy still links; a source directory is identified only in the
+`-source-v<policy>-<hash>` form, under the policy its receipt records. One exclusive
 lock under `~/.cache/mathlib-packages` orders all of this. The pure planning decisions below
 carry proofs; Git, Lake, `cp`, `chmod`, `ln`, rename and file locking are trusted process and
 filesystem effects. `dependency-build-mode` selects `upstream-cache` or `source`. The latter
 disables Lake's automatic cache and Mathlib's update hook and builds the discovered imports'
 transitive exported native closure. Source mode has a separate shared directory and is admitted
-only by a source-mode receipt. GitHub Actions invokes the same Mathlib and Verso plans;
-its explicit Mathlib command uses sharing for source builds.
+only by a source-mode receipt. GitHub Actions invokes the Mathlib and Verso plans defined
+here: its upstream-cache Mathlib command only fetches the published artifacts into the job's
+writable packages directory, and its source Mathlib command uses the shared directory.
 
 Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
 `scripts/verify.sh` runs it before its deadline. -/
@@ -43,7 +46,7 @@ open System Lean
 
 /-- Where dependency artifacts come from. `source` builds with the running compiler. -/
 inductive BuildMode where
-  /-- Use the dependencies' published artifacts, then build missing outputs. -/
+  /-- Use the dependencies' published artifacts and build only what they lack. -/
   | upstreamCache
   /-- Disable Lake and Mathlib artifact downloads and build from pinned source. -/
   | source
@@ -88,17 +91,28 @@ def lakeOptions : BuildMode → Array String
 /-- Version of the isolated-cache and import-scope policy, recorded before any source build. -/
 def sourceArtifactPolicy : Nat := 2
 
-/-- The Mathlib build plan shared by local provisioning and CI. -/
-def mathlibCommands : BuildMode → List (Array String)
-  | .upstreamCache => [#["exe", "cache", "get"],
-      #["build", "Mathlib", "Mathlib:static.export"]]
+/-- The Mathlib build plan of local provisioning and CI. `readOnly` says the workspace is
+sealed afterwards as the shared directory, so the upstream route also builds every module's
+exported native object there. CI's upstream route keeps a writable workspace and only fetches
+the published artifacts; its later builds write the objects they link. -/
+def mathlibCommands (readOnly : Bool) : BuildMode → List (Array String)
+  | .upstreamCache => #["exe", "cache", "get"] ::
+      if readOnly then [#["build", "Mathlib", "Mathlib:static.export"]] else []
   | .source => [#["build", "regulaMathlibSource"]]
+
+/-- The upstream route always fetches the published artifacts first, and builds the exported
+native objects exactly when its workspace is sealed read-only afterwards. -/
+theorem upstream_plan (readOnly : Bool) :
+    mathlibCommands readOnly .upstreamCache =
+      if readOnly then [#["exe", "cache", "get"], #["build", "Mathlib", "Mathlib:static.export"]]
+      else [#["exe", "cache", "get"]] := by
+  cases readOnly <;> rfl
 
 /-- Source provisioning schedules only the source build with package-cache downloads and
 artifact-cache reuse disabled, a supplied isolated artifact location, and restoration requested.
 The invoked Lake, package hooks, cache freshness and process environment remain trusted. -/
-theorem source_plan (sourceCache : String) :
-    mathlibCommands .source = [#["build", "regulaMathlibSource"]] ∧
+theorem source_plan (readOnly : Bool) (sourceCache : String) :
+    mathlibCommands readOnly .source = [#["build", "regulaMathlibSource"]] ∧
     lakeOptions .source = #["--no-cache", "--keep-toolchain"] ∧
     buildEnvironment sourceCache .source =
       #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1"),
@@ -123,11 +137,13 @@ abbrev Component := {text : String // isComponent text = true}
 def component? (text : String) : Option Component :=
   if h : isComponent text then some ⟨text, h⟩ else none
 
-/-- The shared directory's name for one Mathlib revision, compiler commit and artifact mode.
+/-- The shared directory's name for one Mathlib revision, compiler commit and artifact mode;
+a source name also carries its artifact policy and the hash of its import module.
 The upstream-cache spelling preserves existing shared directories. -/
-def sharedKey (mode : BuildMode) (mathlibRev githash : String) (source : String := "") : String :=
+def sharedKey (mode : BuildMode) (mathlibRev githash : String) (policy : Nat)
+    (source : String) : String :=
   s!"{mathlibRev}-lean-{githash}" ++
-    if mode == .source then s!"-source-v{sourceArtifactPolicy}-{hash source}" else ""
+    if mode == .source then s!"-source-v{policy}-{hash source}" else ""
 
 /-- One package revision recorded by the shared directory or pinned by a copy. -/
 structure Pin where
@@ -159,6 +175,11 @@ structure Receipt where
 
 /-- Receipt schema this program writes and accepts. -/
 def receiptSchema : Nat := 1
+
+/-- The directory name a receipt identifies, under the artifact policy it records. -/
+def Receipt.key (receipt : Receipt) : String :=
+  sharedKey receipt.mode receipt.mathlibRev receipt.leanGithash receipt.artifactPolicy
+    receipt.source
 
 /-- The complete source inputs of one staged dependency workspace. -/
 structure StageInputs where
@@ -214,6 +235,21 @@ theorem admits_sound (receipt : Receipt) (mode : BuildMode) (mathlibRev githash 
   · obtain ⟨i, hi, rfl⟩ := Array.mem_iff_getElem.mp hPin
     obtain ⟨j, hj, rfl⟩ := Array.mem_iff_getElem.mp hHeld
     exact ((hPins i hi) j hj).resolve_left (fun h => h hName)
+
+/-- An admitted receipt identifies the directory requested under the current artifact policy.
+A source receipt recorded under another policy is refused by `admits`; it identifies only its
+own directory, for retention. -/
+theorem admits_key (receipt : Receipt) (mode : BuildMode) (mathlibRev githash : String)
+    (pins : Array Pin) (source : String)
+    (h : admits receipt mode mathlibRev githash pins source = true) :
+    receipt.key = sharedKey mode mathlibRev githash sourceArtifactPolicy source := by
+  obtain ⟨hRev, hGithash, hMode, hPolicy, hSource, _⟩ :=
+    admits_sound receipt mode mathlibRev githash pins source h
+  unfold Receipt.key
+  rw [hMode, hRev, hGithash, hSource]
+  cases mode with
+  | upstreamCache => simp [sharedKey]
+  | source => rw [hPolicy rfl]
 
 /-- An upstream-cache receipt can never admit a source-build request. -/
 theorem source_refuses_cache (receipt : Receipt) (mathlibRev githash : String)
@@ -332,25 +368,23 @@ inductive Found where
 def found (name : String) : Option Receipt → Found
   | none => .foreign
   | some receipt =>
-    if name == sharedKey receipt.mode receipt.mathlibRev receipt.leanGithash receipt.source then .shared
-    else if name.startsWith
-      (removingPrefix (sharedKey receipt.mode receipt.mathlibRev receipt.leanGithash receipt.source))
-    then .removing
+    if name == receipt.key then .shared
+    else if name.startsWith (removingPrefix receipt.key) then .removing
     else .foreign
 
-/-- Only a receipt that names the directory identifies it as shared or being removed. -/
+/-- Only a receipt that names the directory, under the artifact policy that receipt records,
+identifies it as shared or being removed. -/
 theorem found_identified (name : String) (receipt : Option Receipt)
     (h : found name receipt ≠ .foreign) :
-    ∃ r, receipt = some r ∧ (name = sharedKey r.mode r.mathlibRev r.leanGithash r.source ∨
-      name.startsWith (removingPrefix (sharedKey r.mode r.mathlibRev r.leanGithash r.source)) = true) := by
+    ∃ r, receipt = some r ∧ (name = r.key ∨
+      name.startsWith (removingPrefix r.key) = true) := by
   cases receipt with
   | none => simp [found] at h
   | some r =>
     refine ⟨r, rfl, ?_⟩
-    by_cases hName : name = sharedKey r.mode r.mathlibRev r.leanGithash r.source
+    by_cases hName : name = r.key
     · exact .inl hName
-    · by_cases hPrefix :
-        name.startsWith (removingPrefix (sharedKey r.mode r.mathlibRev r.leanGithash r.source))
+    · by_cases hPrefix : name.startsWith (removingPrefix r.key)
       · exact .inr hPrefix
       · simp [found, hName, hPrefix] at h
 
@@ -452,12 +486,12 @@ def readBuildMode (repo : FilePath) : IO BuildMode := do
     | throw <| IO.userError s!"provisioning: unknown dependency-build-mode '{text}'"
   return mode
 
-/-- Execute the shared Mathlib plan. `workspaceArgs` selects the Lake workspace, while the process
+/-- Execute the Mathlib plan. `workspaceArgs` selects the Lake workspace, while the process
 directory stays at its package-cache root as required by Mathlib's cache tool. -/
-private def buildMathlib (cwd : FilePath) (mode : BuildMode)
+private def buildMathlib (cwd : FilePath) (mode : BuildMode) (readOnly : Bool)
     (workspaceArgs : Array String := #[]) : IO Unit := do
   let env ← freshBuildEnvironment cwd mode
-  for command in mathlibCommands mode do
+  for command in mathlibCommands readOnly mode do
     stream cwd "lake" (lakeOptions mode ++ workspaceArgs ++ command) env
 
 private def admitComponent (what text : String) : IO Component := do
@@ -760,7 +794,7 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
     -- packages directory, so the staging workspace keeps the default.
     -- An interpreter-supporting executable requests exported native objects for its complete
     -- transitive imports. The upstream route retains its complete-library build.
-    buildMathlib staging mode
+    buildMathlib staging mode true
     let packagesRoot := sharedPackages staging
     let mut held := #[]
     let mut dirs := #[]
@@ -953,7 +987,8 @@ def provision (repo : FilePath) : IO Unit := do
   let some (manifest, pins) ← readPins repo
     | say s!"{mathlibPackage}/lake-manifest.json pins no Mathlib; nothing to share"
   let source ← sourceModule repo mode
-  let key ← admitComponent "shared directory" (sharedKey mode pins.mathlibRev Lean.githash source)
+  let key ← admitComponent "shared directory"
+    (sharedKey mode pins.mathlibRev Lean.githash sourceArtifactPolicy source)
   let packages ← packagesPath repo pins
   let parent := (← cacheBase) / "mathlib-packages"
   IO.FS.createDirAll parent
@@ -1027,7 +1062,7 @@ def main (args : List String) : IO Unit := do
     RegulaProvision.requireCompiler repo
     let mode ← RegulaProvision.readBuildMode repo
     if mode == .source then RegulaProvision.provision repo
-    else RegulaProvision.buildMathlib repo mode #["-d", "audit"]
+    else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
   | ["verso"] => RegulaProvision.provisionVerso repo
   | ["identity"] => RegulaProvision.ciIdentity repo
   | "exec" :: dir :: command :: rest =>

@@ -5,7 +5,8 @@ import Lean.Data.Json
 CI runs this standalone program with the fixed stable bootstrap. Without a source
 specification, Elan installs the repository's pin. A source specification builds the
 named Git commit with a pinned official bootstrap, retains the checkout and build,
-and links an alias only after both compiler identity observations match.
+and links an alias only after both compiler identity observations match. A pin or
+bootstrap that Elan already lists is reused, not installed again; its checks still run.
 
 The contracts cover decoded values and the admission decision. Git, Elan, CMake,
 Make, compiler self-reports, filesystem locking and subprocesses remain trusted.
@@ -182,7 +183,8 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has another commit"
     unless (← require path "git" #["status", "--porcelain"]).isEmpty do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has local changes"
-    stream root "elan" #["toolchain", "install", spec.bootstrap]
+    unless ← installed root spec.bootstrap do
+      stream root "elan" #["toolchain", "install", spec.bootstrap]
     checkIdentity root "elan" #["run", spec.bootstrap, "lean"] spec.bootstrapRevision
     let previous ← require root "elan" #["run", spec.bootstrap, "lean", "--print-prefix"]
     if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
@@ -203,7 +205,8 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
   finally
     lock.unlock
 
-/-- Install the committed compiler pin; source aliases are never silently rebound. -/
+/-- Install the committed compiler pin unless Elan already lists it; source aliases are
+never silently rebound. -/
 def install (root : FilePath) : IO Unit := do
   let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
   match ← sourceSpec root with
@@ -211,7 +214,8 @@ def install (root : FilePath) : IO Unit := do
   | none =>
     unless officialSelector selector do
       throw <| IO.userError "compiler setup: a custom alias requires compiler-source.json"
-    stream root "elan" #["toolchain", "install", selector]
+    unless ← installed root selector do
+      stream root "elan" #["toolchain", "install", selector]
   stream root "elan" #["run", selector, "lean", "--version"]
 
 end RegulaCompiler
