@@ -21,6 +21,10 @@ build, so it matches that build by construction.
   as an Agent Skills `SKILL.md` (`lake exe regula skill`), within `agentGuideBudget` bytes. It
   prints each distinct compliant example once; a later rule with the same one names the rule
   that shows it (`sameExampleAs`, `sameExampleAs_spec`).
+- `citation`, `citation_installed`, `agentGuideIn`, `skillIn`, `skill_unreleased`: the briefing
+  tells an agent to link each rule ID it mentions to the rule's page, with a link to the
+  installed build's edition, the one a finding prints; the briefing of each edition differs only
+  in that link.
 - `Command`, `parseCommand`, `parseCommand_arguments`, `parseCommand_sound`: the printing
   commands.
 - `Invocation`, `parseInvocation`, `parseInvocation_arguments`, `parseInvocation_sound`: the
@@ -30,7 +34,8 @@ build, so it matches that build by construction.
 
 The `#guard`s below evaluate, over the complete `RuleId.all` (`RuleId.mem_all`), that every
 descriptor meets `RuleDescriptor.wellFormed` (nonempty agent fields within their byte budgets,
-one-line requirement and remedy, distinct examples) and that the agent guide fits its budget.
+one-line requirement and remedy, distinct examples) and that the agent guide of every published
+edition fits its budget.
 They are compiled evaluation, not kernel proofs: kernel reduction of these long string
 literals costs seconds per field. A failing check fails the build of this module, which the
 acceptance build includes.
@@ -177,8 +182,19 @@ def briefRule (id : RuleId) : String :=
   | some compliant, none => fenced d.examples.language.fence compliant
   | none, _ => "Compliant form: " ++ d.examples.correction ++ "\n"
 
-/-- The agent briefing: how to check, how findings read, and every rule for writing code. -/
-def agentGuide : String :=
+/-- Rule `id`'s ID as a Markdown link to its page in edition `e`. -/
+def citation (e : Edition) (id : RuleId) : String :=
+  "[" ++ id.spelling ++ "](" ++ e.url id.route ++ ")"
+
+/-- In the installed build's edition, a citation links to the page a finding's `rule:` line
+names (`helpUrl`): a release's own page (`helpUrl_release`), and a development page exactly for
+an unreleased build (`helpUrl_dev_iff`). -/
+theorem citation_installed (id : RuleId) :
+    citation installed.edition id = "[" ++ id.spelling ++ "](" ++ helpUrl id ++ ")" := rfl
+
+/-- The agent briefing of a build whose pages are edition `e`: how to check, how findings read,
+how to cite a rule, and every rule for writing code. Only the citation's link depends on `e`. -/
+def agentGuideIn (e : Edition) : String :=
   "# Regula agent briefing\n\n" ++
   "This project's Lean code and proofs must meet the Regula standard. Apply these rules while " ++
   "writing Lean, not only after the linter runs. This is the complete mechanical rule set of \
@@ -195,6 +211,9 @@ def agentGuide : String :=
   "each rule adds why, common rewrites and a compliant example (or, where the checked files are " ++
   "qualification inputs, the correction). `lake exe regula explain <ID>` prints the full rule " ++
   "offline; `lake exe regula rules` lists all rules.\n" ++
+  "- When you mention a rule ID in an issue, a comment, a pull request or a document, link it " ++
+  "to the rule's page for the installed Regula build, the link a finding's `rule:` line " ++
+  "prints: `" ++ citation e .executionBoundary ++ "`.\n" ++
   "- No option, attribute or flag waives a rule on a claimed surface. Do not disable a Lean " ++
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
@@ -209,17 +228,30 @@ def agentGuide : String :=
     "## " ++ heading ++ "\n\n" ++ scope ++ "\n\n" ++ String.join
         (rules.map fun id => briefRule id ++ "\n"))
 
+/-- The agent briefing of the installed build, whose citation links name its edition
+(`citation_installed`). -/
+def agentGuide : String := agentGuideIn installed.edition
+
 /-- Byte budget of the agent briefing, so pasting it into an agent's context stays cheap. -/
 def agentGuideBudget : Nat := 15360
 
-/-- The briefing as an Agent Skills `SKILL.md`. -/
-def skill : String :=
+/-- The briefing of a build whose pages are edition `e`, as an Agent Skills `SKILL.md`. -/
+def skillIn (e : Edition) : String :=
   "---\nname: regula\n" ++
   "description: Regula, the strict standard that this project's Lean code and proofs must meet. " ++
   "Use before writing or changing Lean definitions, theorems, proofs, lakefile or " ++
   "foundation_manifest.json, or Lean examples in Markdown, and when `lake lint` reports an RG rule \
     ID.\n" ++
-  "---\n\n" ++ agentGuide
+  "---\n\n" ++ agentGuideIn e
+
+/-- The installed build's briefing as an Agent Skills `SKILL.md`. -/
+def skill : String := skillIn installed.edition
+
+/-- An unreleased build's skill is the development edition's, which is the committed
+`.agents/skills/regula/SKILL.md` of this repository (`Regula.RegistryChecks`): `main` is always
+unreleased, and the release commit changes only `installed`, so its tree keeps that file. -/
+theorem skill_unreleased (h : installed = .unreleased) : skill = skillIn .dev := by
+  simp [skill, h, Build.edition]
 
 /-- No agent-facing field carries a site-only `@repo/` link token. -/
 def plainFields (id : RuleId) : Bool :=
@@ -230,7 +262,8 @@ def plainFields (id : RuleId) : Bool :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard RuleId.all.all fun id => (descriptor id).wellFormed && plainFields id
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard agentGuide.utf8ByteSize ≤ agentGuideBudget
+-- It covers the installed build's briefing, whose edition is published (`installed_published`).
+#guard published.all fun e => (agentGuideIn e).utf8ByteSize ≤ agentGuideBudget
 
 /-- The `regula` command line. -/
 inductive Command where
