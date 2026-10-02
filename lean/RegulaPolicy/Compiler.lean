@@ -45,9 +45,16 @@ theorem candidate_not_audit {α : Type} (value other : α) :
     publication true value ≠ .audit other := by
   simp [publication]
 
-/-- The public acceptance label; candidate diagnostics never say PASS. -/
-def verdict (isCandidate : Bool) : String :=
-  if isCandidate then "DIAGNOSTIC ACCEPTED (unqualified compiler)" else "PASS"
+/-- Successful candidate observations retain their diagnostic purpose in public text. -/
+def successLabel (isCandidate : Bool) (supported observed : String) : String :=
+  if isCandidate then s!"DIAGNOSTIC {observed} (unqualified compiler)" else supported
+
+/-- Candidate labels never use the supplied supported verdict. -/
+theorem candidate_successLabel (supported observed : String) :
+    successLabel true supported observed = s!"DIAGNOSTIC {observed} (unqualified compiler)" := rfl
+
+/-- The public acceptance label. -/
+def verdict (isCandidate : Bool) : String := successLabel isCandidate "PASS" "ACCEPTED"
 
 /-- Exact public text classification for a candidate. -/
 theorem candidate_verdict : verdict true = "DIAGNOSTIC ACCEPTED (unqualified compiler)" := rfl
