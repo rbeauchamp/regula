@@ -23,6 +23,7 @@ supports. This table lists every release, newest first, with its one toolchain:
 
 | Regula tag | Lean toolchain | Rule reference |
 | --- | --- | --- |
+| `v0.4.1` | `leanprover/lean4:v4.34.0` | [v/0.4.1/](https://rbeauchamp.github.io/regula/v/0.4.1/) |
 | `v0.4.0` | `leanprover/lean4:v4.34.0` | [v/0.4.0/](https://rbeauchamp.github.io/regula/v/0.4.0/) |
 | `v0.3.1` | `leanprover/lean4:v4.34.0` | [v/0.3.1/](https://rbeauchamp.github.io/regula/v/0.3.1/) |
 | `v0.3.0` | `leanprover/lean4:v4.34.0` | [v/0.3.0/](https://rbeauchamp.github.io/regula/v/0.3.0/) |
