@@ -46,15 +46,17 @@ theorem authorizedUnsafeRecHelpers_iff (ds : Array Declaration) (n : Name) :
     n ∈ authorizedUnsafeRecHelpers ds ↔ ∃ h ∈ ds, h.name = n ∧ RecursiveHelperOK ds h := by
   simp [authorizedUnsafeRecHelpers, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
 
-/-- Every name `authorizedUnsafeRecHelpers` admits is a helper that Lean's own recursion compiler
-regenerates (`Declaration.unsafeRecRegenerated`), whose Lean-linked base
-(`Declaration.unsafeRecBase`) is an inventory definition of the same module and type, neither
-`partial` nor `unsafe`, with every axiom within Standard-Logical. The regeneration observation makes
-that base, up to compilation erasure, Lean's compilation of the helper's own recursion, so its
+/-- Every name `authorizedUnsafeRecHelpers` admits is a helper for which the checker recorded that
+Lean's own recursion compiler regenerated its base (`Declaration.unsafeRecRegenerated`), and whose
+Lean-linked base (`Declaration.unsafeRecBase`) is an inventory definition of the same module and
+type, neither `partial` nor `unsafe`, with every axiom within Standard-Logical. Where that
+observation is truthful, the base is Lean's compilation of the helper's own recursion up to the
+comparison the checker makes (`Collect.equalErased`: compilation erasure, with a `match` that
+passes a variable through taken as the direct one where the kernel checks the two equal), so its
 kernel-checked value carries the decreasing proofs of the recursion Lean compiled, after its
-well-founded preprocessing; those proofs rest on no `sorryAx` or project axiom. This states
-the recorded observations; it does not prove the regeneration truthful or relate compiled code to
-kernel values. -/
+well-founded preprocessing; those proofs rest on no `sorryAx` or project axiom. The theorem states
+the recorded observations and nothing more: it does not prove the regeneration or its comparison
+truthful, and it does not relate compiled code to kernel values. -/
 theorem authorizedUnsafeRecHelpers_base (ds : Array Declaration) (n : Name)
     (hn : n ∈ authorizedUnsafeRecHelpers ds) :
     ∃ h ∈ ds, h.name = n ∧ h.unsafeRecRegenerated.isSome = true ∧ ∃ b ∈ ds,
