@@ -118,11 +118,12 @@ reads the Audit libraries and the standard's Verso library through Lake, and use
 documentation scanners and Lean header parser to collect their Mathlib imports and those of
 the Markdown examples. Lake builds a generated executable with interpreter support, so it
 builds exported native objects for the complete transitive import closure. The planner itself
-uses a separate build directory, leaving the acceptance build cold. This is dependency setup;
+uses a separate workspace with independent configuration and build caches, leaving the acceptance build cold. This is dependency setup;
 the acceptance commands still check all their sources and documentation.
 Source artifacts have a separate key containing their policy version and an import-source
 hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
-another scope. Old receipts without a mode describe the upstream-cache route and cannot admit source
+another scope. CI keys contain this generated-source hash and source cache hits repeat receipt
+admission. Old receipts without a mode describe the upstream-cache route and cannot admit source
 requests. Missing configuration retains that route; an unknown spelling is refused.
 Each source invocation also receives a fresh artifact-cache directory under
 `.lake/regula-source-caches/`, disables Lake's separate artifact-cache default, and requests
