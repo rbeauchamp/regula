@@ -240,6 +240,7 @@ No theorem here purports to prove the OS's process execution or signal delivery.
 def execute (command : Command) : IO Unit := do
   let child ← IO.Process.spawn {
     cmd := command.program, args := command.args, cwd := some command.dir,
+    env := #[("REGULA_COMPILER_QUALIFICATION", none)],
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   if exit != 0 then
