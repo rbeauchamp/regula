@@ -500,8 +500,11 @@ inferred from any pure proof.
   their frozen parts); `Admission.reuseJustified_admitted` (every key an accepted report requires
   in a module it reused was admitted by a completed admission that replayed that module);
   `Admission.replayed_of_loaded` (every owned module an accepted report's environment loaded is
-  listed as replayed by its own receipt or by a completed admission it was offered, so no
-  accepted report rests on a module no environment replayed); `ProducerReport.validate_sound`
+  in that environment's own replay set, or in the replay set, and not among the reused modules,
+  of a completed admission whose environment loaded it, so no accepted report rests on a module
+  no environment replayed; a receipt's `modules` alone does not show a replay, since it lists
+  every owned module the environment did not reuse, loaded or not);
+  `ProducerReport.validate_sound`
   (an admitted report's receipt requires the key of every safe, total declaration it reports, in
   a module it lists as replayed or reused, never both); and `Inspection.prerequisites_earlier`
   (every environment waits only for environments strictly before it in the start order, so the
@@ -515,8 +518,9 @@ inferred from any pure proof.
   same partition audits two claimed libraries that import one another). **Argued, not
   machine-checked:** `Inspection.inspect` passes these definitions the admissions published by
   the environments it waited for and the readings it took as the environment started, and
-  `Admission.validate` replays exactly `Admission.replaySet` and takes the keys of a reused
-  requested module from that module's data, all read from the code; the workers finish because
+  `Admission.validate` replays the modules of `Admission.replaySet` that its environment loaded,
+  and no other, and takes the keys of a reused requested module from that module's data, all
+  read from the code; the workers finish because
   the first environment not yet started in the start order waits only for started ones
   (`prerequisites_earlier`) and a started environment always publishes its admission or ends.
   **Derived, not machine-checked:** the kernel's check of a declaration depends only on the
@@ -1466,7 +1470,8 @@ builds kept at a load average of 10 to 13, `structural` passed in 96 s and `exec
 (102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not
 a bound: the deadline itself is what refuses a slower run. The `structural` run predates that
 partition's frozen-artifact and library-cycle controls (the admission reuse rows of the table
-above), which no observation here includes.
+above); with them, one run the same day on that machine, at a load average of 7 to 11, passed
+in 85 s.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at

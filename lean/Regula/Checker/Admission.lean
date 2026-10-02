@@ -585,16 +585,20 @@ def accountsFor (owned : NameSet) (report : ProducerReport.Environment) : Bool :
   | some receipt => report.modules.all fun m =>
       !owned.contains m || receipt.modules.contains m || receipt.reused.contains m
 
-/-- No accepted report leaves an owned module unreplayed: every owned module its environment
-loaded is one its own receipt lists as replayed, or one a completed admission lists as replayed
-and not as reused. -/
+/-- No accepted report rests on an owned module that no environment replayed: every owned module
+its environment loaded is in its own replay set (its receipt's `modules`), so that environment
+replays it, or is one that a completed admission lists as replayed, not as reused, in an
+environment that loaded it (it has an import closure there, which `importClosure` gives only for
+a module with an origin). A receipt's `modules` alone does not show a replay: it lists every
+owned module the environment did not reuse, whether or not it loaded the module. -/
 theorem replayed_of_loaded {owned : NameSet} {readings : Array Reading}
     {completed : Array Completed} {report : ProducerReport.Environment}
     (hc : accountsFor owned report = true)
     (hj : reuseJustified (currentOffers owned readings completed) report = true)
     {m : Name} (hm : m ∈ report.modules) (ho : owned.contains m = true) :
     (∃ receipt, report.admission = some receipt ∧ m ∈ receipt.modules) ∨
-      ∃ source ∈ completed, m ∈ source.receipt.modules ∧ m ∉ source.receipt.reused := by
+      ∃ source ∈ completed, m ∈ source.receipt.modules ∧ m ∉ source.receipt.reused ∧
+        ∃ closure, importClosure (originIndex source.origins) m = some closure := by
   unfold accountsFor at hc
   cases hr : report.admission with
   | none => simp [hr] at hc
@@ -604,9 +608,9 @@ theorem replayed_of_loaded {owned : NameSet} {readings : Array Reading}
     rcases hc m hm with (hnot | hreplayed) | hreused
     · simp [ho] at hnot
     · exact .inl ⟨receipt, rfl, hreplayed⟩
-    · obtain ⟨_, _, source, hsource, hreplayed, _, hnotReused, _⟩ :=
+    · obtain ⟨closure, _, source, hsource, hreplayed, _, hnotReused, hsame, _⟩ :=
         reuseJustified_frozen hj hr hreused
-      exact .inr ⟨source, hsource, hreplayed, hnotReused⟩
+      exact .inr ⟨source, hsource, hreplayed, hnotReused, closure, hsame⟩
 
 /-! ## Several copies of one name
 
