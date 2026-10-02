@@ -229,7 +229,8 @@ def documentationDependencies : IO Unit := do
         else
           success result
           requireChecks
-              [⟨"checked positive fence", result.stdout.contains "conforming-positive-pass=1/1"⟩]
+              [⟨"checked positive fence", result.stdout.contains
+                s!"{RegulaPolicy.Compiler.positiveSummary RegulaPolicy.Compiler.candidate}=1/1"⟩]
           if route == "ruleExamples" then requireChecks
                                            [⟨"documentation accepted", accepted
                                                (← readJson output)⟩]

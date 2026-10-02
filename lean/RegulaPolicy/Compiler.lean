@@ -59,6 +59,13 @@ def verdict (isCandidate : Bool) : String := successLabel isCandidate "PASS" "AC
 /-- Exact public text classification for a candidate. -/
 theorem candidate_verdict : verdict true = "DIAGNOSTIC ACCEPTED (unqualified compiler)" := rfl
 
+/-- The positive documentation count label, shared by writers and qualification readers. -/
+def positiveSummary (isCandidate : Bool) : String :=
+  if isCandidate then "diagnostic-positive-observed" else "conforming-positive-pass"
+
+/-- Candidate counts describe observations without a conformance claim. -/
+theorem candidate_positiveSummary : positiveSummary true = "diagnostic-positive-observed" := rfl
+
 /-- The exact identity relation used by inventory and plan admission. -/
 def Supports (observedVersion observedCommit : String) : Prop :=
   observedVersion = version ∧ observedCommit = commit

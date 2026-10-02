@@ -474,7 +474,7 @@ def statusName : Status → String
 
 /-- Positive documentation counts distinguish support from candidate observations. -/
 def positiveSummary : String :=
-  if RegulaPolicy.Compiler.candidate then "diagnostic-positive-observed" else "conforming-positive-pass"
+  RegulaPolicy.Compiler.positiveSummary RegulaPolicy.Compiler.candidate
 
 private def diagnostics (output : String) : String :=
   let lines := errorLines output
