@@ -78,9 +78,14 @@ Lake implementation. Checker qualification establishes only its exercised detect
 
 The workflow was exercised while implementing [#191](https://github.com/rbeauchamp/regula/issues/191)
 against Lean 4.35.0-rc3 (`470d5ce1400764999581fd26d5d72b00d990b0f4`) and the local Lean development
-build at `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`. Both built Regula after the shared source
-adaptations below. Both remained **unqualified**; their ordinary audit commands refused.
-These observations do not add either compiler to the supported stable release.
+build at `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`. The release-candidate receipt covers checker
+candidate `3fc295bc179835ad19505fcde016b7b0888b4a3c`, prepared from
+`09f030381119fc57e217863b58748feb158ba1fa`. The development receipt covers checker candidate
+`d0e9e3c650de78dc420d2b558a8a10a05824c2e7`, prepared from
+`16fba8111c4861bd6483b04c0367b835a1b1eb68`. Both built Regula and remained **unqualified**;
+their ordinary audit commands refused. These receipts predate the final documentation-label
+and LRAT changes described below. The final source remains unqualified on both newer compilers;
+these observations do not add either compiler to the supported stable release.
 
 The portable changes preserve Lake's path-dependency `copy` flag during relocation, inspect
 loaded dependency locations, avoid the newly reserved binder name `given`, compare actual
