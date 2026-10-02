@@ -155,12 +155,19 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
       return
     let path := parent / s!"{spec.revision}-{spec.bootstrapRevision}"
     unless ← path.pathExists do
-      IO.FS.createDir path
-      let _ ← require path "git" #["init", "--quiet"]
-      let _ ← require path "git" #["remote", "add", "origin",
+      let random ← IO.getRandomBytes 8
+      let token := random.foldl (fun n byte => n * 256 + byte.toNat) 0
+      let staging := parent / s!"{spec.revision}.fetch-{← IO.Process.getPID}-{token}"
+      IO.FS.createDir staging
+      IO.println s!"compiler setup: preparing {staging}; an interrupted fetch is retained there"
+      let _ ← require staging "git" #["init", "--quiet"]
+      let _ ← require staging "git" #["remote", "add", "origin",
         s!"https://github.com/{spec.owner}/{spec.repository}.git"]
-      let _ ← require path "git" #["fetch", "--depth=1", "origin", spec.revision]
-      let _ ← require path "git" #["checkout", "--detach", spec.revision]
+      let _ ← require staging "git" #["fetch", "--depth=1", "origin", spec.revision]
+      let _ ← require staging "git" #["checkout", "--detach", spec.revision]
+      unless (← require staging "git" #["rev-parse", "HEAD"]) == spec.revision do
+        throw <| IO.userError "compiler setup: fetched checkout has another commit"
+      IO.FS.rename staging path
     unless (← require path "git" #["rev-parse", "HEAD"]) == spec.revision do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has another commit"
     unless (← require path "git" #["status", "--porcelain"]).isEmpty do
@@ -184,14 +191,14 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
 
 /-- Install the committed compiler pin; source aliases are never silently rebound. -/
 def install (root : FilePath) : IO Unit := do
+  let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
   match ← sourceSpec root with
   | some source => installSource root source
   | none =>
-    let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
     unless officialSelector selector do
       throw <| IO.userError "compiler setup: a custom alias requires compiler-source.json"
     stream root "elan" #["toolchain", "install", selector]
-  stream root "lean" #["--version"]
+  stream root "elan" #["run", selector, "lean", "--version"]
 
 end RegulaCompiler
 
