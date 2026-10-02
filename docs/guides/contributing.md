@@ -28,7 +28,7 @@ do not establish audit ownership.
 
 Provision [elan](https://github.com/leanprover/elan), the pinned toolchain,
 the shared Mathlib (`./scripts/provision.sh`), the website package's pinned Verso
-(`(cd website && lake build verso/VersoManual)`), GNU coreutils timeout, and ShellCheck
+(`lean --run lean/RegulaProvision.lean verso`), GNU coreutils timeout, and ShellCheck
 before verification. On macOS, `brew install coreutils shellcheck` supplies the
 last two tools. Verification runs offline against those pinned dependencies.
 
@@ -69,7 +69,7 @@ integration results.
 
 ### Share one Mathlib across local copies
 
-Locally, every copy uses one unpacked Mathlib per pinned revision and toolchain instead of
+Locally, every copy uses one unpacked Mathlib per pinned revision, compiler and artifact mode instead of
 its own. The pin is the `mathlib` entry of `audit/lake-manifest.json`; the root package pins
 nothing. [`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean) unpacks Mathlib's
 archive cache (`~/.cache/mathlib`) once into
@@ -82,10 +82,9 @@ native objects into them. The `audit/` and `website/` packages name that root `.
 as their packages directory; the example adopters under `examples/` require only `regula` and
 need no packages directory. Run `./scripts/provision.sh` in a fresh copy before the first `lake build`,
 which would otherwise clone and build a per-copy Mathlib; `./scripts/verify.sh` runs it
-before its deadline. The first run for a new
-pin takes about four minutes and needs the network; later copies take a few seconds and no
-Mathlib space. The receipt `regula-provisioned.json` in the shared directory records its
-revisions. A clean per-copy Mathlib checkout is replaced by the link; one with local
+before its deadline. The first run for a new pin needs the network; later copies reuse the
+sealed artifacts. The receipt `regula-provisioned.json` in the shared directory records its
+revisions, compiler and artifact mode. A clean per-copy Mathlib checkout is replaced by the link; one with local
 changes, stashes or commits that no remote-tracking branch holds is refused.
 
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
@@ -108,8 +107,24 @@ so copies wait while another copy creates a new pin.
   by the next run that creates one while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
-- GitHub Actions keeps `lake -d audit exe cache get` and its dependency cache; provisioning does
-  nothing there. A shared directory is never modified, only removed whole.
+- GitHub Actions runs the same Lean-defined Mathlib plan in its own package directory. Its
+  cache keys include the exact compiler commit, artifact mode and pinned manifests. The
+  local-sharing command does nothing there. A shared directory is never modified, only removed whole.
+
+`dependency-build-mode` contains `upstream-cache` on the stable branch. Compiler adaptations
+may select `source`, which disables automatic Lake and Mathlib artifact downloads and builds
+the full pinned Mathlib library and its exported native objects with that compiler. These
+artifacts have a separate `-source` shared-directory suffix; their receipt must record source
+mode. Old receipts without a mode describe the upstream-cache route and cannot admit source
+requests. Missing configuration retains that route; an unknown spelling is refused.
+
+Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso in either mode.
+For direct development commands on a source adaptation, use
+`lean --run lean/RegulaProvision.lean exec . lake build`; it passes the cache-disabled
+environment to Lake and its descendants. The verification driver uses this entry point for
+all its commands, and CI exports the same environment for the job. The existing setup and
+acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage,
+process execution and filesystem operations remain trusted boundaries.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
