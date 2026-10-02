@@ -211,7 +211,8 @@ def installed : Build := .unreleased
 appends it; CI on `main` then publishes it. -/
 def releases : List ListedRelease :=
   [⟨⟨4, 34, 0⟩, ⟨4, 34, 0⟩⟩, ⟨⟨0, 2, 0⟩, ⟨4, 34, 0⟩⟩, ⟨⟨0, 3, 0⟩, ⟨4, 34, 0⟩⟩,
-   ⟨⟨0, 3, 1⟩, ⟨4, 34, 0⟩⟩, ⟨⟨0, 4, 0⟩, ⟨4, 34, 0⟩⟩, ⟨⟨0, 4, 1⟩, ⟨4, 34, 0⟩⟩]
+   ⟨⟨0, 3, 1⟩, ⟨4, 34, 0⟩⟩, ⟨⟨0, 4, 0⟩, ⟨4, 34, 0⟩⟩, ⟨⟨0, 4, 1⟩, ⟨4, 34, 0⟩⟩,
+   ⟨⟨0, 4, 2⟩, ⟨4, 34, 0⟩⟩]
 
 /-- The version of every release, oldest first. -/
 def versions : List ReleaseVersion := releases.map (·.version)
