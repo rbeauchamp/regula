@@ -504,15 +504,19 @@ private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   try return some (← path.symlinkMetadata).type catch _ => return none
 
 /-- Build the planner in a separate workspace with the repository's exact configuration and
-linked sources. Lake configuration caches are isolated too. Generated configuration is never
-overwritten: an existing workspace must retain the same bytes and source links. -/
+linked sources, so the root package's Lake configuration and build caches stay untouched; the
+planner's own Lake loads of the Audit and standard packages may write their configuration
+caches. The workspace's key includes the repository's canonical path, which its absolute source
+links name, so a moved repository gets a new workspace and the old one is left in place.
+Generated configuration is never overwritten: an existing workspace must retain the same bytes
+and source links. -/
 private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
   if mode == .upstreamCache then return ""
   let inputs ← #["lakefile.lean", "lake-manifest.json", "lean-toolchain"].mapM fun (name : String) => do
     return (name, ← IO.FS.readFile (repo / name))
   let parent := repo / ".lake/regula-dependency-planner"
   IO.FS.createDirAll parent
-  let key := hash (inputs.toList, Lean.githash)
+  let key := hash (inputs.toList, Lean.githash, (← IO.FS.realPath repo).toString)
   let workspace := parent / toString key
   match ← kind? workspace with
   | none =>
@@ -755,8 +759,11 @@ private def requireRetainedPackages (staging : FilePath) (pins : Pins) : IO Unit
       unless (← require entry.path "git" args).trimAscii.isEmpty do
         throw <| IO.userError s!"provisioning: retained package {entry.path} has local work"
 
-/-- Source mode reuses only a stage for this exact compiler/mode key with identical inputs.
-The exclusive provisioning lock excludes a concurrent writer owned by this program. -/
+/-- Source mode reuses only a stage for this exact compiler/mode key with identical inputs whose
+retained packages pass `requireRetainedPackages`. A stage with identical inputs that fails those
+checks, such as one an interrupted clone left without a checked-out revision, is reported and left
+untouched, and the search continues; with no admissible stage a new one is created. The exclusive
+provisioning lock excludes a concurrent writer owned by this program. -/
 private def prepareStage (parent : FilePath) (key : String) (mode : BuildMode) (pins : Pins)
     (expected : StageInputs) : IO FilePath := do
   if mode == .source then
@@ -764,10 +771,13 @@ private def prepareStage (parent : FilePath) (key : String) (mode : BuildMode) (
       if entry.fileName.startsWith s!"{key}.staging-" && (← kind? entry.path) == some .dir then
         if let some observed ← readStageInputs entry.path then
           if resumes mode expected observed then
-            requireRetainedPackages entry.path pins
-            say s!"resuming source dependencies in {entry.path}"
-            let _ ← require entry.path "chmod" #["-R", "u+w", entry.path.toString]
-            return entry.path
+            match ← (requireRetainedPackages entry.path pins).toBaseIO with
+            | .error error =>
+              say s!"leaving retained source stage {entry.path} untouched: {error}"
+            | .ok () =>
+              say s!"resuming source dependencies in {entry.path}"
+              let _ ← require entry.path "chmod" #["-R", "u+w", entry.path.toString]
+              return entry.path
   let staging := parent / s!"{key}.staging-{← nonce}"
   IO.FS.createDir staging
   IO.FS.writeFile (staging / "lakefile.toml") expected.configuration
@@ -1056,7 +1066,10 @@ def main (args : List String) : IO Unit := do
     if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
       IO.println "provisioning: local sharing skipped on GitHub Actions (CI uses the Mathlib plan)"
     else if System.Platform.isWindows then
-      throw <| IO.userError "provisioning: local sharing is not supported on Windows"
+      if (← RegulaProvision.readBuildMode repo) == .source then
+        throw <| IO.userError "provisioning: source dependency mode is not supported on Windows"
+      IO.println "provisioning: not supported on Windows; provision with `lake -d audit exe cache \
+        get`"
     else RegulaProvision.provision repo
   | ["mathlib"] =>
     RegulaProvision.requireCompiler repo
