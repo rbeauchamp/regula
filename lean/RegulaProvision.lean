@@ -460,17 +460,6 @@ private def buildMathlib (cwd : FilePath) (mode : BuildMode)
   for command in mathlibCommands mode do
     stream cwd "lake" (lakeOptions mode ++ workspaceArgs ++ command) env
 
-/-- Compile the planner into a separate build directory, then decode its exact generated
-module. Acceptance builds keep their normal cold directory. No dependency is materialized
-by the planner's root-only Lake inventories. -/
-private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
-  if mode == .upstreamCache then return ""
-  stream repo "lake" #["--no-cache", "--keep-toolchain", "-KdependencyPlanner",
-    "build", "dependencyScope"] (← freshBuildEnvironment repo mode)
-  let result ← require repo
-    (repo / ".lake/dependency-planner/bin/dependencyScope").toString #[]
-  IO.ofExcept <| Json.parse result >>= fromJson?
-
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
     | throw <| IO.userError s!"provisioning: {what} '{text}' is not a single path component"
@@ -479,6 +468,38 @@ private def admitComponent (what text : String) : IO Component := do
 /-- Kind of the path itself, without following a final symbolic link. -/
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   try return some (← path.symlinkMetadata).type catch _ => return none
+
+/-- Build the planner in a separate workspace with the repository's exact configuration and
+linked sources. Lake configuration caches are isolated too. Generated configuration is never
+overwritten: an existing workspace must retain the same bytes and source links. -/
+private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
+  if mode == .upstreamCache then return ""
+  let inputs ← #["lakefile.lean", "lake-manifest.json", "lean-toolchain"].mapM fun (name : String) => do
+    return (name, ← IO.FS.readFile (repo / name))
+  let parent := repo / ".lake/regula-dependency-planner"
+  IO.FS.createDirAll parent
+  let key := hash (inputs.toList, Lean.githash)
+  let workspace := parent / toString key
+  match ← kind? workspace with
+  | none =>
+    IO.FS.createDir workspace
+    for (name, source) in inputs do IO.FS.writeFile (workspace / name) source
+    for name in #["lean", "examples"] do
+      let _ ← require repo "ln" #["-s", (repo / name).toString, (workspace / name).toString]
+  | some .dir => pure ()
+  | some _ => throw <| IO.userError s!"provisioning: planner workspace is not a directory: {workspace}"
+  for (name, source) in inputs do
+    unless (← kind? (workspace / name)) == some .file &&
+        (← IO.FS.readFile (workspace / name)) == source do
+      throw <| IO.userError s!"provisioning: planner configuration differs: {workspace / name}"
+  for name in #["lean", "examples"] do
+    unless (← kind? (workspace / name)) == some .symlink &&
+        (← IO.FS.realPath (workspace / name)) == (← IO.FS.realPath (repo / name)) do
+      throw <| IO.userError s!"provisioning: planner source link differs: {workspace / name}"
+  stream workspace "lake" #["--no-cache", "--keep-toolchain", "build", "dependencyScope"]
+    (← freshBuildEnvironment workspace mode)
+  let result ← require repo (workspace / ".lake/build/bin/dependencyScope").toString #[]
+  IO.ofExcept <| Json.parse result >>= fromJson?
 
 private def observe (path : FilePath) : IO Observed := do
   match ← kind? path with
@@ -960,20 +981,22 @@ def provisionVerso (repo : FilePath) : IO Unit := do
   stream (repo / "website") "lake"
     (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
 
-/-- Emit the exact compiler and artifact mode for CI cache keys and preserve source mode
-for later commands in that job. GitHub's output and environment protocols are trusted IO. -/
+/-- Emit compiler, artifact policy and discovered source scope for CI cache keys. Cache hits
+still run source receipt admission. GitHub's output and environment protocols are trusted IO. -/
 def ciIdentity (repo : FilePath) : IO Unit := do
   requireCompiler repo
   let mode ← readBuildMode repo
   unless isObjectName Lean.githash do
     throw <| IO.userError "provisioning: the compiler commit is not a full Git object name"
   let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
+  let source ← sourceModule repo mode
   let value := s!"{Lean.githash}-{mode.spelling}{policy}"
   say s!"dependency identity {value}"
   if let some path ← IO.getEnv "GITHUB_OUTPUT" then
     let handle ← IO.FS.Handle.mk path .append
     handle.putStr s!"identity={value}\n"
     handle.putStr s!"mode={mode.spelling}\n"
+    handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
   if let some path ← IO.getEnv "GITHUB_ENV" then
     let handle ← IO.FS.Handle.mk path .append
     for (name, value) in ← freshBuildEnvironment repo mode do

@@ -59,6 +59,10 @@
   ],
   "excluded-executables": [
     {
+      "executable": "dependencyScope",
+      "rationale": "Dependency setup planner in the excluded Regula library. It reads Lake inventories and documentation import headers and emits a module for source provisioning; parsing, package loading, filesystem observations and Lake's transitive native build remain trusted. It does not accept declarations or documentation."
+    },
+    {
       "executable": "toolchain",
       "rationale": "Development compiler adaptation driver. RegulaCore.Toolchain proves its identity parsing and campaign completion decisions; Git, Elan, compiler self-reports, filesystem and process observations remain trusted. Its receipts grant no compiler support or audit authority."
     },
