@@ -211,7 +211,7 @@ neither an `IO` type nor recursion determines it. Compiler-trusting axioms (from
 | Mode | Meaning |
 | --- | --- |
 | `report` (default) | Every execution boundary reached from an owned executable root is reported with its kind and correspondence state; trusted boundaries are recorded, not failed. |
-| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, or a compiler-trusting proof. The Lean toolchain's own replacements, externs, and unsafe and partial code (in `Init`, `Std` and `Lean`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
+| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, or a compiler-trusting proof. A constant compiled to a `partial` definition is one finding and one counted boundary, not two: a recursor that Mathlib's `compile_inductive%` compiled, or a dependency's `partial def`, is reported once per root, in a finding that also names the definition Lean runs for it (`…, with its implementation …`). The Lean toolchain's own replacements, externs, and unsafe and partial code (in `Init`, `Std` and `Lean`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
 
 In both modes an unresolved path blocks the execution claim. Native arithmetic, the Lean runtime
 and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
@@ -509,7 +509,9 @@ name, edge or boundary several roots reach was written once for each.
 The other members named `execution` are a surface's or a file audit's execution claim and the
 request's execution mode: strings or `null`, written unchanged. The acceptance account's
 per-environment counts, which earlier schemas also named `execution`, are
-`acceptance.account.executionSummary`.
+`acceptance.account.executionSummary`. Its `boundaries` and `trusted` count a `partial` definition
+with the boundary of the constant compiled to it, as the text does, while a root's account above
+keeps both boundary records.
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it

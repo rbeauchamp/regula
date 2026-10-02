@@ -822,6 +822,7 @@ def guide : RuleId → Guide
       residuals := [.qualify, .invariant, .intent]
       checklist := ["COMP-03", "SCOPE-05", "SCOPE-03", "THEOREM-05", "BUILD-01", "BUILD-03"]
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+        `RegulaPolicy.executionFindings_empty_iff`, `RegulaPolicy.unresolved_reported`, \
         `Regula.Checker.Policy.checked_executionFailures` and `executionRule_injective`. \
         Extracting the execution closure from compiler IR is operational."
       sources :=
@@ -845,6 +846,13 @@ def guide : RuleId → Guide
           Such a boundary is the toolchain's trusted base: it passes and is reported once for the \
           whole audit, with every environment and root that reaches it, in the audit's toolchain \
           trusted base.",
+        "A `partial` definition that a trusted boundary names as the code run in its place is \
+          reported with that boundary where both are trusted and neither is the toolchain's, as \
+          one finding that names both and one counted boundary: the target of a `csimp` \
+          candidate or of an `implemented_by` replacement (such as the implementation Mathlib's \
+          `compile_inductive%` registers for a recursor), or the helper Lean compiles a \
+          `partial def` through. The account in `--json-out` keeps both boundaries, and \
+          `--verbose` lists the definition under its boundary as its `implementation`.",
         "A correspondence is checked only when a closed proof of `∀ xs, f xs = g xs` over the \
           reference's complete elaborated domain passes kernel admission, with only standard \
           logical axioms and no extra premises."]
@@ -857,6 +865,11 @@ def guide : RuleId → Guide
         "Every reached boundary of a checked surface without an admitted toolchain origin has \
           kernel-admitted correspondence; each one without it has a failure record in every root \
           whose account contains it (`RegulaPolicy.project_boundary_reported`).",
+        "Every such failure record is reported: as its boundary's own finding, or, for a \
+          `partial` definition reported with the boundary that runs it, in that boundary's \
+          finding, which names it (`RegulaPolicy.failure_reported`). Every finding is a record \
+          (`RegulaPolicy.executionFindings_sound`), and the findings are empty exactly when the \
+          records are (`RegulaPolicy.executionFindings_empty_iff`).",
         "Each toolchain-owned boundary of every environment an audit inspects is in exactly one \
           entry of the audit's toolchain trusted base, which lists exactly the environments and \
           roots that reach it (`RegulaPolicy.checked_toolchainBase`)."]
@@ -882,8 +895,10 @@ def guide : RuleId → Guide
       checklist :=
           ["COMP-03", "COMP-04", "SCOPE-03", "SCOPE-05", "THEOREM-05", "BUILD-01", "BUILD-03"]
       linkage := "`RegulaPolicy.executionFailureRecords_empty_iff`, \
+        `RegulaPolicy.executionFindings_empty_iff`, \
         `Regula.Checker.Policy.checked_executionFailures`, `executionRule_injective`, \
-        `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported` and \
+        `RegulaPolicy.boundaryFailures_toolchain`, `RegulaPolicy.project_boundary_reported`, \
+        `RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound` and \
         `RegulaPolicy.checked_toolchainBase`; an accepted run satisfies `RegulaPolicy.BoundaryOK`. \
         Extracting the execution closure from compiler IR and observing module origins are \
         operational."

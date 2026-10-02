@@ -348,6 +348,17 @@ metadata, not authenticated binary identity.
   a finding groups under the declaration it is attributed to) and folds their lines in its closing
   `FAIL` summary into one count; the JSON keeps them one per declaration, in the same order
   (`groupFindings_flatten`).
+- **Execution findings:** a root's account can hold two boundaries for one replaced
+  implementation: that of a constant compiled to a `partial` definition (a `csimp` candidate or
+  an `implemented_by` replacement whose target is one, or an opaque constant with its
+  `_unsafe_rec` helper) and that definition's own. Where both are trusted and neither is the
+  toolchain's, the RG3002 diagnostic of the first names the second in its `detail`
+  (`…, with its implementation NAME (partial-computation)`), and the second has no diagnostic
+  and no count of its own, in text and JSON alike (`RegulaPolicy.executionFindings`,
+  `failure_reported`, `executionFindings_empty_iff`). The relation is read from the account's
+  `replacement` members and helper edges, not from a name. `scope` keeps both boundary records in
+  the root's account, and the decision's records (`executionFailureRecords`) one failure for
+  each.
 - **Scope:** In `axiomGate` and `ruleExamples` results, `scope.configuration` keeps the project
   configuration files in full, as path/optional-text pairs with `null` for an absent file. The
   `freshChecker` `serializedGraph` output has no `scope`, so it carries no configuration text,
@@ -364,7 +375,9 @@ metadata, not authenticated binary identity.
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
   implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
   per-environment `executionSummary` counts (named `execution` before schema 8, when the writer
-  began storing every `execution` member's root accounts once), `fences` by expectation,
+  began storing every `execution` member's root accounts once; `boundaries`, `checked` and
+  `trusted` range over the boundaries reported on their own, `RegulaPolicy.checked_summary`),
+  `fences` by expectation,
   `trusted` mechanisms and the run's `unresolvedReview` identifiers. A completed envelope's
   `mode` is the account's, and a listed identifier names an open obligation, not a completed
   review.

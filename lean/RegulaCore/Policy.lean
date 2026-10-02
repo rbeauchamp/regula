@@ -438,30 +438,32 @@ theorem executionRule_injective : Function.Injective executionRule := by
 def executionFailureLine (failure : RegulaPolicy.ExecutionFailure) : String :=
   s!"{(descriptor (executionRule failure.id)).applicability}: {failure.detail}"
 
-/-- Required meaning of the rendered execution failures: line `k` renders the decision's
-record `k`, with no line added or dropped. The lines are therefore empty exactly when
-`ExecutionOK` holds, so rendering cannot hide a failure. -/
+/-- Required meaning of the rendered execution failures: line `k` renders the gate's
+finding `k` (`RegulaPolicy.executionFindings`), with no line added or dropped. The findings are
+the decision's records with each `partial` implementation's record reported in the finding of
+the boundary that runs it (`RegulaPolicy.failure_reported`, `RegulaPolicy.executionFindings_sound`).
+The lines are empty exactly when `ExecutionOK` holds, so rendering cannot hide a failure. -/
 def ExecutionFailuresContract
     (render : RegulaPolicy.ExecutionInventory → RegulaPolicy.ExecutionClaim → Array String) :
         Prop :=
   ∀ inventory claim,
-    (render inventory claim).size = (RegulaPolicy.executionFailureRecords inventory claim).size ∧
+    (render inventory claim).size = (RegulaPolicy.executionFindings inventory claim).size ∧
     (∀ k (h : k < (render inventory claim).size)
-        (h' : k < (RegulaPolicy.executionFailureRecords inventory claim).size),
+        (h' : k < (RegulaPolicy.executionFindings inventory claim).size),
       (render inventory claim)[k] =
-        executionFailureLine (RegulaPolicy.executionFailureRecords inventory claim)[k]) ∧
+        executionFailureLine (RegulaPolicy.executionFindings inventory claim)[k]) ∧
     (render inventory claim = #[] ↔ RegulaPolicy.ExecutionOK inventory claim)
 
 private def executionFailuresImpl (inventory : RegulaPolicy.ExecutionInventory)
     (claim : RegulaPolicy.ExecutionClaim) : Array String :=
-  (RegulaPolicy.executionFailureRecords inventory claim).map executionFailureLine
+  (RegulaPolicy.executionFindings inventory claim).map executionFailureLine
 
 /-- Registers `ExecutionFailuresContract` about the executed renderer. -/
 theorem checked_executionFailures :
     Regula.ExecutableContract executionFailuresImpl ExecutionFailuresContract := by
   refine ⟨fun inventory claim => ⟨by simp [executionFailuresImpl], fun k _ _ => by
     simp [executionFailuresImpl], ?_⟩⟩
-  rw [← RegulaPolicy.executionFailureRecords_empty_iff]
+  rw [← RegulaPolicy.executionFindings_empty_iff]
   simp [executionFailuresImpl]
 
 /-- The gate's failure subreasons, through `checked_executionFailures`. -/
