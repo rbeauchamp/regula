@@ -198,15 +198,17 @@ invocation. Diagnostics do not replace a failed acceptance run.
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers`,
 `history`, `lint-driver` and the two shards each of `structural` and `execution` as parallel
 jobs, each with its own hard 420-second limit, when the checker, rules, rule examples, the
-adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and fixture sources the
-structural and execution controls mutate, Lake configuration or manifests change, on every
-push to `main`, and nightly; it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml)
+adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
+fixture sources the structural and execution controls mutate, Lake configuration, manifests or
+the compiler and dependency setup (the installer, the provisioning program,
+`dependency-build-mode` and `.github/compiler-source.json`) change, on every push to `main`,
+and nightly; it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml)
 runs both shards on every pull request and push to `main`, where they feed
 `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
-as parallel jobs under the same limit when Lean sources, Lake configuration or manifests
-change, on every push to `main`, and nightly. They are not part of acceptance.
+as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
+that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
 
 ## Implementation and qualification layout
 
