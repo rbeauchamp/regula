@@ -1,4 +1,5 @@
 import RegulaPolicy.Community
+import RegulaPolicy.Compiler
 
 /-! # Project setup that `regula init` writes and `regula doctor` checks
 
@@ -18,6 +19,10 @@ commands execute over what they observe of a project.
 - `Settled`, `plan_eq_nil_iff_settled`, `issues_unfixable_iff_settled`, `plan_eq_nil_iff`: the plan
   is empty exactly when no fixable issue remains.
 - `issues_run`: applying the plan removes exactly the fixable issues and adds none.
+- `Pin`, `toolchainIssues`, `toolchainIssues_eq_nil_iff`: `doctor` reports no toolchain issue
+  exactly when the project's `lean-toolchain` resolves to a compiler whose reported version and
+  commit `RegulaPolicy.Compiler.Supports`, whatever the selector's spelling; a pin that resolves
+  to no installed compiler is an issue.
 - `Observation.starter`, `plan_manifest_mem`: the starter manifest is planned only when the package
   has a `lean_lib` for it to claim; a package with none has an issue `init` does not fix.
 - `Target`, `Observation.targets`, `Observation.allClaimed`: the option check covers exactly the
@@ -57,9 +62,10 @@ The observation is supplied by the operational `regula` command: Lake's loaded r
 contains Mathlib, whether `foundation_manifest.json` and the agent guidance exist and which
 `AGENTS.md` holds or receives the section, whether the root package has a `lean_lib` for a starter
 manifest to claim, whether each skill file at the repository root equals the installed skill, the
-running compiler's version and commit and Regula's supported identity, and the modules below a library root that no
-library includes, split by whether a claimed module imports them as Lean's import-header parser
-reads the package's sources (not a build). The command writes each edit into the lakefile, the
+version and commit reported by the compiler that Elan resolves the project's `lean-toolchain` to
+(a trusted resolution and self-report, independent of the compiler running `regula`), and the
+modules below a library root that no library includes, split by whether a claimed module
+imports them as Lean's import-header parser reads the package's sources (not a build). The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
 is empty and each claimed target of both observations, matched by kind and name, has the same
 `Observation.arguedBy` (`arguedBy_run`); that the file edits realize `apply` is that runtime
@@ -147,6 +153,16 @@ candidate of `RegulaPolicy.Community.argumentSettings`, the `-D` reading of RG20
 def Target.argues (t : Target) (name : Name) : Bool :=
   (argumentSettings t.arguments).any fun s => decide (optionOf s.1 = name)
 
+/-- What the project's `lean-toolchain` selects, as Elan resolves it and the compiler reports. -/
+inductive Pin where
+  /-- `selector`, the file's content, resolves to an installed compiler that reports this version
+  and full commit. -/
+  | compiler (selector version commit : String)
+  /-- `selector` (empty when the file names no toolchain) resolves to no installed compiler that
+  reports an identity; `reason` is the resolver's or the probe's error. -/
+  | unresolved (selector reason : String)
+  deriving DecidableEq, Repr
+
 /-- What `init` and `doctor` observe of a project. -/
 structure Observation where
   /-- The root package's `lintDriver`; empty when it is not set. -/
@@ -178,10 +194,8 @@ structure Observation where
   /-- Each file of `skillPaths` at the repository root that exists, relative to the project root,
   and whether it equals the installed skill. -/
   skills : List (String × Bool)
-  /-- The running compiler's version and full commit, formatted together. -/
-  toolchain : String
-  /-- The exact supported compiler identity, in the same format as `toolchain`. -/
-  supported : String
+  /-- The compiler the project's own `lean-toolchain` selects, whichever compiler runs `regula`. -/
+  pin : Pin
   /-- Each root `lean_lib` with its roots and the modules below a root, such as `Foo.Basic` for
   root `Foo`, that no root library includes and that a claimed module imports, directly or
   through other modules of the package: the audit finds them outside every library. -/
@@ -263,8 +277,11 @@ inductive Issue where
   | guidanceMissing (file skill : String)
   /-- The skill file at `path` differs from the installed Regula's skill. -/
   | skillStale (path : String)
-  /-- The project uses toolchain `project`, but this Regula release supports only `supported`. -/
-  | toolchain (project supported : String)
+  /-- The project's `lean-toolchain`, `selector`, selects the compiler reporting `version` and
+  `commit`, which this Regula revision does not support. -/
+  | toolchain (selector version commit : String)
+  /-- The project's `lean-toolchain`, `selector`, selects no installed compiler (`reason`). -/
+  | toolchainUnresolved (selector reason : String)
   /-- `lean_lib` `library`, with roots `roots`, includes none of `modules`, which lie below them. -/
   | uncovered (library : String) (roots modules : List String)
   deriving DecidableEq, Repr
@@ -280,7 +297,8 @@ def Issue.fixable : Issue → Bool
   | .noLibrary => false
   | .guidanceMissing _ _ => true
   | .skillStale _ => true
-  | .toolchain _ _ => false
+  | .toolchain _ _ _ => false
+  | .toolchainUnresolved _ _ => false
   | .uncovered _ _ _ => false
 
 /-- `init` writes the starter manifest: there is none, and the package has a library for it to
@@ -313,6 +331,58 @@ def optionIssues (o : Observation) : List Issue :=
 def arguedIssues (o : Observation) : List Issue :=
   if argued o = [] then [] else [.argued (argued o)]
 
+/-- The toolchain issue, if any: the compiler the project's `lean-toolchain` selects must have the
+identity this Regula revision supports (`RegulaPolicy.Compiler.accepts`), under any selector, and
+a pin that resolves to no compiler is an issue. -/
+def toolchainIssues (o : Observation) : List Issue :=
+  match o.pin with
+  | .compiler selector version commit =>
+    if RegulaPolicy.Compiler.accepts version commit then []
+    else [.toolchain selector version commit]
+  | .unresolved selector reason => [.toolchainUnresolved selector reason]
+
+/-- `doctor` reports no toolchain issue exactly when the project's `lean-toolchain` resolves to a
+compiler whose reported identity this Regula revision supports. -/
+theorem toolchainIssues_eq_nil_iff (o : Observation) :
+    toolchainIssues o = [] ↔ ∃ selector version commit,
+      o.pin = .compiler selector version commit ∧
+        RegulaPolicy.Compiler.Supports version commit := by
+  unfold toolchainIssues
+  split
+  · next s v c hp =>
+    rw [hp]
+    constructor
+    · intro h
+      refine ⟨s, v, c, rfl, (RegulaPolicy.Compiler.accepts_iff v c).mp ?_⟩
+      by_cases ha : RegulaPolicy.Compiler.accepts v c = true
+      · exact ha
+      · simp [ha] at h
+    · rintro ⟨_, _, _, heq, hs⟩
+      cases heq
+      simp [(RegulaPolicy.Compiler.accepts_iff v c).mpr hs]
+  · next s r hp =>
+    rw [hp]
+    constructor
+    · intro h
+      exact absurd h (List.cons_ne_nil _ _)
+    · rintro ⟨_, _, _, heq, _⟩
+      cases heq
+
+/-- `init` writes no fix for a toolchain issue. -/
+theorem toolchainIssues_unfixable (o : Observation) :
+    ∀ i ∈ toolchainIssues o, i.fixable = false := by
+  intro i hi
+  unfold toolchainIssues at hi
+  split at hi
+  · split at hi
+    · simp at hi
+    · rw [List.mem_singleton] at hi
+      rw [hi]
+      rfl
+  · rw [List.mem_singleton] at hi
+    rw [hi]
+    rfl
+
 /-- Every setup issue of an observation, in a fixed order. -/
 def issues (o : Observation) : List Issue :=
   driverIssues o ++
@@ -322,7 +392,7 @@ def issues (o : Observation) : List Issue :=
   (if o.libraries then [] else [.noLibrary]) ++
   (if o.guided then [] else [.guidanceMissing o.agentsFile o.skillFile]) ++
   (staleSkills o).map .skillStale ++
-  (if o.toolchain = o.supported then [] else [.toolchain o.toolchain o.supported]) ++
+  toolchainIssues o ++
   o.uncovered.map uncoveredIssue
 
 /-- One edit `init` writes. -/
@@ -466,14 +536,13 @@ theorem run_targets (o : Observation) (es : List Edit) :
     cases e <;> simp [apply, Edit.added?, List.filterMap_cons]
 
 theorem run_toolchain (o : Observation) (es : List Edit) :
-    (run o es).toolchain = o.toolchain ∧ (run o es).supported = o.supported ∧
-      (run o es).uncovered = o.uncovered := by
+    (run o es).pin = o.pin ∧ (run o es).uncovered = o.uncovered := by
   induction es generalizing o with
-  | nil => exact ⟨rfl, rfl, rfl⟩
+  | nil => exact ⟨rfl, rfl⟩
   | cons e es ih =>
     simp only [run, List.foldl_cons] at ih ⊢
-    rw [(ih _).1, (ih _).2.1, (ih _).2.2]
-    cases e <;> exact ⟨rfl, rfl, rfl⟩
+    rw [(ih _).1, (ih _).2]
+    cases e <;> exact ⟨rfl, rfl⟩
 
 theorem run_manifest (o : Observation) (es : List Edit) :
     (run o es).manifest = (o.manifest || decide (Edit.manifest ∈ es)) := by
@@ -1123,14 +1192,7 @@ theorem issues_unfixable_iff_settled (o : Observation) :
       · rw [List.mem_singleton] at hj
         rw [hj]
         rfl
-    have htc : ∀ j ∈ (if o.toolchain = o.supported then []
-        else [Issue.toolchain o.toolchain o.supported]), j.fixable = false := by
-      intro j hj
-      split at hj
-      · simp at hj
-      · rw [List.mem_singleton] at hj
-        rw [hj]
-        rfl
+    have htc := toolchainIssues_unfixable o
     have hun : ∀ j ∈ o.uncovered.map uncoveredIssue, j.fixable = false := by
       intro j hj
       obtain ⟨x, -, rfl⟩ := List.mem_map.mp hj
@@ -1158,7 +1220,10 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have h3 := starter_run g o
   have h4 := guided_run g o
   have h5 := staleSkills_run g o
-  have ⟨h6, h7, h8⟩ := run_toolchain o (plan g o)
+  have h8 := (run_toolchain o (plan g o)).2
+  have h6 : toolchainIssues (run o (plan g o)) = toolchainIssues o := by
+    unfold toolchainIssues
+    rw [(run_toolchain o (plan g o)).1]
   have h9 := run_libraries o (plan g o)
   have h10 : arguedIssues (run o (plan g o)) = arguedIssues o := by
     unfold arguedIssues
@@ -1171,10 +1236,10 @@ theorem issues_run (g : Guidance) (o : Observation) :
     rfl
   have hs : ((staleSkills o).map Issue.skillStale).filter (!·.fixable) = [] := by
     induction staleSkills o <;> simp_all [Issue.fixable]
-  have ht : (if o.toolchain = o.supported then []
-      else [Issue.toolchain o.toolchain o.supported]).filter (!·.fixable) =
-      if o.toolchain = o.supported then [] else [Issue.toolchain o.toolchain o.supported] := by
-    split <;> rfl
+  have ht : (toolchainIssues o).filter (!·.fixable) = toolchainIssues o := by
+    rw [List.filter_eq_self]
+    intro i hi
+    simp [toolchainIssues_unfixable o i hi]
   have hopt : (optionIssues o).filter (!·.fixable) = [] := by
     rw [List.filter_eq_nil_iff]
     intro i hi
@@ -1186,8 +1251,8 @@ theorem issues_run (g : Guidance) (o : Observation) :
   have hl : (if o.libraries = true then [] else [Issue.noLibrary]).filter (!·.fixable) =
       if o.libraries = true then [] else [Issue.noLibrary] := by
     split <;> rfl
-  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h7 h8 h9 h10
-  simp only [issues, h2, h3, h4, h5, h6, h7, h8, h9, h10, Bool.false_eq_true, ↓reduceIte,
+  generalize run o (plan g o) = r at h1 h2 h3 h4 h5 h6 h8 h9 h10
+  simp only [issues, h2, h3, h4, h5, h6, h8, h9, h10, Bool.false_eq_true, ↓reduceIte,
     List.map_nil, List.append_nil, List.filter_append, hs, ht, hu, hl, hopt, ha]
   have hf : (if o.starter = true then [Issue.manifestMissing] else []).filter
       (!·.fixable) = [] := by split <;> rfl
@@ -1359,8 +1424,14 @@ def Issue.message (f : Lakefile) : Issue → String
   | .guidanceMissing a s => "setup [" ++ a ++ "]: no agent guidance: " ++ a ++ " has no `" ++
       agentsHeading ++ "` section and there is no " ++ s
   | .skillStale p => "setup [" ++ p ++ "]: the skill is not the installed Regula's briefing"
-  | .toolchain p s => "setup [lean-toolchain]: the project uses " ++ p ++
-      ", but this Regula release supports only " ++ s
+  | .toolchain s v c => "setup [lean-toolchain]: the project's lean-toolchain, " ++ s ++
+      ", selects Lean " ++ v ++ " (" ++ c ++ "), but this Regula revision supports only Lean " ++
+      RegulaPolicy.Compiler.version ++ " (" ++ RegulaPolicy.Compiler.commit ++ ")"
+  | .toolchainUnresolved s r => "setup [lean-toolchain]: " ++
+      (if s.isEmpty then "the project's lean-toolchain names no toolchain"
+        else "the project's lean-toolchain, " ++ s ++ ", selects no installed compiler") ++
+      ", so its compiler cannot be compared with the Lean " ++ RegulaPolicy.Compiler.version ++
+      " (" ++ RegulaPolicy.Compiler.commit ++ ") this Regula revision supports: " ++ r
   | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
       moduleCount ms ++ " below its roots, but a claimed module imports " ++ pronoun ms ++
       ", so `lake lint` finds " ++ pronoun ms ++ " outside every library and fails:\n" ++
@@ -1393,10 +1464,15 @@ def Issue.fix (f : Lakefile) : Issue → String
   | .skillStale _ => "  fix: run `lake exe regula init`, which replaces it with the installed \
       briefing (for example after `lake update regula`); init owns this file and keeps no local \
       edits"
-  | .toolchain _ s => "  fix: select compiler " ++ s ++
-      ", or require a Regula revision qualified for your exact compiler \
-      (see docs/guides/toolchains.md); \
-      each release supports exactly one Lean release"
+  | .toolchain _ _ _ => "  fix: move the project, and Mathlib if it uses it, to a toolchain that \
+      selects the supported compiler (set lean-toolchain and run `lake update`), or require a \
+      Regula revision qualified for your exact compiler (the adoption guide's compatibility \
+      table lists each release's toolchain; docs/guides/toolchains.md covers development \
+      compilers); a toolchain override does not change what the project pins"
+  | .toolchainUnresolved s _ => "  fix: set lean-toolchain to a toolchain that selects the \
+      supported compiler" ++
+      (if s.isEmpty then "" else ", or install the one it names (`elan toolchain install " ++ s ++
+        "`)") ++ "; `doctor` resolves the pin with Elan and installs nothing"
   | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
       (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
       modules)"

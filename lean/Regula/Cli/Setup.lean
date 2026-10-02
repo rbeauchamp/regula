@@ -1,4 +1,5 @@
 import Regula.Checker.AxiomGate
+import Regula.CompilerProbe
 import RegulaCore.Guidance
 import Lake.Toml.Grammar
 import Lake.Toml.Load
@@ -17,6 +18,8 @@ finding for the targets that share a claim and failures.
 
 - `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
   package, the files and the import headers of the root package's modules.
+- `pinned`: the compiler the project's own `lean-toolchain` selects, resolved by Elan and
+  identified by its reported version and commit.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
   agent-guidance section, searched from the Lake root up to the Git repository root, and that
   root, where the skill files are.
@@ -44,7 +47,9 @@ package's configuration and each claimed target's as the plan decides, located t
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
 `RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
-linter's decision. -/
+linter's decision. Elan's resolution of the pinned toolchain and that compiler's report of its
+own version and commit are trusted; nothing is installed, and a pin that does not resolve is a
+setup issue. -/
 
 namespace Regula.Cli.Setup
 
@@ -126,9 +131,16 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
       found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
   return (found.find? (·.hasSection) <|> found.head?).getD (file (dirs.length - 1) false false)
 
-private def readTrimmed (path : FilePath) : IO String := do
-  if ← path.pathExists then return (← IO.FS.readFile path).trimAscii.toString
-  return ""
+/-- The compiler the `lean-toolchain` of the project at `root` selects: Elan resolves the file's
+selector to an installed compiler, which reports its version and commit
+(`Regula.Toolchain.probe`). An override or the compiler running `regula` does not enter. A
+selector Elan cannot resolve without installing, or a failed probe, is `Pin.unresolved`. The
+file exists: `findRepoRoot` finds the project root by it. -/
+def pinned (root : FilePath) : IO Pin := do
+  let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
+  match ← (Regula.Toolchain.probe root selector).toBaseIO with
+  | .ok identity => return .compiler selector identity.version identity.commit
+  | .error error => return .unresolved selector error.toString
 
 /-- The modules reachable by import from `starts`, the starts included, among the modules whose
 source files `sources` names. Imports are read with Lean's header parser, without building; an
@@ -159,7 +171,8 @@ def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := 
 /-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
 `leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
 their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
-Mathlib, the required Regula's `lean-toolchain`, the manifest and agent-guidance files, and the
+Mathlib, the compiler its `lean-toolchain` selects (`pinned`), the manifest and agent-guidance
+files, and the
 modules below a library root that no library includes, split by whether a claimed module imports
 them. -/
 def observe (root : FilePath) : IO Project := do
@@ -255,8 +268,7 @@ def observe (root : FilePath) : IO Project := do
       manifest := ← (Manifest.defaultPath root).pathExists
       agentsFile := guidance.name, agentsSection := guidance.hasSection
       skillFile := guidance.up ++ skillPath, skills
-      toolchain := s!"{Lean.versionString} ({Lean.githash})"
-      supported := s!"{RegulaPolicy.Compiler.version} ({RegulaPolicy.Compiler.commit})"
+      pin := ← pinned root
       uncovered, unimported } }
 
 /-! ## Text edits -/

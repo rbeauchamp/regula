@@ -1507,16 +1507,31 @@ root's; the skill files are read and written at that repository root (the Lake r
 repository).
 
 Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
-configuration is elaborated. The source guard compares both the running compiler version and
-full commit with the revision's declared identity; the compiled probe, inventory admission,
-and plan admission use that same pair. `Compiler.accepts_iff` proves the executed Boolean
-matches the predicate; `transcript_plan_compiler` proves admitted transcripts and a valid plan
-agree on both fields. Compiler self-reports and locating and launching the compiler are trusted
-IO. Lake may reuse an elaborated configuration; `lake update` elaborates it again. The compiled
-admission guards remain in force when a configuration is cached.
+configuration is elaborated, in a child `lean` that `LEAN_SYSROOT` or `PATH` selects. The
+source guard compares that child's version and full commit with the revision's declared
+identity and then prints them; the lakefile passes only when the child succeeds and the
+printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
+lakefile, so a child that is another compiler, fails or cannot be run is refused, with the
+adopter's remedy. That comparison is an elaboration-time check, not a theorem. The compiled
+probe, inventory admission, and plan admission use the same declared pair.
+`Compiler.accepts_iff` proves the executed Boolean matches the predicate;
+`transcript_plan_compiler` proves admitted transcripts and a valid plan agree on both fields.
+Compiler self-reports and locating and launching the compiler are trusted IO, and a
+self-report names the Git commit of a build's source tree, not uncommitted source edits or the
+executable's bytes. Lake may reuse an elaborated configuration; `lake update` elaborates it
+again. The compiled admission guards remain in force when a configuration is cached.
 
-Prepared compatibility revisions have a compiled candidate marker. Ordinary audit entrypoints
-refuse them. An explicit qualification invocation may inspect the same internal accounts, but
+`doctor` reads the project's own `lean-toolchain`, has Elan resolve it to an installed compiler
+without installing one, and reads the version and commit that compiler reports, independently
+of the compiler running `regula`. `Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
+decision reports no toolchain issue exactly when that resolved identity
+`RegulaPolicy.Compiler.Supports`, under any selector; an unresolved selector or a failed probe
+is an issue `init` does not fix. Elan's resolution and the report are trusted.
+
+Prepared compatibility revisions have a compiled candidate marker. The ordinary audit
+entrypoints that call `CompilerMode.requireAllowed` refuse them: `axiomGate`, so also the audit
+`lake lint` runs, `docFenceAudit` and `freshChecker`. `regula`, `ruleExamples`, `toolchain` and
+the qualification executables do not call it themselves. An explicit qualification invocation may inspect the same internal accounts, but
 public result files wrap those observations with `status: unsupported`, diagnostic purpose and
 `grantsSupport: false`; accepted text labels them diagnostic rather than PASS. The pure
 `Compiler.mayRun` and `publication` functions decide these boundaries. The diagnostic switch is
@@ -1535,8 +1550,13 @@ with no `lean_lib`, a package-level `-D` setting Mathlib's options as in the fir
 a Git repository with and without a root `AGENTS.md`) are bounded observations, as are the
 historical version-string guard's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command
 line and when a checker executable loaded the workspace. Those historical observations do not
-qualify the new exact-identity guard; its command-line and in-process paths require current
-qualification.
+qualify the new exact-identity guard. Its retained control, in the `lint-driver` partition,
+loads a fresh copy of the lakefile and policy source through `lake`: an inherited
+`LEAN_SYSROOT` whose `lean` does not compile the policy is refused, and the same package then
+loads with the inherited environment. A child that reports another compiler's identity, a
+compiler the policy refuses, an in-process load by a checker executable and `doctor`'s
+resolution of a pin need a second installed compiler or current observations and have no
+retained control.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
