@@ -123,7 +123,8 @@ the two ranges only for a declaration it elaborates from the source as parsed: `
 several syntax kinds gives a kind's definition a selection range that ends after its range.
 Admission and finding locations read the admitted pair, so nothing is enlarged and a selection
 range outside its range is never used. The producer's source evidence still requires the recorded
-selection range to be valid in the source (`recordedRangesValid_of`), and
+selection range to be valid in the source (`Environment.RecordedRangesSound`, an account of
+`ProducerReport.validate_sound`), and
 `Ranges.validForLines_iff_admitted` proves that the requirement on a recorded pair is the former
 one without the containment of the selection range, a condition that does not read the source.
 Report lines are one-based and columns count Unicode code points; `startUtf16` and `endUtf16` are

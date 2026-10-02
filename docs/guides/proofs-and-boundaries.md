@@ -573,8 +573,9 @@ inferred from any pure proof.
   `Environment.Admissible`, restating every executed guard (a nonempty, unique, loaded module
   census; a declaration census equal to the reported keys in order and duplicate-free; execution
   results exactly for the requested roots; `ExecutionValid` closures; unique located source
-  bindings covering every claimed module and range; a replay receipt admitting exactly its unique
-  requirements and requiring every safe, total declaration; documentation observations for
+  bindings covering every claimed module and range; each declaration's recorded full range and
+  recorded selection range valid in its module's source; a replay receipt admitting exactly its
+  unique requirements and requiring every safe, total declaration; documentation observations for
   exactly the claimed modules and unique material selection; unique history requests with exactly
   one history per requested module; completed histories located, source-stable, bound to the
   owned snapshot when the module has one and free of anonymous edge endpoints; unavailable
