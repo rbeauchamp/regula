@@ -136,7 +136,9 @@ lake exe regula rules            # the index of every rule
 ```
 
 Each prints Markdown generated from the installed package's registry, so it needs no network and
-matches your pinned release. This repository dogfoods the skill in
+matches your pinned release. The briefing also tells the agent to link each rule ID it mentions
+in an issue, a comment, a pull request or a document to the rule's page for the installed build,
+the [rule link](#read-a-finding) a finding prints. This repository dogfoods the skill in
 [`.agents/skills/regula/SKILL.md`](../../.agents/skills/regula/SKILL.md).
 
 ## 3. Review the claimed surface
@@ -334,7 +336,8 @@ lake lint
 `lake update regula` updates only `regula`. Running `init` again rewrites a skill file that
 differs from the new release's briefing and adds any option the new release requires; it changes
 nothing else. A project that also uses Mathlib moves Mathlib to the same Lean release the usual
-way. Each finding's rule link then targets the new release's pages.
+way. Each finding's rule link, and the link the refreshed briefing gives for citing a rule, then
+targets the new release's pages.
 
 Regula v0.3.0 and earlier kept those working files in `tmp/.regula-scratch/` instead. A later
 release neither writes nor removes anything there, so delete `tmp/.regula-scratch/` once after

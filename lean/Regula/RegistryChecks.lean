@@ -80,8 +80,9 @@ def main : IO Unit := do
         s!"{id} compliant example is {e.compliantPath id}"
     require ((← IO.FS.readFile (e.noncompliantPath id)) == e.noncompliant)
       s!"{id} noncompliant example is {e.noncompliantPath id}"
-  -- The committed agent skill is the generated briefing of this build.
-  require ((← IO.FS.readFile ".agents/skills/regula/SKILL.md") == Regula.Guidance.skill)
+  -- The committed agent skill is the generated briefing of an unreleased build, which every
+  -- commit of `main` is (`Regula.Guidance.skill_unreleased`); the release commit keeps the file.
+  require ((← IO.FS.readFile ".agents/skills/regula/SKILL.md") == Regula.Guidance.skillIn .dev)
     "committed .agents/skills/regula/SKILL.md is current (regenerate with `lake exe regula skill`)"
   -- The adoption guide quotes, on one line, the RG1005 guidance that names the families of
   -- declarations Lean generates, rendered from the list the checker runs (`GeneratedFamily.all`).

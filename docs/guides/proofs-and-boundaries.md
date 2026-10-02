@@ -892,7 +892,10 @@ not `f._mutual`,
 `S.x._inherited_default`, `t.ctorElimType` or a matcher's splitter; the
 [enumeration](#generated-declaration-families) marks the members they observe. Derived instances,
 whose relation Lean does not record, are not related.
-`RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`) and the `regula`
+`RegulaCore.Guidance`: the briefing lists every rule once (`writingSections_perm`), the link it
+gives for citing a rule is the installed build's `helpUrl` (`citation_installed`), an unreleased
+build's skill is the development edition's, which the committed skill is compared with
+(`skill_unreleased`), and the `regula`
 parser admits exactly its documented commands (`parseCommand_arguments`, `parseCommand_sound`,
 `parseInvocation_arguments`, `parseInvocation_sound`). Result stages: `stagesOf_required`,
 `stagesOf_ordered`, `withDocs_ordered`, `notRun_completedStages_eq_nil_iff`,
