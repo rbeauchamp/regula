@@ -7,6 +7,24 @@ open Lean Elab Command
 open scoped Regula.Report
 
 run_cmd do
+  let _ : BEq QuotKind := ⟨fun a b => match a, b with
+    | .type, .type | .ctor, .ctor | .lift, .lift | .ind, .ind => true
+    | _, _ => false⟩
+  let _ : BEq QuotVal := ⟨fun ⟨a, k⟩ ⟨b, l⟩ => a == b && k == l⟩
+  let _ : BEq InductiveVal := ⟨fun
+    ⟨a, p, i, all, cs, n, r, u, f⟩ ⟨b, p', i', all', cs', n', r', u', f'⟩ =>
+      a == b && p == p' && i == i' && all == all' && cs == cs' && n == n' &&
+        r == r' && u == u' && f == f'⟩
+  let _ : BEq ConstantInfo := ⟨fun a b => match a, b with
+    | .axiomInfo a, .axiomInfo b => a == b
+    | .defnInfo a, .defnInfo b => a == b
+    | .thmInfo a, .thmInfo b => a == b
+    | .opaqueInfo a, .opaqueInfo b => a == b
+    | .quotInfo a, .quotInfo b => a == b
+    | .inductInfo a, .inductInfo b => a == b
+    | .ctorInfo a, .ctorInfo b => a == b
+    | .recInfo a, .recInfo b => a == b
+    | _, _ => false⟩
   let original ← getEnv
   let observe (env : Environment) (helper : Name) := liftTermElabM do
     let saved ← saveState
@@ -37,11 +55,12 @@ run_cmd do
   let some (.defnInfo base) := original.find? baseName | throwError "missing real base"
   let some (.defnInfo cases) := original.find? (mkCasesOnName parent)
     | throwError "missing real eliminator"
-  -- Kernel-level insertion changes only this constant; no compiler or evaluator runs it.
+  -- Kernel insertion changes a local constant; retain the elaborator's replacement metadata.
   let replace (decl : DefinitionVal) := do
-    let changed := Environment.ofKernelEnv
-      (← ofExceptKernelException <|
-        original.toKernelEnv.addDeclWithoutChecking (.defnDecl decl))
+    let kernel ← ofExceptKernelException <|
+      original.toKernelEnv.addDeclWithoutChecking (.defnDecl decl)
+    let changed := Compiler.implementedByAttr.ext.setState (Environment.ofKernelEnv kernel)
+      (Compiler.implementedByAttr.ext.getState original)
     unless changed.find? decl.name == some (.defnInfo decl) do
       throwError "constructor-index mutation not visible: {decl.name}"
     unless changed.toKernelEnv.constants.map₁ == original.toKernelEnv.constants.map₁ do
@@ -49,7 +68,11 @@ run_cmd do
     for (name, info) in original.constants.map₂ do
       unless changed.find? name == some (if name == decl.name then .defnInfo decl else info) do
         throwError "constructor-index mutation changed another local constant: {name}"
+      unless Compiler.getImplementedBy? changed name == Compiler.getImplementedBy? original name &&
+          isExtern changed name == isExtern original name do
+        throwError "constructor-index mutation changed local metadata: {name}"
     return changed
+  check "unchanged declaration update" (← replace helper) helperName (some (parent, baseName))
   let body := helper.value.replace fun e =>
     if e.isAppOfArity `getObjTagNat 2 then some (mkRawNatLit 0) else none
   let callee := helper.value.replace fun e =>
