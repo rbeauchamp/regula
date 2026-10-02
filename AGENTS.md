@@ -154,9 +154,12 @@ There is no override or grace period; GNU coreutils timeout sends SIGKILL to the
 verification process group at the deadline. A partial or over-budget run fails.
 Do not bypass the deadline by treating separately run inner checks as acceptance.
 Provision pinned dependency artifacts (including the website package's pinned Verso,
-`(cd website && lake build verso/VersoManual)`) and GNU coreutils timeout before
+`lean --run lean/RegulaProvision.lean verso`) and GNU coreutils timeout before
 verification; network/toolchain installation is setup, not a verification pass. OS scheduling and
 signal delivery are trusted mechanisms, not a hard real-time theorem.
+`dependency-build-mode` selects the stable upstream-cache route or a source build for an
+exact compiler adaptation. Use the Lean provisioning entry points documented in the
+contributor guide so their artifact policy also reaches child processes.
 
 The first builds the acceptance executables and type-checks the diagnostic modules,
 checks every claimed declaration of the root `regula` package with fresh source elaboration and
