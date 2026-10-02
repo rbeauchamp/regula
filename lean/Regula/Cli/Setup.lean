@@ -134,7 +134,7 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
 /-- The compiler the `lean-toolchain` of the project at `root` selects: Elan resolves the file's
 selector to an installed compiler, which reports its version and commit
 (`Regula.Toolchain.probe`). An override or the compiler running `regula` does not enter. A
-selector Elan cannot resolve without installing, or a failed probe, is `Pin.unresolved`. The
+selector naming no toolchain Elan lists as installed, or a failed probe, is `Pin.unresolved`. The
 file exists: `findRepoRoot` finds the project root by it. -/
 def pinned (root : FilePath) : IO Pin := do
   let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString

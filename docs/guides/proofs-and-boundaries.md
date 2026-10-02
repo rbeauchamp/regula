@@ -1142,12 +1142,17 @@ self-report names the Git commit of a build's source tree, not uncommitted sourc
 executable's bytes. Lake may reuse an elaborated configuration; `lake update` elaborates it
 again. The compiled admission guards remain in force when a configuration is cached.
 
-`doctor` reads the project's own `lean-toolchain`, has Elan resolve it to an installed compiler
-without installing one, and reads the version and commit that compiler reports, independently
-of the compiler running `regula`. `Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
+`doctor` reads the project's own `lean-toolchain`, resolves it to a toolchain
+`elan toolchain list` names, and reads the version and commit that compiler reports,
+independently of the compiler running `regula`. `elan run` installs a known release that is
+missing, so only a listed name is run: `Regula.Toolchain.installedName?_spec` proves that the
+name is one of those supplied as listed, spelled as the selector or as its release name.
+`Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
 decision reports no toolchain issue exactly when that resolved identity
 `RegulaPolicy.Compiler.Supports`, under any selector; an unresolved selector or a failed probe
-is an issue `init` does not fix. Elan's resolution and the report are trusted.
+is an issue `init` does not fix. Elan's listing, that it runs a listed toolchain without
+installing, its naming of release selectors (transcribed from Elan 4.1.2, not proved to agree
+with it) and the report are trusted.
 
 Prepared compatibility revisions have a compiled candidate marker. The ordinary audit
 entrypoints that call `CompilerMode.requireAllowed` refuse them: `axiomGate`, so also the audit

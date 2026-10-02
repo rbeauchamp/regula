@@ -54,7 +54,7 @@
   "excluded-executables": [
     {
       "executable": "toolchain",
-      "rationale": "Development compiler adaptation driver. RegulaCore.Toolchain proves its identity parsing and campaign completion decisions; Git, Elan, compiler self-reports, filesystem and process observations remain trusted. Its receipts grant no compiler support or audit authority."
+      "rationale": "Development compiler adaptation driver. RegulaCore.Toolchain proves its identity parsing, installed-toolchain resolution and campaign completion decisions; Git, Elan, compiler self-reports, filesystem and process observations remain trusted. Its receipts grant no compiler support or audit authority."
     },
     {
       "executable": "qualify",

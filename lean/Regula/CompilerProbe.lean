@@ -4,9 +4,12 @@ import RegulaCore.Toolchain
 
 Resolve an Elan toolchain selector to its `lean` executable and read the version and commit
 that compiler reports about itself. The development toolchain driver and `regula doctor` share
-this. Nothing is installed: `elan run` refuses a toolchain that is not installed. Elan
-resolution, process execution and the compiler's self-report are trusted; a compiler built
-from a tree with uncommitted changes reports that tree's commit, with no marker for them. -/
+this. `elan run` installs a known release that is missing, so a selector is first resolved to
+a toolchain `elan toolchain list` names, and only that name is run: a selector naming none is
+refused, and a release channel such as `stable` names none. Elan's listing, that it runs a
+toolchain it lists without installing, its naming of release selectors, process execution and
+the compiler's self-report are trusted; a compiler built from a tree with uncommitted changes
+reports that tree's commit, with no marker for them. -/
 
 namespace Regula.Toolchain
 open System
@@ -17,10 +20,19 @@ def compilerEnv : Array (String × Option String) :=
     "LAKE", "LAKE_HOME", "LAKE_OVERRIDE_LEAN", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"].map
       (fun name => (name, none))
 
-/-- The `lean` executable Elan resolves `selector` to, from directory `root`. -/
+/-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
+`elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`,
+which would install any other known release. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
+  let listed ← IO.Process.output {
+    cmd := "elan", args := #["toolchain", "list"], cwd := some root, env := compilerEnv }
+  unless listed.exitCode == 0 do
+    throw <| IO.userError s!"cannot list installed toolchains: {listed.stderr.trimAscii}"
+  let some name := installedName? (listedToolchains listed.stdout) selector
+    | throw <| IO.userError
+        s!"cannot resolve selected compiler: Elan lists no installed toolchain for '{selector}'"
   let out ← IO.Process.output {
-    cmd := "elan", args := #["run", selector, "elan", "which", "lean"]
+    cmd := "elan", args := #["run", name, "elan", "which", "lean"]
     cwd := some root, env := compilerEnv }
   unless out.exitCode == 0 do
     throw <| IO.userError s!"cannot resolve selected compiler: {out.stderr.trimAscii}"
