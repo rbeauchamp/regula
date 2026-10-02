@@ -79,6 +79,11 @@ input_dir ruleExampleSources where
   path := "examples/rules"
   text := true
 
+-- The standalone compiler probe embeds this source with include_str.
+input_file compilerObservationSource where
+  path := "lean/Regula/CompilerObservation.lean"
+  text := true
+
 @[default_target]
 lean_lib «RegulaCore» where
   -- The rule registry and the pure checker projections of policy decisions that the
@@ -90,6 +95,7 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
+  needs := #[`@/compilerObservationSource]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain
