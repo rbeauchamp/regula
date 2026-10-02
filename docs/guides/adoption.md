@@ -233,9 +233,11 @@ when those load from byte-identical `.olean` files (including `.olean.private` p
 instead of repeating it; libraries that do not import one another are inspected side by side.
 So each claimed library module is kernel-checked once per audit, in its own library's
 environment (or, where claimed libraries import one another, in the first environment that
-loads it), and again only where that identity cannot be established. It re-evaluates current
-policy even when every module is cached. Run it from the project root without `-d`: it refuses a working directory that
-is not the workspace that dispatched it. Its exit status separates the outcome:
+loads it), and again only where the conditions for reuse cannot be established
+([admission reuse](proofs-and-boundaries.md#producers) lists them and the modules they leave
+replayed in each environment). It re-evaluates current policy even when every module is cached.
+Run it from the project root without `-d`: it refuses a working directory that is not the
+workspace that dispatched it. Its exit status separates the outcome:
 
 | Exit | Outcome |
 | --- | --- |

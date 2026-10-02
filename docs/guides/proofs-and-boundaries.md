@@ -368,10 +368,11 @@ inferred from any pure proof.
   resulting kernel and returns a typed receipt. It returns
   `IO (Except ProducerReport.AdmissionFailure ProducerReport.AdmissionReceipt)`: a successful
   receipt's required keys are the safe, nonpartial constants of the replayed modules' own
-  `.olean` data, one key per module and name, and it records the admitted keys. Replay scope
-  includes owned dependencies and the existing reporter closure where required; it may exceed the
-  reported surface. Imported unowned modules remain trusted; the receipt records the completed
-  operation and does not authenticate replay. Admission failures carry the
+  `.olean` data, one key per module and name, then those of each reused module among the
+  environment's requested modules (**Admission reuse** below), and it records the admitted keys.
+  Replay scope includes owned dependencies and the existing reporter closure where required; it
+  may exceed the reported surface. Imported unowned modules remain trusted; the receipt records
+  the completed operation and does not authenticate replay. Admission failures carry the
   `[INCOMPLETE[kernel-admission]]` tag (`Admission.failureTag`), since RG2005 reports them as
   incomplete.
 - **Several copies of one name.** Lean realizes equation, unfolding and match-equation lemmas,
@@ -1438,7 +1439,9 @@ structural` and `diagnostics execution` now each run under the 420-second deadli
 as jobs of the diagnostics workflow. Observed on 2026-10-01 on a 14-core machine that other
 builds kept at a load average of 10 to 13, `structural` passed in 96 s and `execution` in 90 s
 (102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not
-a bound: the deadline itself is what refuses a slower run.
+a bound: the deadline itself is what refuses a slower run. The `structural` run predates that
+partition's frozen-artifact and library-cycle controls (the admission reuse rows of the table
+above), which no observation here includes.
 
 **Other proved oracles.** Quantifiers range over supplied Lean values; the IO drivers call each
 `ExecutableContract.run`, so the evidence is required by their source linkage and erased at
