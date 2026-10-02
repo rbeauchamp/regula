@@ -5,14 +5,15 @@ default remains Lean 4.34.0. A version such as `4.36.0-pre` identifies many comp
 it is insufficient to select compatible checker code. `RegulaPolicy.Compiler` is the shared
 identity used by the cold Lake guard, compiled probe, inventory admission, and plan admission.
 
-**Status.** This is the first, partial delivery of
-[#191](https://github.com/rbeauchamp/regula/issues/191): the identity policy, the preparation
-and qualification workflow, and the refusals are in place, but no checker revision is
-qualified for a compiler newer than Lean 4.34.0. Until the work tracked by
-[#192](https://github.com/rbeauchamp/regula/issues/192),
-[#193](https://github.com/rbeauchamp/regula/issues/193) and
-[#195](https://github.com/rbeauchamp/regula/issues/195) is reviewed and a compatibility
-revision is promoted, code elaborated with a newer compiler cannot receive a supported result.
+**Status.** The reusable workflow and portable compatibility changes for
+[#191](https://github.com/rbeauchamp/regula/issues/191) are implemented. These include the
+capability-aware compiler-trust policy ([#192](https://github.com/rbeauchamp/regula/issues/192)),
+constructor-index authentication ([#193](https://github.com/rbeauchamp/regula/issues/193)),
+documentation fixture repair ([#195](https://github.com/rbeauchamp/regula/issues/195)) and
+source dependency provisioning ([#201](https://github.com/rbeauchamp/regula/issues/201)).
+No checker revision is yet qualified for a compiler newer than Lean 4.34.0. A compatibility
+revision must complete its applicable qualification, acceptance and review before promotion;
+until then, its observations cannot establish a supported audit result.
 
 ## Prepare an isolated candidate
 
@@ -214,25 +215,15 @@ compiler agree and an override cannot hide a project pinned to another. LRAT qua
 setup now generates separate direct and grind certificates with the selected compiler before
 checking them.
 
-The release candidate's initial campaign completed build, ordinary refusal, producer, history,
-structural, execution, lint-driver and operational self-audit controls. Its fixture campaign
-failed on the removed legacy compiler axiom and obsolete LRAT certificate bytes. The legacy
-fixture and the compiler-trust policy need the capability-aware port tracked by
-[#192](https://github.com/rbeauchamp/regula/issues/192), including refusal of dependency spoofs
-when those builtin names no longer exist. A native-proof control is not a replacement for
-that retired direct-axiom control.
-
-The development compiler also generates unsafe `ctorIdx._impl` declarations outside the
-standard's current recursion-helper exception. They cause genuine positive controls to be
-refused. [#193](https://github.com/rbeauchamp/regula/issues/193) tracks separate authentication
-against Lean's generator, its precise policy and execution boundaries, and the
-`replacement-cycle` control that stops in compilation. Its producer campaign stopped with
-`uncaught exception: declaration documentation` after the RG5001 controls passed. The RG5002
-fixtures that follow declare no inductive type, so that failure is not attributed to the
-constructor-index helpers; its cause is unknown and
-[#195](https://github.com/rbeauchamp/regula/issues/195) tracks it separately. Preserve these
-failures until the required ports and review are complete; compiling the checker or
-completing a subset of diagnostics does not qualify it.
+Those failures motivated the portable changes now present in this revision. The capability
+policy preserves refusal of dependency spoofs when the legacy builtin names are absent; a
+native-proof control does not replace the retired direct-axiom control. Constructor-index
+helpers are authenticated against Lean's generator under their own declaration policy, while
+their unsafe and runtime-replacement execution boundaries remain visible. The
+`replacement-cycle` control now reaches the detector through compiler-compatible construction.
+The RG5002 failure came from the changed documentation parser behavior described above.
+The original failures remain historical evidence; these repairs need qualification at the
+actual compatibility revision before that revision is promoted.
 
 ## Guarantees and trusted boundaries
 

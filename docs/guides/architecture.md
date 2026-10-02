@@ -31,7 +31,8 @@ Executables: `axiomGate` (declaration, execution and documentation audits), `lin
 `lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,
 `freshChecker` (optional serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples`
 and `ruleExampleQualification` (qualification), `toolchain` (unqualified candidates for other
-compilers, [development toolchains](toolchains.md)), `site` (the rule reference) and `auditApp`.
+compilers, [development toolchains](toolchains.md)), `dependencyScope` (the discovered Mathlib
+import closure used by source provisioning), `site` (the rule reference) and `auditApp`.
 
 ## The rule registry
 
