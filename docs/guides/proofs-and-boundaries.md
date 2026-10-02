@@ -783,9 +783,18 @@ follows Lean's compiler is read from Lean 4.34.0's source, not checked. The term
 read only selects which regeneration runs (`Collect.unsafeRecRegeneration` returns an origin only
 when the definitions that regeneration added match the observed ones), so what is read cannot admit
 a helper the comparison rejects; this is read from the code, with no theorem.
-`Fixtures.Mutations.LocalIrreducibleMeasure` is the control for the limit that remains (standard
-§7.4): a helper Lean generated is rejected where an attribute local to the definition's section
-decided whether a `match` changes the measure. No theorem covers the regeneration itself, which runs in Lean's elaborator. The comparison
+`Fixtures.Mutations.KnownLimitReducibilityChange` pins the limit that remains (standard §7.4): a
+helper Lean generated is rejected when the reducibility in force at the end of the audit differs
+from the reducibility in force where Lean elaborated the definition, so that the regeneration passes
+the recursive-call function through a `match` differently. This covers both an attribute local to
+the definition's section (`attribute [local irreducible]` on a function the measure calls) and a
+global attribute applied after the definition (`attribute [irreducible] g` after a definition
+measured through `g`). Both forms are observed rejections on Lean 4.34.0; the condition is argued
+from Lean's `MatcherApp.addArg`, which decides the threading by `isDefEq` on the refined type, not
+checked. The rejection is a false rejection of a helper Lean generated, not intended behaviour, and
+[#188](https://github.com/rbeauchamp/regula/issues/188) tracks closing the class; the fixture's
+expectation is to be inverted when that issue is fixed.
+No theorem covers the regeneration itself, which runs in Lean's elaborator. The comparison
 never uses `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of
 the self-referential helper does not terminate. The regeneration runs Lean's elaborator in the report
 worker and is undone before the comparison, which reads the observed definitions and decides erasure

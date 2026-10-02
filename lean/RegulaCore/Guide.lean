@@ -403,9 +403,12 @@ def guide : RuleId → Guide
           `wf_preprocess` rule registered outside the Lean toolchain, one elaborated with \
           `set_option wf.preprocess false` or with a toolchain rule removed by \
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
-          one compiled under an attribute local to its section that decides whether a `match` \
-          changes its measure, such as `attribute [local irreducible]` on a function the measure \
-          calls.",
+          one for which the reducibility in force at the end of the audit differs from the \
+          reducibility in force where Lean elaborated the definition, so that the regeneration \
+          passes the recursive-call function through a `match` differently. That last form covers \
+          both an attribute local to the definition's section (`attribute [local irreducible]` on \
+          a function the measure calls) and a global attribute applied after the definition \
+          (`attribute [irreducible] g` after a definition measured through `g`).",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
