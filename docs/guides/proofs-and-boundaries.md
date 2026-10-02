@@ -65,8 +65,10 @@ path; their coherence hypotheses are not instantiated for the operational collec
 operational equivalence is claimed. File runs bind the requested and compiled sources by
 `FileSourceBinding.sameBytes`; graph runs freeze their selected roots in `Census.graphRoots`, and
 `GraphOK` cannot select fewer roots than `GraphPlanOK` admitted. Repeated immutable requests use
-Lean's `withPtrEqDecEq` shortcut with structural equality as fallback; the kernel sees the
-structural computation and the pointer shortcut has Lean's runtime trust boundary. No wall-clock
+Lean's `withPtrEqDecEq` shortcut with structural equality as fallback where the compiler
+elaborates that shortcut, as Lean 4.34.0 does, and the generated structural equality alone
+otherwise; the kernel sees the structural computation and the pointer shortcut has Lean's
+runtime trust boundary. No wall-clock
 bound follows from these proofs.
 
 The stage relations `PolicyOK` combines, each a declarative relation whose decision function is
