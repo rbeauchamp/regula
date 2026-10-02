@@ -23,6 +23,7 @@ supports. This table lists every release, newest first, with its one toolchain:
 
 | Regula tag | Lean toolchain | Rule reference |
 | --- | --- | --- |
+| `v0.4.1` | `leanprover/lean4:v4.34.0` | [v/0.4.1/](https://rbeauchamp.github.io/regula/v/0.4.1/) |
 | `v0.4.0` | `leanprover/lean4:v4.34.0` | [v/0.4.0/](https://rbeauchamp.github.io/regula/v/0.4.0/) |
 | `v0.3.1` | `leanprover/lean4:v4.34.0` | [v/0.3.1/](https://rbeauchamp.github.io/regula/v/0.3.1/) |
 | `v0.3.0` | `leanprover/lean4:v4.34.0` | [v/0.3.0/](https://rbeauchamp.github.io/regula/v/0.3.0/) |
@@ -215,7 +216,7 @@ neither an `IO` type nor recursion determines it. Compiler-trusting axioms (from
 | Mode | Meaning |
 | --- | --- |
 | `report` (default) | Every execution boundary reached from an owned executable root is reported with its kind and correspondence state; trusted boundaries are recorded, not failed. |
-| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, or a compiler-trusting proof. The Lean toolchain's own replacements, externs, and unsafe and partial code (in `Init`, `Std` and `Lean`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
+| `checked` | Additionally fails on any trusted boundary your project or a dependency owns: an unproved `implemented_by` replacement, a `csimp` equality whose proof is not admitted, an `extern`, unsafe or partial code, or a compiler-trusting proof. A constant and the `partial` implementation Lean runs for it (a constant of `partial` definition safety) are one finding and one counted boundary, not two: a recursor that Mathlib's `compile_inductive%` compiled, or a dependency's `partial def`, is reported once per root, in a finding that also names that implementation (`…, with its implementation …`), the recursor's generated one or the `partial def`'s `_unsafe_rec` helper. A `partial def` that an `implemented_by` replacement or a `csimp` equality names as its target is not such an implementation: it keeps its own finding, which names its helper, and its own count, beside the replacement's or equality's. A later record of one trusted boundary in a root (the same constant, kind, replacement and toolchain origin, as two constants of one `csimp` equality's type give) is reported and counted with the first. The Lean toolchain's own replacements, externs, and unsafe and partial code (in `Init`, `Std` and `Lean`, checked by where Lean loaded the module from, not by its name) are its trusted base: they pass, and the default output gives only their count; `--verbose` and `--json-out` list each once for the whole audit, with the environments and roots that reach it. The account covers the code your roots reference; code a program loads or evaluates by name at runtime (for example with `Lean.Environment.evalConst` or a spawned process) is outside it. |
 
 In both modes an unresolved path blocks the execution claim. Native arithmetic, the Lean runtime
 and the toolchain's own library code remain trusted in every mode; the checker verifies Lean
@@ -513,7 +514,12 @@ name, edge or boundary several roots reach was written once for each.
 The other members named `execution` are a surface's or a file audit's execution claim and the
 request's execution mode: strings or `null`, written unchanged. The acceptance account's
 per-environment counts, which earlier schemas also named `execution`, are
-`acceptance.account.executionSummary`.
+`acceptance.account.executionSummary`. Its `boundaries`, `checked` and `trusted` count the
+boundaries reported on their own, as the text does: a `partial` implementation (a constant of
+`partial` definition safety, such as a `partial def`'s `_unsafe_rec` helper) is counted with the
+trusted boundary that names it as the code run in its place where neither is the toolchain's,
+and a later record of one trusted boundary of a root with the first, while a root's account
+above keeps every boundary record.
 
 Every Lean name in the document, in `diagnostics`, `scope` and `acceptance` alike, is written one
 way: as the text Lean prints for it (`Name.toString`, which escapes a component with `«»` where it

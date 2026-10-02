@@ -147,15 +147,449 @@ theorem project_boundary_reported {i : ExecutionInventory} {r : ExecutionRoot}
   obtain ⟨f, hf, hroot, hid⟩ := single
   exact ⟨f, hf, boundaryFailures_mem_records hr hb .checked (by simp [hf]), hroot, hid⟩
 
+/-! ## One finding and one count for one trusted step
+
+A root's account can hold several boundary records for one trusted step, in two ways.
+
+*A restated boundary.* The collector records a constant-equality (`csimp`) candidate boundary for
+each constant whose type is that equality, so two such constants give two records of one
+replacement: the same constant, kind, replacement, correspondence and toolchain origin, differing
+only in the candidate they cite as evidence.
+
+*A `partial` implementation.* A `partial` implementation is a constant of `partial` definition
+safety (`DefinitionSafety.partial`): the implementation a metaprogram such as Mathlib's
+`compile_inductive%` adds for a recursor, or the `_unsafe_rec` helper Lean generates for a
+`partial def`. The account records one as a partial-computation boundary whose constant is the
+source of no helper edge (`ExecutionRoot.foldable`). The boundary of a constant whose compiled
+code is such an implementation already trusts, without checked correspondence, that the
+implementation's code runs in the constant's place; the implementation's own boundary adds that
+it is `partial`. Three recorded relations give such a pair: a `csimp` candidate whose target is a
+`partial` implementation, an `implemented_by` replacement whose target is one, and an opaque
+constant with the `partial` helper Lean compiles it through (an author's `partial def` and its
+`_unsafe_rec`). An author's `partial def` is not itself a `partial` implementation: it is that
+opaque constant, recorded under the same kind with a helper edge from it. Named as the target of
+a `csimp` candidate or an `implemented_by` replacement, it keeps its own finding and count, and
+only its helper is reported with it.
+
+The account keeps every record, and the decision's records (`executionFailureRecords`) one failure
+for each. The findings (`executionFindings`) and the coverage counts (`executionSummary`) report a
+restated boundary with the first record of it and a `partial` implementation with the boundary
+that runs it, where both are trusted and neither is the toolchain's: one finding, which names the
+implementation, and one counted boundary. Both relations are read
+from the account's own members and edges, which the collector takes from the declared equalities,
+the `implemented_by` attribute and the compiler's helper lookup; no name is parsed. Only trusted
+records are folded, and a folded record fails and passes with the record it is reported with
+(`executionFindings_empty_iff`). -/
+
+/-- `a` and `b` record the same trusted boundary: both are trusted and they agree on the
+constant, the kind, the replacement and the toolchain origin. They can differ in the evidence
+they cite. -/
+def ExecutionBoundary.restates (a b : ExecutionBoundary) : Bool :=
+  a.correspondence == .trusted && b.correspondence == .trusted && a.name == b.name &&
+    a.boundary == b.boundary && a.replacement == b.replacement &&
+    a.toolchainOrigin? == b.toolchainOrigin?
+
+/-- Boundary `b` of root `r` repeats an earlier record: a boundary of `r` with a smaller
+occurrence number records the same trusted boundary (`ExecutionBoundary.restates`). -/
+def ExecutionRoot.repeated (r : ExecutionRoot) (b : ExecutionBoundary) : Bool :=
+  b.correspondence == .trusted &&
+    r.boundaries.any fun a => a.occurrence < b.occurrence && a.restates b
+
+/-- `b` is the boundary the account records for a `partial` implementation (a constant of
+`partial` definition safety) that the project or a dependency owns: a trusted partial-computation
+boundary with no toolchain origin, whose constant is the source of no helper edge. The account
+records an opaque constant compiled through a partial helper (an author's `partial def`) under
+the same kind (`BoundaryKind.partialComputation`), with a helper edge from it
+(`ExecutionClosure.helperEdges`); that boundary is not foldable, whichever boundary names its
+constant. -/
+def ExecutionRoot.foldable (r : ExecutionRoot) (b : ExecutionBoundary) : Bool :=
+  b.boundary == .partialComputation && b.correspondence == .trusted &&
+    b.toolchainOrigin?.isNone && !r.closure.helperEdges.any (·.1 == b.name)
+
+/-- Boundary `a` of root `r` carries boundary `b`: `a` names `b`'s constant as the code that
+runs in its place, by its replacement or, for an opaque constant, by a helper edge; `a` is
+trusted, has no toolchain origin and is not itself foldable; and `b` is foldable. A boundary
+whose replacement names an author's `partial def` does not carry it, because that opaque
+constant's boundary is not foldable; the `partial def`'s own boundary carries its helper. -/
+def ExecutionRoot.carries (r : ExecutionRoot) (a b : ExecutionBoundary) : Bool :=
+  (a.replacement == some b.name ||
+      (a.boundary == .partialComputation && r.closure.helperEdges.contains (a.name, b.name))) &&
+    a.correspondence == .trusted && a.toolchainOrigin?.isNone && !r.foldable a && r.foldable b
+
+/-- Boundary `b` of root `r` has no finding and no count of its own: it repeats an earlier
+record (`ExecutionRoot.repeated`), or it is a `partial` implementation that a boundary of `r`
+carries (`ExecutionRoot.carries`). -/
+def ExecutionRoot.folded (r : ExecutionRoot) (b : ExecutionBoundary) : Bool :=
+  r.repeated b || (r.foldable b && r.boundaries.any (r.carries · b))
+
+/-- The later records of `r` that restate boundary `a`, in the account's order. -/
+def ExecutionRoot.restatements (r : ExecutionRoot) (a : ExecutionBoundary) :
+    Array ExecutionBoundary :=
+  r.boundaries.filter fun b => a.occurrence < b.occurrence && a.restates b
+
+/-- The boundaries of `r` that boundary `a` carries, each once, in the account's order: the
+`partial` implementations its finding names. -/
+def ExecutionRoot.implementations (r : ExecutionRoot) (a : ExecutionBoundary) :
+    Array ExecutionBoundary :=
+  r.boundaries.filter fun b => r.carries a b && !r.repeated b
+
+/-- The boundaries of `r` reported on their own, in the account's order: every boundary that is
+not folded. -/
+def ExecutionRoot.reported (r : ExecutionRoot) : Array ExecutionBoundary :=
+  r.boundaries.filter (!r.folded ·)
+
+/-- What restating requires: both records are trusted and they agree on the constant, the kind,
+the replacement and the toolchain origin. -/
+theorem ExecutionBoundary.restates_spec {a b : ExecutionBoundary} (h : a.restates b = true) :
+    a.correspondence = .trusted ∧ b.correspondence = .trusted ∧ a.name = b.name ∧
+      a.boundary = b.boundary ∧ a.replacement = b.replacement ∧
+      a.toolchainOrigin? = b.toolchainOrigin? := by
+  simp only [ExecutionBoundary.restates, Bool.and_eq_true, beq_iff_eq] at h
+  exact ⟨h.1.1.1.1.1, h.1.1.1.1.2, h.1.1.1.2, h.1.1.2, h.1.2, h.2⟩
+
+/-- Restating is transitive. -/
+theorem ExecutionBoundary.restates_trans {a b c : ExecutionBoundary} (ab : a.restates b = true)
+    (bc : b.restates c = true) : a.restates c = true := by
+  obtain ⟨ta, -, n, k, p, o⟩ := ExecutionBoundary.restates_spec ab
+  obtain ⟨-, tc, n', k', p', o'⟩ := ExecutionBoundary.restates_spec bc
+  simp [ExecutionBoundary.restates, ta, tc, n.trans n', k.trans k', p.trans p', o.trans o']
+
+/-- Records of the same trusted boundary have the same failures, for every root and claim. -/
+theorem boundaryFailures_restates (r : ExecutionRoot) (c : ExecutionClaim)
+    {a b : ExecutionBoundary} (h : a.restates b = true) :
+    boundaryFailures r c a = boundaryFailures r c b := by
+  obtain ⟨ta, tb, n, k, -, o⟩ := ExecutionBoundary.restates_spec h
+  simp [boundaryFailures, ta, tb, n, k, o]
+
+/-- A foldable boundary is a trusted partial-computation boundary the toolchain does not own. -/
+theorem ExecutionRoot.foldable_spec {r : ExecutionRoot} {b : ExecutionBoundary}
+    (h : r.foldable b = true) :
+    b.boundary = .partialComputation ∧ b.correspondence = .trusted ∧
+      b.toolchainOrigin? = none := by
+  simp only [ExecutionRoot.foldable, Bool.and_eq_true, beq_iff_eq, Option.isNone_iff_eq_none] at h
+  exact ⟨h.1.1.1, h.1.1.2, h.1.2⟩
+
+/-- What carrying requires of both boundaries: the carried one is foldable; the carrying one is
+trusted, not toolchain-owned and not foldable; and it names the carried constant by its
+replacement or, as a partial-computation boundary, by a helper edge. -/
+theorem ExecutionRoot.carries_spec {r : ExecutionRoot} {a b : ExecutionBoundary}
+    (h : r.carries a b = true) :
+    r.foldable b = true ∧ r.foldable a = false ∧ a.correspondence = .trusted ∧
+      a.toolchainOrigin? = none ∧
+      (a.replacement = some b.name ∨
+        (a.boundary = .partialComputation ∧
+          r.closure.helperEdges.contains (a.name, b.name) = true)) := by
+  simp only [ExecutionRoot.carries, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq,
+    Option.isNone_iff_eq_none, Bool.not_eq_true'] at h
+  exact ⟨h.2, h.1.2, h.1.1.1.2, h.1.1.2, h.1.1.1.1⟩
+
+/-- A record of the same trusted boundary carries what the boundary carries. -/
+theorem ExecutionRoot.carries_restates (r : ExecutionRoot) {a a' : ExecutionBoundary}
+    (b : ExecutionBoundary) (h : a'.restates a = true) : r.carries a' b = r.carries a b := by
+  obtain ⟨t', t, n, k, p, o⟩ := ExecutionBoundary.restates_spec h
+  simp [ExecutionRoot.carries, ExecutionRoot.foldable, t', t, n, k, p, o]
+
+/-- Every boundary of a root is reported on its own or folded. -/
+theorem ExecutionRoot.reported_or_folded (r : ExecutionRoot) {b : ExecutionBoundary}
+    (hb : b ∈ r.boundaries) : b ∈ r.reported ∨ r.folded b = true := by
+  cases h : r.folded b
+  · exact Or.inl (Array.mem_filter.mpr ⟨hb, by simp [h]⟩)
+  · exact Or.inr rfl
+
+/-- Every boundary of a root is, or restates, a boundary of the root that repeats no earlier
+record: the first record of that trusted boundary. -/
+theorem ExecutionRoot.first_record (r : ExecutionRoot) {b : ExecutionBoundary}
+    (hb : b ∈ r.boundaries) :
+    ∃ a ∈ r.boundaries, r.repeated a = false ∧ (a = b ∨ a.restates b = true) := by
+  induction h : b.occurrence using Nat.strongRecOn generalizing b with
+  | ind n ih =>
+    cases repeated : r.repeated b
+    · exact ⟨b, hb, repeated, Or.inl rfl⟩
+    · simp only [ExecutionRoot.repeated, Bool.and_eq_true, Array.any_eq_true',
+        decide_eq_true_eq] at repeated
+      obtain ⟨-, a', ha', earlier, restates⟩ := repeated
+      obtain ⟨a, ha, first, same⟩ := ih a'.occurrence (h ▸ earlier) ha' rfl
+      refine ⟨a, ha, first, Or.inr ?_⟩
+      rcases same with rfl | same
+      · exact restates
+      · exact ExecutionBoundary.restates_trans same restates
+
+/-- **What is folded, and with what it is reported.** Every boundary `b` of a root is, or
+restates, a boundary `b'` of the root that is itself reported on its own or is an implementation
+of a boundary reported on its own. So a boundary without a finding or a count of its own is a
+later record of a trusted boundary that has them, or a trusted `partial` implementation
+(`ExecutionRoot.foldable`) that the toolchain does not own (or a later record of one) carried by
+a boundary that has them. -/
+theorem ExecutionRoot.boundary_reported (r : ExecutionRoot) {b : ExecutionBoundary}
+    (hb : b ∈ r.boundaries) :
+    ∃ a ∈ r.reported, ∃ b' ∈ r.boundaries, (b' = b ∨ b'.restates b = true) ∧
+      (a = b' ∨ b' ∈ r.implementations a) := by
+  obtain ⟨b', hb', first, same⟩ := r.first_record hb
+  cases folded : r.folded b'
+  · exact ⟨b', Array.mem_filter.mpr ⟨hb', by simp [folded]⟩, b', hb', same, Or.inl rfl⟩
+  · simp only [ExecutionRoot.folded, first, Bool.false_or, Bool.and_eq_true,
+      Array.any_eq_true'] at folded
+    obtain ⟨-, a', ha', carried⟩ := folded
+    obtain ⟨a, ha, firstA, sameA⟩ := r.first_record ha'
+    have carries : r.carries a b' = true := by
+      rcases sameA with rfl | sameA
+      · exact carried
+      · rw [r.carries_restates b' sameA]; exact carried
+    have unfolded : r.folded a = false := by
+      simp [ExecutionRoot.folded, firstA, (ExecutionRoot.carries_spec carries).2.1]
+    exact ⟨a, Array.mem_filter.mpr ⟨ha, by simp [unfolded]⟩, b', hb', same,
+      Or.inr (Array.mem_filter.mpr ⟨hb', by simp [carries, first]⟩)⟩
+
+/-- A folded boundary is trusted: an unresolved or checked boundary is always reported on its
+own. -/
+theorem ExecutionRoot.folded_trusted {r : ExecutionRoot} {b : ExecutionBoundary}
+    (h : r.folded b = true) : b.correspondence = .trusted := by
+  simp only [ExecutionRoot.folded, ExecutionRoot.repeated, Bool.or_eq_true, Bool.and_eq_true,
+    beq_iff_eq] at h
+  rcases h with ⟨trusted, -⟩ | ⟨foldable, -⟩
+  · exact trusted
+  · exact (ExecutionRoot.foldable_spec foldable).2.1
+
+/-- The text a finding adds for the implementations its boundary carries: each one's constant
+and kind, in order; empty when there is none. -/
+def implementationsText (implementations : Array ExecutionBoundary) : String :=
+  String.join (implementations.toList.map fun b =>
+    s!", with its implementation {b.name} ({b.boundary})")
+
+/-- One boundary's findings: none for a folded boundary, and otherwise its failure
+(`boundaryFailures`) with the implementations it carries named after its detail. -/
+def boundaryFindings (root : ExecutionRoot) (claim : ExecutionClaim)
+    (b : ExecutionBoundary) : Array ExecutionFailure :=
+  if root.folded b then #[]
+  else (boundaryFailures root claim b).map fun f =>
+    { f with detail := f.detail ++ implementationsText (root.implementations b) }
+
+/-- A root's findings: each unresolved path, then each boundary's findings, in the order of
+`rootFailures`. -/
+def rootFindings (root : ExecutionRoot) (claim : ExecutionClaim) : Array ExecutionFailure :=
+  root.unresolved.map (fun item => ⟨.executionUnresolved, root, s!"{root.name}: {item}"⟩) ++
+    root.boundaries.flatMap (boundaryFindings root claim)
+
+/-- The findings the gate reports for the inventory under `claim`: the decision's records
+(`executionFailureRecords`) with each folded boundary's record reported in the finding of the
+boundary it is reported with (`failure_reported`). They are empty exactly when `ExecutionOK`
+holds (`executionFindings_empty_iff`). -/
+def executionFindings (inventory : ExecutionInventory)
+    (claim : ExecutionClaim) : Array ExecutionFailure :=
+  inventory.roots.flatMap (fun root => rootFindings root claim)
+
+/-- The failure of a trusted boundary the toolchain does not own: one `executionBoundary` record
+under a checked claim, and none under a report claim. -/
+private theorem boundaryFailures_trusted (r : ExecutionRoot) (c : ExecutionClaim)
+    {b : ExecutionBoundary} (trusted : b.correspondence = .trusted)
+    (owner : b.toolchainOrigin? = none) :
+    boundaryFailures r c b =
+      if c = .checked then
+        #[⟨.executionBoundary, r, s!"{r.name} reaches {b.name} ({b.boundary})"⟩]
+      else #[] := by
+  unfold boundaryFailures
+  cases c <;> simp [trusted, owner]
+
+/-- The findings of a boundary reported on its own are its failures, each with the
+implementations it carries named after its detail. -/
+private theorem boundaryFindings_reported {r : ExecutionRoot} (c : ExecutionClaim)
+    {a : ExecutionBoundary} (ha : a ∈ r.reported) :
+    boundaryFindings r c a = (boundaryFailures r c a).map fun f =>
+      { f with detail := f.detail ++ implementationsText (r.implementations a) } := by
+  have unfolded : r.folded a = false := by simpa using (Array.mem_filter.mp ha).2
+  simp [boundaryFindings, unfolded]
+
+/-- A root whose boundaries have no findings has no boundary failure: a folded boundary passes
+with the boundary it is reported with. -/
+private theorem boundaryFailures_empty_of_findings {r : ExecutionRoot} {c : ExecutionClaim}
+    (h : ∀ b ∈ r.boundaries, boundaryFindings r c b = #[]) {b : ExecutionBoundary}
+    (hb : b ∈ r.boundaries) : boundaryFailures r c b = #[] := by
+  obtain ⟨a, ha, b', hb', same, place⟩ := r.boundary_reported hb
+  have passes : boundaryFailures r c a = #[] := by
+    simpa [boundaryFindings_reported c ha] using h a (Array.mem_filter.mp ha).1
+  have passes' : boundaryFailures r c b' = #[] := by
+    rcases place with rfl | implementation
+    · exact passes
+    · have carried : r.carries a b' = true := by
+        have := (Array.mem_filter.mp implementation).2
+        simp only [Bool.and_eq_true] at this
+        exact this.1
+      obtain ⟨foldable, -, trusted, owner, -⟩ := ExecutionRoot.carries_spec carried
+      obtain ⟨-, trusted', owner'⟩ := ExecutionRoot.foldable_spec foldable
+      rw [boundaryFailures_trusted r c trusted owner] at passes
+      rw [boundaryFailures_trusted r c trusted' owner']
+      cases c <;> simp_all
+  rcases same with rfl | same
+  · exact passes'
+  · rw [← boundaryFailures_restates r c same]; exact passes'
+
+/-- **The findings decide exactly what the records decide.** They are empty exactly when the
+execution predicate holds, for every admitted inventory and claim, so folding hides no failure:
+a folded boundary fails only with the boundary it is reported with, which has a finding.
+
+# Intent
+
+The gate decides an execution claim from the findings it prints, and the findings leave out the
+record of a boundary that is reported with another. That must never turn a failing account into
+a passing one, or a passing one into a failing one: for every account the checker admits and
+for both claims, the gate must print no finding exactly when the account has no unresolved path
+and every boundary of every root meets the claim, the folded ones included.
+
+The requirement concerns the account as supplied. It does not require that the account lists
+every boundary the program reaches, that the collector recorded which constant is compiled to
+which definition truthfully, or that any trusted code is correct. -/
+theorem executionFindings_empty_iff (i : ExecutionInventory) (c : ExecutionClaim) :
+    executionFindings i c = #[] ↔ ExecutionOK i c := by
+  rw [← executionFailureRecords_empty_iff]
+  simp only [executionFindings, executionFailureRecords, rootFindings, rootFailures,
+    Array.flatMap_eq_empty_iff, Array.append_eq_empty_iff, Array.map_eq_empty_iff]
+  constructor
+  · intro h r hr
+    exact ⟨(h r hr).1, fun b hb => boundaryFailures_empty_of_findings (h r hr).2 hb⟩
+  · intro h r hr
+    exact ⟨(h r hr).1, fun b hb => by simp [boundaryFindings, (h r hr).2 b hb]⟩
+
+/-- A boundary's failures name its root. -/
+theorem boundaryFailures_root {r : ExecutionRoot} {c : ExecutionClaim} {b : ExecutionBoundary}
+    {f : ExecutionFailure} (hf : f ∈ boundaryFailures r c b) : f.root = r := by
+  unfold boundaryFailures at hf
+  split at hf
+  · simp only [Array.mem_singleton] at hf
+    rw [hf]
+  · split at hf
+    · simp only [Array.mem_singleton] at hf
+      rw [hf]
+    · simp at hf
+
+/-- A boundary's findings are among the gate's whenever its root is. -/
+theorem boundaryFindings_mem {i : ExecutionInventory} {r : ExecutionRoot} (hr : r ∈ i.roots)
+    {b : ExecutionBoundary} (hb : b ∈ r.boundaries) (c : ExecutionClaim)
+    {g : ExecutionFailure} (hg : g ∈ boundaryFindings r c b) : g ∈ executionFindings i c := by
+  simp only [executionFindings, rootFindings, Array.mem_flatMap, Array.mem_append]
+  exact ⟨r, hr, Or.inr ⟨b, hb, hg⟩⟩
+
+/-- **Every failure record is reported.** For each failure of a boundary `b` of a root of the
+inventory, a boundary `a` reported on its own in that root has a failure of the same kind and
+root whose finding is among the gate's: that failure with the implementations `a` carries named
+after its detail (`implementationsText`). And `a` accounts for `b`: some boundary `b'` of the
+root is `b` or a record of the same trusted boundary, with `b`'s constant and kind, and `a` is
+`b'` or has `b'` among its implementations.
+
+# Intent
+
+A finding is what tells the author that a boundary fails a checked execution claim. When one
+trusted step has several boundary records in a root's account, the gate prints one finding for
+it. Every failure the decision records must still reach the author: the failing boundary must
+be the subject of a printed finding of the same rule and root, or be named by constant and kind
+in the text of one, or be another record of a boundary that is. No failure may be dropped
+because its boundary was grouped with another.
+
+The requirement concerns the account as supplied: it does not require that the collector
+recorded the grouped boundaries truthfully or completely. It also does not require a separate
+line per record; one finding for one trusted step is the purpose. -/
+theorem failure_reported {i : ExecutionInventory} {r : ExecutionRoot} (hr : r ∈ i.roots)
+    {b : ExecutionBoundary} (hb : b ∈ r.boundaries) (c : ExecutionClaim)
+    {f : ExecutionFailure} (hf : f ∈ boundaryFailures r c b) :
+    ∃ a ∈ r.reported, ∃ b' ∈ r.boundaries, (b' = b ∨ b'.restates b = true) ∧
+      (a = b' ∨ b' ∈ r.implementations a) ∧
+      ∃ g ∈ boundaryFailures r c a, g.id = f.id ∧ g.root = r ∧
+        { g with detail := g.detail ++ implementationsText (r.implementations a) } ∈
+          executionFindings i c := by
+  obtain ⟨a, ha, b', hb', same, place⟩ := r.boundary_reported hb
+  have hf' : f ∈ boundaryFailures r c b' := by
+    rcases same with rfl | same
+    · exact hf
+    · rw [boundaryFailures_restates r c same]; exact hf
+  have reported : ∀ g ∈ boundaryFailures r c a,
+      { g with detail := g.detail ++ implementationsText (r.implementations a) } ∈
+        executionFindings i c := fun g hg => by
+    apply boundaryFindings_mem hr (Array.mem_filter.mp ha).1 c
+    rw [boundaryFindings_reported c ha]
+    exact Array.mem_map.mpr ⟨g, hg, rfl⟩
+  refine ⟨a, ha, b', hb', same, place, ?_⟩
+  rcases place with rfl | implementation
+  · exact ⟨f, hf', rfl, boundaryFailures_root hf', reported f hf'⟩
+  · have carried : r.carries a b' = true := by
+      have := (Array.mem_filter.mp implementation).2
+      simp only [Bool.and_eq_true] at this
+      exact this.1
+    obtain ⟨foldable, -, trusted, owner, -⟩ := ExecutionRoot.carries_spec carried
+    obtain ⟨-, trusted', owner'⟩ := ExecutionRoot.foldable_spec foldable
+    rw [boundaryFailures_trusted r c trusted' owner'] at hf'
+    have checked : c = .checked := by
+      cases c
+      · simp at hf'
+      · rfl
+    subst checked
+    simp only [ite_true, Array.mem_singleton] at hf'
+    have failure : (⟨.executionBoundary, r, s!"{r.name} reaches {a.name} ({a.boundary})"⟩ :
+        ExecutionFailure) ∈ boundaryFailures r .checked a := by
+      simp [boundaryFailures_trusted r .checked trusted owner]
+    exact ⟨_, failure, by rw [hf'], rfl, reported _ failure⟩
+
+/-- Every unresolved path of a root of the inventory is a finding, unchanged. -/
+theorem unresolved_reported {i : ExecutionInventory} {r : ExecutionRoot} (hr : r ∈ i.roots)
+    {item : String} (hitem : item ∈ r.unresolved) (c : ExecutionClaim) :
+    (⟨.executionUnresolved, r, s!"{r.name}: {item}"⟩ : ExecutionFailure) ∈
+      executionFindings i c := by
+  simp only [executionFindings, rootFindings, Array.mem_flatMap, Array.mem_append, Array.mem_map]
+  exact ⟨r, hr, Or.inl ⟨item, hitem, rfl⟩⟩
+
+/-- **Every finding is a record.** Each finding has the kind and root of a failure record of
+the decision, and that record's detail, followed by the text of the implementations its
+boundary carries. -/
+theorem executionFindings_sound {i : ExecutionInventory} {c : ExecutionClaim}
+    {g : ExecutionFailure} (hg : g ∈ executionFindings i c) :
+    ∃ f ∈ executionFailureRecords i c, g.id = f.id ∧ g.root = f.root ∧
+      ∃ suffix, g.detail = f.detail ++ suffix := by
+  simp only [executionFindings, rootFindings, Array.mem_flatMap, Array.mem_append,
+    Array.mem_map] at hg
+  obtain ⟨r, hr, path | ⟨b, hb, hg⟩⟩ := hg
+  · refine ⟨g, ?_, rfl, rfl, "", by simp⟩
+    simp only [executionFailureRecords, rootFailures, Array.mem_flatMap, Array.mem_append,
+      Array.mem_map]
+    exact ⟨r, hr, Or.inl path⟩
+  · unfold boundaryFindings at hg
+    split at hg
+    · simp at hg
+    · obtain ⟨f, hf, rfl⟩ := Array.mem_map.mp hg
+      exact ⟨f, boundaryFailures_mem_records hr hb c hf, rfl, rfl, _, rfl⟩
+
+private theorem flatMap_unless {α β : Type} (xs : Array α) (p : α → Bool) (f : α → Array β) :
+    xs.flatMap (fun x => if p x then #[] else f x) = (xs.filter (!p ·)).flatMap f := by
+  apply Array.toList_inj.mp
+  simp only [Array.toList_flatMap, Array.toList_filter]
+  induction xs.toList with
+  | nil => rfl
+  | cons x xs ih => cases h : p x <;> simp [h, ih]
+
+/-- A root's finding kinds: one `executionUnresolved` per unresolved path, in order, then the
+failure kinds of each boundary reported on its own. A folded boundary has no finding. -/
+theorem rootFindings_ids (r : ExecutionRoot) (c : ExecutionClaim) :
+    (rootFindings r c).map (·.id) =
+      r.unresolved.map (fun _ => ExecutionFailureKind.executionUnresolved) ++
+        r.reported.flatMap (fun b => (boundaryFailures r c b).map (·.id)) := by
+  simp only [rootFindings, Array.map_append, Array.map_flatMap, Array.map_map]
+  congr 1
+  rw [ExecutionRoot.reported, ← flatMap_unless]
+  congr 1
+  funext b
+  unfold boundaryFindings
+  split <;> simp [Function.comp_def]
+
 /-- Named execution-coverage counts rendered by gate output. -/
 structure ExecutionSummary where
   /-- The number of execution-root observations. -/
   roots : Nat
-  /-- The number of boundary observations over all roots. -/
+  /-- The number of boundary observations reported on their own, over all roots
+  (`ExecutionRoot.reported`). A folded observation (`ExecutionRoot.folded`), a later record of
+  one trusted boundary of its root or a `partial` implementation reported with the boundary that
+  runs it, is counted with the boundary it is reported with, not again. -/
   boundaries : Nat
-  /-- The number of boundary observations with checked correspondence. -/
+  /-- The number of those boundary observations with checked correspondence. -/
   checked : Nat
-  /-- The number of boundary observations with trusted correspondence. -/
+  /-- The number of those boundary observations with trusted correspondence. Every folded
+  observation is trusted (`ExecutionRoot.folded_trusted`). -/
   trusted : Nat
   /-- The number of unresolved diagnostics: unresolved root paths plus unresolved boundaries. -/
   unresolved : Nat
@@ -165,27 +599,38 @@ structure ExecutionSummary where
 def ExecutionInventory.boundaries (inventory : ExecutionInventory) : Array ExecutionBoundary :=
   inventory.roots.flatMap (·.boundaries)
 
+/-- Every boundary observation reported on its own (`ExecutionRoot.reported`), in root order,
+without deduplication across roots: the account's boundaries without each folded one
+(`ExecutionRoot.folded`), which is a later record of one trusted boundary of its root, reported
+with the first, or a `partial` implementation reported with the boundary that runs it. -/
+def ExecutionInventory.reported (inventory : ExecutionInventory) : Array ExecutionBoundary :=
+  inventory.roots.flatMap (·.reported)
+
 /-- Required meaning of the rendered counts. Roots and boundaries count observations, not
-distinct runtime paths; `unresolved` is the number of unresolved diagnostics the execution
-decision reports, for every claim: each unresolved root path and each unresolved boundary. -/
+distinct runtime paths. The boundary counts range over the boundaries reported on their own
+(`ExecutionInventory.reported`): a later record of one trusted boundary of a root is counted
+with the first, and a `partial` implementation reported with the boundary that runs it is
+counted with that boundary, not again. `unresolved` is the
+number of unresolved diagnostics the execution decision reports, for every claim: each
+unresolved root path and each unresolved boundary. -/
 def SummaryContract (summary : ExecutionInventory → ExecutionSummary) : Prop :=
   ∀ inventory, (summary inventory).roots = inventory.roots.size ∧
-    (summary inventory).boundaries = inventory.boundaries.size ∧
+    (summary inventory).boundaries = inventory.reported.size ∧
     (summary inventory).checked =
-      (inventory.boundaries.filter (·.correspondence = .checked)).size ∧
+      (inventory.reported.filter (·.correspondence = .checked)).size ∧
     (summary inventory).trusted =
-      (inventory.boundaries.filter (·.correspondence = .trusted)).size ∧
+      (inventory.reported.filter (·.correspondence = .trusted)).size ∧
     ∀ claim, (summary inventory).unresolved =
       ((executionFailureRecords inventory claim).filter (·.id = .executionUnresolved)).size
 
 /-- Execution-coverage counts over the admitted account. -/
 def executionSummary (inventory : ExecutionInventory) : ExecutionSummary :=
-  let boundaries := inventory.boundaries
-  { roots := inventory.roots.size, boundaries := boundaries.size
-    checked := boundaries.countP (·.correspondence == .checked)
-    trusted := boundaries.countP (·.correspondence == .trusted)
+  let reported := inventory.reported
+  { roots := inventory.roots.size, boundaries := reported.size
+    checked := reported.countP (·.correspondence == .checked)
+    trusted := reported.countP (·.correspondence == .trusted)
     unresolved := (inventory.roots.map (·.unresolved.size)).sum +
-      boundaries.countP (·.correspondence == .unresolved) }
+      inventory.boundaries.countP (·.correspondence == .unresolved) }
 
 /-- One boundary contributes one unresolved diagnostic exactly when it is unresolved. -/
 private theorem boundaryFailures_unresolved (root : ExecutionRoot) (claim : ExecutionClaim)
@@ -228,19 +673,52 @@ theorem executionSummary_unresolved (inventory : ExecutionInventory) (claim : Ex
   simp only [executionSummary, ExecutionInventory.boundaries, executionFailureRecords,
     Array.countP_flatMap, Function.comp_def, rootFailures_unresolved, sum_map_add]
 
-/-- Every boundary has exactly one of the three correspondence categories. -/
+/-- Every boundary reported on its own has exactly one of the three correspondence
+categories. -/
 theorem executionSummary_partition (inventory : ExecutionInventory) :
     (executionSummary inventory).checked + (executionSummary inventory).trusted +
-      (inventory.boundaries.filter (·.correspondence = .unresolved)).size =
+      (inventory.reported.filter (·.correspondence = .unresolved)).size =
       (executionSummary inventory).boundaries := by
   simp only [executionSummary, ← Array.countP_eq_size_filter]
-  generalize inventory.boundaries = xs
+  generalize inventory.reported = xs
   rcases xs with ⟨xs⟩
   induction xs with
   | nil => simp
   | cons x xs ih =>
     simp only [List.size_toArray, List.countP_toArray, List.countP_cons, List.length_cons] at *
     cases x.correspondence <;> simp <;> omega
+
+/-- **Every boundary of the account is counted or reported with a counted one.** Each boundary
+of a root of the inventory is among the reported boundaries the counts range over, or is folded:
+a later record of a trusted boundary, or a trusted `partial` implementation that a boundary of
+its root carries, and in either case accounted for by a reported boundary of the root
+(`ExecutionRoot.boundary_reported`). -/
+theorem ExecutionInventory.reported_or_folded (inventory : ExecutionInventory)
+    {r : ExecutionRoot} (hr : r ∈ inventory.roots) {b : ExecutionBoundary}
+    (hb : b ∈ r.boundaries) : b ∈ inventory.reported ∨ r.folded b = true :=
+  (r.reported_or_folded hb).imp_left fun reported =>
+    Array.mem_flatMap.mpr ⟨r, hr, reported⟩
+
+/-- The unresolved findings are as many as the unresolved records: folding removes only trusted
+boundaries, so `unresolved` is also the number of unresolved findings the gate reports. -/
+theorem executionFindings_unresolved (inventory : ExecutionInventory) (claim : ExecutionClaim) :
+    ((executionFindings inventory claim).filter (·.id = .executionUnresolved)).size =
+      ((executionFailureRecords inventory claim).filter (·.id = .executionUnresolved)).size := by
+  simp only [← Array.countP_eq_size_filter, executionFindings, executionFailureRecords,
+    Array.countP_flatMap]
+  congr 2
+  funext root
+  simp only [Function.comp_def, rootFindings, rootFailures, Array.countP_append,
+    Array.countP_flatMap]
+  congr 3
+  funext b
+  unfold boundaryFindings
+  split
+  next folded =>
+    have count := boundaryFailures_unresolved root claim b
+    rw [ExecutionRoot.folded_trusted folded] at count
+    exact (Array.countP_empty ..).trans count.symm
+  next => simp [Array.countP_map, Function.comp_def]
 
 /-- The gate renders these counts through this registration, whose `run` is exactly
 `executionSummary`. It does not count distinct runtime paths or authenticate extraction. -/

@@ -125,6 +125,48 @@ private def cases : Array Case := #[
       "def entry (n : Nat) := reference n\n"
     before := "implemented_by safe", after := "implemented_by dangerous"
     expected := #["partial-computation", "CompilerPath.ffi [external]"] },
+  -- The next two cases qualify the collector's record of a constant compiled to a `partial`
+  -- definition, an observation of the compiler and environment that no theorem covers: the
+  -- finding of the constant's boundary names the definition, which has no finding and no
+  -- boundary line of its own (`RegulaPolicy.executionFindings`).
+  { name := "partial-helper"
+    body := "def loop (n : Nat) : Nat := n\ndef entry (n : Nat) := loop n\n"
+    before := "def loop (n : Nat) : Nat := n"
+    after := "partial def loop (n : Nat) : Nat := if n == 0 then 0 else loop (n - 1)"
+    expected := #["reaches CompilerPath.loop (partial-computation), with its implementation " ++
+        "CompilerPath.loop._unsafe_rec (partial-computation)",
+      "implementation CompilerPath.loop._unsafe_rec [partial-computation]"]
+    absent := #["reaches CompilerPath.loop._unsafe_rec",
+      "boundary CompilerPath.loop._unsafe_rec ["] },
+  -- The registration is written after Mathlib's `compile_inductive%`: a `partial` copy of the
+  -- reference, and a `partial` constant of the equality's type as its `csimp` lemma. It is a
+  -- copy of that construction, not a run of Mathlib's command. A second constant of the same
+  -- type gives the reference a second record of the same trusted boundary, which is reported
+  -- with the first: one finding and one counted boundary for the three records.
+  { name := "csimp-partial-implementation"
+    body := "def reference (n : Nat) := n\n-- registration\ndef entry (n : Nat) := reference n\n"
+    before := "-- registration"
+    after := "open Lean Elab Command in\nrun_cmd liftCoreM do\n" ++
+      "  let reference ← getConstInfoDefn ``CompilerPath.reference\n" ++
+      "  addAndCompile <| .mutualDefnDecl [{ reference with\n" ++
+      "    name := `CompilerPath.implementation, hints := .opaque, safety := .partial,\n" ++
+      "    all := [`CompilerPath.implementation] }]\n" ++
+      "  for name in [`CompilerPath.registered, `CompilerPath.registeredAgain] do\n" ++
+      "    addDecl <| .mutualDefnDecl [{\n" ++
+      "      name, levelParams := [],\n" ++
+      "      type := mkApp3 (mkConst ``Eq [.one]) reference.type\n" ++
+      "        (mkConst ``CompilerPath.reference) (mkConst `CompilerPath.implementation),\n" ++
+      "      value := mkConst name, hints := .opaque, safety := .partial, all := [name] }]\n" ++
+      "  Compiler.CSimp.add `CompilerPath.registered .global"
+    expected := #["reaches CompilerPath.reference (compiler-simplification), with its " ++
+        "implementation CompilerPath.implementation (partial-computation)",
+      "implementation CompilerPath.implementation [partial-computation]",
+      "restated CompilerPath.reference [compiler-simplification]",
+      "1 boundary(ies) (0 checked, 1 trusted)",
+      "file audit: FAIL (1 violation(s), 0 incomplete finding(s))"]
+    absent := #["reaches CompilerPath.implementation",
+      "boundary CompilerPath.implementation ["]
+    importLean := true },
   { name := "unsafe-target"
     body := externalAttribute ++ "def ffi (n : Nat) := n\n" ++
       "unsafe def dangerous (n : Nat) : Nat := ffi n\n" ++
