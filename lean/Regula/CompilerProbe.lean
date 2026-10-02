@@ -2,8 +2,8 @@ import RegulaCore.Toolchain
 
 /-! # Selected compiler identity
 
-Resolve an Elan toolchain selector to its `lean` executable and read the version and commit
-that compiler reports about itself. The development toolchain driver and `regula doctor` share
+Resolve an Elan toolchain selector to its `lean` executable and read its version, commit and
+origin-checked Core capability. The development toolchain driver and `regula doctor` share
 this. `elan run` installs a known release that is missing, so a selector is first resolved to
 a toolchain `elan toolchain list` names, and only that name is run: a selector naming none is
 refused, and a release channel such as `stable` names none. Elan's listing, that it runs a
@@ -47,13 +47,20 @@ def selectedEnv (selector : String) (lean : FilePath) : IO
   return compilerEnv ++ #[("ELAN_TOOLCHAIN", some selector),
     ("PATH", some (System.SearchPath.toString (bin :: inherited)))]
 
-/-- The identity the compiler that `selector` resolves to reports, admitted by `parseIdentity`. -/
+/-- The selected compiler's identity and isolated Core capability, admitted by `parseIdentity`.
+The embedded observer is also the collector's source; Lake tracks it as a library input. -/
 def probe (root : FilePath) (selector : String) : IO Identity := do
   let lean ← selectedLean root selector
   let out ← IO.Process.output {
     cmd := lean.toString, args := #["--stdin"], cwd := some root
     env := ← selectedEnv selector lean }
-    (some "#eval IO.println Lean.versionString\n#eval IO.println Lean.githash\n")
+    (some ((include_str "CompilerObservation.lean") ++ "\n\
+      #eval do\n\
+      \x20 let capability ← Regula.CompilerObservation.legacyPresent \
+        (← Lean.getLibDir (← Lean.getBuildDir))\n\
+      \x20 IO.println Lean.versionString\n\
+      \x20 IO.println Lean.githash\n\
+      \x20 IO.println (if capability then \"present\" else \"absent\")\n"))
   unless out.exitCode == 0 do
     throw <| IO.userError s!"compiler probe failed: {out.stdout}{out.stderr}"
   IO.ofExcept (parseIdentity out.stdout)

@@ -1469,10 +1469,9 @@ def Issue.fix (f : Lakefile) : Issue → String
       Regula revision qualified for your exact compiler (the adoption guide's compatibility \
       table lists each release's toolchain; docs/guides/toolchains.md covers development \
       compilers); a toolchain override does not change what the project pins"
-  | .toolchainUnresolved s _ => "  fix: set lean-toolchain to a toolchain that selects the \
-      supported compiler" ++
-      (if s.isEmpty then "" else ", or install the one it names (`elan toolchain install " ++ s ++
-        "`)") ++ "; `doctor` resolves the pin with Elan and installs nothing"
+  | .toolchainUnresolved _ _ => "  fix: install or link the supported compiler, then set \
+      lean-toolchain to its exact installed name; `doctor` resolves the pin with Elan and \
+      installs nothing"
   | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
       (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
       modules)"
