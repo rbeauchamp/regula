@@ -179,7 +179,7 @@ def observe (root : FilePath) : IO Project := do
     else pure false
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
-  let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib, regulaDir,
+  let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
       uncovered, unimported) ← Workspace.withRootWorkspace root fun ws => do
       let pkg := ws.root
       -- The source of every module a root library includes and of every executable root, and
@@ -237,14 +237,11 @@ def observe (root : FilePath) : IO Project := do
           exes.map (fun exe => target true exe.name exe.config.leanOptions
             (Lake.executableOptions exe))).toList
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
-      let regulaDir := match ws.packages.find? (·.baseName == `regula) with
-        | some regula => regula.dir
-        | none => pkg.dir
       return (kind, pkg.configFile, pkg.lintDriver,
         (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
-        ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered, unimported)
+        ws.packages.any (·.baseName == `mathlib), uncovered, unimported)
   let guidance ← guidanceFile root
   let skills ← skillPaths.filterMapM fun (p : String) => do
     let name := guidance.up ++ p
@@ -258,8 +255,8 @@ def observe (root : FilePath) : IO Project := do
       manifest := ← (Manifest.defaultPath root).pathExists
       agentsFile := guidance.name, agentsSection := guidance.hasSection
       skillFile := guidance.up ++ skillPath, skills
-      toolchain := ← readTrimmed (root / "lean-toolchain")
-      supported := ← readTrimmed (regulaDir / "lean-toolchain")
+      toolchain := s!"{Lean.versionString} ({Lean.githash})"
+      supported := s!"{RegulaPolicy.Compiler.version} ({RegulaPolicy.Compiler.commit})"
       uncovered, unimported } }
 
 /-! ## Text edits -/

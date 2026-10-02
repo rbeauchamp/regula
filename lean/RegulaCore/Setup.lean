@@ -57,7 +57,7 @@ The observation is supplied by the operational `regula` command: Lake's loaded r
 contains Mathlib, whether `foundation_manifest.json` and the agent guidance exist and which
 `AGENTS.md` holds or receives the section, whether the root package has a `lean_lib` for a starter
 manifest to claim, whether each skill file at the repository root equals the installed skill, the
-project's and the required Regula's `lean-toolchain`, and the modules below a library root that no
+running compiler's version and commit and Regula's supported identity, and the modules below a library root that no
 library includes, split by whether a claimed module imports them as Lean's import-header parser
 reads the package's sources (not a build). The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
@@ -178,9 +178,9 @@ structure Observation where
   /-- Each file of `skillPaths` at the repository root that exists, relative to the project root,
   and whether it equals the installed skill. -/
   skills : List (String × Bool)
-  /-- The project's `lean-toolchain`, trimmed. -/
+  /-- The running compiler's version and full commit, formatted together. -/
   toolchain : String
-  /-- The `lean-toolchain` of the required Regula, the only release it supports. -/
+  /-- The exact supported compiler identity, in the same format as `toolchain`. -/
   supported : String
   /-- Each root `lean_lib` with its roots and the modules below a root, such as `Foo.Basic` for
   root `Foo`, that no root library includes and that a claimed module imports, directly or
@@ -1393,9 +1393,9 @@ def Issue.fix (f : Lakefile) : Issue → String
   | .skillStale _ => "  fix: run `lake exe regula init`, which replaces it with the installed \
       briefing (for example after `lake update regula`); init owns this file and keeps no local \
       edits"
-  | .toolchain _ s => "  fix: move the project, and Mathlib if it uses it, to " ++ s ++
-      " (set lean-toolchain and run `lake update`), or require a Regula release that supports \
-      your toolchain (the adoption guide's compatibility table lists each release's toolchain); \
+  | .toolchain _ s => "  fix: select compiler " ++ s ++
+      ", or require a Regula revision qualified for your exact compiler \
+      (see docs/guides/toolchains.md); \
       each release supports exactly one Lean release"
   | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
       (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
