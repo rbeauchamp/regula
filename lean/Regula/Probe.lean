@@ -261,6 +261,61 @@ private def theoremCorrespondence? (levels : List Name) (reference replacement :
       if result.isSome then return result
   return none
 
+/-- The exact theorem entries of a captured constant list, in its original order. -/
+private def theoremDependencies (constants : List (Name × ConstantInfo)) :
+    List (Name × Array Name) :=
+  constants.filterMap fun (name, info) =>
+    match info with
+    | .thmInfo _ => some (name, info.type.getUsedConstants)
+    | _ => none
+
+/-- Each dependency traversal is delayed independently, so a successful theorem attempt stops
+before traversing later types. The thunk captures this entry's type, including duplicate names. -/
+private def delayedTheoremDependencies (constants : List (Name × ConstantInfo)) :
+    List (Name × Thunk (Array Name)) :=
+  constants.filterMap fun (name, info) =>
+    match info with
+    | .thmInfo _ => some (name, Thunk.mk fun _ => info.type.getUsedConstants)
+    | _ => none
+
+/-- Forcing the entries gives the original complete ordered list for every constant list. -/
+private theorem delayedTheoremDependencies_exact (constants : List (Name × ConstantInfo)) :
+    (delayedTheoremDependencies constants).map (fun (name, used) => (name, used.get)) =
+      theoremDependencies constants := by
+  induction constants with
+  | nil => rfl
+  | cons entry rest ih =>
+    rcases entry with ⟨name, info⟩
+    cases info <;>
+      simp [delayedTheoremDependencies, theoremDependencies, Thunk.get, ih] at *
+
+/-- Invocation-local theorem data tied to the exact captured environment. The equality is
+erased; production never forces the normalization map before searching the entries. -/
+private structure PreparedTheorems (env : Environment) where
+  entries : List (Name × Thunk (Array Name))
+  exact : entries.map (fun (name, used) => (name, used.get)) =
+    theoremDependencies env.constants.toList
+
+/-- Build the ordered lazy entries once, retaining their positional equality certificate. -/
+private def prepareTheorems (env : Environment) : PreparedTheorems env :=
+  { entries := delayedTheoremDependencies env.constants.toList
+    exact := delayedTheoremDependencies_exact env.constants.toList }
+
+/-- A theorem enters fallback search exactly when its type mentions both endpoints. -/
+private def correspondenceCandidate (reference replacement : Name)
+    (entry : Name × Array Name) : Option Name :=
+  if !entry.2.contains reference || !entry.2.contains replacement then none else some entry.1
+
+/-- The live fallback guard yields the same ordered attempt sequence, including duplicates. -/
+private theorem preparedTheorems_candidates (env : Environment)
+    (prepared : PreparedTheorems env) (reference replacement : Name) :
+    prepared.entries.filterMap (fun (name, used) =>
+      correspondenceCandidate reference replacement (name, used.get)) =
+      (theoremDependencies env.constants.toList).filterMap
+        (correspondenceCandidate reference replacement) := by
+  rw [← prepared.exact]
+  simp only [List.filterMap_map, Function.comp_def]
+
 /-- Require `∀ xs, reference.{us} xs = replacement.{us} xs`, where `us`
 are rigid universal level parameters and `xs` is the complete elaborated
 reference domain, including implicit, dependent, and proof parameters. The
@@ -272,7 +327,8 @@ supplied proof needs. The definitional fallback returns
 `DefeqComparison.classify` of its outcome, so a comparison the kernel could not complete is
 unresolved, never trusted (standard §7.6). An elaborator resource limit reached while
 constructing the correspondence is rethrown rather than recorded as unresolved. -/
-private def replacementCorrespondence (env : Environment) (reference replacement : Name)
+private def replacementCorrespondence (env : Environment)
+    (prepared : Thunk (PreparedTheorems env)) (reference replacement : Name)
     (proofCandidates : Array Name := #[]) :
     CommandElabM (Correspondence × Option String) :=
   liftTermElabM <| Meta.withoutModifyingMCtx do
@@ -294,10 +350,9 @@ private def replacementCorrespondence (env : Environment) (reference replacement
         for name in proofCandidates do
           if let some evidence ← theoremCorrespondence? levels ref impl domain required name then
             return (.checked, some evidence)
-        for (name, info) in env.constants.toList do
-          let .thmInfo _ := info | continue
-          let used := info.type.getUsedConstants
-          if !used.contains reference || !used.contains replacement then continue
+        for (name, used) in prepared.get.entries do
+          let some name := correspondenceCandidate reference replacement (name, used.get)
+            | continue
           if let some evidence ← theoremCorrespondence? levels ref impl domain required name then
             return (.checked, some evidence)
         let comparison ← try
@@ -445,6 +500,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     (candidates : NameMap (Array Lean.Compiler.CSimp.Entry))
     (proofCache : IO.Ref (Std.HashMap (Name × Name) (Correspondence × Option String)))
     (dependencyCache : IO.Ref (CompilerDependenciesCache env))
+    (preparedTheorems : Thunk (PreparedTheorems env))
     (recursorHelpers : Array Name) (root : Name) (timing : Bool) : CommandElabM
     (Array Regula.Report.ExecutionBoundary ×
       Array String × Array (Name × Name) × RegulaPolicy.ExecutionClosure) := do
@@ -482,7 +538,7 @@ private def executionWalk (env : Environment) (ownedModules : List Name)
     let proofs := ((candidates.find? reference).getD #[]).filterMap fun candidate =>
       if candidate.toDeclName == target then some candidate.thmName else none
     let result ← reportPhase timing s!"correspondence {reference} -> {target}" <|
-      replacementCorrespondence env reference target proofs
+      replacementCorrespondence env preparedTheorems reference target proofs
     liftIO <| proofCache.modify (·.insert (reference, target) result)
     return result
   while !queue.isEmpty do
@@ -756,14 +812,15 @@ def environmentReport (modules : List Name)
     let proofCache ← liftIO <| IO.mkRef
         ({} : Std.HashMap (Name × Name) (Correspondence × Option String))
     let dependencyCache ← liftIO <| IO.mkRef ({} : CompilerDependenciesCache env)
+    let preparedTheorems := Thunk.mk fun _ => prepareTheorems env
     roots.mapM fun (moduleName, root) => do
       let (boundaries, unresolved, compilerEdges, closure) ←
         reportPhase timing s!"execution walk {root}" <| observing env root "execution walk" <|
           executionWalk env modules toolchainModules (fun name => do
             historyRequests.modify fun requests =>
               if requests.contains (root, name) then requests else requests.push (root, name)
-            loadReplacementHistory name) candidates proofCache dependencyCache recursorHelpers root
-            timing
+            loadReplacementHistory name) candidates proofCache dependencyCache preparedTheorems
+            recursorHelpers root timing
       return ({
         name := root
         «module» := moduleName
