@@ -758,9 +758,8 @@ fixpoint applies and every decreasing proof elided), with only the toolchain's o
 no code for the fresh definitions, and compares each regenerated definition with the observed one
 up to compilation erasure: proofs and types, each classified in its own side's context, are erased
 and a well-founded fixpoint is compared without its relation or measure
-(`Declaration.unsafeRecRegenerated`). Each
-theorem the regeneration abstracted from a nested proof is first put back as its value, so the
-comparison uses no such theorem's name:
+(`Declaration.unsafeRecRegenerated`). Each theorem the regeneration abstracted from a nested proof
+is first put back as its value, so the comparison uses no such theorem's name:
 Lean names it from a counter and from the propositions it already abstracted in the same process,
 and privately where a `module` file does not export the body, so the observed module need not hold
 a theorem of that name. `unfoldTheorems_free` proves that the value so unfolded mentions none of
@@ -781,13 +780,13 @@ measure under a `WellFoundedRelation` instance local to its section, structural 
 later argument, and structural recursion Lean's automatic choice compiles through another
 argument's nested type former), and in `Fixtures.Mutations.MeasuredMatchUnsafeRecForge` admits a
 faithful copy of such a helper and rejects one that computes with another function. For
-well-founded recursion
-`Collect.wfRegeneration` runs the steps of Lean's `wfRecursion` in its order up to the definitions
-it adds, with the base's own relation in place of one elaborated from termination measures; that it
-follows Lean's compiler is read from Lean 4.34.0's source, not checked. The termination argument
-read only selects which regeneration runs (`Collect.unsafeRecRegeneration` returns an origin only
-when the definitions that regeneration added match the observed ones), so what is read cannot admit
-a helper the comparison rejects; this is read from the code, with no theorem.
+well-founded recursion `Collect.wfRegeneration` runs the steps of Lean's `wfRecursion` in its order
+up to the definitions it adds, with the base's own relation in place of one elaborated from
+termination measures; that it follows Lean's compiler is read from Lean 4.34.0's source, not
+checked. The termination argument read only selects which regeneration runs
+(`Collect.unsafeRecRegeneration` returns an origin only when the definitions that regeneration
+added match the observed ones), so what is read cannot admit a helper the comparison rejects; this
+is read from the code, with no theorem.
 `Fixtures.Mutations.KnownLimitReducibilityChange` pins the limit that remains (standard §7.4): a
 helper Lean generated is rejected when the reducibility in force at the end of the audit differs
 from the reducibility in force where Lean elaborated the definition, so that the regeneration passes
