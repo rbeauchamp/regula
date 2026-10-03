@@ -141,8 +141,9 @@ baseline build therefore completes before they start. -/
 private structure Baseline where
   /-- The checker executables the controls run from the repository's build directory. -/
   tools : List String
-  /-- Whether the controls also read the fixture import anchor and the claimed positive surface
-  there (fixture sources import the owned library, e.g. `import AuditApp`). -/
+  /-- Whether the controls also read the fixture import anchor, the fixture modules other fixtures
+  import (`importedFixtures`), and the claimed positive surface there (fixture sources import the
+  owned library, e.g. `import AuditApp`). -/
   surface : Bool
 
 /-- Each partition's baseline. The structural and execution controls run their gates in
@@ -311,6 +312,26 @@ private def structuralApplication : String := "AuditApp"
 /-- The module of an excluded library that the structural project starts with: the
 contamination controls import it into the claimed library. -/
 private def structuralFixture : Name := `Fixtures.Mutations.DirectAxiom
+
+/-- The modules of the `Fixtures` library that a fixture's header imports (`Lean.parseImports'`),
+for the baseline build. A fixture compiles against the repository's build, in the in-process
+controls and through `axiomGate --file` alike, and no other target the baseline names builds a
+fixture module it imports. A header that does not parse contributes none: that fixture's own
+compilation then fails and is assessed as such. -/
+private def importedFixtures (repo : FilePath) : IO (Array Name) := do
+  let inventory ← Lake.surfaceInventory repo
+  let some library := inventory.libraries.find? (·.library == "Fixtures")
+    | throw <| IO.userError "fixture imports: Lake omitted the Fixtures library"
+  let mut imported : Array Name := #[]
+  for entry in library.sources do
+    let modules ← try
+        pure ((← Lean.parseImports' (← IO.FS.readFile entry.source)
+          entry.source.toString).imports.map (·.module))
+      catch _ => pure #[]
+    for name in modules do
+      if library.modules.contains name && !imported.contains name then
+        imported := imported.push name
+  return imported
 
 /-- The structural project: the repository's own package restricted to its application. Its
 root targets are the application library, the executables the repository's manifest claims on
@@ -2982,14 +3003,18 @@ unsafe def run (args : List String) : IO UInt32 := do
           else [.fixtures, .structural, .execution, .cli]
   -- One baseline build pays the prefix of the selected partitions once (`baselineOf`):
   -- the checker executables their controls run and, where one of them reads it, the fixture
-  -- import anchor and the claimed positive surface, so every later phase sees it built.
+  -- import anchor, the fixture modules other fixtures import and the claimed positive surface, so
+  -- every later phase sees it built.
   let surfaceManifest ← parsedManifest (Manifest.defaultPath repo)
   let baselines := selected.map (baselineOf · options.shard)
   let tools := baselineTools baselines
+  let fixtureTargets ← if baselines.any (·.surface) then
+      pure (((← importedFixtures repo).filter (· != structuralFixture)).push structuralFixture)
+    else pure #[]
   let build ← timedPhase "baseline build" <| runProcess repo "lake"
     (#["build"] ++ tools.toArray ++
       (if baselines.any (·.surface) then
-        #[structuralFixture.toString] ++ Manifest.positiveTargets surfaceManifest
+        fixtureTargets.map (·.toString) ++ Manifest.positiveTargets surfaceManifest
       else #[]))
   if !build.succeeded then
     IO.println s!"FAIL: baseline checker and claimed-surface build failed:\n{build.output}"
