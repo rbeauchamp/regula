@@ -200,7 +200,9 @@ def Scan.past (s : Scan) (slice : String) : Scan :=
   if blank slice then s else { s with anchor := s.anchor + 1 }
 
 /-- Where prose read now stands: in the text of the link entered last and not yet left, if
-any. -/
+any. This is how the pieces are read, not a claim about how a link inside a link's text is
+rendered: where the pieces are made from md4c's parse, such a link is refused
+(`Regula.Markdown.nested` in `website/RegulaMarkdown.lean`). -/
 def Scan.place (s : Scan) : Place :=
   match s.entered with
   | (index, destination) :: _ => .link index destination
@@ -209,8 +211,9 @@ def Scan.place (s : Scan) : Place :=
 /-- Read one piece. Prose and code continue the run in progress, each character with its place;
 the edge of a table cell or of an image's description and a line boundary end it, so a token is
 read across the edges of links and code spans and across nothing else. A link's text may hold
-another link (md4c reports a bare URL inside a link's text as one): leaving the inner link
-returns to the outer link's text. -/
+another link: leaving the inner link returns to the outer link's text. md4c reports an autolink
+inside a link's text so, a bare URL and `<URL>` alike, and its reading of such a link is
+refused where the pieces are made, since GitHub renders neither form that way. -/
 def Scan.step (s : Scan) : Piece → Scan
   | .text slice rendered =>
     Scan.past { s with run := ⟨s.anchor, s.place, rendered⟩ :: s.run } slice
@@ -647,7 +650,8 @@ private def bare (line : String) : String :=
       .text " RG" " RG", .code "2003", .text " " " ", .code "RG", .code "2003"]) ==
   List.replicate 3 "a.md:1: RG2003 is only partly inside a link or a code span; write the whole \
     ID as one link to its rule page"
--- A link inside a link's text: once it is left, the text is the outer link's again.
+-- A link inside a link's text: once it is left, the text is the outer link's again. That is
+-- the reading of these pieces; md4c's parse of such a link is refused where it is read.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard documentErrors "a.md" "see x and RG2003 then RG2003"
     (.read [.line, .enter page, .text "see " "see ", .enter "https://example.org", .text "x" "x",

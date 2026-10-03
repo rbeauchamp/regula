@@ -31,16 +31,24 @@ body row does that, and the wrapper cannot represent it; so can raw HTML that ho
 which is refused anyway. A document with a NUL character is refused, since the wrapper stores it
 among the strings of a code block as an inline element.
 
-Three constructs are refused where md4c's parse shows them, because GitHub reads them
-otherwise (the contributor guide names the differences):
+Four constructs are refused where md4c's parse shows them, because GitHub reads them
+otherwise or the parse does not show how GitHub reads them (the contributor guide names the
+differences):
 
 - a link whose text starts with `^`, also inside an image's description, which GitHub reads as
   a footnote reference;
 - a pipe character inside a code span, a link's text or an image's description in a table
-  cell: md4c reads those before it finds the cells of a row, and GitHub ends a cell at the pipe
-  character;
+  cell, escaped or not: md4c reads those before it finds the cells of a row, and GitHub ends a
+  cell at a pipe character that is not escaped. An escaped one ends no cell for either, and is
+  refused too: md4c keeps its backslash in a code span, where GitHub removes it, and reports a
+  link's text and an image's description without it, and the check reads no escapes, so it
+  does not tell an escaped pipe character from another;
 - an autolink whose text has a rule ID, since the two find the end of a bare URL by their own
-  rules, and MD4Lean does not tell a bare URL from `<URL>`.
+  rules, and MD4Lean does not tell a bare URL from `<URL>`;
+- a link inside a link's text, which md4c reports for an autolink there, a bare URL or `<URL>`.
+  GitHub makes no link of a bare URL inside a link's text, and it renders `<URL>` there as a
+  link inside a link, which a browser ends at the inner one, so the text after it is outside
+  every link. MD4Lean does not tell the two apart, so both are refused.
 
 ## What is not seen
 
@@ -114,10 +122,20 @@ def reference (slice : String) : List Piece :=
   | none => [.refused s!"md4c does not decode the character reference {slice}", .text slice slice]
 
 /-- Why a pipe character inside a code span, a link's text or an image's description in a table
-cell is refused. -/
+cell is refused, escaped or not. -/
 def pipeReason : String :=
   "a pipe character inside a code span, a link's text or an image's description in a table \
-    cell, where GitHub ends the cell; write the cell without it"
+    cell: GitHub ends the cell at it unless it is escaped, and the check does not tell an \
+    escaped one from another; write the cell without it"
+
+/-- Why a link inside a link's text is refused. md4c reports an autolink there, a bare URL or
+`<URL>`, as a link of its own. GitHub makes no link of a bare URL inside a link's text, and it
+renders `<URL>` there as a link inside a link, which a browser ends at the inner one, so the
+text after it is outside every link. MD4Lean does not tell the two forms apart. -/
+def nestedReason : String :=
+  "a link inside a link's text (md4c reads an autolink there, a bare URL or <URL>, as one): \
+    GitHub makes no link of a bare URL there and ends the outer link at <URL>; write the URL \
+    outside the link's text"
 
 /-- Why a link whose text starts with `^` is refused: GitHub reads `[^label]` as a footnote
 reference, and md4c makes a link of it only when it has read the footnote as a link reference
@@ -128,12 +146,19 @@ def caretReason : String :=
 
 /-- The refusal of a pipe character among `texts` in a table cell (`cell`). md4c reads a code
 span, a link's text and an image's description before it finds the cells of a row, so a pipe
-character inside one stays there; GitHub finds the cells first and ends a cell at it. A pipe
-character in a destination ends the cell for md4c too. -/
+character inside one stays there; GitHub finds the cells first and ends a cell at it unless it
+is escaped. An escaped one is refused as well: `texts` are what md4c reports, a code span with
+the backslash and a link's text or an image's description without it, and no escape is read
+here. A pipe character in a destination ends the cell for md4c too. -/
 def pipes (cell : Bool) (texts : List String) : List Piece :=
   if cell && texts.any (·.contains '|') then [.refused pipeReason] else []
 
-/-- The pieces of a code span: code, refused when it has a pipe character in a table cell. -/
+/-- The refusal of a link whose text `body` holds another link (`nestedReason`). -/
+def nested (body : List Piece) : List Piece :=
+  if body.any (fun | .enter _ => true | _ => false) then [.refused nestedReason] else []
+
+/-- The pieces of a code span: code, refused when it has a pipe character, escaped or not, in a
+table cell. -/
 def codeSpan (cell : Bool) (slices : Array String) : List Piece :=
   pipes cell slices.toList ++ slices.toList.map Piece.code
 
@@ -201,7 +226,8 @@ def link (leads : String) (auto : Bool) (body : List Piece) : List Piece :=
 emphasis, underline and strikethrough continue the prose around them; a link's text is prose
 between the link's edges; an image's description is a run of its own (`flat`); a code span is
 code. In a table cell a pipe character inside a code span, a link's text or an image's
-description is refused (`pipes`). LaTeX math and wiki links are not enabled; their text would be prose. -/
+description is refused, escaped or not (`pipes`). A link whose text holds another link is
+refused (`nested`). LaTeX math and wiki links are not enabled; their text would be prose. -/
 def inline (cell : Bool) (text : Text) : List Piece :=
   match text with
   | .normal slice => [.text slice slice]
@@ -212,7 +238,7 @@ def inline (cell : Bool) (text : Text) : List Piece :=
     texts.attach.toList.flatMap fun ⟨inner, _⟩ => inline cell inner
   | .a href _ auto texts =>
     let body := texts.attach.toList.flatMap fun ⟨inner, _⟩ => inline cell inner
-    pipes cell [prose body] ++ link (attrText href) auto body
+    pipes cell [prose body] ++ nested body ++ link (attrText href) auto body
   | .img _ _ description =>
     let body := description.toList.flatMap flat
     .gap :: pipes cell [prose body] ++ body ++ [.gap]
@@ -354,10 +380,14 @@ private def bodyless : String :=
 #guard check "a.md" (s!"See [RG2003]({page "RG2003"}), [the RG2003 fix]({page "RG2003"}#fix),\n" ++
   s!"[RG2003], [RG2003][], [it][RG2003] and [`RG2003`]({page "RG2002"})\n\n" ++
   s!"[RG2003]: {page "RG2003"}\n") == []
--- md4c reports a bare URL inside a link's text as a link of its own; the text after it is the
--- outer link's.
+-- md4c reports an autolink inside a link's text as a link of its own, a bare URL and `<URL>`
+-- alike. GitHub makes no link of the first and ends the outer link at the second, which leaves
+-- the ID after it as prose; both are refused.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard check "a.md" (s!"[see https://example.org and RG2003]({page "RG2003"})\n") == []
+#guard check "a.md" (s!"[see https://example.org and RG2003]({page "RG2003"})\n\n" ++
+  s!"[see <https://example.org> and RG2003]({page "RG2003"})\n\n" ++
+  s!"[*<https://example.org>*]({page "RG2003"})\n") ==
+  (["1", "3", "5"].map fun line => s!"a.md:{line}: {nestedReason}")
 -- A link elsewhere and an unregistered ID are refused.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" (s!"[RG2003]({page "RG2002"}) and RG9999\n") ==
@@ -451,6 +481,16 @@ private def bodyless : String :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" (s!"| A |\n| --- |\n| [RG2003 | x]({page "RG2003"}) |\n" ++
   "| ![a | b](a.png) |\n") == (["3", "4"].map fun line => s!"a.md:{line}: {pipeReason}")
+-- An escaped pipe character there is refused too, though it ends no cell for either: md4c
+-- keeps the backslash in the code span, and the link's text and the image's description have
+-- the pipe character without it.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" (s!"| A |\n| --- |\n| `a \\| b` |\n| [RG2003 \\| x]({page "RG2003"}) |\n" ++
+  "| ![a \\| b](a.png) |\n") == (["3", "4", "5"].map fun line => s!"a.md:{line}: {pipeReason}")
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard match read "| A |\n| --- |\n| `a \\| b` |\n" with
+  | .read pieces => pieces.contains (.code "a \\| b")
+  | .unread _ => false
 -- An escaped pipe character in a cell's own text is text for both, and is read.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "| A |\n| --- |\n| a \\| RG2003 |\n" == [bare "3"]
