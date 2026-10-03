@@ -88,6 +88,14 @@ def EvaluationContract (run : List Check → Except String Unit) : Prop :=
 theorem checked_evaluation : Regula.ExecutableContract evaluate EvaluationContract :=
   ⟨evaluate_success, evaluate_error, evaluate_append⟩
 
+/-- `evaluate` accepts exactly the lists whose every assertion holds (`evaluate_success`): it
+accepts the empty list and refuses one false assertion. `checked_evaluation` registers the
+larger requirement, which also fixes the refusal's label and composition; this registration
+states the accepted set as a two-way decision. -/
+theorem checked_evaluate : Regula.ExecutableContract evaluate
+    (Regula.Decides (· = .ok ()) Satisfied) :=
+  ⟨.of_iff evaluate_success ⟨[], rfl⟩ ⟨[⟨"reject", false⟩], by simp [evaluate]⟩⟩
+
 /-- Non-vacuity: a genuine true assertion succeeds. -/
 theorem positive_control : evaluate [⟨"positive", true⟩] = .ok () := rfl
 

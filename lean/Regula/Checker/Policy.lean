@@ -180,7 +180,9 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
   let flagText := if flags.isEmpty then "" else s!" [{", ".intercalate flags.toList}]"
   let roleText := if roles.isEmpty then "" else s!" roles={repr roles.toList}"
   let contractText := decl.executableContract.map (fun contract =>
-    s!" executable-contract={contract.root} requires={contract.requirement}" ++
+    s!" executable-contract={contract.root}" ++
+      (contract.kind.map (s!" decision-kind={·.spelling}")).getD "" ++
+      s!" requires={contract.requirement}" ++
       (contract.failure.map (s!" failure={·}")).getD "") |>.getD ""
   s!"{decl.name} ({decl.kind}){flagText}{roleText} type={decl.prettyType} " ++
     s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}"

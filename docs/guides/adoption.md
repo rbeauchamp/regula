@@ -23,6 +23,7 @@ supports. This table lists every release, newest first, with its one toolchain:
 
 | Regula tag | Lean toolchain | Rule reference |
 | --- | --- | --- |
+| `v0.6.0` | `leanprover/lean4:v4.34.0` | [v/0.6.0/](https://rbeauchamp.github.io/regula/v/0.6.0/) |
 | `v0.5.0` | `leanprover/lean4:v4.34.0` | [v/0.5.0/](https://rbeauchamp.github.io/regula/v/0.5.0/) |
 | `v0.4.3` | `leanprover/lean4:v4.34.0` | [v/0.4.3/](https://rbeauchamp.github.io/regula/v/0.4.3/) |
 | `v0.4.2` | `leanprover/lean4:v4.34.0` | [v/0.4.2/](https://rbeauchamp.github.io/regula/v/0.4.2/) |
@@ -470,13 +471,13 @@ relation between it and the type.
 
 ## Machine-readable report
 
-`lake lint -- --json-out PATH` writes one JSON document, result schema 8, whatever the outcome;
+`lake lint -- --json-out PATH` writes one JSON document, result schema 9, whatever the outcome;
 the path is first written as an incomplete result, so a stale report is never mistaken for this
 run's. Its main members:
 
 | Member | Meaning |
 | --- | --- |
-| `schemaVersion` | `8`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
+| `schemaVersion` | `9`. Also `producerVersion`, `toolchain` and `sourceRevision` of the Regula build. |
 | `status` | `completed` (accepted), `rejected` (a violation was established and no finding is incomplete), `incomplete` (evidence was missing) or `classified` (a file inspection with no conforming claim). For an audit that recorded its result and then finished, it and the diagnostics determine the exit code. |
 | `stages`, `stagesCompleted`, `stagesNotRun`, `complete` | The run's required stages and which completed, including the stages that finished before the run stopped. `complete` is `false` when the run stopped early, so fixing the reported findings can reveal more. |
 | `diagnostics` | Every finding in printed order, one per declaration even where the text groups them, with `id`, `impact`, `severity`, `mode`, `claim`, `location` (for source, its `uri`, byte and LSP ranges and its `sourceText`, an index into `sourceTexts`; for a module, its `name`), `arguments`, `text`, `remedy` and `helpUrl`. `arguments.declaration` (or `root` for an execution finding) is the name as Lean prints it, such as `"Widget.countdown.eq_1"`. For a declaration-policy finding of a project or file audit or of a rule example ([RG1005] and the other rules decided per audited declaration), `arguments.sourceDeclaration` names the declaration Lean generated the declaration from, at the end of that chain, or is `null` for a declaration Lean did not generate from another; for a generated declaration, `location` is its own range when Lean recorded one, and otherwise that source declaration's range when Lean recorded one, with `related` naming the declaration's own module. Other declaration findings carry no attribution: a documentation example's, a material-documentation one ([RG5002], [RG5003]) and the editor linter's record `null` and the declaration's own location. A declaration whose recorded selection range leaves its recorded range, as Lean records for the definitions of a `macro_rules` command over several syntax kinds, is located at its range, which is then its selection range too. |
@@ -693,6 +694,18 @@ semantic-review rows of [standard module 8](https://rbeauchamp.github.io/regula/
 including `SCOPE-*`, `TYPE-*`, `THEOREM-*`, `COMP-01`, `COMP-04`, `DOC-01` and `DOC-02`.
 Conformance is the whole checklist with one terminal result (`PASS`, `FAIL` or `INCOMPLETE`),
 not the linter alone.
+
+For a function that acts as a checker (a parser, validator or admission function), you can state
+which direction you proved in the registration itself. `Regula.Contract` provides
+`Regula.Decides accepts spec` for both directions and `Regula.DecidesSoundly` or
+`Regula.DecidesCompletely` for a deliberate one-way guarantee, each with a witness that the
+function accepts or refuses some input, so a function that refuses everything cannot be
+registered as sound. Register `theorem c : Regula.ExecutableContract check (Regula.Decides (· =
+true) Spec)`, with `fun g => Regula.Decides accepts Spec (Function.uncurry g)` for a function of
+several arguments, and state `Spec` without `check`. The accepted account then reports the kind
+and, for a one-way kind, the direction it leaves open. No rule requires a registration, and
+whether `Spec` is the specification you intend stays your review
+([standard §3.8](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#decision-kinds), [RG1007]).
 
 ## Limits
 

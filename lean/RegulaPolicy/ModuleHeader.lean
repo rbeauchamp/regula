@@ -1,5 +1,7 @@
 module
 
+public import Regula.Contract
+
 /-! # Module header decision
 
 The decision behind RG5001 for one claimed module (standard §5.3 and §6.4): the module has a
@@ -14,6 +16,8 @@ off because it also enforces Mathlib's copyright header.
   the first command after its header is a module docstring, and its header imports in order.
 - `failures`: the executed decision, every failure of one observation in a fixed order.
 - `failures_eq_nil_iff`: no failure exactly when `OK` holds.
+- `checked_failures`: that equivalence registered as a two-way decision (`Regula.Decides`), with
+  an accepted and a refused header.
 - `mem_repeated_iff`: a repeated-import failure names exactly the imports that occur twice or more.
 
 ## Boundaries
@@ -113,5 +117,11 @@ theorem failures_documentation (o : Observation) :
       else if !o.documentationFirst then some .misplacedDocumentation
       else ((repeated o.imports).map Failure.repeatedImport).head? := by
   cases hd : o.documented <;> cases hf : o.documentationFirst <;> simp [failures, hd, hf]
+
+/-- `failures` reports nothing exactly for a header that meets `OK` (`failures_eq_nil_iff`):
+nothing for a documented header with no import, and a failure for an undocumented one. -/
+theorem checked_failures :
+    Regula.ExecutableContract failures (Regula.Decides (· = []) OK) :=
+  ⟨.of_iff failures_eq_nil_iff ⟨⟨true, true, []⟩, by decide⟩ ⟨⟨false, false, []⟩, by decide⟩⟩
 
 end RegulaPolicy.ModuleHeader

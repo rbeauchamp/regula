@@ -12,7 +12,7 @@ relative path and Mathlib.
 
 | Purpose | Start here | Boundary |
 | --- | --- | --- |
-| Use the proof-bearing contract interface | [Regula.Contract](Regula/Contract.lean) | Public interface tying evidence to the named executable definition. |
+| Use the proof-bearing contract interface | [Regula.Contract](Regula/Contract.lean) | Public interface tying evidence to the named executable definition, with the decision kinds (`Decides`, `DecidesSoundly`, `DecidesCompletely`) that state which directions of a checker are proved. |
 | Register a material claim | [Regula.MaterialClaim](Regula/MaterialClaim.lean) | Public `@[regula_material]` attribute selecting the [RG5002]/[RG5003] docstring and Intent-section obligations. |
 | Inspect mathematical/specification examples | [Audit](../audit/Audit.lean) | Claimed abstract-specification surface of the Mathlib-dependent package; representative checks of the standard's claims. |
 | Inspect the verified application | [Main](Main.lean), [AuditApp](AuditApp.lean) | Claimed limiter application; proofs concern its actual definitions and its IO boundary remains reported. |

@@ -22,9 +22,14 @@ theorem validateDecoded_exact (decoded : Except String (List Check)) :
   | ok checks =>
       simp [validateDecoded, Except.bind, Regula.ExecutableContract.run, evaluate_success]
 
-/-- Registered contract used by report adapters, not an IO authenticity assertion. -/
+/-- Registered contract used by report adapters, not an IO authenticity assertion: a two-way
+decision (`validateDecoded_exact`) that accepts a decoding with no assertion and refuses a
+decoding failure. -/
 theorem checked_decoded : Regula.ExecutableContract validateDecoded
-    (fun run => ∀ decoded, run decoded = .ok () ↔
-      ∃ checks, decoded = .ok checks ∧ Satisfied checks) := ⟨validateDecoded_exact⟩
+    (Regula.Decides (· = .ok ()) fun decoded =>
+      ∃ checks, decoded = .ok checks ∧ Satisfied checks) :=
+  ⟨.of_iff validateDecoded_exact
+    ⟨.ok [], (validateDecoded_exact _).mpr ⟨[], rfl, by simp [Satisfied]⟩⟩
+    ⟨.error "", fun accepted => by simpa using (validateDecoded_exact _).mp accepted⟩⟩
 
 end RegulaQualification

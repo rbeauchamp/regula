@@ -49,6 +49,24 @@ def admitToolchainAxioms (names : Array Name) : Except String ToolchainAxioms :=
     .ok ⟨names, h.1, h.2⟩
   else .error "toolchain axiom set contains sorryAx or a compiler axiom"
 
+/-- Axiom-set admission succeeds exactly for a set without `sorryAx` or a compiler axiom. -/
+theorem admitToolchainAxioms_isOk_iff (names : Array Name) :
+    (admitToolchainAxioms names).isOk = true ↔
+      `sorryAx ∉ names ∧ ∀ n ∈ names, ¬ CompilerAxiom #[] n := by
+  unfold admitToolchainAxioms
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitToolchainAxioms` accepts exactly the sets without `sorryAx` or a compiler axiom: it
+accepts the empty set and refuses the set of `sorryAx`. Which set it returns is
+`admitToolchainAxioms_names`. -/
+theorem checked_admitToolchainAxioms : Regula.ExecutableContract admitToolchainAxioms
+    (Regula.Decides (·.isOk = true) fun names =>
+      `sorryAx ∉ names ∧ ∀ n ∈ names, ¬ CompilerAxiom #[] n) :=
+  ⟨.of_iff admitToolchainAxioms_isOk_iff
+    ⟨#[], (admitToolchainAxioms_isOk_iff #[]).mpr (by simp)⟩
+    ⟨#[`sorryAx], fun accepted =>
+      ((admitToolchainAxioms_isOk_iff #[`sorryAx]).mp accepted).1 (by simp)⟩⟩
+
 /-- The admitted set is exactly the supplied names. -/
 theorem admitToolchainAxioms_names {names : Array Name} {t : ToolchainAxioms}
     (h : admitToolchainAxioms names = .ok t) : t.names = names := by
@@ -173,5 +191,30 @@ theorem checked_operationalFailure :
     Regula.ExecutableContract operationalFailure OperationalFailureContract :=
   ⟨fun t d => ⟨operationalFailure_none_iff t d, operationalFailure_ne_escapeHatch t d,
     operationalFailure_eq_conforming t d⟩⟩
+
+/-- `operationalFailure` reports nothing exactly when the recorded declaration meets
+`OperationalOK` for the reported toolchain axioms (`operationalFailure_none_iff`): nothing for
+an axiom-free definition, and a failure for an authored axiom. `checked_operationalFailure`
+registers the larger requirement, which also fixes its agreement with the conforming decision;
+this registration states the accepted set as a two-way decision. -/
+theorem checked_operationalDecision : Regula.ExecutableContract operationalFailure (fun decide =>
+    Regula.Decides (· = none)
+      (fun input : ToolchainAxioms × Declaration => OperationalOK input.1 input.2)
+      (Function.uncurry decide)) :=
+  let recorded (kind : DeclarationKind) : Declaration :=
+    { name := `subject, «module» := `Module, kind, «type» := "", prettyType := "", isProp := false
+      isUnsafe := false, isPartial := false, safety := none, «instance» := false
+      «noncomputable» := false, implementedBy := none, «extern» := false, internal := false
+      «private» := false, projection := false, matcher := false, recursive := false
+      unsafeRecBase := none, levelParams := #[], all := #[], hints := none, valueConstants := #[]
+      unsafeRecRegenerated := none, constructorIndex := none, nativeStatement := none
+      nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[] }
+  let toolchain : ToolchainAxioms := ⟨#[], by simp, by simp⟩
+  ⟨.of_iff (fun input => operationalFailure_none_iff input.1 input.2)
+    ⟨(toolchain, recorded .«definition»),
+      (operationalFailure_none_iff _ _).mpr
+        ⟨by simp [recorded], by simp [recorded], by simp [ContractOK, recorded]⟩⟩
+    ⟨(toolchain, recorded .«axiom»),
+      fun accepted => ((operationalFailure_none_iff _ _).mp accepted).1 rfl⟩⟩
 
 end RegulaPolicy

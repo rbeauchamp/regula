@@ -105,6 +105,50 @@
    "failure=registration must be closed"
   ]
  },
+ "Fixtures.Positive.DecisionKinds": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "executable-contract=positive decision-kind=sound-and-complete requires=Regula.Decides ",
+   "executable-contract=smallEven decision-kind=sound requires=Regula.DecidesSoundly ",
+   "executable-contract=belowTen decision-kind=complete requires=Regula.DecidesCompletely ",
+   "executable-contract=within decision-kind=sound-and-complete requires=WithinContract within",
+   "executable-contract=positiveFailure decision-kind=sound-and-complete requires=",
+   "executable-contract=positive requires=(fun check"
+  ]
+ },
+ "Fixtures.Mutations.DecisionMissingWitness": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "Fields missing: `accepted`"
+ },
+ "Fixtures.Mutations.DecisionMissingDirection": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "Fields missing: `complete`"
+ },
+ "Fixtures.Mutations.DecisionSelfSpecification": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "decision-kind=sound-and-complete",
+   "failure=decision contract's specification mentions its implementation `positive` through `Accepted`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionSelfAcceptance": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract's acceptance predicate mentions its implementation `positive`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionOtherFunction": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `model`, not its implementation `positive`"
+  ]
+ },
  "Fixtures.Positive.RuntimeReplacement": {
   "expect": "pass",
   "claim": "standard-logical",

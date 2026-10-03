@@ -82,6 +82,65 @@ theorem executionFailureRecords_empty_iff (i : ExecutionInventory) (c : Executio
   simp [executionFailureRecords, rootFailures, ExecutionOK, Array.flatMap_eq_empty_iff,
     boundaryFailures_empty_iff]
 
+/-- `boundaryFailures` reports nothing exactly when the boundary meets `BoundaryOK` under the
+claim, whatever the root (`boundaryFailures_empty_iff`): nothing for an opaque constant run
+through its kernel-checked body, and a failure for an unresolved boundary. The decision is over
+one supplied boundary record; that the account lists every boundary a root reaches is the
+collector's, and is not claimed. -/
+theorem checked_boundaryFailures : Regula.ExecutableContract boundaryFailures (fun failures =>
+    Regula.Decides (· = #[])
+      (fun input : (ExecutionRoot × ExecutionClaim) × ExecutionBoundary =>
+        BoundaryOK input.1.2 input.2)
+      (Function.uncurry (Function.uncurry failures))) :=
+  let root : ExecutionRoot :=
+    { name := `root, «module» := `Module, boundaries := #[], unresolved := #[]
+      closure := { nodes := #[`root], visits := #[⟨`root, none, none⟩] } }
+  ⟨.of_iff (fun input => boundaryFailures_empty_iff input.1.1 input.1.2 input.2)
+    ⟨((root, .checked), ⟨0, `body, `Module, .opaqueComputation, .checked .opaqueBody, true, none,
+        #[]⟩), by decide⟩
+    ⟨((root, .report), ⟨0, `body, `Module, .opaqueComputation, .unresolved none, true, none,
+        #[]⟩), by decide⟩⟩
+
+/-- A root with one unresolved path and no boundary: the refused input of
+`checked_executionFailureRecords`. -/
+private def unresolvedRoot : ExecutionRoot :=
+  { name := `root, «module» := `Module, boundaries := #[], unresolved := #["path"]
+    closure := { nodes := #[`root], visits := #[⟨`root, none, none⟩] } }
+
+/-- `unresolvedRoot` alone is a valid inventory. Proved from the definition of validity, not by
+evaluating its decision procedure, whose hashed name sets the kernel does not evaluate. -/
+private theorem unresolvedRoot_valid : ExecutionValid #[unresolvedRoot] := by
+  refine ⟨by simp [UniqueNames, unresolvedRoot], fun r member => ?_⟩
+  obtain rfl := Array.mem_singleton.mp member
+  have discovery : unresolvedRoot.closure.DiscoveryOK `root #[] := by
+    intro k
+    have first : k = ⟨0, by decide⟩ :=
+      Fin.ext (by have := k.isLt; simp [unresolvedRoot] at this; omega)
+    subst first
+    simp [unresolvedRoot]
+  have sorted : Std.ExtTreeSet.toList (CanonicalSet.normalize [`root]) = [`root] := by
+    decide +kernel
+  simp only [unresolvedRoot] at discovery
+  simp [ExecutionRoot.Valid, ExecutionClosure.Valid, unresolvedRoot, Named, canonicalNames,
+    canonicalEdges, sorted, discovery, ExecutionClosure.edges]
+  exact ⟨rfl, rfl⟩
+
+/-- `executionFailureRecords` reports nothing exactly when the inventory meets `ExecutionOK`
+under the claim (`executionFailureRecords_empty_iff`): nothing for an inventory with no root, and
+a failure for a root with an unresolved path. The decision is over the supplied account; that the
+account covers every root and closure is the collector's, and is not claimed. -/
+theorem checked_executionFailureRecords :
+    Regula.ExecutableContract executionFailureRecords (fun records =>
+      Regula.Decides (· = #[])
+        (fun input : ExecutionInventory × ExecutionClaim => ExecutionOK input.1 input.2)
+        (Function.uncurry records)) :=
+  ⟨.of_iff (fun input => executionFailureRecords_empty_iff input.1 input.2)
+    ⟨(⟨#[], by simp [ExecutionValid, UniqueNames]⟩, .report),
+      (executionFailureRecords_empty_iff _ _).mpr (by simp [ExecutionOK])⟩
+    ⟨(⟨#[unresolvedRoot], unresolvedRoot_valid⟩, .report), fun accepted => absurd
+      (((executionFailureRecords_empty_iff _ _).mp accepted) _ (Array.mem_singleton.mpr rfl)).1
+      (by simp [unresolvedRoot])⟩⟩
+
 /-- Failure kind of one boundary: an unresolved boundary is `executionUnresolved` in every
 mode; otherwise only a checked claim over a non-checked boundary the toolchain does not own
 fails, as `executionBoundary`. A report claim never fails a resolved boundary. -/
@@ -463,6 +522,22 @@ theorem executionFindings_empty_iff (i : ExecutionInventory) (c : ExecutionClaim
     exact ⟨(h r hr).1, fun b hb => boundaryFailures_empty_of_findings (h r hr).2 hb⟩
   · intro h r hr
     exact ⟨(h r hr).1, fun b hb => by simp [boundaryFindings, (h r hr).2 b hb]⟩
+
+/-- `executionFindings`, the findings the checker reports, are none exactly when the inventory
+meets `ExecutionOK` under the claim (`executionFindings_empty_iff`), with the witnesses of
+`checked_executionFailureRecords`. The decision is over the supplied account; that the account
+covers every root and closure is the collector's, and is not claimed. -/
+theorem checked_executionFindings :
+    Regula.ExecutableContract executionFindings (fun findings =>
+      Regula.Decides (· = #[])
+        (fun input : ExecutionInventory × ExecutionClaim => ExecutionOK input.1 input.2)
+        (Function.uncurry findings)) :=
+  ⟨.of_iff (fun input => executionFindings_empty_iff input.1 input.2)
+    ⟨(⟨#[], by simp [ExecutionValid, UniqueNames]⟩, .report),
+      (executionFindings_empty_iff _ _).mpr (by simp [ExecutionOK])⟩
+    ⟨(⟨#[unresolvedRoot], unresolvedRoot_valid⟩, .report), fun accepted => absurd
+      (((executionFindings_empty_iff _ _).mp accepted) _ (Array.mem_singleton.mpr rfl)).1
+      (by simp [unresolvedRoot])⟩⟩
 
 /-- A boundary's failures name its root. -/
 theorem boundaryFailures_root {r : ExecutionRoot} {c : ExecutionClaim} {b : ExecutionBoundary}

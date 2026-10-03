@@ -588,10 +588,12 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       applicability := "executable-contract"
       evidenceModes := .editorSnapshot :: declarationModes
       requirement := "Each `ExecutableContract f R` is closed and names a safe, computable \
-        implementation `f`, with its complete domain inside `R`."
+        implementation `f`, with its complete domain inside `R`; a decision kind decides `f` \
+        against a specification stated without `f`."
       rationale := "A contract is useful only if it constrains the code callers run. A \
         registration over `f n` for a fixed parameter, or over an ineligible constant, says \
-        nothing about the executable definition across its domain."
+        nothing about the executable definition across its domain; a specification that \
+        mentions `f` can restate `f`."
       remedy := "Register the named implementation itself and put its complete domain inside the \
         predicate: `theorem c : ExecutableContract f (fun g => ∀ x, P x (g x))`."
       rewrites := [
@@ -601,7 +603,11 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Name the computable, safe, non-partial definition that callers use; route callers through \
           `c.run`.",
         "Universe-polymorphic implementations are supported; explicit universe instantiation is \
-          recorded."]
+          recorded.",
+        "For a checker, state the direction with a kind: `ExecutableContract check (Decides (· = \
+          true) Spec)`, or `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee. \
+          Decide several arguments through `fun g => Decides accepts Spec (Function.uncurry g)`, \
+          and state `Spec` without `check`."]
       examples := {
         language := .lean
         audience := .adopter

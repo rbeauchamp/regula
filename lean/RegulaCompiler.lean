@@ -213,6 +213,8 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
     if jobs == 0 then throw <| IO.userError "compiler setup: empty CPU count"
     stream path "make" #[s!"-j{jobs}", "-C", "build/release"]
     let stage := path / "build" / "release" / "stage1"
+    for notice in #["LICENSE", "LICENSES"] do
+      IO.FS.writeBinFile (stage / notice) (← IO.FS.readBinFile (path / notice))
     checkIdentity root (stage / "bin" / "lean").toString #[] spec.revision
     stream root "elan" #["toolchain", "link", spec.selector, stage.toString]
     checkIdentity root "elan" #["run", spec.selector, "lean"] spec.revision

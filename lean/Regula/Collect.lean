@@ -1690,11 +1690,34 @@ def returnsSort (type : Expr) : MetaM Bool :=
   Meta.withTransparency .all <|
     Meta.forallTelescopeReducing type (fun _ body => pure body.isSort) (whnfType := true)
 
+/-- For each imported module index: whether the module is `target` or transitively imports it.
+This is the least fixed point of "is `target` or imports a marked module": a pass that marks
+nothing has reached it, and every other pass marks one of the finitely many modules, so at most
+one pass per module runs. Lean admits a constant only when every constant its type and value
+mention is already in the environment, so no constant of an unmarked module mentions a constant
+of `target`, and neither does any constant such a constant mentions. -/
+private def importersOf (env : Environment) (target : Name) : Array Bool := Id.run do
+  let names := env.header.moduleNames
+  let importsAware (aware : Array Bool) (index : Nat) : Bool :=
+    match env.header.moduleData[index]? with
+    | some data => data.imports.any fun imported =>
+        ((env.getModuleIdx? imported.module).bind fun idx => aware[(idx : Nat)]?).getD false
+    | none => false
+  let mut aware := names.map (· == target)
+  for _ in [:names.size] do
+    let mut changed := false
+    for index in [:names.size] do
+      if !(aware[index]?.getD true) && importsAware aware index then
+        aware := aware.set! index true
+        changed := true
+    if !changed then break
+  return aware
+
 /-- The part of an environment whose declarations can mention `Regula.ExecutableContract`, with a
-memo of constants shown not to reach it. Lean admits a constant only when every constant its type
-and value mention is already in the environment, so no constant of a module that is neither
-`Regula.Contract` nor a transitive importer of it mentions the contract type, and neither does
-any constant such a constant mentions. It also memoizes, for the same environment, the toolchain's
+memo of constants shown not to reach it. No constant of a module that is neither
+`Regula.Contract` nor a transitive importer of it mentions the contract type or a decision kind,
+which `Regula.Contract` also declares, and neither does any constant such a constant mentions
+(`importersOf`). It also memoizes, for the same environment, the toolchain's
 `wf_preprocess` rules that recursion-helper regeneration uses. -/
 structure ContractScope where
   /-- For each imported module index: `Regula.Contract` or a module that transitively imports it. -/
@@ -1704,32 +1727,20 @@ structure ContractScope where
   mainAware : Bool
   /-- Constants whose closure under `unfoldReferences` was searched without reaching it. -/
   free : IO.Ref NameSet
+  /-- Constants whose closure under `unfoldReferences` was searched without reaching a decision
+  kind (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`). -/
+  decisionFree : IO.Ref NameSet
   /-- The toolchain's `wf_preprocess` rules once a recursion helper's regeneration has computed
   them (`Collect.unsafeRecRegeneration`), shared by every helper of the environment. -/
   preprocessRules : IO.Ref (Option Meta.SimpTheorems)
 
-/-- The scope of `env`. Awareness is the least fixed point of "is `Regula.Contract` or imports an
-aware module": a pass that marks nothing has reached it, and every other pass marks one of the
-finitely many modules, so at most one pass per module runs. -/
+/-- The scope of `env`, with awareness as `importersOf` computes it for `Regula.Contract`. -/
 def ContractScope.new (env : Environment) : BaseIO ContractScope := do
-  let names := env.header.moduleNames
-  let importsAware (aware : Array Bool) (index : Nat) : Bool :=
-    match env.header.moduleData[index]? with
-    | some data => data.imports.any fun imported =>
-        ((env.getModuleIdx? imported.module).bind fun idx => aware[(idx : Nat)]?).getD false
-    | none => false
-  let mut aware := names.map (· == `Regula.Contract)
-  for _ in [:names.size] do
-    let mut changed := false
-    for index in [:names.size] do
-      if !(aware[index]?.getD true) && importsAware aware index then
-        aware := aware.set! index true
-        changed := true
-    if !changed then break
-  return { aware
+  return { aware := importersOf env `Regula.Contract
            mainAware := (env.getModuleIdx? `Regula.Contract).isSome ||
              env.mainModule == `Regula.Contract
            free := ← IO.mkRef {}
+           decisionFree := ← IO.mkRef {}
            preprocessRules := ← IO.mkRef none }
 
 /-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
@@ -1739,6 +1750,26 @@ def ContractScope.constantAware (scope : ContractScope) (env : Environment) (nam
   | some index => scope.aware[(index : Nat)]?.getD true
   | none => scope.mainAware
 
+/-- Whether a constant `target` admits is among the constants `type` mentions, closed under
+`unfoldReferences`, for a `target` that admits only constants of `Regula.Contract`. Constants of
+modules outside the scope are not expanded, and a search that ends without finding one records
+every constant it expanded in `free`, the memo of that same `target`. -/
+private def ContractScope.reaches (scope : ContractScope) (env : Environment)
+    (target : Name → Bool) (free : IO.Ref NameSet) (type : Expr) : BaseIO Bool := do
+  let known ← free.get
+  let mut pending := type.getUsedConstants
+  let mut expanded : NameSet := {}
+  while !pending.isEmpty do
+    let name := pending.back!
+    pending := pending.pop
+    if target name then return true
+    if expanded.contains name || known.contains name || !scope.constantAware env name then continue
+    expanded := expanded.insert name
+    if let some info := env.find? name then
+      pending := pending ++ unfoldReferences info
+  free.modify fun free => expanded.foldl (fun free name => free.insert name) free
+  return false
+
 /-- Whether reducing `type` can produce `Regula.ExecutableContract`: whether the contract type is
 among the constants `type` mentions, closed under `unfoldReferences`. Lean's reduction steps
 (delta, iota, beta, zeta, eta, projection, and literal and native Boolean or natural-number steps)
@@ -1747,20 +1778,117 @@ the reduction this guards runs inside `declaration`, with smart unfolding off. C
 outside the scope are not expanded, and a search that ends without finding the contract type
 records every constant it expanded as free. -/
 def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : Expr) :
-    BaseIO Bool := do
-  let free ← scope.free.get
-  let mut pending := type.getUsedConstants
-  let mut expanded : NameSet := {}
+    BaseIO Bool :=
+  scope.reaches env (· == ``Regula.ExecutableContract) scope.free type
+
+/-- Whether reducing `requirement` can produce a decision kind: whether `Regula.DecidesSoundly`,
+`Regula.DecidesCompletely` or `Regula.Decides` is among the constants it mentions, closed under
+`unfoldReferences`, by the argument of `ContractScope.mayReach`. -/
+def ContractScope.mayReachDecision (scope : ContractScope) (env : Environment)
+    (requirement : Expr) : BaseIO Bool :=
+  scope.reaches env (fun name => (RegulaPolicy.DecisionKind.ofStructureName? name).isSome)
+    scope.decisionFree requirement
+
+/-- The constants by which `e` mentions `target`, closed under unfolding: the first is a constant
+`e` mentions, each is mentioned by the type or the unfoldable value of the one before
+(`statusReferences`), and the last is `target`; `none` when `e` does not mention it. A theorem's
+proof and an opaque constant's value are not followed: Lean's reduction unfolds neither, and a
+proposition does not depend on which proof of a statement a proof term is. Only a constant that
+can mention `target` is expanded: one of its module, of a module that transitively imports it
+(`importersOf`), or of the current module; an imported constant never mentions a constant of the
+current module. -/
+private def mentionChain? (env : Environment) (target : Name) (e : Expr) :
+    Option (Array Name) := Id.run do
+  let targetModule := env.getModuleIdxFor? target
+  let importers := targetModule.bind fun index =>
+    env.header.moduleNames[(index : Nat)]?.map (importersOf env)
+  let canMention (name : Name) : Bool :=
+    match env.getModuleIdxFor? name with
+    | none => true
+    | some index =>
+      match targetModule, importers with
+      | none, _ => false
+      | some _, some aware => aware[(index : Nat)]?.getD true
+      | some _, none => true
+  -- Each reached constant with the constant that mentions it; `.anonymous` for one `e` mentions.
+  let mut mentionedBy : NameMap Name := {}
+  let mut pending : Array Name := #[]
+  for name in e.getUsedConstants do
+    unless mentionedBy.contains name do
+      mentionedBy := mentionedBy.insert name .anonymous
+      pending := pending.push name
   while !pending.isEmpty do
     let name := pending.back!
     pending := pending.pop
-    if name == ``Regula.ExecutableContract then return true
-    if expanded.contains name || free.contains name || !scope.constantAware env name then continue
-    expanded := expanded.insert name
+    if name == target then
+      let mut chain := #[name]
+      let mut current := name
+      for _ in [:mentionedBy.size] do
+        match mentionedBy.find? current with
+        | some source =>
+          if source.isAnonymous then break
+          chain := chain.push source
+          current := source
+        | none => break
+      return some chain.reverse
+    unless canMention name do continue
     if let some info := env.find? name then
-      pending := pending ++ unfoldReferences info
-  scope.free.modify fun free => expanded.foldl (fun free name => free.insert name) free
-  return false
+      for next in statusReferences info do
+        unless mentionedBy.contains next do
+          mentionedBy := mentionedBy.insert next name
+          pending := pending.push next
+  return none
+
+/-- Whether `decided` is the constant `implementation`, or `Function.uncurry` applied any number
+of times to it: the function a decision kind is stated about is then the registered
+implementation on the product of its arguments. -/
+private def decidesImplementation (implementation : Name) : Expr → Bool
+  | .const name _ => name == implementation
+  | .mdata _ decided => decidesImplementation implementation decided
+  | .app function decided =>
+      function.isAppOfArity ``Function.uncurry 3 && decidesImplementation implementation decided
+  | _ => false
+
+/-- The decision kind of a registration's requirement, with the acceptance predicate, the
+specification and the decided function it states: `requirement` reduced to weak head normal form
+at the ambient transparency is an application of the kind's structure
+(`RegulaPolicy.DecisionKind.ofStructureName?`) to its two type arguments and those three. `none`
+for every other requirement. The requirement is reduced only when
+`ContractScope.mayReachDecision` admits that the reduction can produce a kind, as a declared type
+is in `executableContract?`. -/
+private def decisionRequirement? (env : Environment) (scope : ContractScope) (requirement : Expr) :
+    MetaM (Option (RegulaPolicy.DecisionKind × Expr × Expr × Expr)) := do
+  unless (← scope.mayReachDecision env requirement) do return none
+  let reduced ← Meta.whnf requirement
+  let some kind := reduced.getAppFn.constName?.bind RegulaPolicy.DecisionKind.ofStructureName?
+    | return none
+  let args := reduced.getAppArgs
+  let (some accepts, some spec, some decided) := (args[2]?, args[3]?, args[4]?) | return none
+  unless args.size == 5 do return none
+  return some (kind, accepts, spec, decided)
+
+/-- Why a decision registration of `implementation` is refused: the kind is stated about a
+function other than the implementation or its uncurrying, so it says nothing of the registered
+constant across its domain, or the acceptance predicate or the specification mentions the
+implementation (`mentionChain?`), as the tautology `spec := fun x => f x = true` does. `none`
+when neither holds. This establishes only that the two are stated without the implementation's
+constant; whether the specification is the intended one remains review. -/
+private def decisionFailure? (env : Environment) (implementation : Name)
+    (accepts spec decided : Expr) : MetaM (Option String) := do
+  let mention (part : String) (chain : Array Name) : String :=
+    let route := chain.pop.toList.map (s!"`{·}`")
+    let through := if route.isEmpty then "" else s!" through {", then ".intercalate route}"
+    s!"decision contract's {part} mentions its implementation `{implementation}`{through}; \
+      state it without the implementation"
+  if !decidesImplementation implementation decided.eta then
+    return some s!"decision contract decides `{← Meta.ppExpr decided}`, not its implementation \
+      `{implementation}`; state the kind about the implementation, or about \
+      `Function.uncurry` of it for a function of several arguments"
+  if let some chain := mentionChain? env implementation accepts then
+    return some (mention "acceptance predicate" chain)
+  if let some chain := mentionChain? env implementation spec then
+    return some (mention "specification" chain)
+  return none
 
 /-- Recognize a closed proof-bearing requirement by its elaborated type. No
 annotation, theorem-name inventory, or proposition matcher supplies evidence:
@@ -1774,6 +1902,12 @@ The type is reduced at `.all` transparency only when `ContractScope.mayReach` ad
 reduction can produce the contract type; otherwise the declaration is not a registration, with no
 reduction. Lean's elaboration never reduces a declared type this way, and doing so can exhaust
 Lean's resource limits on an ordinary proposition, such as one computed from 64-bit literals.
+The record's decision kind is read from the head constant of the requirement, reduced the same
+way (`decisionRequirement?`), so an alias of a kind is recognized and no theorem text is
+matched. A registration that is eligible and states a kind is refused when the kind is not about
+the implementation or when its acceptance predicate or specification mentions the implementation
+(`decisionFailure?`); an eligibility refusal is reported first, so a registration that states no
+kind has the record it had before kinds existed, with no kind.
 -/
 private def executableContract? (env : Environment) (scope : ContractScope) (info : ConstantInfo) :
     CommandElabM (Option RegulaPolicy.ExecutableContract) := do
@@ -1785,7 +1919,8 @@ private def executableContract? (env : Environment) (scope : ContractScope) (inf
     if !type.isAppOfArity ``Regula.ExecutableContract 3 then return none
     let args := type.getAppArgs
     let implementation := args[1]!
-    let requirement ← Meta.ppExpr (mkApp args[2]! implementation)
+    let applied := mkApp args[2]! implementation
+    let requirement ← Meta.ppExpr applied
     let root := implementation.constName?
     let failure ← if !parameters.isEmpty then
         pure <| some "registration must be closed; put the implementation's complete domain inside \
@@ -1805,10 +1940,16 @@ private def executableContract? (env : Environment) (scope : ContractScope) (inf
           pure <| if typeProducing then
               some "promised implementation returns a type, not runtime data" else none
         else pure <| some "promised implementation is not an executable data/function definition"
+    let decision ← decisionRequirement? env scope applied
+    let failure ← match failure, root, decision with
+      | none, some name, some (_, accepts, spec, decided) =>
+          decisionFailure? env name accepts spec decided
+      | _, _, _ => pure failure
     return some {
       root := root.getD .anonymous
       requirement := toString requirement
-      failure }
+      failure
+      kind := decision.map (·.1) }
 
 /-- Acquisition stage, independent of whether a subsequent policy check succeeds.
 Local snapshots deliberately omit replay and whole-environment parent searches. -/

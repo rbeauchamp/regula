@@ -98,6 +98,43 @@ theorem admitInfrastructureOrigin_exact (origin : InfrastructureOrigin) :
   unfold admitInfrastructureOrigin
   rw [dite_eq_left origin.eligible, dite_eq_left origin.nonempty, dite_eq_left origin.agrees]
 
+/-- Infrastructure-origin admission succeeds exactly for an eligible module with a nonempty
+origin equal to the expected one. -/
+theorem admitInfrastructureOrigin_isOk_iff (key : ModuleKey) (actual expected : String) :
+    (admitInfrastructureOrigin key actual expected).isOk = true ↔
+      key.name.name ∈ infrastructureModuleNames ∧ actual ≠ "" ∧ actual = expected := by
+  unfold admitInfrastructureOrigin
+  by_cases eligible : key.name.name ∈ infrastructureModuleNames
+  · by_cases empty : actual = ""
+    · simp [eligible, empty, Except.isOk, Except.toBool]
+    · by_cases equal : actual = expected
+      · subst equal
+        simp [eligible, empty, Except.isOk, Except.toBool]
+      · simp [eligible, empty, equal, Except.isOk, Except.toBool]
+  · simp [eligible, Except.isOk, Except.toBool]
+
+/-- `admitInfrastructureOrigin` accepts exactly an eligible infrastructure module whose
+observed origin is nonempty and equal to the expected one: it accepts `Regula.Collect` with
+equal origins and refuses an empty origin. Which receipt it returns is
+`admitInfrastructureOrigin_exact`. That the two paths are the module's loaded and expected
+`.olean` files is the adapter's. -/
+theorem checked_admitInfrastructureOrigin :
+    Regula.ExecutableContract admitInfrastructureOrigin (fun admit =>
+      Regula.Decides (·.isOk = true)
+        (fun input : (ModuleKey × String) × String =>
+          input.1.1.name.name ∈ infrastructureModuleNames ∧ input.1.2 ≠ "" ∧
+            input.1.2 = input.2)
+        (Function.uncurry (Function.uncurry admit))) :=
+  let key : ModuleKey :=
+    ⟨⟨⟨#[], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, by decide⟩,
+      ⟨`Regula.Collect, by decide +kernel⟩⟩
+  ⟨.of_iff (fun input => admitInfrastructureOrigin_isOk_iff input.1.1 input.1.2 input.2)
+    ⟨((key, "origin"), "origin"),
+      (admitInfrastructureOrigin_isOk_iff key "origin" "origin").mpr
+        ⟨by decide +kernel, by decide, rfl⟩⟩
+    ⟨((key, ""), ""),
+      fun accepted => ((admitInfrastructureOrigin_isOk_iff key "" "").mp accepted).2.1 rfl⟩⟩
+
 /-- A standalone file is compiled in an isolated module. Retain both identities and
 exact byte equality; this does not authenticate either filesystem read. -/
 structure FileSourceBinding where

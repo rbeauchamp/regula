@@ -221,4 +221,25 @@ theorem checked_coordinates : Regula.ExecutableContract coordinateCheck Coordina
         (coordinateObligations_hold column declarations transcript),
       coordinateCheck_decides column declarations transcript⟩⟩
 
+/-- `coordinateCheck` accepts exactly the declarations and transcript whose coordinates agree
+under the column function (`CoordinateContract`'s first clause): it accepts a transcript with no
+command and no declaration, and refuses a command whose recorded names differ from its recorded
+declarations. `checked_coordinates` registers the larger requirement, which also fixes the first
+unmet obligation; this registration states the accepted set as a two-way decision. The column
+function is an argument: that it is Lean's own UTF-16 conversion is the adapter's. -/
+theorem checked_coordinateCheck : Regula.ExecutableContract coordinateCheck (fun check =>
+    Regula.Decides (· = .ok ())
+      (fun input : (Utf16Column × Array Declaration) × Transcript =>
+        CoordinatesAgree input.1.1 input.1.2 input.2)
+      (Function.uncurry (Function.uncurry check))) :=
+  let transcript (commands : Array Command) : Transcript :=
+    ⟨`Module, "", 0, "", "", "", #[], commands, #[], #[]⟩
+  ⟨.of_iff (fun input => (checked_coordinates.evidence input.1.1 input.1.2 input.2).1)
+    ⟨((fun _ _ => 0, #[]), transcript #[]),
+      (checked_coordinates.evidence _ _ _).1.mpr ⟨by simp [transcript], by simp⟩⟩
+    ⟨((fun _ _ => 0, #[]), transcript #[⟨#[`added], #[], false⟩]), fun accepted => by
+      have agree := ((checked_coordinates.evidence _ _ _).1.mp accepted).1
+        ⟨#[`added], #[], false⟩ (by simp [transcript])
+      simp at agree⟩⟩
+
 end Regula.Checker.Frontend

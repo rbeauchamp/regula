@@ -205,8 +205,9 @@ run establishes; `Account.accepted` proves that relation for the run behind any 
 def acceptanceTheorem : Lean.Name := ``RegulaPolicy.accept_iff
 
 /-- One registered `ExecutableContract` of the accepted inventory: the registration, the
-implementation it names, and the collector's rendering of the requirement Lean checked about
-that implementation. Its adequacy and caller coverage are `ContractAccount.unresolved`. -/
+implementation it names, the collector's rendering of the requirement Lean checked about
+that implementation, and the decision kind the requirement states, if any. Its adequacy and
+caller coverage are `ContractAccount.unresolved`. -/
 structure ContractAccount where
   /-- The declaration that registers the `ExecutableContract`. -/
   registration : Lean.Name
@@ -216,11 +217,30 @@ structure ContractAccount where
   implementation : Lean.Name
   /-- The collector's rendering of the requirement Lean checked about the implementation. -/
   requirement : String
+  /-- The decision kind the collector read from the requirement's head constant: which
+  directions Lean checked about the implementation. `none` for a requirement that is not a
+  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`. -/
+  kind : Option DecisionKind := none
   deriving Repr, DecidableEq
 
 /-- RG1007 checks the registration's shape and Lean checks `R f`; whether `R` is the intended
-requirement (R-INTENT) and whether callers run it (R-INVARIANT) remain review. -/
+requirement (R-INTENT) and whether callers run it (R-INVARIANT) remain review. A decision kind
+changes neither: it states which directions were proved against the written specification, not
+that the specification is the intended one or that every checker is registered. -/
 def ContractAccount.unresolved : List Residual := [.intent, .invariant]
+
+/-- The account's statement of a contract's decision kind: what the kind establishes about the
+implementation and, for a one-way kind, the direction it does not establish
+(`DecisionKind.leavesOpen`, `some` for exactly the one-way kinds:
+`DecisionKind.leavesOpen_eq_none_iff`). Empty for a contract that states no kind. -/
+def ContractAccount.decision (k : ContractAccount) : String :=
+  match k.kind with
+  | none => ""
+  | some kind =>
+    s!"; decision kind {kind.spelling}: the implementation {kind.establishes}" ++
+      (match kind.leavesOpen with
+        | some direction => s!"; not established: it {direction}"
+        | none => "")
 
 /-- Fence expectations of an accepted documentation claim, by kind. Only positive fences are
 conforming evidence; expected rejections and trusted teaching are not interchangeable with it. -/
@@ -270,18 +290,19 @@ structure AccountData where
   unresolved : List Residual
 
 /-- Every `ExecutableContract` registration among the census's declarations, with its module,
-implementation and rendered requirement, environment by environment. -/
+implementation, rendered requirement and decision kind, environment by environment. -/
 def contractsOf (i : Census) : Array ContractAccount :=
   i.environments.flatMap fun e => e.policy.declarations.filterMap fun d =>
-    d.executableContract.map fun k => ⟨d.name, d.module, k.root, k.requirement⟩
+    d.executableContract.map fun k => ⟨d.name, d.module, k.root, k.requirement, k.kind⟩
 
 /-- Required meaning of the account, for every claim and accepted run. Mode, scope,
 surfaces, toolchain and job count are the accepted report's own. Coverage is `coverageOf` the
 claim's mode (`coverage_fresh_iff`: fresh whole-project exactly for a fresh project claim). The
 contracts are exactly the inventory's
-registrations. Execution counts are `executionSummary` of each accepted environment, in
-order. The fence counts partition the accepted fences by expectation. Every residual
-obligation stays unresolved, R-GRAPH exactly when a serialized graph is claimed. -/
+registrations, each with the decision kind the collector recorded. Execution counts are
+`executionSummary` of each accepted environment, in order. The fence counts partition the
+accepted fences by expectation. Every residual obligation stays unresolved, R-GRAPH exactly
+when a serialized graph is claimed. -/
 def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : Prop :=
   ∀ (c : Claim) (run : AcceptedRun c),
     (project run).mode = c.val.mode ∧ (project run).scope = c.val.scope ∧
@@ -291,7 +312,8 @@ def AccountContract (project : {c : Claim} → AcceptedRun c → AccountData) : 
     (project run).coverage = coverageOf c.val.mode ∧
     (∀ x, x ∈ (project run).contracts ↔
       ∃ e ∈ run.report.census.environments, ∃ d ∈ e.policy.declarations,
-        ∃ k, d.executableContract = some k ∧ x = ⟨d.name, d.module, k.root, k.requirement⟩) ∧
+        ∃ k, d.executableContract = some k ∧
+          x = ⟨d.name, d.module, k.root, k.requirement, k.kind⟩) ∧
     (project run).execution = run.report.census.environments.map (executionSummary ·.execution) ∧
     ((project run).fences.positive = (run.report.census.fences.filter isPositive).size ∧
       (project run).fences.compilerRejection =
@@ -416,8 +438,9 @@ def pass (label : String) (a : Account) : String :=
   s!"{label}: {RegulaPolicy.Compiler.verdict RegulaPolicy.Compiler.candidate} — \
     {a.val.coverage.text}"
 
-/-- Human account lines: the checked relation, each contract with its open review, the
-execution counts, fence kinds, trusted mechanisms, and the unresolved review identifiers. -/
+/-- Human account lines: the checked relation, each contract with its decision kind
+(`ContractAccount.decision`) and its open review, the execution counts, fence kinds, trusted
+mechanisms, and the unresolved review identifiers. -/
 def lines (a : Account) : Array String :=
   let d := a.val
   let checked :=
@@ -426,7 +449,7 @@ def lines (a : Account) : Array String :=
   let contracts := d.contracts.map fun k =>
     s!"{RuleId.executableContract.spelling} contract {k.registration}: Lean checked the \
       requirement about implementation " ++
-      s!"{k.implementation}: {k.requirement}; unresolved review: " ++
+      s!"{k.implementation}: {k.requirement}{k.decision}; unresolved review: " ++
       s!"{residualList ContractAccount.unresolved} (adequacy of the requirement, caller coverage)"
   let execution := d.execution.mapIdx fun i s =>
     s!"execution environment {i}: {s.roots} root(s), {s.boundaries} boundary observation(s) " ++

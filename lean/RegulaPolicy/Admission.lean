@@ -400,4 +400,47 @@ theorem admitExecution_preserves (roots : Array ExecutionRoot) (i : ExecutionInv
   split at h
   next valid => cases h; exact ⟨rfl, valid⟩
   next => cases h
+
+/-- Inventory admission succeeds exactly for valid declarations and transcripts. -/
+theorem admitInventory_isOk_iff (compiler : Compiler.Capability) (decls : Array Declaration)
+    (transcripts : Array Frontend.Transcript) :
+    (admitInventory compiler decls transcripts).isOk = true ↔
+      InventoryValid decls transcripts := by
+  unfold admitInventory
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitInventory` accepts exactly the declarations and transcripts that satisfy
+`InventoryValid`, whatever the capability: it accepts the empty inventory and refuses a
+transcript of the anonymous module. Which inventory it returns is `admitInventory_exact`. -/
+theorem checked_admitInventory : Regula.ExecutableContract admitInventory (fun admit =>
+    Regula.Decides (·.isOk = true)
+      (fun input : (Compiler.Capability × Array Declaration) × Array Frontend.Transcript =>
+        InventoryValid input.1.2 input.2)
+      (Function.uncurry (Function.uncurry admit))) :=
+  ⟨.of_iff (fun input => admitInventory_isOk_iff input.1.1 input.1.2 input.2)
+    ⟨((⟨Compiler.legacyCompilerTrust, rfl⟩, #[]), #[]),
+      (admitInventory_isOk_iff _ _ _).mpr (by simp [InventoryValid, UniqueNames])⟩
+    ⟨((⟨Compiler.legacyCompilerTrust, rfl⟩, #[]),
+        #[⟨.anonymous, "", 0, "", "", "", #[], #[], #[], #[]⟩]),
+      fun accepted =>
+        (((admitInventory_isOk_iff _ _ _).mp accepted).2.2.2 _ (Array.mem_singleton.mpr rfl)).1
+          rfl⟩⟩
+
+/-- Execution admission succeeds exactly for valid roots. -/
+theorem admitExecution_isOk_iff (roots : Array ExecutionRoot) :
+    (admitExecution roots).isOk = true ↔ ExecutionValid roots := by
+  unfold admitExecution
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitExecution` accepts exactly the roots that satisfy `ExecutionValid`: it accepts no
+roots and refuses a root of the anonymous name. Which inventory it returns is
+`admitExecution_exact` and `admitExecution_preserves`. -/
+theorem checked_admitExecution : Regula.ExecutableContract admitExecution
+    (Regula.Decides (·.isOk = true) ExecutionValid) :=
+  ⟨.of_iff admitExecution_isOk_iff
+    ⟨#[], (admitExecution_isOk_iff _).mpr (by simp [ExecutionValid, UniqueNames])⟩
+    ⟨#[{ name := .anonymous, «module» := .anonymous, boundaries := #[], unresolved := #[]
+         closure := { nodes := #[], visits := #[] } }],
+      fun accepted =>
+        (((admitExecution_isOk_iff _).mp accepted).2 _ (Array.mem_singleton.mpr rfl)).1 rfl⟩⟩
 end RegulaPolicy

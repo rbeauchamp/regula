@@ -145,16 +145,24 @@ theorem validate_exact (expected : Expected) (exitCode : Nat) (stderr : String)
     | false => exact Or.inl rfl
     | true => exact Or.inr (h message hm hn)
 
-/-- Proof requirement consumed by the native driver. -/
-theorem checked_validation : Regula.ExecutableContract validate
-    (fun run => ∀ expected code stderr messages,
-      run expected code stderr messages = .ok () ↔ Matches expected code stderr messages) :=
-  ⟨validate_exact⟩
-
 /-- An empty successful observation with no requested diagnostics is admissible. -/
 theorem positive_control :
     validate { kinds := [], fileName := "Control.lean", helpPrefix := "" } 0 "" [] = .ok () := by
   rw [validate_exact]
   simp [Matches, CompilerMatches]
+
+/-- Proof requirement consumed by the native driver, as a two-way decision (`validate_exact`):
+it accepts the empty successful observation of `positive_control`, and refuses the same
+observation with a nonzero exit. -/
+theorem checked_validation : Regula.ExecutableContract validate (fun run =>
+    Regula.Decides (· = .ok ())
+      (fun input : ((Expected × Nat) × String) × List Message =>
+        Matches input.1.1.1 input.1.1.2 input.1.2 input.2)
+      (Function.uncurry (Function.uncurry (Function.uncurry run)))) :=
+  ⟨.of_iff (fun input => validate_exact input.1.1.1 input.1.1.2 input.1.2 input.2)
+    ⟨((({ kinds := [], fileName := "Control.lean", helpPrefix := "" }, 0), ""), []),
+      positive_control⟩
+    ⟨((({ kinds := [], fileName := "Control.lean", helpPrefix := "" }, 1), ""), []),
+      fun accepted => absurd (congrArg Except.isOk accepted) (by decide +kernel)⟩⟩
 
 end RegulaQualification.Native

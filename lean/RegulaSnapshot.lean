@@ -425,8 +425,11 @@ private def digest (root path : FilePath) : IO String := do
   return value
 
 private def packArchive (prepared source : FilePath) (target : ArchiveTarget) : IO Archive := do
+  let args := (match target with
+    | .compiler => #["-h"]
+    | .packages => #[]) ++ #["-czf", "-", "."]
   let child ← IO.Process.spawn {
-    cmd := "tar", args := #["-czf", "-", "."], cwd := some source,
+    cmd := "tar", args, cwd := some source,
     env := #[("GHCR_TOKEN", none)], stdin := .null, stdout := .piped, stderr := .inherit}
   let chunks ← try
     let mut chunks := #[]

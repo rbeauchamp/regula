@@ -1,5 +1,7 @@
 module
 
+public import Regula.Contract
+
 /-! # Intent section presence
 
 Presence of a labelled Intent section in a registered material declaration's
@@ -314,5 +316,22 @@ theorem materialDocumentationFailure_eq_missingIntent_iff (docstring : Option St
 
 instance (docstring : Option String) : Decidable (MaterialDocumentationOK docstring) :=
   decidable_of_iff _ (materialDocumentationFailure_eq_none_iff docstring)
+
+/-- `hasIntentSection` accepts exactly the docstrings whose lines have a nonempty Intent section
+(`hasIntentSection_iff`): it accepts one with such a section and refuses the empty docstring.
+`IntentSection` is stated over the line structure, without the executed scan. -/
+theorem checked_hasIntentSection : Regula.ExecutableContract hasIntentSection
+    (Regula.Decides (· = true) fun doc => IntentSection (docLines doc)) :=
+  ⟨.of_iff hasIntentSection_iff
+    ⟨"Claim.\n\n## Intent\nWhy the claim is required.", by decide⟩ ⟨"", by decide⟩⟩
+
+/-- `materialDocumentationFailure` reports no failure exactly when the documentation obligation
+holds (`materialDocumentationFailure_eq_none_iff`): none for a docstring with an Intent section,
+and a failure for a missing docstring. -/
+theorem checked_materialDocumentationFailure :
+    Regula.ExecutableContract materialDocumentationFailure
+      (Regula.Decides (· = none) MaterialDocumentationOK) :=
+  ⟨.of_iff materialDocumentationFailure_eq_none_iff
+    ⟨some "Claim.\n\n## Intent\nWhy the claim is required.", by decide⟩ ⟨none, by decide⟩⟩
 
 end RegulaPolicy

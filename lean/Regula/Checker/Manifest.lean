@@ -1482,6 +1482,20 @@ theorem parseValue_ok {value : Json} {m : Manifest} :
     parseValue value = .ok m ↔ m.Valid ∧ Encodes value m :=
   ⟨fun h => ⟨parseValue_sound h, parseValue_input h⟩, fun ⟨hv, he⟩ => parseValue_complete hv he⟩
 
+/-- `parseValue` is a complete decision of "the value encodes a valid manifest"
+(`parseValue_complete`): it accepts every such value, and it refuses `null`. Soundness also holds
+(`parseValue_ok` characterizes each accepted value and its manifest), but the kind is one-way
+because a sound kind requires a value the function accepts, and accepting evaluates JSON object
+lookups and string trimming that the kernel does not reduce; accepted manifests are observed by
+this repository's own manifest and the structural self-test. `parse` adds the JSON text parser,
+about which nothing is proved, so it has `parse_sound` and no kind. -/
+theorem checked_parseValue : Regula.ExecutableContract parseValue
+    (Regula.DecidesCompletely (·.isOk = true) fun value => ∃ m, m.Valid ∧ Encodes value m) :=
+  ⟨{ complete := fun _ ⟨_, valid, encodes⟩ => by
+       rw [parseValue_complete valid encodes]
+       rfl
+     refused := ⟨.null, by decide⟩ }⟩
+
 /-! Refusal classes. Each isolated defect, after an otherwise accepted prefix, yields exactly
 its documented `manifest-malformed`, `manifest-schema` or `manifest-incomplete` message. -/
 

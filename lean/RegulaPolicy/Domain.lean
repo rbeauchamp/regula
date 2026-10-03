@@ -3,6 +3,7 @@ module
 public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
 public import RegulaPolicy.Compiler
+public import Regula.Contract
 
 /-! # Policy vocabulary and observation data
 
@@ -591,9 +592,98 @@ after its range. -/
 def Ranges.admitted (r : Ranges) : Ranges :=
   if r.nested then r else { range := r.range, selectionRange := r.range }
 
+/-- Which directions of a decision a registered contract's requirement states, one value for
+each of the structures `Regula.DecidesSoundly`, `Regula.DecidesCompletely` and `Regula.Decides`
+(`DecisionKind.structureName`); parsing cannot manufacture an unknown constructor. -/
+inductive DecisionKind where
+  /-- `Regula.DecidesSoundly`: the function accepts only inputs that satisfy the
+  specification. -/
+  | «sound»
+  /-- `Regula.DecidesCompletely`: the function accepts every input that satisfies the
+  specification. -/
+  | «complete»
+  /-- `Regula.Decides`: both directions. -/
+  | «soundAndComplete»
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The kind's text in reports (`sound`, `complete` or `sound-and-complete`); `parse?` reads it
+back (`DecisionKind.roundtrip`). -/
+def DecisionKind.spelling : DecisionKind → String
+  | .«sound» => "sound"
+  | .«complete» => "complete"
+  | .«soundAndComplete» => "sound-and-complete"
+
+/-- The kind a text names; `none` for any text that is not a `spelling`
+(`DecisionKind.canonical`). -/
+def DecisionKind.parse? : String → Option DecisionKind
+  | "sound" => some .«sound»
+  | "complete" => some .«complete»
+  | "sound-and-complete" => some .«soundAndComplete»
+  | _ => none
+
+instance : ToString DecisionKind := ⟨DecisionKind.spelling⟩
+
+/-- Every value survives its actual spelling parser. -/
+@[simp] theorem DecisionKind.roundtrip (x : DecisionKind) : parse? x.spelling = some x := by
+  cases x <;> rfl
+
+/-- The parser accepts only the canonical spelling of its result. -/
+theorem DecisionKind.canonical (s : String) (x : DecisionKind) (h : parse? s = some x) :
+    x.spelling = s := by
+  unfold parse? at h
+  split at h <;> cases h <;> rfl
+
+/-- The structure of `Regula.Contract` whose proof a registration of each kind requires. -/
+def DecisionKind.structureName : DecisionKind → Lean.Name
+  | .«sound» => ``Regula.DecidesSoundly
+  | .«complete» => ``Regula.DecidesCompletely
+  | .«soundAndComplete» => ``Regula.Decides
+
+/-- The kind whose structure `name` is; `none` for every other name
+(`DecisionKind.ofStructureName?_eq_some_iff`). The collector applies it to the head constant of
+a registration's reduced requirement. -/
+def DecisionKind.ofStructureName? : Lean.Name → Option DecisionKind
+  | .str (.str .anonymous "Regula") "DecidesSoundly" => some .«sound»
+  | .str (.str .anonymous "Regula") "DecidesCompletely" => some .«complete»
+  | .str (.str .anonymous "Regula") "Decides" => some .«soundAndComplete»
+  | _ => none
+
+/-- A name is read as a kind exactly when it is that kind's structure. -/
+theorem DecisionKind.ofStructureName?_eq_some_iff (name : Lean.Name) (kind : DecisionKind) :
+    ofStructureName? name = some kind ↔ name = kind.structureName := by
+  constructor
+  · intro h
+    unfold ofStructureName? at h
+    split at h <;> cases h <;> rfl
+  · rintro rfl
+    cases kind <;> rfl
+
+/-- What a registration of the kind establishes about the implementation, as the account
+states it. -/
+def DecisionKind.establishes : DecisionKind → String
+  | .«sound» =>
+      "accepts only inputs that satisfy the specification, and accepts at least one input"
+  | .«complete» =>
+      "accepts every input that satisfies the specification, and refuses at least one input"
+  | .«soundAndComplete» =>
+      "accepts exactly the inputs that satisfy the specification, and both outcomes occur"
+
+/-- The direction a one-way kind does not establish, as the account states it; `none` exactly
+for the two-way kind (`DecisionKind.leavesOpen_eq_none_iff`). -/
+def DecisionKind.leavesOpen : DecisionKind → Option String
+  | .«sound» => some "may refuse inputs that satisfy the specification"
+  | .«complete» => some "may accept inputs that do not satisfy the specification"
+  | .«soundAndComplete» => none
+
+/-- Only the two-way kind leaves no direction open: each one-way kind states the direction it
+does not establish. -/
+theorem DecisionKind.leavesOpen_eq_none_iff (kind : DecisionKind) :
+    kind.leavesOpen = none ↔ kind = .«soundAndComplete» := by
+  cases kind <;> simp [leavesOpen]
+
 /-- The collector's observation of a registered proof-bearing executable contract.
 The actual contract is checked during elaboration and admission; this record contains
-its rendered requirement and any refusal, not a proof of the predicate. -/
+its rendered requirement, its decision kind and any refusal, not a proof of the predicate. -/
 structure ExecutableContract where
   /-- The promised implementation constant; anonymous when the implementation is not a
   constant. -/
@@ -601,8 +691,13 @@ structure ExecutableContract where
   /-- The requirement applied to the implementation, pretty-printed. -/
   requirement : String
   /-- Why the registration is refused, such as a noncomputable, `unsafe` or `partial`
-  implementation; `none` when the collector found no problem. -/
+  implementation, or a decision whose specification mentions its implementation; `none` when
+  the collector found no problem. -/
   failure : Option String
+  /-- The decision kind, when the requirement reduces to an application of
+  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`; `none` for every
+  other requirement. -/
+  kind : Option DecisionKind := none
   deriving Repr, DecidableEq
 
 /-- Complete Lean-semantic report for one owned constant. -/
@@ -1136,5 +1231,84 @@ structure Transcript where
   deriving Repr, DecidableEq
 
 end Frontend
+
+/-! ## Spelling parsers as decisions
+
+Each closed vocabulary's parser accepts exactly the spellings of its values: its `roundtrip` and
+`canonical` theorems, registered as a two-way decision (`Regula.Decides.of_roundtrip`) with one
+value's spelling as the accepted input and the empty text as the refused one. Which value a
+spelling is read as is the `roundtrip` theorem; the kind states only the accepted set. -/
+
+/-- `DeclarationKind.parse?` accepts exactly the spellings. -/
+theorem DeclarationKind.checked_parse : Regula.ExecutableContract DeclarationKind.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : DeclarationKind, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«axiom» (unwritten := "") rfl⟩
+
+/-- `BoundaryKind.parse?` accepts exactly the spellings. -/
+theorem BoundaryKind.checked_parse : Regula.ExecutableContract BoundaryKind.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : BoundaryKind, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«runtimeReplacement» (unwritten := "") rfl⟩
+
+/-- `Correspondence.parse?` accepts exactly the spellings. -/
+theorem Correspondence.checked_parse : Regula.ExecutableContract Correspondence.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : Correspondence, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«checked» (unwritten := "") rfl⟩
+
+/-- `FoundationClass.parse?` accepts exactly the spellings. -/
+theorem FoundationClass.checked_parse : Regula.ExecutableContract FoundationClass.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : FoundationClass, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«kernelOnly» (unwritten := "") rfl⟩
+
+/-- `ConformingProfile.parse?` accepts exactly the spellings. -/
+theorem ConformingProfile.checked_parse : Regula.ExecutableContract ConformingProfile.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : ConformingProfile, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«kernelOnly» (unwritten := "") rfl⟩
+
+/-- `ExecutionClaim.parse?` accepts exactly the spellings. -/
+theorem ExecutionClaim.checked_parse : Regula.ExecutableContract ExecutionClaim.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : ExecutionClaim, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«report» (unwritten := "") rfl⟩
+
+/-- `EvidenceMode.parse?` accepts exactly the spellings. -/
+theorem EvidenceMode.checked_parse : Regula.ExecutableContract EvidenceMode.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : EvidenceMode, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«editorSnapshot» (unwritten := "") rfl⟩
+
+/-- `Safety.parse?` accepts exactly the spellings. -/
+theorem Safety.checked_parse : Regula.ExecutableContract Safety.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : Safety, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«unsafe» (unwritten := "") rfl⟩
+
+/-- `Reducibility.parse?` accepts exactly the spellings. -/
+theorem Reducibility.checked_parse : Regula.ExecutableContract Reducibility.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : Reducibility, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«opaque» (unwritten := "") rfl⟩
+
+/-- `RecursionOrigin.parse?` accepts exactly the spellings. -/
+theorem RecursionOrigin.checked_parse : Regula.ExecutableContract RecursionOrigin.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : RecursionOrigin, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«structural» (unwritten := "") rfl⟩
+
+/-- `DecisionKind.parse?` accepts exactly the spellings. -/
+theorem DecisionKind.checked_parse : Regula.ExecutableContract DecisionKind.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : DecisionKind, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«sound» (unwritten := "") rfl⟩
+
+/-- `EvaluatorRole.parse?` accepts exactly the spellings. -/
+theorem EvaluatorRole.checked_parse : Regula.ExecutableContract EvaluatorRole.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : EvaluatorRole, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .command (unwritten := "") rfl⟩
+
+/-- `DecisionKind.ofStructureName?` accepts exactly the three structures' names
+(`DecisionKind.ofStructureName?_eq_some_iff`): the collector reads a registration's kind with
+it, so this is the registered decision behind "a head constant is read as a kind exactly when it
+is that kind's structure". -/
+theorem DecisionKind.checked_ofStructureName :
+    Regula.ExecutableContract DecisionKind.ofStructureName?
+      (Regula.Decides (·.isSome = true) fun name =>
+        ∃ kind : DecisionKind, name = kind.structureName) :=
+  ⟨.of_roundtrip (fun kind => (ofStructureName?_eq_some_iff _ kind).mpr rfl)
+    (fun name kind read => ((ofStructureName?_eq_some_iff name kind).mp read).symm)
+    .«sound» (unwritten := .anonymous) rfl⟩
 
 end RegulaPolicy
