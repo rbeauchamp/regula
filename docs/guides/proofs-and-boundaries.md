@@ -946,9 +946,10 @@ an inductive predicate; and a parameter passed through a `match` whose discrimin
 `reducible` afterwards, also beside one passed through a function made `reducible` afterwards). The
 search this one replaces enumerated the definitions of the helper's
 module that the helper reaches and gave each the statuses a global attribute could have replaced.
-Under it the forms of the second fixture that its comment does not mark as new were observed
-rejections on Lean 4.34.0, and the definition that reaches seven definitions an audit that stopped
-without a verdict; the forms it marks as new were not run under that search. Its assignments are
+Under it the forms that the second fixture's comment names as such were observed rejections on
+Lean 4.34.0, and the definition that reaches seven definitions an audit that stopped without a
+verdict; the forms it marks as new were not run under that search, and of those found in review
+the comment states what was observed. Its assignments are
 still tried, after those of the search described here (the fallback below). Lean's fixed-parameter
 analysis (`getFixedParamPerms`) compares each argument of a recursive call with the parameter by
 `withReducible <| isDefEq`, which checks an instance-implicit argument at implicit transparency, and

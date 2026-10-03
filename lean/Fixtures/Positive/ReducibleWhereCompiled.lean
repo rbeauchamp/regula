@@ -14,9 +14,12 @@ functions, records which definitions they ask about, of any module, and
 finds for each the statuses under which a decision comes out differently.
 From the observed base it reads which parameters Lean kept fixed and how many
 mentions of a function it kept, which select one assignment directly, tried
-before any other. Before that search each form below was an observed
-rejection, or an audit that stopped without a verdict, on Lean 4.34.0, except
-those marked as new, which were not run before it.
+before any other. Before that search `fixtures_where_local`,
+`fixtures_where_unreduced`, `fixtures_where_sealed`, `fixtures_where_instance`,
+`fixtures_where_elsewhere` and `fixtures_where_upgraded` were observed
+rejections on Lean 4.34.0, and `fixtures_bound_searched` an audit that stopped
+without a verdict. The forms marked as new were not run before it. Of the
+remaining ones, found in review, only what their item states was observed.
 
 `set_option allowUnsafeReducibility true` is needed by the forms with
 `attribute [local reducible]` or `attribute [local irreducible]`, and by
