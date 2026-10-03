@@ -11,8 +11,10 @@ three times:
 
 - `fixtures_forged_measured_faithful` renames only, and also copies the
   unfolding theorems Lean proved with the definition (`eq_def` of the
-  definition and of its unary definition), as a metaprogram that copies a
-  definition faithfully has to (issue #210);
+  definition and of its unary definition), so that the copy has a theorem of
+  that name (issue #210). The command declares the copies, not Lean's
+  compiler, and it could as well prove them itself: the kernel checks a
+  theorem of that name against the checker's statement, whoever declared it;
 - `fixtures_forged_measured_divergent` copies the same and also makes the
   helper call `fixtures_forged_measured_skip` where the kernel-checked base
   calls `fixtures_forged_measured_step`, so the code Lean runs for it is not
@@ -25,10 +27,10 @@ and the functional regenerated from the divergent helper, which calls
 `fixtures_forged_measured_skip`, still has to equal the observed one, which
 calls `fixtures_forged_measured_step`. The bare copy is a helper that computes
 its base, rejected all the same: the kernel has to check the base's recursion
-equation, the checker looks for a proof in Lean's own unfolding theorem, and
-for a well-founded definition that is the theorem Lean adds with the
-definition, which this copy lacks. That rejection is a limit of the checker's
-proof search (standard §7.4), not a claim that the helper is wrong.
+equation, and for a well-founded definition the checker looks for a proof in
+a theorem named `eq_def`, which Lean adds with the definition and this copy
+lacks. That rejection is a limit of the checker's proof search (standard
+§7.4), not a claim that the helper is wrong.
 -/
 open Lean Elab Command
 

@@ -15,8 +15,8 @@ back as `reducible` reproduces the base. A custom command copies each
 definition, the `_unary` definition Lean compiled it into where there is one,
 the unfolding theorems Lean proved with them (`eq_def`, issue #210: the kernel
 has to check the base's recursion equation, and for a well-founded definition
-the checker finds its proof in that theorem) and its range-less `_unsafe_rec`
-helper twice:
+the checker looks for its proof in a theorem of that name, whoever declared
+it) and its range-less `_unsafe_rec` helper twice:
 
 - `fixtures_forged_after_faithful` and `fixtures_forged_before_faithful`
   rename only, and

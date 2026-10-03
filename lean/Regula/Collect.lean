@@ -885,18 +885,21 @@ replaced by its base: the theorem, with `value` the function `fun xs => body`,
 by a proof that uses no axiom outside `checkedAxioms`. The checker builds the statement from the
 constant `base` and from `value` alone and gives that statement itself to the kernel as the type
 of a theorem (`kernelChecked`), after `isRecursionEquation` has confirmed its form by `Expr`
-equality. No theorem is taken on its name and no statement is compared with another: whatever
+equality. No theorem is trusted for its name and no statement is compared with another: whatever
 proof is found, the kernel checks it against this statement, in the environment the audit
-inspects. What the search reads only proposes proofs, tried in this order, each closed over the
-inspected environment before it is submitted (`closedOver`), so that the kernel checks every step
-that is not a constant of that environment:
+inspects. A name only selects a candidate, and who declared a candidate is not consulted. The
+candidates are tried in this order, each closed over the inspected environment before it is
+submitted (`closedOver`), so that the kernel checks every step that is not a constant of that
+environment:
 
 - `Eq.refl (base xs)`, where `body` is a proof (`Meta.isProof`): Lean states no unfolding theorem
   for a definition whose type is a proposition, and the kernel accepts this one by proof
   irrelevance;
-- the constants of `unfoldingTheoremNames` the environment holds: Lean's `base.eq_def`, which its
-  well-founded compiler adds with the definition;
-- the theorem Lean realizes for `base` (`unfoldingProof?`); and
+- each constant of `unfoldingTheoremNames` the environment holds, whoever declared it: the name is
+  that of Lean's `base.eq_def`, which its well-founded compiler adds with the definition and which
+  a module can also declare itself;
+- what `Meta.getUnfoldEqnFor?` returns for `base` (`unfoldingProof?`): a constant of that name
+  where the environment holds one, and otherwise the theorem Lean realizes; and
 - the theorem Lean realizes for the definition `regenerated?` names in the environment given with
   it, the one a regeneration that reproduced `base` left: the regenerated definition, under the
   reducibility in which Lean's compiler reproduces `base`.

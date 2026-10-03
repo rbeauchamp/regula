@@ -1029,17 +1029,20 @@ order), and gives it to the kernel of the inspected environment as the type of a
 (`Collect.kernelChecked`: `Environment.addDeclCore`, then every axiom within Standard-Logical).
 The type of the equality is read from `body` by Lean's elaborator and is not compared: the kernel
 checks that the statement is well typed before it checks a proof, which leaves the equality only
-the type of `f xs`, up to definitional equality. No theorem is taken on its name, and no statement
-is compared with one found in the environment. What the search reads only proposes proofs, tried
-in this order:
+the type of `f xs`, up to definitional equality. No theorem is trusted for its name, and no
+statement is compared with one found in the environment: a name only selects a candidate, and the
+kernel checks the candidate as a proof of the statement the checker built. Who declared a
+candidate is not consulted. The candidates are these, tried in this order:
 
 - `Eq.refl (f xs)` where `body` is a proof: Lean states no unfolding theorem for a definition
   whose type is a proposition, under structural or well-founded recursion, and the kernel accepts
   reflexivity by proof irrelevance;
-- the constant `f.eq_def`, under that name or the private one a `module` file uses, which Lean's
-  well-founded compiler adds with the definition;
-- the theorem `Meta.getUnfoldEqnFor?` realizes for `f`, as it does on demand for a structural
-  definition; and
+- any constant of the inspected environment named `f.eq_def`, or by that name made private to the
+  module of `f` as a `module` file has it (`Collect.unfoldingTheoremNames`). Lean's well-founded
+  compiler adds a theorem of that name with the definition, and a module can declare one itself;
+- what `Meta.getUnfoldEqnFor?` returns for `f`: a constant of the name Lean computes for the
+  unfolding theorem where the environment holds one, and otherwise the theorem Lean realizes on
+  demand for a structural definition; and
 - the theorem it realizes for the regenerated definition, in the environment the regeneration
   left, under the reducibility in which Lean's compiler reproduced the base. A definition whose
   own type is a definition made irreducible afterwards (`fixtures_alias_binary` of
@@ -1078,12 +1081,21 @@ What this establishes, and what it does not:
 - Not established: that the helper returns whenever the base does (standard §7.4), or anything
   about a helper for which the search finds no proof.
 
-The search tries only Lean's own proofs, so a helper is rejected where none of them is accepted,
-even where the equation holds. `fixtures_forged_measured_bare` of
-`Fixtures.Mutations.MeasuredMatchUnsafeRecForge` pins that outcome: a faithful copy of a
-well-founded definition and its helper, added by a metaprogram without the `eq_def` theorems Lean
-proves with the definition, is rejected, and the same copy with those theorems is admitted
-(observed). A faithful copy of a structural definition needs no theorem of its own, since Lean
+The search restricts where a proof is looked for, not who wrote it. It tries only reflexivity, the
+constants of those names and what Lean realizes, so a helper is rejected where none of these is
+accepted, even where the equation holds and could be proved another way. It does not restrict a
+candidate's origin: `recursionEquationChecked` submits whatever constant has the name, and the
+kernel checks that constant's proof against the statement the checker built, with every axiom
+within Standard-Logical. A metaprogram that adds a well-founded definition and its helper can
+therefore supply `f.eq_def` by copying the theorem Lean proved or by proving the equation itself,
+and either is accepted exactly when the kernel accepts it for that statement; the statement
+checked, not the author of the proof, carries the guarantee. This is read from the code, and the
+copied theorems of the faithful-copy fixtures, which the fixture's metaprogram declares and not
+Lean's compiler, are accepted (observed); a proof written independently was not run.
+`fixtures_forged_measured_bare` of `Fixtures.Mutations.MeasuredMatchUnsafeRecForge` pins the
+rejection: a faithful copy of a well-founded definition and its helper, added by a metaprogram
+with no theorem named `eq_def`, is rejected, and the same copy with theorems of that name is
+admitted (observed). A faithful copy of a structural definition needs no theorem of its own, since Lean
 realizes one for the regenerated definition (`fixtures_forged_alias_faithful` of
 `Fixtures.Mutations.ReducibilityChangeUnsafeRecForge`, observed).
 `Fixtures.Positive.ProofValuedRecursion` pins a structural and a well-founded definition whose

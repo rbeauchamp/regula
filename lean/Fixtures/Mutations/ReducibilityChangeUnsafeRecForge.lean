@@ -16,9 +16,9 @@ definition, the auxiliary definitions Lean compiled it into (`_unary` for well-f
 recursion, `_f` and `_sunfold` for structural), the unfolding theorems Lean
 proved with the well-founded definition (`eq_def`, issue #210: the kernel has
 to check the base's recursion equation, and for a well-founded definition the
-checker finds its proof in that theorem; for a structural one Lean realizes
-the theorem for the regenerated definition) and its range-less `_unsafe_rec`
-helper twice:
+checker looks for its proof in a theorem of that name, whoever declared it;
+for a structural one Lean realizes the theorem for the regenerated definition)
+and its range-less `_unsafe_rec` helper twice:
 
 - `fixtures_forged_threaded_faithful` and `fixtures_forged_alias_faithful`
   rename only, and

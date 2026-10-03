@@ -362,11 +362,13 @@ def guide : RuleId → Guide
           `fun xs => body` and every helper of the group replaced by its base `f`, the theorem \
           `∀ xs, f xs = body`, in the inspected environment, by a proof that uses no axiom \
           outside Standard-Logical. The checker builds that statement from the helper's value \
-          and gives it to the kernel itself; Lean's unfolding theorem (`f.eq_def`), the one it \
-          realizes for the regenerated definition, or reflexivity where the result is a proof, \
-          only supplies a proof to try, with every constant the search adds put back as its \
-          value. The regeneration selects what is compared and no longer carries the claim \
-          about values: a base that the regeneration reproduces through matcher metadata or \
+          and gives it to the kernel itself. A proof to try is taken from a constant named \
+          `f.eq_def`, whoever declared it, from the theorem Lean realizes for `f` or for the \
+          regenerated definition, or from reflexivity where the result is a proof, with every \
+          constant the search adds put back as its value; the kernel checks it against the \
+          checker's statement, and nothing else about it is consulted. The regeneration selects \
+          what is compared and no longer carries the claim about values: a base that the \
+          regeneration reproduces through matcher metadata or \
           through `below` and `brecOn` declarations the audited module wrote is rejected where \
           it does not satisfy the equation. Which code added the helper does not matter, and \
           neither do declaration order, a nested proof shared with \
@@ -474,14 +476,15 @@ def guide : RuleId → Guide
           Lean generated. The bound of 63 is a limit of this release, which issue #196 keeps \
           open.",
         "A helper is not admitted where the checker finds no proof of its recursion equation \
-          that the kernel accepts. The proofs it tries are Lean's own: `f.eq_def`, which Lean \
-          adds with a well-founded definition and realizes on demand for a structural one, the \
-          same theorem realized for the regenerated definition, and reflexivity for a \
-          definition whose type is a proposition. A definition and helper that a metaprogram \
-          adds without the unfolding theorem of a well-founded definition are therefore \
+          that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
+          Lean adds with a well-founded definition, in the theorem Lean realizes for a \
+          structural definition or for the regenerated one, and in reflexivity for a definition \
+          whose type is a proposition. Who declared a candidate is not checked, only that the \
+          kernel accepts it as a proof of the checker's statement. A well-founded definition \
+          and helper that a metaprogram adds with no theorem of that name are therefore \
           rejected although the helper computes the base \
           (`fixtures_forged_measured_bare` of `Fixtures.Mutations.MeasuredMatchUnsafeRecForge`); \
-          such a metaprogram adds the theorem too.",
+          such a metaprogram adds `f.eq_def` too, copied from Lean's theorem or proved itself.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
