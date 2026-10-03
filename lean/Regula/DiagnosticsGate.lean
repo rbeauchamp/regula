@@ -187,17 +187,23 @@ theorem Input.covers_head {i : Input} {p : List String} (hi : i.path ≠ [])
     | nil => simp [path] at hi
     | cons a dir => simp [path]
 
+/-- Every configured input has a nonempty path outside the documentation-only roots. -/
+private theorem input_heads {i : Input} (hi : i ∈ inputs) :
+    i.path ≠ [] ∧ i.path.head? ≠ some "docs" ∧ i.path.head? ≠ some "website" ∧
+      i.path.head? ≠ some "README.md" ∧ i.path.head? ≠ some "AGENTS.md" := by
+  have all : ∀ i ∈ inputs,
+      i.path ≠ [] ∧ i.path.head? ≠ some "docs" ∧ i.path.head? ≠ some "website" ∧
+        i.path.head? ≠ some "README.md" ∧ i.path.head? ≠ some "AGENTS.md" := by
+    simp [inputs, Input.path]
+  exact all i hi
+
 /-- On a pull request, the campaigns apply only when a changed path starts with the first component
 of an input. -/
 theorem campaign_head {changed : List (List String)}
     (h : campaignApplies .pullRequest changed = true) :
     ∃ p ∈ changed, ∃ i ∈ inputs, p.head? = i.path.head? := by
   obtain ⟨p, hp, i, hi, hc⟩ := (campaign_pullRequest_iff changed).mp h
-  have hne : i.path ≠ [] := by
-    simp only [inputs, List.mem_cons, List.not_mem_nil] at hi
-    rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      h <;> simp_all [Input.path]
+  have hne := (input_heads hi).1
   exact ⟨p, hp, i, hi, Input.covers_head hne hc⟩
 
 /-- A pull request whose every changed path lies in `docs/` (the guides) or `website/` (the
@@ -210,11 +216,12 @@ theorem campaign_documentation (changed : List (List String))
   | false => rfl
   | true =>
     obtain ⟨p, hp, i, hi, hh⟩ := campaign_head hc
-    simp only [inputs, List.mem_cons, List.not_mem_nil] at hi
-    rcases h p hp with h | h | rfl | rfl <;>
-      rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-        rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-        hi <;> simp_all [Input.path]
+    have heads := (input_heads hi).2
+    rcases h p hp with hd | hw | rfl | rfl
+    · exact False.elim <| heads.1 (hh.symm.trans hd)
+    · exact False.elim <| heads.2.1 (hh.symm.trans hw)
+    · exact False.elim <| heads.2.2.1 hh.symm
+    · exact False.elim <| heads.2.2.2 hh.symm
 
 /-! ## The gate -/
 
