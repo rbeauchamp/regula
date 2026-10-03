@@ -84,6 +84,15 @@ All but `fixtures_where_instance` and `fixtures_where_implicit` need
   another, both `reducible` only for that definition (new): the rule matches
   only where both unfold, so no change of one status alone changes the
   preprocessed body, and the mentions the observed base keeps select both.
+  `FixturesWhereTree.size` is that form with a third function,
+  `fixtures_where_take`, and no second argument (found in review; an observed
+  rejection before the search changed): the rule
+  matches only where all three unfold, so no change of one status and no pair
+  changes the preprocessed body, and only the mentions the observed base keeps
+  select the three. Lean packs nothing for one function with one varying
+  argument, so the preprocessed body keeps its calls to the function itself,
+  which the observed base never mentions; the search once counted those calls
+  too, and so never found the body to keep the observed numbers.
   `FixturesWhereTree.hidden` maps through `fixtures_where_hidden_outer`,
   `@[reducible]` from its declaration, which unfolds to
   `fixtures_where_hidden_inner`, `reducible` only for that definition (found in
@@ -95,8 +104,26 @@ All but `fixtures_where_instance` and `fixtures_where_implicit` need
   reduces and Lean finds the parameter fixed (new). `fixtures_where_matched`
   passes it through a function that unfolds to that `match`, both `reducible`
   only for that definition (new). Lean reduces such a discriminant with its
-  unfolding predicate put aside, where the search records nothing; it reaches
-  the discriminant again once the matcher itself unfolds, which is recorded.
+  unfolding predicate put aside, where the search records nothing. In these
+  two the flag is semireducible at the end of the audit, so the `match` is
+  stuck there, and the comparison, run with every definition unfolding, goes
+  on to unfold the matcher and asks about the discriminant again, which is
+  recorded.
+* `fixtures_where_later` passes a parameter through a `match` on
+  `fixtures_where_later_flag`, made `reducible` afterwards, so the `match` is
+  stuck where the definition is compiled and the parameter varies (found in
+  review; an observed rejection under the recorded questions alone). At the
+  end of the audit the `match` reduces with the unfolding
+  predicate put aside, so the matcher is never unfolded and nothing is
+  recorded for the flag. The checker then tries the assignments of the search
+  this one replaces, which gives the definitions of the helper's module that
+  the helper reaches the statuses a global attribute can have replaced: the
+  flag as semireducible reproduces the base. `fixtures_where_both` passes one
+  parameter through such a `match` and another through
+  `fixtures_where_both_keep`, both made `reducible` afterwards (an observed
+  rejection under the recorded questions alone): they find the function and
+  not the flag, and only the assignment that gives both back as semireducible
+  reproduces the base.
 * `fixtures_where_accessible` recurses structurally over `Acc`, an inductive
   predicate, and passes a parameter through a function made `reducible`
   afterwards (new). The checker reads no fixed parameters from a base of that
@@ -331,6 +358,15 @@ def FixturesWhereTree.total : FixturesWhereTree → Nat → Nat
       1 + (fixtures_where_map (fun child => child.total fuel) (fixtures_where_pick children)).sum
 termination_by _ fuel => fuel
 
+def fixtures_where_take {α : Type} (xs : List α) : List α := xs
+
+set_option allowUnsafeReducibility true in
+attribute [local reducible] fixtures_where_map fixtures_where_pick fixtures_where_take in
+def FixturesWhereTree.size : FixturesWhereTree → Nat
+  | .node children =>
+    1 + (fixtures_where_map (fun child => child.size)
+      (fixtures_where_pick (fixtures_where_take children))).sum
+
 def fixtures_where_hidden_inner {α β : Type} (f : α → β) (xs : List α) : List β := List.map f xs
 
 @[reducible] def fixtures_where_hidden_outer {α β : Type} (f : α → β) (xs : List α) : List β :=
@@ -368,6 +404,27 @@ def fixtures_where_matched (a n : Nat) : Nat :=
   | 0 => a
   | k + 1 => fixtures_where_matched (fixtures_where_matched_keep a) k
 termination_by n
+
+def fixtures_where_later_flag : Bool := true
+
+def fixtures_where_later (a : Nat) : List Nat → Nat
+  | [] => a
+  | _ :: xs =>
+    fixtures_where_later (match fixtures_where_later_flag with | true => a | false => a) xs
+
+attribute [reducible] fixtures_where_later_flag
+
+def fixtures_where_both_keep (a : Nat) : Nat := a
+
+def fixtures_where_both_flag : Bool := true
+
+def fixtures_where_both (a b : Nat) : List Nat → Nat
+  | [] => a + b
+  | _ :: xs =>
+    fixtures_where_both (fixtures_where_both_keep a)
+      (match fixtures_where_both_flag with | true => b | false => b) xs
+
+attribute [reducible] fixtures_where_both_keep fixtures_where_both_flag
 
 def fixtures_where_accessible_keep (a : Nat) : Nat := a
 

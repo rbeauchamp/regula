@@ -314,9 +314,12 @@
    "[OK] FixturesWhereTree.shared._unsafe_rec",
    "[OK] FixturesWhereTree.chained._unsafe_rec",
    "[OK] FixturesWhereTree.total._unsafe_rec",
+   "[OK] FixturesWhereTree.size._unsafe_rec",
    "[OK] FixturesWhereTree.hidden._unsafe_rec",
    "[OK] fixtures_where_discriminant._unsafe_rec",
    "[OK] fixtures_where_matched._unsafe_rec",
+   "[OK] fixtures_where_later._unsafe_rec",
+   "[OK] fixtures_where_both._unsafe_rec",
    "[OK] fixtures_where_accessible._unsafe_rec"
   ]
  },

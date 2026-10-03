@@ -31,9 +31,14 @@ made `reducible` afterwards, and its leaf calls five more functions that are
 stopped without a verdict, when it enumerated every definition of the module
 the helper reaches (seven of them, 127 assignments, more than the 63 it
 tries). Only the two functions in the recursive call change a decision of
-Lean's compilers, so the search is exhaustive over three assignments and each
-of the three helpers is decided: the honest one and its faithful copy are
-admitted, and the divergent copy is rejected, where it was undecided before.
+Lean's compilers, so the search is exhaustive over three assignments. For the
+divergent copy, which none of them reproduces, the checker then tries the
+seven single changes of that enumeration, which are not all of its 127
+assignments, and decides all the same: Lean's compilers were recorded asking
+about each of the seven definitions, so the search has already enumerated the
+statuses of theirs that change a decision. Each of the three helpers is
+decided: the honest one and its faithful copy are admitted, and the divergent
+copy is rejected, where it was undecided before.
 
 Exact match admits the honest helpers and the faithful copies, and rejects the
 divergent ones alone. An assignment only selects which regeneration runs: the

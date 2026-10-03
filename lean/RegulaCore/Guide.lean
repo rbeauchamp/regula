@@ -390,7 +390,10 @@ def guide : RuleId → Guide
           transparency (which parameters are fixed, and which toolchain `wf_preprocess` rule \
           rewrites the body), records which definitions they ask about, and regenerates under \
           the statuses that change them, first under the assignment the observed base selects \
-          by the parameters it keeps fixed and the mentions of a function it keeps. An \
+          by the parameters it keeps fixed and the mentions of a function it keeps. Where none \
+          of those reproduces the base, it regenerates under the statuses a global attribute \
+          can have replaced on the definitions of the helper's own module that the helper \
+          reaches. An \
           assignment only selects which regeneration runs. The limitations below state what \
           this leaves out. The regeneration and the comparison \
           run with Lean's smart unfolding off, so no declaration named `g._sunfold` is read for \
@@ -458,13 +461,22 @@ def guide : RuleId → Guide
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
           one whose compilation depended on a reducibility status the search does not find. \
           The argument of standard §7.4 leaves out a status Lean consults only while it reduces \
-          the discriminant of a `match` below default transparency, statuses of three or more \
+          the discriminant of a `match` below default transparency, which it does with the \
+          recording put aside. Where the discriminant does not reduce at the end of the audit, \
+          Lean asks about it again once the matcher unfolds, and the status is found. Where it \
+          reduces there, Lean does not ask again, and the status is found only among the \
+          statuses a global attribute can have replaced on the definitions of the helper's own \
+          module that the helper reaches, an `abbrev` left out: a helper whose base needs \
+          another status of such a discriminant, or one of those together with a status only \
+          the recorded questions find, is rejected (traced from Lean 4.34.0's source, not run). \
+          The argument also leaves out statuses of three or more \
           functions the definition calls directly that only together change which \
           `wf_preprocess` rule applies, or of two of which the second needs another status than \
           `reducible`, where the mentions the base keeps do not tell them apart, and more than \
           the enumeration below \
-          covers for a definition by structural recursion over an inductive predicate. None \
-          was observed to reject a definition Lean accepts. Give such a function its \
+          covers for a definition by structural recursion over an inductive predicate. Neither \
+          of these two was observed to reject a definition Lean accepts. Give such a function \
+          its \
           reducibility where it is declared. Otherwise a definition for which the only \
           difference is that ordinary (semireducible) definitions are irreducible at one of the \
           two points \
@@ -484,7 +496,13 @@ def guide : RuleId → Guide
           established, and the helper is not admitted either way. \
           `Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` shows the outcome for a \
           forged helper; the helper Lean generated for a definition of that shape is admitted \
-          under the assignment its base selects.",
+          under the assignment its base selects. The statuses a global attribute can have \
+          replaced on the definitions of the helper's module that it reaches, tried after \
+          those, have the same bound: where they allow more than 63 assignments only the first \
+          63 single changes are tried, and a helper none of them reproduces is undecided in the \
+          same way, unless Lean's recursion compilers were recorded asking about each of those \
+          definitions, whose statuses that change a decision the search has then already \
+          enumerated.",
         "A function the definition calls is followed through the functions that it unfolds to \
           and that do not unfold at the end of the audit, however many, and is then tried \
           together with each definition Lean's preprocessing asks about before any change and \
@@ -493,8 +511,8 @@ def guide : RuleId → Guide
           step of the following gives one more definition a status, so it ends within as many \
           steps as the environment has constants. The checker counts them: a change that used \
           them up would be undecided, and a helper nothing reproduces undecided in the same \
-          way, the audit incomplete and not a violation, with an error that names which of the \
-          two bounds was reached.",
+          way, the audit incomplete and not a violation, with an error that names which bound \
+          was reached.",
         "A helper is not admitted where the checker finds no proof of its recursion equation \
           that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
           Lean adds with a well-founded definition, in the theorem Lean realizes for a \
