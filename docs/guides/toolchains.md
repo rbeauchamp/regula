@@ -62,8 +62,9 @@ revision. Preparation does not declare that either revision supports the new com
 ### Build dependencies with the selected compiler
 
 Full repository acceptance also needs coherent Mathlib, Verso and transitive pins in the
-`audit/` and `website/` packages, with all three `lean-toolchain` files naming the selected
-compiler. Upstream artifacts are usable only when their compiler matches. For a development
+`audit/` and `website/` packages. All five `lean-toolchain` files must name the selected
+compiler: the root, `audit/`, `website/`, `examples/build-lint/` and
+`examples/lake-lint-toml/`. Upstream artifacts are usable only when their compiler matches. For a development
 commit without matching artifacts, set `dependency-build-mode` to `source` in the adaptation
 and run `./scripts/provision.sh`, then `lean --run lean/RegulaProvision.lean verso`.
 An interrupted source setup retains its staging directory. A later invocation resumes only
@@ -227,6 +228,28 @@ The original failures remain historical evidence; these repairs need qualificati
 actual compatibility revision before that revision is promoted.
 
 ## Guarantees and trusted boundaries
+
+### Compiler-source account for Lean `6751f97`
+
+At compiler commit `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`,
+`ToLCNF.constantReplacer` performs one `CSimp.replaceConstant?` lookup per visit, and
+conversion revisits the resulting expression. This replaces the historical two-stage
+4.34.0 explanation in standard §7.6 for this pin. The accepted constant-equality shape and
+positional universe substitution are unchanged.
+
+Regula's `simplificationCandidates` recognizes every declaration of that equality shape,
+and `executionWalk` enqueues every recognized target before continuing the traversal.
+For a completed closure with no unresolved path, induction on chain length therefore
+includes every finite chain of those candidate edges, independently of how often the
+compiler performs a lookup. This is an argument from the selected compiler and checker
+sources, not a machine-checked compiler-completeness theorem. It does not establish that
+the compiler chose any particular candidate. A candidate classified as checked still
+requires independently kernel-checked correspondence over the complete dependent domain
+and universal level parameters. Report mode may retain a reported trusted replacement;
+checked mode keeps its stricter requirement. Retained IR, source histories and reached
+execution boundaries remain separate obligations.
+
+### Proved decisions and external effects
 
 `Compiler.accepts_iff` connects the executed identity guard to the admission predicate;
 `refuses_other_commit` rejects every other commit even with the same version, and

@@ -602,6 +602,8 @@ tr.regula-no-match td { font-weight: 600; }
   .permalink-widget.inline { display: none; }
   .regula-facts { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
   .regula-facts dd { margin-bottom: 0.5rem; }
+  main table.tabular { display: block; width: 100%; max-width: 100%; overflow-x: auto; \
+  box-sizing: border-box; }
   .regula-index table.regula-rules thead { display: none; }
   .regula-index table.regula-rules, .regula-index table.regula-rules tbody, .regula-index \
   table.regula-rules caption { display: block; }

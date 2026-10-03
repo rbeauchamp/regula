@@ -30,7 +30,8 @@ proof was found in the inspected linter surfaces.
 ## Lean and Lake interfaces used by adoption
 
 The adoption adapters are built on interfaces by the Lean 4 and Lake authors (Lean FRO and
-contributors), used through the pinned `v4.34.0` toolchain as dependencies. Except for the adapted parser below,
+contributors), used through each checker revision's pinned toolchain as dependencies; the
+stable reference is `v4.34.0`. Except for the adapted parser below,
 no code is copied.
 Lake's `lintDriver` package field and `lake lint` dispatch (`Lake.CLI.Main`, `Package.lint` in
 `Lake.CLI.Actions`) run `lint`. Lean's `errorDescriptionWidget` in `Lean.Log`, the

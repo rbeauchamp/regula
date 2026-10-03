@@ -421,9 +421,13 @@ def guide : RuleId → Guide
           after a definition that calls `g`), where that changes which parameters Lean finds \
           fixed or which `wf_preprocess` rule of the toolchain applies, or, under \
           `set_option allowUnsafeReducibility true`, calls a `@[reducible]` function that is \
-          not an `abbrev` and is made irreducible afterwards, or calls an `abbrev` that was \
-          irreducible where the definition was compiled (argued from the checker's code, not \
-          run). Otherwise a definition for which the only difference is that ordinary \
+          not an `abbrev` and is made irreducible afterwards, where that changes one of those \
+          decisions. Two further forms are argued from the checker's code, not run: a call to \
+          an `abbrev` irreducible only where the definition was compiled, where that changes \
+          one of those decisions; and a call to an `abbrev` irreducible at both points, if the \
+          first regeneration fails for another reason and restoring that `abbrev` to reducible \
+          changes one of those decisions. Otherwise, apart from an `abbrev` irreducible at \
+          both points, a definition for which the only difference is that ordinary \
           (semireducible) definitions are irreducible at one of the two points \
           (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
           `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",

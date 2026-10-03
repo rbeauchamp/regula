@@ -213,6 +213,91 @@ def buildChecked (repo : FilePath) (targets : Array String)
     (mode : String) : IO (Option (Array String)) := do
   return (← buildCheckedObservation repo targets mode).2
 
+/-- A project either builds its original targets before scope inspection, or first builds
+artifacts and owes those exact original targets after the refusal-only scope check. -/
+inductive ClaimedBuildPlan (original : Array String) where
+  /-- The initial build already requests every original target. -/
+  | full
+  /-- Scope inspection precedes the still-required complete target build. -/
+  | deferred (artifacts : Array String)
+
+/-- Targets needed before the module-scope preflight. -/
+def ClaimedBuildPlan.initialTargets {original : Array String} :
+    ClaimedBuildPlan original → Array String
+  | .full => original
+  | .deferred artifacts => artifacts
+
+/-- A deferred plan still owes the complete original target build. -/
+def ClaimedBuildPlan.completionTargets {original : Array String} :
+    ClaimedBuildPlan original → Option (Array String)
+  | .full => none
+  | .deferred _ => some original
+
+/-- No deferred plan can substitute a smaller target set for the final build. -/
+theorem ClaimedBuildPlan.completionTargets_exact {original targets : Array String}
+    (plan : ClaimedBuildPlan original) (h : plan.completionTargets = some targets) :
+    targets = original := by
+  cases plan <;> simp_all [completionTargets]
+
+/-- Stages completed after the initial warning-free build, before scope inspection. -/
+def ClaimedBuildPlan.completedBeforeScope {original : Array String} :
+    ClaimedBuildPlan original → List RegulaPolicy.Stage
+  | .full => [.configuration, .discovery, .build]
+  | .deferred _ => [.configuration, .discovery]
+
+/-- The build stage is complete before preflight exactly when no final build remains. -/
+theorem ClaimedBuildPlan.build_completed_iff {original : Array String}
+    (plan : ClaimedBuildPlan original) :
+    RegulaPolicy.Stage.build ∈ plan.completedBeforeScope ↔ plan.completionTargets = none := by
+  cases plan <;> simp [completedBeforeScope, completionTargets]
+
+/-- Lake reads an explicit `+module` with `String.toName` and splits facets at `:`.
+Use that spelling only when it retains the exact discovered root name. -/
+def moduleArtifactsTarget? (root : Name) : Option String :=
+  let spelling := root.toString (escape := false)
+  if spelling.toName = root ∧ spelling.contains ':' = false then
+    some s!"+{spelling}:leanArts"
+  else none
+
+/-- A selected module spelling preserves the discovered root and has no facet separator. -/
+theorem moduleArtifactsTarget?_sound {root : Name} {target : String}
+    (h : moduleArtifactsTarget? root = some target) :
+    ∃ spelling : String, target = s!"+{spelling}:leanArts" ∧
+      spelling.toName = root ∧ spelling.contains ':' = false := by
+  dsimp only [moduleArtifactsTarget?] at h
+  split at h
+  · rename_i valid
+    exact ⟨root.toString (escape := false), (Option.some.inj h).symm, valid⟩
+  · simp at h
+
+private def artifactTargets? (manifest : Manifest) (inventory : SurfaceInventory) :
+    Option (Array String) := do
+  if !(manifest.surfaces.any fun surface => !surface.executables.isEmpty) then none else do
+    let mut targets := #[]
+    for surface in manifest.surfaces do
+      targets := targets.push surface.library
+      for executable in surface.executables do
+        let found ← inventory.executables.find? (·.executable == executable)
+        let target ← moduleArtifactsTarget? found.root
+        targets := targets.push target
+    return targets
+
+/-- Keep library targets, including their custom facets, and use each claimed executable's
+actual root `leanArts` facet before scope inspection. A root that cannot be expressed faithfully
+through Lake's module-target syntax retains the original full build for the whole plan. -/
+def claimedBuildPlan (manifest : Manifest) (inventory : SurfaceInventory) :
+    ClaimedBuildPlan (Manifest.positiveTargets manifest) :=
+  match artifactTargets? manifest inventory with
+  | some artifacts => .deferred artifacts
+  | none => .full
+
+/-- A library-only claim keeps the original one-build plan. -/
+theorem claimedBuildPlan_without_executables (manifest : Manifest)
+    (inventory : SurfaceInventory)
+    (h : manifest.surfaces.any (fun surface => !surface.executables.isEmpty) = false) :
+    claimedBuildPlan manifest inventory = .full := by
+  simp [claimedBuildPlan, artifactTargets?, h]
+
 /-- The modules `moduleName` imports transitively, as `lake query +MODULE:transImports`
 reports them in `repo`. -/
 def transitiveImports (repo : FilePath) (moduleName : String) : IO (Array String) := do

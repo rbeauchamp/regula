@@ -65,11 +65,11 @@ correspondence theorem, or a kernel-checked opaque body), `trusted`, or
 `unresolved`; unresolved paths are listed per root. Imported boundary
 declarations are reported by this account without becoming owned.
 
-Generated-role metadata is descriptive, not provenance. The checker policy
-combines these semantic fields with a fresh exact-source frontend transcript
-before it recognizes Lean's range-less internal code-generation helper for a
-safe recursive base or a native-proof axiom. Names, ranges, and extension tags
-alone never waive a rule. Every declaration is still emitted and checked.
+Generated-role metadata is descriptive, not provenance. A recursion helper requires
+regeneration by the pinned recursion compiler; a constructor-index wrapper requires
+its separate generator-derived structural comparison. A native-proof axiom requires
+native replay and fresh exact-source frontend provenance. Names, ranges, and extension
+tags alone never waive a rule. Every declaration is still emitted and checked.
 
 The full list of imported module names and each module's Lean-resolved `.olean`
 path are emitted as well, so drivers can reconcile the queried Lake inventory,
