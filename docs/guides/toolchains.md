@@ -94,16 +94,16 @@ An adaptation using a local Elan alias also commits `.github/compiler-source.jso
   "owner": "rbeauchamp",
   "repository": "lean4",
   "revision": "6751f97b0c3dbefec2aaf1ce9e07b877101c5662",
-  "selector": "regula-lean4-6751f97",
-  "bootstrap": "leanprover/lean4-nightly:nightly-2026-10-01",
-  "bootstrapRevision": "77f336f7ae6a60419d3882e0d5ca7ac3a2155528"
+  "selector": "regula-lean4-6751f97"
 }
 ```
 
 The alias must match `lean-toolchain` and the artifact mode must be `source`.
 `lean/RegulaCompiler.lean` checks the specification, obtains the exact source commit,
-installs the bootstrap unless Elan already lists it, checks the bootstrap's CLI and library identity, configures Lean's release preset with
-that preceding stage, and runs the documented `make -j… -C build/release` command.
+configures Lean's release preset, and runs the documented `make -j… -C build/release`
+command, which first builds the `stage0` compiler that commit carries and then compiles
+the commit's sources with it. No separately installed compiler takes that stage's place:
+an official build made before the commit's `stage0` was last updated can fail to compile it.
 It checks both identities of the resulting compiler before linking the alias. An existing
 alias is reused only when both reports match; a mismatch is refused. Source and build
 directories remain under `~/.cache/regula-compilers` for inspection or resumption.

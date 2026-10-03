@@ -2,7 +2,5 @@
   "owner": "rbeauchamp",
   "repository": "lean4",
   "revision": "6751f97b0c3dbefec2aaf1ce9e07b877101c5662",
-  "selector": "regula-lean4-6751f97",
-  "bootstrap": "leanprover/lean4-nightly:nightly-2026-10-01",
-  "bootstrapRevision": "77f336f7ae6a60419d3882e0d5ca7ac3a2155528"
+  "selector": "regula-lean4-6751f97"
 }
