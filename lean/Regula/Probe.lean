@@ -126,10 +126,12 @@ private def ownedDecls (env : Environment) (modules : List Name) :
 module, the declaration and the observation. `CommandElabM`'s `try`/`catch` also catches Lean's
 runtime resource exceptions (recursion depth, heartbeats), which the Core-based monads rethrow.
 Such a limit, or a kernel limit (`Collect.checkerLimit?`), is the checker's own, so its message
-replaces Lean's advice to raise it in the source. -/
+replaces Lean's advice to raise it in the source. The observation runs with smart unfolding off
+(`Collect.withoutSmartUnfolding`), so no answer rests on a declaration found by the name
+`_sunfold`. -/
 private def observing {α : Type} (env : Environment) (name : Name) (observation : String)
     (act : CommandElabM α) : CommandElabM α := do
-  try act
+  try Regula.Collect.withoutSmartUnfolding act
   catch ex =>
     let owner := match Regula.Collect.moduleOf env name with
       | .ok moduleName => m!"{moduleName}"

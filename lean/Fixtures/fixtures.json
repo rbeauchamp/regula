@@ -267,15 +267,63 @@
    "[VIOLATION[escape-hatch]] fixtures_fake_motive_forged._unsafe_rec"
   ]
  },
- "Fixtures.Mutations.KnownLimitReducibleAfter": {
+ "Fixtures.Positive.ReducibleAfter": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "[OK] fixtures_reducible_fixed._unsafe_rec",
+   "[OK] fixtures_reducible_structural._unsafe_rec",
+   "[OK] FixturesReducibleTree.count._unsafe_rec",
+   "[OK] fixtures_reducible_mixed._unsafe_rec",
+   "[OK] fixtures_reducible_limit._unsafe_rec",
+   "[OK] fixtures_reducible_decoyed._unsafe_rec",
+   "[OK] fixtures_reducible_proved._unsafe_rec",
+   "[OK] fixtures_reducible_cited._unsafe_rec",
+   "[OK] fixtures_reducible_then_not._unsafe_rec",
+   "[OK] fixtures_instance_later._unsafe_rec",
+   "[OK] fixtures_implicit_later._unsafe_rec",
+   "[OK] fixtures_instance_then_not._unsafe_rec",
+   "[OK] fixtures_abbrev_both._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.ReducibleAfterUnsafeRecForge": {
   "expect": "fail",
   "reason": "escape-hatch",
   "output": [
-   "[VIOLATION[escape-hatch]] fixtures_reducible_fixed._unsafe_rec",
-   "[VIOLATION[escape-hatch]] fixtures_reducible_structural._unsafe_rec",
-   "[VIOLATION[escape-hatch]] FixturesReducibleTree.count._unsafe_rec",
-   "[VIOLATION[escape-hatch]] fixtures_reducible_then_not._unsafe_rec"
+   "[OK] fixtures_forged_after_honest._unsafe_rec",
+   "[OK] fixtures_forged_after_faithful._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_after_divergent._unsafe_rec",
+   "[OK] fixtures_forged_before_honest._unsafe_rec",
+   "[OK] fixtures_forged_before_faithful._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_before_divergent._unsafe_rec"
   ]
+ },
+ "Fixtures.Mutations.AuthoredSmartUnfoldingUnsafeRecForge": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[OK] fixtures_sunfold_fixed_honest._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_sunfold_fixed_forged._unsafe_rec",
+   "[OK] fixtures_sunfold_erased_honest._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_sunfold_erased_forged._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.KnownLimitReducibleWhereCompiled": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[VIOLATION[escape-hatch]] fixtures_where_local._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_where_unreduced._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_where_sealed._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_where_instance._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_where_elsewhere._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_where_upgraded._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.KnownLimitReducibilitySearchBound": {
+  "expect": "fail",
+  "reason": "audit-incomplete",
+  "pattern": "fixtures_bound_searched.*undecided"
  },
  "Fixtures.Mutations.ForgedMatchElaborator": {
   "expect": "fail",
