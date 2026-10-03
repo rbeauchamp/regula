@@ -153,7 +153,7 @@ configuration and frozen-artifact checks before the unchanged full inspection an
 freshness checks.
 
 Preflight can now report an excluded-module violation before a native link that would fail;
-that run can therefore report RG2004/exit 1 instead of the later RG2003/incomplete/exit 3.
+that run can therefore report [RG2004]/exit 1 instead of the later [RG2003]/incomplete/exit 3.
 Its build stage remains unfinished and it is never accepted. An incomplete finding actually
 observed by preflight still takes precedence over a violation. This is an ordering change
 for refusals, not a proof that arbitrary custom build effects commute or that any execution
@@ -2133,6 +2133,7 @@ operator's narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md
 [RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
 [RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
 [RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
+[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
 [RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/

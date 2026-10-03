@@ -46,7 +46,7 @@ policy. On a compiler that removed the family, recreating a retired name in proj
 code cannot give it compiler trust. The qualification receipt retains the observed capability
 alongside the exact version and commit.
 
-The RG5002 qualification fixture has no whitespace between its final documentation character
+The [RG5002] qualification fixture has no whitespace between its final documentation character
 and the closing delimiter. Lean's newer Markdown parser stores that whitespace as source
 information instead of documentation text; the older parser retained it in the string. This
 fixture therefore gives both parsers the same complete documentation value, which the producer
@@ -203,7 +203,7 @@ both newer compilers and these observations add neither to the supported stable 
 | `build` | met | met |
 | `candidate-refusal` | met | met |
 | `fixtures` | not met: removed legacy compiler axiom, obsolete LRAT bytes ([#192](https://github.com/rbeauchamp/regula/issues/192)) | not met: the same legacy axiom and LRAT controls, and controls over `ctorIdx._impl` ([#193](https://github.com/rbeauchamp/regula/issues/193)) |
-| `producers` | met | not met: `uncaught exception: declaration documentation` after the RG5001 controls passed; cause unknown ([#195](https://github.com/rbeauchamp/regula/issues/195)) |
+| `producers` | met | not met: `uncaught exception: declaration documentation` after the [RG5001] controls passed; cause unknown ([#195](https://github.com/rbeauchamp/regula/issues/195)) |
 | `history` | met | met |
 | `structural` | met | not met: fresh gates refused over `ctorIdx._impl` (#193) |
 | `execution` | met | not met: correspondence controls refused over `ctorIdx._impl`, and `replacement-cycle` stops in compilation (#193) |
@@ -231,7 +231,7 @@ native-proof control does not replace the retired direct-axiom control. Construc
 helpers are authenticated against Lean's generator under their own declaration policy, while
 their unsafe and runtime-replacement execution boundaries remain visible. The
 `replacement-cycle` control now reaches the detector through compiler-compatible construction.
-The RG5002 failure is attributed to the changed documentation parser behavior described above
+The [RG5002] failure is attributed to the changed documentation parser behavior described above
 by reading the producer's exact documentation check, not by a rerun.
 The original failures remain historical evidence; these repairs need qualification at the
 actual compatibility revision before that revision is promoted.
@@ -296,3 +296,6 @@ running Lake, has no retained control.
 
 Compiler self-reports, Elan's listing and resolution, Git, native compilation, JSON serialization, process
 exit observations, filesystem reads, and GNU timeout remain trusted operational mechanisms.
+
+[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
