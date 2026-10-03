@@ -501,17 +501,28 @@ private def admitComponent (what text : String) : IO Component := do
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   try return some (← path.symlinkMetadata).type catch _ => return none
 
+/-- The lock under a repository's `.lake/regula-dependency-planner` that orders this program's
+planner runs in that repository; this program never removes it. -/
+def plannerLockName : String := "planner.lock"
+
 /-- Build the planner in a separate workspace with the repository's exact configuration and
 linked sources, so the root package's Lake configuration and build caches stay untouched; the
 planner's own Lake loads of the Audit and standard packages may write their configuration
 caches. The workspace's key includes the repository's canonical path, which its absolute source
 links name, so a moved repository gets a new workspace and the old one is left in place.
-A workspace is written whole in a sibling staging directory and published as `v2-<key>` by one
+One exclusive lock on `plannerLockName` under the repository's planner directory orders every
+run of this function in that repository, whatever its key, because all of them share those
+configuration caches: it is taken before the workspace is examined and held through its
+publication and admission, the Lake build, the planner's execution and the decoding of its
+result, and released before returning, so it is never held together with the shared-store lock.
+File locking is a trusted OS effect and orders only runs of this program; it does not order a
+child process that outlives a killed run.
+A workspace is written whole in a sibling staging directory and published as `v3-<key>` by one
 rename, so this program leaves no partly written workspace at that path; the rename is a trusted
-filesystem effect, and this is no claim of durability across power loss. An interrupted attempt,
-and one that another process outran, stays in its staging directory, unused and never removed.
-A `<key>` directory of the earlier in-place construction, which may be partial, is likewise
-neither used nor removed.
+filesystem effect, and this is no claim of durability across power loss. An interrupted attempt
+stays in its staging directory, unused and never removed. A `v2-<key>` directory, whose build
+earlier runs wrote without this lock, and a `<key>` directory of the earlier in-place
+construction, which may be partial, are likewise neither used nor removed.
 Generated configuration is never overwritten: an existing workspace must retain the same bytes
 and source links. -/
 private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
@@ -520,31 +531,38 @@ private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
     return (name, ← IO.FS.readFile (repo / name))
   let parent := repo / ".lake/regula-dependency-planner"
   IO.FS.createDirAll parent
-  let key := hash (inputs.toList, Lean.githash, (← IO.FS.realPath repo).toString)
-  let workspace := parent / s!"v2-{key}"
-  match ← kind? workspace with
-  | none =>
-    let staged := parent / s!"v2-{key}.staging-{← nonce}"
-    IO.FS.createDir staged
-    for (name, source) in inputs do IO.FS.writeFile (staged / name) source
+  let lock ← IO.FS.Handle.mk (parent / plannerLockName) .append
+  unless ← lock.tryLock do
+    say s!"waiting for another run that is planning dependencies in {parent}"
+    lock.lock
+  try
+    let key := hash (inputs.toList, Lean.githash, (← IO.FS.realPath repo).toString)
+    let workspace := parent / s!"v3-{key}"
+    match ← kind? workspace with
+    | none =>
+      let staged := parent / s!"v3-{key}.staging-{← nonce}"
+      IO.FS.createDir staged
+      for (name, source) in inputs do IO.FS.writeFile (staged / name) source
+      for name in #["lean", "examples"] do
+        let _ ← require repo "ln" #["-s", (repo / name).toString, (staged / name).toString]
+      IO.FS.rename staged workspace
+    | some .dir => pure ()
+    | some _ =>
+      throw <| IO.userError s!"provisioning: planner workspace is not a directory: {workspace}"
+    for (name, source) in inputs do
+      unless (← kind? (workspace / name)) == some .file &&
+          (← IO.FS.readFile (workspace / name)) == source do
+        throw <| IO.userError s!"provisioning: planner configuration differs: {workspace / name}"
     for name in #["lean", "examples"] do
-      let _ ← require repo "ln" #["-s", (repo / name).toString, (staged / name).toString]
-    try IO.FS.rename staged workspace
-    catch error => unless (← kind? workspace) == some .dir do throw error
-  | some .dir => pure ()
-  | some _ => throw <| IO.userError s!"provisioning: planner workspace is not a directory: {workspace}"
-  for (name, source) in inputs do
-    unless (← kind? (workspace / name)) == some .file &&
-        (← IO.FS.readFile (workspace / name)) == source do
-      throw <| IO.userError s!"provisioning: planner configuration differs: {workspace / name}"
-  for name in #["lean", "examples"] do
-    unless (← kind? (workspace / name)) == some .symlink &&
-        (← IO.FS.realPath (workspace / name)) == (← IO.FS.realPath (repo / name)) do
-      throw <| IO.userError s!"provisioning: planner source link differs: {workspace / name}"
-  stream workspace "lake" #["--no-cache", "--keep-toolchain", "build", "dependencyScope"]
-    (← freshBuildEnvironment workspace mode)
-  let result ← require repo (workspace / ".lake/build/bin/dependencyScope").toString #[]
-  IO.ofExcept <| Json.parse result >>= fromJson?
+      unless (← kind? (workspace / name)) == some .symlink &&
+          (← IO.FS.realPath (workspace / name)) == (← IO.FS.realPath (repo / name)) do
+        throw <| IO.userError s!"provisioning: planner source link differs: {workspace / name}"
+    stream workspace "lake" #["--no-cache", "--keep-toolchain", "build", "dependencyScope"]
+      (← freshBuildEnvironment workspace mode)
+    let result ← require repo (workspace / ".lake/build/bin/dependencyScope").toString #[]
+    IO.ofExcept <| Json.parse result >>= fromJson?
+  finally
+    lock.unlock
 
 private def observe (path : FilePath) : IO Observed := do
   match ← kind? path with
