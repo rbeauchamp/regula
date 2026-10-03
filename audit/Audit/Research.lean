@@ -1,4 +1,6 @@
-import Mathlib.NumberTheory.FactorisationProperties
+module
+
+public import Mathlib.NumberTheory.FactorisationProperties
 
 /-!
 # Audit.Research
@@ -37,6 +39,8 @@ reduction moves that content into its explicit bound hypothesis. All proofs
 reuse Mathlib results; the declaration gate reports each declaration's exact
 axiom set within the `Audit` surface's Standard-Logical claim.
 -/
+
+@[expose] public section
 
 namespace Research
 

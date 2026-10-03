@@ -1,5 +1,7 @@
-import AuditApp.Limiter
-import Mathlib.Logic.Relation
+module
+
+public import AuditApp.Limiter
+public import Mathlib.Logic.Relation
 
 /-!
 # Limiter refinement to a free-slot model
@@ -18,6 +20,8 @@ sections. The declarations keep the `AuditApp.Refinement` namespace of the appli
 they refine; this module belongs to the `Audit` library of the Mathlib-dependent package,
 because the Core-only `AuditApp` surface in the `regula` package does not import Mathlib.
 -/
+
+@[expose] public section
 
 namespace AuditApp.Refinement
 

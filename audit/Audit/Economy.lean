@@ -1,5 +1,7 @@
-import Mathlib.Tactic.Ring
-import Mathlib.Basic.Real.Basic
+module
+
+public import Mathlib.Tactic.Ring
+public import Mathlib.Basic.Real.Basic
 
 /-!
 # Proof economy and lawful mixins
@@ -51,6 +53,8 @@ Core/Std/Mathlib class states an inflationary binary operation together with
 a real-valued monotone measure; the ℝ instance reuses `le_max_left` and
 `min_le_left` instead of re-proving them.
 -/
+
+@[expose] public section
 
 namespace Economy
 

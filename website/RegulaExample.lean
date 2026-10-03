@@ -41,7 +41,7 @@ registered rule ID, linked to its page in the same edition) complete the standar
 -/
 
 open Lean Elab
-open scoped Lean.Doc.Syntax
+open Lean.Doc (VersoCodeBlock TextView)
 open Verso ArgParse Doc Elab Genre.Manual
 open SubVerso.Highlighting
 
@@ -103,9 +103,9 @@ def runHelper (text : String) : IO (Array Reported × Json) := do
 def maxLineLength : Nat := 100
 
 /-- Refuse a code block with a line longer than `maxLineLength` characters. -/
-def checkLineLength (str : StrLit) : DocElabM Unit := do
+def checkLineLength (str : VersoCodeBlock) : DocElabM Unit := do
   let mut number : Nat := 0
-  for line in str.getString.splitOn "\n" do
+  for line in str.getVersoCodeBlock.splitOn "\n" do
     number := number + 1
     if line.length > maxLineLength then
       throwErrorAt str "line {number} of this code block has {line.length} characters; \
@@ -158,9 +158,9 @@ def Block.checked.descr : BlockDescr :=
 
 /-- Elaborate one example where it is written (see `runHelper`), check the outcome against
 `expectation`, and render the helper's highlighting. -/
-def elabExample (expectation : Expectation) (str : StrLit) : DocElabM Term := do
+def elabExample (expectation : Expectation) (str : VersoCodeBlock) : DocElabM Term := do
   checkLineLength str
-  let text := str.getString
+  let text := str.getVersoCodeBlock
   let (messages, code) ← runHelper text
   let some start := str.raw.getPos? | throwErrorAt str "example has no source position"
   let firstLine := (← getFileMap).toPosition start |>.line
@@ -205,22 +205,22 @@ def leanSketch : CodeBlockExpanderOf Unit
     checkLineLength str
     ``(Verso.Doc.Block.concat #[
       Verso.Doc.Block.para #[Verso.Doc.Inline.emph #[Verso.Doc.Inline.text "Sketch, not elaborated as Lean:"]],
-      Verso.Doc.Block.code $(quote str.getString)])
+      Verso.Doc.Block.code $(quote str.getVersoCodeBlock)])
 
 /-- Shell commands (not Lean). -/
 @[code_block]
 def sh : CodeBlockExpanderOf Unit
-  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getString))
+  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getVersoCodeBlock))
 
 /-- Plain text (not Lean). -/
 @[code_block]
 def text : CodeBlockExpanderOf Unit
-  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getString))
+  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getVersoCodeBlock))
 
 /-- Lake TOML configuration (not Lean). -/
 @[code_block]
 def toml : CodeBlockExpanderOf Unit
-  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getString))
+  | (), str => do checkLineLength str; ``(Verso.Doc.Block.code $(quote str.getVersoCodeBlock))
 
 end RegulaExample
 
@@ -296,8 +296,9 @@ inline_extension Inline.row (row : String) where
 def checklistRow : RoleExpanderOf Unit
   | (), content => do
     let #[inl] := content | throwError "a checklist row takes exactly its identifier"
-    let `(inline| $s:str) := inl | throwErrorAt inl "a checklist row takes exactly its identifier"
-    let row := s.getString
+    let some text := TextView.of inl
+      | throwErrorAt inl "a checklist row takes exactly its identifier"
+    let row := text.getVersoText
     unless row.length > 0 && row.all (fun c => c.isUpper || c.isDigit || c == '-') do
       throwError "not a checklist row identifier: {row}"
     ``(Verso.Doc.Inline.other (Inline.row $(quote row)) #[])
@@ -310,9 +311,9 @@ through its `<base href>`. -/
 def rule : RoleExpanderOf Unit
   | (), content => do
     let #[inl] := content | throwError "a rule reference takes exactly its ID"
-    let `(inline| $s:str) := inl | throwErrorAt inl "a rule reference takes exactly its ID"
-    let some id := Regula.RuleId.parse? s.getString
-      | throwErrorAt inl "not a registered rule ID: {s.getString}"
+    let some s := TextView.of inl | throwErrorAt inl "a rule reference takes exactly its ID"
+    let some id := Regula.RuleId.parse? s.getVersoText
+      | throwErrorAt inl "not a registered rule ID: {s.getVersoText}"
     ``(Verso.Doc.Inline.link #[Verso.Doc.Inline.text $(quote id.spelling)] $(quote id.route))
 
 end RegulaExample

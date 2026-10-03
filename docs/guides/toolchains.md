@@ -1,7 +1,8 @@
 # Development toolchains
 
 Regula keeps one exact compiler version and source commit per checker revision. The stable
-default remains Lean 4.34.0. A version such as `4.36.0-pre` identifies many compiler builds;
+default on `main` remains Lean 4.34.0. This adaptation selects source commit
+`6751f97b0c3dbefec2aaf1ce9e07b877101c5662`. A version such as `4.36.0-pre` identifies many compiler builds;
 it is insufficient to select compatible checker code. `RegulaPolicy.Compiler` is the shared
 identity used by the cold Lake guard, compiled probe, inventory admission, and plan admission.
 
@@ -11,9 +12,11 @@ capability-aware compiler-trust policy ([#192](https://github.com/rbeauchamp/reg
 constructor-index authentication ([#193](https://github.com/rbeauchamp/regula/issues/193)),
 documentation fixture repair ([#195](https://github.com/rbeauchamp/regula/issues/195)) and
 source dependency provisioning ([#201](https://github.com/rbeauchamp/regula/issues/201)).
-No checker revision is yet qualified for a compiler newer than Lean 4.34.0. A compatibility
-revision must complete its applicable qualification, acceptance and review before promotion;
-until then, its observations cannot establish a supported audit result.
+A compatibility revision is ready for use only after its source adaptations and candidate
+promotion have been reviewed, complete ordinary and documentation acceptance and applicable
+qualification have passed, and all required checks are green at that exact checker commit.
+Select the compiler and checker revision together. A qualification receipt or candidate
+marker alone does not establish support.
 
 ## Prepare an isolated candidate
 
@@ -171,11 +174,11 @@ claims whose relevant source, dependencies, compiler identity, and invocation pa
 
 ## Use it for a Lean fix
 
-Select a reviewed Regula compatibility revision whose declared identity matches the compiler
-used to elaborate the fix. None exists yet for a compiler newer than Lean 4.34.0 (see the
-status above). A fix normally targets Lean's current development branch; an issue
-should still name the released compiler on which the defect was observed. These may need
-different Regula revisions and evidence. Record both identities rather than substituting one.
+Select a reviewed and qualified Regula compatibility revision whose declared identity matches
+the compiler used to elaborate the fix. A fix normally targets Lean's current development
+branch; an issue should still name the released compiler on which the defect was observed.
+These may need different Regula revisions and evidence. Record both identities rather than
+substituting one.
 
 Require the selected checker revision in the audit project and run the normal `regula doctor`
 and `lake lint` workflow. The audit needs its own claimed surfaces and implementation-linked
@@ -196,8 +199,8 @@ local to the machine that ran them and are not published. The receipts predate l
 on this branch: the #192, #193 and #195 repairs, the shared documentation labels,
 compiler-specific LRAT generation, the cold
 guard's binding to the running compiler, the identity probe, and `doctor`'s check of the
-project's pin. No receipt exercised those paths, so the final source remains unqualified on
-both newer compilers and these observations add neither to the supported stable release.
+project's pin. No receipt exercised those paths, so these historical observations establish
+neither support for this revision nor an extension to the supported stable release.
 
 | Campaign | Lean 4.35.0-rc3, candidate `3fc295b` | Lean `6751f97`, candidate `d0e9e3c` |
 | --- | --- | --- |
@@ -234,8 +237,8 @@ their unsafe and runtime-replacement execution boundaries remain visible. The
 `replacement-cycle` control now reaches the detector through compiler-compatible construction.
 The [RG5002] failure is attributed to the changed documentation parser behavior described above
 by reading the producer's exact documentation check, not by a rerun.
-The original failures remain historical evidence; these repairs need qualification at the
-actual compatibility revision before that revision is promoted.
+The original failures remain historical evidence; compatibility use requires qualification
+of these repairs at the selected checker revision.
 
 ## Guarantees and trusted boundaries
 
@@ -243,10 +246,10 @@ actual compatibility revision before that revision is promoted.
 
 At compiler commit `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`,
 `ToLCNF.constantReplacer` performs at most one `CSimp.replaceConstant?` lookup per call, and
-conversion revisits the resulting expression. This differs from the two-stage 4.34.0 account in
-standard §7.6, which this guide does not replace: only the standard is normative, and a
-compatibility revision for this compiler must amend it. The accepted constant-equality shape and
-positional universe substitution are unchanged.
+conversion revisits the resulting expression. This adaptation's standard §7.6 records that
+source compiler path; the stable 4.34.0 revision records its own two-stage path. The standard
+remains normative. The accepted constant-equality shape and positional universe substitution
+are unchanged.
 
 Regula's `simplificationCandidates` recognizes every declaration of that equality shape,
 and `executionWalk` enqueues every recognized target before continuing the traversal.

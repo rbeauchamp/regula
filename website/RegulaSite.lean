@@ -135,6 +135,6 @@ block_extension Block.rawHtml (html : String) where
 root generator writes such blocks, from escaped data. -/
 @[code_block]
 meta def html : CodeBlockExpanderOf Unit
-  | (), str => ``(Verso.Doc.Block.other (Block.rawHtml $(quote str.getString)) #[])
+  | (), str => ``(Verso.Doc.Block.other (Block.rawHtml $(quote str.getVersoCodeBlock)) #[])
 
 end RegulaSite
