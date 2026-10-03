@@ -35,8 +35,9 @@ Four constructs are refused where md4c's parse shows them, because GitHub reads 
 otherwise or the parse does not show how GitHub reads them (the contributor guide names the
 differences):
 
-- a link whose text starts with `^`, also inside an image's description, which GitHub reads as
-  a footnote reference;
+- a link whose text starts with `^` and an image whose description does, also inside an
+  image's description: GitHub reads `[^label]` as a footnote reference, with or without a `!`
+  before it;
 - a pipe character inside a code span, a link's text or an image's description in a table
   cell, escaped or not: md4c reads those before it finds the cells of a row, and GitHub ends a
   cell at a pipe character that is not escaped. An escaped one ends no cell for either, and is
@@ -66,7 +67,9 @@ gives each):
 - YAML front matter, the lines between two `---` lines at the start of a document, which GitHub
   shows as a table of its raw values. md4c has no front matter and reads those lines as
   Markdown, a thematic break and then a heading, so a rule ID written there as a code span or a
-  link is code or linked here and plain text on GitHub, backticks or brackets included.
+  link is code or linked here and plain text on GitHub, backticks or brackets included;
+- math that GitHub renders from a code span between two dollar signs or from a fenced code
+  block with the info string `math`: both are code for md4c, so a rule ID there is accepted.
 
 A document whose reading cannot be used (inline raw HTML, a table with no body row, a NUL
 character, md4c failing) is refused by file and reason, without a line and without its rule
@@ -150,12 +153,15 @@ def nestedReason : String :=
     GitHub makes no link of a bare URL there and ends the outer link at <URL>; write the URL \
     outside the link's text"
 
-/-- Why a link whose text starts with `^` is refused: GitHub reads `[^label]` as a footnote
-reference, and md4c makes a link of it only when it has read the footnote as a link reference
-definition, whose text it does not report. -/
+/-- Why a link whose text starts with `^`, or an image whose description does, is refused:
+GitHub reads `[^label]` as a footnote reference, with or without a `!` before it, and md4c makes
+a link or an image of it only when it has read the footnote as a link reference definition,
+whose text it does not report. MD4Lean does not tell such a reference from a link or an image
+written with its destination, so those are refused too. -/
 def caretReason : String :=
-  "a link's text starts with ^, which GitHub reads as a footnote reference; md4c has read the \
-    footnote as a link reference definition, so its text is not checked"
+  "a link's text or an image's description starts with ^: GitHub reads [^label] as a footnote \
+    reference, and where md4c makes a link or an image of it, md4c has read the footnote as a \
+    link reference definition, so the footnote's text is not checked"
 
 /-- The refusal of a pipe character among `texts` in a table cell (`cell`). md4c reads a code
 span, a link's text and an image's description before it finds the cells of a row, so a pipe
@@ -188,10 +194,15 @@ def prose (pieces : List Piece) : String :=
     | .text _ rendered => rendered
     | _ => "")
 
+/-- The refusal of a link's text or an image's description `body` that starts with `^`
+(`caretReason`). -/
+def caret (body : List Piece) : List Piece :=
+  if (visible body).startsWith "^" then [.refused caretReason] else []
+
 /-- The pieces of one element of an image's description, as md4c renders the description: its
 text alone. Emphasis, links and images inside it give their text, and a code span's text is
-description text too. A link inside it whose text starts with `^` is refused as it is elsewhere
-(`caretReason`). -/
+description text too. A link inside it whose text starts with `^`, and an image inside it whose
+description does, is refused as it is elsewhere (`caret`). -/
 def flat (text : Text) : List Piece :=
   match text with
   | .normal slice => [.text slice slice]
@@ -202,8 +213,10 @@ def flat (text : Text) : List Piece :=
     texts.attach.toList.flatMap fun ⟨inner, _⟩ => flat inner
   | .a _ _ _ texts =>
     let body := texts.attach.toList.flatMap fun ⟨inner, _⟩ => flat inner
-    (if (visible body).startsWith "^" then [.refused caretReason] else []) ++ body
-  | .img _ _ description => description.attach.toList.flatMap fun ⟨inner, _⟩ => flat inner
+    caret body ++ body
+  | .img _ _ description =>
+    let body := description.attach.toList.flatMap fun ⟨inner, _⟩ => flat inner
+    caret body ++ body
   | .code slices | .latexMath slices | .latexMathDisplay slices =>
     slices.toList.map fun slice => .text slice slice
 termination_by text
@@ -220,12 +233,10 @@ def firstToken (text : String) : Option String :=
     | .inl _ => none
 
 /-- The pieces of a link with text `body` that leads to `leads`; `auto` is whether md4c reports
-it as an autolink. A link whose text starts with `^` is refused (`caretReason`). An autolink
+it as an autolink. A link whose text starts with `^` is refused (`caret`). An autolink
 whose text has a rule ID is refused, and its text is then not read as link text. -/
 def link (leads : String) (auto : Bool) (body : List Piece) : List Piece :=
-  if (visible body).startsWith "^" then
-    .refused caretReason :: .enter leads :: body ++ [.leave]
-  else
+  caret body ++
     match (if auto then firstToken (visible body) else none) with
     | some token =>
       .refused s!"{token} is in an autolink (a bare URL or <URL>), whose end GitHub and md4c \
@@ -240,7 +251,8 @@ emphasis, underline and strikethrough continue the prose around them; a link's t
 between the link's edges; an image's description is a run of its own (`flat`); a code span is
 code. In a table cell a pipe character inside a code span, a link's text or an image's
 description is refused, escaped or not (`pipes`). A link whose text holds another link is
-refused (`nested`). LaTeX math and wiki links are not enabled; their text would be prose. -/
+refused (`nested`), and so is a link whose text, or an image whose description, starts with `^`
+(`caret`). LaTeX math and wiki links are not enabled; their text would be prose. -/
 def inline (cell : Bool) (text : Text) : List Piece :=
   match text with
   | .normal slice => [.text slice slice]
@@ -254,7 +266,7 @@ def inline (cell : Bool) (text : Text) : List Piece :=
     pipes cell [prose body] ++ nested body ++ link (attrText href) auto body
   | .img _ _ description =>
     let body := description.toList.flatMap flat
-    .gap :: pipes cell [prose body] ++ body ++ [.gap]
+    .gap :: pipes cell [prose body] ++ caret body ++ body ++ [.gap]
   | .code slices => codeSpan cell slices
   | .latexMath slices | .latexMathDisplay slices =>
     slices.toList.map fun slice => .text slice slice
@@ -473,6 +485,18 @@ private def bodyless : String :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "![caption[^n]](image.png).\n\n[^n]: RG2003 \"description\"\n" ==
   [s!"a.md:1: {caretReason}"]
+-- With a `!` before it, md4c reads the reference as an image whose description starts with
+-- `^`, also inside another image's description.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "Note this![^1] here.\n\n[^1]: RG2003\n" == [s!"a.md:1: {caretReason}"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "![see ![^1] it](a.png) here.\n\n[^1]: RG2003\n" ==
+  [s!"a.md:1: {caretReason}"]
+-- Math: md4c reads `$…$` as text, where an ID is prose. A code span between dollar signs and a
+-- fenced block with the info string `math` are code for md4c; GitHub renders both as math
+-- (not seen).
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "$RG2003$ and $`RG2003`$\n\n```math\nRG2003\n```\n" == [bare "1"]
 -- A footnote that md4c reads as a paragraph is prose, and its reference is text.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "Use[^n].\n\n[^n]: See RG2003 for more.\n" == [bare "3"]
