@@ -402,9 +402,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
         (sourceBindings.find? (·.moduleName == name)).map fun s => ⟨s.path, s.content⟩
       SourceBinding.configurationUnchanged configuration
-      let positiveTargets := Manifest.positiveTargets manifest
-      let (buildProcess, buildResult) ← timedPhase "claimed-source build" <|
-          Lake.buildCheckedObservation repo positiveTargets
+      let buildPlan := Lake.claimedBuildPlan manifest inventory
+      let (initialBuild, buildResult) ← timedPhase "claimed-source build" <|
+          Lake.buildCheckedObservation repo buildPlan.initialTargets
               (if fresh then "fresh" else "incrementally") (← claimedBuild.get)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
@@ -480,7 +480,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       SourceBinding.configurationUnchanged configuration
       if let some name ← changedArtifact? graphArtifacts then
         reportContextFailure .admission reportRoot.toString mode .incomplete
-          [.configuration, .discovery, .build]
+          buildPlan.completedBeforeScope
           s!"producer-artifact: the .olean files of {name} changed during the audit" composed
           resultOut sourceBindings
         return 1
@@ -490,8 +490,28 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           unless (← IO.FS.readFile document.uri) == document.source do
             throw <| IO.userError s!"documentation snapshot changed: {document.uri}"
         reportContextFindings scopeFindings reportRoot.toString mode
-          [.configuration, .discovery, .build] composed resultOut sourceBindings
+          buildPlan.completedBeforeScope composed resultOut sourceBindings
         return 1
+      let (buildProcess, buildResult) ← match buildPlan.completionTargets with
+        | none => pure (initialBuild, none)
+        | some targets => do
+            let build ← claimedBuild.get
+            timedPhase "deferred claimed-source build" (Lake.buildCheckedObservation repo targets
+              (if fresh then "fresh" else "incrementally") build)
+      SourceBinding.unchanged sourceBindings
+      SourceBinding.configurationUnchanged configuration
+      if let some lines := buildResult then
+        reportContextFailure .sourceBuild reportRoot.toString mode .incomplete
+          [.configuration, .discovery]
+          ("\n".intercalate lines.toList) composed resultOut sourceBindings
+        return 1
+      if buildPlan.completionTargets.isSome then
+        if let some name ← changedArtifact? graphArtifacts then
+          reportContextFailure .admission reportRoot.toString mode .incomplete
+            [.configuration, .discovery, .build]
+            s!"producer-artifact: the .olean files of {name} changed during the audit" composed
+            resultOut sourceBindings
+          return 1
       -- Each environment's report comes from its own worker process (`Inspection.inspect`).
       let (frozenArtifacts, inspections) ←
         Inspection.inspect inventory sourceBindings assignments environments

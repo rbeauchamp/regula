@@ -467,8 +467,9 @@ executable roots, the command and module linter hooks, and the pinned compiler I
 environment-linter framework supports local omission, so it cannot establish mandatory coverage.
 Upstream linters are reused by requiring them (standard
 [§6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)),
-not reimplemented as rules. Pin-sensitive interfaces are those of Lean 4.34.0
-(`293d5d0c0c3f3dded4688b3ccd6a33939ac5102b`), for example
+not reimplemented as rules. Pin-sensitive interfaces follow the compiler declared by each
+checker revision. Stable Lean 4.34.0 (`293d5d0c0c3f3dded4688b3ccd6a33939ac5102b`)
+provides these reference examples:
 [`FileMap`](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Data/Position.lean),
 [UTF-16 conversion](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Data/Lsp/Utf16.lean),
 [command hooks](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Elab/Command.lean)
