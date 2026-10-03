@@ -1225,7 +1225,7 @@ the report worker's error names the module, the declaration (for an execution wa
 the failing stage: `declaration record` (any observation of `Collect.declaration`),
 `executable-root classification`, `proposition test` or `execution walk`. When the failure is one
 of those limits, or a kernel limit (deterministic timeout, deep recursion or excessive memory,
-recognized by its pinned Lean v4.34.0 message), it says the limit is the checker's own, that
+recognized by the pinned compiler's message), it says the limit is the checker's own, that
 options set in the source, such as `maxRecDepth`, do not apply to the checker, and to report it
 as a Regula issue; the audit is still incomplete. The recursion helper's regeneration and native
 replay, which otherwise record their own failure as missing evidence, rethrow such a limit
