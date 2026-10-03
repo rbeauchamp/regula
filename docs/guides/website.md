@@ -80,7 +80,8 @@ fails and removes `_site/`:
   again, because Lake does not trace the root-package modules its examples import. Each `lean`
   block must elaborate as its kind requires (no error or warning, or an error matching its
   pattern and no warning) in a fresh process whose environment is exactly the block's own
-  imports, with automatic implicits off and `linter.missingDocs` on, and
+  imports, under the helper's options (`exampleOptions` in
+  [`website/RegulaExampleMain.lean`](../../website/RegulaExampleMain.lean)), and
   rendering resolves every cross-reference and checklist-row anchor. Every line of every code
   block is at most 100 characters, the Lean community's limit, or the build fails; the
   stylesheet wraps a line that does not fit the column instead of scrolling sideways. An

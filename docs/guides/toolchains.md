@@ -294,5 +294,5 @@ own branch, the second by the identity comparison, and the same package then loa
 Neither child is a compiler; a compiler of another identity as the child, or as the Lean
 running Lake, has no retained control.
 
-Compiler self-reports, Elan's listing, naming and resolution, Git, native compilation, JSON serialization, process
+Compiler self-reports, Elan's listing and resolution, Git, native compilation, JSON serialization, process
 exit observations, filesystem reads, and GNU timeout remain trusted operational mechanisms.
