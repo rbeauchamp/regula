@@ -36,7 +36,7 @@ def LegacyCompilerTrust.parse? : String → Option LegacyCompilerTrust
     parse? c.spelling = some c := by cases c <;> rfl
 
 /-- The capability declared by this source revision and re-observed before policy admission. -/
-def legacyCompilerTrust : LegacyCompilerTrust := .present
+def legacyCompilerTrust : LegacyCompilerTrust := .absent
 
 /-- An observed capability equal to the one used by this compiled policy.
 Its proof concerns the supplied observation; compiler installation and extraction are trusted. -/
@@ -59,13 +59,13 @@ theorem admitCapability_iff (observed : LegacyCompilerTrust) :
   split <;> simp_all
 
 /-- The compiler version declared by this source revision. Publication requires qualification. -/
-def version : String := "4.34.0"
+def version : String := "4.35.0-rc3"
 
 /-- The full compiler commit declared by this source revision. -/
-def commit : String := "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b"
+def commit : String := "470d5ce1400764999581fd26d5d72b00d990b0f4"
 
 /-- Prepared revisions are candidates until reviewed qualification permits promotion. -/
-def candidate : Bool := false
+def candidate : Bool := true
 
 /-- The entrypoints that call this decision (`axiomGate`, so also the `lake lint` audit,
 `docFenceAudit` and `freshChecker`) refuse candidates. Explicit diagnostics may observe them. -/
