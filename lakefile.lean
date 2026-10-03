@@ -81,7 +81,7 @@ lean_lib «RegulaPolicy» where
 @[default_target]
 lean_lib «RegulaVerification»
 
--- Toolchain-only local provisioning of the shared, read-only Mathlib; `scripts/provision.sh`
+-- Toolchain-only dependency setup; `scripts/provision.sh`
 -- runs it with `lean --run` (`scripts/verify.sh` before its deadline), so it imports no
 -- root-package module.
 @[default_target]

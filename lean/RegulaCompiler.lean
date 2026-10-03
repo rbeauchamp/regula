@@ -7,8 +7,8 @@ restores and admits the immutable source-built compiler and dependencies. With n
 snapshot selection nor a source specification, Elan installs the repository's pin. A source
 specification without a snapshot selection, or explicit preparation of that specification, builds the
 named Git commit through its committed stage0, retains the checkout and build,
-and links an alias only after both compiler identity observations match. A pin that
-Elan already lists is reused, not installed again; its identity checks still run.
+and links an alias only after both compiler identity observations match. An installed
+selector is reused, not installed again; source aliases still undergo both identity checks.
 
 The contracts cover decoded values and the admission decision. Git, Elan, CMake,
 Make, compiler self-reports, filesystem locking and subprocesses remain trusted.

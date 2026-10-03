@@ -26,14 +26,14 @@ do not establish audit ownership.
 
 ## Develop and verify
 
-Provision [elan](https://github.com/leanprover/elan), the pinned toolchain,
-the shared Mathlib (`./scripts/provision.sh`), the website package's pinned Verso
-(`lean --run lean/RegulaProvision.lean verso`), GNU coreutils timeout, and ShellCheck
+For a copy selecting a compiled snapshot, first follow [compiled source snapshots](#compiled-source-snapshots). For other copies, provision [elan](https://github.com/leanprover/elan), the pinned toolchain,
+the shared Mathlib (`./scripts/provision.sh`) and the website package's pinned Verso
+(`lean --run lean/RegulaProvision.lean verso`). Every copy also needs GNU coreutils timeout and ShellCheck
 before verification. On macOS, `brew install coreutils shellcheck` supplies the
 last two tools. Verification runs offline against those pinned dependencies.
 
 ```sh
-./scripts/provision.sh              # first, in a fresh copy: link the shared, read-only Mathlib
+./scripts/provision.sh              # dependency setup, first in a fresh copy
 lake build                         # incremental development check (the regula package)
 lake -d audit build                # the Mathlib-dependent package
 ./scripts/verify.sh                 # ordinary acceptance (project surfaces)
@@ -55,7 +55,7 @@ inspection, so a redundant preliminary clean build is unnecessary; `lake build` 
 development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. Provisioning happens before
 that limit, under its own 30-minute limit. CI runs both commands, in that order in one job, after restoring or
-provisioning pinned dependency caches.
+provisioning pinned dependency artifacts.
 
 The applicable command evidence is required but does not complete the standard's checklist:
 theorem, type and prose rows still require semantic review. A conformance record for this
