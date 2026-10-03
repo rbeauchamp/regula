@@ -110,11 +110,11 @@ theorem installsSystemPackages_iff (githubActions runnerOS : Option String) :
       githubActions = some "true" ∧ runnerOS = some "Linux" := by
   simp [installsSystemPackages]
 
-/-- macOS build tools are installed only in the dedicated hosted Actions environment. -/
+/-- Whether the supplied flags request macOS system package installation. -/
 def installsMacPackages (githubActions runnerOS : Option String) : Bool :=
   githubActions == some "true" && runnerOS == some "macOS"
 
-/-- The macOS installer is confined to hosted macOS Actions jobs. -/
+/-- The macOS decision requires exactly the Actions and macOS runner flags. -/
 theorem installsMacPackages_iff (githubActions runnerOS : Option String) :
     installsMacPackages githubActions runnerOS = true ↔
       githubActions = some "true" ∧ runnerOS = some "macOS" := by
@@ -132,7 +132,7 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String) : IO Un
   let code ← child.wait
   unless code == 0 do throw <| IO.userError s!"compiler setup: {cmd} failed ({code})"
 
-/-- Install the declared native runtime and build tools only on hosted Actions runners. -/
+/-- Install native runtime and build tools when the corresponding Actions/OS flags match. -/
 private def installSystemPackages (root : FilePath) : IO Unit := do
   if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
     stream root "sudo" #["apt-get", "update"]

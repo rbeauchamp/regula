@@ -34,7 +34,7 @@ jobs:
 
       - uses: ./.github/actions/provision
         with:
-          acquisition: prepare
+          bootstrap-only: 'true'
           dependencies: 'false'
 
       - name: Build complete pinned compiler and dependency snapshot from source
@@ -93,8 +93,6 @@ jobs:
         run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaSnapshot.lean select-for-qualification tmp/compiled-snapshot-input/location.json
 
       - name: Restore on this fresh runner and admit all compiler and dependency inputs
-        env:
-          GHCR_TOKEN: ${{ github.token }}
         run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaCompiler.lean
 
       - name: Verify

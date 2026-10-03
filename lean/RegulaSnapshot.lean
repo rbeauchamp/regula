@@ -62,7 +62,7 @@ structure Input where
 
 /-- The compiler selected for one immutable preparation. -/
 structure Compiler where
-  /-- Elan selector shared by all Regula packages. -/
+  /-- Elan selector shared by all Regula packages and distinct for each input set. -/
   selector : String
   /-- Full compiler Git revision. -/
   revision : String
@@ -145,8 +145,9 @@ theorem admit?_sound (expected : Identity) (receipt : Receipt) (accepted : Admit
 /-- Only explicit preparation schedules dependency compilation. -/
 def buildPlan : Acquisition → Array (String × Array String)
   | .prepare => #[
-      ("audit", #["mathlib/Mathlib", "mathlib/Mathlib:static.export"]),
-      ("website", #["verso/VersoManual", "verso/VersoManual:static.export"])]
+      ("audit", #["mathlib/Mathlib", "mathlib/Mathlib:static.export", "mathlib/Mathlib:shared"]),
+      ("website", #["verso/VersoManual", "verso/VersoManual:static.export",
+        "verso/VersoManual:shared"])]
   | .restore => #[]
 
 /-- Ordinary restoration schedules no source build, including a restoration miss. -/
@@ -184,6 +185,15 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     cmd, args, cwd := some cwd, env, stdin := .null, stdout := .inherit, stderr := .inherit}
   let code ← child.wait
   unless code == 0 do throw <| IO.userError s!"snapshot: {cmd} failed ({code})"
+
+private def diskSpace (root : FilePath) (phase : String) : IO Nat := do
+  let report ← run root "df" #["-Pk", root.toString]
+  let line := (report.splitOn "\n").getLast!
+  let fields := (line.splitOn " ").filter (!·.isEmpty)
+  let some available := (fields[3]?).bind String.toNat?
+    | throw <| IO.userError "snapshot: cannot observe available disk space"
+  IO.println s!"snapshot: {phase}: {available} KiB available on the preparation filesystem"
+  return available
 
 private def readJson (path : FilePath) : IO Json := do
   IO.ofExcept <| Json.parse (← IO.FS.readFile path)
@@ -290,7 +300,7 @@ private def identity (root : FilePath) : IO Identity := do
   let mut inputs := #[]
   for file in #["lean-toolchain", "dependency-build-mode", "lakefile.lean", "lake-manifest.json",
       "audit/lean-toolchain", "audit/lakefile.lean", "audit/lake-manifest.json",
-      "website/lean-toolchain", "website/lakefile.lean", "website/lake-manifest.json",
+      "website/lean-toolchain", "website/lakefile.toml", "website/lake-manifest.json",
       "examples/build-lint/lean-toolchain", "examples/lake-lint-toml/lean-toolchain",
       "lean/RegulaCompiler.lean", "lean/RegulaSnapshot.lean"] do
     inputs := inputs.push ⟨file, ← IO.FS.readFile (root / file)⟩
@@ -535,7 +545,9 @@ private def activate (root payload : FilePath) (expected : Identity)
     let compilerRoot ← run root "elan" #["run", expected.compiler.selector, "lean", "--print-prefix"]
     unless (← IO.FS.realPath (FilePath.mk compilerRoot)) ==
         (← IO.FS.realPath (payload / "compiler")) do
-      throw <| IO.userError "snapshot: preserving an existing alias linked to another compiler root"
+      throw <| IO.userError "snapshot: preserving an existing alias linked to another compiler root; \
+        choose a distinct alias in the compiler specifications and all five toolchain files, \
+        then prepare and qualify that input set"
     let _ ← observeCompiler root (FilePath.mk compilerRoot) expected.compiler
   else
     unless component expected.compiler.selector do
@@ -595,8 +607,25 @@ def prepare (root : FilePath) : IO Unit := do
     throw <| IO.userError "snapshot: preparation requires a clean frozen checkout"
   unless ← (root / ".github/compiler-source.json").pathExists do
     throw <| IO.userError "snapshot: preparation requires an explicit compiler source recipe"
+  let source ← readJson (root / ".github/compiler-source.json")
+  unless (← IO.ofExcept <| source.getObjValAs? String "revision") == expected.compiler.revision do
+    throw <| IO.userError "snapshot: compiler source recipe selects another revision"
+  unless !(← (root / ".lake/packages").pathExists) do
+    throw <| IO.userError "snapshot: preserving existing dependency artifacts; use a fresh factory runner"
+  let some home ← IO.getEnv "HOME" | throw <| IO.userError "snapshot: HOME is unset"
+  unless !(← (FilePath.mk home / ".cache/regula-compilers").pathExists) do
+    throw <| IO.userError "snapshot: preserving an existing compiler store; use a fresh factory runner"
+  let listing ← run root "elan" #["toolchain", "list"]
+  unless !(listing.splitOn "\n").any (fun line =>
+      (line.splitOn " ").head? == some expected.compiler.selector) do
+    throw <| IO.userError "snapshot: source preparation cannot reuse an installed compiler alias"
+  let available ← diskSpace root "before source preparation"
+  unless available ≥ 32 * 1024 * 1024 do
+    throw <| IO.userError "snapshot: source preparation requires at least 32 GiB initially free; \
+      hosted capacity is not inferred from the runner label"
   stream root "elan" #["run", "leanprover/lean4:v4.34.0", "lean", "--run",
     "lean/RegulaCompiler.lean", "prepare"]
+  let _ ← diskSpace root "after compiler preparation"
   let compilerRoot ← run root "elan" #["run", expected.compiler.selector, "lean", "--print-prefix"]
   let compiler ← observeCompiler root (FilePath.mk compilerRoot) expected.compiler
   let cache := root / ".lake/snapshot-artifact-cache"
@@ -607,6 +636,7 @@ def prepare (root : FilePath) : IO Unit := do
   for (dir, targets) in buildPlan .prepare do
     stream root "elan" (#["run", expected.compiler.selector, "lake", "--no-cache",
       "--keep-toolchain", "-d", dir, "build"] ++ targets) env
+  let _ ← diskSpace root "after dependency preparation"
   let prepared := root / "tmp/compiled-snapshot"
   unless !(← prepared.pathExists) do
     throw <| IO.userError "snapshot: preserving an existing preparation directory"
@@ -626,6 +656,7 @@ def prepare (root : FilePath) : IO Unit := do
   let description : Archives := ⟨1, receipt, archives⟩
   unless description.valid do throw <| IO.userError "snapshot: generated archive descriptor is invalid"
   IO.FS.writeFile (prepared / "archive.json") ((toJson description).pretty ++ "\n")
+  let _ ← diskSpace root "after streamed packaging"
   IO.println s!"snapshot: prepared source-built {compiler.revision} for {expected.platform.name}"
 
 /-- Publish only an admitted preparation to the Regula OCI package. -/
