@@ -476,12 +476,10 @@ private def freshBuildEnvironment (root : FilePath) (mode : BuildMode) :
     IO.FS.createDir cache
     return buildEnvironment (← IO.FS.realPath cache).toString mode
 
-/-- Read the repository's explicit artifact mode. Missing configuration retains the stable
-cache route; malformed configuration is refused. -/
+/-- Read the repository's explicit artifact mode. A missing or malformed
+`dependency-build-mode` is refused. -/
 def readBuildMode (repo : FilePath) : IO BuildMode := do
-  let path := repo / "dependency-build-mode"
-  unless ← path.pathExists do return .upstreamCache
-  let text := (← IO.FS.readFile path).trimAscii.toString
+  let text := (← IO.FS.readFile (repo / "dependency-build-mode")).trimAscii.toString
   let some mode := buildMode? text
     | throw <| IO.userError s!"provisioning: unknown dependency-build-mode '{text}'"
   return mode
@@ -508,6 +506,12 @@ linked sources, so the root package's Lake configuration and build caches stay u
 planner's own Lake loads of the Audit and standard packages may write their configuration
 caches. The workspace's key includes the repository's canonical path, which its absolute source
 links name, so a moved repository gets a new workspace and the old one is left in place.
+A workspace is written whole in a sibling staging directory and published as `v2-<key>` by one
+rename, so this program leaves no partly written workspace at that path; the rename is a trusted
+filesystem effect, and this is no claim of durability across power loss. An interrupted attempt,
+and one that another process outran, stays in its staging directory, unused and never removed.
+A `<key>` directory of the earlier in-place construction, which may be partial, is likewise
+neither used nor removed.
 Generated configuration is never overwritten: an existing workspace must retain the same bytes
 and source links. -/
 private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
@@ -517,13 +521,16 @@ private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
   let parent := repo / ".lake/regula-dependency-planner"
   IO.FS.createDirAll parent
   let key := hash (inputs.toList, Lean.githash, (← IO.FS.realPath repo).toString)
-  let workspace := parent / toString key
+  let workspace := parent / s!"v2-{key}"
   match ← kind? workspace with
   | none =>
-    IO.FS.createDir workspace
-    for (name, source) in inputs do IO.FS.writeFile (workspace / name) source
+    let staged := parent / s!"v2-{key}.staging-{← nonce}"
+    IO.FS.createDir staged
+    for (name, source) in inputs do IO.FS.writeFile (staged / name) source
     for name in #["lean", "examples"] do
-      let _ ← require repo "ln" #["-s", (repo / name).toString, (workspace / name).toString]
+      let _ ← require repo "ln" #["-s", (repo / name).toString, (staged / name).toString]
+    try IO.FS.rename staged workspace
+    catch error => unless (← kind? workspace) == some .dir do throw error
   | some .dir => pure ()
   | some _ => throw <| IO.userError s!"provisioning: planner workspace is not a directory: {workspace}"
   for (name, source) in inputs do

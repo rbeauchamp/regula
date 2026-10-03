@@ -28,8 +28,10 @@ be uploaded.
   the development edition equal to the rendered one, every release edition equal to its published
   copy, one page per registered rule in the development and installed editions and no other rule
   route, page content equal to the admitted example text, every scanned link of the whole tree
-  resolving under the project base path (`linkErrors_nil_iff`), and the registry's own site
-  validator (`axiomGate --validate-site`) over the observed pages and emitted rule IDs.
+  resolving under the project base path (`linkErrors_nil_iff`), every rule ID in the prose of the
+  development edition linked to its page there (`Regula.Prose.htmlErrors_nil_iff`), and the
+  registry's own site validator (`axiomGate --validate-site`) over the observed pages and emitted
+  rule IDs.
 
 ## Boundaries
 
@@ -270,6 +272,14 @@ def checkArtifact (root out : FilePath) (g : Generated) (tag : TagState)
     if p.endsWith ".html" then return Page.ofHtml p (← utf8 p bytes) else return Page.ofOther p
   let errors := linkErrors pages
   requireChecks [⟨s!"{errors.length} unresolved link(s): {errors.take 10}", errors.isEmpty⟩]
+  -- Every rule ID in the prose of the rendered edition links to its page in that edition; the
+  -- release editions are that rendering or copies frozen when they were released.
+  let mut bare : List String := []
+  for (p, bytes) in files do
+    if p.startsWith Edition.dev.root && p.endsWith ".html" then
+      bare := bare ++ Regula.Prose.htmlErrors Edition.dev.root p (← utf8 p bytes)
+  requireChecks [⟨s!"{bare.length} rule ID(s) in the development edition's prose that are not \
+    links to their rule pages: {bare.take 10}", bare.isEmpty⟩]
   -- The registry's own validator over the page inventory, the pages whose example content was
   -- checked above and every emitted rule ID.
   let registry := out.parent.getD root / "site-registry.json"

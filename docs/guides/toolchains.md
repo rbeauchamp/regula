@@ -29,13 +29,13 @@ elan toolchain link lean-issue /absolute/path/to/lean4/build/release/stage1
 lake exe toolchain prepare lean-issue /absolute/path/to/new-regula-candidate
 ```
 
-For an installed release candidate, substitute its full selector, for example
-`leanprover/lean4:v4.35.0-rc3`. The command probes the selected compiler for its version and
-full commit and legacy compiler-trust capability, creates a detached Git worktree from the
+For an installed release candidate, substitute its name exactly as `elan toolchain list` prints
+it, for example `leanprover/lean4:v4.35.0-rc3`. The command probes the selected compiler for its
+version and full commit and legacy compiler-trust capability, creates a detached Git worktree from the
 current commit, changes only the compiler declaration, capability, candidate marker and
 `lean-toolchain`, and commits the candidate.
-It refuses a selector unless `elan toolchain list` prints a toolchain spelled as it or as its
-release name; it resolves no channel such as `stable`, so it never installs a toolchain, changes
+It refuses a selector unless `elan toolchain list` prints exactly that name; it resolves no channel
+such as `stable` and completes no shorter spelling, so it never installs a toolchain, changes
 the caller's branch, or overrides the stable guard. The new worktree is retained for inspection,
 source adaptation, and ordinary Git worktree management.
 
@@ -46,7 +46,7 @@ policy. On a compiler that removed the family, recreating a retired name in proj
 code cannot give it compiler trust. The qualification receipt retains the observed capability
 alongside the exact version and commit.
 
-The RG5002 qualification fixture has no whitespace between its final documentation character
+The [RG5002] qualification fixture has no whitespace between its final documentation character
 and the closing delimiter. Lean's newer Markdown parser stores that whitespace as source
 information instead of documentation text; the older parser retained it in the string. This
 fixture therefore gives both parsers the same complete documentation value, which the producer
@@ -150,7 +150,8 @@ candidate, an ordinary invocation of `axiomGate` (so also the audit `lake lint` 
 themselves, among them `regula` (`doctor`, `init` and the offline guidance commands),
 `ruleExamples`, `toolchain`, `qualify` and `checkerSelftest`: whatever they print on a
 candidate is unqualified. The driver selects the explicit diagnostic purpose
-(`REGULA_COMPILER_QUALIFICATION=1`) for its children; this does not enable supported PASS
+(`REGULA_COMPILER_QUALIFICATION=1`) for every campaign except `candidate-refusal`, which it runs
+with that variable cleared to observe the ordinary refusal; this does not enable supported PASS
 results, and a diagnostic run that accepts its controls still exits 0, so an exit status alone
 never distinguishes a diagnostic observation from a supported result. Candidate result files
 have an outer `status: unsupported`, `purpose: compiler-qualification`, and
@@ -203,7 +204,7 @@ both newer compilers and these observations add neither to the supported stable 
 | `build` | met | met |
 | `candidate-refusal` | met | met |
 | `fixtures` | not met: removed legacy compiler axiom, obsolete LRAT bytes ([#192](https://github.com/rbeauchamp/regula/issues/192)) | not met: the same legacy axiom and LRAT controls, and controls over `ctorIdx._impl` ([#193](https://github.com/rbeauchamp/regula/issues/193)) |
-| `producers` | met | not met: `uncaught exception: declaration documentation` after the RG5001 controls passed; cause unknown ([#195](https://github.com/rbeauchamp/regula/issues/195)) |
+| `producers` | met | not met: `uncaught exception: declaration documentation` after the [RG5001] controls passed; cause unknown ([#195](https://github.com/rbeauchamp/regula/issues/195)) |
 | `history` | met | met |
 | `structural` | met | not met: fresh gates refused over `ctorIdx._impl` (#193) |
 | `execution` | met | not met: correspondence controls refused over `ctorIdx._impl`, and `replacement-cycle` stops in compilation (#193) |
@@ -220,7 +221,7 @@ Whichever instance a compiler elaborates decides the same proposition, as every 
 instance of it does; `snapshotDecidableEq_eq` and `claimCandidateDecidableEq_eq` state only
 that, and say nothing about which implementation was compiled or what it costs. `regula
 doctor` asks Elan for the compiler the project's own `lean-toolchain` selects and compares the
-version and commit that compiler reports with the supported identity, so two selectors of one
+version and commit that compiler reports with the supported identity, so two installed names of one
 compiler agree and an override cannot hide a project pinned to another. LRAT qualification
 setup now generates separate direct and grind certificates with the selected compiler before
 checking them.
@@ -231,7 +232,7 @@ native-proof control does not replace the retired direct-axiom control. Construc
 helpers are authenticated against Lean's generator under their own declaration policy, while
 their unsafe and runtime-replacement execution boundaries remain visible. The
 `replacement-cycle` control now reaches the detector through compiler-compatible construction.
-The RG5002 failure is attributed to the changed documentation parser behavior described above
+The [RG5002] failure is attributed to the changed documentation parser behavior described above
 by reading the producer's exact documentation check, not by a rerun.
 The original failures remain historical evidence; these repairs need qualification at the
 actual compatibility revision before that revision is promoted.
@@ -270,8 +271,8 @@ complete, ordered campaign observations meeting each required exit and output.
 issue exactly when the project's pin resolved to a compiler whose reported identity
 `Compiler.Supports`; a pin that resolves to no installed compiler is an issue.
 `installedName?_spec` proves that the name `selectedLean` gives `elan run`, the path `prepare`,
-`qualify` and `doctor` use, is among the names parsed from `elan toolchain list`, spelled as
-the selector or as its release name, run without Elan's `--install`. These are
+`qualify` and `doctor` use, is among the names parsed from `elan toolchain list` and equals
+the selector, run without Elan's `--install`. These are
 kernel-checked statements about supplied values. They do not authenticate compiler binaries
 or Git commits, prove subprocess behavior, establish detector completeness, or prevent a
 filesystem change-and-restore race.
@@ -294,5 +295,8 @@ own branch, the second by the identity comparison, and the same package then loa
 Neither child is a compiler; a compiler of another identity as the child, or as the Lean
 running Lake, has no retained control.
 
-Compiler self-reports, Elan's listing, naming and resolution, Git, native compilation, JSON serialization, process
+Compiler self-reports, Elan's listing and resolution, Git, native compilation, JSON serialization, process
 exit observations, filesystem reads, and GNU timeout remain trusted operational mechanisms.
+
+[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/

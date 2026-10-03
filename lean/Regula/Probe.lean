@@ -66,7 +66,8 @@ correspondence theorem, or a kernel-checked opaque body), `trusted`, or
 declarations are reported by this account without becoming owned.
 
 Generated-role metadata is descriptive, not provenance. A recursion helper requires
-regeneration by the pinned recursion compiler; a constructor-index wrapper requires
+regeneration by the pinned recursion compiler and the kernel's check of its base's
+recursion equation; a constructor-index wrapper requires
 its separate generator-derived structural comparison. A native-proof axiom requires
 native replay and fresh exact-source frontend provenance. Names, ranges, and extension
 tags alone never waive a rule. Every declaration is still emitted and checked.

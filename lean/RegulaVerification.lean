@@ -192,7 +192,8 @@ def commands : Mode → List Command
       -- the standard's `lean` blocks import its modules, and the linked identity below brackets
       -- the sources they need.
       lakeIn auditPackage #["exe", "axiomGate"],
-      lake #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
+      lake
+          #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .graph => [lake #["exe", "freshChecker", "--verbose"]]
   | .diagnostics => selftest #[]
   | .producers => [
@@ -312,7 +313,8 @@ def run (args : List String) : IO Unit := do
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
     | .docs => "documentation verification: PASS (the Mathlib example package accepted fresh; \
       every docs/ Lean fence and every lean block of the Verso standard, which built fresh and \
-      rendered; inputs equal the accepted ordinary inputs)"
+      rendered; every rule ID in the prose `Regula.Prose` reads in the rendered standard links \
+      to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
       acceptance; publication is verified after deployment)"

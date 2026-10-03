@@ -1,7 +1,7 @@
 import RegulaCore.Feedback
 import RegulaCore.Guide
 import RegulaCore.Lint
-import RegulaCore.Site
+import RegulaCore.Prose
 import RegulaCore.Setup
 
 /-! # Offline rule guidance for agents
@@ -23,8 +23,8 @@ build, so it matches that build by construction.
   that shows it (`sameExampleAs`, `sameExampleAs_spec`).
 - `citation`, `citation_installed`, `agentGuideIn`, `skillIn`, `skill_unreleased`: the briefing
   tells an agent to link each rule ID it mentions to the rule's page, with a link to the
-  installed build's edition, the one a finding prints; the briefing of each edition differs only
-  in that link.
+  installed build's edition, the one a finding prints, and names every rule through that same
+  link itself; the briefing of each edition differs only in those links.
 - `Command`, `parseCommand`, `parseCommand_arguments`, `parseCommand_sound`: the printing
   commands.
 - `Invocation`, `parseInvocation`, `parseInvocation_arguments`, `parseInvocation_sound`: the
@@ -170,21 +170,23 @@ theorem sameExampleAs_spec {id other : RuleId} (h : sameExampleAs id = some othe
   simp only [Bool.and_eq_true, beq_iff_eq] at this
   exact this.2
 
-/-- One rule of the briefing: identity, requirement, remedy and the compliant example (named by
-the earlier rule that shows the same one), or the correction where the checked files are
-qualification inputs. -/
-def briefRule (id : RuleId) : String :=
-  let d := descriptor id
-  "### " ++ id.spelling ++ " " ++ d.title ++ "\n\n" ++ d.requirement ++ "\nFix: " ++
-      d.remedy ++ "\n\n" ++
-  match d.examples.adopterExample, sameExampleAs id with
-  | some _, some other => "Compliant example: as " ++ other.spelling ++ ".\n"
-  | some compliant, none => fenced d.examples.language.fence compliant
-  | none, _ => "Compliant form: " ++ d.examples.correction ++ "\n"
-
 /-- Rule `id`'s ID as a Markdown link to its page in edition `e`. -/
 def citation (e : Edition) (id : RuleId) : String :=
   "[" ++ id.spelling ++ "](" ++ e.url id.route ++ ")"
+
+/-- One rule of the briefing of edition `e`: identity, requirement, remedy and the compliant
+example (named by the earlier rule that shows the same one), or the correction where the checked
+files are qualification inputs. Every rule ID it names, its own and those of the registry's
+prose, is a `citation` in `e`. -/
+def briefRule (e : Edition) (id : RuleId) : String :=
+  let d := descriptor id
+  let cited := Prose.linkIds (citation e)
+  "### " ++ citation e id ++ " " ++ d.title ++ "\n\n" ++ cited d.requirement ++ "\nFix: " ++
+      cited d.remedy ++ "\n\n" ++
+  match d.examples.adopterExample, sameExampleAs id with
+  | some _, some other => "Compliant example: as " ++ citation e other ++ ".\n"
+  | some compliant, none => fenced d.examples.language.fence compliant
+  | none, _ => "Compliant form: " ++ cited d.examples.correction ++ "\n"
 
 /-- In the installed build's edition, a citation links to the page a finding's `rule:` line
 names (`helpUrl`): a release's own page (`helpUrl_release`), and a development page exactly for
@@ -193,7 +195,7 @@ theorem citation_installed (id : RuleId) :
     citation installed.edition id = "[" ++ id.spelling ++ "](" ++ helpUrl id ++ ")" := rfl
 
 /-- The agent briefing of a build whose pages are edition `e`: how to check, how findings read,
-how to cite a rule, and every rule for writing code. Only the citation's link depends on `e`. -/
+how to cite a rule, and every rule for writing code. Only the citations' links depend on `e`. -/
 def agentGuideIn (e : Edition) : String :=
   "# Regula agent briefing\n\n" ++
   "This project's Lean code and proofs must meet the Regula standard. Apply these rules while " ++
@@ -218,7 +220,8 @@ def agentGuideIn (e : Edition) : String :=
   "warning, weaken a statement, or drop a registration to pass.\n" ++
   "- Follow the Lean community's style, naming and documentation conventions (standard §6.7). " ++
   "Every claimed target enables `linter.missingDocs` (document every definition) in its " ++
-  "`leanOptions`, with the other options RG2006 checks; `lake lint` " ++
+  "`leanOptions`, with the other options " ++ citation e .communityConfiguration ++
+  " checks; `lake lint` " ++
   "rejects their warnings. Run Batteries' linters with `lake build && lake exe runLinter`. " ++
   "Disable a community linter only for a single declaration, " ++
   "where its guidance allows, with the reason; that never discharges a rule.\n" ++
@@ -226,14 +229,14 @@ def agentGuideIn (e : Edition) : String :=
   "and limits, which review checks.\n\n" ++
   String.join (writingSections.map fun (heading, scope, rules) =>
     "## " ++ heading ++ "\n\n" ++ scope ++ "\n\n" ++ String.join
-        (rules.map fun id => briefRule id ++ "\n"))
+        (rules.map fun id => briefRule e id ++ "\n"))
 
 /-- The agent briefing of the installed build, whose citation links name its edition
 (`citation_installed`). -/
 def agentGuide : String := agentGuideIn installed.edition
 
 /-- Byte budget of the agent briefing, so pasting it into an agent's context stays cheap. -/
-def agentGuideBudget : Nat := 15360
+def agentGuideBudget : Nat := 17408
 
 /-- The briefing of a build whose pages are edition `e`, as an Agent Skills `SKILL.md`. -/
 def skillIn (e : Edition) : String :=

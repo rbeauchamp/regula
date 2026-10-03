@@ -658,8 +658,11 @@ structure Declaration where
   recursion compiler, rerun on the values of the helper's group (each helper's calls to its group
   standing for the recursive calls), reproduced the observed base and every auxiliary definition it
   generated, up to compilation erasure (`Collect.unsafeRecRegeneration`): structural recursion, or
-  well-founded recursion with every decreasing proof elided. `none` when neither did, and for every
-  other declaration or inspection stage. -/
+  well-founded recursion with every decreasing proof elided. It is recorded only where Lean's
+  kernel also checked, for each helper of the group, the recursion equation of its base for the
+  helper's value, with no axiom outside Standard-Logical (`Collect.recursionEquationChecked`).
+  `none` when neither route did or an equation was not checked, and for every other declaration or
+  inspection stage. -/
   unsafeRecRegenerated : Option RecursionOrigin
   /-- For a replay candidate matching the pinned constructor-index generator: its inductive
   parent and safe base. The observer checks the kernel-generated eliminator, the base's exact

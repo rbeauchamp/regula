@@ -4,11 +4,11 @@ import RegulaCore.Toolchain
 
 Resolve an Elan toolchain selector to its `lean` executable and read its version, commit and
 origin-checked Core capability. The development toolchain driver and `regula doctor` share
-this. A selector is resolved only to a toolchain `elan toolchain list` names, spelled as the
-selector or as its release name (`installedName?`), and only that listed name is run, without
+this. A selector is resolved only to a toolchain `elan toolchain list` names, spelled exactly as
+the selector (`installedName?`), and only that listed name is run, without
 Elan's `--install`: a selector naming none is refused, and no channel is resolved and nothing
-is installed. Elan's listing, that it runs a listed toolchain without installing, its naming of
-release selectors, process execution and the compiler's self-report are trusted; a compiler built
+is installed. Elan's listing, that it runs a listed toolchain without installing, process
+execution and the compiler's self-report are trusted; a compiler built
 from a tree with uncommitted changes reports that tree's commit, with no marker for them. -/
 
 namespace Regula.Toolchain
@@ -30,7 +30,8 @@ def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
     throw <| IO.userError s!"cannot list installed toolchains: {listed.stderr.trimAscii}"
   let some name := installedName? (listedToolchains listed.stdout) selector
     | throw <| IO.userError
-        s!"cannot resolve selected compiler: Elan lists no installed toolchain for '{selector}'"
+        s!"cannot resolve selected compiler: Elan lists no installed toolchain named exactly \
+          '{selector}'"
   let out ← IO.Process.output {
     cmd := "elan", args := #["run", name, "elan", "which", "lean"]
     cwd := some root, env := compilerEnv }
