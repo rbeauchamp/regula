@@ -1438,18 +1438,19 @@ through the functions it unfolds to that do not unfold at the end of the audit, 
 each definition the preprocessing still asks about (`pairedChanges`). From the observed bases
 it reads which parameters they keep fixed
 (`observedFixedParameters?`) and how many mentions of a function they keep, which select one
-assignment directly. That assignment is tried first, in the inspected environment and in the one
-with no definition irreducible, and then every assignment that gives one or more of those
-definitions another status (`candidates`), each regeneration with the heartbeat budget of one
-declaration. An assignment is read from Lean's analysis, from statuses and from the observed
-definitions, all of which the audited source can write; like the termination argument it only
-selects which regeneration runs, is never an argument of the comparison, and is undone with the
-rest of the run before the comparison. The enumeration is exhaustive over those assignments when
-there are at most `candidateLimit` of them (`mem_candidates`), and then a helper no attempt
-reproduces is not regenerated. Otherwise only the first `candidateLimit` single candidate changes
-are tried (`candidates_length_le`), each of which can give several definitions a status, and a
-helper none of them reproduces is undecided: the regeneration throws, so the audit is incomplete
-and the helper is neither admitted nor rejected. The same holds where a change was followed
+assignment directly. The search runs in the inspected environment and then in the one with no
+definition irreducible: in each, that assignment is tried first, and then every assignment that
+gives one or more of those definitions another status (`candidates`), each regeneration with the
+heartbeat budget of one declaration. An assignment is read from Lean's analysis, from statuses
+and from the observed definitions, all of which the audited source can write; like the
+termination argument it only selects which regeneration runs, is never an argument of the
+comparison, and is undone with the rest of the run before the comparison. The enumeration is
+exhaustive over those assignments when there are at most `candidateLimit` of them
+(`mem_candidates`), and then a helper no attempt reproduces is not regenerated. Otherwise only
+the first `candidateLimit` single candidate changes are tried (`candidates_length_le`), each of
+which can give several definitions a status, and a helper none of them reproduces is undecided:
+the regeneration throws, so the audit is incomplete and the helper is neither admitted nor
+rejected. The same holds where a change was followed
 through as many runs as the environment has constants without being decided
 (`ChangeOutcome.exhausted`), which the argument at `effectiveChange?` says no change reaches.
 Where none of those assignments reproduces the base, the regeneration tries the assignments of
