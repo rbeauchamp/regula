@@ -37,7 +37,7 @@ last two tools. Verification runs offline against those pinned dependencies.
 lake build                         # incremental development check (the regula package)
 lake -d audit build                # the Mathlib-dependent package
 ./scripts/verify.sh                 # ordinary acceptance (project surfaces)
-./scripts/verify.sh docs            # audit/ package, documentation examples and the Verso standard, linked to that acceptance
+./scripts/verify.sh docs            # tracked Markdown rule IDs, audit/ package, documentation examples and the Verso standard, linked to that acceptance
 ./scripts/verify.sh diagnostics fixtures # focused diagnostic qualification
 ```
 
@@ -47,9 +47,9 @@ registry and native qualification controls (`qualify combined`, which runs those
 `qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
-then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
+then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, refuses a rule ID in the prose of the rendered standard that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -329,7 +329,10 @@ The [adoption guide](adoption.md#cite-a-rule) states the convention. `Regula.Pro
 ([`RegulaCore/Prose.lean`](../../lean/RegulaCore/Prose.lean)) defines it for rendered pages and
 checks it there: a rule ID is `RG` and four digits with no ASCII letter or digit directly before or
 after, and each one in prose must be a registered rule inside a link to that rule's page
-(`bareMentions_nil_iff`).
+(`bareMentions_nil_iff`). `Regula.Markdown`
+([`RegulaCore/Markdown.lean`](../../lean/RegulaCore/Markdown.lean)) decides the same for a
+Markdown document, from a CommonMark parser's reading of it
+([Markdown documents](#markdown-documents)).
 
 | Document | The link |
 | --- | --- |
@@ -349,10 +352,82 @@ strict, not an HTML parser: a page with a `code`, `pre`, `title` or `h1` element
 script that is never closed is refused, since the text after it could not be read as prose. The
 release editions already published are frozen copies and are not rewritten.
 
-The Markdown sources are not checked yet, so a bare rule ID in a Markdown document is caught in
-review. A check of them built on a conforming CommonMark parser (md4c through MD4Lean, already a
-dependency of the website) is tracked in
-[issue #214](https://github.com/rbeauchamp/regula/issues/214).
+#### Markdown documents
+
+`./scripts/verify.sh docs` checks every Markdown document Git tracks: each file `git ls-files`
+lists with the extension `md` or `markdown`, read from the working tree
+(`lake exe regula-markdown ..` in `website/`). This check reads no Markdown syntax of its own.
+md4c, a CommonMark parser that the pinned Verso brings as MD4Lean, parses each document in its
+GitHub dialect (tables, strikethrough, task lists and autolinks), and
+[`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) translates its parse into
+pieces (prose, code, the edges of links, refusals, and the boundaries between runs and lines)
+for `Regula.Markdown`, which decides on the pieces (`documentErrors_nil_iff`). The theorem is
+about the pieces it is given; the translation has no theorem. Hand-written readers of
+Markdown remain elsewhere in the repository and are no part of this check: the fence scanner of
+the documentation audit (`Regula.Checker.Documentation`, which finds the `lean` fences and their
+markers), `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
+prose, and `RegulaPolicy.Intent`, which finds the heading lines of a docstring.
+
+- Prose is every text md4c reports outside code spans and code blocks: paragraphs, headings,
+  list items, block quotes, table cells, emphasis, link text and image descriptions. A rule ID
+  there must be a registered rule inside one link to its development page, written inline or as
+  a reference to a link reference definition; a reference without a definition is prose.
+- A rule ID is read in the rendered text of a line, across the edges of links and code spans.
+  One that such an edge divides, as in `RG[2003](…)`, is refused; one that is wholly code is not
+  a mention. md4c itself decodes each character reference, in text and in a link's destination.
+- An image's description is read as md4c renders it, as text alone: a link or a code span
+  inside it is description text, and only a link around the image links it.
+- No HTML is read. A raw HTML block is refused, a comment too, and so is a document with inline
+  raw HTML such as `<kbd>`; write it in Markdown. The one raw HTML that is read is a block that
+  is exactly a fence marker of the documentation audit, `<!-- lean-trusted-compiler -->` or
+  `<!-- lean-fail: PATTERN -->` with no `>` in the pattern: it is one comment and renders as
+  nothing (`auditMarker`).
+- A document with a table that has no body row, or with a NUL character, is refused: MD4Lean
+  cannot represent either.
+- A refusal names the file, the line and the ID or the construct. The exception is a document
+  whose reading cannot be used (inline raw HTML, a table with no body row, a NUL character, or
+  md4c failing): it is refused as a whole, by file and reason with no line, and its rule IDs
+  are reported only once it is read. md4c reports text, not
+  positions, so the line is derived: the reported text is placed on the source lines in order,
+  and every such placement lies between the first and the last (`leftmost_le`, `le_rightmost`).
+  Where they differ, because the same text also stands on a line md4c does not report (a link
+  reference definition, usually), the refusal names both, as in `README.md:88-162`.
+
+The check trusts, and does not verify:
+
+- md4c's conformance to CommonMark and to the GitHub extensions it implements, and its
+  rendering of a character reference, which is how one is decoded.
+- MD4Lean's wrapper, for the documents the check reads. At the pinned revision its parse of
+  inline raw HTML is not a value of its own type (reading it crashed when tried), which is why
+  the check never asks for it.
+- That md4c's HTML renderer and MD4Lean's parse see the same reading of the same text and flags.
+  The treatment of inline raw HTML rests on this: a document is read only when md4c renders it
+  to the same HTML with inline raw HTML enabled and with it taken as text, and the parse taken
+  with it as text then describes the rendering GitHub's dialect gives.
+- That md4c reads a document as GitHub's renderer does (cmark-gfm and GitHub's later passes).
+- The translation of MD4Lean's document into the pieces the proved check decides on (`read`
+  and every definition it calls in `website/RegulaMarkdown.lean`: `block`, `inline`, `flat`,
+  `link` and the rest). It is project-owned Lean with no theorem: it decides which
+  piece each element md4c reports becomes, and only the evaluated controls of that module
+  observe it.
+
+Where md4c and GitHub are known to differ in a way that bears on the check, the check refuses
+what md4c's parse shows of the difference. The rest is not seen:
+
+| Difference between md4c and GitHub | What the check does |
+| --- | --- |
+| GitHub renders footnotes; md4c has none. md4c reads a footnote whose body is a link destination, with or without a title and whatever lines continue it, as a link reference definition, which is not prose. | Such a footnote's reference becomes a link whose text starts with `^`, or with a `!` before it an image whose description does, and that link or image is refused, inside an image's description too. So is a link or an image written with its destination whose text or description starts with `^`, since MD4Lean does not tell it from a reference. Not seen: such a footnote referenced only in the second brackets of a full reference, and the indented lines that continue a footnote, which md4c reads as a code block. Every other footnote is paragraph text for md4c and is checked as such, which the next row limits. |
+| GitHub starts a new block at each footnote definition (`[^n]:`), also on the line after paragraph text or after another definition; md4c reads those lines on as one paragraph. | Not seen: a code span or a link's text that md4c reads from one such line into the next is kept whole, where GitHub reads each definition by itself. A rule ID inside it is code or linked for md4c and prose on GitHub. |
+| GitHub reads a table only when its header row has as many cells as its delimiter row; md4c takes the column count from the delimiter row and drops the cells beyond it. | Not seen: where the counts differ, GitHub shows the lines as a paragraph, and md4c's parse has no trace of a cell it dropped. |
+| GitHub starts a table at a header row that is the last line of a paragraph; md4c only at one that is the first line of its paragraph, and otherwise reads the header row, the delimiter row and the rows after them on as that paragraph. | Not seen: md4c's parse has no table there, so the refusal of the next row does not apply, and a code span or a link's text that holds a pipe character or runs from one row into the next is kept whole, where GitHub ends the cell. A rule ID inside it is code or linked for md4c and prose on GitHub. Leave a blank line before a table. |
+| GitHub finds the cells of a table row first and ends a cell at a pipe character that is not escaped, also one inside a code span, a link's text or an image's description; md4c reads those first and keeps them whole. A link GitHub cuts that way leaves its text as prose. An escaped pipe character there ends no cell for either, but md4c keeps its backslash in a code span, where GitHub removes it. | A pipe character inside a code span, a link's text or an image's description in a table cell is refused, an escaped one too: md4c reports a link's text and an image's description without the backslash, and the check reads no escapes, so it does not tell an escaped pipe character from another. An escaped pipe character in a cell's own text is text for both and is read. |
+| The two find the end of a bare URL by their own rules. | A rule ID in an autolink is refused, in a bare URL and in `<URL>` alike, since MD4Lean does not tell them apart. Write the link in brackets. |
+| md4c reads an autolink inside a link's text as a link of its own. GitHub makes no link of a bare URL there, and it renders `<URL>` there as a link inside a link, which a browser ends at the inner one, so the text after it is outside every link. | A link inside a link's text is refused, for a bare URL and for `<URL>` alike, since MD4Lean does not tell them apart. For the bare URL that refuses what GitHub shows as one link. Write the URL outside the link's text. |
+| GitHub renders math written as `$…$`, as `$$…$$`, as a code span between two dollar signs, and as a fenced code block with the info string `math`. md4c reads the first two as text here, and the other two as a code span and a code block. | A rule ID in `$…$` or `$$…$$` is refused as prose. Not seen: one in the code span or the fenced block is code for md4c and is accepted, where GitHub renders it as math. |
+| GitHub shows YAML front matter, the lines between two `---` lines at the start of a document, as a table of its raw values; md4c has no front matter and reads those lines as Markdown, a thematic break and then a heading. | Not seen: md4c's parse has no trace of front matter, so its text is checked as prose. A bare rule ID there is refused; one written as a code span or a link is code or linked for md4c and plain text on GitHub, backticks or brackets included. The skill files under `.agents/skills/` have front matter. |
+
+Link destinations and titles, code block info strings, and link reference definitions are not
+prose and are not checked.
 
 ## Change an acceptance boundary
 
