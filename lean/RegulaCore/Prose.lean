@@ -72,14 +72,14 @@ after its list markers, footnote markers or `>` starts with a fence run, an HTML
 table's delimiter row or a link reference definition; a link reference definition indented four
 spaces or more, or directly after a paragraph line, a table row or a line that ends a paragraph; a
 line that starts with an HTML tag, processing instruction or declaration other than an autolink; a
-line that starts with a comment that is not all of it; a numeric character reference; a code span
-left open where a paragraph ends at an `interrupts` line, a table's header row or the end of an
-indented first line's paragraph; a code span or link that a `|` splits in a table row
-(`splitCell`); raw HTML, a `<` that `scanInline` reads as prose, so outside code spans, link
-destinations and titles, comments and autolinks, and that a letter, `/`, `?` or `!` follows
-(`Piece.rawHtml`, `markdownRefusals`); and a link reference definition split over lines
-(`splitDefinition`). That GitHub renders a document of the
-subset as these definitions read it is the check's premise, observed in the controls below, not
+line that starts with a comment that is not all of it; a numeric character reference; a backtick
+run that `scanInline` leaves unclosed (`Piece.openTicks`) in a paragraph that ends at an
+`interrupts` line, a table's header row or the end of an indented first line's paragraph; a code
+span or link that a `|` splits in a table row (`splitCell`); raw HTML, a `<` that `scanInline`
+reads as prose, so outside code spans, link destinations and titles, comments and autolinks, and
+that a letter, `/`, `?` or `!` follows (`Piece.rawHtml`, `markdownRefusals`); and a link reference
+definition split over lines (`splitDefinition`). That GitHub renders a document of the subset as
+these definitions read it is the check's premise, observed in the controls below, not
 proved.
 
 In HTML, an element, comment or script that is never closed would hide the text after it, so
@@ -539,6 +539,9 @@ inductive Piece where
   /-- A `<` that the scan reads as prose and that a letter, `/`, `?` or `!` follows: raw HTML,
   which the subset does not hold. -/
   | rawHtml
+  /-- A backtick run that no later run of its length closes, which the scan reads as prose
+  (`codeClose`): a code span that a cut paragraph can leave open (`Refusal.openCodeSpan`). -/
+  | openTicks (raw : String)
   deriving DecidableEq, Repr
 
 /-- The text of the paragraph that the piece stands for. -/
@@ -546,6 +549,7 @@ def Piece.raw : Piece → String
   | .prose text _ => text
   | .skip raw => raw
   | .rawHtml => "<"
+  | .openTicks raw => raw
 
 private def flush (link : Option String) (acc : List Char) : List Piece :=
   if acc.isEmpty then [] else [.prose (String.ofList acc.reverse) link]
@@ -646,7 +650,8 @@ def scanInline (definitions : List (String × String)) :
       let n := 1 + (rest.takeWhile (· == '`')).length
       match codeClose n 0 (rest.drop (n - 1)) with
       | some k => skip (n + k)
-      | none => scanInline definitions fuel link (rest.drop (n - 1)) (List.replicate n '`' ++ acc)
+      | none => flush link acc ++ Piece.openTicks (String.ofList (List.replicate n '`')) ::
+          scanInline definitions fuel link (rest.drop (n - 1)) []
     else if c == '<' then
       match tagLength rest with
       | some k => skip (k + 1)
@@ -714,8 +719,10 @@ def splitDefinition (text : List Char) : Bool :=
 
 /-- A block of a document. -/
 inductive Block where
-  /-- A paragraph, a heading or a comment line, with the line it starts on. -/
-  | paragraph (line : Nat) (text : String)
+  /-- A paragraph, a heading or a comment line, with the line it starts on and, when the scanner
+  ends the paragraph at an `interrupts` line, a table's header row or the end of an indented first
+  line's paragraph (`Open.cut`), the line of that cut. -/
+  | paragraph (line : Nat) (text : String) (cut : Option Nat)
   /-- A table, with the line of its header row and its rows in order. -/
   | table (line : Nat) (rows : List String)
   /-- A link reference definition, with its label and destination. -/
@@ -723,10 +730,11 @@ inductive Block where
   /-- A line for which the document is refused, with the construct. -/
   | refused (line : Nat) (refusal : Refusal)
 
-/-- The paragraph `text` that starts on line `line`, refused (`Refusal.splitDefinition`) when it is
-a link reference definition split over lines (`splitDefinition`). -/
-def paragraphBlocks (line : Nat) (text : String) : List Block :=
-  .paragraph line text ::
+/-- The paragraph `text` that starts on line `line`, which the scanner cuts at line `cut` if any,
+refused (`Refusal.splitDefinition`) when it is a link reference definition split over lines
+(`splitDefinition`). -/
+def paragraphBlocks (line : Nat) (text : String) (cut : Option Nat) : List Block :=
+  .paragraph line text cut ::
     if splitDefinition text.toList then [.refused line .splitDefinition] else []
 
 /-- The block open before a line. -/
@@ -747,21 +755,22 @@ inductive Open where
 document never closes, since everything after it would be code. -/
 def Open.close (line : Nat) : Open → List Block
   | .idle => []
-  | .paragraph lines => paragraphBlocks (line - lines.length) ("\n".intercalate lines.reverse)
+  | .paragraph lines =>
+    paragraphBlocks (line - lines.length) ("\n".intercalate lines.reverse) none
   | .table start rows =>
     .table start rows.reverse :: ((List.range rows.length).zip rows.reverse).flatMap
       fun (i, row) =>
         if (cells [] row.toList).any splitCell then [.refused (start + i) .splitTableCell] else []
   | .fence opened _ _ _ => [.refused opened .unclosedFence]
 
-/-- The paragraph `o` when the scanner ends it before line `line` at an `interrupts` line or a
-table's header row, refused (`Refusal.openCodeSpan`) when a code span is open there. -/
+/-- The paragraph `o` when the scanner ends it before line `line` at an `interrupts` line, a table's
+header row or the end of an indented first line's paragraph, with that cut recorded on its block
+(`markdownRefusals` refuses it when a code span is open there). -/
 def Open.cut (line : Nat) (o : Open) : List Block :=
-  o.close line ++ match o with
-    | .paragraph lines =>
-      let text := "\n".intercalate lines.reverse
-      if codeBalanced (text.length + 1) text.toList then [] else [.refused line .openCodeSpan]
-    | _ => []
+  match o with
+  | .paragraph lines =>
+    paragraphBlocks (line - lines.length) ("\n".intercalate lines.reverse) (some line)
+  | _ => o.close line
 
 /-- The blocks of a document's lines, from line `line` with `o` open before it. A fenced code
 block (`fenceOpen?`) closes at a fence run of its character at least as long (`closingFence`); in
@@ -793,7 +802,7 @@ def blocks : Nat → Open → List String → List Block
     else if let some (character, count) := fenceOpen? text then
       o.close line ++ blocks (line + 1) (.fence line spaces character count) rest
     else if isHeading text || (spaces ≤ 3 && wholeComment (text.toList.drop spaces)) then
-      o.close line ++ paragraphBlocks line text ++ blocks (line + 1) .idle rest
+      o.close line ++ paragraphBlocks line text none ++ blocks (line + 1) .idle rest
     else if !(o matches .idle) &&
         (referenceDefinition? (String.ofList (text.toList.dropWhile isBlank))).isSome then
       o.close line ++ .refused line .strayDefinition :: blocks (line + 1) .idle rest
@@ -820,31 +829,35 @@ def refusals (lines : List String) : List (Nat × Refusal) :=
 
 /-- The inline text of a Markdown document (`blocks`), scanned with its link reference definitions
 (`pieces`): each paragraph, heading and comment line, and each cell of each table row (`cells`),
-with the line it starts on. -/
-def markdownPieces (text : String) : List (Nat × List Piece) :=
+with the line it starts on and the line of the paragraph's cut (`Open.cut`), if any. -/
+def markdownPieces (text : String) : List (Nat × List Piece × Option Nat) :=
   let parts := blocks 1 .idle (text.splitOn "\n")
   let defined := parts.filterMap fun
     | .definition name destination => some (name, destination)
     | _ => none
   parts.flatMap fun
-    | .paragraph line paragraph => [(line, pieces defined paragraph)]
+    | .paragraph line paragraph cut => [(line, pieces defined paragraph, cut)]
     | .table line rows => ((List.range rows.length).zip rows).flatMap fun (i, row) =>
-      (cells [] row.toList).map fun cell => (line + i, pieces defined (String.ofList cell))
+      (cells [] row.toList).map fun cell => (line + i, pieces defined (String.ofList cell), none)
     | _ => []
 
 /-- The prose of a Markdown document: the prose runs of its inline text (`markdownPieces`), that
 is, its text outside code spans, link destinations and titles, comments, autolinks and bare URLs.
 -/
 def markdownRuns (text : String) : List Run :=
-  (markdownPieces text).flatMap fun (line, pieces) => runsOf line pieces
+  (markdownPieces text).flatMap fun (line, pieces, _) => runsOf line pieces
 
 /-- Each line for which the Markdown document `text` is refused, with the construct: the block
-structure's (`refusals`), then the first raw HTML of each paragraph, heading, comment line and
-table cell that `scanInline` reads (`rawHtmlLine?`). -/
+structure's (`refusals`), then, in each paragraph, heading, comment line and table cell as
+`scanInline` reads it, its first raw HTML (`rawHtmlLine?`) and, for a paragraph the scanner cuts,
+the cut when a backtick run is left open (`Piece.openTicks`). -/
 def markdownRefusals (text : String) : List (Nat × Refusal) :=
   refusals (text.splitOn "\n") ++
-    ((markdownPieces text).filterMap fun (line, pieces) =>
-      (rawHtmlLine? line pieces).map (·, Refusal.inlineHtml)).eraseDups
+    ((markdownPieces text).flatMap fun (line, pieces, cut) =>
+      ((rawHtmlLine? line pieces).map (·, Refusal.inlineHtml)).toList ++
+        ((cut.filter fun _ => pieces.any (· matches .openTicks _)).map
+          (·, Refusal.openCodeSpan)).toList
+    ).eraseDups
 
 /-- What the Markdown document `text` of `main` is refused for: each line of a construct outside
 the subset (`markdownRefusals`, `Refusal.message`), and each rule ID in its prose that is not a
@@ -1177,6 +1190,17 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
   ["a.md:2: " ++ Refusal.openCodeSpan.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Text `x\n2. y` and RG1001 then `z`.\n" ==
+  ["a.md:2: " ++ Refusal.openCodeSpan.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+    "> See [the rule](https://x/a`b) and run `lake\n> exe regula` with RG1001 `here`.\n" ==
+  ["a.md:2: " ++ Refusal.openCodeSpan.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+    "> Note <!-- see ` --> and run `lake\n> exe regula` with RG1001 `here`.\n" ==
+  ["a.md:2: " ++ Refusal.openCodeSpan.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "See [a](u`v) and `x\n2. y` RG1001 `z`.\n" ==
   ["a.md:2: " ++ Refusal.openCodeSpan.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Text `x\n| a | b |\n| - | - |\n" ==

@@ -370,8 +370,9 @@ item's marker line and any block quote; a link reference definition indented fou
 more, or directly after a paragraph line, a table row or a line that ends a paragraph, so put
 each after a blank line at the end of the document; a line that starts with an HTML tag,
 processing instruction or declaration, so raw HTML blocks are not supported; a line that starts
-with a comment that is not all of it; a numeric character reference; a code span left open where
-a paragraph ends at such a line, at a table's header row or after an indented first line; a code
+with a comment that is not all of it; a numeric character reference; a backtick run that the scan
+leaves unclosed (outside code spans, link destinations and titles, comments and autolinks) in a
+paragraph that ends at such a line, at a table's header row or after an indented first line; a code
 span or link that a `|` splits in a table row; raw HTML, a `<` read as text (outside code spans,
 link destinations and titles, comments and autolinks) that a letter, `/`, `?` or `!` follows, so
 put HTML in a code span or write it in Markdown; and a link reference definition split
