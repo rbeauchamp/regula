@@ -111,7 +111,7 @@ private def valueOf? : ConstantInfo → Option Expr
   | .opaqueInfo value => some value.value
   | _                 => none
 
-/-- The pinned Lean v4.34.0 renderings (`Kernel.Exception.toMessageData`) of the kernel's resource
+/-- The pinned compiler's renderings (`Kernel.Exception.toMessageData`) of the kernel's resource
 limits, which `throwKernelException` throws as untagged errors, each with the limit it names. -/
 private def kernelLimits : Array (String × String) := #[
   ("(kernel) deterministic timeout", "kernel heartbeats"),
