@@ -43,7 +43,8 @@ out of order is not detected. Markdown documents are not checked here: a check o
 built on a conforming CommonMark parser, is tracked in
 https://github.com/rbeauchamp/regula/issues/214. `linkIds` rewrites generated prose outside its
 code spans, inline links and bare URLs (`scanGenerated`); that its output has no bare rule ID is
-established by `htmlErrors` on the rendered pages, not by a theorem about the rewriting.
+established by `htmlErrors` on the rendered pages, not by a theorem about the rewriting, and is not
+checked for the Markdown agent briefing (`Regula.Guidance.briefRule`).
 -/
 
 namespace Regula.Prose

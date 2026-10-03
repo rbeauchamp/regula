@@ -150,8 +150,8 @@ enter its warning check.
 
 `./scripts/verify.sh` runs `axiomGate --acceptance-link tmp/acceptance-link.json --verso
 website:RegulaStandard:regula-standard` after its builds and other required checks, and
-`./scripts/verify.sh docs` runs `docFenceAudit` with the same arguments over every `docs/` fence and
-every `lean` block of the standard. The shell's zero exit records completed execution of those
+`./scripts/verify.sh docs` runs `docFenceAudit` with the same arguments and `--rule-links` over
+every `docs/` fence and every `lean` block of the standard. The shell's zero exit records completed execution of those
 commands, not a separate Lean proof.
 
 Source capture keeps each prefix for failure reporting; a prefix is not a completed inventory. A
