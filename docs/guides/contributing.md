@@ -382,7 +382,10 @@ prose.
   nothing (`auditMarker`).
 - A document with a table that has no body row, or with a NUL character, is refused: MD4Lean
   cannot represent either.
-- Each refusal names the file, the line and the ID or the construct. md4c reports text, not
+- A refusal names the file, the line and the ID or the construct. The exception is a document
+  whose reading cannot be used (inline raw HTML, a table with no body row, a NUL character, or
+  md4c failing): it is refused as a whole, by file and reason with no line, and its rule IDs
+  are reported only once it is read. md4c reports text, not
   positions, so the line is derived: the reported text is placed on the source lines in order,
   and every such placement lies between the first and the last (`leftmost_le`, `le_rightmost`).
   Where they differ, because the same text also stands on a line md4c does not report (a link
@@ -406,8 +409,10 @@ what md4c's parse shows of the difference. The rest is not seen:
 
 | Difference between md4c and GitHub | What the check does |
 | --- | --- |
-| GitHub renders footnotes; md4c has none. md4c reads a footnote whose body is a link destination, with or without a title and whatever lines continue it, as a link reference definition, which is not prose. | Such a footnote's reference becomes a link whose text starts with `^`, and that link is refused, inside an image's description too. Not seen: such a footnote referenced only in the second brackets of a full reference, and the indented lines that continue a footnote, which md4c reads as a code block. Every other footnote is a paragraph and is checked. |
+| GitHub renders footnotes; md4c has none. md4c reads a footnote whose body is a link destination, with or without a title and whatever lines continue it, as a link reference definition, which is not prose. | Such a footnote's reference becomes a link whose text starts with `^`, and that link is refused, inside an image's description too. Not seen: such a footnote referenced only in the second brackets of a full reference, and the indented lines that continue a footnote, which md4c reads as a code block. Every other footnote is paragraph text for md4c and is checked as such, which the next row limits. |
+| GitHub starts a new block at each footnote definition (`[^n]:`), also on the line after paragraph text or after another definition; md4c reads those lines on as one paragraph. | Not seen: a code span or a link's text that md4c reads from one such line into the next is kept whole, where GitHub reads each definition by itself. A rule ID inside it is code or linked for md4c and prose on GitHub. |
 | GitHub reads a table only when its header row has as many cells as its delimiter row; md4c takes the column count from the delimiter row and drops the cells beyond it. | Not seen: where the counts differ, GitHub shows the lines as a paragraph, and md4c's parse has no trace of a cell it dropped. |
+| GitHub starts a table at a header row that is the last line of a paragraph; md4c only at one that is the first line of its paragraph, and otherwise reads the header row, the delimiter row and the rows after them on as that paragraph. | Not seen: md4c's parse has no table there, so the refusal of the next row does not apply, and a code span or a link's text that holds a pipe character or runs from one row into the next is kept whole, where GitHub ends the cell. A rule ID inside it is code or linked for md4c and prose on GitHub. Leave a blank line before a table. |
 | GitHub finds the cells of a table row first and ends a cell at a pipe character, also one inside a code span, a link's text or an image's description; md4c reads those first and keeps them whole. A link GitHub cuts that way leaves its text as prose. | A pipe character inside a code span, a link's text or an image's description in a table cell is refused. An escaped pipe character in a cell's own text is text for both and is read. |
 | The two find the end of a bare URL by their own rules. | A rule ID in an autolink is refused, in a bare URL and in `<URL>` alike, since MD4Lean does not tell them apart. Write the link in brackets. |
 | GitHub renders `$…$` and `$$…$$` as math; md4c reads them as text here. | A rule ID in math is refused as prose. |

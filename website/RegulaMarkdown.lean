@@ -42,6 +42,24 @@ otherwise (the contributor guide names the differences):
 - an autolink whose text has a rule ID, since the two find the end of a bare URL by their own
   rules, and MD4Lean does not tell a bare URL from `<URL>`.
 
+## What is not seen
+
+md4c's parse has no trace of these differences, so the check reads what md4c reports (the guide
+gives each):
+
+- a footnote that md4c reads as a link reference definition and that is referenced only in the
+  second brackets of a full reference, and the indented lines that continue a footnote;
+- a table whose header row has another number of cells than its delimiter row;
+- the blocks GitHub starts where md4c reads on in one paragraph: a table whose header row is
+  not the first line of its paragraph, and each footnote definition after a line of text or
+  after another definition. A code span or a link's text that md4c reads across the cells, rows
+  or definitions GitHub finds there is kept whole, so a rule ID inside it is code or linked
+  here and prose on GitHub.
+
+A document whose reading cannot be used (inline raw HTML, a table with no body row, a NUL
+character, md4c failing) is refused by file and reason, without a line and without its rule
+IDs, which are reported once it is read.
+
 ## Trusted
 
 md4c's conformance to CommonMark and to GitHub's extensions it implements; MD4Lean's wrapper,
@@ -336,6 +354,10 @@ private def bodyless : String :=
 #guard check "a.md" (s!"See [RG2003]({page "RG2003"}), [the RG2003 fix]({page "RG2003"}#fix),\n" ++
   s!"[RG2003], [RG2003][], [it][RG2003] and [`RG2003`]({page "RG2002"})\n\n" ++
   s!"[RG2003]: {page "RG2003"}\n") == []
+-- md4c reports a bare URL inside a link's text as a link of its own; the text after it is the
+-- outer link's.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" (s!"[see https://example.org and RG2003]({page "RG2003"})\n") == []
 -- A link elsewhere and an unregistered ID are refused.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" (s!"[RG2003]({page "RG2002"}) and RG9999\n") ==
@@ -411,6 +433,14 @@ private def bodyless : String :=
 -- A footnote that md4c reads as a paragraph is prose, and its reference is text.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "Use[^n].\n\n[^n]: See RG2003 for more.\n" == [bare "3"]
+-- Not seen: GitHub starts a new block at the second footnote definition and at a table whose
+-- header row follows a line of text, and shows each ID as prose; md4c reads on in one
+-- paragraph, where the ID is code.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "[^a]: Use `x\n[^b]: RG2003 y` here.\n" == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "Run it:\n| Command | Rule |\n| --- | --- |\n| `grep a | b RG2003` | x |\n" ==
+  []
 -- A pipe character inside a code span in a table cell; outside a table the code span is code.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "| A | B |\n| --- | --- |\n| `a | b` `RG2003` | c |\n\n`a | RG2003`\n" ==

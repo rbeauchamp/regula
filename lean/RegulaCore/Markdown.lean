@@ -25,7 +25,8 @@ parse into the `Piece`s below, so what is prose, code or a link is md4c's decisi
   of the reported text on the source lines, in order, puts each piece between the lines
   `leftmost` and `rightmost` return for it.
 - `documentErrors`, `documentErrors_nil_iff`, `checked_documentErrors`: the executed check of one
-  document, reporting the file, the line or lines and the ID.
+  document, reporting the file, the line or lines and the ID or the refused construct; a
+  document whose reading cannot be used is reported by file and reason alone, without its IDs.
 
 ## What prose is
 
@@ -103,8 +104,8 @@ def Piece.located? : Piece → Option String
 inductive Place where
   /-- In prose outside every link. -/
   | prose
-  /-- In the text of the link numbered `index` in the document, which leads to
-  `destination`. -/
+  /-- In the text of the link numbered `index` in the document, which leads to `destination`:
+  the innermost link, where a link's text holds another link. -/
   | link (index : Nat) (destination : String)
   /-- In a code span or a code block. -/
   | code
@@ -183,8 +184,8 @@ structure Scan where
   anchor : Nat := 0
   /-- The number of links entered so far. -/
   links : Nat := 0
-  /-- The link whose text is being read, with its number. -/
-  link : Option (Nat × String) := none
+  /-- The links entered and not yet left, the one entered last first, each with its number. -/
+  entered : List (Nat × String) := []
   /-- The parts of the run in progress, last first. -/
   run : List Part := []
   /-- The findings so far, last first. -/
@@ -198,25 +199,30 @@ def Scan.flush (s : Scan) : Scan :=
 def Scan.past (s : Scan) (slice : String) : Scan :=
   if blank slice then s else { s with anchor := s.anchor + 1 }
 
-/-- Where prose read now stands. -/
+/-- Where prose read now stands: in the text of the link entered last and not yet left, if
+any. -/
 def Scan.place (s : Scan) : Place :=
-  match s.link with
-  | some (index, destination) => .link index destination
-  | none => .prose
+  match s.entered with
+  | (index, destination) :: _ => .link index destination
+  | [] => .prose
 
 /-- Read one piece. Prose and code continue the run in progress, each character with its place;
 the edge of a table cell or of an image's description and a line boundary end it, so a token is
-read across the edges of links and code spans and across nothing else. -/
+read across the edges of links and code spans and across nothing else. A link's text may hold
+another link (md4c reports a bare URL inside a link's text as one): leaving the inner link
+returns to the outer link's text. -/
 def Scan.step (s : Scan) : Piece → Scan
   | .text slice rendered =>
     Scan.past { s with run := ⟨s.anchor, s.place, rendered⟩ :: s.run } slice
   | .code slice => Scan.past { s with run := ⟨s.anchor, .code, slice⟩ :: s.run } slice
-  | .enter destination => { s with link := some (s.links, destination), links := s.links + 1 }
-  | .leave => { s with link := none }
+  | .enter destination =>
+    { s with entered := (s.links, destination) :: s.entered, links := s.links + 1 }
+  | .leave => { s with entered := s.entered.tail }
   | .refused reason => { s with found := ⟨.refused reason, s.anchor⟩ :: s.found }
   | .gap | .line => s.flush
 
-/-- The findings of a document: the mentions of its runs and its refused constructs. -/
+/-- The findings of a document: the mentions of its runs and its refused constructs, run by run
+in document order. Within one run the constructs refused in it come first, then its mentions. -/
 def findings (pieces : List Piece) : List Found :=
   (pieces.foldl Scan.step {}).flush.found.reverse
 
@@ -254,7 +260,7 @@ theorem Found.accepted_iff (target : RuleId → String → Bool) (f : Found) :
     · rintro ⟨token, destination, h, _⟩
       exact (hne token destination h).elim
 
-/-- The findings of `pieces` that are not accepted, in document order. -/
+/-- The findings of `pieces` that are not accepted, in the order of `findings`. -/
 def rejected (target : RuleId → String → Bool) (pieces : List Piece) : List Found :=
   (findings pieces).filter fun f => !f.accepted target
 
@@ -641,6 +647,16 @@ private def bare (line : String) : String :=
       .text " RG" " RG", .code "2003", .text " " " ", .code "RG", .code "2003"]) ==
   List.replicate 3 "a.md:1: RG2003 is only partly inside a link or a code span; write the whole \
     ID as one link to its rule page"
+-- A link inside a link's text: once it is left, the text is the outer link's again.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard documentErrors "a.md" "see x and RG2003 then RG2003"
+    (.read [.line, .enter page, .text "see " "see ", .enter "https://example.org", .text "x" "x",
+      .leave, .text " and RG2003" " and RG2003", .leave, .text " then RG2003" " then RG2003"]) ==
+  [bare "1"]
+-- Within a run its refused constructs are listed before its mentions.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard documentErrors "a.md" "RG2003 x" (.read [.line, .text "RG2003 " "RG2003 ",
+    .refused "refused", .text "x" "x"]) == ["a.md:1: refused", bare "1"]
 -- The edge of a table cell or of an image's description ends a run.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard documentErrors "a.md" "| RG | 2003 |" (.read [.line, .gap, .text "RG" "RG", .gap,

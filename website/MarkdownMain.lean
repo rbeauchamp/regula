@@ -17,7 +17,8 @@ def trackedDocuments (root : System.FilePath) : IO (List String) := do
 
 /-- Check the tracked Markdown documents of the repository at the directory given as the only
 argument. Exit code 0 when there is at least one document and none is refused, and 1
-otherwise, after printing each refusal with its file, its line and the ID or the construct. -/
+otherwise, after printing each refusal with its file, its line and the ID or the construct; a
+document whose reading cannot be used is printed with its file and the reason alone. -/
 def main (args : List String) : IO UInt32 := do
   let [root] := args
     | IO.eprintln "usage: lake exe regula-markdown REPOSITORY"
