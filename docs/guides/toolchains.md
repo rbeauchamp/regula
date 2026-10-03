@@ -185,7 +185,8 @@ candidate `3fc295bc179835ad19505fcde016b7b0888b4a3c`, prepared from
 `16fba8111c4861bd6483b04c0367b835a1b1eb68`. Both built Regula and remained **unqualified**;
 their ordinary audit commands refused. The candidate commits and their receipts and logs are
 local to the machine that ran them and are not published. The receipts predate later changes
-on this branch: the shared documentation labels, compiler-specific LRAT generation, the cold
+on this branch: the #192, #193 and #195 repairs, the shared documentation labels,
+compiler-specific LRAT generation, the cold
 guard's binding to the running compiler, the identity probe, and `doctor`'s check of the
 project's pin. No receipt exercised those paths, so the final source remains unqualified on
 both newer compilers and these observations add neither to the supported stable release.
@@ -223,7 +224,8 @@ native-proof control does not replace the retired direct-axiom control. Construc
 helpers are authenticated against Lean's generator under their own declaration policy, while
 their unsafe and runtime-replacement execution boundaries remain visible. The
 `replacement-cycle` control now reaches the detector through compiler-compatible construction.
-The RG5002 failure came from the changed documentation parser behavior described above.
+The RG5002 failure is attributed to the changed documentation parser behavior described above
+by reading the producer's exact documentation check, not by a rerun.
 The original failures remain historical evidence; these repairs need qualification at the
 actual compatibility revision before that revision is promoted.
 
@@ -259,9 +261,9 @@ complete, ordered campaign observations meeting each required exit and output.
 `Regula.Setup.toolchainIssues_eq_nil_iff` proves that `doctor`'s decision reports no toolchain
 issue exactly when the project's pin resolved to a compiler whose reported identity
 `Compiler.Supports`; a pin that resolves to no installed compiler is an issue.
-`installedName?_spec` proves that `prepare`, `qualify` and `doctor` give `elan run` only a
-name among those `elan toolchain list` printed, spelled as the selector or as its release
-name; Elan would install any other known release. These are
+`installedName?_spec` proves that the name `selectedLean` gives `elan run`, the path `prepare`,
+`qualify` and `doctor` use, is among the names parsed from `elan toolchain list`, spelled as
+the selector or as its release name; Elan would install any other known release. These are
 kernel-checked statements about supplied values. They do not authenticate compiler binaries
 or Git commits, prove subprocess behavior, establish detector completeness, or prevent a
 filesystem change-and-restore race.

@@ -51,10 +51,11 @@ theorem parseIdentity_valid {output : String} {i : Identity}
       · cases h
   · cases h
 
-/-- The toolchains `elan toolchain list` printed, one name on each line. A line with a space,
+/-- The toolchains `elan toolchain list` printed, one name on each line, without the
+` (default)` marker Elan 3 appends to the default toolchain. A remaining line with a space,
 such as Elan's notice that none is installed, names no toolchain. -/
 def listedToolchains (output : String) : List String :=
-  (output.splitOn "\n").map (·.trimAscii.toString) |>.filter
+  (output.splitOn "\n").map (·.trimAscii.toString.dropSuffix " (default)" |>.toString) |>.filter
     (fun line => !line.isEmpty && !line.contains ' ')
 
 /-- The full name Elan 4.1.2 gives a release selector: its default origin when the selector

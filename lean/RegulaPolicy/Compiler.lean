@@ -52,7 +52,7 @@ def admitCapability (observed : LegacyCompilerTrust) : Except String Capability 
   if h : observed = legacyCompilerTrust then .ok ⟨observed, h⟩
   else .error "compiler capability differs from this Regula build"
 
-/-- Successful capability admission retains the supplied observation and occurs exactly on a match. -/
+/-- Capability admission succeeds exactly when the observation matches this compiled policy. -/
 theorem admitCapability_iff (observed : LegacyCompilerTrust) :
     (∃ c, admitCapability observed = .ok c) ↔ observed = legacyCompilerTrust := by
   simp only [admitCapability]

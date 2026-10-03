@@ -504,8 +504,10 @@ private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   try return some (← path.symlinkMetadata).type catch _ => return none
 
 /-- Build the planner in a separate workspace with the repository's exact configuration and
-linked sources. Lake configuration caches are isolated too. Generated configuration is never
-overwritten: an existing workspace must retain the same bytes and source links. -/
+linked sources, so the root package's Lake configuration and build caches stay untouched; the
+planner's own Lake loads of the Audit and standard packages may write their configuration
+caches. Generated configuration is never overwritten: an existing workspace must retain the
+same bytes and source links. -/
 private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
   if mode == .upstreamCache then return ""
   let inputs ← #["lakefile.lean", "lake-manifest.json", "lean-toolchain"].mapM fun (name : String) => do

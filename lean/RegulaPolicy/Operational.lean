@@ -39,7 +39,8 @@ structure ToolchainAxioms where
   names : Array Name
   /-- `sorryAx` is not among them. -/
   not_hole : `sorryAx ∉ names
-  /-- No legacy compiler axiom enabled by this compiler's admitted capability occurs. -/
+  /-- No legacy compiler axiom enabled by this revision's compiled capability
+  (`Compiler.legacyCompilerTrust`) occurs. -/
   not_compiler : ∀ n ∈ names, ¬ CompilerAxiom #[] n
 
 /-- Admission of an observed toolchain axiom set; it refuses a hole or compiler axiom. -/

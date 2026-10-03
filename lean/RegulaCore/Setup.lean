@@ -62,8 +62,9 @@ The observation is supplied by the operational `regula` command: Lake's loaded r
 contains Mathlib, whether `foundation_manifest.json` and the agent guidance exist and which
 `AGENTS.md` holds or receives the section, whether the root package has a `lean_lib` for a starter
 manifest to claim, whether each skill file at the repository root equals the installed skill, the
-version and commit reported by the compiler that Elan resolves the project's `lean-toolchain` to
-(a trusted resolution and self-report, independent of the compiler running `regula`), and the
+version and commit reported by the compiler of the toolchain `elan toolchain list` names for the
+project's `lean-toolchain` (a trusted listing, transcribed release naming and self-report,
+independent of the compiler running `regula`), and the
 modules below a library root that no library includes, split by whether a claimed module
 imports them as Lean's import-header parser reads the package's sources (not a build). The command writes each edit into the lakefile, the
 manifest and the guidance files, then observes the project again and refuses unless the new plan
@@ -153,7 +154,8 @@ candidate of `RegulaPolicy.Community.argumentSettings`, the `-D` reading of RG20
 def Target.argues (t : Target) (name : Name) : Bool :=
   (argumentSettings t.arguments).any fun s => decide (optionOf s.1 = name)
 
-/-- What the project's `lean-toolchain` selects, as Elan resolves it and the compiler reports. -/
+/-- What the project's `lean-toolchain` selects: the toolchain `elan toolchain list` names for it
+(`installedName?`) and the identity its compiler reports. -/
 inductive Pin where
   /-- `selector`, the file's content, resolves to an installed compiler that reports this version
   and full commit. -/
@@ -280,7 +282,8 @@ inductive Issue where
   /-- The project's `lean-toolchain`, `selector`, selects the compiler reporting `version` and
   `commit`, which this Regula revision does not support. -/
   | toolchain (selector version commit : String)
-  /-- The project's `lean-toolchain`, `selector`, selects no installed compiler (`reason`). -/
+  /-- The project's `lean-toolchain`, `selector`, selects no installed compiler that reports its
+  identity (`reason`). -/
   | toolchainUnresolved (selector reason : String)
   /-- `lean_lib` `library`, with roots `roots`, includes none of `modules`, which lie below them. -/
   | uncovered (library : String) (roots modules : List String)
@@ -1429,7 +1432,8 @@ def Issue.message (f : Lakefile) : Issue → String
       RegulaPolicy.Compiler.version ++ " (" ++ RegulaPolicy.Compiler.commit ++ ")"
   | .toolchainUnresolved s r => "setup [lean-toolchain]: " ++
       (if s.isEmpty then "the project's lean-toolchain names no toolchain"
-        else "the project's lean-toolchain, " ++ s ++ ", selects no installed compiler") ++
+        else "the project's lean-toolchain, " ++ s ++
+          ", selects no installed compiler that reports its identity") ++
       ", so its compiler cannot be compared with the Lean " ++ RegulaPolicy.Compiler.version ++
       " (" ++ RegulaPolicy.Compiler.commit ++ ") this Regula revision supports: " ++ r
   | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
@@ -1470,8 +1474,8 @@ def Issue.fix (f : Lakefile) : Issue → String
       table lists each release's toolchain; docs/guides/toolchains.md covers development \
       compilers); a toolchain override does not change what the project pins"
   | .toolchainUnresolved _ _ => "  fix: install or link the supported compiler, then set \
-      lean-toolchain to its exact installed name; `doctor` resolves the pin with Elan and \
-      installs nothing"
+      lean-toolchain to its exact installed name; `doctor` resolves the pin among the \
+      toolchains `elan toolchain list` names and installs nothing"
   | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
       (if ms.length == 1 then "import" else "imports") ++ " (`init` never changes a library's \
       modules)"

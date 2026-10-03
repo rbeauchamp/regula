@@ -83,7 +83,9 @@ guard runs the `lean` that `LEAN_SYSROOT` or `PATH` selects and requires it to b
 running Lake; when another toolchain's variables are inherited, it stops with `… is not the
 Lean running Lake …` instead, and running Lake without them is the remedy.
 `lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
-selects, whichever compiler an override runs.
+selects, whichever compiler an override runs. For a Lean too old to run its identity probe, it
+instead reports that the pin selects no installed compiler that reports its identity, with the
+probe's error.
 
 Move your project to the supported Lean release first: set `lean-toolchain`, move Mathlib (if you
 use it) to a revision for that release the usual way, and run `lake update`. Otherwise require a
