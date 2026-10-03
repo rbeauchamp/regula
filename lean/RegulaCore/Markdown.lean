@@ -159,21 +159,23 @@ def standing : List Place → Option Standing
       | .code => none
     else some .split
 
-/-- The mentions of one run, whose text is the texts of `parts` in order. -/
+/-- The mentions of one run, whose text is the texts of `parts` in order. Each character of the
+text has a tag, the anchor and place of its part; the tags not yet passed are carried along the
+text's tokens and the text between them, so the run is read once. -/
 def runTokens (parts : List Part) : List Found :=
   let tags : List (Nat × Place) :=
     parts.flatMap fun part => List.replicate part.text.length (part.anchor, part.place)
   ((splitTokens none 0 [] (String.join (parts.map (·.text))).toList).foldl
-    (fun (acc : Nat × List Found) piece =>
+    (fun (acc : List (Nat × Place) × List Found) piece =>
       match piece with
-      | .inl between => (acc.1 + between.length, acc.2)
+      | .inl between => (acc.1.drop between.length, acc.2)
       | .inr token =>
-        let here := (tags.drop acc.1).take token.length
-        (acc.1 + token.length,
+        let here := acc.1.take token.length
+        (acc.1.drop token.length,
           match standing (here.map (·.2)) with
           | some stands => ⟨.mention token stands, (here.head?.map (·.1)).getD 0⟩ :: acc.2
           | none => acc.2))
-    (0, [])).2.reverse
+    (tags, [])).2.reverse
 
 /-- The state of the scan of a document's pieces. -/
 structure Scan where

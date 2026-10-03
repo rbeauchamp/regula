@@ -34,8 +34,11 @@ among the strings of a code block as an inline element.
 Three constructs are refused where md4c's parse shows them, because GitHub reads them
 otherwise (the contributor guide names the differences):
 
-- a link whose text starts with `^`, which GitHub reads as a footnote reference;
-- a code span with a pipe character in a table cell, where GitHub ends the cell;
+- a link whose text starts with `^`, also inside an image's description, which GitHub reads as
+  a footnote reference;
+- a pipe character inside a code span, a link's text or an image's description in a table
+  cell: md4c reads those before it finds the cells of a row, and GitHub ends a cell at the pipe
+  character;
 - an autolink whose text has a rule ID, since the two find the end of a bare URL by their own
   rules, and MD4Lean does not tell a bare URL from `<URL>`.
 
@@ -79,8 +82,8 @@ def decode (reference : String) : Option String :=
       some (String.ofList (unescape ((html.toList.drop 3).take (html.length - 8))))
     else none
 
-/-- The text of a link destination as md4c reports it, each character reference decoded. -/
-def destination (parts : Array AttrText) : String :=
+/-- The text of a destination or title as md4c reports it, each character reference decoded. -/
+def attrText (parts : Array AttrText) : String :=
   String.join (parts.toList.map fun
     | .normal text => text
     | .entity reference => (decode reference).getD reference
@@ -92,38 +95,29 @@ def reference (slice : String) : List Piece :=
   | some rendered => [.text slice rendered]
   | none => [.refused s!"md4c does not decode the character reference {slice}", .text slice slice]
 
-/-- Why a code span with a pipe character in a table cell is refused. -/
+/-- Why a pipe character inside a code span, a link's text or an image's description in a table
+cell is refused. -/
 def pipeReason : String :=
-  "a code span in a table cell has a pipe character, where GitHub ends the cell; write the \
-    cell without it"
+  "a pipe character inside a code span, a link's text or an image's description in a table \
+    cell, where GitHub ends the cell; write the cell without it"
 
-/-- The pieces of a code span: code, refused when it has a pipe character in a table cell
-(`cell`). -/
+/-- Why a link whose text starts with `^` is refused: GitHub reads `[^label]` as a footnote
+reference, and md4c makes a link of it only when it has read the footnote as a link reference
+definition, whose text it does not report. -/
+def caretReason : String :=
+  "a link's text starts with ^, which GitHub reads as a footnote reference; md4c has read the \
+    footnote as a link reference definition, so its text is not checked"
+
+/-- The refusal of a pipe character among `texts` in a table cell (`cell`). md4c reads a code
+span, a link's text and an image's description before it finds the cells of a row, so a pipe
+character inside one stays there; GitHub finds the cells first and ends a cell at it. A pipe
+character in a destination ends the cell for md4c too. -/
+def pipes (cell : Bool) (texts : List String) : List Piece :=
+  if cell && texts.any (·.contains '|') then [.refused pipeReason] else []
+
+/-- The pieces of a code span: code, refused when it has a pipe character in a table cell. -/
 def codeSpan (cell : Bool) (slices : Array String) : List Piece :=
-  (if cell && slices.any (·.contains '|') then [.refused pipeReason] else []) ++
-    slices.toList.map Piece.code
-
-/-- The pieces of one element of an image's description, as md4c renders the description: its
-text alone. Emphasis, links and images inside it give their text, and a code span's text is
-description text too. -/
-def flat (cell : Bool) (text : Text) : List Piece :=
-  match text with
-  | .normal slice => [.text slice slice]
-  | .nullchar => [.text "" replacement]
-  | .br _ | .softbr _ => [.line]
-  | .entity slice => reference slice
-  | .em texts | .strong texts | .u texts | .del texts | .a _ _ _ texts | .wikiLink _ texts =>
-    texts.attach.toList.flatMap fun ⟨inner, _⟩ => flat cell inner
-  | .img _ _ description => description.attach.toList.flatMap fun ⟨inner, _⟩ => flat cell inner
-  | .code slices | .latexMath slices | .latexMathDisplay slices =>
-    (if cell && slices.any (·.contains '|') then [.refused pipeReason] else []) ++
-      slices.toList.map fun slice => .text slice slice
-termination_by text
-decreasing_by
-  all_goals
-    have := Array.sizeOf_lt_of_mem ‹inner ∈ _›
-    simp_wf
-    omega
+  pipes cell slices.toList ++ slices.toList.map Piece.code
 
 /-- The text a run of pieces renders as. -/
 def visible (pieces : List Piece) : String :=
@@ -132,6 +126,37 @@ def visible (pieces : List Piece) : String :=
     | .code slice => slice
     | _ => "")
 
+/-- The prose a run of pieces renders as, without its code. -/
+def prose (pieces : List Piece) : String :=
+  String.join (pieces.map fun
+    | .text _ rendered => rendered
+    | _ => "")
+
+/-- The pieces of one element of an image's description, as md4c renders the description: its
+text alone. Emphasis, links and images inside it give their text, and a code span's text is
+description text too. A link inside it whose text starts with `^` is refused as it is elsewhere
+(`caretReason`). -/
+def flat (text : Text) : List Piece :=
+  match text with
+  | .normal slice => [.text slice slice]
+  | .nullchar => [.text "" replacement]
+  | .br _ | .softbr _ => [.line]
+  | .entity slice => reference slice
+  | .em texts | .strong texts | .u texts | .del texts | .wikiLink _ texts =>
+    texts.attach.toList.flatMap fun ⟨inner, _⟩ => flat inner
+  | .a _ _ _ texts =>
+    let body := texts.attach.toList.flatMap fun ⟨inner, _⟩ => flat inner
+    (if (visible body).startsWith "^" then [.refused caretReason] else []) ++ body
+  | .img _ _ description => description.attach.toList.flatMap fun ⟨inner, _⟩ => flat inner
+  | .code slices | .latexMath slices | .latexMathDisplay slices =>
+    slices.toList.map fun slice => .text slice slice
+termination_by text
+decreasing_by
+  all_goals
+    have := Array.sizeOf_lt_of_mem ‹inner ∈ _›
+    simp_wf
+    omega
+
 /-- The first rule-ID token of `text`, if it has one. -/
 def firstToken (text : String) : Option String :=
   (Regula.Prose.splitTokens none 0 [] text.toList).findSome? fun
@@ -139,15 +164,11 @@ def firstToken (text : String) : Option String :=
     | .inl _ => none
 
 /-- The pieces of a link with text `body` that leads to `leads`; `auto` is whether md4c reports
-it as an autolink. A link whose text starts with `^` is refused: GitHub reads `[^label]` as a
-footnote reference, and md4c makes a link of it only when it has read the footnote as a link
-reference definition, whose text it does not report. An autolink whose text has a rule ID is
-refused, and its text is then not read as link text. -/
+it as an autolink. A link whose text starts with `^` is refused (`caretReason`). An autolink
+whose text has a rule ID is refused, and its text is then not read as link text. -/
 def link (leads : String) (auto : Bool) (body : List Piece) : List Piece :=
   if (visible body).startsWith "^" then
-    .refused "a link's text starts with ^, which GitHub reads as a footnote reference; md4c \
-      has read the footnote as a link reference definition, so its text is not checked" ::
-      .enter leads :: body ++ [.leave]
+    .refused caretReason :: .enter leads :: body ++ [.leave]
   else
     match (if auto then firstToken (visible body) else none) with
     | some token =>
@@ -161,7 +182,8 @@ def link (leads : String) (auto : Bool) (body : List Piece) : List Piece :=
 /-- The pieces of one inline element; `cell` is whether it lies in a table cell. Emphasis, strong
 emphasis, underline and strikethrough continue the prose around them; a link's text is prose
 between the link's edges; an image's description is a run of its own (`flat`); a code span is
-code. LaTeX math and wiki links are not enabled; their text would be prose. -/
+code. In a table cell a pipe character inside a code span, a link's text or an image's
+description is refused (`pipes`). LaTeX math and wiki links are not enabled; their text would be prose. -/
 def inline (cell : Bool) (text : Text) : List Piece :=
   match text with
   | .normal slice => [.text slice slice]
@@ -171,8 +193,11 @@ def inline (cell : Bool) (text : Text) : List Piece :=
   | .em texts | .strong texts | .u texts | .del texts | .wikiLink _ texts =>
     texts.attach.toList.flatMap fun ⟨inner, _⟩ => inline cell inner
   | .a href _ auto texts =>
-    link (destination href) auto (texts.attach.toList.flatMap fun ⟨inner, _⟩ => inline cell inner)
-  | .img _ _ description => .gap :: description.toList.flatMap (flat cell) ++ [.gap]
+    let body := texts.attach.toList.flatMap fun ⟨inner, _⟩ => inline cell inner
+    pipes cell [prose body] ++ link (attrText href) auto body
+  | .img _ _ description =>
+    let body := description.toList.flatMap flat
+    .gap :: pipes cell [prose body] ++ body ++ [.gap]
   | .code slices => codeSpan cell slices
   | .latexMath slices | .latexMathDisplay slices =>
     slices.toList.map fun slice => .text slice slice
@@ -378,17 +403,27 @@ private def bodyless : String :=
 -- What GitHub reads otherwise is refused where md4c's parse shows it. A footnote that md4c reads
 -- as a link reference definition makes its reference a link whose text starts with `^`.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard check "a.md" "Use[^n].\n\n[^n]: RG2003 \"description\"\n" ==
-  ["a.md:1: a link's text starts with ^, which GitHub reads as a footnote reference; md4c has \
-    read the footnote as a link reference definition, so its text is not checked"]
+#guard check "a.md" "Use[^n].\n\n[^n]: RG2003 \"description\"\n" == [s!"a.md:1: {caretReason}"]
+-- The same inside an image's description, which is otherwise read as text alone.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "![caption[^n]](image.png).\n\n[^n]: RG2003 \"description\"\n" ==
+  [s!"a.md:1: {caretReason}"]
 -- A footnote that md4c reads as a paragraph is prose, and its reference is text.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "Use[^n].\n\n[^n]: See RG2003 for more.\n" == [bare "3"]
--- A code span with a pipe character in a table cell; outside a table it is code.
+-- A pipe character inside a code span in a table cell; outside a table the code span is code.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "| A | B |\n| --- | --- |\n| `a | b` `RG2003` | c |\n\n`a | RG2003`\n" ==
-  ["a.md:3: a code span in a table cell has a pipe character, where GitHub ends the cell; write \
-    the cell without it"]
+  [s!"a.md:3: {pipeReason}"]
+-- A pipe character inside a link's text or an image's description in a table cell: md4c reads
+-- the link or image whole, and GitHub ends the cell at the pipe character, which leaves the ID
+-- of the first row as prose.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" (s!"| A |\n| --- |\n| [RG2003 | x]({page "RG2003"}) |\n" ++
+  "| ![a | b](a.png) |\n") == (["3", "4"].map fun line => s!"a.md:{line}: {pipeReason}")
+-- An escaped pipe character in a cell's own text is text for both, and is read.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "| A |\n| --- |\n| a \\| RG2003 |\n" == [bare "3"]
 -- An autolink whose text has a rule ID, bare or in angle brackets, to the rule's page or not;
 -- an autolink without one is a link.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
