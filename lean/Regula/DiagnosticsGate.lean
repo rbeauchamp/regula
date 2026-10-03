@@ -102,6 +102,7 @@ def inputs : List Input := [
   .file ["lean", "RegulaSnapshot.lean"],
   .file ["dependency-build-mode"],
   .file [".github", "compiler-source.json"],
+  .file [".github", "snapshot-preparation.json"],
   .file [".github", "snapshot-compiler.json"],
   .file [".github", "compiler-snapshot.json"],
   .tree ["lean", "AuditApp"],

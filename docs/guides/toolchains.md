@@ -93,16 +93,13 @@ The direct compiler-build route for a local Elan alias commits `.github/compiler
   "owner": "rbeauchamp",
   "repository": "lean4",
   "revision": "6751f97b0c3dbefec2aaf1ce9e07b877101c5662",
-  "selector": "regula-lean4-6751f97",
-  "bootstrap": "leanprover/lean4-nightly:nightly-2026-10-01",
-  "bootstrapRevision": "77f336f7ae6a60419d3882e0d5ca7ac3a2155528"
+  "selector": "regula-lean4-6751f97"
 }
 ```
 
 The alias must match `lean-toolchain` and the artifact mode must be `source`.
 `lean/RegulaCompiler.lean` checks the specification, obtains the exact source commit,
-installs the bootstrap unless Elan already lists it, checks the bootstrap's CLI and library identity, configures Lean's release preset with
-that preceding stage, and runs the documented `make -j… -C build/release` command.
+configures Lean's release preset using that commit's own committed stage0, and runs the documented `make -j… -C build/release` command. The full source revision pins stage0 as part of the source tree. The stable Lean 4.34.0 executable runs this setup program; the target's staged build produces the selected compiler.
 It checks both identities of the resulting compiler before linking the alias. An existing
 alias is reused only when both reports match; a mismatch is refused. Source and build
 directories remain under `~/.cache/regula-compilers` for inspection or resumption.
