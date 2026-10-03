@@ -3,7 +3,8 @@ name: Diagnostics
 # Capability-triggered qualification campaigns (standard §7.8): the producer and history
 # campaigns, the `lake lint` dispatch over the maintained adopter fixtures, which crosses
 # Lake, process and filesystem boundaries that the driver's proofs do not cover, and the
-# checker self-test's structural and execution partitions. They run when the checker,
+# checker self-test's structural and execution partitions, each in two shards whose controls
+# together are the partition's. They run when the checker,
 # rules, rule examples, adopter fixtures, the application and fixture sources those two
 # partitions mutate, Lake configuration or manifests change, always on main, and nightly. They
 # are diagnostics, not a partition of ordinary acceptance.
@@ -59,8 +60,10 @@ jobs:
           - diagnostics producers
           - diagnostics history
           - diagnostics lint-driver
-          - diagnostics structural
-          - diagnostics execution
+          - diagnostics structural 1/2
+          - diagnostics structural 2/2
+          - diagnostics execution 1/2
+          - diagnostics execution 2/2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

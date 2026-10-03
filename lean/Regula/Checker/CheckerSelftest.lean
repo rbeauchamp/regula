@@ -38,13 +38,19 @@ scanner, and fence corpus), `structural` (structural and manifest controls),
 `execution` (the compiler-path mutations and the correspondence controls), `cli` (the
 complete CLI sweep), `environments` (packaging and fresh-state controls), `build-policy`
 (ordinary-build enforcement), and `lint-driver` (`lake lint` dispatch and exit classes).
-Each starts with the same baseline preparation.
+Each starts with the baseline build of what its own controls read from the repository's build
+(`Partition.baseline`).
 Their disjoint union is the full run; no partition alone reports full qualification.
 
 The structural and correspondence clusters run in the structural project
 (`StructuralProject`): the repository's package restricted to the application, so a gate there
 builds and inspects the application alone. The one control that needs the checker's own
-package as the audited project runs in a copy of the repository (`structuralSelfHosted`).
+package as the audited project runs in copies of the repository (`structuralSelfHosted`,
+`structuralSelfHostedPositive`).
+
+The controls of the structural and of the execution partition each carry one of two shards
+(`Shard`); `--shard` runs the controls of one, and the two together run every control once
+(`inShard_cover`).
 
 It is intentionally qualification-only, not an ordinary build.
 -/
@@ -125,6 +131,93 @@ private theorem Partition.all_complete (partition : Partition) : partition ∈ a
 
 private theorem Partition.all_nodup : all.Nodup := by decide
 
+/-- The checker executables the self-test's controls run from the repository's build. -/
+private def checkerTools : List String := ["axiomGate", "lint", "docFenceAudit", "freshChecker"]
+
+/-- What the controls of a partition read from the repository's own build output, which the
+baseline build therefore completes before they start. -/
+private structure Baseline where
+  /-- The checker executables the controls run from the repository's build directory. -/
+  tools : List String
+  /-- Whether the controls also read the fixture import anchor and the claimed positive surface
+  there (fixture sources import the owned library, e.g. `import AuditApp`). -/
+  surface : Bool
+
+/-- Each partition's baseline. The structural and execution controls run their gates in
+projects of their own (the structural project, a copy of the repository, a scratch project),
+where the gate builds and inspects that project's targets itself; the manifest controls run
+`axiomGate` on the repository with a manifest it refuses before any build. So from the
+repository's build they read only the executables they run: `axiomGate` in both partitions, and
+in the structural clusters `docFenceAudit` and `freshChecker`. The other partitions keep the
+complete baseline. -/
+private def Partition.baseline : Partition → Baseline
+  | .structural => ⟨["axiomGate", "docFenceAudit", "freshChecker"], false⟩
+  | .execution => ⟨["axiomGate"], false⟩
+  | .fixtures | .cli | .environments | .buildPolicy | .lintDriver => ⟨checkerTools, true⟩
+
+/-- Every partition's baseline build names `axiomGate`: the executable that controls of every
+partition run, some by its path in the repository's build instead of through `toolPath`
+(`CompilerPaths`, `PolicyQualification`), and that the cold-start driver builds together with the
+self-test (`RegulaVerification.commands`). -/
+private theorem Partition.baseline_axiomGate (partition : Partition) :
+    "axiomGate" ∈ partition.baseline.tools := by
+  cases partition <;> simp [baseline, checkerTools]
+
+/-- One of the two shards the controls of the structural and of the execution partition are
+divided into, so that each shard runs under the deadline of its own invocation. -/
+inductive Shard where
+  /-- `1/2`. -/
+  | first
+  /-- `2/2`. -/
+  | second
+  deriving DecidableEq, Repr
+
+private def Shard.label : Shard → String
+  | .first => "1/2"
+  | .second => "2/2"
+
+/-- The controls a run executes: all of `items`, or those assigned to the selected shard. Each
+item carries its one shard. -/
+private def inShard {α : Type} (shard : Option Shard) (items : List (Shard × α)) :
+    List (Shard × α) :=
+  match shard with
+  | none => items
+  | some selected => items.filter (·.1 == selected)
+
+/-- The two shards of a list of controls are together a rearrangement of the list: every control
+runs in exactly one shard, and the two shards together run what an unsharded run does. This is a
+statement about the selection. That the two shards select from the same list rests on their
+running the same sources, which it does not state. -/
+private theorem inShard_cover {α : Type} (items : List (Shard × α)) :
+    (inShard (some .first) items ++ inShard (some .second) items).Perm (inShard none items) := by
+  have second : (fun item : Shard × α => item.1 == Shard.second) =
+      fun item => !(item.1 == Shard.first) := by
+    funext item
+    obtain ⟨shard, _⟩ := item
+    cases shard <;> rfl
+  simp only [inShard, second]
+  exact List.filter_append_perm _ _
+
+/-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
+second structural shard holds no cluster that runs `docFenceAudit`. -/
+private def baselineOf (partition : Partition) (shard : Option Shard) : Baseline :=
+  match partition, shard with
+  | .structural, some .second => ⟨["axiomGate", "freshChecker"], false⟩
+  | _, _ => partition.baseline
+
+/-- Every run's baseline build names `axiomGate` (`Partition.baseline_axiomGate`), a shard's
+too. -/
+private theorem baselineOf_axiomGate (partition : Partition) (shard : Option Shard) :
+    "axiomGate" ∈ (baselineOf partition shard).tools := by
+  unfold baselineOf
+  split
+  · simp
+  · exact partition.baseline_axiomGate
+
+/-- The checker executables `baselines` name, each once. -/
+private def baselineTools (baselines : List Baseline) : List String :=
+  (baselines.flatMap (·.tools)).eraseDups
+
 /-- The parsed `checkerSelftest` command-line options. -/
 structure Options where
   /-- `--jobs N`: the number of parallel workers; must be positive. -/
@@ -136,23 +229,32 @@ structure Options where
   buildBound : Bool := false
   /-- `--partition NAME`: run only this build-bound group; requires `--build-bound`. -/
   partition : Option Partition := none
+  /-- `--shard 1/2` or `--shard 2/2`: run only that shard of the selected structural or
+  execution partition. -/
+  shard : Option Shard := none
   /-- `--help` or `-h`: print the usage and exit. -/
   help : Bool := false
 
 private def usage : String :=
   "usage: lake exe checkerSelftest -- [--jobs N] [--structural-only] [--build-bound [--partition \
-    fixtures|structural|execution|cli|environments|build-policy|lint-driver]]\n" ++
+    fixtures|structural|execution|cli|environments|build-policy|lint-driver \
+    [--shard 1/2|2/2]]]\n" ++
   "--fences-only: focused in-process and public fence qualification, without the full suite\n" ++
   "default tier: every planted-defect verdict in one process plus a real-CLI smoke tier\n" ++
   "--build-bound: additionally run the conditional tier (real-CLI sweep, end-to-end\n" ++
   "fence corpus, external adopters, clean-checkout environment, public controls)\n" ++
   "--partition: run only the named build-bound group; all seven groups are required for full \
-    qualification"
+    qualification\n" ++
+  "--shard: run only that half of the structural or execution group; both halves are required \
+    for the group"
 
 private def parseArgs : List String → Options → IO Options
   | [], options => do
       if options.partition.isSome && !options.buildBound then
         throw <| IO.userError "--partition requires --build-bound"
+      if options.shard.isSome && !(options.partition == some .structural ||
+          options.partition == some .execution) then
+        throw <| IO.userError "--shard requires --partition structural or --partition execution"
       if options.structuralOnly && (options.buildBound || options.partition.isSome) then
         throw <| IO.userError "--structural-only conflicts with --build-bound and --partition"
       return options
@@ -178,6 +280,13 @@ private def parseArgs : List String → Options → IO Options
         | "lint-driver" => pure Partition.lintDriver
         | _ => throw <| IO.userError s!"unknown partition: {value}"
       parseArgs rest { options with partition := some partition }
+  | "--shard" :: value :: rest, options => do
+      if options.shard.isSome then throw <| IO.userError "duplicate --shard"
+      let shard ← match value with
+        | "1/2" => pure Shard.first
+        | "2/2" => pure Shard.second
+        | _ => throw <| IO.userError s!"unknown shard: {value}"
+      parseArgs rest { options with shard := some shard }
   | "--help" :: rest, options | "-h" :: rest, options =>
       parseArgs rest { options with help := true }
   | flag :: _, _ => throw <| IO.userError s!"unknown or incomplete argument: {flag}"
@@ -395,13 +504,27 @@ private def violationReasons (output : String) : Array String := Id.run do
       | _ => pure ()
   uniqueSorted reasons
 
+/-- The checker executables this run's baseline build completed; `none` before it, as in the
+focused `--…-only` controls, which build what they run themselves. -/
+initialize builtTools : IO.Ref (Option (List String)) ← IO.mkRef none
+
+/-- The path of the checker executable `name` in the build of `repo`. After the baseline build,
+an executable that build did not name is refused: its file could be left from an earlier build
+of other sources, and on a clean checkout it is absent. -/
+private def toolPath (repo : FilePath) (name : String) : IO FilePath := do
+  if let some built ← builtTools.get then
+    unless built.contains name do
+      throw <| IO.userError s!"self-test: the baseline build of this run names {built}, not \
+        {name}; add it to the baseline of the partition that runs it (Partition.baseline)"
+  return repo / ".lake" / "build" / "bin" / name
+
 private def runBinary (repo : FilePath) (name : String)
-    (args : Array String) : IO ProcessResult :=
-  runProcess repo (repo / ".lake" / "build" / "bin" / name).toString args
+    (args : Array String) : IO ProcessResult := do
+  runProcess repo (← toolPath repo name).toString args
 
 private def runBinaryFrom (binaryRepo cwd : FilePath) (name : String)
-    (args : Array String) : IO ProcessResult :=
-  runProcess cwd (binaryRepo / ".lake" / "build" / "bin" / name).toString args
+    (args : Array String) : IO ProcessResult := do
+  runProcess cwd (← toolPath binaryRepo name).toString args
 
 /-- Exact verdict assessment for one fixture against gate (or gate-equivalent)
 output. The same function assesses real CLI output and the in-process batch
@@ -970,7 +1093,7 @@ private unsafe def publicScannerQualification (repo scratch : FilePath) : IO (Ar
   if !compiled.succeeded then
     return #[s!"scanner/public/stale-setup: {compiled.output}"]
   let inheritedLeanPath := (← IO.getEnv "LEAN_PATH").getD ""
-  let result ← runProcess repo (repo / ".lake" / "build" / "bin" / "docFenceAudit").toString
+  let result ← runProcess repo (← toolPath repo "docFenceAudit").toString
     #["--jobs", "4", "--docs-root", docsRoot.toString]
     #[("LEAN_PATH", some (if inheritedLeanPath.isEmpty then staleDir.toString
       else s!"{staleDir}:{inheritedLeanPath}"))]
@@ -1251,12 +1374,69 @@ private unsafe def structuralPartA (layout : SourceLayout) (repo copy : FilePath
     failures.modify (·.push s!"structural/restored: final fresh gate failed:\n{restored.output}")
   failures.get
 
+/-- The self-hosted copy in `copy`: a copy of the repository, by the fresh gate's own copy
+operation, that claims `selfHostedManifestText`. Its content is a function of the repository's
+files and manifest alone. -/
+private def prepareSelfHosted (repo copy : FilePath) : IO Unit := do
+  prepareScratchRepo repo copy
+  IO.FS.writeFile (copy / "foundation_manifest.json") ((← selfHostedManifestText repo) ++ "\n")
+
+/-- What a fresh gate reads of `project`: the entries its own copy operation (`copyProject`)
+copies into `snapshot`, each by its path below the project, a file with its bytes, in path
+order. The copy operation's own `.lake` there (the link to the shared packages, the path
+overrides) is not an entry: it copies nothing from the project's `.lake`. -/
+private def freshInput (project snapshot : FilePath) :
+    IO (Array (String × Option ByteArray)) := do
+  prepareScratchRepo project snapshot
+  let base := snapshot.normalize.components
+  let own (path : FilePath) : List String := path.normalize.components.drop base.length
+  let lake := _root_.Lake.defaultLakeDir.toString
+  let mut entries : Array (String × Option ByteArray) := #[]
+  for path in ← snapshot.walkDir (fun path => pure (own path != [lake])) do
+    if own path == [lake] then continue
+    let content ← if ← path.isDir then pure none else some <$> IO.FS.readBinFile path
+    entries := entries.push ("/".intercalate (own path), content)
+  return entries.qsort (·.1 < ·.1)
+
+/-- The first entry by which two fresh inputs differ, for a failure message. -/
+private def freshInputDifference (before after : Array (String × Option ByteArray)) :
+    Option String :=
+  if before == after then none
+  else some <| match (before.zip after).find? (fun (b, a) => b != a) with
+    | some (b, a) => if b.1 == a.1 then b.1 else s!"{b.1} / {a.1}"
+    | none => s!"{before.size} entries before, {after.size} after"
+
 /-- The one structural control that needs the checker's own package as the audited project: in
 a copy of the repository, the probe modules are exempt from the environment-level exclusion
 check (the force import always brings them in), and a claimed module importing the probe's
 report records must still be rejected as excluded-module contamination. The structural
 project has no source for that module, so the import there could not be this contamination.
-The copy claims `selfHostedManifestText`, so its gates build and inspect `RegulaPolicy` too. -/
+The copy claims `selfHostedManifestText`, so its gate builds and inspects `RegulaPolicy` too.
+
+This control was changed when the partition was divided into shards. No fresh gate runs on
+the copy this cluster mutated and restored. That accepting gate is replaced by two things: a
+checked identity, here, of the restored copy's fresh input (`freshInput`) with that of a copy
+prepared anew, and the accepting fresh gate on a copy prepared anew
+(`structuralSelfHostedPositive`), which is in the other shard and so may be another
+invocation's. The identity is compared path by path and byte by byte, and any difference fails
+this cluster. That the two together stand for the replaced gate rests on two facts, neither of
+them a theorem:
+
+1. A fresh gate reads the audited project only through its copy operation (`copyProject`,
+   which prunes the project's `.lake`), and builds that copy from empty output; without
+   `--with-docs`, as here, it reads no other file of the project, and the packages directory
+   it links is the repository's for every copy. `freshInput` is that operation's output. So
+   equal fresh input gives the same gate run, and the setup build, the incremental gate and the
+   restoration are observed to leave the prepared input.
+2. The two shards are jobs of one workflow matrix, so whenever the diagnostics workflow runs
+   for a pull request it starts both on the one commit it checks out, where
+   `prepareSelfHosted` prepares the same copy for each. That both pass before merging is the
+   repository's process rule in `AGENTS.md` (applicable diagnostics pass before merge), not a
+   GitHub required check, and it applies only to a pull request that triggers the workflow,
+   which is filtered by path. Nothing in this module observes the other job, and the ruleset
+   does not refuse a merge when either job fails; enforcement by the ruleset is tracked in
+   https://github.com/rbeauchamp/regula/issues/206. The division into shards did not change
+   that enforcement: the undivided job was not a required check either. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
@@ -1270,11 +1450,27 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
     if let some failure := expectedFailure "probe-contamination" (← gate)
         #["unexpected-project-module", "Regula.Report"] then
       failures.modify (·.push failure)
-  let restored ← gate #[]
-  if !restored.succeeded then
-    failures.modify (·.push
-      s!"structural/self-hosted/restored: final fresh gate failed:\n{restored.output}")
+  let some parent := copy.parent
+    | throw <| IO.userError s!"self-test: the self-hosted copy {copy} has no parent directory"
+  let prepared := parent / "self-hosted-prepared"
+  prepareSelfHosted repo prepared
+  let before ← freshInput prepared (parent / "self-hosted-input-prepared")
+  let after ← freshInput copy (parent / "self-hosted-input-restored")
+  if let some difference := freshInputDifference before after then
+    failures.modify (·.push s!"structural/self-hosted/restored: the restored copy is not the \
+      prepared one for a fresh gate; first difference: {difference}")
   failures.get
+
+/-- The positive of `structuralSelfHosted`: the fresh gate accepts the self-hosted copy without
+the mutation. It is not a gate on the mutated and restored copy, which no fresh gate audits any
+more. Its project is the copy as prepared (`prepareSelfHosted`), whose fresh input
+`structuralSelfHosted` checks equal to that of its own copy once the mutation is restored; the
+docstring there states the substitution and the two facts it rests on. -/
+private unsafe def structuralSelfHostedPositive (repo copy : FilePath) : IO (Array String) := do
+  prepareSelfHosted repo copy
+  let accepted ← runBinaryFrom repo copy "axiomGate" #[]
+  if accepted.succeeded then return #[]
+  return #[s!"structural/self-hosted/positive: fresh gate failed:\n{accepted.output}"]
 
 /-- Structural mutation cluster: unlisted root-owned modules, unclassified
 Lake libraries and executables, claimed standalone executable roots, and
@@ -1941,38 +2137,48 @@ private def qualifyItems (label : String) (jobs : Nat)
     timedPhase s!"{label} {name}" run
   return results.foldl (· ++ ·) #[]
 
-/-- Structural qualification: the mutation clusters run on `jobs` workers, each in its own
-isolated project, so no two concurrent Lake builds ever write one build directory. Each
-cluster's project is the structural project; the self-hosted cluster's is a copy of the
-repository. The longest observed cluster is first in the queue. -/
+/-- The structural mutation clusters, each in its own isolated project, so no two concurrent
+Lake builds ever write one build directory, and each with its shard. Each cluster's project is
+the structural project; the two self-hosted clusters' are copies of the repository, and they
+are in different shards, each of whose gates builds and inspects `RegulaPolicy`. The longest
+observed clusters are first. -/
+private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : FilePath) :
+    List (Shard × String × IO (Array String)) :=
+  [(.first, cluster repo scratch "self-hosted" (prepareSelfHosted repo)
+      (applicationTargets layout) (structuralSelfHosted layout)),
+    (.second, "self-hosted-positive",
+      structuralSelfHostedPositive repo (scratch / "copy-self-hosted-positive")),
+    (.first, projectCluster layout repo scratch "a" (structuralPartA layout)),
+    (.second, projectCluster layout repo scratch "d" (structuralPartD layout)),
+    (.second, projectCluster layout repo scratch "c" (structuralPartC layout)),
+    (.first, projectCluster layout repo scratch "b" (structuralPartB layout))]
+
+/-- Structural qualification: the mutation clusters (`structuralClusters`) on `jobs` workers. -/
 private unsafe def structuralQualification (layout : SourceLayout) (repo scratch : FilePath)
     (jobs : Nat)
     : IO (Array String) :=
-  let selfHosted := cluster repo scratch "self-hosted" (fun copy => do
-      prepareScratchRepo repo copy
-      IO.FS.writeFile (copy / "foundation_manifest.json")
-        ((← selfHostedManifestText repo) ++ "\n"))
-    (applicationTargets layout) (structuralSelfHosted layout)
-  qualifyItems "structural" jobs #[selfHosted,
-    projectCluster layout repo scratch "a" (structuralPartA layout),
-    projectCluster layout repo scratch "d" (structuralPartD layout),
-    projectCluster layout repo scratch "c" (structuralPartC layout),
-    projectCluster layout repo scratch "b" (structuralPartB layout)]
+  qualifyItems "structural" jobs ((structuralClusters layout repo scratch).map (·.2)).toArray
 
 /-- Execution qualification: the correspondence controls, in two clusters whose projects are
 the structural project, and the compiler-path cases, each phase of each case in a scratch
 project of its own below `scratch`. All run on `jobs` workers with no batch barrier between
-them, the longest observed first. -/
+them, the longest observed first. Each control has its shard: the two correspondence clusters
+are in different shards, and the compiler-path cases alternate in their listed order. With
+`shard`, only that shard's controls run. Returns the names of the controls run and their
+failures. -/
 private unsafe def executionQualification (layout : SourceLayout) (repo scratch : FilePath)
-    (jobs : Nat) : IO (Array String) := do
+    (jobs : Nat) (shard : Option Shard := none) : IO (Array String × Array String) := do
   let compilerPaths := scratch / "compiler-paths"
   IO.FS.createDirAll compilerPaths
-  qualifyItems "execution" jobs <|
-    #[projectCluster layout repo scratch "correspondence-restoration"
-        (correspondenceRestoration layout),
-      projectCluster layout repo scratch "correspondence" (structuralCorrespondence layout)] ++
-    (CompilerPaths.qualifications repo compilerPaths).map fun (name, run) =>
-      (s!"compiler path {name}", run)
+  let controls : List (Shard × String × IO (Array String)) :=
+    [(Shard.second, projectCluster layout repo scratch "correspondence-restoration"
+        (correspondenceRestoration layout)),
+      (Shard.first, projectCluster layout repo scratch "correspondence"
+        (structuralCorrespondence layout))] ++
+    (CompilerPaths.qualifications repo compilerPaths).toList.mapIdx fun index (name, run) =>
+      (if index % 2 == 0 then Shard.first else Shard.second, s!"compiler path {name}", run)
+  let selected := ((inShard shard controls).map (·.2)).toArray
+  return (selected.map (·.1), ← qualifyItems "execution" jobs selected)
 
 /-- Two mutually independent modules, so the fresh control has two maximal roots. -/
 private def freshControlStems : Array String := #["Left", "Right"]
@@ -1998,8 +2204,8 @@ control starts from a copied repository with no `.lake/build` at all. -/
 private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo scratch : FilePath) :
     IO (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
-  let runScrubbed (dir : FilePath) (name : String) (args : Array String) : IO ProcessResult :=
-    runProcess dir (repo / ".lake" / "build" / "bin" / name).toString args
+  let runScrubbed (dir : FilePath) (name : String) (args : Array String) : IO ProcessResult := do
+    runProcess dir (← toolPath repo name).toString args
       scrubbedLeanPathEnv
   let unbuilt (name : String) (action : FilePath → IO Unit) : IO Unit := do
     let dir := scratch / name
@@ -2342,7 +2548,7 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
   let locked ← runProcess project "lake" #["update"] scrubbedLeanPathEnv
   unless locked.succeeded do return #[s!"library-cycle/setup: lake update failed:\n{locked.output}"]
   let result := output / "result.json"
-  let gate ← runProcess project (repo / ".lake/build/bin/axiomGate").toString
+  let gate ← runProcess project (← toolPath repo "axiomGate").toString
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
@@ -2372,54 +2578,87 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
       the key of its reused module Right.Base"
   return failures
 
-/-- Structural mutations and manifest controls retain their isolated projects, task joins,
-and complete failure accumulation. -/
+/-- The groups of controls the structural partition reports separately. -/
+private inductive StructuralGroup where
+  | frozen
+  | clusters
+  | cycle
+  | manifest
+  deriving BEq
+
+/-- What a sharded run printed in place of the description of every control of its group: the
+controls it ran, which are not all of the group's. -/
+private def shardDescription (shard : Shard) (names : Array String) : String :=
+  s!" (shard {shard.label}: {", ".intercalate names.toList}; the other shard runs the rest)"
+
+/-- Structural mutations and manifest controls retain their isolated projects, worker joins,
+and complete failure accumulation. The frozen-artifact controls, the mutation clusters, the
+library cycle control and the manifest controls share one queue of `jobs` workers, so no more
+than `jobs` of them run at once. The two short controls wait behind the clusters and take the
+workers the first clusters free, instead of competing with the first clusters for the
+processors. Each control has its shard; with `shard`, only that shard's controls run, and only
+the groups it ran report. -/
 private unsafe def runStructural (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
-    (failures : IO.Ref (Array String)) : IO Unit := do
-  let frozen ← withScratch repo "checker-frozen-artifacts" frozenArtifactControls
-  for failure in frozen do failures.modify (·.push failure)
-  IO.println <| "self-test frozen artifacts: " ++ (if frozen.isEmpty then "PASS" else "FAIL") ++
-    " (an admission is offered over an unchanged artifact and not over a changed, removed or \
-      added .olean, .olean.server or .olean.private; restored parts are offered again)"
-  let cycleTask ← IO.asTask (prio := .dedicated) do
-    timedPhase "library cycle control" <| libraryCycleControl repo
-  let structuralTask ← IO.asTask (prio := .dedicated) do
-    timedPhase "structural controls" <| withScratch repo "checker-structural" fun scratch =>
-      structuralQualification layout repo scratch jobs
-  let manifestTask ← IO.asTask (prio := .dedicated) do
-    timedPhase "manifest controls" <| withScratch repo "checker-manifest" fun scratch =>
-      manifestQualification repo scratch
-  for failure in ← IO.ofExcept (← IO.wait manifestTask) do failures.modify (·.push failure)
-  IO.println "self-test manifest: completed (valid in-process; missing, malformed, \
-    incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
-  let structural ← IO.ofExcept (← IO.wait structuralTask)
-  for failure in structural do failures.modify (·.push failure)
-  IO.println <| "self-test structural: " ++
-    (if structural.isEmpty then "PASS" else "FAIL") ++
-    " (discovery, warning, contamination, exact ownership, unlisted root module, " ++
-    "library and exe classification, claimed exe root, exe contamination, app exe omission, " ++
-    "app missing/trivial/weakened update evidence, missing proof field, weakened admission, " ++
-    "fresh coverage, realized and unchecked duplicate copies, restore; " ++
-    "isolated projects, bounded parallelism)"
-  let cycle ← IO.ofExcept (← IO.wait cycleTask)
-  for failure in cycle do failures.modify (·.push failure)
-  IO.println <| "self-test library cycle: " ++ (if cycle.isEmpty then "PASS" else "FAIL") ++
-    " (two claimed libraries that import one another: accepted, each module replayed in one \
-      environment, a requested module reused with its keys)"
+    (shard : Option Shard) (failures : IO.Ref (Array String)) : IO Unit := do
+  -- Every result carries its group, so none is found by its position in the queue.
+  let results ← timedPhase "structural controls" <|
+    withScratch repo "checker-structural" fun scratch =>
+      withScratch repo "checker-manifest" fun manifests => do
+        let controls : List (Shard × StructuralGroup × String × IO (Array String)) :=
+          [(Shard.first, StructuralGroup.frozen, "frozen artifact controls",
+              withScratch repo "checker-frozen-artifacts" frozenArtifactControls)] ++
+          (structuralClusters layout repo scratch).map (fun (assigned, name, run) =>
+            (assigned, StructuralGroup.clusters, s!"structural {name}", run)) ++
+          [(Shard.second, StructuralGroup.cycle, "library cycle control", libraryCycleControl repo),
+            (Shard.second, StructuralGroup.manifest, "manifest controls",
+              manifestQualification repo manifests)]
+        mapWorkQueue (max 1 jobs) ((inShard shard controls).map (·.2)).toArray
+          fun (group, label, run) => do return (group, label, ← timedPhase label run)
+  let ran (group : StructuralGroup) : Bool := results.any (·.1 == group)
+  let failuresOf (group : StructuralGroup) : Array String :=
+    (results.filter (·.1 == group)).foldl (· ++ ·.2.2) #[]
+  let verdict (group : StructuralGroup) : String :=
+    if (failuresOf group).isEmpty then "PASS" else "FAIL"
+  for (_, _, found) in results do
+    for failure in found do failures.modify (·.push failure)
+  if ran .frozen then
+    IO.println <| "self-test frozen artifacts: " ++ verdict .frozen ++
+      " (an admission is offered over an unchanged artifact and not over a changed, removed or \
+        added .olean, .olean.server or .olean.private; restored parts are offered again)"
+  if ran .manifest then
+    IO.println "self-test manifest: completed (valid in-process; missing, malformed, \
+      incomplete, wrong-version, unknown-key, bad-execution and unknown-library public cases)"
+  if ran .clusters then
+    IO.println <| "self-test structural: " ++ verdict .clusters ++ match shard with
+      | none =>
+        " (discovery, warning, contamination, exact ownership, unlisted root module, " ++
+        "library and exe classification, claimed exe root, exe contamination, app exe omission, " ++
+        "app missing/trivial/weakened update evidence, missing proof field, weakened admission, " ++
+        "fresh coverage, realized and unchecked duplicate copies, restore; " ++
+        "isolated projects, bounded parallelism)"
+      | some selected => shardDescription selected
+          ((results.filter (·.1 == StructuralGroup.clusters)).map (·.2.1))
+  if ran .cycle then
+    IO.println <| "self-test library cycle: " ++ verdict .cycle ++
+      " (two claimed libraries that import one another: accepted, each module replayed in one \
+        environment, a requested module reused with its keys)"
 
 /-- Execution-evidence controls: the correspondence controls and every compiler-path case,
-each with its positive, mutation and fresh restoration in an isolated project. -/
+each with its positive, mutation and fresh restoration in an isolated project. With `shard`,
+only that shard's controls run and are named. -/
 private unsafe def runExecution (layout : SourceLayout) (repo : FilePath) (jobs : Nat)
-    (failures : IO.Ref (Array String)) : IO Unit := do
-  let execution ← timedPhase "execution controls" <|
+    (shard : Option Shard) (failures : IO.Ref (Array String)) : IO Unit := do
+  let (names, execution) ← timedPhase "execution controls" <|
     withScratch repo "checker-execution" fun scratch =>
-      executionQualification layout repo scratch jobs
+      executionQualification layout repo scratch jobs shard
   for failure in execution do failures.modify (·.push failure)
   IO.println <| "self-test execution: " ++
-    (if execution.isEmpty then "PASS" else "FAIL") ++
-    s!" ({CompilerPaths.caseCount} compiler-path cases, conditional correspondence, " ++
-    "restricted-domain and universe correspondence restorations; positive, mutation and " ++
-    "fresh restoration each; isolated projects, bounded parallelism)"
+    (if execution.isEmpty then "PASS" else "FAIL") ++ match shard with
+    | none =>
+      s!" ({CompilerPaths.caseCount} compiler-path cases, conditional correspondence, " ++
+      "restricted-domain and universe correspondence restorations; positive, mutation and " ++
+      "fresh restoration each; isolated projects, bounded parallelism)"
+    | some selected => shardDescription selected names
 
 /-- Public CLI fixtures: the complete sweep for qualification, or the unchanged
 smoke subset for the default development tier. -/
@@ -2505,15 +2744,18 @@ private def runLintDriver (repo : FilePath) (jobs : Nat)
     IO.println <| "self-test lake lint driver: " ++ (if lint.isEmpty then "PASS" else "FAIL")
 
 /-- Full and selected runs use the same group implementations. This exhaustive
-match assigns each supported partition exactly one implementation. -/
+match assigns each supported partition exactly one implementation. `fullCli` selects the
+complete CLI sweep of the build-bound tier instead of the default tier's smoke subset, and
+`shard` one shard of the structural or execution partition (`parseArgs` admits it with no
+other). -/
 private unsafe def runPartition (layout : SourceLayout) (partition : Partition) (repo : FilePath)
-    (jobs : Nat)
+    (jobs : Nat) (fullCli : Bool) (shard : Option Shard)
     (fixtures : Array FixtureSpec) (failures : IO.Ref (Array String)) : IO Unit :=
   match partition with
   | .fixtures => runFixtures repo jobs fixtures failures
-  | .structural => runStructural layout repo jobs failures
-  | .execution => runExecution layout repo jobs failures
-  | .cli => runCli repo jobs true fixtures failures
+  | .structural => runStructural layout repo jobs shard failures
+  | .execution => runExecution layout repo jobs shard failures
+  | .cli => runCli repo jobs fullCli fixtures failures
   | .environments => runEnvironments layout repo failures
   | .buildPolicy => runBuildPolicy repo jobs failures
   | .lintDriver => runLintDriver repo jobs failures
@@ -2552,7 +2794,7 @@ private def combinedSnapshotQualification (repo : FilePath) : IO (Array String) 
       let body := if phase == "invalid" then "def docWitness : Nat := \"bad\""
         else "theorem docWitness : True := True.intro"
       IO.FS.writeFile (docs / "sentinel.md") s!"```lean\n{body}\n```\n"
-      let result ← runProcess project (repo / ".lake/build/bin/axiomGate").toString
+      let result ← runProcess project (← toolPath repo "axiomGate").toString
         #["--project", project.toString, "--with-docs", "--verbose"] scrubbedLeanPathEnv
       let accepted := if phase == "invalid" then
           !result.succeeded && result.output.contains "[X] .cache/sentinel.md:"
@@ -2679,23 +2921,34 @@ unsafe def run (args : List String) : IO UInt32 := do
   let repo ← repoRoot
   let started ← IO.monoNanosNow
   let failures ← IO.mkRef (#[] : Array String)
-  -- One baseline build pays the invariant prefix once: the checker
-  -- executables, the fixture import anchor, and the claimed positive surface
-  -- (fixture sources import the owned library, e.g. `import AuditApp`), so every
-  -- later phase sees an already-warm build.
+  -- The partitions this run executes: the selected one, both of `--structural-only`, every one
+  -- in the build-bound tier, and the default tier's four otherwise.
+  let selected : List Partition :=
+    if options.structuralOnly then [.structural, .execution]
+    else match options.partition with
+      | some partition => [partition]
+      | none => if options.buildBound then Partition.all
+          else [.fixtures, .structural, .execution, .cli]
+  -- One baseline build pays the prefix of the selected partitions once (`baselineOf`):
+  -- the checker executables their controls run and, where one of them reads it, the fixture
+  -- import anchor and the claimed positive surface, so every later phase sees it built.
   let surfaceManifest ← parsedManifest (Manifest.defaultPath repo)
+  let baselines := selected.map (baselineOf · options.shard)
+  let tools := baselineTools baselines
   let build ← timedPhase "baseline build" <| runProcess repo "lake"
-    (#["build", "axiomGate", "lint", "docFenceAudit", "freshChecker",
-        "Fixtures.Mutations.DirectAxiom"]
-      ++ Manifest.positiveTargets surfaceManifest)
+    (#["build"] ++ tools.toArray ++
+      (if baselines.any (·.surface) then
+        #[structuralFixture.toString] ++ Manifest.positiveTargets surfaceManifest
+      else #[]))
   if !build.succeeded then
     IO.println s!"FAIL: baseline checker and claimed-surface build failed:\n{build.output}"
     return 1
+  builtTools.set (some tools)
   let layout ← loadSourceLayout repo
   if options.structuralOnly then
     return ← withScratch repo "checker-structural" fun scratch => do
       let structural := (← structuralQualification layout repo scratch options.jobs) ++
-        (← executionQualification layout repo scratch options.jobs)
+        (← executionQualification layout repo scratch options.jobs).2
       if structural.isEmpty then
         IO.println s!"checker structural self-test: PASS (including {CompilerPaths.caseCount} \
           compiler-path mutations with fresh restorations)"
@@ -2704,17 +2957,11 @@ unsafe def run (args : List String) : IO UInt32 := do
       for failure in structural do IO.println s!"\n{failure}"
       return 1
   let fixtures ← loadFixtureManifest layout repo
-  match options.partition with
-  | some partition => runPartition layout partition repo options.jobs fixtures failures
-  | none =>
-    if options.buildBound then
-      for partition in Partition.all do
-        runPartition layout partition repo options.jobs fixtures failures
-    else
-      runFixtures repo options.jobs fixtures failures
-      runStructural layout repo options.jobs failures
-      runExecution layout repo options.jobs failures
-      runCli repo options.jobs false fixtures failures
+  -- The same partitions the baseline was built for; only the build-bound tier runs the complete
+  -- CLI sweep.
+  for partition in selected do
+    runPartition layout partition repo options.jobs options.buildBound options.shard fixtures
+      failures
   let failures ← failures.get
   if !failures.isEmpty then
     IO.println s!"FAIL: {failures.size} checker qualification failure(s)"
@@ -2722,8 +2969,12 @@ unsafe def run (args : List String) : IO UInt32 := do
     return 1
   let elapsed := (← IO.monoNanosNow) - started
   if let some partition := options.partition then
-    IO.println s!"checker self-test partition {partition.label}: PASS ({elapsed / 1000000000}s; \
-      this partition alone is not full qualification)"
+    IO.println <| match options.shard with
+      | none => s!"checker self-test partition {partition.label}: PASS \
+          ({elapsed / 1000000000}s; this partition alone is not full qualification)"
+      | some shard => s!"checker self-test partition {partition.label} shard {shard.label}: PASS \
+          ({elapsed / 1000000000}s; this shard alone is not the partition, and no partition \
+          alone is full qualification)"
     return 0
   IO.println <| s!"checker self-test: PASS ({fixtures.size} fixed fixtures in-process; " ++
     (if options.buildBound then
