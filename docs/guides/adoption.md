@@ -82,7 +82,9 @@ This source revision guards the exact compiler instead: it declares one exact co
 commit in `RegulaPolicy.Compiler`.
 A fresh configuration invokes that identity guard before building the checker; inventory, plan,
 and probe admission retain it. Elan aliases may differ when they resolve to the same compiler. A
-mismatch stops Regula's `lakefile.lean` with the remedy and both identities:
+mismatch stops Regula's `lakefile.lean` with the remedy and both identities. The stable
+Lean 4.34.0 policy, for example, reports the following; the expected identity changes with
+the checker revision:
 
 ```text
 error: …/regula/lakefile.lean:…: Regula's compiler guard stopped: Lake is running Lean 4.33.0 (…), and `…/bin/lean`, which LEAN_SYSROOT or PATH selects, refused Regula's compiler policy or could not compile it. Use a Lean release this Regula revision supports, or a Regula revision qualified for this exact compiler: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md#when-your-lean-release-has-no-regula-release

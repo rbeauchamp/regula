@@ -246,10 +246,10 @@ of these repairs at the selected checker revision.
 
 At compiler commit `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`,
 `ToLCNF.constantReplacer` performs at most one `CSimp.replaceConstant?` lookup per call, and
-conversion revisits the resulting expression. This differs from the two-stage 4.34.0 account in
-standard §7.6, which this guide does not replace: only the standard is normative, and a
-compatibility revision for this compiler must amend it. The accepted constant-equality shape and
-positional universe substitution are unchanged.
+conversion revisits the resulting expression. This differs from this revision's two-stage
+Lean 4.35.0-rc3 account in standard §7.6. A compatibility revision for that source compiler
+records its own path there; the standard remains normative. The accepted constant-equality
+shape and positional universe substitution are unchanged.
 
 Regula's `simplificationCandidates` recognizes every declaration of that equality shape,
 and `executionWalk` enqueues every recognized target before continuing the traversal.
