@@ -965,6 +965,8 @@ to the group's helpers standing for the recursive calls, and compare what it gen
 observed base and its auxiliary definitions (`regenerationMatches`). A helper whose base a
 regeneration reproduces is admitted only where Lean's kernel then checks, for each helper of the
 group, the recursion equation of its base for the helper's value (`recursionEquationChecked`).
+Each equation check runs with the heartbeat budget of one declaration (`withCurrHeartbeats`),
+whatever regenerations ran before it.
 The regeneration selects the base and the route recorded; that the helper computes the base rests
 on the kernel-checked equation, not on the regeneration or on what Lean's compilers read while it
 runs (matcher metadata, the `below` and `brecOn` declarations of an inductive type, reducibility
@@ -1099,8 +1101,8 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         TermElabM (Option RecursionOrigin) := do
       for i in [:group.size] do
         let some (.defnInfo member) := env.find? group[i]! | return none
-        unless ← recursionEquationChecked bases[i]! member.levelParams (toBases member.value)
-            (some (after, regenerationRoot ++ bases[i]!)) do
+        unless ← withCurrHeartbeats <| recursionEquationChecked bases[i]! member.levelParams
+            (toBases member.value) (some (after, regenerationRoot ++ bases[i]!)) do
           return none
       return some origin
     if let some (origin, after) ← regenerate regenerating then return ← admitted origin after
