@@ -28,8 +28,9 @@ rule ID in prose that is not such a link, and rewrites generated prose so that i
 
 ## What prose is
 
-In a Markdown document, prose is the text outside fenced code blocks (`fenceRun?`), code spans,
-link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs.
+In a Markdown document, prose is the text outside fenced code blocks (`fenceOpen?`), code spans,
+link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs;
+all the text of an HTML block (`htmlBlock?`), in which Markdown is not parsed, is prose.
 In an HTML page, prose is the text outside the `code`, `pre`, `script` and `style` elements
 (`exemptElement`). Pasted tool output is a fenced block or a `pre` element; a Lean identifier is
 code. A rule table that is the index of rule pages names each rule as a link to its page, so its
@@ -41,16 +42,23 @@ link to itself (`ownPage`): those two elements are read as text linked to the pa
 
 `bareMentions_nil_iff` is about the runs it is given. `markdownRuns` and `htmlRuns` are small
 scanners for this repository's documents and the builder's own output, not complete CommonMark
-or HTML parsers: an indented code block and text between raw HTML tags are read as prose, so an
-ID there must be linked, and only the constructs listed above are skipped.
-A fenced block that is never closed would hide the text after it, so `markdownErrors` refuses such
-a Markdown document; a `<!--` that its paragraph does not close is read as prose, as CommonMark
-reads an inline one. Stricter than CommonMark, an open tag that spans lines and an HTML block that
-a `<!--` at the start of a line opens are read as prose too, so an ID there must be linked. A link
-reference definition counts only after at most three spaces where a paragraph could start
-(`blocks`), as in CommonMark; elsewhere its line is prose. An element, comment or script that is
-never closed would hide the text after it, so `htmlErrors` refuses such a page; an element closed
-and reopened out of order is not detected.
+or HTML parsers. They may refuse a rule ID that CommonMark renders as a link, but must never
+accept one that it renders as plain text: only the constructs listed above are skipped, each only
+where CommonMark does not render its text as prose. That is stricter than CommonMark exactly where
+CommonMark hides or links text that the scanner reads as prose: an indented code block; an HTML
+block of any kind, whose tags, comments and attributes are read as prose too, with condition 7
+read as every line that starts with a tag and ends with `>`; an open tag that spans lines; a
+fenced code block closed by a fence run indented four spaces or more, after which the text is
+prose; a link or definition with a title in parentheses, with an escaped quote or over several
+lines; and a link reference definition anywhere but at the start of the document or directly
+after a blank line, a fenced code block, an HTML block that ends at its marker, an ATX heading or
+another definition (`blocks`), such as after a thematic break, a setext underline or a table row,
+or in a list or block quote. Character references such as `&#82;` are not decoded, so a rule ID
+written with one is not seen. A fenced block that is never closed would run to the end of the
+document, so `markdownErrors` refuses such a Markdown document; a `<!--` that its paragraph does
+not close is read as prose. An element, comment or script that is never closed would hide the
+text after it, so `htmlErrors` refuses such a page; an element closed and reopened out of order
+is not detected.
 `linkIds` rewrites the prose `scanInline` finds; that its output has no bare rule ID is
 established by `htmlErrors` on the rendered pages and `markdownErrors` on the committed agent
 skill, not by a theorem about the rewriting.
@@ -254,16 +262,21 @@ def destinationOf (raw : List Char) : String :=
   | '<' :: rest => String.ofList (rest.takeWhile (· != '>'))
   | chars => String.ofList (chars.takeWhile (!Char.isWhitespace ·))
 
-/-- Whether a link's raw target is a destination alone, or a destination and a quoted title, on
-one line. Any other text in a link's parentheses or after a definition's colon is prose, so it is
-not skipped as a destination. -/
+/-- Whether a link's raw target is a destination alone, or a destination and a title in `"` or `'`
+that its quote closes with only whitespace after it, on one line. Any other text in a link's
+parentheses or after a definition's colon is prose, so it is not skipped as a destination. -/
 def validTarget (raw : List Char) : Bool :=
   let chars := raw.dropWhile Char.isWhitespace
   let destination := match chars with
     | '<' :: rest => (rest.takeWhile (· != '>')).length + 2
     | _ => (chars.takeWhile (!Char.isWhitespace ·)).length
   let after := (chars.drop destination).dropWhile Char.isWhitespace
-  !raw.contains '\n' && (after.isEmpty || after.head? == some '"' || after.head? == some '\'')
+  !raw.contains '\n' && match after with
+    | [] => true
+    | quote :: title => (quote == '"' || quote == '\'') &&
+      match title.dropWhile (· != quote) with
+      | _ :: tail => tail.all Char.isWhitespace
+      | [] => false
 
 /-- A reference label as it is matched: trimmed and lowercase. -/
 def label (chars : List Char) : String := (String.ofList chars).trimAscii.toString.toLower
@@ -284,30 +297,6 @@ def referenceDefinition? (line : String) : Option (String × String) :=
       | _ => none
   | _ => none
 
-/-- The open fenced code block after line `line` with text `text`, as the line that opened it and
-its fence character and length, when `fence` is the one open before the line. -/
-def fenceAfter (line : Nat) (fence : Option (Nat × Char × Nat)) (text : String) :
-    Option (Nat × Char × Nat) :=
-  match fence with
-  | some (opened, character, count) =>
-    if closingFence text character count then none else some (opened, character, count)
-  | none => (fenceRun? text).map fun (character, count, _) => (line, character, count)
-
-/-- Each line of a document with its 1-based number, or `none` for a line of a fenced code block
-(its delimiters included). `fence` is the fenced block open before the first line. -/
-def proseLines : Nat → Option (Nat × Char × Nat) → List String → List (Nat × Option String)
-  | _, _, [] => []
-  | line, fence, text :: rest =>
-    let after := fenceAfter line fence text
-    (line, if fence.isNone && after.isNone then some text else none) ::
-      proseLines (line + 1) after rest
-
-/-- The line that opens a fenced code block the document never closes, if there is one. Everything
-after it is code, so the document's prose is refused instead of read short. -/
-def unclosedFence (lines : List String) : Option Nat :=
-  ((lines.foldl (fun (acc : Nat × Option (Nat × Char × Nat)) text =>
-    (acc.1 + 1, fenceAfter acc.1 acc.2 text)) (1, none)).2).map (·.1)
-
 /-- Whether `line` is an ATX heading: after at most three spaces, one to six `#` and then a space
 or the end of the line. A heading ends the paragraph before it and is a paragraph of its own. -/
 def isHeading (line : String) : Bool :=
@@ -316,32 +305,139 @@ def isHeading (line : String) : Bool :=
   let hashes := (chars.takeWhile (· == '#')).length
   indent ≤ 3 && 1 ≤ hashes && hashes ≤ 6 && (chars.drop hashes).head?.all (· == ' ')
 
-/-- A block of a document outside its fenced code blocks. -/
+/-- The fenced code block that `line` opens, as its fence character and length: after at most three
+spaces, a fence run (`fenceRun?`), with no backtick in the text after a run of backticks. -/
+def fenceOpen? (line : String) : Option (Char × Nat) :=
+  let indent := (line.toList.takeWhile (· == ' ')).length
+  match line.toList.drop indent, fenceRun? line with
+  | first :: _, some (character, count, info) =>
+    if indent ≤ 3 && first == character && !(character == '`' && info.toList.contains '`') then
+      some (character, count)
+    else none
+  | _, _ => none
+
+/-- The block tag names of CommonMark's HTML block start condition 6. -/
+def blockTagNames : List String :=
+  ["address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center",
+    "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset",
+    "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5",
+    "h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu",
+    "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "search", "section",
+    "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul"]
+
+/-- How the HTML block that `line` opens ends, when it opens one by CommonMark's start conditions,
+after at most three spaces: at the first line, this one included, that contains one of the
+returned markers, ignoring case (conditions 1 to 5: `pre`, `script`, `style` or `textarea`, a
+comment, a processing instruction, a declaration and a `CDATA` section), or, when none is
+returned, before the next blank line (condition 6, a block tag name, and, only when no paragraph
+is open, condition 7, which is read as every line that starts with a tag and ends with `>`). -/
+def htmlBlock? (paragraphOpen : Bool) (line : String) : Option (List String) :=
+  let indent := (line.toList.takeWhile (· == ' ')).length
+  let chars := (String.ofList (line.toList.drop indent)).toLower.toList
+  let ends (next : Option Char) : Bool := next.all fun c => c == ' ' || c == '\t' || c == '>'
+  if indent > 3 then none else
+  match chars with
+  | '<' :: '!' :: '-' :: '-' :: _ => some ["-->"]
+  | '<' :: '?' :: _ => some ["?>"]
+  | '<' :: '!' :: '[' :: 'c' :: 'd' :: 'a' :: 't' :: 'a' :: '[' :: _ => some ["]]>"]
+  | '<' :: '!' :: c :: _ => if c.isAlpha then some [">"] else none
+  | '<' :: rest =>
+    let (closing, tag) := match rest with
+      | '/' :: tag => (true, tag)
+      | tag => (false, tag)
+    let name := tag.takeWhile fun c => c.isAlphanum || c == '-'
+    let next := (tag.drop name.length).head?
+    let name := String.ofList name
+    if !closing && ["pre", "script", "style", "textarea"].contains name && ends next then
+      some ["</pre>", "</script>", "</style>", "</textarea>"]
+    else if blockTagNames.contains name && (ends next || next == some '/') then some []
+    else if !paragraphOpen && tag.head?.any Char.isAlpha &&
+        (String.ofList chars).trimAscii.toString.endsWith ">" then some []
+    else none
+  | _ => none
+
+/-- Whether `text` contains one of `markers`, ignoring case. -/
+private def containsAny (markers : List String) (text : String) : Bool :=
+  markers.any fun marker => (text.toLower.splitOn marker).length > 1
+
+/-- A block of a document. -/
 inductive Block where
   /-- A paragraph or a heading, with the line it starts on. -/
   | paragraph (line : Nat) (text : String)
+  /-- An HTML block (`htmlBlock?`), with the line it starts on. Markdown is not parsed in it, so
+  all its text is prose. -/
+  | html (line : Nat) (text : String)
   /-- A link reference definition, with its label and destination. -/
   | definition (label destination : String)
+  /-- A fenced code block that the document never closes, with the line that opens it. -/
+  | unclosedFence (line : Nat)
 
-private def closeBlock (line : Nat) (acc : List String) : List Block :=
-  if acc.isEmpty then [] else [.paragraph (line - acc.length) ("\n".intercalate acc.reverse)]
+/-- The block open before a line. -/
+inductive Open where
+  /-- No block: one can start. -/
+  | idle
+  /-- A paragraph, with its lines so far, last first. -/
+  | paragraph (lines : List String)
+  /-- An HTML block, with its lines so far, last first, and the markers that end it
+  (`htmlBlock?`). -/
+  | html (lines : List String) (markers : List String)
+  /-- A fenced code block, with the line that opens it and its fence character and length. -/
+  | fence (line : Nat) (character : Char) (count : Nat)
 
-/-- The blocks of a document: each heading, each maximal run of consecutive lines that are not in a
-fenced code block, blank, a heading or a link reference definition, and each link reference
-definition. A definition cannot interrupt a paragraph, so a definition line is one only where no
-paragraph is open, at the start of the document or after a blank line, a fenced code block, a
-heading or another definition, as in CommonMark; elsewhere it continues the paragraph. `acc` holds
-the lines of the paragraph in progress, reversed, which ends before line `line`. -/
-def blocks : Nat → List String → List (Nat × Option String) → List Block
-  | line, acc, [] => closeBlock line acc
-  | _, acc, (line, none) :: rest => closeBlock line acc ++ blocks (line + 1) [] rest
-  | _, acc, (line, some text) :: rest =>
-    if text.toList.all Char.isWhitespace then closeBlock line acc ++ blocks (line + 1) [] rest
+/-- The block that `o` is when it ends before line `line`. -/
+def Open.close (line : Nat) : Open → List Block
+  | .idle => []
+  | .paragraph lines => [.paragraph (line - lines.length) ("\n".intercalate lines.reverse)]
+  | .html lines _ => [.html (line - lines.length) ("\n".intercalate lines.reverse)]
+  | .fence opened _ _ => [.unclosedFence opened]
+
+private def blank (text : String) : Bool := text.toList.all Char.isWhitespace
+
+/-- The blocks of a document's lines, from line `line` with `o` open before it. A fenced code
+block (`fenceOpen?`) closes at a fence run of its character at least as long (`closingFence`), an
+HTML block (`htmlBlock?`) at its marker or before a blank line, and a paragraph before a blank
+line or the start of another block; nothing in a fenced code block or an HTML block is read as
+Markdown. A heading is a paragraph of its own. A link reference definition cannot interrupt a
+paragraph, so a line is one (`referenceDefinition?`) only at the start of the document or directly
+after a blank line, a fenced code block, an HTML block that ends at its marker, a heading or
+another definition. Anywhere else, such as after a thematic break, a setext underline or a table
+row, or inside an HTML block, the line is prose. -/
+def blocks : Nat → Open → List String → List Block
+  | line, o, [] => o.close line
+  | line, .fence opened character count, text :: rest =>
+    blocks (line + 1)
+      (if closingFence text character count then .idle else .fence opened character count) rest
+  | line, .html lines [], text :: rest =>
+    if blank text then (Open.html lines []).close line ++ blocks (line + 1) .idle rest
+    else blocks (line + 1) (.html (text :: lines) []) rest
+  | line, .html lines markers, text :: rest =>
+    if containsAny markers text then
+      (Open.html (text :: lines) markers).close (line + 1) ++ blocks (line + 1) .idle rest
+    else blocks (line + 1) (.html (text :: lines) markers) rest
+  | line, o, text :: rest =>
+    let lines := match o with
+      | .paragraph lines => lines
+      | _ => []
+    if blank text then o.close line ++ blocks (line + 1) .idle rest
+    else if let some (character, count) := fenceOpen? text then
+      o.close line ++ blocks (line + 1) (.fence line character count) rest
+    else if let some markers := htmlBlock? (!lines.isEmpty) text then
+      o.close line ++
+        if !markers.isEmpty && containsAny markers text then
+          .html line text :: blocks (line + 1) .idle rest
+        else blocks (line + 1) (.html [text] markers) rest
     else if isHeading text then
-      closeBlock line acc ++ .paragraph line text :: blocks (line + 1) [] rest
-    else match (if acc.isEmpty then referenceDefinition? text else none) with
-      | some (name, destination) => .definition name destination :: blocks (line + 1) [] rest
-      | none => blocks (line + 1) (text :: acc) rest
+      o.close line ++ .paragraph line text :: blocks (line + 1) .idle rest
+    else match (if lines.isEmpty then referenceDefinition? text else none) with
+      | some (name, destination) => .definition name destination :: blocks (line + 1) .idle rest
+      | none => blocks (line + 1) (.paragraph (text :: lines)) rest
+
+/-- The line that opens a fenced code block the document never closes, if there is one. Everything
+after it is code, so the document's prose is refused instead of read short. -/
+def unclosedFence (lines : List String) : Option Nat :=
+  (blocks 1 .idle lines).findSome? fun
+    | .unclosedFence line => some line
+    | _ => none
 
 /-- One piece of a paragraph. The pieces' raw texts, in order, are the paragraph. -/
 inductive Piece where
@@ -376,19 +472,68 @@ def commentLength : List Char → Option Nat
   | _ :: rest => (commentLength rest).map (· + 1)
   | [] => none
 
+private def isBlank (c : Char) : Bool := c == ' ' || c == '\t'
+
+/-- The text after the attributes at the head of `chars`: each an attribute name after spaces or
+tabs, with an optional `=` and a value, quoted or unquoted (CommonMark §6.6), or `none` when a
+value is malformed. `fuel` bounds the attributes read. -/
+def afterAttributes : Nat → List Char → Option (List Char)
+  | 0, chars => some chars
+  | fuel + 1, chars =>
+    let spaced := chars.dropWhile isBlank
+    match spaced with
+    | [] => some chars
+    | c :: _ =>
+      if spaced.length == chars.length || !(c.isAlpha || c == '_' || c == ':') then some chars
+      else
+        let afterName := spaced.dropWhile fun c =>
+          c.isAlphanum || c == '_' || c == '.' || c == ':' || c == '-'
+        match afterName.dropWhile isBlank with
+        | '=' :: value =>
+          match value.dropWhile isBlank with
+          | [] => none
+          | q :: v =>
+            if q == '"' || q == '\'' then
+              match v.dropWhile (· != q) with
+              | _ :: after => afterAttributes fuel after
+              | [] => none
+            else
+              let n := ((q :: v).takeWhile fun c =>
+                !(isBlank c || "\"'=<>`".toList.contains c)).length
+              if n == 0 then none else afterAttributes fuel ((q :: v).drop n)
+        | _ => afterAttributes fuel afterName
+
+/-- Whether `body`, the text between a `<` and the next `>`, is an open tag, a closing tag or a
+URI autolink (CommonMark §6.5 and §6.6). -/
+def inlineTag (body : List Char) : Bool :=
+  let tagName (chars : List Char) := chars.takeWhile fun c => c.isAlphanum || c == '-'
+  match body with
+  | '/' :: rest => rest.head?.any Char.isAlpha && (rest.drop (tagName rest).length).all isBlank
+  | c :: _ =>
+    let name := tagName body
+    let after := body.drop name.length
+    c.isAlpha && match after with
+      | ':' :: link =>
+        2 ≤ name.length && name.length ≤ 32 && !link.any fun c => c.isWhitespace || c == '<'
+      | _ => match afterAttributes (after.length + 1) after with
+        | some tail => match tail.dropWhile isBlank with
+          | [] | ['/'] => true
+          | _ => false
+        | none => false
+  | [] => false
+
 /-- The number of characters after a `<` through the end of the HTML comment, tag or autolink
 it opens, when it opens one: a comment closes in the rest of its paragraph, and a tag or autolink
-on its own line. Otherwise the `<` is prose: as in CommonMark for an inline comment that is not
-closed, and, stricter than CommonMark, for an open tag that spans lines. -/
+(`inlineTag`) is well formed on its own line. Otherwise, as for a comment its paragraph does not
+close, a malformed tag or an open tag that spans lines, the `<` is prose. -/
 def tagLength (rest : List Char) : Option Nat :=
   match rest with
   | '!' :: '-' :: '-' :: tail => (commentLength tail).map (3 + ·)
-  | c :: _ =>
+  | _ =>
     let body := rest.takeWhile (· != '>')
-    if (c.isAlpha || c == '/') && body.length < rest.length && !body.contains '\n' then
+    if body.length < rest.length && !body.contains '\n' && inlineTag body then
       some (body.length + 1)
     else none
-  | [] => none
 
 /-- Whether `chars` starts a bare URL. -/
 def startsUrl (chars : List Char) : Bool :=
@@ -465,17 +610,18 @@ def runsOf (line : Nat) (pieces : List Piece) : List Run :=
       | .prose text link => ⟨acc.1, text, link⟩ :: acc.2
       | .skip _ => acc.2)) (line, [])).2.reverse
 
-/-- The prose of a Markdown document: for each paragraph and heading outside fenced code blocks
-and link reference definitions (`blocks`), its text outside code spans, link destinations, HTML
-tags and comments, autolinks and bare URLs. -/
+/-- The prose of a Markdown document (`blocks`): for each paragraph and heading, its text outside
+code spans, link destinations, HTML tags and comments, autolinks and bare URLs, and all the text
+of each HTML block. -/
 def markdownRuns (text : String) : List Run :=
-  let parts := blocks 1 [] (proseLines 1 none (text.splitOn "\n"))
+  let parts := blocks 1 .idle (text.splitOn "\n")
   let defined := parts.filterMap fun
     | .definition name destination => some (name, destination)
-    | .paragraph .. => none
+    | _ => none
   parts.flatMap fun
     | .paragraph line paragraph => runsOf line (pieces defined paragraph)
-    | .definition .. => []
+    | .html line raw => [⟨line, raw, none⟩]
+    | _ => []
 
 /-- What the Markdown document `text` of `main` is refused for: a fenced code block that is never
 closed, and each rule ID in its prose that is not a link to its development page, reported with
@@ -711,6 +857,28 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("# Links\n   [RG1001]: " ++
     Edition.dev.url RuleId.projectAxiom.route ++ "\nSee [RG1001].\n") == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001].\n\n<!-- Links -->\n[RG1001]: " ++
+    Edition.dev.url RuleId.projectAxiom.route ++ "\n") == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001].\n\n[RG1001]: " ++
+    Edition.dev.url RuleId.projectAxiom.route ++ " 'Bob's rule'\n") ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+    "a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("<p align=\"center\">See [RG1001](" ++
+    Edition.dev.url RuleId.projectAxiom.route ++ ").</p>\n") ==
+  List.replicate 2 "a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "<div>\n```\n</div>\n\nRG1001 here.\n\n```\n" ==
+  ["a.md:7: the fenced code block is not closed, so the text after it is not read as prose",
+    "a.md:5: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "Text\n    ```\nRG1001 here.\n    ````\n" ==
+  ["a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "See <a \"RG1001\"> and <a title=\"RG1002\">it</a>.\n" ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "## Why RG2003 fires first\n\nText.\n" ==
   ["a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
