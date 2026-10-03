@@ -69,7 +69,9 @@ def releaseName (selector : String) : String :=
     else origin) ++ ":" ++ (if release.front.isDigit then "v" ++ release else release)
 
 /-- The listed toolchain `selector` names: itself when listed (a linked toolchain or a full
-name), else its release name. A release channel such as `stable` names none. -/
+name), else its release name when that is listed. It resolves no channel and installs nothing: a
+channel such as `stable` resolves only when the listing names a toolchain spelled as it or as its
+release name. -/
 def installedName? (listed : List String) (selector : String) : Option String :=
   listed.find? (· == selector) <|> listed.find? (· == releaseName selector)
 

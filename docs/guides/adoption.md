@@ -66,12 +66,21 @@ keeps the Mathlib revision it pins.
 
 ### When your Lean release has no Regula release
 
-Each Regula revision declares one exact compiler version and commit in
-`RegulaPolicy.Compiler`. A Lean patch release such as `v4.34.1` is another compiler.
-Lake loads Regula with the Lean your project runs. A fresh configuration invokes that same
-identity guard before building the checker; inventory, plan, and probe admission retain it.
-Elan aliases may differ when they resolve to the same compiler. A mismatch stops Regula's
-`lakefile.lean` with the remedy and both identities:
+Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
+patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
+runs. From `v0.2.0` on, the releases in the table above stop in Regula's `lakefile.lean` before
+anything compiles when that Lean's version differs, naming both releases (they compare only the
+version, not the compiler's commit; `v4.34.0` has no such guard):
+
+```text
+error: …/regula/lakefile.lean:…: this Regula release supports only Lean leanprover/lean4:v4.34.0, but Lake is running Lean 4.33.0. …
+```
+
+The development revision on `main`, which no release in the table includes yet, guards the exact
+compiler instead. It declares one exact compiler version and commit in `RegulaPolicy.Compiler`.
+A fresh configuration invokes that identity guard before building the checker; inventory, plan,
+and probe admission retain it. Elan aliases may differ when they resolve to the same compiler. A
+mismatch stops Regula's `lakefile.lean` with the remedy and both identities:
 
 ```text
 error: …/regula/lakefile.lean:…: Regula's compiler guard stopped: Lake is running Lean 4.33.0 (…), and `…/bin/lean`, which LEAN_SYSROOT or PATH selects, refused Regula's compiler policy or could not compile it. Use a Lean release this Regula revision supports, or a Regula revision qualified for this exact compiler: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md#when-your-lean-release-has-no-regula-release
@@ -130,10 +139,12 @@ setup, and that runtime check confirms the files as written match it. `init` end
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
-guidance, the compiler your `lean-toolchain` selects (resolved with Elan, which must list it
-as installed, so name a release, not a channel such as `stable`; `doctor` installs nothing) and any module below a library root that no library includes but a claimed
-module imports (which `lake lint` rejects), and, once a manifest exists, the linter's own
-manifest validation (RG2002) and option decision (RG2006) for every claimed target, one RG2006
+guidance, the compiler your `lean-toolchain` selects (resolved only to a toolchain Elan lists as
+installed, spelled as the selector or as its release name, so name an exact release rather than a
+channel such as `stable`; `doctor` resolves no channel and installs nothing) and any module below a
+library root that no library includes but a claimed module imports (which `lake lint` rejects), and,
+once a manifest exists, the linter's own manifest validation (RG2002) and option decision (RG2006)
+for every claimed target, one RG2006
 finding naming every target with the same claim and failures, where `lake lint` prints one per
 target. It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out

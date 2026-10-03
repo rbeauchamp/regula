@@ -4,12 +4,12 @@ import RegulaCore.Toolchain
 
 Resolve an Elan toolchain selector to its `lean` executable and read its version, commit and
 origin-checked Core capability. The development toolchain driver and `regula doctor` share
-this. `elan run` installs a known release that is missing, so a selector is first resolved to
-a toolchain `elan toolchain list` names, and only that name is run: a selector naming none is
-refused, and a release channel such as `stable` names none. Elan's listing, that it runs a
-toolchain it lists without installing, its naming of release selectors, process execution and
-the compiler's self-report are trusted; a compiler built from a tree with uncommitted changes
-reports that tree's commit, with no marker for them. -/
+this. A selector is resolved only to a toolchain `elan toolchain list` names, spelled as the
+selector or as its release name (`installedName?`), and only that listed name is run, without
+Elan's `--install`: a selector naming none is refused, and no channel is resolved and nothing
+is installed. Elan's listing, that it runs a listed toolchain without installing, its naming of
+release selectors, process execution and the compiler's self-report are trusted; a compiler built
+from a tree with uncommitted changes reports that tree's commit, with no marker for them. -/
 
 namespace Regula.Toolchain
 open System
@@ -21,8 +21,8 @@ def compilerEnv : Array (String × Option String) :=
       (fun name => (name, none))
 
 /-- The `lean` executable of the installed toolchain `selector` names (`installedName?` over
-`elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`,
-which would install any other known release. -/
+`elan toolchain list`), from directory `root`. Only that listed name is given to `elan run`, without
+`--install`. -/
 def selectedLean (root : FilePath) (selector : String) : IO FilePath := do
   let listed ← IO.Process.output {
     cmd := "elan", args := #["toolchain", "list"], cwd := some root, env := compilerEnv }

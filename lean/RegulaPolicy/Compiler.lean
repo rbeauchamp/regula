@@ -138,16 +138,22 @@ theorem unique {v₁ h₁ v₂ h₂ : String} (a : Supports v₁ h₁) (b : Supp
     v₁ = v₂ ∧ h₁ = h₂ :=
   ⟨a.1.trans b.1.symm, a.2.trans b.2.symm⟩
 
-/-- The refusal of a compiler this source revision does not support, with the adopter's remedy. -/
+/-- The refusal of a compiler this source revision does not support, with the adopter's remedy.
+A candidate revision names itself as unqualified: its ordinary audits refuse. -/
 def refusal (observedVersion observedCommit : String) : String :=
+  let target := if candidate then "the compiler this revision declares"
+    else "the supported Lean release"
+  let note := if candidate then
+      " This revision is an unqualified candidate: its ordinary audits refuse."
+    else ""
   s!"unsupported Regula compiler: expected Lean {version} ({commit}), observed Lean \
-    {observedVersion} ({observedCommit}). Move the project, and Mathlib if it uses it, to the \
-    supported Lean release (its lean-toolchain, then `lake update`), or require a Regula \
+    {observedVersion} ({observedCommit}). Move the project, and Mathlib if it uses it, to \
+    {target} (its lean-toolchain, then `lake update`), or require a Regula \
     revision qualified for this exact compiler: \
     https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
     #when-your-lean-release-has-no-regula-release. For release candidates, nightlies and \
     source-built compilers see \
-    https://github.com/rbeauchamp/regula/blob/main/docs/guides/toolchains.md."
+    https://github.com/rbeauchamp/regula/blob/main/docs/guides/toolchains.md.{note}"
 
 /-- Cold Lake configuration and compilation run this guard from this source file.
 It needs no package artifacts or dependency resolution. After accepting the compiler that

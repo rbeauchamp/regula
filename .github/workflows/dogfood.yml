@@ -37,8 +37,11 @@ jobs:
   compiler:
     uses: ./.github/workflows/compiler.yml
 
+  # Follows `compiler` only to reuse its cache; as for CI's `verify`, it runs whatever that job's
+  # result, so a failed preparation cannot leave it skipped.
   self:
     needs: compiler
+    if: always()
     name: ${{ matrix.campaign }}
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; verify.sh enforces exactly 420 seconds.

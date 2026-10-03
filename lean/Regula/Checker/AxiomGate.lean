@@ -1231,12 +1231,27 @@ private def optionValues (flag : String) : List String → List String
       else optionValues flag (value :: rest)
   | _ => []
 
-/-- Before any argument validation, mark every recognisable result and acceptance-link destination
-incomplete, so an earlier completed result cannot be mistaken for this attempt's. -/
-def invalidateResults (args : List String) : IO Unit := do
-  let destinations :=
-    (optionValues "--json-out" args).eraseDups.map (fun path => (FilePath.mk path, false)) ++
-    (optionValues "--acceptance-link" args).eraseDups.map (fun path => (FilePath.mk path, true))
+/-- A kind of output destination an invocation may name: a result document (`--json-out`) or an
+acceptance link (`--acceptance-link`). -/
+inductive Destination where
+  /-- A result document, named by `--json-out`. -/
+  | result
+  /-- An acceptance link, named by `--acceptance-link`. -/
+  | acceptanceLink
+  deriving BEq
+
+/-- The option that names a destination of this kind. -/
+def Destination.flag : Destination → String
+  | .result => "--json-out"
+  | .acceptanceLink => "--acceptance-link"
+
+/-- Before any argument validation, mark every recognisable destination of the `kinds` the calling
+interface accepts incomplete, so an earlier completed result cannot be mistaken for this
+attempt's. A destination of another kind is left untouched: that interface refuses its option. -/
+def invalidateResults (kinds : List Destination) (args : List String) : IO Unit := do
+  let destinations := kinds.flatMap fun kind =>
+    (optionValues kind.flag args).eraseDups.map fun path =>
+      (FilePath.mk path, kind == .acceptanceLink)
   let invalidate (path : FilePath) (link : Bool) :=
     if link then AcceptanceLink.invalidate path else
     ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
@@ -1301,7 +1316,7 @@ unsafe def run (args : List String) : IO UInt32 := do
   RunFeedback.reset
   expectedStages.set ResultProtocol.allStages
   -- An invalid invocation is refused as one, though its destinations could not be invalidated.
-  try invalidateResults args
+  try invalidateResults [.result, .acceptanceLink] args
   catch error =>
     let admitted ← (admitOptions args).toBaseIO
     if let .error invalid := admitted then return ← refuseInvocation invalid.toString

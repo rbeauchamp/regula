@@ -799,6 +799,10 @@ parent, base and wrapper in the same inventory and module with exact metadata, a
 relation. `Roles.safetyHelpers_iff` preserves which of the two helper families supplied admission.
 These are proofs about the observations; native object-tag correspondence remains trusted.
 The owned unsafe and runtime-replacement boundaries remain in execution reports.
+The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
+observer's positive path, admission, transport and mutations only on a compiler that has
+`getObjTagNat`, such as the selected release-candidate and source compilers; on Lean 4.34.0,
+which generates no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
@@ -1273,8 +1277,8 @@ again. The compiled admission guards remain in force when a configuration is cac
 
 `doctor` reads the project's own `lean-toolchain`, resolves it to a toolchain
 `elan toolchain list` names, and reads the version and commit that compiler reports,
-independently of the compiler running `regula`. `elan run` installs a known release that is
-missing, so only a listed name is run: `Regula.Toolchain.installedName?_spec` proves that the
+independently of the compiler running `regula`. Only a listed name is run, without Elan's
+`--install`, and no channel is resolved: `Regula.Toolchain.installedName?_spec` proves that the
 name is one of those supplied as listed, spelled as the selector or as its release name.
 `Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
 decision reports no toolchain issue exactly when that resolved identity
@@ -1386,13 +1390,13 @@ trusted.
 
 **Proved** in `lean/Regula/DiagnosticsGate.lean`, checked by the kernel in ordinary acceptance's
 build and each time a step of the [diagnostics workflow](../../.github/workflows/diagnostics.yml)
-elaborates it (its `applies` and `diagnostics` jobs, on every pull request): `verdict`, the
-decision of the required `diagnostics` check over the workflow's `needs` context, passes exactly
-when the job `applies` succeeded, every job it decided is one the gate needs, and every job the
-gate needs passed when it was decided to apply and was skipped when it was decided not to
-(`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one that ran
-out of time, which GitHub reports as one of the two, and as is a job decided to apply that was
-skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
+elaborates it (its `diagnostics` job on every pull request, and `applies` whenever it runs):
+`verdict`, the decision of the required `diagnostics` check over the workflow's `needs` context,
+passes exactly when the job `applies` succeeded, every job it decided is one the gate needs, and
+every job the gate needs passed when it was decided to apply and was skipped when it was decided
+not to (`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one
+that ran out of time, which GitHub reports as one of the two, and as is a job decided to apply that
+was skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
 `applies` writes and each partition job's `if:` reads, runs the campaigns on every run other than
 a pull request's (`campaign_of_ne`) and on a pull request's exactly when an input of `inputs`,
 the only statement of the campaigns' paths, covers one of its changed paths

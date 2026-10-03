@@ -26,11 +26,12 @@ and compiler-installation programs, the dependency mode, the declared compiler s
 workflow, the compiler-preparation workflow and the provisioning action. `decisions` decides each
 partition job by its job id: the campaigns (`campaign`) on every run other than a pull request's
 (`campaign_of_ne`), and on a pull request's exactly when one of its changed paths is an input
-(`campaign_pullRequest_iff`); the nightly rule-example shards (`rule-examples-nightly`) on the schedule alone. A pull request whose every
-changed path lies in `docs/` or `website/`, or is `README.md` or `AGENTS.md`, runs no campaign
-(`campaign_documentation`). A pull request's changed paths are those at which the checked-out
-commit, the merge commit GitHub creates and tests, differs from its first parent, the head of the
-base branch: every path added, deleted or modified there, a rename as both of its paths.
+(`campaign_pullRequest_iff`); the nightly rule-example shards (`rule-examples-nightly`) on the
+schedule alone. A pull request whose every changed path lies in `docs/` or `website/`, or is
+`README.md` or `AGENTS.md`, runs no campaign (`campaign_documentation`). A pull request's changed
+paths are those at which the checked-out commit, the merge commit GitHub creates and tests,
+differs from its first parent, the head of the base branch: every path added, deleted or modified
+there, a rename as both of its paths.
 
 ## The gate
 

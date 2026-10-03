@@ -20,8 +20,12 @@ jobs:
   compiler:
     uses: ./.github/workflows/compiler.yml
 
+  # A required check. It follows `compiler` only to reuse its cache, and runs with its own
+  # provisioning whatever that job's result: `always()`, not `!cancelled()`, since a skipped job
+  # reports success, and on a cancelled run its steps do not pass.
   verify:
     needs: compiler
+    if: always()
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; each verify.sh step enforces exactly 420 seconds.
     timeout-minutes: 45
@@ -61,6 +65,7 @@ jobs:
   # source of the site's examples. Diagnostics, not a partition of acceptance.
   rule-examples:
     needs: compiler
+    if: always()
     name: diagnostics rule-examples ${{ matrix.shard }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30

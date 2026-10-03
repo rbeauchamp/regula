@@ -9,8 +9,11 @@ printed exactly as it is elaborated. Where the block is written, while the docum
 elaborated, the `regula-example` helper (`RegulaExampleMain`) elaborates it in a fresh process
 whose environment is exactly the block's own `import` header: nothing of the document, of
 another example or of this extension is visible to it, and the document never imports the
-example's modules (so the site executable never links them). The helper elaborates every
-block with automatic implicits off and `linter.missingDocs` on (`exampleOptions`).
+example's modules (so the site executable never links them). The helper processes the header as
+Lean does, reporting its diagnostics, and elaborates every block with automatic implicits off,
+`linter.missingDocs` on and `bv_decide` using the selected compiler's bundled solver
+(`exampleOptions`). The page shows the helper's highlighting of the block untrimmed
+(`Block.checked`), so it displays every line that was elaborated.
 
 - `lean`: a positive example; elaboration must report no error and no warning.
 - `lean (fails := "PATTERN")`: an expected rejection; elaboration must report an error and no
@@ -29,7 +32,8 @@ error message that matched its pattern as the checked evidence (`Block.rejected`
 This extension decides elaboration outcomes and renders the helper's highlighting. The
 declaration, kernel-admission and axiom classification of every `lean` block is the
 documentation fence audit's (`lake exe docFenceAudit`), which reads the same blocks from this
-package's sources. The helper process, its search path and the file system are trusted.
+package's sources. The helper process, its search path, the external solver `bv_decide` runs
+and the file system are trusted.
 
 The roles `{repo "PATH"}[text]` (a repository link whose path must exist) and
 `{checklistRow}[ID]` (a checklist row identifier that is also its anchor) complete the
@@ -127,6 +131,31 @@ block_extension Block.rejected (line : Nat) (message : String) where
           <pre class="regula-code">{{message}}</pre>
         </figure>}}
 
+/-- A checked example's block: the data of Verso's `InlineLean.Block.lean` for the helper's
+highlighting, under this block's own name. -/
+def Block.checked (hls : Highlighted) (file : Option System.FilePath) (range : Option Lsp.Range) :
+    Verso.Genre.Manual.Block :=
+  { Verso.Genre.Manual.InlineLean.Block.lean hls file range with name := by exact decl_name% }
+
+/-- Verso's `InlineLean.Block.lean` descriptor (its assets, quick-jump mapper, traversal, which
+indexes the example's definitions, and TeX), except that the HTML shows the highlighted example
+untrimmed: Verso's renderer trims leading and trailing whitespace, which would hide a blank line
+the example was elaborated with. -/
+@[block_extension Block.checked]
+def Block.checked.descr : BlockDescr :=
+  { Verso.Genre.Manual.InlineLean.Block.lean.descr with
+    toHtml :=
+      open Verso.Output.Html in
+      some <| fun _ _ _ data _ => do
+        let .arr #[hlJson, _, _, _] := data
+          | Verso.reportError "Expected four-element JSON for Lean code" *> pure .empty
+        match FromJson.fromJson? hlJson with
+        | .error err =>
+          Verso.reportError <| "Couldn't deserialize Lean code block while rendering HTML: " ++ err
+          pure .empty
+        | .ok (hl : Highlighted) =>
+          hl.blockHtml (g := Verso.Genre.Manual) "examples" (trim := false) }
+
 /-- Elaborate one example where it is written (see `runHelper`), check the outcome against
 `expectation`, and render the helper's highlighting. -/
 def elabExample (expectation : Expectation) (str : StrLit) : DocElabM Term := do
@@ -156,7 +185,8 @@ def elabExample (expectation : Expectation) (str : StrLit) : DocElabM Term := do
       pure (some matched)
   let range := Syntax.getRange? str |>.map (← getFileMap).utf8RangeToLspRange
   let block ← ``(Verso.Doc.Block.other
-      (Verso.Genre.Manual.InlineLean.Block.lean (hlFromExport! $(quote code.compress)) (some $(quote (← getFileName))) $(quote range))
+      (Block.checked (hlFromExport! $(quote code.compress)) (some $(quote (← getFileName)))
+        $(quote range))
       #[Verso.Doc.Block.code $(quote text)])
   match evidence with
   | none => pure block
