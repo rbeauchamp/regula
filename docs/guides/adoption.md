@@ -157,9 +157,10 @@ The briefing tells an agent the same, with the link for your installed build.
 Regula's own documentation follows this. Every Markdown document tracked on `main`, the generated
 agent skill among them, links to the development pages, as [RG3002] does here; each page of the
 rule-reference site links within its own edition, where only a rule page's own title and top
-heading name its rule without a link; and the documentation step of acceptance and the site check
-refuse a rule ID in prose, headings included, that is not such a link
-([how to write one](contributing.md#rule-ids-in-documentation)).
+heading name its rule without a link. The documentation step of acceptance and the site check
+refuse a rule ID in the prose of a rendered page, headings included, that is not such a link
+([how to write one](contributing.md#rule-ids-in-documentation)); a check of the Markdown sources
+is tracked in [issue #214](https://github.com/rbeauchamp/regula/issues/214).
 
 ## 3. Review the claimed surface
 

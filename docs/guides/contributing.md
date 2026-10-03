@@ -49,7 +49,7 @@ lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, refuses a rule ID in the prose of any Markdown document the repository tracks or of the rendered standard that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+requires both packages), builds and renders the standard fresh, refuses a rule ID in the prose of the rendered standard that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -326,61 +326,33 @@ from evidence for the current revision.
 ### Rule IDs in documentation
 
 The [adoption guide](adoption.md#cite-a-rule) states the convention. `Regula.Prose`
-([`RegulaCore/Prose.lean`](../../lean/RegulaCore/Prose.lean)) defines it and checks it: a rule ID
-is `RG` and four digits with no ASCII letter or digit directly before or after (so `_RG2003_`, emphasis, is one, and an identifier that contains a rule ID is written as code), and each one in
-prose must be a registered rule inside a link to that rule's page (`bareMentions_nil_iff`). What
-is prose is a property of the document's structure, not of its file or its wording:
+([`RegulaCore/Prose.lean`](../../lean/RegulaCore/Prose.lean)) defines it for rendered pages and
+checks it there: a rule ID is `RG` and four digits with no ASCII letter or digit directly before or
+after, and each one in prose must be a registered rule inside a link to that rule's page
+(`bareMentions_nil_iff`).
 
-| Document | Not prose | The link |
-| --- | --- | --- |
-| Every Markdown document the repository tracks (`git ls-files -- '*.md'`), wherever it lies; none is excluded | Fenced code blocks, code spans, link reference definitions, link destinations and titles, comments that open and close on one line, autolinks and bare URLs; raw HTML is refused | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line, since a definition cannot interrupt a paragraph; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
-| A rendered page of the standard or of the rule-reference site | The `code`, `pre`, `script` and `style` elements, and comments | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
+| Document | The link |
+| --- | --- |
+| Every Markdown document the repository tracks | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
+| A rendered page of the standard or of the rule-reference site | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
 
-Pasted tool output is a fenced block or a `pre` element, and a Lean identifier is written as
-code. A rule table that is an index of rule pages names each rule as a link to its page, so its
-IDs are already linked. A heading is prose in both formats, so a rule ID in one is a link. The
-one rule ID that is not written as a link is a rule page's own, in that page's `title` and `h1`,
-because a page cannot usefully link to itself (`Prose.ownPage`); any other rule's ID there, and
-any rule ID in the `title` or `h1` of another page, is refused.
-`./scripts/verify.sh docs` checks the tracked Markdown and the standard rendered alone
+In a rendered page, prose is the text outside the `code`, `pre`, `script` and `style` elements and
+comments. Pasted tool output is a `pre` element, and a Lean identifier is written as code. A rule
+table that is an index of rule pages names each rule as a link to its page, so its IDs are already
+linked. A heading is prose, so a rule ID in one is a link. The one rule ID that is not written as
+a link is a rule page's own, in that page's `title` and `h1`, because a page cannot usefully link
+to itself (`Prose.ownPage`); any other rule's ID there, and any rule ID in the `title` or `h1` of
+another page, is refused. `./scripts/verify.sh docs` checks the standard rendered alone
 (`docFenceAudit --rule-links`), and `./scripts/verify.sh site` checks every page of the
-development edition; each failure names the file, the line and the ID. The scanners are small
-and strict, not Markdown or HTML parsers.
+development edition; each failure names the file, the line and the ID. The scanner is small and
+strict, not an HTML parser: a page with a `code`, `pre`, `title` or `h1` element, a comment or a
+script that is never closed is refused, since the text after it could not be read as prose. The
+release editions already published are frozen copies and are not rewritten.
 
-The Markdown check's contract: it does not imitate CommonMark. It reads a supported subset of
-Markdown, scans that subset exactly as `Regula.Prose` defines it, and refuses every document
-outside it, with the line, the construct and how to write it inside the subset. A construct it
-does not model is refused, not modelled. The subset is fenced code blocks, indented at most three
-spaces and with every line indented at least as far as the fence; ATX headings; comments alone on
-a line; tables, split into cells at every `|` that no backslash escapes, each cell read alone, which
-end at a blank line, a fence, a heading, a comment line or a line that starts with a list marker, a
-footnote marker or `>` or holds only `-`, `=`, `*` or `_`;
-link reference definitions at the start of the document or directly after a blank line, a fenced
-code block, a heading, a comment line or another definition; footnote definitions
-(`[^label]:`), containers like list items whose text is prose; and paragraphs. A paragraph ends
-before a blank line, a fence, a heading, a comment line, a table's header row or a line that
-starts with a list marker, a footnote marker or `>` or holds only `-`, `=`, `*` or `_`, and, when
-its first line is indented four spaces or more, before the first line that is not. In them it
-reads code spans, links whose text holds no `[`, `<` or open code span and whose destination and
-title are well formed, comments that open and close on one line (other than `<!-->`, `<!--->` and
-one whose text holds `--` or ends in `-`), autolinks and bare URLs; everything else is prose, and
-raw HTML is not in the subset. It refuses a fenced code block that is never closed; a fence run
-indented four spaces or more; a line of a fenced code block less indented than its fence; a line
-whose text after its list markers, footnote markers or `>` starts with a fence run, an HTML tag, a
-comment, a table's delimiter row or a link reference definition, so write those outside the list
-item's marker line and any block quote; a link reference definition indented four spaces or
-more, or directly after a paragraph line, a table row or a line that ends a paragraph, so put
-each after a blank line at the end of the document; a line that starts with an HTML tag,
-processing instruction or declaration, so raw HTML blocks are not supported; a line that starts
-with a comment that is not all of it; a numeric character reference; a backtick run that the scan
-leaves unclosed (outside code spans, link destinations and titles, comments and autolinks) in a
-paragraph that ends at such a line, at a table's header row or after an indented first line; a code
-span or link that a `|` splits in a table row; raw HTML, a `<` read as text (outside code spans,
-link destinations and titles, comments and autolinks) that a letter, `/`, `?` or `!` follows, so
-put HTML in a code span or write it in Markdown; and a link reference definition split
-over lines. A page with a
-`code`, `pre`, `title` or `h1` element, a comment or a script that is never closed is refused,
-since the text after it could not be read as prose. The release editions already published are frozen copies and are not rewritten.
+The Markdown sources are not checked yet, so a bare rule ID in a Markdown document is caught in
+review. A check of them built on a conforming CommonMark parser (md4c through MD4Lean, already a
+dependency of the website) is tracked in
+[issue #214](https://github.com/rbeauchamp/regula/issues/214).
 
 ## Change an acceptance boundary
 

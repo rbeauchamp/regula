@@ -5,7 +5,6 @@ import Regula.Checker.Lake
 import Regula.Checker.RuleDiagnostics
 import Regula.Checker.RunFeedback
 import RegulaCore.Account
-import RegulaCore.Prose
 
 /-!
 # Markdown fence auditing
@@ -23,8 +22,6 @@ namespace Regula.Checker.Documentation
 open Lean System
 open Regula.Checker
 open Regula.Checker.Policy
--- One definition of a Markdown fence, shared with the prose check.
-open Regula.Prose (fenceRun? closingFence)
 
 /-- The classification a fence marker (or a Verso block's info string) gives the next Lean fence. -/
 inductive MarkerKind where
@@ -76,6 +73,19 @@ structure ScanResult where
 
 private def firstWord (value : String) : String :=
   String.ofList <| (value.toList.dropWhile Char.isWhitespace).takeWhile (!Char.isWhitespace ·)
+
+private def fenceRun? (line : String) : Option (Char × Nat × String) := do
+  let chars := line.toList.dropWhile Char.isWhitespace
+  let first ← chars.head?
+  guard (first == '`' || first == '~')
+  let count := (chars.takeWhile (· == first)).length
+  guard (count >= 3)
+  return (first, count, String.ofList (chars.drop count) |>.trimAscii.toString)
+
+private def closingFence (line : String) (character : Char) (minimum : Nat) : Bool :=
+  match fenceRun? line with
+  | some (found, count, rest) => found == character && count >= minimum && rest.isEmpty
+  | none => false
 
 private def exactTrustedMarker (line : String) : Bool :=
   line.trimAscii.toString == "<!-- lean-trusted-compiler -->"
