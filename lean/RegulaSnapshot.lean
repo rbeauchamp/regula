@@ -142,24 +142,35 @@ theorem admit?_sound (expected : Identity) (receipt : Receipt) (accepted : Admit
     exact ⟨rfl, valid⟩
   · simp at h
 
-/-- Only explicit preparation schedules dependency compilation. -/
-def buildPlan : Acquisition → Array (String × Array String)
+/-- Source-build operations interpreted by the acquisition runner. -/
+inductive BuildStep where
+  /-- Prepare the exact compiler before building its dependencies. -/
+  | compiler
+  /-- Build the requested facets in one pinned Lake workspace. -/
+  | dependencies (directory : String) (targets : Array String)
+
+/-- Only explicit preparation schedules compiler and dependency compilation. -/
+def buildPlan : Acquisition → Array BuildStep
   | .prepare => #[
-      ("audit", #["mathlib/Mathlib", "mathlib/Mathlib:static.export", "mathlib/Mathlib:shared"]),
-      ("website", #["verso/VersoManual", "verso/VersoManual:static.export",
-        "verso/VersoManual:shared"])]
+      .compiler,
+      .dependencies "audit"
+        #["mathlib/Mathlib", "mathlib/Mathlib:static.export", "mathlib/Mathlib:shared"],
+      .dependencies "website" #["verso/VersoManual", "verso/VersoManual:static.export",
+        "verso/VersoManual:shared"]]
   | .restore => #[]
 
-/-- Ordinary restoration schedules no source build, including a restoration miss. -/
+/-- The acquisition runner's restoration plan contains no source-build operation. -/
 theorem restore_plan : buildPlan .restore = #[] := rfl
 
 /-- Closed set of native targets supported by the preparation workflow. -/
 def platformName : IO Platform := do
-  let arch ← IO.Process.output {cmd := "uname", args := #["-m"], stdin := .null}
+  let arch ← IO.Process.output {
+    cmd := "uname", args := #["-m"], env := #[("GHCR_TOKEN", none)], stdin := .null}
   unless arch.exitCode == 0 do throw <| IO.userError "snapshot: cannot observe architecture"
   let arch := arch.stdout.trimAscii.toString
   if System.Platform.isOSX && arch == "arm64" then
-    let os ← IO.Process.output {cmd := "sw_vers", args := #["-productVersion"], stdin := .null}
+    let os ← IO.Process.output {
+      cmd := "sw_vers", args := #["-productVersion"], env := #[("GHCR_TOKEN", none)], stdin := .null}
     let major := ((os.stdout.trimAscii.toString.splitOn ".").headD "").toNat?
     unless os.exitCode == 0 && (major.any (· ≥ 15)) do
       throw <| IO.userError "snapshot: macOS arm64 requires macOS 15 or later"
@@ -174,7 +185,8 @@ def platformName : IO Platform := do
 
 private def run (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO String := do
-  let result ← IO.Process.output {cmd, args, cwd := some cwd, env, stdin := .null}
+  let result ← IO.Process.output {
+    cmd, args, cwd := some cwd, env := env.push ("GHCR_TOKEN", none), stdin := .null}
   unless result.exitCode == 0 do
     throw <| IO.userError s!"snapshot: {cmd} failed ({result.exitCode}): {result.stderr}"
   return result.stdout.trimAscii.toString
@@ -182,7 +194,8 @@ private def run (cwd : FilePath) (cmd : String) (args : Array String)
 private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd, args, cwd := some cwd, env, stdin := .null, stdout := .inherit, stderr := .inherit}
+    cmd, args, cwd := some cwd, env := env.push ("GHCR_TOKEN", none),
+    stdin := .null, stdout := .inherit, stderr := .inherit}
   let code ← child.wait
   unless code == 0 do throw <| IO.userError s!"snapshot: {cmd} failed ({code})"
 
@@ -293,7 +306,7 @@ private def pins (root : FilePath) : IO (Array Pin) := do
 
 private def identity (root : FilePath) : IO Identity := do
   let compiler : Compiler ← decode (root / ".github/snapshot-compiler.json")
-  unless component compiler.selector || compiler.selector.startsWith "leanprover/lean4:" do
+  unless component compiler.selector do
     throw <| IO.userError "snapshot: malformed compiler selector"
   unless objectName compiler.revision && !compiler.version.isEmpty do
     throw <| IO.userError "snapshot: malformed compiler identity"
@@ -313,8 +326,9 @@ private def identity (root : FilePath) : IO Identity := do
       "examples/build-lint/lean-toolchain", "examples/lake-lint-toml/lean-toolchain"] do
     unless (← IO.FS.readFile (root / file)).trimAscii == compiler.selector do
       throw <| IO.userError s!"snapshot: {file} selects another compiler"
-  let targets := (buildPlan .prepare).flatMap fun (dir, targets) =>
-    targets.map fun target => s!"{dir}:{target}"
+  let targets := (buildPlan .prepare).flatMap fun step => match step with
+    | .compiler => #[]
+    | .dependencies dir targets => targets.map fun target => s!"{dir}:{target}"
   let platform ← platformName
   return {
     recipe := 1, compiler, platform, runtime := platform.runtime,
@@ -349,6 +363,32 @@ private def observeCompiler (root compilerRoot : FilePath) (expected : Compiler)
       reported.startsWith s!"Lean (version {expected.version}," do
     throw <| IO.userError s!"snapshot: compiler reports do not match {expected.revision}"
   return {expected with revision}
+
+/-- Execute only the selected acquisition's compiler and dependency build operations. -/
+private def runBuildPlan (root : FilePath) (expected : Identity)
+    (acquisition : Acquisition) : IO Unit := do
+  for step in buildPlan acquisition do
+    match step with
+    | .compiler =>
+      stream root "elan" #["run", "leanprover/lean4:v4.34.0", "lean", "--run",
+        "lean/RegulaCompiler.lean", "prepare"]
+      let _ ← diskSpace root "after compiler preparation"
+      let compilerRoot ← run root "elan" #["run", expected.compiler.selector, "lean", "--print-prefix"]
+      let _ ← observeCompiler root (FilePath.mk compilerRoot) expected.compiler
+    | .dependencies dir targets =>
+      let cache := root / ".lake/snapshot-artifact-cache"
+      IO.FS.createDirAll cache
+      let env := #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1"),
+        ("LAKE_ARTIFACT_CACHE", some "false"), ("LAKE_CACHE_DIR", some cache.toString),
+        ("LAKE_RESTORE_ARTIFACTS", some "true"), ("MACOSX_DEPLOYMENT_TARGET", some "15.0")]
+      stream root "elan" (#["run", expected.compiler.selector, "lake", "--no-cache",
+        "--keep-toolchain", "-d", dir, "build"] ++ targets) env
+
+/-- The executed restoration runner performs no build-plan IO for any root or identity. -/
+private theorem runBuildPlan_restore (root : FilePath) (expected : Identity) :
+    runBuildPlan root expected .restore = pure () := by
+  simp [runBuildPlan, restore_plan]
+  rfl
 
 private def observePackages (packages : FilePath) : IO (Array Pin) := do
   let mut observed := #[]
@@ -386,8 +426,8 @@ private def digest (root path : FilePath) : IO String := do
 private def packArchive (prepared source : FilePath) (target : ArchiveTarget) : IO Archive := do
   let child ← IO.Process.spawn {
     cmd := "tar", args := #["-czf", "-", "."], cwd := some source,
-    stdin := .null, stdout := .piped, stderr := .inherit}
-  try
+    env := #[("GHCR_TOKEN", none)], stdin := .null, stdout := .piped, stderr := .inherit}
+  let chunks ← try
     let mut chunks := #[]
     let mut finished := false
     while !finished do
@@ -407,14 +447,16 @@ private def packArchive (prepared source : FilePath) (target : ArchiveTarget) : 
         size := size + bytes.size
       output.flush
       chunks := chunks.push ⟨name, ← digest prepared file⟩
-    let code ← child.wait
-    unless code == 0 && !chunks.isEmpty do
-      throw <| IO.userError s!"snapshot: {target.name} archive preparation failed ({code})"
-    return ⟨target, chunks⟩
+    pure chunks
   catch error =>
-    if (← child.tryWait).isNone then child.kill
-    let _ ← child.wait
+    if (← child.tryWait).isNone then
+      child.kill
+      let _ ← child.wait
     throw error
+  let code ← child.wait
+  unless code == 0 && !chunks.isEmpty do
+    throw <| IO.userError s!"snapshot: {target.name} archive preparation failed ({code})"
+  return ⟨target, chunks⟩
 
 private def extractArchive (staging payload : FilePath) (archive : Archive) : IO Unit := do
   let destination := payload / archive.target.name
@@ -422,7 +464,8 @@ private def extractArchive (staging payload : FilePath) (archive : Archive) : IO
   let child ← do
     let (input, child) ← (← IO.Process.spawn {
       cmd := "tar", args := #["-xzf", "-", "-C", destination.toString], cwd := some staging,
-      stdin := .piped, stdout := .inherit, stderr := .inherit}).takeStdin
+      env := #[("GHCR_TOKEN", none)], stdin := .piped,
+      stdout := .inherit, stderr := .inherit}).takeStdin
     try
       for chunk in archive.chunks do
         let source ← IO.FS.Handle.mk (staging / chunk.name) .read
@@ -439,24 +482,22 @@ private def extractArchive (staging payload : FilePath) (archive : Archive) : IO
   let code ← child.wait
   unless code == 0 do throw <| IO.userError s!"snapshot: {archive.target.name} extraction failed ({code})"
 
-private def registryLogin (root : FilePath) (tool : String) (required : Bool) : IO Unit := do
-  if let some token ← IO.getEnv "GHCR_TOKEN" then
-    unless (← IO.getEnv "GITHUB_ACTIONS") == some "true" &&
-        (← IO.getEnv "GITHUB_REPOSITORY") == some "rbeauchamp/regula" do
-      throw <| IO.userError "snapshot: package credentials are confined to Regula Actions"
-    let some actor ← IO.getEnv "GITHUB_ACTOR" | throw <| IO.userError "snapshot: actor is unset"
-    let result ← IO.Process.output {
-      cmd := tool, args := #["login", "ghcr.io", "--username", actor, "--password-stdin"],
-      cwd := some root} (some (token ++ "\n"))
-    unless result.exitCode == 0 do throw <| IO.userError "snapshot: package login failed"
-  else if required then throw <| IO.userError "snapshot: package token is unset"
+private def registryLogin (root : FilePath) (tool : String) : IO Unit := do
+  let some token ← IO.getEnv "GHCR_TOKEN" | throw <| IO.userError "snapshot: package token is unset"
+  unless (← IO.getEnv "GITHUB_ACTIONS") == some "true" &&
+      (← IO.getEnv "GITHUB_REPOSITORY") == some "rbeauchamp/regula" do
+    throw <| IO.userError "snapshot: package credentials are confined to Regula Actions"
+  let some actor ← IO.getEnv "GITHUB_ACTOR" | throw <| IO.userError "snapshot: actor is unset"
+  let result ← IO.Process.output {
+    cmd := tool, args := #["login", "ghcr.io", "--username", actor, "--password-stdin"],
+    cwd := some root, env := #[("GHCR_TOKEN", none)]} (some (token ++ "\n"))
+  unless result.exitCode == 0 do throw <| IO.userError "snapshot: package login failed"
 
 private def oras (root : FilePath) : IO String := do
-  if let some cmd ← IO.getEnv "REGULA_ORAS" then
-    let _ ← run root cmd #["version"]
-    return cmd
   let platform ← platformName
-  let target := match platform with | .linuxX64 => "linux_amd64" | .macARM64 => "darwin_arm64"
+  let (target, expectedDigest) := match platform with
+    | .linuxX64 => ("linux_amd64", "6cdc692f929100feb08aa8de584d02f7bcc30ec7d88bc2adc2054d782db57c64")
+    | .macARM64 => ("darwin_arm64", "e10c6552c02d5a7c7eaf7170d3b6f7f094b675a98a1e0edf4d4478a909447245")
   let dir := root / ".lake/snapshot-tools/oras-1.3.0" / target
   IO.FS.createDirAll dir
   let exe := dir / "oras"
@@ -465,13 +506,9 @@ private def oras (root : FilePath) : IO String := do
     let base := "https://github.com/oras-project/oras/releases/download/v1.3.0"
     stream dir "curl" #["--fail", "--location", "--retry", "3", s!"{base}/{archive}",
       "--output", archive]
-    stream dir "curl" #["--fail", "--location", "--retry", "3",
-      s!"{base}/oras_1.3.0_checksums.txt", "--output", "checksums.txt"]
-    let checksums ← IO.FS.readFile (dir / "checksums.txt")
     let actual ← digest dir (dir / archive)
-    unless (checksums.splitOn "\n").any (fun line =>
-        line.trimAscii.toString == s!"{actual}  {archive}") do
-      throw <| IO.userError "snapshot: ORAS archive checksum differs from the release manifest"
+    unless actual == expectedDigest do
+      throw <| IO.userError "snapshot: ORAS archive differs from its pinned digest"
     stream dir "tar" #["-xzf", archive, "oras"]
   let _ ← run dir exe.toString #["version"]
   return exe.toString
@@ -527,31 +564,48 @@ def selectForQualification (root input : FilePath) : IO Unit := do
   IO.FS.writeFile (root / ".github/compiler-snapshot.json")
     ((toJson #[selected]).pretty ++ "\n")
 
-private def activate (root payload : FilePath) (expected : Identity)
-    (_accepted : Admitted expected) : IO Unit := do
+private def requireActivation (root payload : FilePath) (expected : Identity) : IO Bool := do
   let packages := root / ".lake/packages"
-  IO.FS.createDirAll packages
+  for directory in #[root / ".lake", packages] do
+    match ← directory.symlinkMetadata.toBaseIO with
+    | .ok _ =>
+      unless ← directory.isDir do
+        throw <| IO.userError s!"snapshot: preserving existing non-directory {directory}; use a fresh copy"
+    | .error (.noFileOrDirectory ..) => pure ()
+    | .error error => throw error
   for pin in expected.packages do
     let target := payload / "packages" / pin.name
     let path := packages / pin.name
-    if ← path.pathExists then
-      unless (← path.symlinkMetadata).type == .symlink &&
-          (← IO.FS.realPath path) == (← IO.FS.realPath target) do
+    match ← path.symlinkMetadata.toBaseIO with
+    | .ok metadata =>
+      unless metadata.type == .symlink && (← target.pathExists) do
         throw <| IO.userError s!"snapshot: preserving existing package path {path}; use a fresh copy"
+      unless (← IO.FS.realPath path) == (← IO.FS.realPath target) do
+        throw <| IO.userError s!"snapshot: preserving existing package path {path}; use a fresh copy"
+    | .error (.noFileOrDirectory ..) => pure ()
+    | .error error => throw error
   let listing ← run root "elan" #["toolchain", "list"]
   let installed := (listing.splitOn "\n").any fun line =>
     (line.splitOn " ").head? == some expected.compiler.selector
   if installed then
     let compilerRoot ← run root "elan" #["run", expected.compiler.selector, "lean", "--print-prefix"]
+    unless ← (payload / "compiler").pathExists do
+      throw <| IO.userError "snapshot: preserving an existing alias before its snapshot is available; \
+        choose a distinct alias and prepare that input set"
     unless (← IO.FS.realPath (FilePath.mk compilerRoot)) ==
         (← IO.FS.realPath (payload / "compiler")) do
       throw <| IO.userError "snapshot: preserving an existing alias linked to another compiler root; \
         choose a distinct alias in the compiler specifications and all five toolchain files, \
         then prepare and qualify that input set"
     let _ ← observeCompiler root (FilePath.mk compilerRoot) expected.compiler
-  else
-    unless component expected.compiler.selector do
-      throw <| IO.userError "snapshot: a compiled snapshot requires a distinct local Elan alias"
+  return installed
+
+private def activate (root payload : FilePath) (expected : Identity)
+    (_accepted : Admitted expected) : IO Unit := do
+  let installed ← requireActivation root payload expected
+  let packages := root / ".lake/packages"
+  IO.FS.createDirAll packages
+  unless installed do
     stream root "elan" #["toolchain", "link", expected.compiler.selector,
       (payload / "compiler").toString]
   for pin in expected.packages do
@@ -563,7 +617,9 @@ private def activate (root payload : FilePath) (expected : Identity)
 /-- Restore and admit the committed OCI digest; a miss never compiles dependencies. -/
 def restore (root : FilePath) : IO Unit := do
   let expected ← identity root
+  runBuildPlan root expected .restore
   let selected ← location root expected
+  requireRuntime root expected.platform
   let some home ← IO.getEnv "HOME" | throw <| IO.userError "snapshot: HOME is unset"
   let parent := FilePath.mk home / ".cache/regula-snapshots"
   IO.FS.createDirAll parent
@@ -572,12 +628,12 @@ def restore (root : FilePath) : IO Unit := do
   try
     let key := ((selected.reference.splitOn "@sha256:").getLast!).trimAscii.toString
     let final := parent / key
+    let _ ← requireActivation root (final / "payload") expected
     unless ← final.pathExists do
       let staging := parent / s!"{key}.staging-{← nonce}"
       IO.FS.createDir staging
       IO.println s!"snapshot: restoring {selected.reference}; interrupted content stays in {staging}"
       let tool ← oras root
-      registryLogin staging tool false
       stream staging tool #["pull", selected.reference, "--output", staging.toString]
       let description : Archives ← decode (staging / "archive.json")
       unless description.valid && admits expected description.receipt do
@@ -589,7 +645,9 @@ def restore (root : FilePath) : IO Unit := do
       let payload := staging / "payload"
       IO.FS.createDir payload
       IO.FS.writeFile (payload / "receipt.json") ((toJson description.receipt).pretty ++ "\n")
-      for archive in description.archives do extractArchive staging payload archive
+      for archive in description.archives do
+        extractArchive staging payload archive
+        for chunk in archive.chunks do IO.FS.removeFile (staging / chunk.name)
       let _ ← readAdmitted root payload expected
       stream staging "chmod" #["-R", "a-w", payload.toString]
       IO.FS.rename staging final
@@ -623,20 +681,10 @@ def prepare (root : FilePath) : IO Unit := do
   unless available ≥ 32 * 1024 * 1024 do
     throw <| IO.userError "snapshot: source preparation requires at least 32 GiB initially free; \
       hosted capacity is not inferred from the runner label"
-  stream root "elan" #["run", "leanprover/lean4:v4.34.0", "lean", "--run",
-    "lean/RegulaCompiler.lean", "prepare"]
-  let _ ← diskSpace root "after compiler preparation"
+  runBuildPlan root expected .prepare
+  let _ ← diskSpace root "after dependency preparation"
   let compilerRoot ← run root "elan" #["run", expected.compiler.selector, "lean", "--print-prefix"]
   let compiler ← observeCompiler root (FilePath.mk compilerRoot) expected.compiler
-  let cache := root / ".lake/snapshot-artifact-cache"
-  IO.FS.createDir cache
-  let env := #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1"),
-    ("LAKE_ARTIFACT_CACHE", some "false"), ("LAKE_CACHE_DIR", some cache.toString),
-    ("LAKE_RESTORE_ARTIFACTS", some "true"), ("MACOSX_DEPLOYMENT_TARGET", some "15.0")]
-  for (dir, targets) in buildPlan .prepare do
-    stream root "elan" (#["run", expected.compiler.selector, "lake", "--no-cache",
-      "--keep-toolchain", "-d", dir, "build"] ++ targets) env
-  let _ ← diskSpace root "after dependency preparation"
   let prepared := root / "tmp/compiled-snapshot"
   unless !(← prepared.pathExists) do
     throw <| IO.userError "snapshot: preserving an existing preparation directory"
@@ -668,7 +716,7 @@ def publish (root : FilePath) : IO Unit := do
       (← IO.getEnv "GITHUB_REPOSITORY") == some "rbeauchamp/regula" do
     throw <| IO.userError "snapshot: publication is confined to the Regula preparation workflow"
   let tool ← oras root
-  registryLogin prepared tool true
+  registryLogin prepared tool
   let description : Archives ← decode (prepared / "archive.json")
   unless description.valid && admits expected description.receipt do
     throw <| IO.userError "snapshot: refusing an invalid publication descriptor"

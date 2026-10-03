@@ -58,6 +58,7 @@ jobs:
   qualify:
     name: qualify ${{ matrix.platform }}
     needs: prepare
+    if: ${{ !cancelled() }}
     # Every command retains verify.sh's own 420-second deadline.
     timeout-minutes: 180
     permissions:
