@@ -1095,8 +1095,8 @@ Lean's compiler, are accepted (observed); a proof written independently was not 
 `fixtures_forged_measured_bare` of `Fixtures.Mutations.MeasuredMatchUnsafeRecForge` pins the
 rejection: a faithful copy of a well-founded definition and its helper, added by a metaprogram
 with no theorem named `eq_def`, is rejected, and the same copy with theorems of that name is
-admitted (observed). A faithful copy of a structural definition needs no theorem of its own, since Lean
-realizes one for the regenerated definition (`fixtures_forged_alias_faithful` of
+admitted (observed). A faithful copy of a structural definition needs no theorem of its own, since
+Lean realizes one for the regenerated definition (`fixtures_forged_alias_faithful` of
 `Fixtures.Mutations.ReducibilityChangeUnsafeRecForge`, observed).
 `Fixtures.Positive.ProofValuedRecursion` pins a structural and a well-founded definition whose
 type is a proposition, both admitted by reflexivity (observed). A resource limit of the checker
