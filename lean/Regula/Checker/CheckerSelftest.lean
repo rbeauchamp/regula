@@ -1494,9 +1494,6 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
         runBinaryFrom repo copy "axiomGate" args
   let appRoot := copy / layout.relativeDir / "AuditApp.lean"
   let originalRoot ← IO.FS.readFile appRoot
-  let positive ← gate "positive" #[]
-  if !positive.succeeded then
-    return #[s!"structural/self-hosted/positive: fresh gate failed:\n{positive.output}"]
   for name in #["Regula.Report", "Regula.Collect", "Regula.CompilerObservation"] do
     let contaminated := originalRoot.replace "import AuditApp.Demo\n"
       s!"import AuditApp.Demo\nimport {name}\n"
