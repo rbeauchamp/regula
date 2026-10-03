@@ -8,8 +8,8 @@ run_cmd do
   let env ← getEnv
   if env.contains `Lean.trustCompiler then
     elabCommand (← `(set_option linter.deprecated false in
-      theorem fixtures_direct_trust_compiler : True := Lean.trustCompiler))
+      theorem $(mkIdent `fixtures_direct_trust_compiler) : True := Lean.trustCompiler))
   else
     if env.contains `Lean.ofReduceBool || env.contains `Lean.ofReduceNat then
       throwError "partial legacy compiler-axiom family"
-    elabCommand (← `(axiom Lean.trustCompiler : True))
+    elabCommand (← `(axiom $(mkIdent `Lean.trustCompiler) : True))
