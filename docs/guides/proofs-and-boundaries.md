@@ -958,8 +958,8 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
 
 - Which definitions. `Collect.recordConsults` is installed as `Meta`'s unfolding predicate
   (`Meta.withCanUnfoldPred`) around Lean's own function and records each definition Lean asks about
-  at reducible, instance or implicit transparency, with that transparency, whatever module declares
-  it, and whether Lean's own answer (`Meta.canUnfoldDefault`) was, each time, that the definition
+  at reducible, instance or implicit transparency, whatever module declares it, and for each
+  whether Lean's own answer (`Meta.canUnfoldDefault`) was, each time, that the definition
   unfolds. Lean 4.34.0 decides such an unfolding from the status alone
   (`Meta/GetUnfoldableConst.lean:17-31`): `reducible` unfolds
   at all three, `instance_reducible` at instance and implicit, `implicit_reducible` at implicit, and

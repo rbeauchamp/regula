@@ -898,14 +898,16 @@ private def survivingMentions (name : Name) (fuel : Nat) (e : Expr) : MetaM Nat 
 
 /-- What Lean's well-founded preprocessing (`WF.preprocess`) makes of the unary definition Lean
 packs `preDefs` into (`wfPacked`), in the current environment, with the mentions of each constant
-of `counted` that compilation keeps in it (`survivingMentions`). Only the preprocessing is
-recorded. -/
+of `counted` that compilation keeps in it (`survivingMentions`); where the result is `unchanged?`
+nothing is counted, and no counts are returned. Only the preprocessing is recorded. -/
 private def preprocessed (consulted? : Option (IO.Ref (NameMap Bool) × Bool))
-    (preDefs : Array PreDefinition) (counted : Array Name) : TermElabM (Expr × Array Nat) := do
+    (preDefs : Array PreDefinition) (counted : Array Name) (unchanged? : Option Expr) :
+    TermElabM (Expr × Array Nat) := do
   let (_, _, _, unaryPreDef) ← wfPacked preDefs
   withoutModifyingEnv do
     addAsAxiom unaryPreDef
     let processed := (← recording consulted? (WF.preprocess unaryPreDef.value)).expr
+    if unchanged? == some processed then return (processed, #[])
     return (processed, ← counted.mapM (survivingMentions · 100000 processed))
 
 /-- What a status change comes to for the preprocessing (`effectiveChange?`). -/
@@ -940,7 +942,7 @@ private def effectiveChange? (environment : Environment) (preDefs : Array PreDef
   | runs + 1 => do
     let consulted ← IO.mkRef ({} : NameMap Bool)
     let some (processed, counts) ← decisionIn (withStatuses environment change)
-        (preprocessed (some (consulted, false)) preDefs counted)
+        (preprocessed (some (consulted, false)) preDefs counted (some unchanged))
       | return .unchanged change #[]
     if processed != unchanged then return .changed change processed counts
     let stuck := (← consultedDefinitions consulted).filterMap fun (name, unfolds) =>
@@ -1001,13 +1003,13 @@ private def preprocessingStatuses (environment : Environment) (preDefs : Array P
     (wanted : Name → MetaM Nat) :
     TermElabM (Array (Name × List Statuses) × Statuses × Bool) := do
   let consulted ← IO.mkRef ({} : NameMap Bool)
-  let some _ ← decisionIn environment (preprocessed (some (consulted, false)) preDefs #[])
+  let some _ ← decisionIn environment (preprocessed (some (consulted, false)) preDefs #[] none)
     | return (#[], [], true)
   let consulted ← consultedDefinitions consulted
   let known := consulted.foldl (fun known (name, _) => known.insert name) ({} : NameSet)
   let counted := (preDefs.foldl (fun names preDef =>
     preDef.value.getUsedConstants.foldl NameSet.insert names) known).toArray
-  let some (unchanged, counts) ← decisionIn environment (preprocessed none preDefs counted)
+  let some (unchanged, counts) ← decisionIn environment (preprocessed none preDefs counted none)
     | return (#[], [], true)
   let observed ← counted.mapM fun name => withCurrHeartbeats <| wanted name
   let distance (counts : Array Nat) : Nat :=
@@ -1339,8 +1341,9 @@ reducible transparency, and at implicit transparency where they compare an insta
 argument, so a definition that is `reducible`, `instance_reducible` or `implicit_reducible` at only
 one of the two points changes which parameters the compilers pack and which toolchain rule
 rewrites the body. The search runs those two decisions alone, as Lean's own functions, and records
-through `Meta`'s unfolding predicate which definitions they ask about and at which transparency
-(`recordConsults`): of any module, and whatever attribute, global or `local`, gave a status. For
+through `Meta`'s unfolding predicate which definitions they ask about below default transparency,
+and for each whether Lean answered each time that it unfolds (`recordConsults`): definitions of
+any module, and whatever attribute, global or `local`, gave a status. For
 each such definition it finds the statuses under which a decision comes out differently
 (`statusCandidates`); for the preprocessing, a change that leaves the result as it was is followed
 through the functions it unfolds to that do not unfold at the end of the audit, and paired with
