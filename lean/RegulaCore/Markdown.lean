@@ -5,7 +5,8 @@ import RegulaCore.Prose
 Every rule ID that a tracked Markdown document mentions in prose is a link to that rule's page.
 This module decides that from what a CommonMark parser reports of the document. It reads no
 Markdown itself: `Regula.Markdown.read` (`website/RegulaMarkdown.lean`) runs md4c and turns its
-parse into the `Piece`s below, so what is prose, code or a link is md4c's decision.
+parse into the `Piece`s below, so what is a paragraph, a code span or a link in the source is
+md4c's decision, and which piece each becomes is that module's (see Boundaries).
 
 ## Main declarations
 
@@ -42,9 +43,14 @@ are not prose.
 
 ## Boundaries
 
-`rejected_nil_iff` and `documentErrors_nil_iff` are about the pieces they are given: that the
-pieces are the document's is the parser's part, stated in `website/RegulaMarkdown.lean` and in
-the contributor guide. `leftmost_le` and `le_rightmost` bound every placement that `Placed`
+`rejected_nil_iff` and `documentErrors_nil_iff` are about the pieces they are given. That the
+pieces are the document's is not proved, and has two parts: the parser's reading of the
+document, which is trusted, and the translation of that reading into pieces (`read` and every
+definition it calls in `website/RegulaMarkdown.lean`: `block`, `inline`, `flat`, `link` and the
+rest), which is project-owned Lean with no theorem. That translation
+decides which piece each element the parser reports becomes, and is observed only by that
+module's evaluated controls. Both parts are stated there and in the contributor guide.
+`leftmost_le` and `le_rightmost` bound every placement that `Placed`
 admits; that the true lines of the reported text are such a placement rests on the parser
 reporting each piece of text as it stands on one source line, in source order, and on a line
 break or a new block lying between pieces of different lines. When no placement exists, the

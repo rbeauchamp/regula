@@ -62,7 +62,11 @@ gives each):
   not the first line of its paragraph, and each footnote definition after a line of text or
   after another definition. A code span or a link's text that md4c reads across the cells, rows
   or definitions GitHub finds there is kept whole, so a rule ID inside it is code or linked
-  here and prose on GitHub.
+  here and prose on GitHub;
+- YAML front matter, the lines between two `---` lines at the start of a document, which GitHub
+  shows as a table of its raw values. md4c has no front matter and reads those lines as
+  Markdown, a thematic break and then a heading, so a rule ID written there as a code span or a
+  link is code or linked here and plain text on GitHub, backticks or brackets included.
 
 A document whose reading cannot be used (inline raw HTML, a table with no body row, a NUL
 character, md4c failing) is refused by file and reason, without a line and without its rule
@@ -74,6 +78,15 @@ md4c's conformance to CommonMark and to GitHub's extensions it implements; MD4Le
 for documents not refused above; that md4c's HTML renderer and the wrapper see the same parse of
 the same text and flags; and md4c's rendering of a character reference alone, which is how one
 is decoded (`decode`).
+
+## Not proved
+
+The translation in this module from MD4Lean's document to pieces (`read` and every definition
+it calls: `block`, `inline`, `flat`, `link` and the rest) has no theorem. It decides which piece
+each element md4c reports becomes: what is prose, code, a link's edge, a boundary between runs
+or lines, and a refusal. `Regula.Markdown.documentErrors_nil_iff` is about the pieces it is
+given, so that an accepted document has no bare rule ID in the prose md4c reports rests on this
+translation too, which only the evaluated controls below observe.
 -/
 
 namespace Regula.Markdown
@@ -471,6 +484,13 @@ private def bodyless : String :=
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "Run it:\n| Command | Rule |\n| --- | --- |\n| `grep a | b RG2003` | x |\n" ==
   []
+-- Not seen: GitHub shows YAML front matter as a table of its raw values; md4c reads it as a
+-- thematic break and a heading, where a bare ID is refused and one in a code span is code.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard MD4Lean.renderHtml "---\nname: x\n---\n" github 0 == some "<hr>\n<h2>name: x</h2>\n"
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard check "a.md" "---\nname: x\ndescription: reports `RG2003`\n---\n\nText.\n" == [] &&
+  check "a.md" "---\nname: x\ndescription: reports RG2003\n---\n\nText.\n" == [bare "3"]
 -- A pipe character inside a code span in a table cell; outside a table the code span is code.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard check "a.md" "| A | B |\n| --- | --- |\n| `a | b` `RG2003` | c |\n\n`a | RG2003`\n" ==

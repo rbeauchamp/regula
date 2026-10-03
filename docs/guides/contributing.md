@@ -359,8 +359,10 @@ lists with the extension `md` or `markdown`, read from the working tree
 (`lake exe regula-markdown ..` in `website/`). This check reads no Markdown syntax of its own.
 md4c, a CommonMark parser that the pinned Verso brings as MD4Lean, parses each document in its
 GitHub dialect (tables, strikethrough, task lists and autolinks), and
-[`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) hands its parse to
-`Regula.Markdown`, which decides on it (`documentErrors_nil_iff`). Two hand-written readers of
+[`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) translates its parse into
+pieces (prose, code, the edges of links, refusals, and the boundaries between runs and lines)
+for `Regula.Markdown`, which decides on the pieces (`documentErrors_nil_iff`). The theorem is
+about the pieces it is given; the translation has no theorem. Two hand-written readers of
 Markdown remain elsewhere in the repository and are no part of this check: the fence scanner of
 the documentation audit (`Regula.Checker.Documentation`, which finds the `lean` fences and their
 markers) and `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
@@ -403,6 +405,11 @@ The check trusts, and does not verify:
   to the same HTML with inline raw HTML enabled and with it taken as text, and the parse taken
   with it as text then describes the rendering GitHub's dialect gives.
 - That md4c reads a document as GitHub's renderer does (cmark-gfm and GitHub's later passes).
+- The translation of MD4Lean's document into the pieces the proved check decides on (`read`
+  and every definition it calls in `website/RegulaMarkdown.lean`: `block`, `inline`, `flat`,
+  `link` and the rest). It is project-owned Lean with no theorem: it decides which
+  piece each element md4c reports becomes, and only the evaluated controls of that module
+  observe it.
 
 Where md4c and GitHub are known to differ in a way that bears on the check, the check refuses
 what md4c's parse shows of the difference. The rest is not seen:
@@ -417,6 +424,7 @@ what md4c's parse shows of the difference. The rest is not seen:
 | The two find the end of a bare URL by their own rules. | A rule ID in an autolink is refused, in a bare URL and in `<URL>` alike, since MD4Lean does not tell them apart. Write the link in brackets. |
 | md4c reads an autolink inside a link's text as a link of its own. GitHub makes no link of a bare URL there, and it renders `<URL>` there as a link inside a link, which a browser ends at the inner one, so the text after it is outside every link. | A link inside a link's text is refused, for a bare URL and for `<URL>` alike, since MD4Lean does not tell them apart. For the bare URL that refuses what GitHub shows as one link. Write the URL outside the link's text. |
 | GitHub renders `$…$` and `$$…$$` as math; md4c reads them as text here. | A rule ID in math is refused as prose. |
+| GitHub shows YAML front matter, the lines between two `---` lines at the start of a document, as a table of its raw values; md4c has no front matter and reads those lines as Markdown, a thematic break and then a heading. | Not seen: md4c's parse has no trace of front matter, so its text is checked as prose. A bare rule ID there is refused; one written as a code span or a link is code or linked for md4c and plain text on GitHub, backticks or brackets included. The skill files under `.agents/skills/` have front matter. |
 
 Link destinations and titles, code block info strings, and link reference definitions are not
 prose and are not checked.
