@@ -6,9 +6,9 @@ CI runs this standalone program with the fixed stable bootstrap. A snapshot sele
 restores and admits the immutable source-built compiler and dependencies. With neither a
 snapshot selection nor a source specification, Elan installs the repository's pin. A source
 specification without a snapshot selection, or explicit preparation of that specification, builds the
-named Git commit with a pinned official bootstrap, retains the checkout and build,
-and links an alias only after both compiler identity observations match. A pin or
-bootstrap that Elan already lists is reused, not installed again; its checks still run.
+named Git commit through its committed stage0, retains the checkout and build,
+and links an alias only after both compiler identity observations match. A pin that
+Elan already lists is reused, not installed again; its identity checks still run.
 
 The contracts cover decoded values and the admission decision. Git, Elan, CMake,
 Make, compiler self-reports, filesystem locking and subprocesses remain trusted.
@@ -21,7 +21,7 @@ def component (value : String) : Bool :=
   !value.isEmpty && !value.startsWith "." && !value.startsWith "-" &&
     value.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.'
 
-/-- The full lowercase Git object names used by the source and bootstrap pins. -/
+/-- The full lowercase Git object names used by source pins. -/
 def objectName (value : String) : Bool :=
   value.length == 40 && value.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')
 
@@ -62,17 +62,12 @@ structure Spec where
   revision : String
   /-- Local Elan alias, also recorded in `lean-toolchain`. -/
   selector : String
-  /-- Official compiler used as the preceding build stage. -/
-  bootstrap : String
-  /-- Full compiler commit expected from that bootstrap. -/
-  bootstrapRevision : String
   deriving FromJson, ToJson, Repr
 
-/-- Every path, compiler identity and bootstrap selector is checked before installation. -/
+/-- Every path component and compiler identity is checked before installation. -/
 def valid (spec : Spec) : Bool :=
   component spec.owner && component spec.repository && component spec.selector &&
-    objectName spec.revision && objectName spec.bootstrapRevision &&
-    officialSelector spec.bootstrap
+    objectName spec.revision
 
 /-- An admitted source specification carries the predicate the installer requires. -/
 abbrev Source := { spec : Spec // valid spec = true }
@@ -187,7 +182,7 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
     if ← installed root spec.selector then
       checkIdentity root "elan" #["run", spec.selector, "lean"] spec.revision
       return
-    let path := parent / s!"{spec.revision}-{spec.bootstrapRevision}"
+    let path := parent / spec.revision
     unless ← path.pathExists do
       let random ← IO.getRandomBytes 8
       let token := random.foldl (fun n byte => n * 256 + byte.toNat) 0
@@ -206,12 +201,8 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has another commit"
     unless (← require path "git" #["status", "--porcelain"]).isEmpty do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has local changes"
-    unless ← installed root spec.bootstrap do
-      stream root "elan" #["toolchain", "install", spec.bootstrap]
-    checkIdentity root "elan" #["run", spec.bootstrap, "lean"] spec.bootstrapRevision
-    let previous ← require root "elan" #["run", spec.bootstrap, "lean", "--print-prefix"]
     installSystemPackages root
-    let configuration := #["--preset", "release", s!"-DSTAGE1_PREV_STAGE={previous}",
+    let configuration := #["--preset", "release",
       "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON", "-DLEANC_CC=cc"]
     let configuration := if System.Platform.isOSX then configuration ++
       #["-DCMAKE_OSX_SYSROOT=", "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0"] else configuration

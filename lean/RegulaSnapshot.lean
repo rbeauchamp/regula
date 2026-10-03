@@ -305,7 +305,7 @@ private def pins (root : FilePath) : IO (Array Pin) := do
   return found.qsort fun left right => left.name < right.name
 
 private def identity (root : FilePath) : IO Identity := do
-  let compiler : Compiler ← decode (root / ".github/snapshot-compiler.json")
+  let compiler : Compiler ← decode (root / ".github/snapshot-preparation.json")
   unless component compiler.selector do
     throw <| IO.userError "snapshot: malformed compiler selector"
   unless objectName compiler.revision && !compiler.version.isEmpty do
@@ -315,7 +315,8 @@ private def identity (root : FilePath) : IO Identity := do
       "audit/lean-toolchain", "audit/lakefile.lean", "audit/lake-manifest.json",
       "website/lean-toolchain", "website/lakefile.toml", "website/lake-manifest.json",
       "examples/build-lint/lean-toolchain", "examples/lake-lint-toml/lean-toolchain",
-      "lean/RegulaCompiler.lean", "lean/RegulaSnapshot.lean"] do
+      "lean/RegulaCompiler.lean", "lean/RegulaSnapshot.lean",
+      ".github/snapshot-preparation.json"] do
     inputs := inputs.push ⟨file, ← IO.FS.readFile (root / file)⟩
   if ← (root / ".github/compiler-source.json").pathExists then
     inputs := inputs.push ⟨".github/compiler-source.json",
@@ -563,6 +564,8 @@ def selectForQualification (root input : FilePath) : IO Unit := do
     throw <| IO.userError "snapshot: preparation location has another platform or invalid digest"
   IO.FS.writeFile (root / ".github/compiler-snapshot.json")
     ((toJson #[selected]).pretty ++ "\n")
+  IO.FS.writeFile (root / ".github/snapshot-compiler.json")
+    ((toJson expected.compiler).pretty ++ "\n")
 
 private def requireActivation (root payload : FilePath) (expected : Identity) : IO Bool := do
   let packages := root / ".lake/packages"
@@ -617,6 +620,9 @@ private def activate (root payload : FilePath) (expected : Identity)
 /-- Restore and admit the committed OCI digest; a miss never compiles dependencies. -/
 def restore (root : FilePath) : IO Unit := do
   let expected ← identity root
+  let compiler : Compiler ← decode (root / ".github/snapshot-compiler.json")
+  unless compiler == expected.compiler do
+    throw <| IO.userError "snapshot: selected compiler differs from the preparation recipe"
   runBuildPlan root expected .restore
   let selected ← location root expected
   requireRuntime root expected.platform
@@ -634,7 +640,10 @@ def restore (root : FilePath) : IO Unit := do
       IO.FS.createDir staging
       IO.println s!"snapshot: restoring {selected.reference}; interrupted content stays in {staging}"
       let tool ← oras root
-      stream staging tool #["pull", selected.reference, "--output", staging.toString]
+      let registryConfig := staging / "anonymous-registry.json"
+      IO.FS.writeFile registryConfig "{\"auths\":{}}\n"
+      stream staging tool #["pull", selected.reference, "--registry-config",
+        registryConfig.toString, "--output", staging.toString]
       let description : Archives ← decode (staging / "archive.json")
       unless description.valid && admits expected description.receipt do
         throw <| IO.userError "snapshot: archive descriptor does not admit the complete request"

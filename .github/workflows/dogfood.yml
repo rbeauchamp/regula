@@ -15,6 +15,7 @@ on:
       - lean-toolchain
       - dependency-build-mode
       - .github/compiler-source.json
+      - .github/snapshot-preparation.json
       - .github/snapshot-compiler.json
       - .github/compiler-snapshot.json
       - foundation_manifest.json
