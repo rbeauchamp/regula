@@ -222,8 +222,8 @@ unsafe def run (args : List String) : IO UInt32 := do
       IO.println s!"FAIL: {bare.length} rule ID(s) in documentation prose are not links to their \
         development rule pages"
       return 1
-    IO.println s!"rule links: every rule ID in the prose of the {markdown.size} tracked Markdown \
-      documents links to its development rule page"
+    IO.println s!"rule links: every rule ID in the prose `Regula.Prose` reads in the {markdown.size} \
+      tracked Markdown documents links to its development rule page"
   withScratch repo "doc-fence-audit" fun scratch => do
     let copy := scratch / "project"
     copyProject repo copy scratch
@@ -276,7 +276,7 @@ unsafe def run (args : List String) : IO UInt32 := do
         Documentation.Sources.checkLinked ⟨docsRoot, verso⟩ repo linked
         SourceBinding.unchanged sources
         let linkedIds := if options.ruleLinks then
-          ", and every rule ID in its rendered prose links to its rule page" else ""
+          ", and every rule ID in the rendered prose `Regula.Prose` reads links to its rule page" else ""
         IO.println s!"Verso documentation {requested.library}: built fresh (every `lean` block \
           elaborated where it is written), rendered, defines every anchor the rule registry and \
           the documentation link, and its checklist rows are exactly Regula.checklistRows{linkedIds}"

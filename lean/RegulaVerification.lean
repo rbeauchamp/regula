@@ -311,8 +311,8 @@ def run (args : List String) : IO Unit := do
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
     | .docs => "documentation verification: PASS (the Mathlib example package accepted fresh; \
       every docs/ Lean fence and every lean block of the Verso standard, which built fresh and \
-      rendered; every rule ID in the prose of every tracked Markdown document and of the \
-      rendered standard links to its rule page; inputs equal the accepted ordinary inputs)"
+      rendered; every rule ID in the prose `Regula.Prose` reads in every tracked Markdown \
+      document and in the rendered standard links to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
       acceptance; publication is verified after deployment)"
