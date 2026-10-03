@@ -352,7 +352,9 @@ Markdown, scans that subset exactly as `Regula.Prose` defines it, and refuses ev
 outside it, with the line, the construct and how to write it inside the subset. A construct it
 does not model is refused, not modelled. The subset is fenced code blocks, indented at most three
 spaces and with every line indented at least as far as the fence; ATX headings; comments alone on
-a line; tables, split into cells at every `|` that no backslash escapes, each cell read alone;
+a line; tables, split into cells at every `|` that no backslash escapes, each cell read alone, which
+end at a blank line, a fence, a heading, a comment line or a line that starts with a list marker, a
+footnote marker or `>` or holds only `-`, `=`, `*` or `_`;
 link reference definitions at the start of the document or directly after a blank line, a fenced
 code block, a heading, a comment line or another definition; footnote definitions
 (`[^label]:`), containers like list items whose text is prose; and paragraphs. A paragraph ends

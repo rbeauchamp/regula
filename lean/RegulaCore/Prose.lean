@@ -53,10 +53,11 @@ The subset (`blocks`): fenced code blocks opened by a fence run after at most th
 (`fenceOpen?`), whose lines are indented at least as far as the fence and which close at a fence
 run of the same character at least as long with nothing after it; ATX headings; comments alone on
 a line; tables, a header row, a delimiter row (`delimiterRow`) and the rows after them to the
-next blank line, fence, heading or comment line, each row split into cells at every `|` that no
-backslash escapes (`cells`); link reference definitions after at most three spaces, whose label
-does not start with `^`, at the start of the document or directly after a blank line, a fenced
-code block, a heading, a comment line or another definition; and paragraphs of every other line.
+next blank line, fence, heading, comment line or `interrupts` line, each row split into cells at
+every `|` that no backslash escapes (`cells`); link reference definitions after at most three
+spaces, whose label does not start with `^`, at the start of the document or directly after a
+blank line, a fenced code block, a heading, a comment line or another definition; and paragraphs
+of every other line.
 A paragraph ends before a blank line, a fence, a heading, a comment line, a table's header row, a
 line that starts with a list marker, a footnote marker (`[^label]:`) or `>` or holds only `-`,
 `=`, `*` or `_` (`interrupts`), and, when its first line is indented four spaces or more, before
@@ -563,9 +564,10 @@ def codeClose (n : Nat) : Nat → List Char → Option Nat
     else if run == n then some 0
     else (codeClose n 0 rest).map (· + 1)
 
-/-- Whether the backtick runs of `chars` pair up within it as `scanInline` pairs them: each run
-that no backslash escapes, outside a code span, closes at a later run of the same length
-(`codeClose`). `fuel` bounds the characters read. -/
+/-- Whether the backtick runs of `chars`, a link's text with no `[` or `<` in it (`linkAt`), pair
+up within it: each run that no backslash escapes, outside a code span, closes at a later run of the
+same length (`codeClose`). In such text this is how `scanInline` pairs them. `fuel` bounds the
+characters read. -/
 def codeBalanced : Nat → List Char → Bool
   | _, [] => true
   | 0, chars => !chars.contains '`'
@@ -697,10 +699,10 @@ def cells : List Char → List Char → List (List Char)
   | acc, '|' :: rest => acc.reverse :: cells [] rest
   | acc, c :: rest => cells (c :: acc) rest
 
-/-- Whether a cell of a table row holds part of a code span or link that a `|` splits: a backtick
-run that does not close in it (`codeBalanced`), or a `[` or `]` without its pair. -/
-def splitCell (cell : List Char) : Bool :=
-  !codeBalanced (cell.length + 1) cell || cell.count '[' != cell.count ']'
+/-- Whether a cell of a table row holds part of a link that a `|` splits: a `[` or `]` without its
+pair. A backtick run that the cell leaves open (`Piece.openTicks`) is refused from the cell's pieces
+(`markdownRefusals`). -/
+def splitCell (cell : List Char) : Bool := cell.count '[' != cell.count ']'
 
 /-- Whether the paragraph `text` is a link reference definition split over lines: after its
 container markers, a `[` label, other than a footnote's, that closes on a later line and is followed
@@ -779,7 +781,8 @@ are refused. Outside one, a line of a construct outside the subset is refused (`
 heading, and a line that is one comment after at most three spaces, is a block of its own. A
 paragraph ends before a blank line, a fence, a heading, such a comment line, an `interrupts` line or
 a table's delimiter row (`delimiterRow`), whose previous line is the table's header row; a table's
-rows run to the next blank line, fence, heading or comment line. A link reference definition is
+rows run to the next blank line, fence, heading, comment line or `interrupts` line, which opens a
+paragraph. A link reference definition is
 one (`referenceDefinition?`) only at the start of the document or directly after a blank line, a
 fenced code block, a heading, a comment line or another definition; anywhere else the line is
 prose. -/
@@ -807,7 +810,9 @@ def blocks : Nat → Open → List String → List Block
         (referenceDefinition? (String.ofList (text.toList.dropWhile isBlank))).isSome then
       o.close line ++ .refused line .strayDefinition :: blocks (line + 1) .idle rest
     else match o with
-      | .table start rows => blocks (line + 1) (.table start (text :: rows)) rest
+      | .table start rows =>
+        if interrupts text then o.close line ++ blocks (line + 1) (.paragraph [text]) rest
+        else blocks (line + 1) (.table start (text :: rows)) rest
       | .paragraph (header :: before) =>
         if delimiterRow text then
           Open.cut (line - 1) (.paragraph before) ++
@@ -829,16 +834,20 @@ def refusals (lines : List String) : List (Nat × Refusal) :=
 
 /-- The inline text of a Markdown document (`blocks`), scanned with its link reference definitions
 (`pieces`): each paragraph, heading and comment line, and each cell of each table row (`cells`),
-with the line it starts on and the line of the paragraph's cut (`Open.cut`), if any. -/
-def markdownPieces (text : String) : List (Nat × List Piece × Option Nat) :=
+with the line it starts on and where a backtick run it leaves open (`Piece.openTicks`) is refused:
+at a paragraph's cut (`Open.cut`, `Refusal.openCodeSpan`) and at a cell's row
+(`Refusal.splitTableCell`). -/
+def markdownPieces (text : String) : List (Nat × List Piece × Option (Nat × Refusal)) :=
   let parts := blocks 1 .idle (text.splitOn "\n")
   let defined := parts.filterMap fun
     | .definition name destination => some (name, destination)
     | _ => none
   parts.flatMap fun
-    | .paragraph line paragraph cut => [(line, pieces defined paragraph, cut)]
+    | .paragraph line paragraph cut =>
+      [(line, pieces defined paragraph, cut.map (·, Refusal.openCodeSpan))]
     | .table line rows => ((List.range rows.length).zip rows).flatMap fun (i, row) =>
-      (cells [] row.toList).map fun cell => (line + i, pieces defined (String.ofList cell), none)
+      (cells [] row.toList).map fun cell =>
+        (line + i, pieces defined (String.ofList cell), some (line + i, Refusal.splitTableCell))
     | _ => []
 
 /-- The prose of a Markdown document: the prose runs of its inline text (`markdownPieces`), that
@@ -849,14 +858,13 @@ def markdownRuns (text : String) : List Run :=
 
 /-- Each line for which the Markdown document `text` is refused, with the construct: the block
 structure's (`refusals`), then, in each paragraph, heading, comment line and table cell as
-`scanInline` reads it, its first raw HTML (`rawHtmlLine?`) and, for a paragraph the scanner cuts,
-the cut when a backtick run is left open (`Piece.openTicks`). -/
+`scanInline` reads it, its first raw HTML (`rawHtmlLine?`) and, for a paragraph the scanner cuts or
+a table cell, a backtick run it leaves open (`Piece.openTicks`), at the cut or the row. -/
 def markdownRefusals (text : String) : List (Nat × Refusal) :=
   refusals (text.splitOn "\n") ++
-    ((markdownPieces text).flatMap fun (line, pieces, cut) =>
+    ((markdownPieces text).flatMap fun (line, pieces, openAt) =>
       ((rawHtmlLine? line pieces).map (·, Refusal.inlineHtml)).toList ++
-        ((cut.filter fun _ => pieces.any (· matches .openTicks _)).map
-          (·, Refusal.openCodeSpan)).toList
+        (openAt.filter fun _ => pieces.any (· matches .openTicks _)).toList
     ).eraseDups
 
 /-- What the Markdown document `text` of `main` is refused for: each line of a construct outside
@@ -1216,6 +1224,14 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
 #guard markdownErrors "a.md" "| Rule | Note |\n| --- | --- |\n| x | `a | RG1001` |\n" ==
   ["a.md:3: " ++ Refusal.splitTableCell.message,
     "a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+    "| a | b |\n| - | - |\n> See [x](u`v) and run `lake\nexe regula` with RG1001 `here.\n" ==
+  ["a.md:4: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+    "| a | b |\n| - | - |\n> Note <!-- ` --> and run `lake\nexe regula` with RG1001 `here.\n" ==
+  ["a.md:4: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("| Rule | Checks |\n| --- | --- |\n| [RG1001] | `a \\| b` |\n\n" ++
     "[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") == []
