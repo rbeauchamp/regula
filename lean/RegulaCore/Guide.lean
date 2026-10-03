@@ -380,17 +380,22 @@ def guide : RuleId → Guide
           regeneration runs a second time with no definition irreducible (each given the status \
           its declaration shows), and the comparison \
           takes a `match` that passes a variable through as the `match` that uses it directly, \
-          where Lean's kernel checks that the two are equal for that matcher. Nor does a global \
-          reducibility attribute given after the definition (`attribute [reducible]`, \
-          `[instance_reducible]`, `[implicit_reducible]`, or `[irreducible]` after one of those) \
-          matter when it is given to a function of the helper's own module that is not an \
-          `abbrev`, the change is one the search covers (from a status on which Lean's \
-          validation admits that attribute, or from `reducible` to irreducible), and the \
-          definitions the helper reaches allow at most 63 assignments of an earlier status: \
-          where neither regeneration reproduces the base, the checker searches the statuses \
-          such an attribute can have replaced, for the definitions of the helper's module that \
-          the helper reaches, and an assignment only selects which regeneration runs. The \
-          limitations below list the forms outside this. The regeneration and the comparison \
+          where Lean's kernel checks that the two are equal for that matcher. Nor does the \
+          reducibility status matter that a function the definition calls had where it was \
+          compiled, where that differs from the status at the end of the audit, whatever module \
+          declares the function and whether a global attribute given afterwards or a `local` \
+          one made the difference (`reducible`, `instance_reducible`, `implicit_reducible`, \
+          `semireducible` or `irreducible`): where neither regeneration reproduces the base, \
+          the checker runs the two decisions Lean's recursion compilers take below default \
+          transparency (which parameters are fixed, and which toolchain `wf_preprocess` rule \
+          rewrites the body), records which definitions they ask about, and regenerates under \
+          the statuses that change them, first under the assignment the observed base selects \
+          by the parameters it keeps fixed and the mentions of a function it keeps. Where none \
+          of those reproduces the base, it regenerates under the statuses a global attribute \
+          can have replaced on the definitions of the helper's own module that the helper \
+          reaches. An \
+          assignment only selects which regeneration runs. The limitations below state what \
+          this leaves out. The regeneration and the comparison \
           run with Lean's smart unfolding off, so no declaration named `g._sunfold` is read for \
           the unfolding of `g`.",
         "The separate constructor-index exception requires an owned safe inductive and safe \
@@ -454,33 +459,58 @@ def guide : RuleId → Guide
           `wf_preprocess` rule registered outside the Lean toolchain, one elaborated with \
           `set_option wf.preprocess false` or with a toolchain rule removed by \
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
-          one that calls a function whose status where the definition was compiled the search \
-          does not try, where that changes which parameters Lean finds fixed or which \
-          `wf_preprocess` rule of the toolchain applies: a status that holds only where the \
-          definition is compiled (`attribute [local reducible]` or a `reducible` function made \
-          semireducible afterwards, under `set_option allowUnsafeReducibility true`; \
-          `attribute [local instance_reducible]` or `[local implicit_reducible]`), an `abbrev` \
-          that is not `reducible` where the definition is compiled, a function of another \
-          module whose status changes afterwards, or a change Lean's validation does not admit, \
-          such as `reducible` given to an `instance_reducible` function (all under that option). \
-          These are limits of this release, which issue #196 keeps open \
-          (`Fixtures.Mutations.KnownLimitReducibleWhereCompiled`). Give such a function \
-          its reducibility where it is declared. Otherwise a definition for which the only \
+          one whose compilation depended on a reducibility status the search does not find. \
+          The argument of standard §7.4 leaves out a status Lean consults only while it reduces \
+          the discriminant of a `match` below default transparency, which it does with the \
+          recording put aside. Where the discriminant does not reduce at the end of the audit, \
+          Lean asks about it again once the matcher unfolds, and the status is found. Where it \
+          reduces there, Lean does not ask again, and the status is found only among the \
+          statuses a global attribute can have replaced on the definitions of the helper's own \
+          module that the helper reaches, an `abbrev` left out: a helper whose base needs \
+          another status of such a discriminant, or one of those together with a status only \
+          the recorded questions find, is rejected (traced from Lean 4.34.0's source, not run). \
+          The argument also leaves out statuses of three or more \
+          functions the definition calls directly that only together change which \
+          `wf_preprocess` rule applies, or of two of which the second needs another status than \
+          `reducible`, where the mentions the base keeps do not tell them apart, and more than \
+          the enumeration below \
+          covers for a definition by structural recursion over an inductive predicate. Neither \
+          of these two was observed to reject a definition Lean accepts. Give such a function \
+          its \
+          reducibility where it is declared. Otherwise a definition for which the only \
           difference is that ordinary (semireducible) definitions are irreducible at one of the \
           two points \
           (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
           `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",
-        "A helper whose reached definitions allow more than 63 assignments of an earlier \
-          reducibility status is searched over the first 63 single changes only, each giving one \
-          definition one earlier status. If none reproduces its base the helper is undecided, \
-          neither admitted nor rejected: the checker stops with an error that names it, and the \
-          audit is incomplete, not a violation of this rule. A helper no attempt within the bound \
-          reproduces may still be what Lean generated, so a violation would assert what the \
-          checker has not established, and the helper is not admitted either way. A forged \
-          helper over the bound ends the same way. \
-          `Fixtures.Mutations.KnownLimitReducibilitySearchBound` shows the outcome for a helper \
-          Lean generated. The bound of 63 is a limit of this release, which issue #196 keeps \
-          open.",
+        "A helper for which the definitions whose reducibility status changes a decision of \
+          Lean's recursion compilers allow more than 63 assignments of another status is tried \
+          under the assignment its observed base selects and then under the first 63 single \
+          candidate changes only. One candidate change gives one definition another status \
+          and, where it was followed through functions that do not unfold at the end of the \
+          audit or paired with another function, those functions theirs, so it can assign \
+          statuses to several definitions. If none \
+          reproduces its base the helper is undecided, neither admitted nor rejected: the \
+          checker stops with an error that names it, and the audit is incomplete, not a \
+          violation of this rule. A helper no attempt within the bound reproduces may still be \
+          what Lean generated, so a violation would assert what the checker has not \
+          established, and the helper is not admitted either way. \
+          `Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` shows the outcome for a \
+          forged helper; the helper Lean generated for a definition of that shape is admitted \
+          under the assignment its base selects. The statuses a global attribute can have \
+          replaced on the definitions of the helper's module that it reaches, tried after \
+          those, have the same bound: where they allow more than 63 assignments only the first \
+          63 single changes are tried, and a helper none of them reproduces is undecided in the \
+          same way (`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge`).",
+        "A function the definition calls is followed through the functions that it unfolds to \
+          and that do not unfold at the end of the audit, however many, and is then tried \
+          together with each definition Lean's preprocessing asks about before any change and \
+          still asks about, a function the definition also calls directly among them, one at a \
+          time. Each \
+          step of the following gives one more definition a status, so it ends within as many \
+          steps as the environment has constants. The checker counts them: a change that used \
+          them up would be undecided, and a helper nothing reproduces undecided in the same \
+          way, the audit incomplete and not a violation, with an error that names which bound \
+          was reached.",
         "A helper is not admitted where the checker finds no proof of its recursion equation \
           that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
           Lean adds with a well-founded definition, in the theorem Lean realizes for a \

@@ -16,14 +16,27 @@ definition, the `_unary` definition Lean compiled it into where there is one,
 the unfolding theorems Lean proved with them (`eq_def`, issue #210: the kernel
 has to check the base's recursion equation, and for a well-founded definition
 the checker looks for its proof in a theorem of that name, whoever declared
-it) and its range-less `_unsafe_rec` helper twice:
+it) and its range-less `_unsafe_rec` helper:
 
-- `fixtures_forged_after_faithful` and `fixtures_forged_before_faithful`
-  rename only, and
+- `fixtures_forged_after_faithful`, `fixtures_forged_before_faithful` and
+  `fixtures_forged_bound_faithful` rename only, and
 - `fixtures_forged_after_divergent` and `fixtures_forged_before_divergent`
   also make the helper call `fixtures_forged_after_skip` at its non-recursive
   leaf, where the kernel-checked base calls `fixtures_forged_after_step`, so
   the code Lean runs for each is not the definition the kernel checked.
+
+`fixtures_forged_bound_honest` passes each of two parameters through a function
+made `reducible` afterwards, and its leaf calls five more functions that are
+`@[reducible]` from their declaration: the shape for which the search once
+stopped without a verdict, when it enumerated every definition of the module
+the helper reaches (seven of them, 127 assignments, more than the 63 it
+tries). Only the two functions in the recursive call change a decision of
+Lean's compilers, so the search is exhaustive over three assignments, and the
+honest helper and its faithful copy are admitted under one of them. The
+divergent copy of this shape is no control here: none of the three reproduces
+it, the checker then tries that enumeration, whose seven single changes are
+not all of its 127 assignments, and the helper is undecided
+(`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge`).
 
 Exact match admits the honest helpers and the faithful copies, and rejects the
 divergent ones alone. An assignment only selects which regeneration runs: the
@@ -57,6 +70,32 @@ termination_by n
 
 set_option allowUnsafeReducibility true in
 attribute [irreducible] fixtures_forged_before_keep
+
+def fixtures_forged_bound_first (a : Nat) : Nat := a
+
+def fixtures_forged_bound_second (a : Nat) : Nat := a
+
+@[reducible] def fixtures_forged_bound_one (a : Nat) : Nat := a
+
+@[reducible] def fixtures_forged_bound_two (a : Nat) : Nat := a
+
+@[reducible] def fixtures_forged_bound_three (a : Nat) : Nat := a
+
+@[reducible] def fixtures_forged_bound_four (a : Nat) : Nat := a
+
+@[reducible] def fixtures_forged_bound_five (a : Nat) : Nat := a
+
+def fixtures_forged_bound_honest (a b n : Nat) : Nat :=
+  match n with
+  | 0 =>
+    fixtures_forged_after_step (fixtures_forged_bound_one (fixtures_forged_bound_two
+      (fixtures_forged_bound_three (fixtures_forged_bound_four
+        (fixtures_forged_bound_five (a + b))))))
+  | k + 1 =>
+    fixtures_forged_bound_honest (fixtures_forged_bound_first a) (fixtures_forged_bound_second b) k
+termination_by n
+
+attribute [reducible] fixtures_forged_bound_first fixtures_forged_bound_second
 
 /-- `forge_reducible_after_helper honest name diverge`: copy `honest`, its `_unary` definition
 where there is one, the unfolding theorems Lean proved for them and its helper under `name`; with
@@ -102,3 +141,5 @@ forge_reducible_after_helper fixtures_forged_after_honest fixtures_forged_after_
 forge_reducible_after_helper fixtures_forged_before_honest fixtures_forged_before_faithful
 
 forge_reducible_after_helper fixtures_forged_before_honest fixtures_forged_before_divergent diverge
+
+forge_reducible_after_helper fixtures_forged_bound_honest fixtures_forged_bound_faithful

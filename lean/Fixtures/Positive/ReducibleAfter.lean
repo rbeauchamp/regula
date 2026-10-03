@@ -11,10 +11,12 @@ under structural recursion, and which `wf_preprocess` rule of the toolchain
 rewrites the body. Lean keeps no record of the status a definition was
 compiled under, so the regeneration in the environment the audit inspects, and
 the one with no definition irreducible, take those decisions differently. The
-checker then searches the statuses a later global attribute can have replaced,
-for the definitions of the helper's module that the helper reaches, and admits
-the helper under the first assignment whose regeneration equals the observed
-base. Without that search `fixtures_reducible_fixed`,
+checker then runs the two decisions as Lean's own functions, records which
+definitions they ask about, finds for each the statuses under which a decision
+comes out differently, and admits the helper under the first assignment whose
+regeneration equals the observed base; the one the observed base selects (the
+parameters it keeps fixed, the mentions of a function it keeps) is tried
+first. Without that search `fixtures_reducible_fixed`,
 `fixtures_reducible_structural`, `FixturesReducibleTree.count` and
 `fixtures_reducible_then_not` were observed rejections on Lean 4.34.0; the
 other forms were not run without it.
@@ -35,38 +37,37 @@ other forms were not run without it.
   assignment that changes the second alone reproduces the base.
 - `fixtures_reducible_limit` passes each of two parameters through a function
   made reducible afterwards, and its leaf calls four functions that are
-  `@[reducible]` from their declaration. Six definitions with one earlier
-  status each allow 63 assignments, the most the search tries exhaustively,
-  and only the one that changes the first two together reproduces the base.
-  `Fixtures.Mutations.KnownLimitReducibilitySearchBound` is this shape with
-  one function more.
+  `@[reducible]` from their declaration. Only the first two change a decision,
+  and the assignment that changes both reproduces the base. The search once
+  enumerated every definition of the module the helper reaches: six of them
+  allow 63 assignments, the most it tries. `fixtures_bound_searched` of
+  `Fixtures.Positive.ReducibleWhereCompiled` is this shape with one function
+  more, which that enumeration left undecided.
 - `fixtures_reducible_decoyed` is that pair of changes alone, beside an
   authored `fixtures_reducible_decoyed._unsafe_rec._sunfold` that mentions five
   functions `@[reducible]` from their declaration (found in review). No
-  observation reads a `_sunfold` declaration, so the search does not reach
-  them: two candidates, three assignments. Were it to follow that declaration,
-  seven candidates would exceed the bound, the pair would never be tried and
-  the helper would be undecided.
+  observation reads a `_sunfold` declaration, and Lean's compilers ask about
+  none of those functions: two definitions change a decision, three
+  assignments.
 - `fixtures_reducible_proved` is that pair of changes again, with a leaf that
   cites `fixtures_proved_bound`, a theorem whose statement mentions no
   definition of this module and whose proof mentions five functions
   `@[reducible]` from their declaration (found in review). Lean's recursion
   compilers unfold a theorem only where it is applied to a bare function of
   the group they compile (`Meta.unfoldIfArgIsAppOf`), which this one is not,
-  and `Meta` unfolds no theorem, so the search does not follow that proof: two
-  candidates, three assignments. Following every theorem's value, as the
-  search once did, seven candidates exceeded the bound and the helper was
-  undecided.
+  and `Meta` unfolds no theorem, so they ask about none of those functions:
+  two definitions change a decision, three assignments.
 - `fixtures_reducible_cited` has a proof that calls the definition with the
   parameter passed through `fixtures_cited_keep`, made reducible afterwards,
   and `as_aux_lemma` abstracts that proof into a theorem applied to the
   function itself (found in review). Lean's compilers unfold such a theorem
   into the definition (`Meta.unfoldIfArgIsAppOf`), so the structural compiler
   finds the parameter varying where the definition is compiled and fixed once
-  `fixtures_cited_keep` is reducible. The search starts from the value as the
-  compilers see it, after that unfolding, and reaches `fixtures_cited_keep`:
-  one candidate, one assignment. Following no theorem's value, as the search
-  once did, it found no candidate and rejected the helper (observed).
+  `fixtures_cited_keep` is reducible. The search gives Lean's fixed-parameter
+  analysis the value as the structural compiler does, after that unfolding,
+  so the analysis asks about `fixtures_cited_keep`: one definition, one
+  assignment. The call is inside a proof, which compilation erases, so only
+  the parameters the observed base keeps fixed select that assignment.
 - `fixtures_reducible_then_not` is the other way round:
   `fixtures_reducible_before` is `@[reducible]` from its declaration, so Lean
   finds the parameter fixed, and is made `irreducible` afterwards, which Lean
@@ -86,8 +87,9 @@ other forms were not run without it.
   structurally on an argument whose type is a definition made `irreducible`
   afterwards. In the inspected environment Lean does not see the inductive
   type, and the regeneration with no definition irreducible gives the `abbrev`
-  back as `reducible` and finds the parameter fixed; the assignment that keeps
-  the `abbrev` irreducible there reproduces the base.
+  back as `reducible` and finds the parameter fixed; the assignment that gives
+  the `abbrev` a status under which it does not unfold there reproduces the
+  base.
 -/
 def fixtures_reducible_keep (a : Nat) : Nat := a
 
@@ -285,6 +287,6 @@ def fixtures_abbrev_both (a : Nat) (xs : FixturesAbbrevBothAlias) : Nat :=
 
 attribute [irreducible] FixturesAbbrevBothAlias
 
-/-- Semireducible in this module. `Fixtures.Mutations.KnownLimitReducibleWhereCompiled` makes it
-`reducible` from another module, a change the search does not cover. -/
+/-- Semireducible in this module. `Fixtures.Positive.ReducibleWhereCompiled` makes it `reducible`
+from another module, after a definition that calls it. -/
 def fixtures_reducible_elsewhere (a : Nat) : Nat := a
