@@ -53,19 +53,21 @@ The subset (`blocks`): fenced code blocks opened by a fence run after at most th
 run of the same character at least as long with nothing after it; ATX headings; comments alone on
 a line; tables, a header row, a delimiter row (`delimiterRow`) and the rows after them to the
 next blank line, fence, heading or comment line, each row split into cells at every `|` that no
-backslash escapes (`cells`); link reference definitions after at most three spaces, at the start
-of the document or directly after a blank line, a fenced code block, a heading, a comment line or
-another definition; and paragraphs of every other line, which end before a blank line, a fence, a
-heading, a comment line, a table's header row or an `interrupts` line. In each paragraph, heading
+backslash escapes (`cells`); link reference definitions after at most three spaces, whose label
+does not start with `^` (a footnote definition is prose), at the start of the document or directly
+after a blank line, a fenced code block, a heading, a comment line or another definition; and
+paragraphs of every other line, which end before a blank line, a fence, a heading, a comment line,
+a table's header row or an `interrupts` line. In each paragraph, heading
 and cell, `scanInline` reads code spans, links whose text holds no `[`, `<` or open code span and
-whose target is well formed (`validTarget`), HTML tags and comments on one line, autolinks and
-bare URLs; every other character is prose.
+whose target is well formed (`validTarget`), HTML tags on one line and comments that close in
+their paragraph, autolinks and bare URLs; every other character is prose.
 
 Refused (`Refusal`): a fenced code block that is never closed; a fence run indented four spaces
-or more; a line of a fenced code block with fewer leading spaces than its fence; a fence run, an
-HTML tag or a comment on the line of a list marker or `>`; a line that starts with an HTML tag,
-processing instruction or declaration other than an autolink; a comment that is not alone on its
-line; a numeric character reference; a code span left open where a paragraph ends at an
+or more; a line of a fenced code block with fewer leading spaces than its fence; a line whose text
+after its list markers or `>` starts with a fence run, an HTML tag, a comment, a table's delimiter
+row or a link reference definition; a line that starts with an HTML tag, processing instruction
+or declaration other than an autolink; a line that starts with a comment that is not all of it; a
+numeric character reference; a code span left open where a paragraph ends at an
 `interrupts` line or a table's header row; and a code span, link or HTML tag that a `|` splits in a
 table row (`splitCell`). That GitHub renders a document of the subset as these definitions read it
 is the check's premise, observed in the controls below, not proved.
@@ -311,7 +313,7 @@ def validTarget (raw : List Char) : Bool :=
 def label (chars : List Char) : String := (String.ofList chars).trimAscii.toString.toLower
 
 /-- The label and destination of a link reference definition line, `[label]: destination`, after
-at most three spaces. -/
+at most three spaces. A label that starts with `^` is a footnote's, whose definition is prose. -/
 def referenceDefinition? (line : String) : Option (String × String) :=
   let indent := (line.toList.takeWhile (· == ' ')).length
   if indent > 3 then none else
@@ -321,7 +323,7 @@ def referenceDefinition? (line : String) : Option (String × String) :=
       match rest.drop (i + 1) with
       | ':' :: target =>
         let destination := destinationOf target
-        if i == 0 || destination.isEmpty || !validTarget target then none
+        if i == 0 || rest.head? == some '^' || destination.isEmpty || !validTarget target then none
         else some (label (rest.take i), destination)
       | _ => none
   | _ => none
@@ -407,7 +409,8 @@ inductive Refusal where
   | indentedFence
   /-- A line of a fenced code block with fewer leading spaces than its fence. -/
   | shallowFenceLine
-  /-- A fence run, an HTML tag or a comment on the line of a list marker or `>`. -/
+  /-- A line whose text after its list markers or `>` starts with a fence run, an HTML tag, a
+  comment, a table's delimiter row or a link reference definition. -/
   | containedBlock
   /-- A line that starts with an HTML tag, processing instruction or declaration. -/
   | htmlLine
@@ -433,12 +436,14 @@ def Refusal.message (r : Refusal) : String :=
       ("a line of a fenced code block with fewer leading spaces than its fence",
       "indent every line of the block at least as far as its fence")
     | .containedBlock =>
-      ("a fenced code block, HTML or a comment on the line of a list marker or `>`",
-      "start a fenced code block on a line of its own, indented as the list item's text, and write \
-        the rest in Markdown")
+      ("a line whose text after its list markers or `>` starts with a fence run, an HTML tag, a \
+        comment, a table's delimiter row or a link reference definition",
+      "start a fenced code block or a table on a line of its own, indented as the list item's text \
+        and outside any block quote, put a link reference definition at the end of the document \
+        outside any list or block quote, and write the rest in Markdown")
     | .htmlLine => ("a line that starts with an HTML tag, processing instruction or declaration",
       "write it in Markdown, or start the line with text")
-    | .partialComment => ("a comment that is not alone on its line",
+    | .partialComment => ("a line that starts with a comment that is not all of it",
       "put each comment on a line of its own, opened and closed there")
     | .characterReference => ("a numeric character reference", "write the character itself")
     | .openCodeSpan => ("a code span left open before a line that ends the paragraph here (a list \
@@ -448,9 +453,17 @@ def Refusal.message (r : Refusal) : String :=
       "escape the `|` as `\\|` or keep the construct in one cell")
   "unsupported Markdown construct: " ++ construct ++ "; " ++ remedy
 
+/-- Whether `line` is a table's delimiter row: only `|`, `:`, `-` and whitespace, with a `|` and a
+`-`. -/
+def delimiterRow (line : String) : Bool :=
+  let chars := line.toList
+  chars.contains '|' && chars.contains '-' &&
+    chars.all fun c => c == '|' || c == ':' || c == '-' || c.isWhitespace
+
 /-- The construct outside the subset that `line`, outside a fenced code block, uses, if it uses
-one: a fence run indented four spaces or more; a fence run, an HTML tag or a comment after a list
-marker or `>`; a line that starts with an HTML tag, processing instruction or declaration, other
+one: a fence run indented four spaces or more; text after list markers or `>` that starts with a
+fence run, an HTML tag, a comment, a table's delimiter row (`delimiterRow`) or a link reference
+definition; a line that starts with an HTML tag, processing instruction or declaration, other
 than an autolink; a line that starts with a comment that is not all of it; or a numeric character
 reference. -/
 def unsupported? (line : String) : Option Refusal :=
@@ -460,7 +473,9 @@ def unsupported? (line : String) : Option Refusal :=
     | '<' :: c :: _ => (c.isAlpha || c == '/' || c == '?' || c == '!') && !startsAutolink content
     | _ => false
   if indentedFence line then some .indentedFence
-  else if contained && ((fenceRun? (String.ofList content)).isSome || html) then
+  else if contained && ((fenceRun? (String.ofList content)).isSome || html ||
+      delimiterRow (String.ofList content) ||
+      (referenceDefinition? (String.ofList content)).isSome) then
     some .containedBlock
   else if html && !"<!--".toList.isPrefixOf content then some .htmlLine
   else if html && !wholeComment content then some .partialComment
@@ -473,13 +488,6 @@ def interrupts (line : String) : Bool :=
   let chars := line.toList.dropWhile isBlank
   (afterContainers chars.length false chars).1 ||
     (!chars.isEmpty && chars.all fun c => c == '-' || c == '=' || c == '*' || c == '_' || isBlank c)
-
-/-- Whether `line` is a table's delimiter row: only `|`, `:`, `-` and whitespace, with a `|` and a
-`-`. -/
-def delimiterRow (line : String) : Bool :=
-  let chars := line.toList
-  chars.contains '|' && chars.contains '-' &&
-    chars.all fun c => c == '|' || c == ':' || c == '-' || c.isWhitespace
 
 /-- One piece of a paragraph. The pieces' raw texts, in order, are the paragraph. -/
 inductive Piece where
@@ -1074,6 +1082,16 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "> ```lean\n> x\n> ```\n" ==
   ["a.md:1: " ++ Refusal.containedBlock.message, "a.md:3: " ++ Refusal.containedBlock.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "> | Rule | Note |\n> | --- | --- |\n> | `x | RG1001` |\n" ==
+  ["a.md:2: " ++ Refusal.containedBlock.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("- [RG1001]: https://example.com/wrong\n\nSee [RG1001].\n\n" ++
+    "[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") ==
+  ["a.md:1: " ++ Refusal.containedBlock.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "See note[^1].\n\n[^1]: RG1001\n" ==
+  ["a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("- <p>See [RG1001](" ++ Edition.dev.url RuleId.projectAxiom.route ++
     ").</p>\n") == ["a.md:1: " ++ Refusal.containedBlock.message]

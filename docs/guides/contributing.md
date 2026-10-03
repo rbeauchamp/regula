@@ -353,16 +353,19 @@ outside it, with the line, the construct and how to write it inside the subset. 
 does not model is refused, not modelled. The subset is fenced code blocks, indented at most three
 spaces and with every line indented at least as far as the fence; ATX headings; comments alone on
 a line; tables, split into cells at every `|` that no backslash escapes, each cell read alone;
-link reference definitions at the start of the document or directly after a blank line, a fenced
-code block, a heading, a comment line or another definition; and paragraphs, which end before a
-blank line, a fence, a heading, a comment line, a table's header row or a line that starts with a
-list marker or `>` or holds only `-`, `=`, `*` or `_`. In them it reads code spans, links whose
+link reference definitions, other than footnote definitions (`[^label]:`, read as prose), at the
+start of the document or directly after a blank line, a fenced code block, a heading, a comment
+line or another definition; and paragraphs, which end before a blank line, a fence, a heading, a
+comment line, a table's header row or a line that starts with a list marker or `>` or holds only
+`-`, `=`, `*` or `_`. In them it reads code spans, links whose
 text holds no `[`, `<` or open code span and whose destination and title are well formed, HTML
-tags and comments on one line, autolinks and bare URLs; everything else is prose. It refuses a
-fenced code block that is never closed; a fence run indented four spaces or more; a line of a
-fenced code block less indented than its fence; a fence, an HTML tag or a comment on the line of
-a list marker or `>`; a line that starts with an HTML tag, processing instruction or declaration,
-so raw HTML blocks are not supported; a comment that is not alone on its line; a numeric
+tags on one line and comments that close in their paragraph, autolinks and bare URLs; everything
+else is prose. It refuses a fenced code block that is never closed; a fence run indented four
+spaces or more; a line of a fenced code block less indented than its fence; a line whose text after its list markers or `>`
+starts with a fence run, an HTML tag, a comment, a table's delimiter row or a link reference
+definition, so write those outside the list item's marker line and any block quote; a line that
+starts with an HTML tag, processing instruction or declaration, so raw HTML blocks are not
+supported; a line that starts with a comment that is not all of it; a numeric
 character reference; a code span left open where a paragraph ends at such a line or at a table's
 header row; and a code span, link or HTML tag that a `|` splits in a table row. A page with a
 `code`, `pre`, `title` or `h1` element, a comment or a script that is never closed is refused,
