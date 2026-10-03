@@ -232,7 +232,7 @@ actual compatibility revision before that revision is promoted.
 ### Compiler-source account for Lean `6751f97`
 
 At compiler commit `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`,
-`ToLCNF.constantReplacer` performs one `CSimp.replaceConstant?` lookup per visit, and
+`ToLCNF.constantReplacer` performs at most one `CSimp.replaceConstant?` lookup per call, and
 conversion revisits the resulting expression. This replaces the historical two-stage
 4.34.0 explanation in standard §7.6 for this pin. The accepted constant-equality shape and
 positional universe substitution are unchanged.
