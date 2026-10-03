@@ -193,8 +193,7 @@ def commands : Mode → List Command
       -- the sources they need.
       lakeIn auditPackage #["exe", "axiomGate"],
       lake
-          #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard,
-              "--rule-links"]]
+          #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .graph => [lake #["exe", "freshChecker", "--verbose"]]
   | .diagnostics => selftest #[]
   | .producers => [

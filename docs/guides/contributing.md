@@ -343,7 +343,7 @@ linked. A heading is prose, so a rule ID in one is a link. The one rule ID that 
 a link is a rule page's own, in that page's `title` and `h1`, because a page cannot usefully link
 to itself (`Prose.ownPage`); any other rule's ID there, and any rule ID in the `title` or `h1` of
 another page, is refused. `./scripts/verify.sh docs` checks the standard rendered alone
-(`docFenceAudit --rule-links`), and `./scripts/verify.sh site` checks every page of the
+(`docFenceAudit --verso`), and `./scripts/verify.sh site` checks every page of the
 development edition; each failure names the file, the line and the ID. The scanner is small and
 strict, not an HTML parser: a page with a `code`, `pre`, `title` or `h1` element, a comment or a
 script that is never closed is refused, since the text after it could not be read as prose. The
