@@ -458,9 +458,11 @@ def guide : RuleId → Guide
           `attribute [-wf_preprocess]` when a rule so disabled would have rewritten its body, or \
           one whose compilation depended on a reducibility status the search does not find. \
           The argument of standard §7.4 leaves out a status Lean consults only while it reduces \
-          the discriminant of a `match` below default transparency, statuses of several \
-          functions that only together change which `wf_preprocess` rule applies where the \
-          mentions the base keeps do not tell them apart, and more than the enumeration below \
+          the discriminant of a `match` below default transparency, statuses of three or more \
+          functions the definition calls directly that only together change which \
+          `wf_preprocess` rule applies, or of two of which the second needs another status than \
+          `reducible`, where the mentions the base keeps do not tell them apart, and more than \
+          the enumeration below \
           covers for a definition by structural recursion over an inductive predicate. None \
           was observed to reject a definition Lean accepts. Give such a function its \
           reducibility where it is declared. Otherwise a definition for which the only \
@@ -472,8 +474,9 @@ def guide : RuleId → Guide
           Lean's recursion compilers allow more than 63 assignments of another status is tried \
           under the assignment its observed base selects and then under the first 63 single \
           candidate changes only. One candidate change gives one definition another status \
-          and, where that definition unfolds to further functions that had to unfold too, \
-          those functions theirs, so it can assign statuses to several definitions. If none \
+          and, where it was followed through functions that do not unfold at the end of the \
+          audit or paired with another function, those functions theirs, so it can assign \
+          statuses to several definitions. If none \
           reproduces its base the helper is undecided, neither admitted nor rejected: the \
           checker stops with an error that names it, and the audit is incomplete, not a \
           violation of this rule. A helper no attempt within the bound reproduces may still be \
@@ -482,13 +485,16 @@ def guide : RuleId → Guide
           `Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` shows the outcome for a \
           forged helper; the helper Lean generated for a definition of that shape is admitted \
           under the assignment its base selects.",
-        "A function the definition calls is followed through at most four further functions \
-          that it unfolds to and that had another status where the definition was compiled. \
-          Where a fifth is found, the search has not decided that change, and a helper nothing \
-          reproduces is undecided in the same way: the audit is incomplete, not a violation. \
-          `Fixtures.Mutations.KnownLimitReducibilityChain` shows that outcome for a helper Lean \
-          generated, whose definition maps through six functions of which each unfolds to the \
-          next, all `reducible` only where it was compiled.",
+        "A function the definition calls is followed through the functions that it unfolds to \
+          and that do not unfold at the end of the audit, however many, and is then tried \
+          together with each definition Lean's preprocessing asks about before any change and \
+          still asks about, a function the definition also calls directly among them, one at a \
+          time. Each \
+          step of the following gives one more definition a status, so it ends within as many \
+          steps as the environment has constants. The checker counts them: a change that used \
+          them up would be undecided, and a helper nothing reproduces undecided in the same \
+          way, the audit incomplete and not a violation, with an error that names which of the \
+          two bounds was reached.",
         "A helper is not admitted where the checker finds no proof of its recursion equation \
           that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
           Lean adds with a well-founded definition, in the theorem Lean realizes for a \

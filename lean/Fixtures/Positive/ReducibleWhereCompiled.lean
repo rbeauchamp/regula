@@ -67,7 +67,19 @@ All but `fixtures_where_instance` and `fixtures_where_implicit` need
   apply. `FixturesWhereTree.depth` maps through `fixtures_where_outer`, which
   unfolds to `fixtures_where_inner`, which unfolds to `List.map`, both
   `reducible` only for that definition (new): the rule applies only where both
-  unfold. `FixturesWhereTree.total` maps through `fixtures_where_map` over
+  unfold. `FixturesWhereTree.shared` is that definition with a leaf that calls
+  `fixtures_where_inner` directly, on a list the rule does not rewrite (new;
+  found in review, traced from the source as a rejection and not run before
+  the search changed): the preprocessing asks about the inner function before
+  any change, so the search did not take it for a function the outer one
+  unfolds to; it now tries the two together.
+  `FixturesWhereTree.chained` maps through `fixtures_chain_one`, the first of
+  six functions of which each unfolds to the next and the last to `List.map`,
+  all `reducible` only for that definition (new; found in review): the search
+  once followed such a chain through five runs only and left this helper
+  undecided (observed), and before that reported it as a violation; it now
+  follows the chain to its end.
+  `FixturesWhereTree.total` maps through `fixtures_where_map` over
   `fixtures_where_pick children`, two functions that do not unfold to one
   another, both `reducible` only for that definition (new): the rule matches
   only where both unfold, so no change of one status alone changes the
@@ -268,6 +280,42 @@ def FixturesWhereTree.depth : FixturesWhereTree → Nat → Nat
     match fuel with
     | 0 => 0
     | fuel + 1 => 1 + (fixtures_where_outer (fun child => child.depth fuel) children).sum
+termination_by _ fuel => fuel
+
+set_option allowUnsafeReducibility true in
+attribute [local reducible] fixtures_where_inner fixtures_where_outer in
+def FixturesWhereTree.shared : FixturesWhereTree → Nat → Nat
+  | .node children, fuel =>
+    match fuel with
+    | 0 => (fixtures_where_inner (· + 1) (List.range 3)).sum
+    | fuel + 1 => 1 + (fixtures_where_outer (fun child => child.shared fuel) children).sum
+termination_by _ fuel => fuel
+
+def fixtures_chain_six {α β : Type} (f : α → β) (xs : List α) : List β := List.map f xs
+
+def fixtures_chain_five {α β : Type} (f : α → β) (xs : List α) : List β :=
+  fixtures_chain_six f xs
+
+def fixtures_chain_four {α β : Type} (f : α → β) (xs : List α) : List β :=
+  fixtures_chain_five f xs
+
+def fixtures_chain_three {α β : Type} (f : α → β) (xs : List α) : List β :=
+  fixtures_chain_four f xs
+
+def fixtures_chain_two {α β : Type} (f : α → β) (xs : List α) : List β :=
+  fixtures_chain_three f xs
+
+def fixtures_chain_one {α β : Type} (f : α → β) (xs : List α) : List β :=
+  fixtures_chain_two f xs
+
+set_option allowUnsafeReducibility true in
+attribute [local reducible] fixtures_chain_one fixtures_chain_two fixtures_chain_three
+  fixtures_chain_four fixtures_chain_five fixtures_chain_six in
+def FixturesWhereTree.chained : FixturesWhereTree → Nat → Nat
+  | .node children, fuel =>
+    match fuel with
+    | 0 => 0
+    | fuel + 1 => 1 + (fixtures_chain_one (fun child => child.chained fuel) children).sum
 termination_by _ fuel => fuel
 
 
