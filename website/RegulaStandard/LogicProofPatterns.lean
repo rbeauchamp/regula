@@ -778,7 +778,7 @@ A type invariant describes valid results; a functional contract also relates the
   * State the exact input domain, any precondition, and the input–output relation. A restricted domain MUST appear in the API when promised (§3.2.1).
 *
   * Parser, decoder, admission
-  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it.
+  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed.
 *
   * Update
   * Establish the invariant at the write boundary, the intended change, and frame conditions for components promised unchanged.
@@ -798,6 +798,8 @@ Every required relation MUST be proved about the actual definitions used by the 
 *Why the invariant is insufficient.* This always-rejecting implementation satisfies its refined return type but violates positive-input completeness:
 
 ```lean
+import Regula.Contract
+
 /-- Every possible successful result would be positive, but there are none. -/
 def rejectAll : Nat → Option {n : Nat // 0 < n} := fun _ => none
 
@@ -805,7 +807,20 @@ example : ¬ (∀ n, 0 < n → (rejectAll n).isSome = true) := by
   intro h
   have bad := h 1 (by decide)
   contradiction
+
+/-- `rejectAll` accepts no input. -/
+theorem rejectAll_refuses (n : Nat) : ¬ (rejectAll n).isSome = true := by simp [rejectAll]
+
+/-- So it is not a complete decision of positivity, which `1` satisfies. -/
+example : ¬ Regula.DecidesCompletely (·.isSome = true) (fun n => 0 < n) rejectAll :=
+  Regula.DecidesCompletely.not_of_refuses_all rejectAll_refuses ⟨1, by decide⟩
+
+/-- Nor a sound decision of any specification: it has no accepted input. -/
+example (spec : Nat → Prop) : ¬ Regula.DecidesSoundly (·.isSome = true) spec rejectAll :=
+  Regula.DecidesSoundly.not_of_refuses_all rejectAll_refuses
 ```
+
+The last two statements use the decision kinds of {ref "38-delivering-executable-witnesses-with-required-evidence"}[§3.8]. A soundness theorem alone, `∀ n, (rejectAll n).isSome = true → 0 < n`, holds of `rejectAll` vacuously; the sound kind also requires an input the function accepts, and `rejectAll` has none.
 
 The intended admission in {repo "lean/AuditApp/Limiter.lean"}[`lean/AuditApp/Limiter.lean`] instead has `admit_exact`. For every natural capacity, a positive input returns the idle state at exactly that capacity, and zero returns `none`. It performs no normalization. `admit_sound` alone would not exclude always rejecting or substituting a different positive capacity. At the CLI boundary, `requestedCapacity_exact` gives the separate policy: apply Lean's `String.toNat?` to the first argument, default to 2 on missing/unparsable input, and ignore trailing arguments; admission then rejects parsed zero. The parser's meaning is that pinned library definition, not a theorem about terminal input or an unspecified external encoding.
 
@@ -918,6 +933,93 @@ def promised (n : Nat) : Nat :=
 ```
 
 Marking that definition `noncomputable` permits the logical definition; it does not deliver the executable promise. The build linter rejects a registered noncomputable root even under Standard-Logical. Conversely, classical evidence alone does not reject a computable root. Neither a successful build nor a Choice-Free label proves kernel normalization, witness extraction from arbitrary existence theorems, compiler correctness, or native/FFI behavior.
+
+## Decision kinds
+%%%
+tag := "decision-kinds"
+number := false
+%%%
+
+A function that acts as a checker (a parser, decoder, validator or admission function) is a decision: some of its results accept the input and the others refuse it. A soundness theorem alone admits the function that refuses every input, and a completeness theorem alone admits the function that accepts every input (§3.7). A one-way guarantee is often the right choice: a refusal that fails closed needs only soundness. What a reader needs is to tell that choice from an omission.
+
+`Regula.Contract` provides three requirements for the `condition` of an `ExecutableContract`, each over an acceptance predicate `accepts : ρ → Prop`, a specification `spec : α → Prop` and the function `f : α → ρ`:
+
+:::table +header
+*
+  * Kind
+  * Fields
+  * Not claimed
+*
+  * `DecidesSoundly accepts spec f`
+  * `sound : ∀ x, accepts (f x) → spec x` and `accepted : ∃ x, accepts (f x)`
+  * Completeness: `f` may refuse inputs that satisfy `spec`.
+*
+  * `DecidesCompletely accepts spec f`
+  * `complete : ∀ x, spec x → accepts (f x)` and `refused : ∃ x, ¬ accepts (f x)`
+  * Soundness: `f` may accept inputs that do not satisfy `spec`.
+*
+  * `Decides accepts spec f`
+  * All four: it extends both.
+  * Neither direction is left open.
+:::
+
+The fields are the statements, so Lean's kernel checks the direction, and a one-way guarantee can be registered only under the structure that names it. The witnesses are about `f`: `accepted` excludes the function that refuses every input, which is sound for every specification, and `refused` excludes the function that accepts every input, which is complete for every specification. A satisfiable `spec` alone would not exclude the first. `accepts` is a parameter because acceptance has no canonical polarity: an `Option` result accepts on `some` for a parser and on `none` for a failure report.
+
+A function of several arguments is decided on the product of its arguments, through `Function.uncurry`. That function is a bijection between `α → β → ρ` and `α × β → ρ` (`Function.curry_uncurry`, `Function.uncurry_curry`), so the kind's quantifiers over the pairs are the quantifiers over both arguments, and the registered implementation remains the constant its callers run:
+
+```lean
+import Regula.Contract
+
+/-- Whether `n` is positive. -/
+def positive (n : Nat) : Bool := decide (0 < n)
+
+/-- `positive` accepts exactly the positive numbers: it accepts `1` and refuses `0`. -/
+theorem positive_decides :
+    Regula.ExecutableContract positive (Regula.Decides (· = true) fun n => 0 < n) :=
+  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted
+     accepted := ⟨1, by decide⟩
+     complete := fun _ holds => decide_eq_true holds
+     refused := ⟨0, by decide⟩ }⟩
+
+/-- Whether `n` is an even number below four. -/
+def smallEven (n : Nat) : Bool := decide (n % 2 = 0) && decide (n < 4)
+
+/-- `smallEven` accepts only even numbers. The kind does not claim that it accepts every even
+number, and it refuses `4`. -/
+theorem smallEven_decidesSoundly :
+    Regula.ExecutableContract smallEven (Regula.DecidesSoundly (· = true) fun n => n % 2 = 0) :=
+  ⟨{ sound := fun n accepted => by
+       simp only [smallEven, Bool.and_eq_true, decide_eq_true_eq] at accepted
+       exact accepted.1
+     accepted := ⟨0, by decide⟩ }⟩
+
+/-- Whether `n` is below `limit`. -/
+def within (limit n : Nat) : Bool := decide (n < limit)
+
+/-- `within` accepts exactly the pairs whose second component is below the first. -/
+theorem within_decides :
+    Regula.ExecutableContract within (fun check =>
+      Regula.Decides (· = true) (fun input : Nat × Nat => input.2 < input.1)
+        (Function.uncurry check)) :=
+  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted
+     accepted := ⟨(1, 0), by decide⟩
+     complete := fun _ holds => decide_eq_true holds
+     refused := ⟨(0, 0), by decide⟩ }⟩
+```
+
+A soundness proof without its witness does not inhabit the sound kind:
+
+```lean (fails := "Fields missing.*accepted")
+import Regula.Contract
+
+/-- Whether `n` is positive. -/
+def positive (n : Nat) : Bool := decide (0 < n)
+theorem positive_sound :
+    Regula.ExecutableContract positive (Regula.DecidesSoundly (· = true) fun n => 0 < n) :=
+  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted }⟩
+```
+
+A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions); whether a function that acts as a checker is registered at all; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A function whose argument types depend on earlier arguments is decided through a named function over a product, sigma or subtype domain. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
 
 # 3.9 Stateful Refinement and Finite-Prefix Safety
 %%%

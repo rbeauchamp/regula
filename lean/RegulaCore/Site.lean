@@ -838,12 +838,19 @@ theorem missingAnchors_nil_iff (pages : List Page) (anchors : List (String × St
           (anchor.2 = "" ∨ anchor.2 ∈ page.ids) := by
   simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex, Decidable.or_iff_not_imp_left]
 
-/-- Registered contract of the executed anchor check. -/
+/-- Registered contract of the executed anchor check, as a two-way decision
+(`missingAnchors_nil_iff`): it reports nothing for no anchor, and reports an anchor of a page
+that no page list holds. -/
 theorem checked_missingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
-    ∀ pages anchors, run pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧
-          (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
-  ⟨missingAnchors_nil_iff⟩
+    Regula.Decides (· = [])
+      (fun input : List Page × List (String × String) =>
+        ∀ anchor ∈ input.2, ∃ page ∈ input.1, page.path = anchor.1 ∧
+          (anchor.2 = "" ∨ anchor.2 ∈ page.ids))
+      (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => missingAnchors_nil_iff input.1 input.2)
+    ⟨([], []), (missingAnchors_nil_iff [] []).mpr (by simp)⟩
+    ⟨([], [("page", "")]), fun accepted => by
+      simpa using (missingAnchors_nil_iff [] [("page", "")]).mp accepted⟩⟩
 
 /-! ## Checklist rows and coverage -/
 
@@ -867,10 +874,14 @@ theorem rowsMismatch_eq_none_iff (rendered : List String) :
   unfold rowsMismatch
   split <;> simp_all
 
-/-- Registered contract of the executed row check. -/
-theorem checked_rowsMismatch : Regula.ExecutableContract rowsMismatch (fun run =>
-    ∀ rendered, run rendered = none ↔ rendered = checklistRows) :=
-  ⟨rowsMismatch_eq_none_iff⟩
+/-- Registered contract of the executed row check, as a two-way decision
+(`rowsMismatch_eq_none_iff`): it reports no mismatch for `checklistRows` itself, and one for the
+empty list. -/
+theorem checked_rowsMismatch : Regula.ExecutableContract rowsMismatch
+    (Regula.Decides (· = none) (· = checklistRows)) :=
+  ⟨.of_iff rowsMismatch_eq_none_iff
+    ⟨checklistRows, (rowsMismatch_eq_none_iff _).mpr rfl⟩
+    ⟨[], fun accepted => absurd ((rowsMismatch_eq_none_iff _).mp accepted) (by decide)⟩⟩
 
 /-- Every row a rule explanation lists is a checklist row. -/
 theorem guide_checklist_listed (id : RuleId) :

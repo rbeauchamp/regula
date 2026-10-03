@@ -369,6 +369,35 @@ theorem compilerTrustingAxiomName_iff (hAppend : RuntimeStringAppend) (n : Name)
   · simp [compilerTrustingAxiomName, h]
   · simp [compilerTrustingAxiomName, (nativeAxiomOrigin?_isSome_iff hAppend n).mpr h]
 
+/-- The two recognizers registered with what holds of each under `RuntimeStringAppend`: a
+two-way decision of the generated names (`nativeAxiomOrigin?_isSome_iff`,
+`compilerTrustingAxiomName_iff`), accepting the scheme's name for `native_decide` under the
+prefix `p` at index 1 and refusing the anonymous name.
+
+Neither has an unconditional decision kind. Soundness needs no hypothesis
+(`nativeAxiomOrigin?_sound`, `compilerTrustingAxiomName_sound`), but a kind also requires an
+input the function accepts, and accepting a generated name evaluates `String.Internal.append`,
+which no kernel proof does. So the hypothesis stands inside the registered requirement, which
+therefore states no kind, and what the runtime does with string append remains trusted. -/
+theorem checked_nativeAxiomOrigin : Regula.ExecutableContract nativeAxiomOrigin? (fun recognize =>
+    RuntimeStringAppend → Regula.Decides (·.isSome = true) GeneratedNativeAxiom recognize) :=
+  ⟨fun hAppend => .of_iff (nativeAxiomOrigin?_isSome_iff hAppend)
+    ⟨nativeAxiomName `p .nativeDecide [1],
+      (nativeAxiomOrigin?_isSome_iff hAppend _).mpr ⟨`p, .nativeDecide, [1], by decide, rfl⟩⟩
+    ⟨.anonymous, by decide⟩⟩
+
+/-- `compilerTrustingAxiomName` under `RuntimeStringAppend`, as `checked_nativeAxiomOrigin`
+states and for the same reason. -/
+theorem checked_compilerTrustingAxiomName :
+    Regula.ExecutableContract compilerTrustingAxiomName (fun classify =>
+      RuntimeStringAppend → Regula.Decides (· = true)
+        (fun n => builtinCompilerAxiom n = true ∨ GeneratedNativeAxiom n) classify) :=
+  ⟨fun hAppend => .of_iff (compilerTrustingAxiomName_iff hAppend)
+    ⟨nativeAxiomName `p .nativeDecide [1],
+      (compilerTrustingAxiomName_iff hAppend _).mpr
+        (.inr ⟨`p, .nativeDecide, [1], by decide, rfl⟩)⟩
+    ⟨.anonymous, by decide⟩⟩
+
 /-! ## Module privacy: the prefix of a declaration's generated names -/
 
 /-- Appending names without macro scopes adds none. -/

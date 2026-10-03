@@ -138,4 +138,25 @@ theorem category_roundtrip {α : Type u} (spelling : α → String) (parse : Str
     (law : ∀ x, parse (spelling x) = some x) (x : α) :
     parseCategory parse (categoryWire spelling x) = .ok x := by
   simp [parseCategory, categoryWire, law]
+
+/-- `parseName` is a complete decision of the written names (`name_roundtrip`): it accepts the
+wire tree of every name, and it refuses a text scalar. The kind is one-way: no theorem says it
+accepts only trees `nameWire` writes. -/
+theorem checked_parseName : Regula.ExecutableContract parseName
+    (Regula.DecidesCompletely (·.isOk = true) fun wire => ∃ name, wire = nameWire name) :=
+  ⟨{ complete := fun _ ⟨name, written⟩ => by
+       rw [written, name_roundtrip]
+       rfl
+     refused := ⟨.text "", by decide⟩ }⟩
+
+/-- `parseIdentity` is a complete decision of the written identities (`identity_roundtrip`): it
+accepts the wire tree of every identity, and it refuses a text scalar. The kind is one-way, as
+for `parseName`. -/
+theorem checked_parseIdentity : Regula.ExecutableContract parseIdentity
+    (Regula.DecidesCompletely (·.isOk = true) fun wire =>
+      ∃ identity, wire = identityWire identity) :=
+  ⟨{ complete := fun _ ⟨identity, written⟩ => by
+       rw [written, identity_roundtrip]
+       rfl
+     refused := ⟨.text "", by decide⟩ }⟩
 end RegulaPolicy.Codec

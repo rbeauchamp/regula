@@ -82,6 +82,28 @@ theorem executionFailureRecords_empty_iff (i : ExecutionInventory) (c : Executio
   simp [executionFailureRecords, rootFailures, ExecutionOK, Array.flatMap_eq_empty_iff,
     boundaryFailures_empty_iff]
 
+/-- `boundaryFailures` reports nothing exactly when the boundary meets `BoundaryOK` under the
+claim, whatever the root (`boundaryFailures_empty_iff`): nothing for an opaque constant run
+through its kernel-checked body, and a failure for an unresolved boundary. The decision is over
+one supplied boundary record; that the account lists every boundary a root reaches is the
+collector's, and is not claimed. `executionFailureRecords_empty_iff` extends it to an admitted
+inventory, where the refused witness would need a nonempty admitted inventory, whose validity
+compares hashed names that no kernel proof evaluates; that function therefore has its theorem
+and no kind. -/
+theorem checked_boundaryFailures : Regula.ExecutableContract boundaryFailures (fun failures =>
+    Regula.Decides (· = #[])
+      (fun input : (ExecutionRoot × ExecutionClaim) × ExecutionBoundary =>
+        BoundaryOK input.1.2 input.2)
+      (Function.uncurry (Function.uncurry failures))) :=
+  let root : ExecutionRoot :=
+    { name := `root, «module» := `Module, boundaries := #[], unresolved := #[]
+      closure := { nodes := #[`root], visits := #[⟨`root, none, none⟩] } }
+  ⟨.of_iff (fun input => boundaryFailures_empty_iff input.1.1 input.1.2 input.2)
+    ⟨((root, .checked), ⟨0, `body, `Module, .opaqueComputation, .checked .opaqueBody, true, none,
+        #[]⟩), by decide⟩
+    ⟨((root, .report), ⟨0, `body, `Module, .opaqueComputation, .unresolved none, true, none,
+        #[]⟩), by decide⟩⟩
+
 /-- Failure kind of one boundary: an unresolved boundary is `executionUnresolved` in every
 mode; otherwise only a checked claim over a non-checked boundary the toolchain does not own
 fails, as `executionBoundary`. A report claim never fails a resolved boundary. -/

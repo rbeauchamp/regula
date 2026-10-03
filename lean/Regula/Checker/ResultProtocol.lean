@@ -20,7 +20,12 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 8 can store what the roots of an environment's execution account share once,
+/-- Result schema 9 records the decision kind of each registered contract: a declaration's
+`executableContract` carries `kind` (`sound`, `complete`, `sound-and-complete`, or `null` for a
+requirement that states none, `RegulaPolicy.DecisionKind.spelling`), and each `contracts` entry
+of the acceptance account carries that spelling as `decisionKind` with `notEstablished`, the
+direction a one-way kind leaves open (`accountJson`). Earlier schemas wrote neither member.
+Schema 8 can store what the roots of an environment's execution account share once,
 and omits kernel-expression text. In a result file, the `execution` member of an environment
 report is what `SharedExecution.internValue` writes for its roots' accounts: the shared form when
 the reader returns the accounts from it (the `names` its roots reach, their `modules` and
@@ -91,7 +96,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 8
+def schemaVersion : Nat := 9
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -430,7 +435,10 @@ private def subjectJson : RegulaPolicy.JobSubject → Json
 theorem and job count, contracts, execution counts (`executionSummary`), fence kinds, trusted
 mechanisms and residual identifiers; mode, scope, surfaces and toolchain are rendered by
 `acceptedJson`. Contract entries keep their rule, implementation and requirement with the review
-they leave open; `unresolvedReview` names open obligations, never completed reviews. -/
+they leave open; `unresolvedReview` names open obligations, never completed reviews. Since
+schema 9 each entry also carries `decisionKind`, the spelling of the decision kind its
+requirement states or `null` for a requirement that states none, and `notEstablished`, the
+direction a one-way kind leaves open or `null` (`RegulaPolicy.DecisionKind.leavesOpen`). -/
 def accountJson (account : Regula.Checker.Account) : Json :=
   let a := account.val
   let residuals (rs : List Regula.Checker.Account.Residual) := toJson (rs.map (·.spelling))
@@ -445,6 +453,8 @@ def accountJson (account : Regula.Checker.Account) : Json :=
       ("module", RegistryCodec.printedNameJson contract.module),
       ("implementation", RegistryCodec.printedNameJson contract.implementation),
       ("requirement", toJson contract.requirement),
+      ("decisionKind", toJson (contract.kind.map (·.spelling))),
+      ("notEstablished", toJson (contract.kind.bind (·.leavesOpen))),
       ("unresolvedReview", residuals Regula.Checker.Account.ContractAccount.unresolved)])),
     ("executionSummary", toJson (a.execution.mapIdx fun environment summary => Json.mkObj [
       ("environment", toJson environment), ("roots", toJson summary.roots),

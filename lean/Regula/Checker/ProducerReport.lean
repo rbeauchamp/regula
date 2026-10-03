@@ -875,17 +875,20 @@ theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
   rw [unless_eq_ok]
   decide +kernel
 
-/-- Required behavior of the executed transport validator: every admitted report
-satisfies every named account, and some report is admitted. -/
+/-- Required behavior of the executed transport validator, as a sound decision
+(`Regula.DecidesSoundly`): every admitted report satisfies every named account, and some report
+is admitted. The kind is one-way by design: a refusal fails closed, so no claim is made that
+every report satisfying the accounts is admitted (`validate_eq_ok` is two-way against the guard
+Booleans, not against `Admissible`). -/
 def TransportContract (run : Environment → Except String Unit) : Prop :=
-  (∀ r, run r = .ok () → r.Admissible) ∧ ∃ r, run r = .ok ()
+  Regula.DecidesSoundly (· = .ok ()) Environment.Admissible run
 
 /-- Producers, transport decoding and acceptance call `checked_validate.run`, which is
 definitionally `Environment.validate`, so this evidence is required at each call site. The
 project report worker leaves the call to its coordinator, whose decoder runs it once and
 retains the success as an `Admitted` proof; `Acceptance.freezeEnvironment` consumes that proof. -/
 theorem checked_validate : Regula.ExecutableContract Environment.validate TransportContract :=
-  ⟨validate_sound, validate_nonvacuous⟩
+  ⟨⟨validate_sound, validate_nonvacuous⟩⟩
 
 /-- Field decoding only; admission is the separate `checked_validate` step. -/
 def Environment.decodeFields (j : Json) : Except String Environment := do

@@ -539,41 +539,90 @@ def guide : RuleId → Guide
               "lean/RegulaCore/Policy.lean"] }
   | .executableContract => {
       problem := "A closed `ExecutableContract f R` registration does not have the supported \
-        shape: it is not closed, it names no complete implementation constant, or the \
-        implementation is not an eligible executable definition."
+        shape: it is not closed, it names no complete implementation constant, the \
+        implementation is not an eligible executable definition, or it states a decision kind \
+        that is not about the implementation or whose specification mentions the implementation."
       trigger := [
         "The checker recognizes declarations of type `Regula.ExecutableContract f R` as executable \
           promises about `f`. It rejects, with applicability `executable-contract`, a registration \
           with free parameters, a partially applied or term-parameterized implementation, or an \
           implementation that is missing, noncomputable, unsafe, partial, proposition-valued, \
           type-producing or not an executable definition.",
+        "A registration whose requirement `R f` reduces to an application of \
+          `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides` is a decision \
+          registration. The checker reads the kind from the head constant of that elaborated \
+          requirement, so an alias of a kind is recognized and no theorem text or name is matched, \
+          and it reports the kind with the direction a one-way kind leaves open.",
+        "It rejects a decision registration whose kind is stated about a function other than `f` \
+          or `Function.uncurry` applied to `f` one or more times, or whose acceptance predicate \
+          or specification mentions `f`: `f` is among the constants the term mentions, closed \
+          under the types and unfoldable values of those constants and the constructors of their \
+          inductive types. The finding names the constants through which `f` is reached.",
         "Lean's type checker separately checks the supplied proof of `R f`."]
-      rationaleDetail := []
+      rationaleDetail := [
+        "A checker with only a soundness theorem can refuse every input, and one with only a \
+          completeness theorem can accept every input. A one-way guarantee is often the right \
+          choice, as for a refusal that fails closed, but an unstated one cannot be told from an \
+          omission. A kind states the direction in the registration's type.",
+        "Each kind carries a witness about `f` itself: `DecidesSoundly` requires an input `f` \
+          accepts and `DecidesCompletely` an input it refuses. So the function that refuses \
+          every input has no sound kind and the function that accepts every input has no \
+          complete kind (`Regula.DecidesSoundly.not_of_refuses_all`, \
+          `Regula.DecidesCompletely.not_of_accepts_all`)."]
       proofShape := [
         "`ExecutableContract f R` for a named constant `f` with `R : type-of-f → Prop` stating the \
           full-domain requirement. The proof inhabits exactly `R f`; a weaker `R` changes the \
-          requirement and is a review failure."]
+          requirement and is a review failure.",
+        "For a function that acts as a checker, `R` is a decision kind over an acceptance \
+          predicate and a specification: `Regula.Decides accepts spec` for both directions, \
+          `Regula.DecidesSoundly accepts spec` when a refusal may be wrong, \
+          `Regula.DecidesCompletely accepts spec` when an acceptance may be. A function of several \
+          arguments is decided on their product: `fun g => Regula.Decides accepts spec \
+          (Function.uncurry g)`, with `spec` over the pairs."]
       established := [
         "The registration is closed, names an eligible executable constant, and Lean checked a \
-          proof of the stated predicate about it."]
+          proof of the stated predicate about it.",
+        "For a decision registration: Lean checked the directions its kind names about `f` \
+          against the written specification, with an accepted input for a sound kind and a \
+          refused input for a complete kind, and neither the acceptance predicate nor the \
+          specification mentions `f`."]
       notEstablished := [
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
           each reported contract.",
+        "That a function acting as a checker is registered, or registered with a kind: no rule \
+          requires a registration, and which functions are checkers is a project's own \
+          declaration (R-INVARIANT).",
+        "For a decision registration: that the specification is the intended one or is \
+          independent of the implementation in substance (a copy of the implementation under \
+          another name passes), the direction a one-way kind leaves open, and which value an \
+          accepting result carries.",
         "Behavior of compiled code beyond the Lean definition; execution boundaries are RG3001 and \
           RG3002."]
       configuration := []
       limitations := [
         "Term-parameterized and partial-application registrations are unsupported shapes, not \
-          proofs of incorrectness; restate them as closed full-domain contracts."]
+          proofs of incorrectness; restate them as closed full-domain contracts.",
+        "A decision kind covers a function whose argument types do not depend on earlier \
+          arguments, through `Function.uncurry`. A function with a dependent or implicit argument \
+          is decided through a named function over a product, sigma or subtype domain, or \
+          registered with an ordinary requirement, which is reported with no kind.",
+        "A requirement that contains a kind inside a larger proposition, such as a conjunction, \
+          is reported with no kind: the kind is read from the head constant only. Register the \
+          further clauses separately.",
+        "A specification that mentions the implementation only inside a proof term is refused \
+          like any other mention; state it without the implementation."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
-      linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`) \
-        is operational."
+      linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`), \
+        including the reduction that reads a decision kind and the search for a mention of the \
+        implementation, is operational; that a head constant is read as a kind exactly when it \
+        is that kind's structure is proved (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`)."
       sources :=
-          ["lean/Regula/Contract.lean", "lean/Regula/Probe.lean", "lean/RegulaCore/Policy.lean"] }
+          ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
+              "lean/RegulaCore/Policy.lean"] }
   | .environment => {
       problem := "The declared Lean environment could not be loaded or identified, so the \
         requested audit could not run. The result is INCOMPLETE, not a violation of the source."

@@ -64,6 +64,13 @@ theorem Profile.parse?_eq_some_iff (text : String) (profile : Profile) :
   · rintro rfl
     cases profile <;> rfl
 
+/-- `Profile.parse?` accepts exactly the profile spellings (`Profile.parse?_eq_some_iff`). -/
+theorem Profile.checked_parse : Regula.ExecutableContract Profile.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ profile : Profile, text = profile.toString) :=
+  ⟨.of_roundtrip (fun profile => (Profile.parse?_eq_some_iff _ profile).mpr rfl)
+    (fun text profile read => (Profile.parse?_eq_some_iff text profile).mp read)
+    .kernelOnly (unwritten := "") rfl⟩
+
 /-- Adapter groups one admitted inventory with its recomputed role evidence.
 `RegulaPolicy.Roles.eq_authorize` determines `roles` from `inventory`. -/
 structure PolicyScope where

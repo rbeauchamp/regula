@@ -85,6 +85,16 @@ theorem admitExampleRequest_sound (expected observed : ExampleRequest)
     (_ : admitExampleRequest expected observed = .ok request) :
     observed = expected := request.property.1.symm.trans request.property.2
 
+/-- Every request equal to the frozen one is admitted, as itself. With
+`admitExampleRequest_sound`, admission succeeds exactly for the frozen request. The result type
+depends on both requests, which a decision kind does not cover (`Regula.Contract`), so this
+admission has the two theorems and no kind; its accepted value carries both equalities by
+construction. -/
+theorem admitExampleRequest_complete (expected observed : ExampleRequest)
+    (h : observed = expected) :
+    admitExampleRequest expected observed = .ok ⟨observed, rfl, h⟩ := by
+  simp [admitExampleRequest, h]
+
 /-- Exact observation identity. Dependency state and source bytes are retained rather than
 replaced by a nominal revision or digest. Acquiring these values remains an IO obligation. -/
 structure ExampleBinding where

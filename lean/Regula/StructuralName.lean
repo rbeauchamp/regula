@@ -128,4 +128,27 @@ theorem parsePrintedNameJson_str {text : String} {n : Name}
     have hx : printsExactly text.toName = true := (printsExactly_iff _).mpr (by rw [e])
     simp [printedNameJson, hx, e]
   · cases h
+
+/-- `parseName` is a complete decision of the written names (`name_roundtrip`): it accepts the
+JSON components of every name, and it refuses `null`. The kind is one-way: no theorem says it
+accepts only values `nameJson` writes. -/
+theorem checked_parseName : Regula.ExecutableContract parseName
+    (Regula.DecidesCompletely (·.isOk = true) fun json => ∃ name, json = nameJson name) :=
+  ⟨{ complete := fun _ ⟨name, written⟩ => by
+       rw [written, name_roundtrip]
+       rfl
+     refused := ⟨.null, by decide⟩ }⟩
+
+/-- `parsePrintedNameJson` is a complete decision of the written names
+(`printedNameJson_roundtrip`): it accepts what `printedNameJson` writes for every name, and it
+refuses `null`. The kind is one-way: the string branch runs Lean's own name parser, about which
+nothing is proved, so no theorem says it accepts only written values. -/
+theorem checked_parsePrintedNameJson : Regula.ExecutableContract parsePrintedNameJson
+    (Regula.DecidesCompletely (·.isOk = true) fun json =>
+      ∃ name, json = printedNameJson name) :=
+  ⟨{ complete := fun _ ⟨name, written⟩ => by
+       rw [written, printedNameJson_roundtrip]
+       rfl
+     refused := ⟨.null, by decide⟩ }⟩
+
 end Regula.RegistryCodec

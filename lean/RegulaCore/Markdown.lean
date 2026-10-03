@@ -619,11 +619,19 @@ theorem documentErrors_nil_iff (file source : String) (reading : Reading) :
   | unread reason => simp [documentErrors]
   | read pieces => simp [documentErrors, errors_nil_iff, rejected_nil_iff]
 
-/-- Registered contract of the executed Markdown document check. -/
+/-- Registered contract of the executed Markdown document check, as a two-way decision over the
+file name, the source and the reading (`documentErrors_nil_iff`): it reports nothing for a
+document read as no pieces, and an error for a document that was not read. -/
 theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun run =>
-    ∀ file source reading, run file source reading = [] ↔
-      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target) :=
-  ⟨documentErrors_nil_iff⟩
+    Regula.Decides (· = [])
+      (fun input : (String × String) × Reading =>
+        ∃ pieces, input.2 = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target)
+      (Function.uncurry (Function.uncurry run))) :=
+  ⟨.of_iff (fun input => documentErrors_nil_iff input.1.1 input.1.2 input.2)
+    ⟨(("", ""), .read []), (documentErrors_nil_iff "" "" (.read [])).mpr
+      ⟨[], rfl, by simp [(by decide : findings [] = [])]⟩⟩
+    ⟨(("", ""), .unread ""), fun accepted => by
+      simpa using (documentErrors_nil_iff "" "" (.unread "")).mp accepted⟩⟩
 
 /-! Evaluated controls (observations of the compiled definitions, not proofs), on pieces written
 out by hand; the controls on Markdown text, read by md4c, are in `website/RegulaMarkdown.lean`. -/

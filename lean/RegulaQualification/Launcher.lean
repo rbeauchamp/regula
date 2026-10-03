@@ -69,8 +69,16 @@ controls. Equality includes the environment and resolved compiler path. -/
 def equivalent (before after : Array Observation) : Bool :=
   decide (before.size = 42 ∧ before = after)
 
-/-- The paired diagnostic consumes this proof-linked predicate; timing is separate. -/
-theorem checked_equivalence : Regula.ExecutableContract equivalent
-    (fun run => ∀ before after, run before after = true ↔ before.size = 42 ∧ before = after) :=
-  ⟨by intro before after; simp [equivalent]⟩
+/-- The paired diagnostic consumes this proof-linked predicate; timing is separate. It is a
+two-way decision that refuses two empty sequences; the accepted witness is forty-two copies of
+one observation, compared with themselves. -/
+theorem checked_equivalence : Regula.ExecutableContract equivalent (fun run =>
+    Regula.Decides (· = true)
+      (fun input : Array Observation × Array Observation =>
+        input.1.size = 42 ∧ input.1 = input.2)
+      (Function.uncurry run)) :=
+  let observations : Array Observation := Array.replicate 42 ⟨"", #[], "", 0, "", "", #[], ""⟩
+  ⟨.of_iff (fun input => by simp [Function.uncurry, equivalent])
+    ⟨(observations, observations), by simp [Function.uncurry, equivalent, observations]⟩
+    ⟨(#[], #[]), by simp [Function.uncurry, equivalent]⟩⟩
 end RegulaQualification.Launcher

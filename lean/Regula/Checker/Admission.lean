@@ -1443,6 +1443,22 @@ theorem checkCopies_sound {checked : Kernel.Environment} {kept : Name → Option
     ∀ copy ∈ copies, CopyAdmitted checked kept shared copy :=
   fun copy hc => checkCopy_ok (forM_eq_ok.mp h copy hc)
 
+/-- `checkCopies` is a sound decision (`checkCopies_sound`): when it succeeds, every copy is
+admitted, and it succeeds for no copies. The kind is one-way by design. A refusal fails closed:
+the search for a proof's axioms is bounded by `fuel`, so `checkCopies` may refuse copies that
+satisfy `CopyAdmitted`. The accepted witness is the empty array because acceptance of any copy
+runs Lean's kernel, which no proof evaluates; for the same reason `checkProof`, whose every
+acceptance needs the kernel to accept a declaration, has `checkProof_ok` and no kind. -/
+theorem checked_checkCopies : Regula.ExecutableContract checkCopies (fun check =>
+    Regula.DecidesSoundly (· = .ok ())
+      (fun input : (((Kernel.Environment × (Name → Option ConstantInfo)) × Nat) ×
+          (Copy → Bool)) × Array Copy =>
+        ∀ copy ∈ input.2, CopyAdmitted input.1.1.1.1 input.1.1.1.2 input.1.2 copy)
+      (Function.uncurry (Function.uncurry (Function.uncurry (Function.uncurry check))))) :=
+  ⟨{ sound := fun _ accepted => checkCopies_sound accepted
+     accepted := (inferInstance : Nonempty Kernel.Environment).elim fun checked =>
+       ⟨((((checked, fun _ => none), 0), fun _ => false), #[]), rfl⟩ }⟩
+
 /-- The detail of a copy failure. -/
 def CopyFailure.describe : CopyFailure → IO String
   | .missing copy => pure s!"no constant {copy.name} of module {copy.module} after replay"

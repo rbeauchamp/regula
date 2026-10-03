@@ -1,4 +1,5 @@
 import Regula.SourceTexts
+import Regula.Contract
 import Std.Data.HashMap
 import Std.Data.HashSet
 
@@ -139,6 +140,16 @@ theorem same_eq (a b : Json) (h : same a b = true) : a = b := by
       simp only [sameFields, Bool.and_eq_true, beq_iff_eq] at h
       obtain ⟨⟨⟨⟨rfl, rfl⟩, values⟩, lefts⟩, rights⟩ := h
       rw [valueStep value' values, leftStep left' lefts, rightStep right' rights]
+
+/-- `same` is a sound decision of equality on pairs of JSON values (`same_eq`): it accepts only
+equal values, and it accepts `null` with `null`. The kind is one-way by design: `same` may refuse
+equal values, as it does for two objects whose trees are balanced differently, and nothing
+depends on the converse. -/
+theorem checked_same : Regula.ExecutableContract same (fun test =>
+    Regula.DecidesSoundly (· = true) (fun values : Json × Json => values.1 = values.2)
+      (Function.uncurry test)) :=
+  ⟨{ sound := fun values accepted => same_eq values.1 values.2 accepted
+     accepted := ⟨(.null, .null), by simp [Function.uncurry, same]⟩ }⟩
 
 /-! ### The members a document names with one key -/
 

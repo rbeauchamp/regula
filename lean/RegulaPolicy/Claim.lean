@@ -78,6 +78,22 @@ def admitSnapshot (s : Snapshot) : Except String AdmittedSnapshot :=
 theorem admitSnapshot_exact (s : Snapshot) (h : s.Valid) :
     admitSnapshot s = .ok ⟨s, h⟩ := by simp [admitSnapshot, h]
 
+/-- Snapshot admission succeeds exactly for a valid snapshot. -/
+theorem admitSnapshot_isOk_iff (s : Snapshot) : (admitSnapshot s).isOk = true ↔ s.Valid := by
+  unfold admitSnapshot
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitSnapshot` accepts exactly the snapshots that satisfy `Snapshot.Valid`: it accepts one
+with named configuration and toolchain, and refuses one whose configuration has no URI. Which
+snapshot it returns is `admitSnapshot_exact`. -/
+theorem checked_admitSnapshot : Regula.ExecutableContract admitSnapshot
+    (Regula.Decides (·.isOk = true) Snapshot.Valid) :=
+  ⟨.of_iff admitSnapshot_isOk_iff
+    ⟨⟨#[], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩,
+      (admitSnapshot_isOk_iff _).mpr (by decide)⟩
+    ⟨⟨#[], ⟨"", ""⟩, ⟨"", "", ""⟩, #[]⟩,
+      fun accepted => ((admitSnapshot_isOk_iff _).mp accepted).2.2.1 rfl⟩⟩
+
 /-- Snapshot plus exact module identity. Filesystem provenance is not a proof field. -/
 structure ModuleKey where
   /-- The snapshot the module belongs to. -/
@@ -338,6 +354,23 @@ def admitClaim (c : ClaimCandidate) : Except String Claim :=
 /-- All and only valid candidates can be admitted, unchanged. -/
 theorem admitClaim_exact (c : ClaimCandidate) (h : c.Valid) :
     admitClaim c = .ok ⟨c, h⟩ := by simp [admitClaim, h]
+
+/-- Claim admission succeeds exactly for a valid candidate. -/
+theorem admitClaim_isOk_iff (c : ClaimCandidate) : (admitClaim c).isOk = true ↔ c.Valid := by
+  unfold admitClaim
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitClaim` accepts exactly the candidates that satisfy `ClaimCandidate.Valid`: it accepts
+a fresh-file claim over one source of its snapshot, and refuses a project scope in the
+fresh-file mode. Which claim it returns is `admitClaim_exact`. -/
+theorem checked_admitClaim : Regula.ExecutableContract admitClaim
+    (Regula.Decides (·.isOk = true) ClaimCandidate.Valid) :=
+  ⟨.of_iff admitClaim_isOk_iff
+    ⟨⟨.file ⟨"Example.lean", ""⟩ .kernelOnly .report, .freshFile,
+        ⟨#[⟨"Example.lean", ""⟩], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, #[]⟩,
+      (admitClaim_isOk_iff _).mpr (by decide +kernel)⟩
+    ⟨⟨.project, .freshFile, ⟨#[], ⟨"", ""⟩, ⟨"", "", ""⟩, #[]⟩, #[]⟩,
+      fun accepted => absurd ((admitClaim_isOk_iff _).mp accepted).1 (by decide)⟩⟩
 
 /-- Whole-project mandatory stages are derived; callers cannot select a shorter list. -/
 def requiredStages (c : Claim) : List Stage :=
