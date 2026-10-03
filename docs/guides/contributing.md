@@ -346,18 +346,24 @@ any rule ID in the `title` or `h1` of another page, is refused.
 (`docFenceAudit --rule-links`), and `./scripts/verify.sh site` checks every page of the
 development edition; each failure names the file, the line and the ID. The scanners are small
 and strict, not complete Markdown or HTML parsers: they may refuse a rule ID that renders as a
-link, but never accept one that renders as plain text. In Markdown, an indented code block, an
-open tag that spans lines and all the text of an HTML block (from a line that starts with a block
-tag such as `<div>` or `<p>`, a tag alone on its line, or a comment or `<pre>` at the start of a
-line) are read as prose, so an ID there must be linked; Markdown inside an HTML block is not a
-link or a definition. A link reference definition counts only after at most three spaces, with a
-title, if any, closed by its quote, at the start of the document or directly after a blank line,
-a fenced code block, an HTML block that ends at its marker, a heading or another definition;
-anywhere else, such as after a thematic break, a setext underline or a table row, or inside an
-HTML block, its line is prose. Character references such as `&#82;` are not decoded. A Markdown
-document with a fenced block that is never closed, and a page with a `code`, `pre`, `title` or
-`h1` element, a comment or a script that is never closed, are refused, since the text after it
-could not be read as prose; a Markdown `<!--` that its paragraph does not close is read as prose. The release editions already published are frozen copies and are not rewritten.
+link, but never accept one that renders as plain text. The Markdown check reads a subset of
+CommonMark and refuses, as an unsupported Markdown construct with its line, every document outside
+it: a fence run indented four spaces or more; in a fenced code block, a line with fewer leading
+spaces than its fence; a fence, an HTML tag or a comment after a list marker or `>`; a line that
+starts with an HTML tag, processing instruction or declaration, other than an autolink, so raw
+HTML blocks are not supported; a line that starts with a comment that is not all of it; and a
+numeric character reference. It also refuses a fenced code block that is never closed. Within the
+subset it reads more strictly than CommonMark: an indented code block, a setext heading, a
+thematic break, a table and the text of a list item or block quote are prose; a line that can
+open another block ends the paragraph before it; a link reference definition counts only after at
+most three spaces, with a title, if any, on its line and closed by its quote, at the start of the
+document or directly after a blank line, a fenced code block, a heading, a comment line or another
+definition; and the text of a link that holds a `[` or a `<`, an open tag that spans lines and a
+comment that its paragraph does not close are prose. GitHub's tables split a row at each
+unescaped `|` before they read code spans and links, which the check does not model, so keep `|`
+out of the code spans and links of a table row. A page with a `code`, `pre`, `title` or `h1`
+element, a comment or a script that is never closed is refused, since the text after it could not
+be read as prose. The release editions already published are frozen copies and are not rewritten.
 
 ## Change an acceptance boundary
 
