@@ -37,7 +37,7 @@ last two tools. Verification runs offline against those pinned dependencies.
 lake build                         # incremental development check (the regula package)
 lake -d audit build                # the Mathlib-dependent package
 ./scripts/verify.sh                 # ordinary acceptance (project surfaces)
-./scripts/verify.sh docs            # audit/ package, documentation examples and the Verso standard, linked to that acceptance
+./scripts/verify.sh docs            # tracked Markdown rule IDs, audit/ package, documentation examples and the Verso standard, linked to that acceptance
 ./scripts/verify.sh diagnostics fixtures # focused diagnostic qualification
 ```
 
@@ -47,9 +47,9 @@ registry and native qualification controls (`qualify combined`, which runs those
 `qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
-then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
+then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, refuses a rule ID in the prose of the rendered standard that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -329,7 +329,10 @@ The [adoption guide](adoption.md#cite-a-rule) states the convention. `Regula.Pro
 ([`RegulaCore/Prose.lean`](../../lean/RegulaCore/Prose.lean)) defines it for rendered pages and
 checks it there: a rule ID is `RG` and four digits with no ASCII letter or digit directly before or
 after, and each one in prose must be a registered rule inside a link to that rule's page
-(`bareMentions_nil_iff`).
+(`bareMentions_nil_iff`). `Regula.Markdown`
+([`RegulaCore/Markdown.lean`](../../lean/RegulaCore/Markdown.lean)) decides the same for a
+Markdown document, from a CommonMark parser's reading of it
+([Markdown documents](#markdown-documents)).
 
 | Document | The link |
 | --- | --- |
@@ -349,10 +352,61 @@ strict, not an HTML parser: a page with a `code`, `pre`, `title` or `h1` element
 script that is never closed is refused, since the text after it could not be read as prose. The
 release editions already published are frozen copies and are not rewritten.
 
-The Markdown sources are not checked yet, so a bare rule ID in a Markdown document is caught in
-review. A check of them built on a conforming CommonMark parser (md4c through MD4Lean, already a
-dependency of the website) is tracked in
-[issue #214](https://github.com/rbeauchamp/regula/issues/214).
+#### Markdown documents
+
+`./scripts/verify.sh docs` checks every Markdown document Git tracks: each file `git ls-files`
+lists with the extension `md` or `markdown`, read from the working tree
+(`lake exe regula-markdown ..` in `website/`). No code of this repository reads Markdown syntax.
+md4c, a CommonMark parser that the pinned Verso brings as MD4Lean, parses each document in its
+GitHub dialect (tables, strikethrough, task lists and autolinks), and
+[`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) hands its parse to
+`Regula.Markdown`, which decides on it (`documentErrors_nil_iff`):
+
+- Prose is every text md4c reports outside code spans and code blocks: paragraphs, headings,
+  list items, block quotes, table cells, emphasis, link text and image descriptions. A rule ID
+  there must be a registered rule inside a link to its development page. The link may be inline,
+  a reference to a link reference definition, or an autolink; a reference without a definition
+  is prose. A rule ID spelled with numeric character references is one too.
+- A rule ID in a raw HTML block is refused, in a comment too: telling prose from markup there
+  needs an HTML parser. Write it in Markdown.
+- A document is refused whole, with the reason, in three cases for which MD4Lean has no value
+  for what md4c reports: inline raw HTML such as `<kbd>` (an HTML block is read), a table with no
+  body row, and a NUL character. md4c itself finds the inline raw HTML: the document is read
+  with inline raw HTML taken as text only when md4c renders it to the same HTML either way.
+- Each refusal names the file, the line and the ID. md4c reports text, not positions, so the
+  line is derived: the reported text is placed on the source lines in order, and every such
+  placement lies between the first and the last (`leftmost_le`, `le_rightmost`). Where they
+  differ, because the same text also stands on a line md4c does not report (a link reference
+  definition, usually), the refusal names both, as in `README.md:88-162`.
+
+The check trusts, and does not verify:
+
+- md4c's conformance to CommonMark and to the GitHub extensions it implements.
+- MD4Lean's wrapper, for the documents the check reads. At the pinned revision its parse of
+  inline raw HTML is not a value of its own type (reading it crashed when tried), which is why
+  the check never asks for it.
+- That md4c's HTML renderer and MD4Lean's parse see the same reading of the same text and flags.
+  The treatment of inline raw HTML rests on this: when md4c renders a document to the same HTML
+  with inline raw HTML enabled and with it taken as text, the parse taken with it as text
+  describes the rendering GitHub's dialect gives.
+- That md4c reads a document as GitHub's renderer does (cmark-gfm and GitHub's later passes).
+
+Where md4c and GitHub are known to differ in a way that bears on the check, it does not make up
+the difference:
+
+| Difference between md4c and GitHub | What the check then misses or adds |
+| --- | --- |
+| GitHub renders footnotes; md4c has none. | md4c reads a footnote whose whole text is one word as a link reference definition, which is not prose, so a rule ID that is a footnote's whole text is not seen. Longer footnote text is a paragraph and is checked. |
+| GitHub reads a table only when its header row has as many cells as its delimiter row; md4c takes the column count from the delimiter row and drops the cells beyond it. | Where the counts differ, GitHub shows the lines as a paragraph, and a rule ID in a header cell that md4c dropped is not seen. |
+| In a table row, GitHub ends a cell at an unescaped pipe character inside a code span; md4c keeps the code span whole. | GitHub shows such text as prose; md4c reports it as code, so a rule ID in it is not seen. |
+| The two find the end of a bare URL by their own rules. | A rule ID at the end of a bare URL can be link text for one and prose for the other. Write the link in brackets. |
+| GitHub renders `$…$` and `$$…$$` as math; md4c reads them as text here. | A rule ID in math is refused as prose. |
+
+Link destinations and titles, code block info strings, and link reference definitions are not
+prose and are not checked. A named character reference is kept as written, which relies on no
+named reference of HTML expanding to text that contains `R`, `G` or a digit (checked against
+md4c's table of them). GitHub's treatment of raw HTML does not bear on the check, since a rule
+ID in raw HTML is refused.
 
 ## Change an acceptance boundary
 

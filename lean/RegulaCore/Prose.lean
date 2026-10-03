@@ -39,12 +39,14 @@ two elements are read as text linked to the page they name.
 `bareMentions_nil_iff` is about the runs it is given. `htmlRuns` is a small scanner for the
 builder's own output, not an HTML parser. An element, comment or script that is never closed
 would hide the text after it, so `htmlErrors` refuses such a page; an element closed and reopened
-out of order is not detected. Markdown documents are not checked here: a check of their source,
-built on a conforming CommonMark parser, is tracked in
-https://github.com/rbeauchamp/regula/issues/214. `linkIds` rewrites generated prose outside its
-code spans, inline links and bare URLs (`scanGenerated`); that its output has no bare rule ID is
-established by `htmlErrors` on the rendered pages, not by a theorem about the rewriting, and is not
-checked for the Markdown agent briefing (`Regula.Guidance.briefRule`).
+out of order is not detected. Markdown documents are not read here: `Regula.Markdown`
+(`RegulaCore/Markdown.lean`) decides the same question for a tracked Markdown document from a
+CommonMark parser's reading of it, with this module's tokens and `Mention.Linked`. `linkIds`
+rewrites generated prose outside its code spans, inline links and bare URLs (`scanGenerated`);
+that its output has no bare rule ID is established by `htmlErrors` on the rendered pages, not by a
+theorem about the rewriting. The Markdown agent briefing (`Regula.Guidance.briefRule`) links its
+rule IDs itself (`Regula.Guidance.citation`); the generated agent skill the repository tracks is
+checked as a Markdown document.
 -/
 
 namespace Regula.Prose
@@ -167,13 +169,16 @@ theorem checked_bareMentions : Regula.ExecutableContract bareMentions (fun run =
       ∀ r ∈ runs, ∀ m ∈ r.mentions, m.Linked target) :=
   ⟨bareMentions_nil_iff⟩
 
+/-- Why a mention that is not linked is refused. -/
+def Mention.reason (m : Mention) : String :=
+  match RuleId.parse? m.token, m.link with
+  | none, _ => "is not a registered rule ID"
+  | some _, none => "is a bare rule ID in prose; make it a link to its rule page"
+  | some _, some destination => s!"is linked to {destination}, which is not its rule page"
+
 /-- What a refused mention reports: the file, the line, the ID and why it is refused. -/
 def Mention.describe (file : String) (m : Mention) : String :=
-  s!"{file}:{m.line}: {m.token} " ++
-    match RuleId.parse? m.token, m.link with
-    | none, _ => "is not a registered rule ID"
-    | some _, none => "is a bare rule ID in prose; make it a link to its rule page"
-    | some _, some destination => s!"is linked to {destination}, which is not its rule page"
+  s!"{file}:{m.line}: {m.token} " ++ m.reason
 
 /-! ## Rule pages -/
 

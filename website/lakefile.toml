@@ -51,6 +51,16 @@ name = "regula-example"
 root = "RegulaExampleMain"
 supportInterpreter = true
 
+# md4c's reading of a Markdown document (MD4Lean, which the pinned Verso requires), for the
+# rule-ID check of the repository's tracked Markdown documents.
+[[lean_lib]]
+name = "RegulaMarkdown"
+
+# Checks every tracked Markdown document; the documentation step of acceptance runs it.
+[[lean_exe]]
+name = "regula-markdown"
+root = "MarkdownMain"
+
 # Renders the standard alone: its cross-references resolve or the run fails.
 [[lean_exe]]
 name = "regula-standard"
