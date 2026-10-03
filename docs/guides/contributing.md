@@ -147,6 +147,18 @@ all its commands, and CI exports the same environment for the job. The existing 
 acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage,
 process execution and filesystem operations remain trusted boundaries.
 
+### Compiled source snapshots
+
+An adaptation can select a complete source-built compiler and dependency snapshot. Commit `.github/snapshot-compiler.json` with its Elan alias, full compiler revision and reported version, use the same alias in all five `lean-toolchain` files, and keep `dependency-build-mode` as `source`. The explicit compiler build recipe remains in `.github/compiler-source.json`. The stable branch retains its upstream-cache route.
+
+The [snapshot workflow](../../.github/workflows/snapshot.yml) prepares the chosen compiler and the complete pinned Mathlib and Verso dependency trees once per input set on Ubuntu 24.04 x86-64 and macOS 15 arm64. Preparation disables upstream compiled dependency downloads and builds the libraries and their exported native objects. It publishes the compiler prefix, all dependency sources and Git identities, native and generated outputs, and an admission receipt as one OCI artifact in Regula's GHCR Packages. Compressed archives stream into bounded layers; packaging does not make another full payload copy. This publication does not create a GitHub release.
+
+The receipt binds the full compiler revision, all dependency revisions, exact configuration and preparation-program contents, build plan, target platform and declared runtime libraries. [`RegulaSnapshot.admits_iff`](../../lean/RegulaSnapshot.lean) characterizes the predicate the restoration program actually uses. Restoration also checks the extracted compiler's CLI and library identities, the clean Git package census, every compressed layer's SHA-256 and the declared native runtime. These observations and the OCI, tar, compiler, process and filesystem mechanisms remain trusted effects; the admission theorem does not prove their implementation or native compatibility.
+
+Each preparation's exact manifest digest is restored on a separate fresh runner of the same platform. Qualification runs both acceptance commands in order, both rule-example shards, the rule-reference site check, all diagnostic-workflow campaigns and both repository-conformance diagnostics. Every `verify.sh` invocation retains its own 420-second deadline. Only the resulting `qualified-snapshot-*` artifact supplies a qualified location; the earlier `compiled-snapshot-*` artifact records preparation and publication alone.
+
+Commit the qualified platform locations as the array in `.github/compiler-snapshot.json`. Ordinary setup restores those immutable digest references and admits the complete receipt before linking the compiler and read-only package trees. A missing or mismatched snapshot refuses setup; it never starts a compiler or dependency source build. Source origin and acquisition remain distinct: preparation compiles the pinned sources, while a consuming copy restores the resulting artifacts. A changed pin, preparation program, configuration or native target requires a matching new preparation and qualification.
+
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
 Reuse evidence when its relevant inputs and claims remain unchanged; instruction-only
@@ -205,7 +217,7 @@ one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
 fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
 the compiler and dependency setup: the installer, the provisioning program,
-`dependency-build-mode`, `.github/compiler-source.json` and the compiler-preparation workflow),
+`dependency-build-mode`, `.github/compiler-source.json`, both snapshot selections and the compiler and snapshot workflows),
 and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
 passes exactly when `applies` succeeded and each partition job passed and applies, or was
@@ -235,7 +247,7 @@ not claimed as formally verified Lean implementations.
 
 This repository applies the standard to its own code and qualifies the checkers it publishes.
 Its claimed surfaces are those of the root [`foundation_manifest.json`](../../foundation_manifest.json)
-(`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision`, `RegulaCompiler` and
+(`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` and
 `AuditApp` with its standalone `Main`) and the `Audit` library of
 [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json). Ordinary acceptance
 audits both freshly, with every target built under the options of
@@ -306,7 +318,7 @@ The repository's own checklist rows, which apply to this repository only:
 
 | ID | Required result | Normative source | Required Lean-specific verification |
 | --- | --- | --- | --- |
-| DOGFOOD-01 | The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples (in the Mathlib-dependent package in `audit/`), the `AuditApp` complete application with its standalone `Main` executable root, and the policy and toolchain libraries `RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision` and `RegulaCompiler` — satisfy every applicable row of the standard's checklist. | [Repository conformance](#repository-conformance) | Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. |
+| DOGFOOD-01 | The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples (in the Mathlib-dependent package in `audit/`), the `AuditApp` complete application with its standalone `Main` executable root, and the policy and toolchain libraries `RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision`, `RegulaCompiler` and `RegulaSnapshot` — satisfy every applicable row of the standard's checklist. | [Repository conformance](#repository-conformance) | Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. |
 | DOGFOOD-02 | Intentionally invalid fixtures are isolated from the positive elaborated environment. | [§7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics), [Repository conformance](#repository-conformance) | Reconcile exact imported project modules. Qualification includes a contamination mutation. |
 | DOGFOOD-03 | Normative prose, representative Lean fixtures, checker diagnostics, and status text make no stronger claim than the same verified property. | [§1.6](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#16-claim-boundaries-and-automated-checking), [Repository conformance](#repository-conformance) | Compare advertised capabilities with the checked implementation and applicable qualification evidence. Diagnostic qualification does not prove the checker is universally correct. |
 | DOGFOOD-04 | Examples and fixtures reuse or extend matching Lean/Mathlib mathematical definitions. Custom mathematical definitions state their meaning and why existing definitions do not fit; proofs follow the economy guidance in §3.2.5. | [§1.4](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#14-principled-mathematical-modeling), [§3.2.5](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#325-proof-economy-four-cost-domains-and-one-trust-question) | Compare custom mathematical structures, classes, and aliases with the pinned libraries and inspect required justifications. Review proof reuse where it simplifies the argument. A domain definition or teaching proof does not need a claim that no library theorem exists. |

@@ -1017,6 +1017,9 @@ def requireCompiler (repo : FilePath) : IO Unit := do
 
 /-- Provision this copy. -/
 def provision (repo : FilePath) : IO Unit := do
+  if ← (repo / ".github/snapshot-compiler.json").pathExists then
+    stream repo "lean" #["--run", "lean/RegulaSnapshot.lean", "restore"]
+    return
   let mode ← readBuildMode repo
   requireCompiler repo
   let some (manifest, pins) ← readPins repo
@@ -1043,6 +1046,9 @@ def provision (repo : FilePath) : IO Unit := do
 
 /-- Provision the website's pinned Verso with the same artifact mode as Mathlib. -/
 def provisionVerso (repo : FilePath) : IO Unit := do
+  if ← (repo / ".github/snapshot-compiler.json").pathExists then
+    stream repo "lean" #["--run", "lean/RegulaSnapshot.lean", "restore"]
+    return
   requireCompiler repo
   unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
       (← IO.FS.readFile (repo / "website" / "lean-toolchain")) do
@@ -1088,7 +1094,9 @@ def main (args : List String) : IO Unit := do
     throw <| IO.userError "provisioning: run from the repository root"
   match args with
   | [] =>
-    if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
+    if ← (repo / ".github/snapshot-compiler.json").pathExists then
+      RegulaProvision.provision repo
+    else if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
       IO.println "provisioning: local sharing skipped on GitHub Actions (CI uses the Mathlib plan)"
     else if System.Platform.isWindows then
       if (← RegulaProvision.readBuildMode repo) == .source then
@@ -1097,10 +1105,13 @@ def main (args : List String) : IO Unit := do
         get`"
     else RegulaProvision.provision repo
   | ["mathlib"] =>
-    RegulaProvision.requireCompiler repo
-    let mode ← RegulaProvision.readBuildMode repo
-    if mode == .source then RegulaProvision.provision repo
-    else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
+    if ← (repo / ".github/snapshot-compiler.json").pathExists then
+      RegulaProvision.provision repo
+    else
+      RegulaProvision.requireCompiler repo
+      let mode ← RegulaProvision.readBuildMode repo
+      if mode == .source then RegulaProvision.provision repo
+      else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
   | ["verso"] => RegulaProvision.provisionVerso repo
   | ["identity"] => RegulaProvision.ciIdentity repo
   | "exec" :: dir :: command :: rest =>
