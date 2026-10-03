@@ -1,5 +1,7 @@
-import Regula.Contract
-import Regula.MaterialClaim
+module
+
+public import Regula.Contract
+public import Regula.MaterialClaim
 
 /-!
 # Proof-bearing bounded-slot limiter
@@ -43,6 +45,8 @@ the exported API; the script-indexed theorems are proved by induction on the scr
 its length, the single-operation theorems by unfolding and case analysis, and no proof
 replays an enumeration.
 -/
+
+@[expose] public section
 
 namespace AuditApp
 

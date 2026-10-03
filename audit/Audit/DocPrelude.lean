@@ -1,5 +1,7 @@
-import Mathlib.Basic.NNReal.Defs
-import Mathlib.Order.Basic
+module
+
+public import Mathlib.Basic.NNReal.Defs
+public import Mathlib.Order.Basic
 
 /-!
 # Documentation fence prelude
@@ -18,6 +20,8 @@ Fences import this module explicitly, so their assumptions are their printed
 imports plus these exact APIs. This module is part of the positive surface, and
 the axiom gate reports every declaration and foundation label below.
 -/
+
+@[expose] public section
 
 namespace Glossary
 

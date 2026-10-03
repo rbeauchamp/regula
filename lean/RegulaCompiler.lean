@@ -4,9 +4,9 @@ import Lean.Data.Json
 
 CI runs this standalone program with the fixed stable bootstrap. Without a source
 specification, Elan installs the repository's pin. A source specification builds the
-named Git commit with a pinned official bootstrap, retains the checkout and build,
-and links an alias only after both compiler identity observations match. A pin or
-bootstrap that Elan already lists is reused, not installed again; its checks still run.
+named Git commit from the `stage0` compiler that commit carries, retains the checkout
+and build, and links an alias only after both compiler identity observations match. A
+pin that Elan already lists is reused, not installed again; its checks still run.
 
 The contracts cover decoded values and the admission decision. Git, Elan, CMake,
 Make, compiler self-reports, filesystem locking and subprocesses remain trusted.
@@ -19,7 +19,7 @@ def component (value : String) : Bool :=
   !value.isEmpty && !value.startsWith "." &&
     value.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.'
 
-/-- The full lowercase Git object names used by the source and bootstrap pins. -/
+/-- The full lowercase Git object name used by the source pin. -/
 def objectName (value : String) : Bool :=
   value.length == 40 && value.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')
 
@@ -60,17 +60,12 @@ structure Spec where
   revision : String
   /-- Local Elan alias, also recorded in `lean-toolchain`. -/
   selector : String
-  /-- Official compiler used as the preceding build stage. -/
-  bootstrap : String
-  /-- Full compiler commit expected from that bootstrap. -/
-  bootstrapRevision : String
   deriving FromJson, ToJson, Repr
 
-/-- Every path, compiler identity and bootstrap selector is checked before installation. -/
+/-- Every path component and the source commit is checked before installation. -/
 def valid (spec : Spec) : Bool :=
   component spec.owner && component spec.repository && component spec.selector &&
-    objectName spec.revision && objectName spec.bootstrapRevision &&
-    officialSelector spec.bootstrap
+    objectName spec.revision
 
 /-- An admitted source specification carries the predicate the installer requires. -/
 abbrev Source := { spec : Spec // valid spec = true }
@@ -164,7 +159,7 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
     if ← installed root spec.selector then
       checkIdentity root "elan" #["run", spec.selector, "lean"] spec.revision
       return
-    let path := parent / s!"{spec.revision}-{spec.bootstrapRevision}"
+    let path := parent / spec.revision
     unless ← path.pathExists do
       let random ← IO.getRandomBytes 8
       let token := random.foldl (fun n byte => n * 256 + byte.toNat) 0
@@ -183,16 +178,11 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has another commit"
     unless (← require path "git" #["status", "--porcelain"]).isEmpty do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has local changes"
-    unless ← installed root spec.bootstrap do
-      stream root "elan" #["toolchain", "install", spec.bootstrap]
-    checkIdentity root "elan" #["run", spec.bootstrap, "lean"] spec.bootstrapRevision
-    let previous ← require root "elan" #["run", spec.bootstrap, "lean", "--print-prefix"]
     if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
       stream root "sudo" #["apt-get", "update"]
       stream root "sudo" #["apt-get", "install", "--yes", "build-essential", "cmake",
         "pkg-config", "libgmp-dev", "libuv1-dev", "libssl-dev"]
-    stream path "cmake" #["--preset", "release", s!"-DSTAGE1_PREV_STAGE={previous}",
-      "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON"]
+    stream path "cmake" #["--preset", "release", "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON"]
     let jobs ← if System.Platform.isOSX then require root "sysctl" #["-n", "hw.logicalcpu"]
       else require root "getconf" #["_NPROCESSORS_ONLN"]
     let some jobs := jobs.toNat? | throw <| IO.userError "compiler setup: invalid CPU count"

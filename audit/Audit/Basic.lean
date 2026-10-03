@@ -1,4 +1,6 @@
-import Mathlib.Algebra.Group.Even
+module
+
+public import Mathlib.Algebra.Group.Even
 
 /-!
 # Basic positive controls
@@ -9,6 +11,8 @@ underlying value `4`. These declarations assume only their imported Core and
 Mathlib definitions. Successful elaboration makes no broader claim about the
 toolchain or other files.
 -/
+
+@[expose] public section
 
 namespace Audit
 

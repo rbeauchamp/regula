@@ -68,7 +68,8 @@ facilities it builds beside. No code of these projects is copied.
 ## Website
 
 The rule reference is rendered by Verso (Lean FRO and contributors, Apache 2.0) as a
-pinned dependency ([license](https://github.com/leanprover/verso/blob/cad4b633e75ea769b851f12f9ca3b4f0dfcc625f/LICENSE)); the search and
+dependency pinned in [website/lakefile.toml](../../website/lakefile.toml); the generated credits
+page links that revision's license. The search and
 table-of-contents scripts and stylesheets are Verso's, and the third-party components it bundles
 (elasticlunr, fuzzysort, the W3C APG combobox) are listed with their licenses on the
 generated credits page, together with the marked library that pages load from the jsDelivr CDN. The documentation/example toolchain separation follows

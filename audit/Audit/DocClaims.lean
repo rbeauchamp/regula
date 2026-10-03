@@ -1,6 +1,8 @@
-import Mathlib.Analysis.SpecialFunctions.Exp
-import Mathlib.Tactic.NormNum
-import Audit.DocPrelude
+module
+
+public import Mathlib.Analysis.SpecialFunctions.Exp
+public import Mathlib.Tactic.NormNum
+public import Audit.DocPrelude
 
 /-!
 # Dogfooding claims for standard examples
@@ -16,6 +18,8 @@ proves only joint satisfiability of its listed hypotheses, and no definition or
 theorem is promoted to a native-runtime or external-system claim. Mathlib/Core
 predicates and structures are reused where they match.
 -/
+
+@[expose] public section
 
 namespace Glossary
 

@@ -31,4 +31,4 @@ lean_lib «Audit» where
 require regula from ".."
 
 require mathlib from git
-  "https://github.com/leanprover-community/mathlib4" @ "5ed2965256430c3649e86755f9576b54eca72435"
+  "https://github.com/leanprover-community/mathlib4-nightly-testing" @ "baed984a5920fe94375c0c27202fe7ecc7d81931"
