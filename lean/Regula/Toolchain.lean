@@ -43,7 +43,8 @@ private def prepare (root : FilePath) (selector : String) (destination : FilePat
       (reprStr RegulaPolicy.Compiler.commit, reprStr identity.commit),
       (s!"def legacyCompilerTrust : LegacyCompilerTrust := .{RegulaPolicy.Compiler.legacyCompilerTrust.spelling}",
         s!"def legacyCompilerTrust : LegacyCompilerTrust := .{identity.legacyCompilerTrust.spelling}"),
-      ("def candidate : Bool := false", "def candidate : Bool := true")].foldlM
+      (s!"def candidate : Bool := {RegulaPolicy.Compiler.candidate}",
+        "def candidate : Bool := true")].foldlM
     (fun text (old, new) => replaceOnce text old new) template
   if ← destination.pathExists then
     throw <| IO.userError s!"candidate destination already exists: {destination}"
