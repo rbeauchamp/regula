@@ -21,9 +21,8 @@ Three kinds of evidence are kept apart:
 None of these proofs verifies the Lean compiler, the source collectors, the filesystem, the JSON
 parser, the registry adapter or a user's intended specification.
 
-The policy and toolchain libraries (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`,
-`RegulaVerification`, `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot`) are claimed Standard-Logical surfaces, so acceptance reports every
-declaration's exact axiom set; that profile is an upper bound, not a claim that every proof uses
+The root [foundation manifest](../../foundation_manifest.json) owns the policy and toolchain libraries' foundation claims. Acceptance reports every claimed
+declaration's exact axiom set; Standard-Logical is an upper bound, not a claim that every proof uses
 choice. Theorems in the excluded operational `Regula` library are kernel-checked by its
 warning-free build (`warningAsError` also rejects `sorry`); `Checker.Manifest`,
 `Checker.ProducerReport` and `Checker.RuleExampleQualification` bound their theorems' axioms to

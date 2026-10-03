@@ -2,8 +2,12 @@ import Lean.Data.Json
 
 /-! # Shared Mathlib provisioning
 
-Dependency provisioning: one shared, read-only Mathlib per pinned revision, exact
-compiler and artifact mode, reused by local copies. CI runs the build plan defined here.
+Without a snapshot selection, dependency provisioning uses one shared, read-only Mathlib
+per pinned revision, exact compiler and artifact mode, reused by local copies. CI runs the
+build plan defined here.
+
+Snapshot selections delegate acquisition to `RegulaSnapshot` instead of the sharing and
+build plans below; `docs/guides/contributing.md#compiled-source-snapshots` owns that procedure.
 
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache
 (`~/.cache/mathlib`) but unpacks them into every copy's `.lake/packages`. This program
@@ -44,7 +48,7 @@ open System Lean
 
 /-! ## Pure decisions -/
 
-/-- Where dependency artifacts come from. `source` builds with the running compiler. -/
+/-- Artifact origin for the direct provisioning plans; snapshot acquisition is separate. -/
 inductive BuildMode where
   /-- Use the dependencies' published artifacts and build only what they lack. -/
   | upstreamCache

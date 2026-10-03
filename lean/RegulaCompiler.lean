@@ -3,8 +3,9 @@ import Lean.Data.Json
 /-! # Install an exact compiler
 
 CI runs this standalone program with the fixed stable bootstrap. A snapshot selection
-restores and admits the immutable source-built compiler and dependencies. Without one,
-Elan installs the repository's pin. Explicit preparation of a source specification builds the
+restores and admits the immutable source-built compiler and dependencies. With neither a
+snapshot selection nor a source specification, Elan installs the repository's pin. A source
+specification without a snapshot selection, or explicit preparation of that specification, builds the
 named Git commit with a pinned official bootstrap, retains the checkout and build,
 and links an alias only after both compiler identity observations match. A pin or
 bootstrap that Elan already lists is reused, not installed again; its checks still run.
@@ -100,11 +101,11 @@ theorem admitsIdentity_iff (expected cli library : String) :
       objectName expected = true ∧ cli = expected ∧ library = expected := by
   simp [admitsIdentity, and_assoc]
 
-/-- System package installation is confined to the declared Linux CI environment. -/
+/-- Whether the supplied flags request Linux system package installation. -/
 def installsSystemPackages (githubActions runnerOS : Option String) : Bool :=
   githubActions == some "true" && runnerOS == some "Linux"
 
-/-- The installer admits system package changes exactly in Linux GitHub Actions jobs. -/
+/-- The Linux decision requires exactly the Actions and Linux runner flags. -/
 theorem installsSystemPackages_iff (githubActions runnerOS : Option String) :
     installsSystemPackages githubActions runnerOS = true ↔
       githubActions = some "true" ∧ runnerOS = some "Linux" := by
