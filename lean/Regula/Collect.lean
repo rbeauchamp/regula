@@ -583,10 +583,13 @@ private def withoutIrreducible (env : Environment) : Environment :=
   reducibilityExtraExt.modifyState env fun statuses =>
     irreducible.foldl (fun statuses name => statuses.insert name (declared name)) statuses
 
-/-- The constants that unfolding `info` can introduce: those its type and value mention (a
-theorem's and an opaque constant's too, since reduction at `.all` transparency unfolds theorems),
-the constructors of an inductive and of a recursor's rules, and its smart-unfolding definition. -/
-private def unfoldReferences (env : Environment) (info : ConstantInfo) : Array Name :=
+/-- The constants that unfolding `info` can introduce in the checker's own reduction: those its
+type and value mention (a theorem's and an opaque constant's too, since reduction at `.all`
+transparency unfolds theorems), and the constructors of an inductive and of a recursor's rules. A
+declaration named `info.name ++ `_sunfold`, which Lean's smart unfolding would take for the
+unfolding of `info`, is not among them: every observation runs with smart unfolding off
+(`withoutSmartUnfolding`), and such a declaration can be authored with any body. -/
+private def unfoldReferences (info : ConstantInfo) : Array Name :=
   let mentioned := info.type.getUsedConstants ++
     ((info.value? (allowOpaque := true)).map Expr.getUsedConstants).getD #[]
   let structural := match info with
@@ -594,8 +597,7 @@ private def unfoldReferences (env : Environment) (info : ConstantInfo) : Array N
     | .recInfo value =>
       value.rules.foldl (fun names rule => (names.push rule.ctor) ++ rule.rhs.getUsedConstants) #[]
     | _ => #[]
-  let smart := Lean.Meta.mkSmartUnfoldingNameFor info.name
-  mentioned ++ structural ++ (if env.contains smart then #[smart] else #[])
+  mentioned ++ structural
 
 /-- The statuses a definition that has `status` at the end of the audit can have had before a
 global attribute gave it `status`: Lean 4.34.0's validation of a global reducibility attribute
@@ -635,7 +637,7 @@ private def earlierStatusOptions (env : Environment) (name : Name) (roots : Arra
     let some reached := pending.back? | break
     pending := pending.pop
     let some info := env.find? reached | continue
-    for mentioned in unfoldReferences env info do
+    for mentioned in unfoldReferences info do
       if !seen.contains mentioned && env.contains mentioned
           && env.getModuleIdxFor? mentioned == home then
         seen := seen.insert mentioned
@@ -1007,9 +1009,9 @@ def ContractScope.constantAware (scope : ContractScope) (env : Environment) (nam
 
 /-- Whether reducing `type` can produce `Regula.ExecutableContract`: whether the contract type is
 among the constants `type` mentions, closed under `unfoldReferences`. Lean's reduction steps
-(delta, iota, beta, zeta, eta, projection, smart unfolding, and literal and native Boolean or
-natural-number steps) introduce only constants of that closure or of `Init`, which does not import
-`Regula.Contract`. Constants of modules outside the scope are not expanded, and a search that ends
+(delta, iota, beta, zeta, eta, projection, and literal and native Boolean or natural-number steps)
+introduce only constants of that closure or of `Init`, which does not import `Regula.Contract`;
+the reduction this guards runs inside `declaration`, with smart unfolding off. Constants of modules outside the scope are not expanded, and a search that ends
 without finding the contract type records every constant it expanded as free. -/
 def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : Expr) :
     BaseIO Bool := do
@@ -1023,7 +1025,7 @@ def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : E
     if expanded.contains name || free.contains name || !scope.constantAware env name then continue
     expanded := expanded.insert name
     if let some info := env.find? name then
-      pending := pending ++ unfoldReferences env info
+      pending := pending ++ unfoldReferences info
   scope.free.modify fun free => expanded.foldl (fun free name => free.insert name) free
   return false
 

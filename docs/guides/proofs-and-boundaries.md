@@ -855,7 +855,10 @@ afterwards, under `allowUnsafeReducibility`; a function an instance-implicit arg
 made `instance_reducible` or `implicit_reducible` afterwards, or `instance_reducible` first and
 irreducible afterwards; an `abbrev` that is irreducible at both points, beside a type made
 irreducible afterwards; and a definition whose six candidates allow exactly the 63 assignments the
-search tries, of which one that changes two of them reproduces the base). The parameter under well-founded and under structural recursion, the
+search tries, of which one that changes two of them reproduces the base; and a definition whose
+base needs two changes, beside an authored `_sunfold` declaration of its helper that mentions five
+more `@[reducible]` functions, found in review: following that declaration would exceed the bound
+and leave the helper undecided). The parameter under well-founded and under structural recursion, the
 `List.map` form and the `@[reducible]` function made irreducible afterwards were observed
 rejections before the search below, pinned as such by the fixture this one replaces. For the forms
 with an instance-implicit argument, that Lean finds the parameter fixed at only one of the two
@@ -978,7 +981,7 @@ write, and what authenticates each:
 | --- | --- | --- |
 | `f._unsafe_rec` → `f` | `Compiler.isUnsafeRecName?` | Selection only: the helper is admitted only where the regeneration from its value reproduces `f` and every auxiliary definition. |
 | `f._unary`, `f._mutual`, and `f._f` and `f._sunfold` of the helper's base | Added by the regeneration under its root; `Collect.wfRegeneration` reads the observed unary definition's relation | Each regenerated definition must equal the observed one of its name. The relation only selects: the comparison drops it, and the well-foundedness proof is the observed kernel-checked one. |
-| `g._sunfold` of any other constant | Lean's smart unfolding | Not read: every observation runs with smart unfolding off. |
+| `g._sunfold` of any other constant | Lean's smart unfolding; formerly also `Collect.unfoldReferences` | Not read: every observation runs with smart unfolding off, and the search's closure follows no `_sunfold` declaration. |
 | Matcher and `casesOn` metadata, in the comparison | `Collect.threadedMatch?` | The kernel-checked threading law of each application (`Collect.threadingLawChecked`). |
 | Matcher metadata, in reduction | `Meta.whnfMatcher`, `Meta.reduceMatcher` | The constant's own value is unfolded. |
 | A matcher's equations and splitter | The proof search of `threadingLawChecked` | Guidance only: the kernel checks the theorem found. |

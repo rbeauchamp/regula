@@ -40,6 +40,13 @@ other forms were not run without it.
   and only the one that changes the first two together reproduces the base.
   `Fixtures.Mutations.KnownLimitReducibilitySearchBound` is this shape with
   one function more.
+- `fixtures_reducible_decoyed` is that pair of changes alone, beside an
+  authored `fixtures_reducible_decoyed._unsafe_rec._sunfold` that mentions five
+  functions `@[reducible]` from their declaration (found in review). No
+  observation reads a `_sunfold` declaration, so the search does not reach
+  them: two candidates, three assignments. Were it to follow that declaration,
+  seven candidates would exceed the bound, the pair would never be tried and
+  the helper would be undecided.
 - `fixtures_reducible_then_not` is the other way round:
   `fixtures_reducible_before` is `@[reducible]` from its declaration, so Lean
   finds the parameter fixed, and is made `irreducible` afterwards, which Lean
@@ -123,6 +130,33 @@ def fixtures_reducible_limit (a b n : Nat) : Nat :=
 termination_by n
 
 attribute [reducible] fixtures_limit_first fixtures_limit_second
+
+def fixtures_decoyed_first (a : Nat) : Nat := a
+
+def fixtures_decoyed_second (a : Nat) : Nat := a
+
+def fixtures_reducible_decoyed (a b n : Nat) : Nat :=
+  match n with
+  | 0 => a + b
+  | k + 1 => fixtures_reducible_decoyed (fixtures_decoyed_first a) (fixtures_decoyed_second b) k
+termination_by n
+
+attribute [reducible] fixtures_decoyed_first fixtures_decoyed_second
+
+@[reducible] def fixtures_decoy_one (a : Nat) : Nat := a
+
+@[reducible] def fixtures_decoy_two (a : Nat) : Nat := a
+
+@[reducible] def fixtures_decoy_three (a : Nat) : Nat := a
+
+@[reducible] def fixtures_decoy_four (a : Nat) : Nat := a
+
+@[reducible] def fixtures_decoy_five (a : Nat) : Nat := a
+
+/-- Authored, not generated: named as Lean names a smart-unfolding definition. -/
+def fixtures_reducible_decoyed._unsafe_rec._sunfold (a b n : Nat) : Nat :=
+  fixtures_decoy_one (fixtures_decoy_two (fixtures_decoy_three (fixtures_decoy_four
+    (fixtures_decoy_five (a + b + n)))))
 
 @[reducible] def fixtures_reducible_before (a : Nat) : Nat := a
 
