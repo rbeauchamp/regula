@@ -806,8 +806,8 @@ These are proofs about the observations; native object-tag correspondence remain
 The owned unsafe and runtime-replacement boundaries remain in execution reports.
 The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
 observer's positive path, admission, transport and mutations only on a compiler that has
-`getObjTagNat`, such as the selected release-candidate and source compilers; on Lean 4.34.0,
-which generates no wrapper, it checks only that the observer finds none.
+`getObjTagNat`, as on source compiler `6751f97`; on Lean 4.34.0 and 4.35.0-rc3, which generate
+no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
