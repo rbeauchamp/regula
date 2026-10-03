@@ -343,7 +343,8 @@ def guide : RuleId → Guide
   | .escapeHatch => {
       problem := "An owned declaration is marked `unsafe` or `partial` and is not the \
         code-generation helper of a safe recursive definition that Lean's own recursion compiler \
-        regenerates from the helper, up to compilation erasure."
+        regenerates from the helper, up to compilation erasure, and whose recursion equation for \
+        that definition Lean's kernel checks."
       trigger := [
         "Authored `unsafe` and `partial` declarations are escape hatches: an unsafe declaration is \
           checked only in Lean's unsafe mode, cannot be used by safe declarations or proofs and is \
@@ -356,8 +357,21 @@ def guide : RuleId → Guide
           mutual). It is admitted by exact match (standard §7.4): rerunning Lean's recursion \
           compiler on the helper's recursion, with only the toolchain's own preprocessing rules \
           and the checker's built-in syntax handlers, regenerates the observed base, up to \
-          compilation erasure, and the base's axioms are within Standard-Logical. Which code added \
-          the helper does not matter, and neither do declaration order, a nested proof shared with \
+          compilation erasure, the base's axioms are within Standard-Logical, and Lean's kernel \
+          checks the recursion equation of each helper of the group: with the helper's value \
+          `fun xs => body` and every helper of the group replaced by its base `f`, the theorem \
+          `∀ xs, f xs = body`, in the inspected environment, by a proof that uses no axiom \
+          outside Standard-Logical. The checker builds that statement from the helper's value \
+          and gives it to the kernel itself. A proof to try is taken from a constant named \
+          `f.eq_def`, whoever declared it, from the theorem Lean realizes for `f` or for the \
+          regenerated definition, or from reflexivity where the result is a proof, with every \
+          constant the search adds put back as its value; the kernel checks it against the \
+          checker's statement, and nothing else about it is consulted. The regeneration selects \
+          what is compared and no longer carries the claim about values: a base that the \
+          regeneration reproduces through matcher metadata or \
+          through `below` and `brecOn` declarations the audited module wrote is rejected where \
+          it does not satisfy the equation. Which code added the helper does not matter, and \
+          neither do declaration order, a nested proof shared with \
           an earlier declaration, a proof written as a tactic block or as a term, or whether a \
           `public` definition of a `module` file is exposed: the comparison uses no name of a \
           theorem Lean abstracts from a nested proof. Nor, for the forms standard §7.4 lists, \
@@ -383,8 +397,9 @@ def guide : RuleId → Guide
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \
           for a nested or mutual inductive (and deriving `Ord` for any recursive one).",
-        "A helper of a safe definition that the regeneration does not reproduce is reported \
-          under the helper's name (see the limitations below); its definition may be correct."]
+        "A helper of a safe definition that the regeneration does not reproduce, or for whose \
+          recursion equation the checker finds no proof the kernel accepts, is reported under \
+          the helper's name (see the limitations below); its definition may be correct."]
       rationaleDetail := []
       proofShape := [
         "A total replacement keeps the same domain and result type; if it changes behavior, state \
@@ -394,7 +409,13 @@ def guide : RuleId → Guide
           generated helper is Lean's compilation of a safe definition: its base, of the same \
           module and type, is what Lean's own recursion compiler regenerates from the helper's \
           recursion, up to compilation erasure, and is kernel-checked with Standard-Logical \
-          axioms; whenever the helper returns, it returns the base's value."]
+          axioms. Lean's kernel has checked, with Standard-Logical axioms, that the base \
+          satisfies the recursion equation of each helper of the group, whatever matcher \
+          metadata, `below` and `brecOn` declarations, `_sunfold` declarations or reducibility \
+          statuses the audited module wrote. From that equation it is argued, not \
+          kernel-checked, that whenever the helper returns, it returns the base's value: by \
+          induction on the helper's evaluation, each recursive call that returns having \
+          returned the base's value."]
       notEstablished := [
         "That unsafe or partial code elsewhere is logically unsound; the rule concerns evidence, \
           not a claim that such code is wrong.",
@@ -406,7 +427,10 @@ def guide : RuleId → Guide
           definition Lean accepts does.",
         "That the regeneration observation is truthful or that a helper's compiled code matches \
           its value; these rest on the pinned Lean toolchain and on Regula's own unproved \
-          regeneration comparison.",
+          regeneration comparison. The claim about values does not rest on the regeneration: \
+          it rests on the kernel-checked recursion equation, on the compiled code running the \
+          helper's value, and on the argument from the equation to the values, for which there \
+          is no theorem.",
         "Termination proofs' adequacy for cost claims."]
       configuration := [
         "`partial_fixpoint` helpers are not covered by the recursive-helper exception."]
@@ -451,12 +475,23 @@ def guide : RuleId → Guide
           `Fixtures.Mutations.KnownLimitReducibilitySearchBound` shows the outcome for a helper \
           Lean generated. The bound of 63 is a limit of this release, which issue #196 keeps \
           open.",
+        "A helper is not admitted where the checker finds no proof of its recursion equation \
+          that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
+          Lean adds with a well-founded definition, in the theorem Lean realizes for a \
+          structural definition or for the regenerated one, and in reflexivity for a definition \
+          whose type is a proposition. Who declared a candidate is not checked, only that the \
+          kernel accepts it as a proof of the checker's statement. A well-founded definition \
+          and helper that a metaprogram adds with no theorem of that name are therefore \
+          rejected although the helper computes the base \
+          (`fixtures_forged_measured_bare` of `Fixtures.Mutations.MeasuredMatchUnsafeRecForge`); \
+          such a metaprogram adds `f.eq_def` too, copied from Lean's theorem or proved itself.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]
       linkage := declarationLinkage ++ " `RegulaPolicy.authorizedUnsafeRecHelpers_iff` \
         characterizes the admitted recursion helpers, `authorizedUnsafeRecHelpers_base` gives \
-        each a recorded regeneration observation and a safe base with Standard-Logical axioms \
+        each a recorded observation (the regeneration together with the kernel-checked \
+        recursion equation) and a safe base with Standard-Logical axioms \
         (neither proves the observation truthful), and \
         `Regula.Checker.Policy.partialParent_rule` with `subject_contract` reports a \
         `partial def`'s helper under the `partial def`."

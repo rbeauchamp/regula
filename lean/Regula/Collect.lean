@@ -136,8 +136,27 @@ erases. -/
 private def erasedByCompilation (e : Expr) : MetaM Bool := do
   return (← Meta.isProof e) || (← Meta.isType e)
 
-/-- The axioms a proof of `threadingLawChecked` may rest on: Standard-Logical. -/
-private def threadingLawAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
+/-- The axioms a theorem the checker has Lean's kernel check may rest on: Standard-Logical. -/
+private def checkedAxioms : List Name := [``propext, ``Quot.sound, ``Classical.choice]
+
+/-- Whether Lean's kernel, in the current environment, accepts `value` as a proof of the closed
+statement `type` (`Environment.addDeclCore` on a theorem of a fresh name) and that theorem uses no
+axiom outside `checkedAxioms`. A statement or a proof with a free variable or a metavariable
+answers `false`. The theorem stays in the environment, which the caller restores. What the kernel
+refuses with is thrown, a rejected proof and a resource limit alike (its deterministic timeout,
+deep recursion or excessive memory), and the caller tells the two apart by `checkerLimit?`. -/
+private def kernelChecked (type value : Expr) : MetaM Bool := do
+  if type.hasMVar || value.hasMVar || type.hasFVar || value.hasFVar then return false
+  let name ← mkFreshUserName `_regula_checked
+  let levelParams := (collectLevelParams (collectLevelParams {} type) value).params.toList
+  let options ← getOptions
+  match (← getEnv).addDeclCore (Core.getMaxHeartbeats options).toUSize
+      (maxRecDepth.get options).toUSize
+      (.thmDecl { name, levelParams, type, value }) none with
+  | .error rejected => throwKernelException rejected
+  | .ok checked =>
+    setEnv checked
+    return (← collectAxioms name).all checkedAxioms.contains
 
 /-- Whether Lean's kernel checks the threading law of the application `threaded`, the fact the
 comparison needs before it takes a `match` that passes a variable through as the `match` that uses
@@ -152,12 +171,12 @@ the positions the comparison reads; what Lean records about `M` (that it is a ma
 `casesOn`, how many pattern variables an alternative binds) only says where to look and how to
 search for a proof (`Split.splitMatch`, or `cases` on the major premise, then `rfl`). Admission
 rests on the kernel alone: `Environment.addDeclCore` must accept the theorem, whose proof may use
-no axiom outside `threadingLawAxioms`. The right-hand side is well typed only where `A ds` and each
-`A (pᵢ xs)` are definitionally equal, which the kernel decides whatever is irreducible. Nothing is
-kept: the theorem, and every constant the search realizes, is discarded. A search that fails, or a
-theorem the kernel rejects, answers `false`. A `checkerLimit?` reached is rethrown, in the search
-or in the kernel (its deterministic timeout, deep recursion or excessive memory): the helper is
-then undecided, not rejected. -/
+no axiom outside `checkedAxioms` (`kernelChecked`). The right-hand side is well typed only where
+`A ds` and each `A (pᵢ xs)` are definitionally equal, which the kernel decides whatever is
+irreducible. Nothing is kept: the theorem, and every constant the search realizes, is discarded. A
+search that fails, or a theorem the kernel rejects, answers `false`. A `checkerLimit?` reached is
+rethrown, in the search or in the kernel (its deterministic timeout, deep recursion or excessive
+memory): the helper is then undecided, not rejected. -/
 private def threadingLawChecked (threaded : Meta.MatcherApp) : MetaM Bool := do
   let ambient := (← getLCtx).getFVars
   let numDiscrs := threaded.discrs.size
@@ -201,19 +220,9 @@ private def threadingLawChecked (threaded : Meta.MatcherApp) : MetaM Bool := do
         let binders := ambient ++ ds ++ alts
         let type ← instantiateMVars (← Meta.mkForallFVars binders law)
         let value ← Meta.mkLambdaFVars binders (← instantiateMVars goal)
-        if type.hasMVar || value.hasMVar || type.hasFVar || value.hasFVar then return false
-        let name ← mkFreshUserName `_regula_threading_law
-        let levelParams := (collectLevelParams (collectLevelParams {} type) value).params.toList
-        let options ← getOptions
-        match (← getEnv).addDeclCore (Core.getMaxHeartbeats options).toUSize
-            (maxRecDepth.get options).toUSize
-            (.thmDecl { name, levelParams, type, value }) none with
-        -- Thrown, not answered: a resource limit of the kernel is the checker's, and `catch` below
-        -- tells it from a rejected proof by `checkerLimit?`.
-        | .error rejected => throwKernelException rejected
-        | .ok checked =>
-          setEnv checked
-          return (← collectAxioms name).all threadingLawAxioms.contains
+        -- A kernel refusal is thrown, not answered: a resource limit of the kernel is the
+        -- checker's, and `catch` below tells it from a rejected proof by `checkerLimit?`.
+        kernelChecked type value
   let saved ← Meta.saveState
   try
     search
@@ -782,10 +791,188 @@ private def withStatuses (env : Environment) (statuses : List (Name × Reducibil
   reducibilityExtraExt.modifyState env fun recorded =>
     statuses.foldl (fun recorded (name, status) => recorded.insert name status) recorded
 
+/-- Whether `value` mentions a constant that `inspected` does not hold. -/
+private def mentionsAbsent (inspected : Environment) (value : Expr) : Bool :=
+  (value.find? fun e => e.isConst && !inspected.contains e.constName!).isSome
+
+/-- `value` with every constant that `inspected` does not hold replaced by the value `searched`
+gives that constant, at the constant's universe levels, in at most `passes` passes over it; `none`
+if it still mentions such a constant after them, as it does when one has no value. A proof search
+adds constants to its own environment (a theorem Lean realizes, a regenerated definition); this
+puts each back as the term it abbreviates, so that the proof can be given to the kernel of the
+inspected environment. -/
+private def closedOver (inspected searched : Environment) (passes : Nat) (value : Expr) :
+    Option Expr :=
+  if !mentionsAbsent inspected value then some value
+  else match passes with
+    | 0 => none
+    | passes + 1 => closedOver inspected searched passes <| value.replace fun
+        | .const n us =>
+          if inspected.contains n then none
+          else match searched.find? n with
+            | some (.defnInfo added) => added.value.instantiateLevelParams added.levelParams us
+            | some (.thmInfo added) => added.value.instantiateLevelParams added.levelParams us
+            | _ => none
+        | _ => none
+
+/-- What `closedOver` returns mentions only constants `inspected` holds, for every searched
+environment, pass count and value. This states nothing about `Expr.replace`, about the values put
+back, or about what the kernel makes of the result: a term that mentioned another constant would be
+rejected by the kernel of `inspected` as well. -/
+private theorem closedOver_closed (inspected searched : Environment) (passes : Nat)
+    (value result : Expr) (closed : closedOver inspected searched passes value = some result) :
+    mentionsAbsent inspected result = false := by
+  induction passes generalizing value with
+  | zero =>
+    unfold closedOver at closed
+    split at closed <;> simp_all
+  | succ passes ih =>
+    unfold closedOver at closed
+    split at closed
+    · simp_all
+    · exact ih _ closed
+
+/-- The passes `closedOver` makes at most: the depth to which the constants a proof search adds
+mention one another (an unfolding theorem, the regenerated definition it is about, that
+definition's auxiliary definitions, a matcher's equations and splitter). A proof that needs more is
+not used. -/
+private def closurePasses : Nat := 64
+
+/-- Whether `statement` is the recursion equation of `base` for `value`: with `value` the function
+`fun xs => body`, exactly `∀ xs, base xs = body`, with the binder types and the body of `value`
+itself (`Expr` equality), every leading binder of `value` taken, and `base` applied to the bound
+variables in their order. `depth` counts the binders passed. The type and universe level of the
+equality are not compared: the kernel checks that the statement is well typed before it checks a
+proof, which leaves the equality only the type of `base xs`, up to definitional equality. -/
+private def isRecursionEquation (base : Expr) : Expr → Expr → Nat → Bool
+  | .lam _ type body _, .forallE _ type' statement _, depth =>
+    type == type' && isRecursionEquation base body statement (depth + 1)
+  | body, statement, depth =>
+    !body.isLambda && statement.isAppOfArity ``Eq 3
+      && statement.getArg! 1 == mkAppN base ((Array.range depth).reverse.map Expr.bvar)
+      && statement.getArg! 2 == body
+
+/-- The names Lean gives the unfolding theorem of `base`: `base.eq_def`, and that name private to
+the module of `base`, which Lean uses where a `module` file does not export the body. -/
+private def unfoldingTheoremNames (env : Environment) (base : Name) : Array Name :=
+  let name := Name.str base Meta.unfoldThmSuffix
+  match env.getModuleIdxFor? base with
+  | some index =>
+    #[name, mkPrivateNameCore env.header.moduleNames[index.toNat]! (privateToUserName name)]
+  | none => #[name]
+
+/-- Lean's unfolding theorem of `name` in the current environment (`Meta.getUnfoldEqnFor?`, which
+realizes it where the environment does not hold it) at `levels`, as a term closed over `inspected`
+(`closedOver`); `none` where Lean gives none or the term cannot be closed. A proof to try, nothing
+more: Lean finds the theorem by name and from what it records about the definition, and realizes
+it without the kernel. The current environment keeps what the search adds; the caller restores it.
+A `checkerLimit?` reached is rethrown. -/
+private def unfoldingProof? (inspected : Environment) (name : Name) (levels : List Level) :
+    MetaM (Option Expr) := do
+  try
+    let some unfolding ← Meta.getUnfoldEqnFor? name | return none
+    return closedOver inspected (← getEnv) closurePasses (mkConst unfolding levels)
+  catch ex =>
+    if (← checkerLimit? ex).isSome then throw ex
+    return none
+
+/-- Whether Lean's kernel checks, in the inspected environment (the current one), the recursion
+equation of the definition `base` for `value`, its helper's value with every helper of the group
+replaced by its base: the theorem, with `value` the function `fun xs => body`,
+
+`∀ xs, base xs = body`
+
+by a proof that uses no axiom outside `checkedAxioms`. The checker builds the statement from the
+constant `base` and from `value` alone and gives that statement itself to the kernel as the type
+of a theorem (`kernelChecked`), after `isRecursionEquation` has confirmed its form by `Expr`
+equality. No theorem is trusted for its name and no statement is compared with another: whatever
+proof is found, the kernel checks it against this statement, in the environment the audit
+inspects. A name only selects a candidate, and who declared a candidate is not consulted. The
+candidates are tried in this order, each closed over the inspected environment before it is
+submitted (`closedOver`), so that the kernel checks every step that is not a constant of that
+environment:
+
+- `Eq.refl (base xs)`, where `body` is a proof (`Meta.isProof`): Lean states no unfolding theorem
+  for a definition whose type is a proposition, and the kernel accepts this one by proof
+  irrelevance;
+- each constant of `unfoldingTheoremNames` the environment holds, whoever declared it: the name is
+  that of Lean's `base.eq_def`, which its well-founded compiler adds with the definition and which
+  a module can also declare itself;
+- what `Meta.getUnfoldEqnFor?` returns for `base` (`unfoldingProof?`): a constant of that name
+  where the environment holds one, and otherwise the theorem Lean realizes; and
+- the theorem Lean realizes for the definition `regenerated?` names in the environment given with
+  it, the one a regeneration that reproduced `base` left: the regenerated definition, under the
+  reducibility in which Lean's compiler reproduces `base`.
+
+A statement no candidate proves answers `false`, as does one the search cannot build. Nothing is
+kept: the theorem and every constant the search adds are discarded. A `checkerLimit?` reached is
+rethrown, in the search or in the kernel: the helper is then undecided, not rejected. -/
+private def recursionEquationChecked (base : Name) (levelParams : List Name) (value : Expr)
+    (regenerated? : Option (Environment × Name)) : MetaM Bool := do
+  let inspected ← getEnv
+  let levels := levelParams.map mkLevelParam
+  let function := mkConst base levels
+  let saved ← Meta.saveState
+  let accepted := fun (statement : Expr) (proof? : Option Expr) => do
+    let some proof := proof? | return false
+    try
+      -- Whatever a search added is gone before the kernel is asked.
+      saved.restore
+      kernelChecked statement proof
+    catch ex =>
+      if (← checkerLimit? ex).isSome then throw ex
+      return false
+    finally
+      saved.restore
+  try
+    let (statement, irrelevant?) ← Meta.lambdaTelescope value fun xs body => do
+      let applied := mkAppN function xs
+      -- The type is read from `body`: that of `base xs` need not show where the type of `base` is
+      -- a definition that does not unfold.
+      let type ← Meta.inferType body
+      let level ← Meta.getLevel type
+      let statement ← Meta.mkForallFVars xs (mkApp3 (mkConst ``Eq [level]) type applied body)
+      unless ← Meta.isProof body do return (statement, none)
+      let reflexivity := mkApp2 (mkConst ``Eq.refl [level]) type applied
+      return (statement, some (← Meta.mkLambdaFVars xs reflexivity))
+    unless isRecursionEquation function value statement 0 do return false
+    if ← accepted statement irrelevant? then return true
+    for name in unfoldingTheoremNames inspected base do
+      if inspected.contains name then
+        if ← accepted statement (mkConst name levels) then return true
+    let realized? ← unfoldingProof? inspected base levels
+    saved.restore
+    if ← accepted statement realized? then return true
+    let some (regeneration, name) := regenerated? | return false
+    -- The regeneration's environment differs in what unfolds, and `saveState` does not cover
+    -- Lean's elaboration caches.
+    setEnv regeneration
+    Meta.resetCache
+    let regenerated? ← unfoldingProof? inspected name levels
+    saved.restore
+    Meta.resetCache
+    accepted statement regenerated?
+  catch ex =>
+    if (← checkerLimit? ex).isSome then throw ex
+    return false
+  finally
+    saved.restore
+    Meta.resetCache
+
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
 to the group's helpers standing for the recursive calls, and compare what it generates with the
-observed base and its auxiliary definitions (`regenerationMatches`). The regeneration reads the
+observed base and its auxiliary definitions (`regenerationMatches`). A helper whose base a
+regeneration reproduces is admitted only where Lean's kernel then checks, for each helper of the
+group, the recursion equation of its base for the helper's value (`recursionEquationChecked`).
+Each equation check runs with the heartbeat budget of one declaration (`withCurrHeartbeats`),
+whatever regenerations ran before it.
+The regeneration selects the base and the route recorded; that the helper computes the base rests
+on the kernel-checked equation, not on the regeneration or on what Lean's compilers read while it
+runs (matcher metadata, the `below` and `brecOn` declarations of an inductive type, reducibility
+statuses), all of which the audited source can write. The first regeneration that reproduces the
+base decides: where an equation is then not checked, the helper is not admitted and no further
+regeneration is tried. The regeneration reads the
 termination argument of the observed bases, since the value a compiler generates depends on it:
 the well-founded compiler passes the recursive-call function through a `match` where that
 function's type, which holds the relation and the measure, changes in an alternative. Structural
@@ -840,6 +1027,8 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
   let some _ := Lean.Compiler.isUnsafeRecName? name | return none
   let .defnInfo helper := info | return none
   let group := helper.all.toArray
+  -- The equations checked are those of the group's members, so the helper has to be one.
+  unless group.contains name do return none
   let some bases := group.mapM (fun member => do
       let base ← Lean.Compiler.isUnsafeRecName? member
       guard <| (env.find? member).any (· matches ConstantInfo.defnInfo _)
@@ -848,6 +1037,9 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
     | return none
   let rename := fun (value : Expr) => value.replace fun
     | .const n us => (group.idxOf? n).map fun i => mkConst (regenerationRoot ++ bases[i]!) us
+    | _ => none
+  let toBases := fun (value : Expr) => value.replace fun
+    | .const n us => (group.idxOf? n).map fun i => mkConst bases[i]! us
     | _ => none
   liftTermElabM do
     let preDefs ← group.mapIdxM fun i member => do
@@ -858,7 +1050,9 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
                 value := rename value.value, termination := .none } : PreDefinition)
     let regenerating ← regenerationEnvironment (← getEnv)
       (← cachedPreprocessRules preprocessRules env)
-    let attempt (environment : Environment) (run : TermElabM Unit) : TermElabM Bool := do
+    -- The environment a regeneration that reproduces the base leaves; `none` where it does not.
+    let attempt (environment : Environment) (run : TermElabM Unit) :
+        TermElabM (Option Environment) := do
       let saved ← saveState
       try
         Core.resetMessageLog
@@ -869,14 +1063,14 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         let after ← getEnv
         saved.restore
         Meta.resetCache
-        if failed then return false
-        let some regenerated := regeneratedDefinitions environment after | return false
-        regenerationMatches regenerated
+        if failed then return none
+        let some regenerated := regeneratedDefinitions environment after | return none
+        return if ← regenerationMatches regenerated then some after else none
       catch ex =>
         saved.restore
         Meta.resetCache
         if (← checkerLimit? ex).isSome then throw ex
-        return false
+        return none
       finally
         -- A runtime limit (heartbeats, recursion depth) bypasses `catch`; undo the run anyway.
         saved.restore
@@ -887,22 +1081,33 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
     let wfDefs := preDefs.map fun (preDef : PreDefinition) =>
       { preDef with termination := { TerminationHints.none with
           decreasingBy? := some ({ ref := .missing, tactic := elided } : DecreasingBy) } }
-    let regenerate (environment : Environment) : TermElabM (Option RecursionOrigin) := do
-      if ← attempt environment (structuralRecursion docCtx preDefs noMeasures) then
-        return some .structural
+    let regenerate (environment : Environment) :
+        TermElabM (Option (RecursionOrigin × Environment)) := do
+      if let some after ← attempt environment (structuralRecursion docCtx preDefs noMeasures) then
+        return some (.structural, after)
       let recursionArguments ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
         try
           observedRecursionArgument? bases[i]! preDef.levelParams preDef.value
         catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
       if recursionArguments.any (·.isSome) then
-        if ← attempt environment (structuralRecursion docCtx preDefs recursionArguments) then
-          return some .structural
-      if ← attempt environment (wfRegeneration regenerationRoot docCtx wfDefs) then
-        return some .wellFounded
+        if let some after ← attempt environment
+            (structuralRecursion docCtx preDefs recursionArguments) then
+          return some (.structural, after)
+      if let some after ← attempt environment (wfRegeneration regenerationRoot docCtx wfDefs) then
+        return some (.wellFounded, after)
       return none
-    if let some origin ← regenerate regenerating then return some origin
+    -- The regeneration selected the base; the kernel decides, for each member of the group.
+    let admitted (origin : RecursionOrigin) (after : Environment) :
+        TermElabM (Option RecursionOrigin) := do
+      for i in [:group.size] do
+        let some (.defnInfo member) := env.find? group[i]! | return none
+        unless ← withCurrHeartbeats <| recursionEquationChecked bases[i]! member.levelParams
+            (toBases member.value) (some (after, regenerationRoot ++ bases[i]!)) do
+          return none
+      return some origin
+    if let some (origin, after) ← regenerate regenerating then return ← admitted origin after
     let unsealed := withoutIrreducible regenerating
-    if let some origin ← regenerate unsealed then return some origin
+    if let some (origin, after) ← regenerate unsealed then return ← admitted origin after
     let undecided := m!"no regeneration of {name} reproduced its base, and the helper is \
       undecided, neither admitted nor rejected: "
     let fnNames := preDefs.map (·.declName)
@@ -914,9 +1119,9 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
     let (assignments, exhaustive) := candidates candidateLimit options
     for assignment in assignments do
       for environment in [regenerating, unsealed] do
-        if let some origin ← withCurrHeartbeats <|
+        if let some (origin, after) ← withCurrHeartbeats <|
             regenerate (withStatuses environment assignment) then
-          return some origin
+          return ← admitted origin after
     unless exhaustive do
       throwError "{undecided}the definitions of its module that it reaches allow more than \
         {candidateLimit} assignments of an earlier reducibility status, of which only the first \

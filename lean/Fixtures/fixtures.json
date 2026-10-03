@@ -45,6 +45,14 @@
   "expect": "pass",
   "claim": "standard-logical"
  },
+ "Fixtures.Positive.ProofValuedRecursion": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "[OK] fixtures_proof_structural._unsafe_rec",
+   "[OK] fixtures_proof_measured._unsafe_rec"
+  ]
+ },
  "Fixtures.Positive.RegenerationHandlerOverride": {
   "expect": "pass",
   "claim": "standard-logical"
@@ -301,6 +309,22 @@
    "[VIOLATION[escape-hatch]] fixtures_sunfold_erased_forged._unsafe_rec"
   ]
  },
+ "Fixtures.Mutations.AuthoredCompanionUnsafeRecForge": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[OK] fixtures_companion_honest._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_companion_forged._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.MatcherMetadataUnsafeRecForge": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[OK] fixtures_threaded_honest._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_threaded_forged._unsafe_rec"
+  ]
+ },
  "Fixtures.Mutations.KnownLimitReducibleWhereCompiled": {
   "expect": "fail",
   "reason": "escape-hatch",
@@ -347,7 +371,8 @@
   "output": [
    "[OK] fixtures_forged_measured_honest._unsafe_rec",
    "[OK] fixtures_forged_measured_faithful._unsafe_rec",
-   "[VIOLATION[escape-hatch]] fixtures_forged_measured_divergent._unsafe_rec"
+   "[VIOLATION[escape-hatch]] fixtures_forged_measured_divergent._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_measured_bare._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.ReducibilityChangeUnsafeRecForge": {
