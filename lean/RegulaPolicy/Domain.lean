@@ -2,6 +2,7 @@ module
 
 public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
+public import RegulaPolicy.Compiler
 
 /-! # Policy vocabulary and observation data
 
@@ -91,8 +92,8 @@ inductive BoundaryKind where
   | «partialComputation»
   /-- Any other opaque constant; its body is checked only when no compiled helper replaces it. -/
   | «opaqueComputation»
-  /-- An axiom that trusts the compiler, reached by execution: `Lean.trustCompiler`,
-  `Lean.ofReduceBool`, `Lean.ofReduceNat` or a name the `nativeEqTrue` scheme generates for
+  /-- An axiom that trusts the compiler, reached by execution: the enabled legacy
+  compiler-trust family or a name the `nativeEqTrue` scheme generates for
   `native_decide`, `decide +native` or `bv_decide` (`compilerTrustingAxiomName`). -/
   | «compilerTrustedProof»
   deriving Repr, DecidableEq, Inhabited
@@ -663,6 +664,11 @@ structure Declaration where
   `none` when neither route did or an equation was not checked, and for every other declaration or
   inspection stage. -/
   unsafeRecRegenerated : Option RecursionOrigin
+  /-- For a replay candidate matching the pinned constructor-index generator: its inductive
+  parent and safe base. The observer checks the kernel-generated eliminator, the base's exact
+  alternatives, and the closed `getObjTagNat` wrapper without compiling any declaration.
+  This records a structural observation, not native execution correspondence. -/
+  constructorIndex : Option (Lean.Name × Lean.Name)
   /-- For an axiom whose name the `nativeEqTrue` scheme generates for a native tactic
   (`nativeAxiomOrigin?`) and whose type is `e = true` with `e` in that tactic's asserted shape
   (`decide p` for `native_decide` and `decide +native`, `verifyBVExpr expr cert` over the run's
@@ -691,6 +697,12 @@ structure Declaration where
 selection range lies within its full range, and otherwise that full range as its own selection
 range (`Ranges.admitted`). -/
 def Declaration.ranges (d : Declaration) : Option Ranges := d.recordedRanges.map Ranges.admitted
+
+/-- A constructor-index helper spelling selects a candidate parent and base; it authorizes
+neither declaration. The replay observer and inventory relation establish its role. -/
+def constructorIndexOrigin? : Lean.Name → Option (Lean.Name × Lean.Name)
+  | .str (.str parent "ctorIdx") "_impl" => some (parent, parent.str "ctorIdx")
+  | _ => none
 
 /-- The roots of the library packages the Lean toolchain ships as its own code: `Init`, `Std`
 and `Lean`. A module under one of them is toolchain code only with an admitted origin
@@ -1018,6 +1030,8 @@ structure ModuleOrigin where
 structure Environment where
   /-- The Lean version string of the toolchain that loaded the environment. -/
   toolchain : String
+  /-- The legacy compiler capability observed in an isolated, origin-checked Core environment. -/
+  compilerCapability : Compiler.LegacyCompilerTrust
   /-- Every module of the loaded environment, sorted and without duplicates. -/
   modules : Array Lean.Name
   /-- The origin of each loaded module; empty when the report omits origins. -/

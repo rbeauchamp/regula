@@ -76,6 +76,9 @@ structure PolicyScope where
 def PolicyScope.native (s : PolicyScope) : Array Lean.Name := s.roles.native
 /-- The `_unsafe_rec` helpers admitted as generated roles (`Roles.helpers`). -/
 def PolicyScope.helpers (s : PolicyScope) : Array Lean.Name := s.roles.helpers
+/-- The separately authenticated unsafe constructor-index wrappers. -/
+def PolicyScope.constructorHelpers (s : PolicyScope) : Array Lean.Name :=
+  s.roles.constructorHelpers
 
 /-- A transcript-coordinate check over the declaration inventory. The operational
 adapter supplies `Frontend.validateCoordinates`, which runs `checked_coordinates`. -/
@@ -86,7 +89,7 @@ abbrev CoordinateCheck :=
 transcripts in order, and the first refusal is returned. Afterwards admission is exactly
 inventory admission with recomputed roles. Success retains the exact declaration and
 transcript arrays, and occurs exactly when every check and the inventory predicate hold. -/
-def ScopeContract
+def ScopeContract (compiler : RegulaPolicy.Compiler.Capability)
     (admit : CoordinateCheck → Array Declaration → Array RegulaPolicy.Frontend.Transcript →
       Except String PolicyScope) : Prop :=
   ∀ check : CoordinateCheck,
@@ -94,32 +97,37 @@ def ScopeContract
         (∀ b ∈ before, check ds b = .ok ()) →
         check ds t = .error e → admit check ds ts = .error e) ∧
     (∀ ds ts, (∀ t ∈ ts, check ds t = .ok ()) →
-        admit check ds ts = (RegulaPolicy.admitInventory ds ts).map
+        admit check ds ts = (RegulaPolicy.admitInventory compiler ds ts).map
           fun inventory => ⟨inventory, RegulaPolicy.authorize inventory⟩) ∧
     (∀ ds ts, (∃ scope, admit check ds ts = .ok scope) ↔
         (∀ t ∈ ts, check ds t = .ok ()) ∧ RegulaPolicy.InventoryValid ds ts) ∧
     (∀ ds ts scope, admit check ds ts = .ok scope →
-        scope.inventory.declarations = ds ∧ scope.inventory.transcripts = ts)
+        scope.inventory.compiler = compiler ∧ scope.inventory.declarations = ds ∧
+          scope.inventory.transcripts = ts)
 
-private def admitScopeImpl (check : CoordinateCheck) (ds : Array Declaration)
+private def admitScopeImpl (compiler : RegulaPolicy.Compiler.Capability)
+    (check : CoordinateCheck) (ds : Array Declaration)
     (ts : Array RegulaPolicy.Frontend.Transcript) : Except String PolicyScope := do
   ts.toList.forM (check ds)
-  let inventory ← RegulaPolicy.admitInventory ds ts
+  let inventory ← RegulaPolicy.admitInventory compiler ds ts
   return ⟨inventory, RegulaPolicy.authorize inventory⟩
 
-private theorem admitScopeImpl_checked (check : CoordinateCheck) (ds : Array Declaration)
+private theorem admitScopeImpl_checked (compiler : RegulaPolicy.Compiler.Capability)
+    (check : CoordinateCheck) (ds : Array Declaration)
     (ts : Array RegulaPolicy.Frontend.Transcript) (h : ∀ t ∈ ts, check ds t = .ok ()) :
-    admitScopeImpl check ds ts = (RegulaPolicy.admitInventory ds ts).map
+    admitScopeImpl compiler check ds ts = (RegulaPolicy.admitInventory compiler ds ts).map
       fun inventory => ⟨inventory, RegulaPolicy.authorize inventory⟩ := by
   have hts : ts.toList.forM (check ds) = .ok () :=
     RegulaPolicy.Guards.listForM_eq_ok.mpr fun t ht => h t (by simpa using ht)
   simp only [admitScopeImpl, hts, bind, Except.bind]
-  cases RegulaPolicy.admitInventory ds ts <;> rfl
+  cases RegulaPolicy.admitInventory compiler ds ts <;> rfl
 
 /-- Registers `ScopeContract` about the executed admission; the adapter's `admitScope`
 runs it with the frontend coordinate check. -/
-theorem checked_scope : Regula.ExecutableContract admitScopeImpl ScopeContract := by
-  refine ⟨fun check => ⟨?first, admitScopeImpl_checked check, ?success, ?fidelity⟩⟩
+theorem checked_scope : Regula.ExecutableContract admitScopeImpl
+    (fun admit => ∀ compiler, ScopeContract compiler (admit compiler)) := by
+  refine ⟨fun compiler check =>
+    ⟨?first, admitScopeImpl_checked compiler check, ?success, ?fidelity⟩⟩
   case first =>
     intro ds ts before t after e hts hb ht
     have refused := (RegulaPolicy.forM_eq_error _ _ e).mpr ⟨before, t, after, hts, hb, ht⟩
@@ -127,9 +135,9 @@ theorem checked_scope : Regula.ExecutableContract admitScopeImpl ScopeContract :
   case success =>
     intro ds ts
     by_cases hc : ∀ t ∈ ts, check ds t = .ok ()
-    · rw [admitScopeImpl_checked check ds ts hc]
+    · rw [admitScopeImpl_checked compiler check ds ts hc]
       by_cases hv : RegulaPolicy.InventoryValid ds ts
-      · simpa [RegulaPolicy.admitInventory_exact ds ts hv, Except.map, hv] using hc
+      · simpa [RegulaPolicy.admitInventory_exact compiler ds ts hv, Except.map, hv] using hc
       · simp [RegulaPolicy.admitInventory, hv, Except.map]
     · have hts : ts.toList.forM (check ds) ≠ .ok () :=
         fun h => hc fun t ht => RegulaPolicy.Guards.listForM_eq_ok.mp h t (by simpa using ht)
@@ -146,9 +154,9 @@ theorem checked_scope : Regula.ExecutableContract admitScopeImpl ScopeContract :
     | ok u =>
       by_cases hv : RegulaPolicy.InventoryValid ds ts
       · simp only [admitScopeImpl, bind, Except.bind, hts,
-          RegulaPolicy.admitInventory_exact ds ts hv, pure, Except.pure, Except.ok.injEq] at h
+          RegulaPolicy.admitInventory_exact compiler ds ts hv, pure, Except.pure, Except.ok.injEq] at h
         subst h
-        exact ⟨rfl, rfl⟩
+        exact ⟨rfl, rfl, rfl⟩
       · simp [admitScopeImpl, hts, bind, Except.bind, RegulaPolicy.admitInventory, hv] at h
 
 /-- Required meaning of a claim: no claim selects classification, compiler-trusting selects
@@ -298,7 +306,7 @@ theorem subject_contract : SubjectContract subject :=
   checked_subject.evidence
 
 /-- A member with a partial parent always has a finding, for every claim: it is `partial` and,
-by `RegulaPolicy.partialParent_not_authorized`, not an authorized recursion helper, so
+by `RegulaPolicy.Roles.partialParent_not_safetyHelper`, in neither generated safety family, so
 `SafetyOK` fails, and a native axiom (`NativeAxiomShape`) is never partial. Its finding names
 that parent (`subject_contract`). -/
 theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope : PolicyScope)
@@ -309,8 +317,7 @@ theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope 
   rw [ruleForMember_eq, Ne, (ruleFor_contract decl claim scope).1,
     RegulaPolicy.policyFor_none_iff]
   rintro ⟨_, ok⟩
-  have notHelper := RegulaPolicy.partialParent_not_authorized unique member hp parent
-  rw [← scope.roles.helpers_exact] at notHelper
+  have notHelper := scope.roles.partialParent_not_safetyHelper member hp parent
   rcases ok with ⟨_, native, _⟩ | ⟨_, _, _, safety, _⟩
   · rw [scope.roles.native_exact] at native
     obtain ⟨a, ha, hname, shape, _⟩ :=

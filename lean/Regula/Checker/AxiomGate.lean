@@ -345,6 +345,19 @@ private def withSourceEvidence (sources : Array ProducerReport.SourceBinding)
     (action : IO UInt32) : IO UInt32 :=
   withSourceEvidenceOr 1 sources configuration scope mode composed resultOut action
 
+/-- Merge each module's directly observed importers across environments: keep its first
+position and append incoming importers not already recorded for it. -/
+private def mergeUnowned (known incoming : Array ProducerReport.UnownedModule) :
+    Array ProducerReport.UnownedModule := Id.run do
+  let mut result := known
+  for unowned in incoming do
+    match result.findIdx? (·.module == unowned.module) with
+    | some index =>
+        result := result.modify index fun known => { known with
+          importers := known.importers ++ unowned.importers.filter (!known.importers.contains ·) }
+    | none => result := result.push unowned
+  return result
+
 /-- Accepted project evidence handed, in the same process, to the same-snapshot
 documentation stage and to the ordinary acceptance link. Nothing is serialized. -/
 private structure ProjectEvidence where
@@ -389,9 +402,9 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       let snapshotFor (name : Name) : Option Regula.SourceSnapshot :=
         (sourceBindings.find? (·.moduleName == name)).map fun s => ⟨s.path, s.content⟩
       SourceBinding.configurationUnchanged configuration
-      let positiveTargets := Manifest.positiveTargets manifest
-      let (buildProcess, buildResult) ← timedPhase "claimed-source build" <|
-          Lake.buildCheckedObservation repo positiveTargets
+      let buildPlan := Lake.claimedBuildPlan manifest inventory
+      let (initialBuild, buildResult) ← timedPhase "claimed-source build" <|
+          Lake.buildCheckedObservation repo buildPlan.initialTargets
               (if fresh then "fresh" else "incrementally") (← claimedBuild.get)
       SourceBinding.unchanged sourceBindings
       SourceBinding.configurationUnchanged configuration
@@ -414,6 +427,91 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         result
       let configuredModules := libraries.foldl (fun result info => result ++ info.modules) #[]
         ++ inventory.executables.map (·.root)
+      let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
+      let gather (found : Array Regula.Finding) (finding : Regula.Finding) :=
+        if found.any (·.entry == finding.entry) then found else found.push finding
+      -- Complete this refusal-only phase before starting any declaration workers. A clear
+      -- graph supplies no evidence to those workers or to acceptance finalization.
+      let graphArtifacts ← (assignments.flatMap (·.library)).filterMapM fun identity =>
+        freezeArtifact identity.name (Lean.modToFilePath inventory.leanLibDir identity.name "olean")
+      let positiveModules := environments.flatMap (·.info.modules)
+      let mut scopeFindings : Array Regula.Finding := #[]
+      let mut scopeUnowned : Array ProducerReport.UnownedModule := #[]
+      for environment in environments do
+        let request : ModuleGraphRequest := {
+          modules := environment.info.modules
+          searchRoots := inventory.leanPath.map (·.toString)
+          sourceBindings
+        }
+        let observed ← (do
+          let graph : Environment.ModuleGraph ← timedPhase s!"module scope {environment.label}" <|
+            runTypedWorker "--module-graph-worker" request
+          let ordinary ← graph.ordinaryModules
+          let failures ← graph.requestedFailures ordinary
+            (graph.scopeRequests request.modules positiveModules) inventory.leanLibDir
+          unless failures.isEmpty do
+            return (failures, (#[] : Array ProducerReport.UnownedModule), (#[] : Array String))
+          let owned := request.modules ++ request.sourceBindings.map
+            ProducerReport.SourceBinding.moduleName
+          let unowned ← graph.unownedModules owned inventory.leanLibDir
+          unless unowned.isEmpty do return (#[], unowned, #[])
+          let details ← graph.importDetails ordinary excludedModules configuredModules
+            inventory.leanLibDir environment.surface.library
+          return (#[], #[], details)).toBaseIO
+        match observed with
+          | .ok (failures, unowned, details) =>
+            scopeUnowned := mergeUnowned scopeUnowned unowned
+            for detail in failures do
+              scopeFindings := gather scopeFindings (← IO.ofExcept <|
+                RuleDiagnostics.contextFinding .coverage reportRoot.toString detail mode .incomplete)
+            for detail in details do
+              scopeFindings := gather scopeFindings (← IO.ofExcept <|
+                RuleDiagnostics.contextFinding .coverage reportRoot.toString detail mode .violation)
+          | .error error =>
+            let finding ← IO.ofExcept <| RuleDiagnostics.contextFinding .environment
+              reportRoot.toString
+              s!"declaration inspection of {environment.label} failed: module scope: {error}"
+              mode .incomplete
+            scopeFindings := gather scopeFindings finding
+      for unowned in scopeUnowned do
+        scopeFindings := scopeFindings.push (← IO.ofExcept <|
+          RuleDiagnostics.contextFinding .coverage reportRoot.toString unowned.detail mode .violation)
+      SourceBinding.unchanged sourceBindings
+      SourceBinding.configurationUnchanged configuration
+      if let some name ← changedArtifact? graphArtifacts then
+        reportContextFailure .admission reportRoot.toString mode .incomplete
+          buildPlan.completedBeforeScope
+          s!"producer-artifact: the .olean files of {name} changed during the audit" composed
+          resultOut sourceBindings
+        return 1
+      unless scopeFindings.isEmpty do
+        Snapshot.inputsUnchanged inventory dependencies
+        for document in documents do
+          unless (← IO.FS.readFile document.uri) == document.source do
+            throw <| IO.userError s!"documentation snapshot changed: {document.uri}"
+        reportContextFindings scopeFindings reportRoot.toString mode
+          buildPlan.completedBeforeScope composed resultOut sourceBindings
+        return 1
+      let (buildProcess, buildResult) ← match buildPlan.completionTargets with
+        | none => pure (initialBuild, none)
+        | some targets => do
+            let build ← claimedBuild.get
+            timedPhase "deferred claimed-source build" (Lake.buildCheckedObservation repo targets
+              (if fresh then "fresh" else "incrementally") build)
+      SourceBinding.unchanged sourceBindings
+      SourceBinding.configurationUnchanged configuration
+      if let some lines := buildResult then
+        reportContextFailure .sourceBuild reportRoot.toString mode .incomplete
+          [.configuration, .discovery]
+          ("\n".intercalate lines.toList) composed resultOut sourceBindings
+        return 1
+      if buildPlan.completionTargets.isSome then
+        if let some name ← changedArtifact? graphArtifacts then
+          reportContextFailure .admission reportRoot.toString mode .incomplete
+            [.configuration, .discovery, .build]
+            s!"producer-artifact: the .olean files of {name} changed during the audit" composed
+            resultOut sourceBindings
+          return 1
       -- Each environment's report comes from its own worker process (`Inspection.inspect`).
       let (frozenArtifacts, inspections) ←
         Inspection.inspect inventory sourceBindings assignments environments
@@ -436,9 +534,6 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
       -- (same rule and detail), such as one refused declaration that several environments
       -- replay, is gathered once. Configuration, discovery and the build completed before any
       -- inspection.
-      let mode : Regula.EvidenceMode := if fresh then .freshProject else .incrementalProject
-      let gather (found : Array Regula.Finding) (finding : Regula.Finding) :=
-        if found.any (·.entry == finding.entry) then found else found.push finding
       let mut stopped : Array Regula.Finding := #[]
       let mut unownedModules : Array ProducerReport.UnownedModule := #[]
       for (environment, outcome) in inspections do
@@ -448,13 +543,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
             stopped := gather stopped (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
               reportRoot.toString failure.detail mode .incomplete)
         | .ok (.error (.unowned modules)) =>
-            for unowned in modules do
-              match unownedModules.findIdx? (·.module == unowned.module) with
-              | some index =>
-                  unownedModules := unownedModules.modify index fun known => { known with
-                    importers := known.importers ++
-                      unowned.importers.filter (!known.importers.contains ·) }
-              | none => unownedModules := unownedModules.push unowned
+            unownedModules := mergeUnowned unownedModules modules
         | .error error =>
             stopped := gather stopped (← IO.ofExcept <| RuleDiagnostics.contextFinding .environment
               reportRoot.toString s!"declaration inspection of {environment.label} failed: {error}"
@@ -514,56 +603,16 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
         let report := admitted.report
         unless report.census.modules == info.modules && report.census.executionRoots.isSome do
           throw <| IO.userError "producer-census: report does not match requested project scope"
-        let forcedNameCodec ← Environment.forcedStructuralName report
-        let forcedCollector ← Environment.forcedCollectorOnly report
-        let envModules := report.modules.filter
-          (fun n => !(Environment.probeModuleNames.map String.toName).contains n &&
-            n != forcedNameCodec && some n != forcedCollector)
-        for moduleName in info.modules do
-          if !envModules.contains moduleName then
-            failures :=
-                failures.push s!"surface-omission: Lake module {moduleName} was not elaborated"
-            findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-              reportRoot.toString
-                  (s!"surface-omission: Lake module {moduleName} was not elaborated")
-                  (if fresh then .freshProject else .incrementalProject) .incomplete)
-          let origins := report.moduleOrigins.filter (·.name == moduleName)
-          let freshOrigin ← match origins[0]? with
-            | some origin => pathWithin (FilePath.mk origin.olean) rootInventory.leanLibDir
-            | none => pure false
-          if origins.size != 1 || !freshOrigin then
-            failures :=
-                failures.push
-                    s!"surface-not-fresh: {moduleName} did not resolve from the fresh Lake output"
-            findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
-              reportRoot.toString
-                  (s!"surface-not-fresh: {moduleName} did not resolve from the fresh Lake output")
-                  (if fresh then .freshProject else .incrementalProject) .incomplete)
-        let mut importDetails : Array String := #[]
-        for moduleName in envModules do
-          if excludedModules.contains moduleName then
-            importDetails := importDetails.push s!"unexpected-project-module: excluded module \
-              {moduleName} was imported into positive library {surface.library}"
-        -- The probe modules are exempt from the environment-level exclusion check
-        -- because the force import always brings them in. Any other module in the
-        -- audited environment that imports the probe or its report records is
-        -- contamination by an excluded checker module, whatever package owns the
-        -- importer: Lake resolves imports workspace-wide, so a dependency module
-        -- can import root modules, and only a scan of every module's recorded
-        -- direct imports closes every chain from a claimed module to the probe.
-        for origin in report.moduleOrigins do
-          if (Environment.probeModuleNames.map String.toName).contains origin.name then continue
-          for imported in origin.imports do
-            if (Environment.probeOnlyModuleNames.map String.toName).contains imported then
-              importDetails := importDetails.push s!"unexpected-project-module: checker probe \
-                module {imported} was imported into positive library {surface.library} \
-                by {origin.name}"
-        for origin in report.moduleOrigins do
-          if (Environment.probeModuleNames.map String.toName).contains origin.name then continue
-          if ← pathWithin (FilePath.mk origin.olean) rootInventory.leanLibDir then
-            if !configuredModules.contains origin.name then
-              importDetails := importDetails.push s!"unexpected-project-module: root-owned \
-                module {origin.name} is outside every manifested Lake library"
+        let graph := Environment.ModuleGraph.ofReport report
+        let envModules ← graph.ordinaryModules
+        let requestedFailures ← graph.requestedFailures envModules info.modules
+          rootInventory.leanLibDir
+        for detail in requestedFailures do
+          failures := failures.push detail
+          findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .coverage
+            reportRoot.toString detail mode .incomplete)
+        let importDetails ← graph.importDetails envModules excludedModules configuredModules
+          rootInventory.leanLibDir surface.library
         for detail in importDetails do
           unless reportedImports.contains (surface.library, detail) do
             reportedImports := reportedImports.insert (surface.library, detail)
@@ -581,7 +630,8 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           findings := findings.push (← IO.ofExcept <| RuleDiagnostics.contextFinding .admission
             reportRoot.toString failure (if fresh then .freshProject else .incrementalProject)
                 .incomplete)
-        let scope ← IO.ofExcept <| Policy.admitScope report.declarations transcripts
+        let scope ← IO.ofExcept <|
+          Policy.admitScope report.compilerCapability report.declarations transcripts
         let native := scope.native
         let unsafeHelpers := scope.helpers
         totalDeclarations := totalDeclarations + report.declarations.size
@@ -690,6 +740,7 @@ private unsafe def auditSurfaceAt (repo manifestPath : FilePath)
           ("modules", toJson info.modules),
           ("authorizedNativeAxioms", toJson native),
           ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
+          ("authorizedConstructorIndexHelpers", toJson scope.constructorHelpers),
           ("frontendTranscripts", Json.arr <| transcripts.map
             (Frontend.transcriptResultJson · withKernelTypes)),
           ("report", report)
@@ -1023,7 +1074,8 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
         | some (.ok (.ok inspected)) =>
             let declarations := inspected.report.declarations.qsort fun left right =>
               Name.quickLt left.name right.name
-            let scope ← IO.ofExcept <| Policy.admitScope declarations inspected.transcripts
+            let scope ← IO.ofExcept <|
+              Policy.admitScope inspected.report.compilerCapability declarations inspected.transcripts
             let native := scope.native
             let unsafeHelpers := scope.helpers
             let mut reasons : Array String := #[]
@@ -1138,6 +1190,7 @@ private unsafe def auditFile (repo path : FilePath) (claim : Option Profile)
                   ("toolchainBase", Policy.toolchainBaseJson toolchainBase),
                   ("authorizedNativeAxioms", toJson native),
                   ("authorizedUnsafeRecHelpers", toJson unsafeHelpers),
+                  ("authorizedConstructorIndexHelpers", toJson scope.constructorHelpers),
                   ("frontendTranscripts",
                     toJson (inspected.transcripts.map
                       (Frontend.transcriptResultJson · withKernelTypes))),
@@ -1178,11 +1231,29 @@ private def optionValues (flag : String) : List String → List String
       else optionValues flag (value :: rest)
   | _ => []
 
-/-- Before any argument validation, mark every recognisable `--json-out` destination
-incomplete, so an earlier completed result cannot be mistaken for this attempt's. -/
-def invalidateResults (args : List String) : IO Unit := do
-  let destinations := (optionValues "--json-out" args).eraseDups.map FilePath.mk
-  let invalidate (path : FilePath) :=
+/-- A kind of output destination an invocation may name: a result document (`--json-out`) or an
+acceptance link (`--acceptance-link`). -/
+inductive Destination where
+  /-- A result document, named by `--json-out`. -/
+  | result
+  /-- An acceptance link, named by `--acceptance-link`. -/
+  | acceptanceLink
+  deriving BEq
+
+/-- The option that names a destination of this kind. -/
+def Destination.flag : Destination → String
+  | .result => "--json-out"
+  | .acceptanceLink => "--acceptance-link"
+
+/-- Before any argument validation, mark every recognisable destination of the `kinds` the calling
+interface accepts incomplete, so an earlier completed result cannot be mistaken for this
+attempt's. A destination of another kind is left untouched: that interface refuses its option. -/
+def invalidateResults (kinds : List Destination) (args : List String) : IO Unit := do
+  let destinations := kinds.flatMap fun kind =>
+    (optionValues kind.flag args).eraseDups.map fun path =>
+      (FilePath.mk path, kind == .acceptanceLink)
+  let invalidate (path : FilePath) (link : Bool) :=
+    if link then AcceptanceLink.invalidate path else
     ResultProtocol.writeDocument path (Json.mkObj (ResultProtocol.identityFields ++ [
       ("scope", Json.null), ("mode", Json.null), ("status", .str "incomplete"),
       ("diagnostics", toJson (#[] : Array Json)),
@@ -1190,14 +1261,14 @@ def invalidateResults (args : List String) : IO Unit := do
       ResultProtocol.sourceTextsField] ++
       ResultProtocol.guidanceFields false ResultProtocol.allStages [] []))
   -- Absolute destinations do not depend on project configuration being valid.
-  for path in destinations.filter (·.isAbsolute) do invalidate path
-  let relative := destinations.filter (!·.isAbsolute)
+  for (path, link) in destinations.filter (·.1.isAbsolute) do invalidate path link
+  let relative := destinations.filter (!·.1.isAbsolute)
   if !relative.isEmpty then
     let root ← match optionValues "--project" args with
       | [dir] => findRepoRoot dir
       | [] => repoRoot
       | _ => throw <| IO.userError "duplicate --project option"
-    for path in relative do invalidate (resolve root path)
+    for (path, link) in relative do invalidate (resolve root path) link
 
 /-- The options of an audit invocation: parsed, without a duplicated option, and in a
 combination the usage text allows; otherwise an error naming the problem. -/
@@ -1245,11 +1316,12 @@ unsafe def run (args : List String) : IO UInt32 := do
   RunFeedback.reset
   expectedStages.set ResultProtocol.allStages
   -- An invalid invocation is refused as one, though its destinations could not be invalidated.
-  try invalidateResults args
+  try invalidateResults [.result, .acceptanceLink] args
   catch error =>
     let admitted ← (admitOptions args).toBaseIO
     if let .error invalid := admitted then return ← refuseInvocation invalid.toString
     throw error
+  CompilerMode.requireAllowed
   if let ["--validate-site", registryPath, artifactPath] := args then
     let registry ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile registryPath)
     let artifact ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile artifactPath)
@@ -1261,6 +1333,14 @@ unsafe def run (args : List String) : IO UInt32 := do
   if let ["--validate-registry", input] := args then
     let value ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
     IO.ofExcept <| Regula.RegistryCodec.validateRegistry ResultProtocol.producer value
+    return 0
+  if let ["--module-graph-worker", input, out] := args then
+    let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)
+    let request : ModuleGraphRequest ← IO.ofExcept (fromJson? json)
+    let guarded ← SourceBinding.withUnchanged request.sourceBindings #[] <|
+      Environment.loadModuleGraph request.modules (request.searchRoots.map FilePath.mk)
+    let graph ← IO.ofExcept <| guarded.mapError (·.detail)
+    writeJson out (workerPacket json (toJson graph))
     return 0
   if let ["--declaration-report-worker", input, out] := args then
     let json ← IO.ofExcept <| Regula.Checker.PolicyCodec.parse (← IO.FS.readFile input)

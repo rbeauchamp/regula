@@ -487,9 +487,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.proofCompleteness]
       applicability := "compiler-trusting"
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Claimed declarations use no compiler-trusting proof: no `native_decide`, \
-        `decide +native`, `bv_decide`, `Lean.trustCompiler`, `Lean.ofReduceBool` or \
-        `Lean.ofReduceNat`."
+      requirement := "Claimed declarations use no compiler-trusting proof: no native proof or \
+        legacy compiler-trust axiom declared by the selected compiler."
       rationale := "Compiled evaluation is outside the kernel's checking. A compiler or runtime \
         defect could make a false proposition \"proved\". Compiler-trusting is therefore not one \
         of the three logical labels and never counts as conforming evidence."
@@ -551,8 +550,9 @@ def descriptor : (id : RuleId) → RuleDescriptor id
       normativeClauses := [.declarationInventory]
       applicability := "escape-hatch"
       evidenceModes := .editorSnapshot :: declarationModes
-      requirement := "Claimed modules declare nothing `unsafe` or `partial`; recursion is \
-        structural or proved terminating."
+      requirement := "Claimed modules declare nothing `unsafe` or `partial`, authored or \
+        generated, except a generated recursion or constructor-index helper passing its exact \
+        §7.4 authentication."
       rationale := "A positive proof surface must consist of kernel-checked definitions. Unsafe \
         and partial code can be executed, but it cannot serve as logical evidence, and reasoning \
         about it silently depends on its runtime behavior."

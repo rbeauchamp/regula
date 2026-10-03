@@ -26,6 +26,16 @@ def authorizedNativeAxioms (ds : Array Declaration) (ts : Array Transcript := #[
 def authorizedUnsafeRecHelpers (ds : Array Declaration) : Array Name :=
   (ds.filter (fun h => decide (RecursiveHelperOK ds h))).map (·.name)
 
+/-- Execute the separate constructor-index relation over the complete inventory. -/
+def authorizedConstructorIndexHelpers (ds : Array Declaration) : Array Name :=
+  (ds.filter (fun h => decide (ConstructorIndexHelperOK ds h))).map (·.name)
+
+/-- Every admitted constructor-index name has its full relation in this inventory. -/
+theorem authorizedConstructorIndexHelpers_iff (ds : Array Declaration) (n : Name) :
+    n ∈ authorizedConstructorIndexHelpers ds ↔
+      ∃ h ∈ ds, h.name = n ∧ ConstructorIndexHelperOK ds h := by
+  simp [authorizedConstructorIndexHelpers, Array.mem_map, Array.mem_filter, and_left_comm, and_comm]
+
 /-- Authorization is equivalent to existence of the complete native relation at this name. -/
 theorem authorizedNativeAxioms_iff (ds : Array Declaration) (ts : Array Transcript) (n : Name) :
     n ∈ authorizedNativeAxioms ds ts ↔ ∃ a ∈ ds, a.name = n ∧ NativeTeachingOK ds ts a := by
@@ -171,7 +181,7 @@ def declarationFailure (decl : Declaration) (claim : InspectionRequest)
 
 
 /-- Inventory-bound observations of the actual role validators. Supplying arbitrary
-name arrays cannot authorize a role: both equations must be proved for this inventory. -/
+name arrays cannot authorize a role: every equation must be proved for this inventory. -/
 structure Roles (inventory : Inventory) where
   /-- Names of the declarations that satisfy `NativeTeachingOK`: the native-proof axioms of
   `native_decide`, `decide +native` and `bv_decide` admitted as generated roles, in inventory
@@ -180,29 +190,62 @@ structure Roles (inventory : Inventory) where
   /-- Names of the declarations that satisfy `RecursiveHelperOK`: the generated `_unsafe_rec`
   helpers admitted as generated roles, in inventory order. -/
   helpers : Array Name
+  /-- Constructor-index wrappers satisfying the separate structural relation. -/
+  constructorHelpers : Array Name
   /-- `native` is what `authorizedNativeAxioms` computes from this inventory. -/
   native_exact : native = authorizedNativeAxioms inventory.declarations inventory.transcripts
   /-- `helpers` is what `authorizedUnsafeRecHelpers` computes from this inventory. -/
   helpers_exact : helpers = authorizedUnsafeRecHelpers inventory.declarations
+  /-- The constructor wrappers are recomputed from this same inventory. -/
+  constructorHelpers_exact :
+    constructorHelpers = authorizedConstructorIndexHelpers inventory.declarations
 
-/-- Recompute both validators from the admitted data; no serialized proof is trusted. -/
+/-- The two distinct generated families admitted by the safety policy. -/
+def Roles.safetyHelpers {i : Inventory} (roles : Roles i) : Array Name :=
+  roles.helpers ++ roles.constructorHelpers
+
+/-- Safety membership retains the relation of whichever family authorized it. -/
+theorem Roles.safetyHelpers_iff {i : Inventory} (roles : Roles i) (n : Name) :
+    n ∈ roles.safetyHelpers ↔
+      (∃ h ∈ i.declarations, h.name = n ∧ RecursiveHelperOK i.declarations h) ∨
+      (∃ h ∈ i.declarations, h.name = n ∧ ConstructorIndexHelperOK i.declarations h) := by
+  simp only [Roles.safetyHelpers, Array.mem_append, roles.helpers_exact,
+    roles.constructorHelpers_exact, authorizedUnsafeRecHelpers_iff,
+    authorizedConstructorIndexHelpers_iff]
+
+/-- A partial parent's helper belongs to neither generated safety exception. -/
+theorem Roles.partialParent_not_safetyHelper {i : Inventory} (roles : Roles i)
+    {h p : Declaration} (hh : h ∈ i.declarations) (hp : p ∈ i.declarations)
+    (parent : PartialParent h p) : h.name ∉ roles.safetyHelpers := by
+  rw [Roles.safetyHelpers, Array.mem_append, roles.helpers_exact,
+    roles.constructorHelpers_exact]
+  rintro (recursive | constructor)
+  · exact partialParent_not_authorized i.valid.1 hh hp parent recursive
+  · obtain ⟨h', hh', name, shape⟩ :=
+      (authorizedConstructorIndexHelpers_iff _ _).mp constructor
+    cases eq_of_name_eq i.valid.1 hh' hh name
+    exact absurd parent.1 (by simp [shape.2.2.2.2.1])
+
+/-- Recompute every validator from the admitted data; no serialized proof is trusted. -/
 def authorize (i : Inventory) : Roles i :=
   ⟨authorizedNativeAxioms i.declarations i.transcripts,
-   authorizedUnsafeRecHelpers i.declarations, rfl, rfl⟩
+   authorizedUnsafeRecHelpers i.declarations, authorizedConstructorIndexHelpers i.declarations,
+   rfl, rfl, rfl⟩
 
-/-- Any role receipt for this exact inventory equals recomputation of both validators.
+/-- Any role receipt for this exact inventory equals recomputation of every validator.
 The equations in Roles determine the arrays; no producer verdict is assumed. -/
 theorem Roles.eq_authorize {i : Inventory} (roles : Roles i) : roles = authorize i := by
   cases roles with
-  | mk native helpers native_exact helpers_exact =>
+  | mk native helpers constructorHelpers native_exact helpers_exact constructorHelpers_exact =>
     cases native_exact
     cases helpers_exact
+    cases constructorHelpers_exact
     rfl
 
 /-- Public policy checks exact inventory membership before using role evidence. -/
 def policyFor (i : Inventory) (roles : Roles i) (d : Declaration)
     (request : InspectionRequest) : Option DeclarationFailure :=
-  if d ∈ i.declarations then declarationFailure d request roles.native roles.helpers
+  if d ∈ i.declarations then declarationFailure d request roles.native roles.safetyHelpers
   else some .invalidInventory
 
 /-- Foundation rendering uses the same inventory-bound generated-role result. -/
@@ -224,7 +267,7 @@ def MemberFailureContract
 `policyFor`'s linear scan; it is never inspected. Callers use `checked_memberFailure.run`. -/
 def memberFailure (i : Inventory) (roles : Roles i) (d : Declaration)
     (_member : d ∈ i.declarations) (request : InspectionRequest) : Option DeclarationFailure :=
-  declarationFailure d request roles.native roles.helpers
+  declarationFailure d request roles.native roles.safetyHelpers
 
 /-- Registers `MemberFailureContract` about `memberFailure`. -/
 theorem checked_memberFailure : Regula.ExecutableContract memberFailure MemberFailureContract :=
@@ -250,7 +293,7 @@ theorem checked_memberFoundation :
 
 @[simp] theorem compilerAxiom_iff (native : Array Name) (n : Name) :
     compilerAxiom native n = true ↔ CompilerAxiom native n := by
-  simp [compilerAxiom, builtinCompilerAxiom, CompilerAxiom, or_assoc]
+  simp [compilerAxiom, builtinCompilerAxiom, legacyCompilerAxiom, CompilerAxiom, or_assoc]
 
 @[simp] theorem permits_false_iff (p : ConformingProfile) (n : Name) :
     p.permits n = false ↔ ¬ Permitted p n := by
@@ -284,7 +327,7 @@ theorem declarationFailure_none_iff (d : Declaration) (r : InspectionRequest)
 theorem policyFor_none_iff (i : Inventory) (roles : Roles i) (d : Declaration)
     (r : InspectionRequest) :
     policyFor i roles d r = none ↔
-      d ∈ i.declarations ∧ DeclarationOK d r roles.native roles.helpers := by
+      d ∈ i.declarations ∧ DeclarationOK d r roles.native roles.safetyHelpers := by
   by_cases hd : d ∈ i.declarations
   · simp [policyFor, hd, declarationFailure_none_iff]
   · simp [policyFor, hd]
@@ -305,6 +348,60 @@ theorem native_not_logical (i : Inventory) (roles : Roles i) (n : Name)
   all_goals
     rw [ha, hp] at hshape
     simp at hshape
+
+/-- The compiled classifier uses exactly the legacy capability retained by inventory admission. -/
+theorem builtinCompilerAxiom_inventory (i : Inventory) (n : Name) :
+    builtinCompilerAxiom n =
+      (decide (i.compiler.legacy = .present) && legacyCompilerAxiom n) := by
+  rw [i.compiler.agrees]
+  rfl
+
+/-- None of the legacy family has the name shape required of an authenticated native role. -/
+theorem legacy_not_native (i : Inventory) (roles : Roles i) (n : Name)
+    (legacy : legacyCompilerAxiom n = true) : n ∉ roles.native := by
+  intro hn
+  rw [roles.native_exact, authorizedNativeAxioms_iff] at hn
+  rcases hn with ⟨a, _, ha, hrole⟩
+  rcases hrole.2.2 with ⟨_, _, _, hparent, _⟩
+  obtain ⟨_, _, hshape⟩ := nativeAxiomOrigin?_shape hparent
+  simp only [legacyCompilerAxiom, Bool.or_eq_true, beq_iff_eq] at legacy
+  rcases legacy with (legacy | legacy) | legacy
+  all_goals
+    rw [ha, legacy] at hshape
+    simp at hshape
+
+/-- A retired compiler name receives no compiler classification, including through generated roles. -/
+theorem retired_not_compiler (i : Inventory) (roles : Roles i) (n : Name)
+    (absent : i.compiler.legacy = .absent) (legacy : legacyCompilerAxiom n = true) :
+    compilerAxiom roles.native n = false := by
+  have h := builtinCompilerAxiom_absent (i.compiler.agrees.symm.trans absent) n
+  simp [compilerAxiom, h, legacy_not_native i roles n legacy]
+
+/-- Retired names are unknown axioms, never logical or compiler-trusting labels. -/
+theorem retired_label (i : Inventory) (roles : Roles i) (n : Name)
+    (absent : i.compiler.legacy = .absent) (legacy : legacyCompilerAxiom n = true) :
+    labelOf #[n] roles.native = .unknownAxiom := by
+  have hc := retired_not_compiler i roles n absent legacy
+  simp only [legacyCompilerAxiom, Bool.or_eq_true, beq_iff_eq] at legacy
+  rcases legacy with (rfl | rfl) | rfl <;>
+    simp [labelOf, standardLogicalAxiom, ConformingProfile.permits, hc]
+
+/-- An imported retired axiom is refused even for compiler-trust teaching. The earlier hole
+and owned-axiom priorities are excluded explicitly; every remaining request has the same refusal. -/
+theorem retired_dependency_failure (i : Inventory) (roles : Roles i) (d : Declaration)
+    (request : InspectionRequest) (n : Name) (absent : i.compiler.legacy = .absent)
+    (legacy : legacyCompilerAxiom n = true) (used : n ∈ d.axioms)
+    (notAxiom : d.kind ≠ .«axiom») (noHole : `sorryAx ∉ d.axioms) :
+    declarationFailure d request roles.native roles.safetyHelpers = some .unknownAxiom := by
+  have hc := retired_not_compiler i roles n absent legacy
+  have logical : standardLogicalAxiom n = false := by
+    simp only [legacyCompilerAxiom, Bool.or_eq_true, beq_iff_eq] at legacy
+    rcases legacy with (rfl | rfl) | rfl <;>
+      simp [standardLogicalAxiom, ConformingProfile.permits]
+  have unknown : (d.axioms.any fun name =>
+      !standardLogicalAxiom name && !compilerAxiom roles.native name) = true :=
+    Array.any_eq_true'.mpr ⟨n, used, by simp [logical, hc]⟩
+  simp [declarationFailure, notAxiom, noHole, unknown]
 
 /-- Every authenticated native role is a name the `nativeEqTrue` scheme generates for a native
 tactic, under a generated prefix of an inventory declaration in that declaration's own module
@@ -353,7 +450,7 @@ theorem native_provenance (i : Inventory) (roles : Roles i) (n : Name) (hn : n �
 /-- The compiler-trusting and logical sets are disjoint for actual inventory-bound roles. -/
 theorem compiler_not_logical (i : Inventory) (roles : Roles i) (n : Name)
     (hc : CompilerAxiom roles.native n) : ¬ Permitted .standardLogical n := by
-  rcases hc with hc | hc | hc | hc
+  rcases hc with ⟨_, hc | hc | hc⟩ | hc
   · subst n; simp [Permitted]
   · subst n; simp [Permitted]
   · subst n; simp [Permitted]
@@ -418,8 +515,8 @@ theorem permitted_standard (p : ConformingProfile) (n : Name) (h : Permitted p n
 /-- Positive inspection is exactly the permitted foundation, safety exception and recorded
 contract requirements. Teaching authorization never relaxes a conforming profile. -/
 theorem conforming_iff (i : Inventory) (roles : Roles i) (d : Declaration) (p : ConformingProfile) :
-    DeclarationOK d (.conforming p) roles.native roles.helpers ↔
-      FoundationOK d p ∧ SafetyOK d roles.helpers ∧ ContractOK d := by
+    DeclarationOK d (.conforming p) roles.native roles.safetyHelpers ↔
+      FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d := by
   constructor
   · intro h
     rcases h with h | ⟨ha, _, _, hs, hc, ht, hp⟩
@@ -450,7 +547,7 @@ refuses exactly when membership or one of those requirements fails. -/
 theorem policyFor_conforming_iff (i : Inventory) (roles : Roles i) (d : Declaration)
     (p : ConformingProfile) :
     policyFor i roles d (.conforming p) = none ↔ d ∈ i.declarations ∧
-      FoundationOK d p ∧ SafetyOK d roles.helpers ∧ ContractOK d := by
+      FoundationOK d p ∧ SafetyOK d roles.safetyHelpers ∧ ContractOK d := by
   rw [policyFor_none_iff, conforming_iff]
 
 /-- Every actual classifier outcome has exactly its independent six-way meaning, including
@@ -508,11 +605,11 @@ theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest)
 theorem policyFor_ordered (i : Inventory) (roles : Roles i) (d : Declaration)
     (r : InspectionRequest) :
     (d ∉ i.declarations ∧ policyFor i roles d r = some .invalidInventory) ∨
-    (d ∈ i.declarations ∧ OrderedDecision (declarationRequirements d r roles.native roles.helpers)
+    (d ∈ i.declarations ∧ OrderedDecision (declarationRequirements d r roles.native roles.safetyHelpers)
       (policyFor i roles d r)) := by
   by_cases hd : d ∈ i.declarations
   · exact Or.inr
-      ⟨hd, by simpa [policyFor, hd] using declarationFailure_ordered d r roles.native roles.helpers⟩
+      ⟨hd, by simpa [policyFor, hd] using declarationFailure_ordered d r roles.native roles.safetyHelpers⟩
   · exact Or.inl ⟨hd, by simp [policyFor, hd]⟩
 
 end RegulaPolicy

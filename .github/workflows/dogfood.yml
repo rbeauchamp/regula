@@ -3,8 +3,8 @@ name: Dogfood
 # Regula run on its own code base (docs/guides/contributing.md#repository-conformance):
 # the repository's own `lake lint` through `regula/lint` in both packages, and the operational
 # self-audit of the excluded `Regula` library. Neither is part of acceptance; each verify.sh
-# partition keeps its own 420-second limit. It runs when Lean sources, Lake configuration or
-# manifests change, always on main, and nightly.
+# partition keeps its own 420-second limit. It runs when a path listed below changes, always
+# on main, and nightly.
 on:
   pull_request:
     paths:
@@ -13,9 +13,12 @@ on:
       - lakefile.lean
       - lake-manifest.json
       - lean-toolchain
+      - dependency-build-mode
+      - .github/compiler-source.json
       - foundation_manifest.json
       - scripts/verify.sh
       - .github/workflows/dogfood.yml
+      - .github/workflows/compiler.yml
       - .github/actions/provision/**
   push:
     branches: [main]
@@ -31,7 +34,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  compiler:
+    uses: ./.github/workflows/compiler.yml
+
+  # Follows `compiler` only to reuse its cache; as for CI's `verify`, it runs whatever that job's
+  # result, so a failed preparation cannot leave it skipped.
   self:
+    needs: compiler
+    if: always()
     name: ${{ matrix.campaign }}
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; verify.sh enforces exactly 420 seconds.

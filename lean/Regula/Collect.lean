@@ -15,10 +15,13 @@ public import Lean.Meta.Tactic.Split
 public import Lean.Meta.Tactic.Refl
 public import Lean.Meta.Native
 public import RegulaPolicy.NativeAxiom
+public import Regula.CompilerObservation
 public import Lean.Meta.Eqns
 public import Lean.Meta.Injective
 public import Lean.Meta.SameCtorUtils
 public import Lean.Meta.Constructions.CtorElim
+public import Lean.Meta.Constructions.CasesOn
+public import Lean.Compiler.LCNF.Util
 public import Lean.Class
 public import Lean.Elab.PreDefinition.Structural.Eqns
 public import Lean.Elab.PreDefinition.PartialFixpoint.Eqns
@@ -45,6 +48,27 @@ namespace Regula.Collect
 open Lean Elab Command
 open RegulaPolicy (DeclarationKind BoundaryKind Correspondence Safety Reducibility RecursionOrigin
   NativeTactic)
+
+private initialize capabilityCache : IO.Ref (Option RegulaPolicy.Compiler.LegacyCompilerTrust) ←
+  IO.mkRef none
+
+/-- Memoize the Core capability after independently confirming the resolved compiler's
+identity. Installation contents and process execution remain trusted. -/
+def compilerCapability : IO RegulaPolicy.Compiler.LegacyCompilerTrust := do
+  if let some capability ← capabilityCache.get then return capability
+  let root ← Lean.findSysroot
+  let output ← IO.Process.output {
+    cmd := (root / "bin/lean").toString, args := #["--stdin"]
+    env := #[("LEAN_PATH", none), ("LEAN_SRC_PATH", none), ("LEAN_SYSROOT", none)] }
+    (some "#eval IO.println Lean.versionString\n#eval IO.println Lean.githash\n")
+  unless output.exitCode == 0 && output.stdout ==
+      s!"{RegulaPolicy.Compiler.version}\n{RegulaPolicy.Compiler.commit}\n" do
+    throw <| IO.userError "compiler capability: resolved compiler identity differs from this Regula build"
+  let capability := if ← Regula.CompilerObservation.legacyPresent (← Lean.getLibDir root)
+    then .present else .absent
+  let _ ← IO.ofExcept (RegulaPolicy.Compiler.admitCapability capability)
+  capabilityCache.set (some capability)
+  return capability
 
 /-- Constant kind of a declaration, as reported by the environment. Public so
 the checker self-test can apply `Policy.declarationNeedsTranscript` to raw
@@ -1331,6 +1355,74 @@ def moduleOf (env : Environment) (name : Name) : Except String Name := do
     throw s!"declaration {name} has no established module ownership"
   return env.mainModule
 
+/-- Compare the constructor-index base and unsafe wrapper with the pinned generator's
+expressions, using the kernel's pure `casesOn` construction. No declaration is added or compiled.
+`Expr.eqv` ignores binder names and annotations, but does not unfold definitions or erase terms.
+The primitive and all compiler observations remain trusted; this is not native correspondence. -/
+def constructorIndexObservation (env : Environment) (name : Name) :
+    MetaM (Option (Name × Name)) := do
+  let some (parent, baseName) := RegulaPolicy.constructorIndexOrigin? name | return none
+  let some (.inductInfo t) := env.find? parent | return none
+  let some (.defnInfo base) := env.find? baseName | return none
+  let some (.defnInfo helper) := env.find? name | return none
+  let primitive := `getObjTagNat
+  let some (.opaqueInfo tag) := env.find? primitive | return none
+  unless tag.isUnsafe && (moduleOf env primitive).toOption == some `Init.Prelude &&
+      (Compiler.getImplementedBy? env primitive).isNone do return none
+  let library ← getLibDir (← findSysroot)
+  let expected := modToFilePath library `Init.Prelude "olean"
+  unless (← IO.FS.realPath (← findOLean `Init.Prelude)) == (← IO.FS.realPath expected) do
+    return none
+  unless !t.isUnsafe && t.numCtors != 1 && !Compiler.LCNF.isRuntimeBuiltinType parent &&
+      !(← Meta.isPropFormerType t.type) do return none
+  unless (moduleOf env parent).toOption == (moduleOf env name).toOption &&
+      (moduleOf env parent).toOption == (moduleOf env baseName).toOption &&
+      (moduleOf env parent).isOk do return none
+  unless helper.safety == .unsafe && base.safety == .safe &&
+      helper.hints == .opaque && helper.all == [name] && base.all == [baseName] &&
+      helper.levelParams == t.levelParams && base.levelParams == t.levelParams &&
+      Compiler.getImplementedBy? env baseName == some name &&
+      (Compiler.getImplementedBy? env name).isNone &&
+      !isExtern env baseName && !isExtern env name &&
+      (← findDeclarationRangesCore? name).isNone do return none
+  let .defnDecl expectedCases ← ofExceptKernelException (mkCasesOnImp env.toKernelEnv parent)
+    | return none
+  let some (.defnInfo cases) := env.find? expectedCases.name | return none
+  unless cases.levelParams == expectedCases.levelParams &&
+      cases.type.eqv expectedCases.type && cases.value.eqv expectedCases.value &&
+      cases.safety == expectedCases.safety && cases.hints == expectedCases.hints &&
+      cases.all == expectedCases.all &&
+      (Compiler.getImplementedBy? env cases.name).isNone && !isExtern env cases.name &&
+      cases.levelParams.length > t.levelParams.length do return none
+  let us := t.levelParams.map mkLevelParam
+  Meta.forallBoundedTelescope t.type (t.numParams + t.numIndices) fun xs _ => do
+    unless xs.size == t.numParams + t.numIndices do return none
+    Meta.withImplicitBinderInfos xs do
+      let params : Array Expr := xs[:t.numParams]
+      let indices : Array Expr := xs[t.numParams:]
+      let indType := mkAppN (mkConst parent us) xs
+      let natType := mkConst ``Nat
+      let expectedType ← Meta.mkForallFVars xs (← mkArrow indType natType)
+      unless base.type.eqv expectedType && helper.type.eqv expectedType do return none
+      Meta.withLocalDeclD `x indType fun x => do
+        let motive ← Meta.mkLambdaFVars (indices.push x) natType
+        let mut value := mkAppN (mkConst cases.name (Level.one :: us)) params
+        value := mkAppN (mkApp value motive) indices
+        value := mkApp value x
+        for ctor in t.ctors do
+          let some (.ctorInfo c) := env.find? ctor | return none
+          unless c.induct == parent && !c.isUnsafe do return none
+          let cType ← Meta.instantiateForall c.type params
+          let alt ← Meta.forallBoundedTelescope cType c.numFields fun ys _ =>
+            Meta.mkLambdaFVars ys (mkRawNatLit c.cidx)
+          value := mkApp value alt
+        let expectedBase ← Meta.mkLambdaFVars (xs.push x) value
+        let expectedHelper ← Meta.mkLambdaFVars (xs.push x)
+          (mkApp2 (mkConst `getObjTagNat [← Meta.getLevel indType]) indType x)
+        unless base.value.eqv expectedBase && helper.value.eqv expectedHelper &&
+            base.hints == .regular (getMaxHeight env expectedBase + 1) do return none
+        return some (parent, baseName)
+
 /-- Whether Lean's injectivity generator (`Meta.mkInjectiveTheorems`, run for every inductive type
 it declares) generates `c.inj` and `c.injEq` for the constructor `c`, under Lean's default
 options: the type is not a class, not an inductive predicate and not `unsafe`, and `c` has a field
@@ -1729,6 +1821,11 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
   let recursive ← liftTermElabM <| Meta.isRecursiveDefinition name
   let unsafeRecRegenerated ← if stage == .replayCandidate then
       unsafeRecRegeneration env name info scope.preprocessRules else pure none
+  let constructorIndex ← if stage == .replayCandidate then
+      liftTermElabM do
+        try constructorIndexObservation env name
+        catch ex => if (← checkerLimit? ex).isSome then throw ex else pure none
+    else pure none
   let native? := if stage == .replayCandidate then nativeAsserted? name info.type else none
   let nativeReplay? ← native?.mapM fun (_, _, asserted) => replayNative asserted
   let levelParams : List Name := info.levelParams
@@ -1772,6 +1869,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     hints
     valueConstants := RegulaPolicy.canonicalNames valueConstants
     unsafeRecRegenerated
+    constructorIndex
     nativeStatement := nativeStatement? name info.type
     nativeReplay := nativeReplay?
     recordedRanges := ranges?.map rangesReport

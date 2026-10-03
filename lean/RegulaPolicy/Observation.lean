@@ -279,7 +279,7 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
       o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       ∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d
-          (.conforming .standardLogical) roles.native roles.helpers
+          (.conforming .standardLogical) roles.native roles.safetyHelpers
   | .compilerRejection pattern _, .compilerRejection errors =>
       ∃ message ∈ errors, PatternMatch pattern message
   | .policyRejection expected _, .policyRejection actual =>
@@ -290,7 +290,7 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
       o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       (∀ d ∈ i.declarations, d.module = o.unitName →
-          DeclarationOK d .teaching roles.native roles.helpers) ∧
+          DeclarationOK d .teaching roles.native roles.safetyHelpers) ∧
       ∃ d ∈ i.declarations, d.module = o.unitName ∧ ∃ n ∈ d.axioms, CompilerAxiom roles.native n
   | _, _ => False
 
@@ -366,7 +366,7 @@ def LocalStageOK (c : Claim) (i : EnvironmentCensus) (roles : Roles i.policy)
     | .declarationPolicy, .declaration k, .declaration d =>
         d ∈ i.policy.declarations ∧ d.name = k.name.name ∧ d.module = k.moduleKey.name.name ∧
         ∃ profile ∈ profileForModule c d.module,
-          DeclarationOK d (.conforming profile) roles.native roles.helpers
+          DeclarationOK d (.conforming profile) roles.native roles.safetyHelpers
     | .execution, .root k, .execution r =>
         r ∈ i.execution.roots ∧ r.name = k.name.name ∧ r.module = k.moduleKey.name.name ∧
         ∀ request ∈ rootRequests c i r.name,
@@ -398,7 +398,7 @@ theorem localDeclaration_preserves_flattened (c : Claim)
     (key : DeclarationKey) (declaration : Declaration)
     (retained : declaration ∈ localInventory.policy.declarations)
     (native : ∀ n ∈ declaration.axioms, n ∈ localRoles.native ↔ n ∈ flattenedRoles.native)
-    (helpers : declaration.name ∈ flattenedRoles.helpers → declaration.name ∈ localRoles.helpers)
+    (helpers : declaration.name ∈ flattenedRoles.safetyHelpers → declaration.name ∈ localRoles.safetyHelpers)
     (accepted : LocalStageOK c flattened flattenedRoles .declarationPolicy
       (.declaration key) (.declaration declaration)) :
     LocalStageOK c localInventory localRoles .declarationPolicy
@@ -462,7 +462,7 @@ inductive LocalEvidenceTransfer (c : Claim) (localInventory flattened : Environm
   | declaration (key : DeclarationKey) (d : Declaration)
       (retained : d ∈ localInventory.policy.declarations)
       (native : ∀ n ∈ d.axioms, n ∈ localRoles.native ↔ n ∈ flattenedRoles.native)
-      (helpers : d.name ∈ flattenedRoles.helpers → d.name ∈ localRoles.helpers) :
+      (helpers : d.name ∈ flattenedRoles.safetyHelpers → d.name ∈ localRoles.safetyHelpers) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .declarationPolicy (.declaration key) (.declaration d) (.declaration d)
   /-- The same execution root, retained locally, whose local execution requests are all

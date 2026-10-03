@@ -1,5 +1,6 @@
 import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
+import Regula.Checker.CompilerMode
 import Regula.Scratch
 import RegulaPolicy.ResultState
 import Lean
@@ -250,14 +251,18 @@ def relocatePathDependencies (repo target : FilePath) : IO Unit := do
   let some manifest ← _root_.Lake.Manifest.load? (target / "lake-manifest.json") | return
   let mut overrides : Array _root_.Lake.PackageEntry := #[]
   for entry in manifest.packages do
-    if let .path dir := entry.src then
+    if let .path (dir := dir) .. := entry.src then
       if !dir.isAbsolute then
         let source := repo / dir
         if !(← source.isDir) then
           throw <| IO.userError <|
             s!"lake-workspace-load-failed: path dependency '{entry.name}' at {source} is not a \
               directory"
-        overrides := overrides.push { entry with src := .path (← IO.FS.realPath source) }
+        -- Lake 4.35 adds a copy flag to path entries. Its codec preserves that flag and any
+        -- other version-specific fields while only the directory is relocated.
+        let relocated ← IO.ofExcept <| _root_.Lake.PackageEntry.fromJson?
+          ((toJson entry).setObjVal! "dir" (toJson (← IO.FS.realPath source)))
+        overrides := overrides.push relocated
   if overrides.isEmpty then return
   IO.FS.createDirAll (target / ".lake")
   _root_.Lake.Manifest.saveEntries (target / ".lake" / "package-overrides.json") overrides
@@ -382,10 +387,10 @@ def copyProject (repo target exclude : FilePath) : IO Unit := do
       throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
   relocatePathDependencies repo target
 
-/-- Read the file at `path` and parse it with the strict `PolicyCodec.parse`. -/
+/-- Strict JSON parsing; an explicit candidate diagnostic may unpack its observation envelope. -/
 def readJson (path : FilePath) : IO Json := do
   let text ← IO.FS.readFile path
-  IO.ofExcept <| Regula.Checker.PolicyCodec.parse text
+  CompilerMode.readObservation (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse text)
 
 /-- Write `value` as compact JSON and a final newline to `path`, creating its parent
 directories, and report how long encoding and writing took when timing output is on. -/

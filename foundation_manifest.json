@@ -20,6 +20,12 @@
       "rationale": "Toolchain-only local provisioning of one shared, read-only Mathlib per pinned revision and toolchain. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, and a shared directory is removed only when it is not the current one and no registered copy still links it. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
     },
     {
+      "library": "RegulaCompiler",
+      "claim": "standard-logical",
+      "execution": "report",
+      "rationale": "Standalone exact-compiler installer. The executed specification constructor retains the decoded values with their validity proof, and identity admission requires both supplied compiler reports to equal the expected full commit. Git, Elan, CMake, Make, compiler self-reports, cache storage, locking, filesystem and subprocess effects remain trusted; these value-level contracts do not authenticate compiler binaries."
+    },
+    {
       "library": "RegulaQualification",
       "claim": "standard-logical",
       "execution": "report",
@@ -52,6 +58,14 @@
     }
   ],
   "excluded-executables": [
+    {
+      "executable": "dependencyScope",
+      "rationale": "Dependency setup planner in the excluded Regula library. It reads Lake inventories and documentation import headers and emits a module for source provisioning; parsing, package loading, filesystem observations and Lake's transitive native build remain trusted. It does not accept declarations or documentation."
+    },
+    {
+      "executable": "toolchain",
+      "rationale": "Development compiler adaptation driver. RegulaCore.Toolchain proves its identity parsing, installed-toolchain resolution and campaign completion decisions; Git, Elan, compiler self-reports, filesystem and process observations remain trusted. Its receipts grant no compiler support or audit authority."
+    },
     {
       "executable": "qualify",
       "rationale": "Operational qualification dispatcher and IO adapters in the excluded Regula library. It invokes proved observation oracles from the positive RegulaQualification library; filesystem, process and compiler observations are not authenticated by those proofs."

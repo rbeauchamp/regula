@@ -170,7 +170,7 @@ private def dispatchRefusal : IO (Option String) := do
 /-- Every path but the audit's `classify` returns a non-accepted class. -/
 private unsafe def lint (args : List String) : IO Outcome := do
   let parsed := parseArgs args {}
-  try AxiomGate.invalidateResults args
+  try AxiomGate.invalidateResults [.result] args
   catch error => if let .error message := parsed then return ← refuse message else throw error
   match parsed with
   | .error message => refuse message

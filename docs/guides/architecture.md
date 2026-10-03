@@ -13,10 +13,10 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaPolicy` | Pure policy: domain types, admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
-| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
+| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
+| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the development-compiler qualification decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
-| `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and local provisioning. | Claimed |
+| `RegulaVerification`, `RegulaProvision`, `RegulaCompiler` | Toolchain-only acceptance runner, dependency provisioning and exact-compiler installation. Pure decision contracts surround trusted process and filesystem effects. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
 | `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI and project setup, linter hooks, qualification drivers, the site builder and the release steps. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
 | `Fixtures` | Isolated positive controls and intended-failure mutations. | Excluded; never imported by a claimed surface |
@@ -30,7 +30,9 @@ examples can import their modules, each in its own helper process.
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
 `lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,
 `freshChecker` (optional serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples`
-and `ruleExampleQualification` (qualification), `site` (the rule reference) and `auditApp`.
+and `ruleExampleQualification` (qualification), `toolchain` (unqualified candidates for other
+compilers, [development toolchains](toolchains.md)), `dependencyScope` (the discovered Mathlib
+import closure used by source provisioning), `site` (the rule reference) and `auditApp`.
 
 ## The rule registry
 
@@ -96,6 +98,19 @@ styles.
 
 ## Findings and locations
 
+`RegulaPolicy.Compiler` fixes the legacy compiler-trust capability for each checker revision.
+`Regula.CompilerObservation` loads a separate `Init.Core` environment, checks its resolved module
+paths and the legacy axioms' types and owners, and observes the complete family or its absence.
+`Regula.Collect.compilerCapability` confirms the selected compiler's identity and memoizes that
+observation. Strict report decoders and policy admission require it to match the compiled
+capability. An `Inventory` carries this agreement as a proof-bearing field; declaration and
+execution classification use that same compiled capability.
+
+The observer imports Lean's environment API in the operational library. It is infrastructure
+only when its artifact is canonical and every incoming import is from authenticated reporter
+infrastructure or an authenticated, force-only collector. A claimed import of the observer or
+collector keeps it in the audit. The pure policy library still imports no environment API.
+
 `Diagnostic id` ([`Regula.Diagnostic`](../../lean/Regula/Diagnostic.lean)) carries `Payload id`
 (structural declaration names, execution roots or context arguments), a primary location, related
 locations, evidence mode, claim context, strict impact and display severity; collections store
@@ -107,6 +122,13 @@ standard §§7.4–7.6: authenticated generated helpers, separately classified t
 proofs, and the origin-checked boundaries of the toolchain's trusted base. The profile and
 execution parsers stay the configuration authority: claim text in a diagnostic describes that
 context and is not an independent policy decision.
+
+`Roles` recomputes native axioms, recursion helpers and constructor-index wrappers separately
+for each inventory. Declaration safety uses the union of the two helper families;
+`Roles.safetyHelpers_iff` states that a name is in it exactly when one of the two full relations
+holds for it, and the separate fields keep the families apart. Finding attribution still uses
+only the recursion-helper relation, while reports expose constructor-index membership separately.
+Neither family changes the original unsafe/partial fields or execution-boundary correspondence.
 
 `Location` is a source range (exact text with byte offsets for full and selection ranges), a
 module, or a project/configuration scope. `admitSource` (claimed `RegulaCore.Source`) checks
@@ -169,9 +191,11 @@ the module and its importers, while a documentation audit leaves that fence inco
 documentation-audit setup failures print `FAIL` without a finding. Combined project
 and documentation output stays incomplete while its documentation stage is pending, and
 configuration that has not been admitted has null `scope` and `mode` and an incomplete status.
-Recognizable output destinations are invalidated before argument parsing where their paths can
-be resolved: absolute destinations first, without requiring valid project configuration, and
-relative destinations once the project root is resolved. Callers must require the current
+Recognizable output destinations of the kinds the invoked interface accepts (`--json-out`, and
+for `axiomGate` also `--acceptance-link`; `lake lint` leaves an `--acceptance-link` path it
+refuses untouched) are invalidated before argument parsing where their paths can be resolved:
+absolute destinations first, without requiring valid project configuration, and relative
+destinations once the project root is resolved. Callers must require the current
 invocation's successful completion, never reuse a previous report after a failed command.
 
 ## Output schemas
@@ -446,8 +470,9 @@ executable roots, the command and module linter hooks, and the pinned compiler I
 environment-linter framework supports local omission, so it cannot establish mandatory coverage.
 Upstream linters are reused by requiring them (standard
 [§6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)),
-not reimplemented as rules. Pin-sensitive interfaces are those of Lean 4.34.0
-(`293d5d0c0c3f3dded4688b3ccd6a33939ac5102b`), for example
+not reimplemented as rules. Pin-sensitive interfaces follow the compiler declared by each
+checker revision. Stable Lean 4.34.0 (`293d5d0c0c3f3dded4688b3ccd6a33939ac5102b`)
+provides these reference examples:
 [`FileMap`](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Data/Position.lean),
 [UTF-16 conversion](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Data/Lsp/Utf16.lean),
 [command hooks](https://github.com/leanprover/lean4/blob/293d5d0c0c3f3dded4688b3ccd6a33939ac5102b/src/Lean/Elab/Command.lean)

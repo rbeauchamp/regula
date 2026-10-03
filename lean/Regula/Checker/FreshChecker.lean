@@ -203,7 +203,9 @@ private unsafe def freezeGraph (plan : Plan) (snapshot : RegulaPolicy.AdmittedSn
             (⟨key.name.name, path.toString, data.imports.map (·.module)⟩ :
                 RegulaPolicy.ModuleOrigin)
     finally Lean.searchPathRef.set previous
-  let policy ← IO.ofExcept <| RegulaPolicy.admitInventory #[] #[]
+  let compiler ← IO.ofExcept <|
+    RegulaPolicy.Compiler.admitCapability (← Regula.Collect.compilerCapability)
+  let policy ← IO.ofExcept <| RegulaPolicy.admitInventory compiler #[] #[]
   let execution ← IO.ofExcept <| RegulaPolicy.admitExecution #[]
   let request : RegulaPolicy.EnvironmentRequest := { key := ⟨snapshot, 0⟩, modules }
   let environment : RegulaPolicy.EnvironmentCensus := {
@@ -279,6 +281,7 @@ unsafe def run (args : List String) : IO UInt32 := do
       | [] => repoRoot
       | _ => throw <| IO.userError "duplicate --project option"
     for path in relative do invalidate (resolve root path)
+  CompilerMode.requireAllowed
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
   let repo ← match options.project with
@@ -326,7 +329,7 @@ unsafe def run (args : List String) : IO UInt32 := do
           "acceptance" (ResultProtocol.acceptedJson receipt)
       | none =>
           value.setObjVal! "status" (.str (if options.planOnly then "planned" else "incomplete"))
-    writeJson (resolve repo path) value
+    writeJson (resolve repo path) (CompilerMode.envelope value)
   IO.println
       s!"Lake modules: {plan.modules.size}   fresh roots: {", ".intercalate plan.roots.toList}"
   if !failures.isEmpty then

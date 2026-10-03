@@ -71,12 +71,30 @@ def probeOnlyModuleNames : Array String :=
 trusted reporter is always available. It is never part of an audited surface. -/
 def probeModuleName : String := "Regula.Probe"
 
+/-- Imported module metadata, before any declaration admission or policy inspection. A clear
+graph permits inspection to continue; this observation grants no acceptance authority. -/
+structure ModuleGraph where
+  /-- Every loaded module, in the complete report's canonical name order. -/
+  modules : Array Name
+  /-- The canonical artifact and recorded direct imports of every loaded module. -/
+  moduleOrigins : Array Regula.Report.ModuleOrigin
+  deriving ToJson
+
+instance : FromJson ModuleGraph := ⟨fun j => do
+  Regula.Checker.PolicyCodec.exactFields j ["modules", "moduleOrigins"]
+  return { modules := ← j.getObjValAs? _ "modules"
+           moduleOrigins := ← j.getObjValAs? _ "moduleOrigins" }⟩
+
+/-- The same module metadata carried by a completed report, without its policy observations. -/
+def ModuleGraph.ofReport (report : ProducerReport.Environment) : ModuleGraph :=
+  ⟨report.modules, report.moduleOrigins⟩
+
 /-- The reporter also force-loads this public, neutral name codec. Its presence is
 not a source import of excluded policy machinery. Validate the exact durable artifact
 before distinguishing it from a claimed module's ordinary imports. -/
-private def forcedPublicModule (report : Regula.Checker.ProducerReport.Environment) (name : Name)
+private def forcedPublicModule (moduleOrigins : Array Regula.Report.ModuleOrigin) (name : Name)
     (description : String) : IO Name := do
-  let origins := report.moduleOrigins.filter (·.name == name)
+  let origins := moduleOrigins.filter (·.name == name)
   let some origin := origins[0]? | throw <| IO.userError s!"missing {description} origin"
   unless origins.size == 1 do throw <| IO.userError s!"ambiguous {description} origin"
   let some lib ← checkerPackageLibDir | throw <| IO.userError "checker library path unavailable"
@@ -88,18 +106,145 @@ private def forcedPublicModule (report : Regula.Checker.ProducerReport.Environme
 /-- Returns `Regula.StructuralName` after checking that the report records exactly one origin
 for it and that its `.olean` is the running checker's own artifact; throws otherwise. -/
 def forcedStructuralName (report : Regula.Checker.ProducerReport.Environment) : IO Name :=
-  forcedPublicModule report `Regula.StructuralName "structural-name codec"
+  forcedPublicModule report.moduleOrigins `Regula.StructuralName "structural-name codec"
+
+private def forcedCollectorFrom (origins : Array Regula.Report.ModuleOrigin) :
+    IO (Option Name) := do
+  let name ← forcedPublicModule origins `Regula.Collect "shared collector"
+  if origins.any (fun origin =>
+      !probeModuleNames.contains origin.name.toString && origin.imports.contains name) then
+    return none
+  return some name
+
+private def forcedCompilerObserverFrom (origins : Array Regula.Report.ModuleOrigin) :
+    IO (Option Name) := do
+  let name ← forcedPublicModule origins `Regula.CompilerObservation "compiler capability observer"
+  let collector ← forcedCollectorFrom origins
+  if origins.any (fun origin => origin.imports.contains name &&
+      !(RegulaPolicy.reporterModuleNames.contains origin.name || some origin.name == collector)) then
+    return none
+  return some name
 
 /-- The extracted constructor is also force-loaded by Probe. Its artifact must
 be the checker's exact artifact. Unlike the neutral name codec, it remains in
 the excluded-library scan whenever another module actually imports it. -/
 def forcedCollectorOnly (report : Regula.Checker.ProducerReport.Environment) : IO
-    (Option Name) := do
-  let name ← forcedPublicModule report `Regula.Collect "shared collector"
-  if report.moduleOrigins.any (fun origin =>
-      !probeModuleNames.contains origin.name.toString && origin.imports.contains name) then
-    return none
-  return some name
+    (Option Name) := forcedCollectorFrom report.moduleOrigins
+
+/-- The compiler observer is infrastructure only through authenticated reporters or an
+already force-only collector. A claimed import of either module keeps it in the owned scan. -/
+def forcedCompilerObserverOnly (report : Regula.Checker.ProducerReport.Environment) : IO
+    (Option Name) := forcedCompilerObserverFrom report.moduleOrigins
+
+/-- The ordinary loaded modules after authenticating the existing force-only exemptions. -/
+def ModuleGraph.ordinaryModules (graph : ModuleGraph) : IO (Array Name) := do
+  let codec ← forcedPublicModule graph.moduleOrigins `Regula.StructuralName "structural-name codec"
+  let collector ← forcedCollectorFrom graph.moduleOrigins
+  let observer ← forcedCompilerObserverFrom graph.moduleOrigins
+  return graph.modules.filter fun name =>
+    !(probeModuleNames.map String.toName).contains name && name != codec &&
+      some name != collector && some name != observer
+
+/-- Bind this environment's requested roots and every other positively assigned module it
+loads before using the graph for violations. Excluded modules remain scope observations. -/
+def ModuleGraph.scopeRequests (graph : ModuleGraph) (requested assigned : Array Name) :
+    Array Name :=
+  requested ++ assigned.filter (fun name => graph.modules.contains name && !requested.contains name)
+
+/-- The early binding domain always retains every requested root. -/
+theorem ModuleGraph.scopeRequests_requested (graph : ModuleGraph) (requested assigned : Array Name)
+    (name : Name) (present : name ∈ requested) : name ∈ graph.scopeRequests requested assigned := by
+  simp [scopeRequests, present]
+
+/-- Every positively assigned module loaded in this environment receives the same origin
+guard as its requested roots, including positive dependencies owned by another environment. -/
+theorem ModuleGraph.scopeRequests_loaded (graph : ModuleGraph) (requested assigned : Array Name)
+    (name : Name) (positive : name ∈ assigned) (loaded : name ∈ graph.modules) :
+    name ∈ graph.scopeRequests requested assigned := by
+  by_cases present : name ∈ requested
+  · exact graph.scopeRequests_requested requested assigned name present
+  · simp [scopeRequests, positive, loaded, present]
+
+/-- Bind every requested module to a unique origin under the Lake output directory before
+using its graph for scope findings. The completed-report check uses this same predicate. -/
+def ModuleGraph.requestedFailures (graph : ModuleGraph) (ordinary requested : Array Name)
+    (ownedOutput : FilePath) : IO (Array String) := do
+  let mut failures := #[]
+  for name in requested do
+    unless ordinary.contains name do
+      failures := failures.push s!"surface-omission: Lake module {name} was not elaborated"
+    let origins := graph.moduleOrigins.filter (·.name == name)
+    let fresh ← match origins[0]? with
+      | some origin => pathWithin (FilePath.mk origin.olean) ownedOutput
+      | none => pure false
+    if origins.size != 1 || !fresh then
+      failures := failures.push
+        s!"surface-not-fresh: {name} did not resolve from the fresh Lake output"
+  return failures
+
+/-- Root-output modules outside the requested or source-bound ownership, retaining every
+direct importer in header order. The metadata phase and full loader share this refusal. -/
+def ModuleGraph.unownedModules (graph : ModuleGraph) (owned : Array Name)
+    (ownedOutput : FilePath) : IO (Array ProducerReport.UnownedModule) := do
+  let mut unowned := #[]
+  for origin in graph.moduleOrigins do
+    if !owned.contains origin.name && !probeModuleNames.contains origin.name.toString then
+      if ← pathWithin (FilePath.mk origin.olean) ownedOutput then
+        unowned := unowned.push origin.name
+  return unowned.map fun name => {
+    «module» := name
+    importers := graph.moduleOrigins.filterMap fun origin =>
+      if origin.imports.any (· == name) then some origin.name else none }
+
+/-- A forbidden edge retained with its exact membership in the observed import graph. -/
+private structure ReporterImport (origins : Array Regula.Report.ModuleOrigin) where
+  origin : Regula.Report.ModuleOrigin
+  present : origin ∈ origins
+  imported : Name
+  direct : imported ∈ origin.imports
+  outside : origin.name ∉ RegulaPolicy.reporterModuleNames
+  forbidden : imported ∈ RegulaPolicy.reporterOnlyModuleNames
+
+/-- Each retained edge contradicts the actual infrastructure predicate on the same origins. -/
+private theorem ReporterImport.incompatible (claim : RegulaPolicy.Claim)
+    (census : RegulaPolicy.EnvironmentCensus) (edge : ReporterImport census.origins) :
+    ¬ RegulaPolicy.InfrastructureOK claim census := by
+  intro valid
+  exact edge.outside
+    ((valid.2.2.2.2.1 edge.origin edge.present edge.imported edge.direct edge.forbidden).1)
+
+/-- Collect direct reporter imports in their original order, carrying the rejection witness. -/
+private def reporterImports (origins : Array Regula.Report.ModuleOrigin) :
+    Array (ReporterImport origins) := Id.run do
+  let mut result := #[]
+  for present : origin in origins do
+    if outside : origin.name ∉ RegulaPolicy.reporterModuleNames then
+      for direct : imported in origin.imports do
+        if forbidden : imported ∈ RegulaPolicy.reporterOnlyModuleNames then
+          result := result.push ⟨origin, present, imported, direct, outside, forbidden⟩
+  return result
+
+/-- The scope violations witnessed by imported metadata. Callers first authenticate the
+force-only exemptions with `ordinaryModules`; the early path also requires `requestedFailures`
+to be empty. Both paths use the same Lake-owned scope and graph fields here. -/
+def ModuleGraph.importDetails (graph : ModuleGraph) (ordinary excluded configured : Array Name)
+    (ownedOutput : FilePath) (library : String) : IO (Array String) := do
+  let mut details := #[]
+  for name in ordinary do
+    if excluded.contains name then
+      details := details.push s!"unexpected-project-module: excluded module \
+        {name} was imported into positive library {library}"
+  for edge in reporterImports graph.moduleOrigins do
+    details := details.push s!"unexpected-project-module: checker probe \
+      module {edge.imported} was imported into positive library {library} \
+      by {edge.origin.name}"
+  for origin in graph.moduleOrigins do
+    if (probeModuleNames.map String.toName).contains origin.name then continue
+    if ← pathWithin (FilePath.mk origin.olean) ownedOutput then
+      if !configured.contains origin.name then
+        details := details.push s!"unexpected-project-module: root-owned \
+          module {origin.name} is outside every manifested Lake library"
+  return details
 
 /-- Authenticate the narrow infrastructure partition against the running checker's
 canonical artifacts, retaining the request snapshot. Import restrictions are subsequently
@@ -110,9 +255,11 @@ def infrastructureOrigins (snapshot : RegulaPolicy.AdmittedSnapshot)
   let some lib ← checkerPackageLibDir
     | throw <| IO.userError "checker library path unavailable"
   let collector ← forcedCollectorOnly report
+  let observer ← forcedCompilerObserverOnly report
   let mut receipts := #[]
   for name in RegulaPolicy.infrastructureModuleNames do
     if name == `Regula.Collect && collector.isNone then continue
+    if name == `Regula.CompilerObservation && observer.isNone then continue
     let origins := report.moduleOrigins.filter (·.name == name)
     let some origin := origins[0]?
       | throw <| IO.userError s!"missing infrastructure origin: {name}"
@@ -239,6 +386,18 @@ private def replacementHistory (sourceRoots : Array FilePath)
       return .completed source.toString sourceBefore sourceAfter edges
   catch error => return .unavailable error.toString
 
+/-- The import operation shared by metadata refusal and full declaration reporting. -/
+private unsafe def importReportEnvironment (modules : Array Name) : IO Lean.Environment := do
+  if modules.isEmpty || modules.toList.eraseDups.length != modules.size then
+    throw <| IO.userError "environment report requires unique nonempty modules"
+  Lean.enableInitializersExecution
+  let importNames :=
+    if modules.contains probeModuleName.toName then modules
+    else modules.push probeModuleName.toName
+  let imports := importNames.map fun module => ({ module, importAll := true } : Import)
+  timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true)
+    (level := .private)
+
 private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
     (sourceRoots : Array FilePath := #[])
     (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
@@ -259,33 +418,20 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
   let sourceBindings ← SourceBinding.capture resolvedSources
   return (← SourceBinding.withUnchanged
       (α := Except ProducerReport.Refusal ProducerReport.Environment) sourceBindings #[] do
-    unsafe Lean.enableInitializersExecution
     let requested := modules
-    let importNames :=
-      if requested.contains probeModuleName.toName then requested
-      else requested.push probeModuleName.toName
-    let imports := importNames.map fun module =>
-      ({ module, importAll := true } : Import)
-    let env ← timedPhase "environment imports" <| importModules imports {} 0 (loadExts := true)
-        (level := .private)
+    let env ← importReportEnvironment requested
     let ownedModules := requested ++ moduleSources.map (·.1) |>.filter
       (fun name => !probeModuleNames.contains name.toString)
+    let loadedOrigins ← Regula.Probe.loadedModuleOrigins env
+    let graph : ModuleGraph := ⟨RegulaPolicy.canonicalNames env.header.moduleNames, loadedOrigins⟩
     -- Kernel admission cannot classify a module loaded from the owned output that no requested
     -- module or source binding owns, so the environment is refused with those modules and their
     -- direct importers: a coverage violation, not a failed inspection.
     if let some root := ownedOutput then
-      let mut unowned : Array Name := #[]
-      for name in env.header.moduleNames do
-        if !ownedModules.contains name && !probeModuleNames.contains name.toString then
-          if ← pathWithin (← Lean.findOLean name) root then unowned := unowned.push name
+      let unowned ← graph.unownedModules ownedModules root
       unless unowned.isEmpty do
-        let loaded := env.header.moduleNames.zip env.header.moduleData
-        return .error (.unowned (unowned.map fun name => {
-          «module» := name
-          importers := loaded.filterMap fun (importer, data) =>
-            if data.imports.any (·.module == name) then some importer else none }))
-    let origins ← if priors.isEmpty && publish.isNone then pure #[] else
-      Regula.Probe.loadedModuleOrigins env
+        return .error (.unowned unowned)
+    let origins := if priors.isEmpty && publish.isNone then #[] else loadedOrigins
     let reused := if priors.isEmpty then #[] else
       Admission.reusedModules env origins ownedModules priors
     let admissionResult ← timedPhase "kernel admission" <|
@@ -365,12 +511,7 @@ private unsafe def loadReportCoreAtSearchPath (modules : Array Name)
 A fresh project that builds only `Contract` must not mask the trusted probe,
 and putting the entire checker output first would mask fresh audited modules.
 Expose only the checker-owned prefix ahead of the audited search roots. -/
-private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array FilePath := #[])
-    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
-    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
-    (validateReport : Bool := true) (historyMemo : Option FilePath := none)
-    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none) :
-    IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
+private def withProbeSearch {α : Type} (action : String → IO α) : IO α := do
   let some selfLib ← checkerPackageLibDir
     | throw <| IO.userError "trusted checker library directory unavailable"
   withScratch (← IO.currentDir) "probe-search" fun overlay => do
@@ -385,10 +526,34 @@ private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array Fi
     -- path is determined by that directory and the search path below it. Shared history
     -- worker output is keyed on this identity, not on the per-worker overlay name.
     let searchIdentity := s!"probe={probeDirectory};path={System.SearchPath.toString oldSearchPath}"
-    try
-      loadReportCoreAtSearchPath modules sourceRoots moduleSources ownedOutput includeExecution
-        includeModuleOrigins validateReport (historyMemo.map (·, searchIdentity)) priors publish
+    try action searchIdentity
     finally Lean.searchPathRef.set oldSearchPath
+
+private unsafe def loadReportCore (modules : Array Name) (sourceRoots : Array FilePath := #[])
+    (moduleSources : Array (Name × FilePath) := #[]) (ownedOutput : Option FilePath := none)
+    (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
+    (validateReport : Bool := true) (historyMemo : Option FilePath := none)
+    (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none) :
+    IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
+  withProbeSearch fun searchIdentity =>
+    loadReportCoreAtSearchPath modules sourceRoots moduleSources ownedOutput includeExecution
+      includeModuleOrigins validateReport (historyMemo.map (·, searchIdentity)) priors publish
+
+private def withReportSearchRoots {α : Type} (extraSearchRoots : Array FilePath)
+    (action : IO α) : IO α := do
+  let selfLib ← checkerPackageLibDir
+  let oldSearchPath ← Lean.searchPathRef.get
+  Lean.searchPathRef.set (extraSearchRoots.toList ++ selfLib.toList ++ oldSearchPath)
+  try action finally Lean.searchPathRef.set oldSearchPath
+
+/-- Read only the loaded module graph through the full reporter's import and search setup.
+The caller binds source bytes; the result has no declaration, admission, or success fields. -/
+unsafe def loadModuleGraph (modules : Array Name) (searchRoots : Array FilePath) :
+    IO ModuleGraph :=
+  withReportSearchRoots searchRoots <| withProbeSearch fun _ => do
+    let env ← importReportEnvironment modules
+    return { modules := RegulaPolicy.canonicalNames env.header.moduleNames
+             moduleOrigins := ← Regula.Probe.loadedModuleOrigins env }
 
 /-- Load exact modules using the already configured search path. This variant
 supports bounded parallel, read-only imports while a caller owns the global
@@ -410,14 +575,10 @@ unsafe def loadReportOutcome (modules : Array Name)
     (includeExecution : Bool := true) (includeModuleOrigins : Bool := true)
     (validateReport : Bool := true) (historyMemo : Option FilePath := none)
     (priors : Array Admission.PriorAdmission := #[]) (publish : Option FilePath := none) :
-    IO (Except ProducerReport.Refusal ProducerReport.Environment) := do
-  let selfLib ← checkerPackageLibDir
-  let oldSearchPath ← Lean.searchPathRef.get
-  Lean.searchPathRef.set (extraSearchRoots.toList ++ selfLib.toList ++ oldSearchPath)
-  try
+    IO (Except ProducerReport.Refusal ProducerReport.Environment) :=
+  withReportSearchRoots extraSearchRoots <|
     loadReportCore modules sourceRoots moduleSources ownedOutput includeExecution
       includeModuleOrigins validateReport historyMemo priors publish
-  finally Lean.searchPathRef.set oldSearchPath
 
 /-- Compatibility wrapper for callers that report every refusal as an inspection failure at their
 own stage. Public rule adapters use the typed outcome variant above. -/

@@ -1,22 +1,36 @@
 import Lake
 open Lake DSL
 
--- Each Regula release supports only the Lean release in its `lean-toolchain`. Loading this
--- package with any other Lean (`lake update`, `lake build`, `lake exe regula …`, `lake lint`)
--- stops here, with the remedy, before Lake compiles a module. The check uses only long-stable core
--- API; it was observed to elaborate and refuse on Lean 4.33.0 and 4.34.1. Lake reuses an
--- elaborated configuration while this file's text and the running Lean are unchanged, and
--- `lake update` elaborates it again, so the check runs whenever either changes or a revision is
--- resolved.
+-- Execute the same source guard used by compiled policy. A fresh dependency has no Regula
+-- artifacts yet, so a child `lean` elaborates the policy source, which imports only Init, checks
+-- that child's own identity and, asked by `REGULA_COMPILER_GUARD`, prints it. `LEAN_SYSROOT` or
+-- `PATH` selects the child, so the guard passes only when the child accepts itself and reports
+-- the version and commit of the Lean elaborating this file. Any other child is refused.
 run_cmd do
-  let file ← IO.FS.readFile (__dir__ / "lean-toolchain")
-  let supported := ((file.splitOn "\n").headD "").replace "\r" ""
-  unless supported == "leanprover/lean4:v" ++ Lean.versionString do
-    Lean.logError m!"this Regula release supports only Lean {supported}, but Lake is running \
-      Lean {Lean.versionString}. Move the project, and Mathlib if it uses it, to {supported} \
-      (its lean-toolchain, then `lake update`), or require a Regula release that supports \
-      your Lean: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
-      #when-your-lean-release-has-no-regula-release"
+  let running := s!"{Lean.versionString}\n{Lean.githash}\n"
+  let refusal : IO (Option String) := do
+    let lean := ((← Lean.findSysroot) / "bin" / "lean").toString
+    let child ← IO.Process.output {
+      cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]
+      env := #[("REGULA_COMPILER_GUARD", some "1")] }
+    if child.exitCode != 0 then
+      return some s!"Regula's compiler guard stopped: Lake is running Lean \
+        {Lean.versionString} ({Lean.githash}), and `{lean}`, which LEAN_SYSROOT or PATH selects, \
+        refused Regula's compiler policy or could not compile it. Use a Lean release this \
+        Regula revision supports, or a Regula revision qualified for this exact compiler: \
+        https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md\
+        #when-your-lean-release-has-no-regula-release\n{child.stdout}{child.stderr}"
+    if child.stdout.replace "\r" "" == running then return none
+    return some s!"Regula's compiler guard stopped: `{lean}`, which LEAN_SYSROOT or PATH \
+      selects, is not the Lean running Lake, {Lean.versionString} ({Lean.githash}), so Regula's \
+      compiler policy was not checked on that Lean. Run Lake without the LEAN_SYSROOT or PATH \
+      of another toolchain. It reports:\n{child.stdout}{child.stderr}"
+  match ← refusal.toBaseIO with
+  | .ok none => pure ()
+  | .ok (some refused) => Lean.logError refused
+  | .error error => Lean.logError s!"Regula's compiler guard stopped: it cannot run the `lean` \
+      that LEAN_SYSROOT or PATH selects to check the Lean running Lake, {Lean.versionString} \
+      ({Lean.githash}): {error}"
 
 -- The package adopters require: the checker, lint driver, `regula` CLI, rule registry and
 -- editor linter, with no dependency beyond the Lean toolchain. Everything that imports Mathlib
@@ -74,6 +88,9 @@ lean_lib «RegulaVerification»
 lean_lib «RegulaProvision»
 
 @[default_target]
+lean_lib «RegulaCompiler»
+
+@[default_target]
 lean_lib «RegulaQualification» where
   -- Pure, proof-backed observation contracts; no process or filesystem drivers.
   globs := #[.submodules `RegulaQualification]
@@ -82,6 +99,11 @@ lean_lib «RegulaQualification» where
 -- noncompliant example files, so `RegulaCore` needs this directory as a traced input.
 input_dir ruleExampleSources where
   path := "examples/rules"
+  text := true
+
+-- The standalone compiler probe embeds this source with include_str.
+input_file compilerObservationSource where
+  path := "lean/Regula/CompilerObservation.lean"
   text := true
 
 @[default_target]
@@ -95,6 +117,7 @@ lean_lib «Regula» where
   -- Lean-only checker implementation. Operational checker modules are
   -- separately qualified; they are not part of the conforming proof surface.
   globs := #[.submodules `Regula]
+  needs := #[`@/compilerObservationSource]
 
 lean_exe «axiomGate» where
   root := `Regula.Checker.AxiomGateMain
@@ -119,6 +142,14 @@ lean_exe «checkerSelftest» where
 
 lean_exe «qualify» where
   root := `Regula.Qualification.Main
+  supportInterpreter := true
+
+lean_exe «toolchain» where
+  root := `Regula.Toolchain
+  needs := #[`@/compilerObservationSource]
+
+lean_exe «dependencyScope» where
+  root := `Regula.DependencyScope
   supportInterpreter := true
 
 lean_exe «ruleExamples» where

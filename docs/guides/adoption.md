@@ -70,12 +70,35 @@ keeps the Mathlib revision it pins.
 
 Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
 patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
-runs, and with any other Lean Regula's `lakefile.lean` stops before anything compiles, naming both
-releases:
+runs. Regula `v0.2.0` through `v0.5.0` stop in Regula's `lakefile.lean` before anything compiles
+when that Lean's version differs, naming both releases; they compare only the version, not the
+compiler's commit, and the earlier `v4.34.0` tag has no such guard:
 
 ```text
 error: …/regula/lakefile.lean:…: this Regula release supports only Lean leanprover/lean4:v4.34.0, but Lake is running Lean 4.33.0. …
 ```
+
+This source revision guards the exact compiler instead: it declares one exact compiler version and
+commit in `RegulaPolicy.Compiler`.
+A fresh configuration invokes that identity guard before building the checker; inventory, plan,
+and probe admission retain it. Elan aliases may differ when they resolve to the same compiler. A
+mismatch stops Regula's `lakefile.lean` with the remedy and both identities:
+
+```text
+error: …/regula/lakefile.lean:…: Regula's compiler guard stopped: Lake is running Lean 4.33.0 (…), and `…/bin/lean`, which LEAN_SYSROOT or PATH selects, refused Regula's compiler policy or could not compile it. Use a Lean release this Regula revision supports, or a Regula revision qualified for this exact compiler: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md#when-your-lean-release-has-no-regula-release
+…/regula/lean/RegulaPolicy/Compiler.lean:…: error: unsupported Regula compiler: expected Lean 4.34.0 (293d5d0c0c3f3dded4688b3ccd6a33939ac5102b), observed Lean 4.33.0 (…). Move the project, and Mathlib if it uses it, to the supported Lean release (its lean-toolchain, then `lake update`), or require a Regula revision qualified for this exact compiler: …
+```
+
+A Lean too old to compile the policy prints its own errors in place of the second line. The
+guard runs the `lean` that `LEAN_SYSROOT` or `PATH` selects and requires it to be the Lean
+running Lake. When another toolchain's variables are inherited, a `lean` the policy refuses
+stops with the message above, whichever Lean runs Lake, and a `lean` the policy accepts while
+Lake runs another Lean stops with `… is not the Lean running Lake …` instead. Running Lake
+without those variables is the remedy in both cases.
+`lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
+selects, whichever compiler an override runs. For a Lean too old to run its identity probe, it
+instead reports that the pin selects no installed compiler that reports its identity, with the
+probe's error.
 
 Move your project to the supported Lean release first: set `lean-toolchain`, move Mathlib (if you
 use it) to a revision for that release the usual way, and run `lake update`. Otherwise require a
@@ -84,6 +107,10 @@ is one. When no other dependency pins a
 toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's release and restarts.
 When Mathlib pins another one, `lake update` prints `toolchain not updated; multiple toolchain
 candidates` and keeps yours, so the stop above follows.
+
+For release candidates, nightlies, and source-built compilers, use the
+[development toolchain workflow](toolchains.md). Preparing a candidate does not qualify it or
+extend the support of the revision it was prepared from.
 
 ## 2. Run `lake exe regula init`
 
@@ -115,9 +142,13 @@ setup, and that runtime check confirms the files as written match it. `init` end
 
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
-guidance, toolchain and any module below a library root that no library includes but a claimed
-module imports (which `lake lint` rejects), and, once a manifest exists, the linter's own
-manifest validation ([RG2002]) and option decision ([RG2006]) for every claimed target, one [RG2006]
+guidance, the compiler your `lean-toolchain` selects (resolved only to a toolchain Elan lists as
+installed under exactly that name, so write the name as `elan toolchain list` prints it, such as
+`leanprover/lean4:v4.34.0`, rather than a shorter spelling or a
+channel such as `stable`; `doctor` resolves no channel and installs nothing) and any module below a
+library root that no library includes but a claimed module imports (which `lake lint` rejects), and,
+once a manifest exists, the linter's own manifest validation ([RG2002]) and option decision ([RG2006])
+for every claimed target, one [RG2006]
 finding naming every target with the same claim and failures, where `lake lint` prints one per
 target. It exits 0
 when the setup is complete and 1 otherwise, and lists what `init` would write. A module left out

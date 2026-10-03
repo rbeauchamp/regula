@@ -544,7 +544,7 @@ private theorem localDeclarationPolicy_judgment {c : Claim} {e : EnvironmentCens
     (accepted : LocalStageOK c e roles .declarationPolicy (.declaration key) evidence) :
     ∃ d ∈ e.policy.declarations, d.name = key.name.name ∧
       ∃ profile ∈ profileForModule c d.module,
-        DeclarationOK d (.conforming profile) roles.native roles.helpers := by
+        DeclarationOK d (.conforming profile) roles.native roles.safetyHelpers := by
   cases evidence <;> simp only [LocalStageOK] at accepted
   obtain ⟨member, name, _, judgment⟩ := accepted
   exact ⟨_, member, name, judgment⟩

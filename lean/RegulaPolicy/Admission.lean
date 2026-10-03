@@ -1,6 +1,7 @@
 module
 
 public import RegulaPolicy.Domain
+public import RegulaPolicy.Compiler
 public import Std.Data.ExtHashSet.Lemmas
 
 /-! # Observation admission
@@ -57,6 +58,7 @@ def Declaration.Valid (d : Declaration) : Prop :=
   (∀ n ∈ d.axioms, Named n) ∧ (∀ n ∈ d.valueConstants, Named n) ∧
   (∀ n ∈ d.all, Named n) ∧
   (∀ n ∈ d.implementedBy, Named n) ∧ (∀ n ∈ d.unsafeRecBase, Named n) ∧
+  (∀ pair ∈ d.constructorIndex, Named pair.1 ∧ Named pair.2) ∧
   (∀ c ∈ d.executableContract, c.failure.isSome = true ∨ Named c.root)
 instance instDecidableDeclarationValid (d : Declaration) : Decidable d.Valid := by
   unfold Declaration.Valid
@@ -179,7 +181,7 @@ def InventoryValid (decls : Array Declaration) (transcripts : Array Frontend.Tra
   UniqueNames (transcripts.map (·.module)) ∧
   (∀ t ∈ transcripts, Named t.module ∧ t.source ≠ "" ∧
     t.sourceBytes = t.sourceContent.utf8ByteSize ∧
-    t.leanVersion = "4.34.0" ∧ t.leanGitHash = "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b" ∧
+    t.leanVersion = Compiler.version ∧ t.leanGitHash = Compiler.commit ∧
     t.validCoordinates = true ∧
     ∀ d ∈ decls, d.module = t.module → d.ranges.all (·.validFor t.sourceContent) = true)
 /-- Decide the unchanged declaration-coordinate relation using one supplied line list. -/
@@ -218,6 +220,8 @@ theorem inventoryValid_append_false_of_shared_name
 
 /-- No raw constructor or decoder can omit the inventory-validity proof. -/
 structure Inventory where
+  /-- The observed compiler capability, proved equal to this compiled policy's expectation. -/
+  compiler : Compiler.Capability
   /-- The admitted declaration observations, in the order supplied. -/
   declarations : Array Declaration
   /-- The admitted frontend transcripts, one per module, in the order supplied. -/
@@ -227,14 +231,16 @@ structure Inventory where
   deriving DecidableEq
 
 /-- Validate without dropping, substituting, or deduplicating result observations. -/
-def admitInventory (decls : Array Declaration) (transcripts : Array Frontend.Transcript) :
+def admitInventory (compiler : Compiler.Capability) (decls : Array Declaration)
+    (transcripts : Array Frontend.Transcript) :
     Except String Inventory :=
-  if h : InventoryValid decls transcripts then .ok ⟨decls, transcripts, h⟩
+  if h : InventoryValid decls transcripts then .ok ⟨compiler, decls, transcripts, h⟩
   else .error "invalid policy inventory: anonymous, duplicate, or malformed identity"
 
 /-- Every valid inventory is admitted with exactly its input fields. -/
-theorem admitInventory_exact (ds : Array Declaration) (ts : Array Frontend.Transcript)
-    (h : InventoryValid ds ts) : admitInventory ds ts = .ok ⟨ds, ts, h⟩ := by
+theorem admitInventory_exact (compiler : Compiler.Capability)
+    (ds : Array Declaration) (ts : Array Frontend.Transcript)
+    (h : InventoryValid ds ts) : admitInventory compiler ds ts = .ok ⟨compiler, ds, ts, h⟩ := by
   simp [admitInventory, h]
 /-- Boundary toolchain-origin receipts must refer to this observation's module. -/
 def ExecutionBoundary.Valid (b : ExecutionBoundary) : Prop :=

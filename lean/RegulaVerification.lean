@@ -181,7 +181,7 @@ def commands : Mode → List Command
   | .ordinary => [
       lake
           #["build", "RegulaPolicy", "RegulaCore", "RegulaQualification", "axiomGate",
-              "docFenceAudit", "qualify",
+              "docFenceAudit", "qualify", "toolchain",
         "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
         "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
         "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
@@ -242,11 +242,14 @@ def commands : Mode → List Command
 theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
   cases mode <;> simp [commands, ruleExampleShard, selftest]
 
-/-- Interpret sequentially; a nonzero process exit raises before any success report.
-No theorem here purports to prove the OS's process execution or signal delivery. -/
+/-- Interpret sequentially through the provisioning entry point so child processes inherit
+the artifact mode; a nonzero exit raises before any success report. Process execution and
+signal delivery remain trusted. -/
 def execute (command : Command) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd := command.program, args := command.args, cwd := some command.dir,
+    cmd := "lean", args := #["--run", "lean/RegulaProvision.lean", "exec",
+      command.dir, command.program] ++ command.args,
+    env := #[("REGULA_COMPILER_QUALIFICATION", none)],
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   if exit != 0 then

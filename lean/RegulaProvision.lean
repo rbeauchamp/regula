@@ -2,8 +2,8 @@ import Lean.Data.Json
 
 /-! # Shared Mathlib provisioning
 
-Local dependency provisioning: one shared, read-only, unpacked Mathlib per pinned
-revision and toolchain, reused by every local copy of this repository.
+Dependency provisioning: one shared, read-only Mathlib per pinned revision, exact
+compiler and artifact mode, reused by local copies. CI runs the build plan defined here.
 
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache
 (`~/.cache/mathlib`) but unpacks them into every copy's `.lake/packages`. This program
@@ -25,11 +25,17 @@ The shared directory is created from a staging directory and made visible by one
 it is complete and sealed, so a half-created directory is never used. Its receipt records the
 revisions it holds; a copy uses it only when that receipt admits the copy's pins. A registry
 beside it records the copies provisioned to link it, and each run removes the shared
-directories of other pins and toolchains that no registered copy still links. One exclusive
+directories of other pins, toolchains, artifact modes and source artifact policies that no
+registered copy still links; a source directory is identified only in the
+`-source-v<policy>-<hash>` form, under the policy its receipt records. One exclusive
 lock under `~/.cache/mathlib-packages` orders all of this. The pure planning decisions below
 carry proofs; Git, Lake, `cp`, `chmod`, `ln`, rename and file locking are trusted process and
-filesystem effects. GitHub Actions keeps provisioning with `lake -d audit exe cache get`, so
-this program does nothing there.
+filesystem effects. `dependency-build-mode` selects `upstream-cache` or `source`. The latter
+disables Lake's automatic cache and Mathlib's update hook and builds the discovered imports'
+transitive exported native closure. Source mode has a separate shared directory and is admitted
+only by a source-mode receipt. GitHub Actions invokes the Mathlib and Verso plans defined
+here: its upstream-cache Mathlib command only fetches the published artifacts into the job's
+writable packages directory, and its source Mathlib command uses the shared directory.
 
 Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
 `scripts/verify.sh` runs it before its deadline. -/
@@ -37,6 +43,82 @@ namespace RegulaProvision
 open System Lean
 
 /-! ## Pure decisions -/
+
+/-- Where dependency artifacts come from. `source` builds with the running compiler. -/
+inductive BuildMode where
+  /-- Use the dependencies' published artifacts and build only what they lack. -/
+  | upstreamCache
+  /-- Disable Lake and Mathlib artifact downloads and build from pinned source. -/
+  | source
+  deriving DecidableEq, Repr, ToJson, FromJson
+
+/-- The spellings admitted in `dependency-build-mode`. -/
+def BuildMode.spelling : BuildMode → String
+  | .upstreamCache => "upstream-cache"
+  | .source => "source"
+
+/-- Decode an explicit mode; an unknown spelling never falls back to downloading artifacts. -/
+def buildMode? (text : String) : Option BuildMode :=
+  if text == "upstream-cache" then some .upstreamCache
+  else if text == "source" then some .source
+  else none
+
+/-- Every admitted mode has the exact requested spelling. -/
+theorem buildMode?_sound (text : String) (mode : BuildMode)
+    (h : buildMode? text = some mode) : mode.spelling = text := by
+  unfold buildMode? at h
+  split at h
+  · cases Option.some.inj h
+    simp_all [BuildMode.spelling]
+  · split at h
+    · cases Option.some.inj h
+      simp_all [BuildMode.spelling]
+    · simp at h
+
+/-- Environment passed to every dependency command and its descendants. Source mode uses
+an owned fresh artifact cache, retained with the workspace if package settings enable it. -/
+def buildEnvironment (sourceCache : String) : BuildMode → Array (String × Option String)
+  | .upstreamCache => #[]
+  | .source => #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1"),
+      ("LAKE_ARTIFACT_CACHE", some "false"), ("LAKE_CACHE_DIR", some sourceCache),
+      ("LAKE_RESTORE_ARTIFACTS", some "true")]
+
+/-- Lake options for a dependency build; source mode also preserves the selected toolchain. -/
+def lakeOptions : BuildMode → Array String
+  | .upstreamCache => #[]
+  | .source => #["--no-cache", "--keep-toolchain"]
+
+/-- Version of the isolated-cache and import-scope policy, recorded before any source build. -/
+def sourceArtifactPolicy : Nat := 2
+
+/-- The Mathlib build plan of local provisioning and CI. `readOnly` says the workspace is
+sealed afterwards as the shared directory, so the upstream route also builds every module's
+exported native object there. CI's upstream route keeps a writable workspace and only fetches
+the published artifacts; its later builds write the objects they link. -/
+def mathlibCommands (readOnly : Bool) : BuildMode → List (Array String)
+  | .upstreamCache => #["exe", "cache", "get"] ::
+      if readOnly then [#["build", "Mathlib", "Mathlib:static.export"]] else []
+  | .source => [#["build", "regulaMathlibSource"]]
+
+/-- The upstream route always fetches the published artifacts first, and builds the exported
+native objects exactly when its workspace is sealed read-only afterwards. -/
+theorem upstream_plan (readOnly : Bool) :
+    mathlibCommands readOnly .upstreamCache =
+      if readOnly then [#["exe", "cache", "get"], #["build", "Mathlib", "Mathlib:static.export"]]
+      else [#["exe", "cache", "get"]] := by
+  cases readOnly <;> rfl
+
+/-- Source provisioning schedules only the source build with package-cache downloads and
+artifact-cache reuse disabled, a supplied isolated artifact location, and restoration requested.
+The invoked Lake, package hooks, cache freshness and process environment remain trusted. -/
+theorem source_plan (readOnly : Bool) (sourceCache : String) :
+    mathlibCommands readOnly .source = [#["build", "regulaMathlibSource"]] ∧
+    lakeOptions .source = #["--no-cache", "--keep-toolchain"] ∧
+    buildEnvironment sourceCache .source =
+      #[("LAKE_NO_CACHE", some "true"), ("MATHLIB_NO_CACHE_ON_UPDATE", some "1"),
+        ("LAKE_ARTIFACT_CACHE", some "false"), ("LAKE_CACHE_DIR", some sourceCache),
+        ("LAKE_RESTORE_ARTIFACTS", some "true")] := by
+  exact ⟨rfl, rfl, rfl⟩
 
 /-- A full-length lowercase hexadecimal Git object name, the form of Lake's pinned
 revisions and of `Lean.githash`. -/
@@ -55,9 +137,13 @@ abbrev Component := {text : String // isComponent text = true}
 def component? (text : String) : Option Component :=
   if h : isComponent text then some ⟨text, h⟩ else none
 
-/-- The shared directory's name for one Mathlib revision and one toolchain commit. -/
-def sharedKey (mathlibRev githash : String) : String :=
-  s!"{mathlibRev}-lean-{githash}"
+/-- The shared directory's name for one Mathlib revision, compiler commit and artifact mode;
+a source name also carries its artifact policy and the hash of its import module.
+The upstream-cache spelling preserves existing shared directories. -/
+def sharedKey (mode : BuildMode) (mathlibRev githash : String) (policy : Nat)
+    (source : String) : String :=
+  s!"{mathlibRev}-lean-{githash}" ++
+    if mode == .source then s!"-source-v{policy}-{hash source}" else ""
 
 /-- One package revision recorded by the shared directory or pinned by a copy. -/
 structure Pin where
@@ -77,6 +163,12 @@ structure Receipt where
   leanGithash : String
   /-- The version string of that Lean toolchain. -/
   leanVersion : String
+  /-- The artifact acquisition mode. Receipts predating this field used upstream caches. -/
+  mode : BuildMode := .upstreamCache
+  /-- Source artifacts require the current isolated-cache policy; legacy receipts had none. -/
+  artifactPolicy : Nat := 0
+  /-- Exact generated import module. Its hash only indexes the directory; admission compares bytes. -/
+  source : String := ""
   /-- Each package checkout in the shared directory, at the commit it was materialized at. -/
   packages : Array Pin
   deriving Repr, ToJson, FromJson
@@ -84,27 +176,86 @@ structure Receipt where
 /-- Receipt schema this program writes and accepts. -/
 def receiptSchema : Nat := 1
 
-/-- The shared directory serves a copy only when it holds this Mathlib revision for this
-toolchain and records no package the copy pins at a different revision. -/
-def admits (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin) : Bool :=
+/-- The directory name a receipt identifies, under the artifact policy it records. -/
+def Receipt.key (receipt : Receipt) : String :=
+  sharedKey receipt.mode receipt.mathlibRev receipt.leanGithash receipt.artifactPolicy
+    receipt.source
+
+/-- The complete source inputs of one staged dependency workspace. -/
+structure StageInputs where
+  /-- Artifact policy recorded before the stage's first build. -/
+  artifactPolicy : Nat
+  /-- Lake configuration selecting the pinned Mathlib source. -/
+  configuration : String
+  /-- Exact package manifest serialized by this program. -/
+  manifest : String
+  /-- The repository's complete toolchain selector file. -/
+  toolchain : String
+  /-- Generated Mathlib import module, empty for the full upstream-cache build. -/
+  source : String
+  deriving DecidableEq, Repr
+
+/-- Only a source-mode stage with exactly the requested inputs may be resumed. The caller
+also restricts discovery to real directories under the current compiler/mode key. -/
+def resumes (mode : BuildMode) (expected observed : StageInputs) : Bool :=
+  mode == .source && expected == observed
+
+/-- Resumption binds every staged source input and is unavailable to the upstream-cache route. -/
+theorem resumes_iff (mode : BuildMode) (expected observed : StageInputs) :
+    resumes mode expected observed = true ↔ mode = .source ∧ expected = observed := by
+  simp [resumes]
+
+/-- The shared directory serves a copy only when its revision, compiler and artifact mode
+match and it records no package the copy pins at a different revision. -/
+def admits (receipt : Receipt) (mode : BuildMode) (mathlibRev githash : String)
+    (pins : Array Pin) (source : String := "") : Bool :=
   receipt.schemaVersion == receiptSchema && receipt.mathlibRev == mathlibRev &&
-    receipt.leanGithash == githash &&
+  receipt.leanGithash == githash && receipt.mode == mode &&
+    (mode != .source || receipt.artifactPolicy == sourceArtifactPolicy) &&
+    receipt.source == source &&
     pins.all fun pin => receipt.packages.all fun held => held.name != pin.name ||
                                                           held.rev == pin.rev
 
-/-- Admission is sound: when it admits, the revision and toolchain match, and no admitted pin
-names a package that the receipt records at another revision. -/
-theorem admits_sound (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin)
-    (h : admits receipt mathlibRev githash pins = true) :
+/-- Admission binds revision, compiler, artifact mode and exact generated import source;
+no admitted pin names a package that the receipt records at another revision. -/
+theorem admits_sound (receipt : Receipt) (mode : BuildMode) (mathlibRev githash : String)
+    (pins : Array Pin) (source : String)
+    (h : admits receipt mode mathlibRev githash pins source = true) :
     receipt.mathlibRev = mathlibRev ∧ receipt.leanGithash = githash ∧
+      receipt.mode = mode ∧
+      (mode = .source → receipt.artifactPolicy = sourceArtifactPolicy) ∧
+      receipt.source = source ∧
       ∀ pin ∈ pins, ∀ held ∈ receipt.packages, held.name = pin.name → held.rev = pin.rev := by
   simp only [admits, Bool.and_eq_true, beq_iff_eq, Array.all_eq_true, Bool.or_eq_true,
     bne_iff_ne, ne_eq] at h
-  obtain ⟨⟨⟨_, hRev⟩, hGithash⟩, hPins⟩ := h
-  refine ⟨hRev, hGithash, fun pin hPin held hHeld hName => ?_⟩
-  obtain ⟨i, hi, rfl⟩ := Array.mem_iff_getElem.mp hPin
-  obtain ⟨j, hj, rfl⟩ := Array.mem_iff_getElem.mp hHeld
-  exact ((hPins i hi) j hj).resolve_left (fun h => h hName)
+  obtain ⟨⟨⟨⟨⟨⟨_, hRev⟩, hGithash⟩, hMode⟩, hPolicy⟩, hSource⟩, hPins⟩ := h
+  refine ⟨hRev, hGithash, hMode, ?_, hSource, fun pin hPin held hHeld hName => ?_⟩
+  · intro hSource
+    exact hPolicy.resolve_left (fun different => different hSource)
+  · obtain ⟨i, hi, rfl⟩ := Array.mem_iff_getElem.mp hPin
+    obtain ⟨j, hj, rfl⟩ := Array.mem_iff_getElem.mp hHeld
+    exact ((hPins i hi) j hj).resolve_left (fun h => h hName)
+
+/-- An admitted receipt identifies the directory requested under the current artifact policy.
+A source receipt recorded under another policy is refused by `admits`; it identifies only its
+own directory, for retention. -/
+theorem admits_key (receipt : Receipt) (mode : BuildMode) (mathlibRev githash : String)
+    (pins : Array Pin) (source : String)
+    (h : admits receipt mode mathlibRev githash pins source = true) :
+    receipt.key = sharedKey mode mathlibRev githash sourceArtifactPolicy source := by
+  obtain ⟨hRev, hGithash, hMode, hPolicy, hSource, _⟩ :=
+    admits_sound receipt mode mathlibRev githash pins source h
+  unfold Receipt.key
+  rw [hMode, hRev, hGithash, hSource]
+  cases mode with
+  | upstreamCache => simp [sharedKey]
+  | source => rw [hPolicy rfl]
+
+/-- An upstream-cache receipt can never admit a source-build request. -/
+theorem source_refuses_cache (receipt : Receipt) (mathlibRev githash : String)
+    (pins : Array Pin) (source : String) (h : receipt.mode = .upstreamCache) :
+    admits receipt .source mathlibRev githash pins source = false := by
+  simp [admits, h]
 
 /-- What a copy has at one package path. -/
 inductive Observed where
@@ -217,23 +368,23 @@ inductive Found where
 def found (name : String) : Option Receipt → Found
   | none => .foreign
   | some receipt =>
-    if name == sharedKey receipt.mathlibRev receipt.leanGithash then .shared
-    else if name.startsWith (removingPrefix (sharedKey receipt.mathlibRev receipt.leanGithash))
-    then .removing
+    if name == receipt.key then .shared
+    else if name.startsWith (removingPrefix receipt.key) then .removing
     else .foreign
 
-/-- Only a receipt that names the directory identifies it as shared or being removed. -/
+/-- Only a receipt that names the directory, under the artifact policy that receipt records,
+identifies it as shared or being removed. -/
 theorem found_identified (name : String) (receipt : Option Receipt)
     (h : found name receipt ≠ .foreign) :
-    ∃ r, receipt = some r ∧ (name = sharedKey r.mathlibRev r.leanGithash ∨
-      name.startsWith (removingPrefix (sharedKey r.mathlibRev r.leanGithash)) = true) := by
+    ∃ r, receipt = some r ∧ (name = r.key ∨
+      name.startsWith (removingPrefix r.key) = true) := by
   cases receipt with
   | none => simp [found] at h
   | some r =>
     refine ⟨r, rfl, ?_⟩
-    by_cases hName : name = sharedKey r.mathlibRev r.leanGithash
+    by_cases hName : name = r.key
     · exact .inl hName
-    · by_cases hPrefix : name.startsWith (removingPrefix (sharedKey r.mathlibRev r.leanGithash))
+    · by_cases hPrefix : name.startsWith (removingPrefix r.key)
       · exact .inr hPrefix
       · simp [found, hName, hPrefix] at h
 
@@ -295,9 +446,10 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
   return ran.stdout
 
 /-- Run with inherited output, for long steps whose progress the user should see. -/
-private def stream (cwd : FilePath) (cmd : String) (args : Array String) : IO Unit := do
+private def stream (cwd : FilePath) (cmd : String) (args : Array String)
+    (env : Array (String × Option String) := #[]) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd, args, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
+    cmd, args, env, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
     throw <|
@@ -305,6 +457,40 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String) : IO Un
             s!"provisioning: `{cmd} {" ".intercalate args.toList}` in {cwd} failed ({exit})"
 
 private def say (line : String) : IO Unit := IO.println s!"provisioning: {line}"
+
+private def nonce : IO String := do
+  let bytes ← IO.getRandomBytes 8
+  return s!"{← IO.Process.getPID}-{bytes.foldl (fun value byte => value * 256 + byte.toNat) 0}"
+
+/-- Source commands get a newly created cache directory, so an explicit package cache opt-in
+cannot read an inherited remote mapping. Retain it: such a package may store outputs there
+despite the environment's requested defaults. Creation and package hooks remain trusted. -/
+private def freshBuildEnvironment (root : FilePath) (mode : BuildMode) :
+    IO (Array (String × Option String)) := do
+  match mode with
+  | .upstreamCache => return buildEnvironment "" mode
+  | .source =>
+    let parent := root / ".lake" / "regula-source-caches"
+    IO.FS.createDirAll parent
+    let cache := parent / (← nonce)
+    IO.FS.createDir cache
+    return buildEnvironment (← IO.FS.realPath cache).toString mode
+
+/-- Read the repository's explicit artifact mode. A missing or malformed
+`dependency-build-mode` is refused. -/
+def readBuildMode (repo : FilePath) : IO BuildMode := do
+  let text := (← IO.FS.readFile (repo / "dependency-build-mode")).trimAscii.toString
+  let some mode := buildMode? text
+    | throw <| IO.userError s!"provisioning: unknown dependency-build-mode '{text}'"
+  return mode
+
+/-- Execute the Mathlib plan. `workspaceArgs` selects the Lake workspace, while the process
+directory stays at its package-cache root as required by Mathlib's cache tool. -/
+private def buildMathlib (cwd : FilePath) (mode : BuildMode) (readOnly : Bool)
+    (workspaceArgs : Array String := #[]) : IO Unit := do
+  let env ← freshBuildEnvironment cwd mode
+  for command in mathlibCommands readOnly mode do
+    stream cwd "lake" (lakeOptions mode ++ workspaceArgs ++ command) env
 
 private def admitComponent (what text : String) : IO Component := do
   let some name := component? text
@@ -314,6 +500,69 @@ private def admitComponent (what text : String) : IO Component := do
 /-- Kind of the path itself, without following a final symbolic link. -/
 private def kind? (path : FilePath) : IO (Option IO.FS.FileType) := do
   try return some (← path.symlinkMetadata).type catch _ => return none
+
+/-- The lock under a repository's `.lake/regula-dependency-planner` that orders this program's
+planner runs in that repository; this program never removes it. -/
+def plannerLockName : String := "planner.lock"
+
+/-- Build the planner in a separate workspace with the repository's exact configuration and
+linked sources, so the root package's Lake configuration and build caches stay untouched; the
+planner's own Lake loads of the Audit and standard packages may write their configuration
+caches. The workspace's key includes the repository's canonical path, which its absolute source
+links name, so a moved repository gets a new workspace and the old one is left in place.
+One exclusive lock on `plannerLockName` under the repository's planner directory orders every
+run of this function in that repository, whatever its key, because all of them share those
+configuration caches: it is taken before the workspace is examined and held through its
+publication and admission, the Lake build, the planner's execution and the decoding of its
+result, and released before returning, so it is never held together with the shared-store lock.
+File locking is a trusted OS effect and orders only runs of this program; it does not order a
+child process that outlives a killed run.
+A workspace is written whole in a sibling staging directory and published as `v3-<key>` by one
+rename, so this program leaves no partly written workspace at that path; the rename is a trusted
+filesystem effect, and this is no claim of durability across power loss. An interrupted attempt
+stays in its staging directory, unused and never removed. A `v2-<key>` directory, whose build
+earlier runs wrote without this lock, and a `<key>` directory of the earlier in-place
+construction, which may be partial, are likewise neither used nor removed.
+Generated configuration is never overwritten: an existing workspace must retain the same bytes
+and source links. -/
+private def sourceModule (repo : FilePath) (mode : BuildMode) : IO String := do
+  if mode == .upstreamCache then return ""
+  let inputs ← #["lakefile.lean", "lake-manifest.json", "lean-toolchain"].mapM fun (name : String) => do
+    return (name, ← IO.FS.readFile (repo / name))
+  let parent := repo / ".lake/regula-dependency-planner"
+  IO.FS.createDirAll parent
+  let lock ← IO.FS.Handle.mk (parent / plannerLockName) .append
+  unless ← lock.tryLock do
+    say s!"waiting for another run that is planning dependencies in {parent}"
+    lock.lock
+  try
+    let key := hash (inputs.toList, Lean.githash, (← IO.FS.realPath repo).toString)
+    let workspace := parent / s!"v3-{key}"
+    match ← kind? workspace with
+    | none =>
+      let staged := parent / s!"v3-{key}.staging-{← nonce}"
+      IO.FS.createDir staged
+      for (name, source) in inputs do IO.FS.writeFile (staged / name) source
+      for name in #["lean", "examples"] do
+        let _ ← require repo "ln" #["-s", (repo / name).toString, (staged / name).toString]
+      IO.FS.rename staged workspace
+    | some .dir => pure ()
+    | some _ =>
+      throw <| IO.userError s!"provisioning: planner workspace is not a directory: {workspace}"
+    for (name, source) in inputs do
+      unless (← kind? (workspace / name)) == some .file &&
+          (← IO.FS.readFile (workspace / name)) == source do
+        throw <| IO.userError s!"provisioning: planner configuration differs: {workspace / name}"
+    for name in #["lean", "examples"] do
+      unless (← kind? (workspace / name)) == some .symlink &&
+          (← IO.FS.realPath (workspace / name)) == (← IO.FS.realPath (repo / name)) do
+        throw <| IO.userError s!"provisioning: planner source link differs: {workspace / name}"
+    stream workspace "lake" #["--no-cache", "--keep-toolchain", "build", "dependencyScope"]
+      (← freshBuildEnvironment workspace mode)
+    let result ← require repo (workspace / ".lake/build/bin/dependencyScope").toString #[]
+    IO.ofExcept <| Json.parse result >>= fromJson?
+  finally
+    lock.unlock
 
 private def observe (path : FilePath) : IO Observed := do
   match ← kind? path with
@@ -336,10 +585,6 @@ private def removeObserved (path : FilePath) : Observed → IO Unit
   | .link _ => IO.FS.removeFile path
   | .directory .. => IO.FS.removeDirAll path
   | _ => pure ()
-
-private def nonce : IO String := do
-  let bytes ← IO.getRandomBytes 8
-  return s!"{← IO.Process.getPID}-{bytes.foldl (fun value byte => value * 256 + byte.toNat) 0}"
 
 /-- Replace `path` by a symbolic link to `target`: the link is made beside it and renamed
 over it, so readers see the old entry or the new link. -/
@@ -440,6 +685,14 @@ private def readReceipt (dir : FilePath) : IO (Option Receipt) := do
   try
     let text ← IO.FS.readFile (dir / receiptName)
     let .ok json := Json.parse text | return none
+    let .ok fields := json.getObj? | return none
+    -- Before artifact modes existed every receipt described the upstream-cache route.
+    let json := if fields.contains "mode" then json else
+      json.setObjVal! "mode" (toJson BuildMode.upstreamCache)
+    let json := if fields.contains "artifactPolicy" then json else
+      json.setObjVal! "artifactPolicy" (toJson (0 : Nat))
+    let json := if fields.contains "source" then json else
+      json.setObjVal! "source" (toJson ("" : String))
     let .ok receipt := fromJson? json | return none
     return some receipt
   catch _ => return none
@@ -473,24 +726,100 @@ private def makeReadOnly (staging : FilePath) (packages : Array FilePath) : IO U
     let _ ← require package "git" #["update-index", "-q", "--refresh"]
     let _ ← require package "chmod" #["a-w", (git / "index").toString, git.toString]
 
-/-- Create the shared directory `final` from a fresh staging directory: materialize the pins
-with Lake, unpack the archive cache with Mathlib's own tool, build what the upstream cache
-lacks and every module's native object, record and seal it, and make it visible with one
-rename. The caller holds the lock. -/
-private def create (repo parent final : FilePath) (key : String) (manifest : Json)
-    (pins : Pins) : IO Unit := do
-  let staging := parent / s!"{key}.staging-{← nonce}"
-  IO.FS.createDir staging
-  try
-    IO.FS.writeFile (staging / "lakefile.toml") <|
+/-- The complete dependency workspace input written before a build begins. -/
+private def stageInputs (repo : FilePath) (manifest : Json) (pins : Pins)
+    (mode : BuildMode) (source : String) : IO StageInputs := do
+  return {
+    artifactPolicy := if mode == .source then sourceArtifactPolicy else 0
+    configuration :=
       "name = \"regula_mathlib_packages\"\n\n[[require]]\nname = \"mathlib\"\n" ++
-      s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n"
-    IO.FS.writeBinFile (staging / "lean-toolchain") (← IO.FS.readBinFile (repo / "lean-toolchain"))
-    -- The repository's own lock entries, unchanged: Lake materializes the same revisions.
-    IO.FS.writeFile (staging / "lake-manifest.json") <| (manifest
+        s!"git = \"{pins.mathlibUrl}\"\nrev = \"{pins.mathlibRev}\"\n" ++
+        (if mode == .source then
+          "\n[[lean_exe]]\nname = \"regulaMathlibSource\"\nroot = \"RegulaMathlibSource\"\n\
+            supportInterpreter = true\n" else "")
+    manifest := (manifest
       |>.setObjVal! "name" (.str "regula_mathlib_packages")
       |>.setObjVal! "packagesDir" (.str ".lake/packages")
       |>.setObjVal! "packages" (.arr (pins.git.map (·.1)))).pretty ++ "\n"
+    toolchain := ← IO.FS.readFile (repo / "lean-toolchain")
+    source }
+
+/-- Recover exact inputs from an interrupted stage. Unknown or incomplete stages are left
+untouched. Filesystem content and Lake's dependency traces remain trusted observations. -/
+private def readStageInputs (path : FilePath) : IO (Option StageInputs) := do
+  try
+    return some {
+      artifactPolicy := ← IO.ofExcept <| fromJson? (← IO.ofExcept <|
+        Json.parse (← IO.FS.readFile (path / "regula-artifact-policy.json")))
+      configuration := ← IO.FS.readFile (path / "lakefile.toml")
+      manifest := ← IO.FS.readFile (path / "lake-manifest.json")
+      toolchain := ← IO.FS.readFile (path / "lean-toolchain")
+      source := ← IO.FS.readFile (path / "RegulaMathlibSource.lean") }
+  catch _ => return none
+
+/-- Refuse a retained package tree that Lake could replace or clean. The pinned HEAD itself
+is admitted even when a shallow fetch recorded only FETCH_HEAD; other local branch work,
+stashes and working-tree edits remain protected. No package mutation precedes this check. -/
+private def requireRetainedPackages (staging : FilePath) (pins : Pins) : IO Unit := do
+  for path in #[staging / ".lake", sharedPackages staging] do
+    if let some kind ← kind? path then
+      unless kind == .dir do
+        throw <| IO.userError s!"provisioning: refusing retained non-directory {path}"
+  let packages := sharedPackages staging
+  unless ← packages.pathExists do return
+  for entry in ← packages.readDir do
+    let some (json, pin) := pins.git.find? (·.2.name == entry.fileName)
+      | throw <| IO.userError s!"provisioning: retained stage has unpinned package {entry.path}"
+    unless (← kind? entry.path) == some .dir &&
+        (← kind? (entry.path / ".git")) == some .dir do
+      throw <| IO.userError s!"provisioning: retained package {entry.path} is not an owned checkout"
+    let head ← require entry.path "git" #["rev-parse", "HEAD"]
+    unless head.trimAscii.toString == pin.rev do
+      throw <| IO.userError s!"provisioning: retained package {entry.path} has another revision"
+    let url ← IO.ofExcept (json.getObjValAs? String "url")
+    unless (← require entry.path "git" #["remote", "get-url", "origin"]).trimAscii == url do
+      throw <| IO.userError s!"provisioning: retained package {entry.path} has another origin"
+    for args in #[#["status", "--porcelain", "--untracked-files=all"], #["stash", "list"],
+        #["rev-list", "-n", "1", "--branches", "--not", "HEAD", "--remotes"]] do
+      unless (← require entry.path "git" args).trimAscii.isEmpty do
+        throw <| IO.userError s!"provisioning: retained package {entry.path} has local work"
+
+/-- Source mode reuses only a stage for this exact compiler/mode key with identical inputs whose
+retained packages pass `requireRetainedPackages`. A stage with identical inputs that fails those
+checks, such as one an interrupted clone left without a checked-out revision, is reported and left
+untouched, and the search continues; with no admissible stage a new one is created. The exclusive
+provisioning lock excludes a concurrent writer owned by this program. -/
+private def prepareStage (parent : FilePath) (key : String) (mode : BuildMode) (pins : Pins)
+    (expected : StageInputs) : IO FilePath := do
+  if mode == .source then
+    for entry in ← parent.readDir do
+      if entry.fileName.startsWith s!"{key}.staging-" && (← kind? entry.path) == some .dir then
+        if let some observed ← readStageInputs entry.path then
+          if resumes mode expected observed then
+            match ← (requireRetainedPackages entry.path pins).toBaseIO with
+            | .error error =>
+              say s!"leaving retained source stage {entry.path} untouched: {error}"
+            | .ok () =>
+              say s!"resuming source dependencies in {entry.path}"
+              let _ ← require entry.path "chmod" #["-R", "u+w", entry.path.toString]
+              return entry.path
+  let staging := parent / s!"{key}.staging-{← nonce}"
+  IO.FS.createDir staging
+  IO.FS.writeFile (staging / "lakefile.toml") expected.configuration
+  IO.FS.writeFile (staging / "lake-manifest.json") expected.manifest
+  IO.FS.writeFile (staging / "lean-toolchain") expected.toolchain
+  IO.FS.writeFile (staging / "RegulaMathlibSource.lean") expected.source
+  IO.FS.writeFile (staging / "regula-artifact-policy.json")
+    ((toJson expected.artifactPolicy).compress ++ "\n")
+  return staging
+
+/-- Create the shared directory `final` from a fresh or exact-input resumed staging directory,
+run the complete selected build plan, record and seal it, and publish with one rename.
+The caller holds the lock. -/
+private def create (repo parent final : FilePath) (key : String) (manifest : Json)
+    (pins : Pins) (mode : BuildMode) (source : String) : IO Unit := do
+  let staging ← prepareStage parent key mode pins (← stageInputs repo manifest pins mode source)
+  try
     let githash := (← require staging "lean" #["--githash"]).trimAscii.toString
     unless githash == Lean.githash do
       throw <|
@@ -498,11 +827,9 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
               s!"provisioning: the staged toolchain is {githash}, not the running {Lean.githash}"
     -- `cache get` unpacks into the workspace's default `.lake/packages` and ignores a custom
     -- packages directory, so the staging workspace keeps the default.
-    stream staging "lake" #["exe", "cache", "get"]
-    -- Build what the upstream cache lacks, and every module's exported native object, which
-    -- the cache does not ship but linking an executable that imports Mathlib needs. Then no
-    -- import or executable link has to write into the sealed Mathlib.
-    stream staging "lake" #["build", "Mathlib", "Mathlib:static.export"]
+    -- An interpreter-supporting executable requests exported native objects for its complete
+    -- transitive imports. The upstream route retains its complete-library build.
+    buildMathlib staging mode true
     let packagesRoot := sharedPackages staging
     let mut held := #[]
     let mut dirs := #[]
@@ -518,33 +845,39 @@ private def create (repo parent final : FilePath) (key : String) (manifest : Jso
       dirs := dirs.push entry.path
     let receipt : Receipt := {
       schemaVersion := receiptSchema, mathlibRev := pins.mathlibRev,
-      leanGithash := Lean.githash, leanVersion := Lean.versionString, packages := held }
+      leanGithash := Lean.githash, leanVersion := Lean.versionString, mode,
+      artifactPolicy := if mode == .source then sourceArtifactPolicy else 0, source, packages := held }
     IO.FS.writeFile (staging / receiptName) ((toJson receipt).pretty ++ "\n")
     makeReadOnly staging dirs
     IO.FS.rename staging final
   catch error =>
-    if (← kind? staging) matches some .dir then removeReadOnly staging
+    if mode == .source then
+      say s!"retained interrupted source dependencies in {staging}"
+    else if (← kind? staging) matches some .dir then removeReadOnly staging
     throw error
 
 /-- The admitted shared directory `parent/key` for these pins, created once. The caller holds
 the lock. -/
 private def ensureShared (repo parent : FilePath) (key : Component) (manifest : Json)
-    (pins : Pins) : IO (FilePath × Receipt) := do
+    (pins : Pins) (mode : BuildMode) (source : String) : IO (FilePath × Receipt) := do
   let pinned := pins.git.map (·.2)
   let final := parent / key.val
   let admitted? := fun (receipt? : Option Receipt) => receipt?.filter fun receipt =>
-    admits receipt pins.mathlibRev Lean.githash pinned
+    admits receipt mode pins.mathlibRev Lean.githash pinned source
   if let some receipt := admitted? (← readReceipt final) then return (final, receipt)
   if (← kind? final) matches some _ then
     throw <| IO.userError s!"provisioning: {final} exists but its receipt does not admit \
-      Mathlib {pins.mathlibRev} for Lean {Lean.githash}; remove it and provision again"
-  -- Under the lock, a staging directory can only belong to a process that died.
-  for entry in ← parent.readDir do
-    if entry.fileName.startsWith s!"{key.val}.staging-" then
-      if (← kind? entry.path) matches some .dir then removeReadOnly entry.path
-  say s!"creating the shared Mathlib {pins.mathlibRev} for Lean {Lean.versionString} in {final}"
+      Mathlib {pins.mathlibRev} for Lean {Lean.githash} ({mode.spelling}); move it aside and \
+      provision again"
+  -- Source stages retain compilation work and are resumed only after exact-input admission.
+  if mode == .upstreamCache then
+    for entry in ← parent.readDir do
+      if entry.fileName.startsWith s!"{key.val}.staging-" then
+        if (← kind? entry.path) matches some .dir then removeReadOnly entry.path
+  say s!"creating the shared Mathlib {pins.mathlibRev} for Lean {Lean.versionString} \
+    ({mode.spelling}) in {final}"
   let started ← IO.monoMsNow
-  create repo parent final key.val manifest pins
+  create repo parent final key.val manifest pins mode source
   say s!"created {final} in {((← IO.monoMsNow) - started) / 1000} s"
   let some receipt := admitted? (← readReceipt final)
     | throw <| IO.userError s!"provisioning: {final} was created but its receipt is not admitted"
@@ -670,8 +1003,8 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
   unless cloned.isEmpty do
     say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
 
-/-- Provision this copy. -/
-def provision (repo : FilePath) : IO Unit := do
+/-- Refuse a process or Mathlib workspace using a different compiler from this program. -/
+def requireCompiler (repo : FilePath) : IO Unit := do
   let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
   unless githash == Lean.githash do
     throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
@@ -681,9 +1014,16 @@ def provision (repo : FilePath) : IO Unit := do
       (← IO.FS.readFile (repo / mathlibPackage / "lean-toolchain")) do
     throw <| IO.userError s!"provisioning: {mathlibPackage}/lean-toolchain differs from the \
       repository's lean-toolchain"
+
+/-- Provision this copy. -/
+def provision (repo : FilePath) : IO Unit := do
+  let mode ← readBuildMode repo
+  requireCompiler repo
   let some (manifest, pins) ← readPins repo
     | say s!"{mathlibPackage}/lake-manifest.json pins no Mathlib; nothing to share"
-  let key ← admitComponent "shared directory" (sharedKey pins.mathlibRev Lean.githash)
+  let source ← sourceModule repo mode
+  let key ← admitComponent "shared directory"
+    (sharedKey mode pins.mathlibRev Lean.githash sourceArtifactPolicy source)
   let packages ← packagesPath repo pins
   let parent := (← cacheBase) / "mathlib-packages"
   IO.FS.createDirAll parent
@@ -692,7 +1032,7 @@ def provision (repo : FilePath) : IO Unit := do
     say s!"waiting for another copy that is provisioning from {parent}"
     lock.lock
   let shared ← try
-      let (shared, receipt) ← ensureShared repo parent key manifest pins
+      let (shared, receipt) ← ensureShared repo parent key manifest pins mode source
       registerCopy parent key.val (packages / "mathlib").toString
       provisionPackages packages shared receipt pins
       prune parent key.val
@@ -701,19 +1041,70 @@ def provision (repo : FilePath) : IO Unit := do
       lock.unlock
   say s!"Mathlib {pins.mathlibRev} is shared read-only from {shared}"
 
+/-- Provision the website's pinned Verso with the same artifact mode as Mathlib. -/
+def provisionVerso (repo : FilePath) : IO Unit := do
+  requireCompiler repo
+  unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
+      (← IO.FS.readFile (repo / "website" / "lean-toolchain")) do
+    throw <| IO.userError "provisioning: website/lean-toolchain differs from the root"
+  let mode ← readBuildMode repo
+  stream (repo / "website") "lake"
+    (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
+
+/-- Emit compiler, artifact policy and discovered source scope for CI cache keys. Cache hits
+still run source receipt admission. GitHub's output and environment protocols are trusted IO. -/
+def ciIdentity (repo : FilePath) : IO Unit := do
+  requireCompiler repo
+  let mode ← readBuildMode repo
+  unless isObjectName Lean.githash do
+    throw <| IO.userError "provisioning: the compiler commit is not a full Git object name"
+  let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
+  let source ← sourceModule repo mode
+  let value := s!"{Lean.githash}-{mode.spelling}{policy}"
+  say s!"dependency identity {value}"
+  if let some path ← IO.getEnv "GITHUB_OUTPUT" then
+    let handle ← IO.FS.Handle.mk path .append
+    handle.putStr s!"identity={value}\n"
+    handle.putStr s!"mode={mode.spelling}\n"
+    handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
+  if let some path ← IO.getEnv "GITHUB_ENV" then
+    let handle ← IO.FS.Handle.mk path .append
+    for (name, value) in ← freshBuildEnvironment repo mode do
+      if let some value := value then handle.putStr s!"{name}={value}\n"
+
+/-- Run an argv command with the repository's artifact policy inherited by its descendants.
+The caller chooses the process; no shell interprets its arguments. -/
+def execute (repo dir : FilePath) (command : String) (args : Array String) : IO Unit := do
+  let mode ← readBuildMode repo
+  stream (repo / dir) command args (← freshBuildEnvironment repo mode)
+
 end RegulaProvision
 
-/-- Standalone entrypoint, run by `scripts/provision.sh` in the repository root. -/
-def main : IO Unit := do
-  if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
-    IO.println "provisioning: skipped on GitHub Actions (CI provisions .lake/packages with `lake \
-      -d audit exe cache get`)"
-    return
-  if System.Platform.isWindows then
-    IO.println "provisioning: not supported on Windows; provision with `lake -d audit exe cache \
-      get`"
-    return
+/-- Standalone entrypoint for local sharing, CI dependency setup, Verso and commands that
+must inherit the selected artifact mode. Every invocation starts at the repository root. -/
+def main (args : List String) : IO Unit := do
   let repo ← IO.FS.realPath (← IO.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
     throw <| IO.userError "provisioning: run from the repository root"
-  RegulaProvision.provision repo
+  match args with
+  | [] =>
+    if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
+      IO.println "provisioning: local sharing skipped on GitHub Actions (CI uses the Mathlib plan)"
+    else if System.Platform.isWindows then
+      if (← RegulaProvision.readBuildMode repo) == .source then
+        throw <| IO.userError "provisioning: source dependency mode is not supported on Windows"
+      IO.println "provisioning: not supported on Windows; provision with `lake -d audit exe cache \
+        get`"
+    else RegulaProvision.provision repo
+  | ["mathlib"] =>
+    RegulaProvision.requireCompiler repo
+    let mode ← RegulaProvision.readBuildMode repo
+    if mode == .source then RegulaProvision.provision repo
+    else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
+  | ["verso"] => RegulaProvision.provisionVerso repo
+  | ["identity"] => RegulaProvision.ciIdentity repo
+  | "exec" :: dir :: command :: rest =>
+    RegulaProvision.execute repo dir command rest.toArray
+  | _ =>
+    throw <| IO.userError "usage: lean --run lean/RegulaProvision.lean \
+      [mathlib | verso | identity | exec DIR COMMAND ARGS...]"

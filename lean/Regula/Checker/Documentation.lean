@@ -465,10 +465,16 @@ def kindOf (fence : Fence) : Kind :=
 
 /-- The label a status is printed with. -/
 def statusName : Status → String
-  | .pass => "PASS"
-  | .passNegative => "PASS_NEG"
-  | .passTrusted => "PASS_TRUSTED"
+  | .pass => RegulaPolicy.Compiler.verdict RegulaPolicy.Compiler.candidate
+  | .passNegative => RegulaPolicy.Compiler.successLabel RegulaPolicy.Compiler.candidate
+      "PASS_NEG" "NEGATIVE"
+  | .passTrusted => RegulaPolicy.Compiler.successLabel RegulaPolicy.Compiler.candidate
+      "PASS_TRUSTED" "TRUSTED"
   | .fail => "FAIL"
+
+/-- Positive documentation counts distinguish support from candidate observations. -/
+def positiveSummary : String :=
+  RegulaPolicy.Compiler.positiveSummary RegulaPolicy.Compiler.candidate
 
 private def diagnostics (output : String) : String :=
   let lines := errorLines output
@@ -482,10 +488,11 @@ private def compilationFailure (compilation : SourceAudit.Compilation)
   else "emitted warning: " ++ " | ".intercalate (warnings.extract 0 4).toList
   { task, status := .fail, detail, incomplete := !SourceAudit.sourceDiagnosticFailure compilation }
 
-private def assessPositive (task : Task) (unitName : Name)
+private def assessPositive (observed : RegulaPolicy.Compiler.LegacyCompilerTrust)
+    (task : Task) (unitName : Name)
     (declarations : Array Regula.Report.Declaration)
     (transcripts : Array Frontend.Transcript) : Result := Id.run do
-  let .ok scope := Policy.admitScope declarations transcripts
+  let .ok scope := Policy.admitScope observed declarations transcripts
     | return { task, status := .fail, detail := "invalid policy observation inventory",
                  incomplete := true }
   let claim := if task.kind == .trusted then Profile.compilerTrusting
@@ -656,7 +663,8 @@ unsafe def auditTasks (repo scratch : FilePath) (jobs : Nat)
               | throw <| IO.userError "unreachable admission outcome"
             let units := group.items.map fun item => (item.task, item.compilation)
             return group.items.map fun item =>
-              let assessed := assessPositive item.task item.compilation.spec.module.toName
+              let assessed := assessPositive inspected.report.compilerCapability
+                item.task item.compilation.spec.module.toName
                 inspected.report.declarations inspected.transcripts
               (item.index, { assessed with raw := some ⟨item.compilation, some inspected, units⟩ })
           catch error =>
@@ -749,7 +757,8 @@ def exampleObservation (result : Result) : IO RegulaPolicy.ExampleObservation :=
       let some group := raw.group | throw <| IO.userError "missing example group inspection"
       IO.ofExcept (ProducerReport.checked_validate.run group.report)
       IO.ofExcept <| group.report.validateSourceEvidence.mapError (·.detail)
-      let scope ← IO.ofExcept <| Policy.admitScope group.report.declarations group.transcripts
+      let scope ← IO.ofExcept <|
+        Policy.admitScope group.report.compilerCapability group.report.declarations group.transcripts
       let some replay := group.report.admission
         | throw <| IO.userError "missing example logical admission"
       pure (group.report.census.declarations,
@@ -899,15 +908,18 @@ private def localClosure (ws : _root_.Lake.Workspace) (captured : _root_.Lake.Pa
   return closure
 
 /-- The packages the Verso package at `dir` requires by local path, other than the accepted
-project at `project`, whose sources the link accepts: each by its name and its directory as the
-Verso package's lock manifest records it, relative to `dir`. -/
-private def localPackages (project dir : FilePath) : IO (Array (Name × FilePath)) := do
+project at `project`, whose sources the link accepts: each by its manifest name and the directory
+Lake actually loaded, relative to `dir`. This includes materialized copies and overrides. -/
+private def localPackages (project dir : FilePath) (ws : _root_.Lake.Workspace) :
+    IO (Array (Name × FilePath)) := do
   let some manifest ← _root_.Lake.Manifest.load? (dir / "lake-manifest.json") | return #[]
   let accepted ← IO.FS.realPath project
   manifest.packages.filterMapM fun entry => do
-    let .path relative := entry.src | return none
-    if (← IO.FS.realPath (dir / relative)) == accepted then return none
-    return some (entry.name, relative)
+    let .path .. := entry.src | return none
+    let some pkg := ws.findPackageByName? entry.name
+      | throw <| IO.userError s!"Verso package {dir} requires {entry.name}, which Lake did not load"
+    if (← IO.FS.realPath pkg.dir) == accepted then return none
+    return some (entry.name, pkg.relDir)
 
 /-- Every library module of each package the Verso package requires by local path other than the
 accepted project (`localPackages`), with its source file: for this repository, the modules of the
@@ -917,8 +929,8 @@ the Verso package's workspace, so an example's owned logical dependencies stay c
 import and pass kernel admission with it. -/
 def versoLocalModules (project : FilePath) (verso : VersoPackage) :
     IO (Array (Name × FilePath)) := do
-  let locals ← localPackages project verso.dir
   Workspace.withRootWorkspace verso.dir fun ws => do
+    let locals ← localPackages project verso.dir ws
     let mut modules := #[]
     for (name, _) in locals do
       let some pkg := ws.findPackageByName? name
@@ -943,8 +955,8 @@ the documentation itself. -/
 def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
     IO (Array RegulaPolicy.SourceSnapshot) := do
   let dir := verso.dir
-  let locals ← localPackages project dir
-  let modules ← Workspace.withRootWorkspace dir fun ws => do
+  let (locals, modules) ← Workspace.withRootWorkspace dir fun ws => do
+    let locals ← localPackages project dir ws
     let some lib := ws.root.leanLibs.find? (·.name == verso.library)
       | throw <| IO.userError s!"Verso package {dir} has no library {verso.library}"
     let some render := ws.root.leanExes.find?
@@ -960,7 +972,7 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
     let mut roots ← lib.getModuleArray
     for key in lib.config.needs do roots := roots ++ (← neededModules ws captured key)
     let closure ← localClosure ws captured (roots.push render.root)
-    closure.mapM fun m => do
+    let modules ← closure.mapM fun m => do
       let some (_, anchor) := anchors.find? (·.1 == m.pkg.keyName)
         | throw <| IO.userError s!"Verso package source {m.leanFile} is outside its packages"
       let real := (← IO.FS.realPath anchor).normalize.components
@@ -969,6 +981,7 @@ def captureVersoPackage (project : FilePath) (verso : VersoPackage) :
         throw <| IO.userError s!"Verso package source {m.leanFile} is outside its package {anchor}"
       return (components.drop real.length).foldl
           (fun (acc : FilePath) (part : String) => acc / part) anchor
+    return (locals, modules)
   let packageDirs := #[dir] ++ locals.map fun (_, relative) => dir / relative
   let config ← packageDirs.flatMapM fun (packageDir : FilePath) =>
     (#["lakefile.toml", "lakefile.lean", "lake-manifest.json", "lean-toolchain",
@@ -1168,8 +1181,9 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       let positivePass := (results.filter (·.status == .pass)).size
       let negativePass := (results.filter (·.status == .passNegative)).size
       let trustedPass := (results.filter (·.status == .passTrusted)).size
-      IO.println <| "\nsummary: " ++
-        s!"conforming-positive-pass={positivePass}/{positiveCount} " ++
+      IO.println <| (if RegulaPolicy.Compiler.candidate then
+          "\nsummary (diagnostic observations; unqualified compiler): " else "\nsummary: ") ++
+        s!"{positiveSummary}={positivePass}/{positiveCount} " ++
         s!"negative-pass={negativePass}/{negativeCount} " ++
         s!"trusted-classified={trustedPass}/{trustedCount} fail={failures}"
       let accepted ← MonadExcept.ofExcept rechecked

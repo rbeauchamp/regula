@@ -28,7 +28,7 @@ do not establish audit ownership.
 
 Provision [elan](https://github.com/leanprover/elan), the pinned toolchain,
 the shared Mathlib (`./scripts/provision.sh`), the website package's pinned Verso
-(`(cd website && lake build verso/VersoManual)`), GNU coreutils timeout, and ShellCheck
+(`lean --run lean/RegulaProvision.lean verso`), GNU coreutils timeout, and ShellCheck
 before verification. On macOS, `brew install coreutils shellcheck` supplies the
 last two tools. Verification runs offline against those pinned dependencies.
 
@@ -69,7 +69,7 @@ integration results.
 
 ### Share one Mathlib across local copies
 
-Locally, every copy uses one unpacked Mathlib per pinned revision and toolchain instead of
+Locally, every copy uses one unpacked Mathlib per pinned revision, compiler and artifact mode instead of
 its own. The pin is the `mathlib` entry of `audit/lake-manifest.json`; the root package pins
 nothing. [`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean) unpacks Mathlib's
 archive cache (`~/.cache/mathlib`) once into
@@ -82,17 +82,20 @@ native objects into them. The `audit/` and `website/` packages name that root `.
 as their packages directory; the example adopters under `examples/` require only `regula` and
 need no packages directory. Run `./scripts/provision.sh` in a fresh copy before the first `lake build`,
 which would otherwise clone and build a per-copy Mathlib; `./scripts/verify.sh` runs it
-before its deadline. The first run for a new
-pin takes about four minutes and needs the network; later copies take a few seconds and no
-Mathlib space. The receipt `regula-provisioned.json` in the shared directory records its
-revisions. A clean per-copy Mathlib checkout is replaced by the link; one with local
+before its deadline. The first run for a new pin needs the network; later copies reuse the
+sealed artifacts. The receipt `regula-provisioned.json` in the shared directory records its
+revisions, compiler and artifact mode. A clean per-copy Mathlib checkout is replaced by the link; one with local
 changes, stashes or commits that no remote-tracking branch holds is refused.
 
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared
-directories of other pins and toolchains that no registered copy still links, and drops the
+directories of other pins, toolchains, artifact modes and source artifact policies that no
+registered copy still links, and drops the
 registrations of copies that are gone or link elsewhere. Only a directory whose receipt names
-it is removed; a removal a killed run began is finished by the next run. A copy left with a
+it, under the artifact policy that receipt records, is removed; this retention step leaves
+staging directories and anything else there as they are. A source directory is named
+`…-source-v<policy>-<hash>`; one named in an earlier form is not identified and stays until
+removed by hand. A removal a killed run began is finished by the next run. A copy left with a
 dangling link is relinked by its next provisioning, which recreates the directory. One lock,
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
 so copies wait while another copy creates a new pin.
@@ -108,8 +111,41 @@ so copies wait while another copy creates a new pin.
   by the next run that creates one while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
-- GitHub Actions keeps `lake -d audit exe cache get` and its dependency cache; provisioning does
-  nothing there. A shared directory is never modified, only removed whole.
+- GitHub Actions runs the Mathlib plan defined in the same Lean program. Its upstream-cache
+  route only fetches Mathlib's published artifacts into the job's writable `.lake/packages`,
+  where later builds compile the native objects they link; only the read-only shared
+  directory needs them built in advance. Source mode provisions the shared
+  read-only store and caches it alongside the package links. Its cache keys include the exact
+  compiler commit, artifact mode, pinned manifests and source-plan inputs. A shared directory
+  is never modified, only removed whole.
+
+`dependency-build-mode` contains `upstream-cache` on the stable branch. Compiler adaptations
+may select `source`, which disables automatic Lake and Mathlib artifact downloads. The planner
+reads the Audit libraries and the standard's Verso library through Lake, and uses the existing
+documentation scanners and Lean header parser to collect their Mathlib imports and those of
+the Markdown examples. Lake builds a generated executable with interpreter support, so it
+builds exported native objects for the complete transitive import closure. The planner itself
+uses a separate workspace with independent configuration and build caches, leaving the root acceptance build cold; its Lake loads of the Audit and standard packages may write those packages' configuration caches. One exclusive lock, `.lake/regula-dependency-planner/planner.lock`, orders the planner runs of one copy: it is held from before that workspace is examined until the planner's result is decoded, and released before `regula-provision.lock` is taken (file locking is a trusted OS effect; it orders only runs of this program, not a child process that outlives a killed run). That workspace is written in a staging directory under `.lake/regula-dependency-planner/` and published complete as `v3-<key>` by one rename (a trusted filesystem effect, not a durability guarantee); an interrupted attempt stays in its staging directory, unused and never removed. A workspace that an earlier version of this program built without the lock is likewise neither used nor removed. This is dependency setup;
+the acceptance commands still check all their sources and documentation.
+Source artifacts have a separate key containing their policy version and an import-source
+hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
+another scope. Source admission also requires the current policy version, so a source store
+recorded under another policy is never served, only removed once no registered copy links it. CI keys contain this generated-source hash and source cache hits repeat receipt
+admission. Old receipts without a mode describe the upstream-cache route and cannot admit source
+requests. A missing `dependency-build-mode` or an unknown spelling in it is refused.
+Each source invocation also receives a fresh artifact-cache directory under
+`.lake/regula-source-caches/`, disables Lake's separate artifact-cache default, and requests
+restoration of outputs to package build directories. A package's explicit cache setting can
+override those defaults, so the isolated cache is retained with the workspace; it has no
+inherited remote mappings. Package build hooks remain trusted code.
+
+Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso in either mode.
+For direct development commands on a source adaptation, use
+`lean --run lean/RegulaProvision.lean exec . lake build`; it passes the cache-disabled
+environment to Lake and its descendants. The verification driver uses this entry point for
+all its commands, and CI exports the same environment for the job. The existing setup and
+acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage,
+process execution and filesystem operations remain trusted boundaries.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
@@ -129,7 +165,7 @@ checker behavior:
 | `cli` | Command-line behavior and diagnostics. |
 | `environments` | Isolated environments, documentation scanning, and external adopters. |
 | `build-policy` | Enforcement through the example's ordinary Lake build. |
-| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters. |
+| `lint-driver` | `lake lint` dispatch and exit classes in both shipped adopters, and the cold compiler guard of `lakefile.lean`: refusal of an inherited `LEAN_SYSROOT` child that fails and of one that succeeds without reporting the running compiler's identity, then a restored load. |
 | `producers` | [Project producer and documentation qualification](proofs-and-boundaries.md#producers). |
 | `history` | [Source-bound replacement history qualification](proofs-and-boundaries.md#producers). |
 | `self-lint` | This repository's own `lake lint` through the `regula/lint` driver, in the root and `audit/` packages ([repository conformance](#repository-conformance)). |
@@ -160,16 +196,19 @@ coverage already obtained for the same inputs rather than repeating the same roo
 invocation. Diagnostics do not replace a failed acceptance run.
 
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on every pull request,
-every push to `main`, nightly and on dispatch. Its first job, `applies`
-(`lean --run lean/Regula/DiagnosticsGate.lean applies`), decides which of its jobs apply. It runs
+every push to `main`, nightly and on dispatch. Its first job, `compiler`, prepares the selected
+compiler. The next, `applies` (`lean --run lean/Regula/DiagnosticsGate.lean applies`), runs only
+once `compiler` succeeded and decides which of its jobs apply. It runs
 `producers`, `history`, `lint-driver` and the two shards each of `structural` and `execution` as
 parallel jobs, each with its own hard 420-second limit, on a pull request exactly when it changes
 one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
-fixture sources the structural and execution controls mutate, Lake configuration or manifests),
+fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
+the compiler and dependency setup: the installer, the provisioning program,
+`dependency-build-mode`, `.github/compiler-source.json` and the compiler-preparation workflow),
 and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
-passes exactly when `applies` succeeded and each of the other jobs passed and applies, or was
+passes exactly when `applies` succeeded and each partition job passed and applies, or was
 skipped and does not apply, so a pull request merges only once every one of these jobs that
 applies to it has passed on its head commit, and a failed, cancelled or timed-out one refuses the
 merge. A pull request that changes none of the listed paths, such as one that changes only
@@ -179,8 +218,8 @@ documentation, passes it without running a campaign
 where they feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
-as parallel jobs under the same limit when Lean sources, Lake configuration or manifests
-change, on every push to `main`, and nightly. They are not part of acceptance.
+as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
+that compiler and dependency setup change, on every push to `main`, and nightly. They are not part of acceptance.
 
 ## Implementation and qualification layout
 
@@ -196,7 +235,7 @@ not claimed as formally verified Lean implementations.
 
 This repository applies the standard to its own code and qualifies the checkers it publishes.
 Its claimed surfaces are those of the root [`foundation_manifest.json`](../../foundation_manifest.json)
-(`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision` and
+(`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision`, `RegulaCompiler` and
 `AuditApp` with its standalone `Main`) and the `Audit` library of
 [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json). Ordinary acceptance
 audits both freshly, with every target built under the options of
@@ -267,7 +306,7 @@ The repository's own checklist rows, which apply to this repository only:
 
 | ID | Required result | Normative source | Required Lean-specific verification |
 | --- | --- | --- | --- |
-| DOGFOOD-01 | The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples (in the Mathlib-dependent package in `audit/`), the `AuditApp` complete application with its standalone `Main` executable root, and the pure libraries `RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification` and `RegulaProvision` — satisfy every applicable row of the standard's checklist. | [Repository conformance](#repository-conformance) | Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. |
+| DOGFOOD-01 | The repository's own claimed Lean surfaces — the `Audit` library of mathematical models, proofs, and executable examples (in the Mathlib-dependent package in `audit/`), the `AuditApp` complete application with its standalone `Main` executable root, and the policy and toolchain libraries `RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`, `RegulaProvision` and `RegulaCompiler` — satisfy every applicable row of the standard's checklist. | [Repository conformance](#repository-conformance) | Audit each claimed Lake surface as an ordinary claimed surface with no special exemptions; the application's admission, update, and composition contracts are proved about the same computable definitions its executable runs, and its `IO` boundary is reported, never silently excluded. |
 | DOGFOOD-02 | Intentionally invalid fixtures are isolated from the positive elaborated environment. | [§7.2](https://rbeauchamp.github.io/regula/dev/standard/7-tooling-and-machine-audit/#72-define-surfaces-through-lake-semantics), [Repository conformance](#repository-conformance) | Reconcile exact imported project modules. Qualification includes a contamination mutation. |
 | DOGFOOD-03 | Normative prose, representative Lean fixtures, checker diagnostics, and status text make no stronger claim than the same verified property. | [§1.6](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#16-claim-boundaries-and-automated-checking), [Repository conformance](#repository-conformance) | Compare advertised capabilities with the checked implementation and applicable qualification evidence. Diagnostic qualification does not prove the checker is universally correct. |
 | DOGFOOD-04 | Examples and fixtures reuse or extend matching Lean/Mathlib mathematical definitions. Custom mathematical definitions state their meaning and why existing definitions do not fit; proofs follow the economy guidance in §3.2.5. | [§1.4](https://rbeauchamp.github.io/regula/dev/standard/1-core-principles/#14-principled-mathematical-modeling), [§3.2.5](https://rbeauchamp.github.io/regula/dev/standard/3-logic-proof-patterns/#325-proof-economy-four-cost-domains-and-one-trust-question) | Compare custom mathematical structures, classes, and aliases with the pinned libraries and inspect required justifications. Review proof reuse where it simplifies the argument. A domain definition or teaching proof does not need a claim that no library theorem exists. |

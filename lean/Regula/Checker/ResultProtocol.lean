@@ -7,6 +7,7 @@ import Regula.DiagnosticCodec
 import Regula.SourceTexts
 import Regula.ExecutionShare
 import Regula.Checker.Common
+import Regula.Checker.CompilerMode
 
 /-! # Versioned result protocol
 
@@ -373,7 +374,7 @@ def writeDocument (path : System.FilePath) (document : Json) (span : String := "
   if let some parent := path.parent then IO.FS.createDirAll parent
   let spanStart ← IO.monoMsNow
   let written ← IO.ofExcept (SharedExecution.write ExecutionShare.proposals document)
-  let encoded := Json.compress written ++ "\n"
+  let encoded := Json.compress (CompilerMode.envelope written) ++ "\n"
   timingSpan s!"diagnostic span: {span} encode: {(← IO.monoMsNow) - spanStart}ms"
   let writeStart ← IO.monoMsNow
   IO.FS.writeFile path encoded

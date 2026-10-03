@@ -19,6 +19,13 @@ scoped instance : ToJson Name := ⟨Regula.RegistryCodec.printedNameJson⟩
 scoped instance : FromJson Name := ⟨Regula.RegistryCodec.parsePrintedNameJson⟩
 open scoped Regula.Report
 
+instance : ToJson Compiler.LegacyCompilerTrust := ⟨fun x => .str x.spelling⟩
+instance : FromJson Compiler.LegacyCompilerTrust := ⟨fun j => do
+  let s ← j.getStr?
+  match Compiler.LegacyCompilerTrust.parse? s with
+  | some x => return x
+  | none => throw "unknown legacy compiler capability"⟩
+
 instance : ToJson DeclarationKind := ⟨fun x => .str x.spelling⟩
 instance : FromJson DeclarationKind := ⟨fun j => do
   let s ← j.getStr?
@@ -159,6 +166,7 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("levelParams", toJson d.levelParams), ("all", toJson d.all), ("hints", toJson d.hints),
   ("valueConstants", toJson d.valueConstants),
   ("unsafeRecRegenerated", toJson d.unsafeRecRegenerated),
+  ("constructorIndex", toJson d.constructorIndex),
   ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
   ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract)]⟩
@@ -166,7 +174,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
-              "valueConstants", "unsafeRecRegenerated", "nativeStatement", "nativeReplay",
+              "valueConstants", "unsafeRecRegenerated", "constructorIndex", "nativeStatement", "nativeReplay",
                   "ranges", "generatedFrom", "axioms", "executableContract"]
   return {
     name := ← j.getObjValAs? _ "name"
@@ -193,6 +201,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     hints := ← j.getObjValAs? _ "hints"
     valueConstants := ← j.getObjValAs? _ "valueConstants"
     unsafeRecRegenerated := ← j.getObjValAs? _ "unsafeRecRegenerated"
+    constructorIndex := ← j.getObjValAs? _ "constructorIndex"
     nativeStatement := ← j.getObjValAs? _ "nativeStatement"
     nativeReplay := ← j.getObjValAs? _ "nativeReplay"
     recordedRanges := ← j.getObjValAs? _ "ranges"
@@ -307,9 +316,12 @@ exact-field JSON codec. -/
 abbrev Environment := RegulaPolicy.Environment
 deriving instance ToJson for RegulaPolicy.Environment
 instance : FromJson RegulaPolicy.Environment := ⟨fun j => do
-  exactFields j ["toolchain", "modules", "moduleOrigins", "declarations", "execution"]
+  exactFields j ["toolchain", "compilerCapability", "modules", "moduleOrigins", "declarations", "execution"]
+  let compilerCapability ← j.getObjValAs? _ "compilerCapability"
+  let _ ← Compiler.admitCapability compilerCapability
   return {
     toolchain := ← j.getObjValAs? _ "toolchain"
+    compilerCapability
     modules := ← j.getObjValAs? _ "modules"
     moduleOrigins := ← j.getObjValAs? _ "moduleOrigins"
     declarations := ← j.getObjValAs? _ "declarations"

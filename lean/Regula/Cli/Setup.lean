@@ -1,4 +1,5 @@
 import Regula.Checker.AxiomGate
+import Regula.CompilerProbe
 import RegulaCore.Guidance
 import Lake.Toml.Grammar
 import Lake.Toml.Load
@@ -17,6 +18,8 @@ finding for the targets that share a claim and failures.
 
 - `observe`, `importClosure`: the `Regula.Setup.Observation` of a project, from Lake's loaded
   package, the files and the import headers of the root package's modules.
+- `pinned`: the compiler the project's own `lean-toolchain` selects, resolved to a toolchain
+  `elan toolchain list` names and identified by its reported version and commit.
 - `guidanceDirs`, `guidanceFile`: the repository's `AGENTS.md` that holds or receives the
   agent-guidance section, searched from the Lake root up to the Git repository root, and that
   root, where the skill files are.
@@ -44,7 +47,9 @@ package's configuration and each claimed target's as the plan decides, located t
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
 `RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
-linter's decision. -/
+linter's decision. Elan's listing and that
+compiler's report of its own version and commit are trusted; nothing is installed, and a pin
+that does not resolve is a setup issue. -/
 
 namespace Regula.Cli.Setup
 
@@ -126,9 +131,16 @@ def guidanceFile (root : FilePath) : IO GuidanceFile := do
       found := found ++ [file i true (hasAgentsHeading (← IO.FS.readFile path))]
   return (found.find? (·.hasSection) <|> found.head?).getD (file (dirs.length - 1) false false)
 
-private def readTrimmed (path : FilePath) : IO String := do
-  if ← path.pathExists then return (← IO.FS.readFile path).trimAscii.toString
-  return ""
+/-- The compiler the `lean-toolchain` of the project at `root` selects: the file's
+selector resolves to a toolchain `elan toolchain list` names (`installedName?`), whose compiler
+reports its version and commit (`Regula.Toolchain.probe`). An override or the compiler running
+`regula` does not enter. A selector naming no toolchain Elan lists as installed, or a failed
+probe, is `Pin.unresolved`. The file exists: `findRepoRoot` finds the project root by it. -/
+def pinned (root : FilePath) : IO Pin := do
+  let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
+  match ← (Regula.Toolchain.probe root selector).toBaseIO with
+  | .ok identity => return .compiler selector identity.version identity.commit
+  | .error error => return .unresolved selector error.toString
 
 /-- The modules reachable by import from `starts`, the starts included, among the modules whose
 source files `sources` names. Imports are read with Lean's header parser, without building; an
@@ -159,7 +171,8 @@ def validManifest (root : FilePath) : IO (Manifest × Lake.SurfaceInventory) := 
 /-- Observe the project at `root`: Lake's loaded root package (its `lintDriver`, package-level
 `leanOptions`, whether it has a `lean_lib`, and the root targets the manifest does not exclude with
 their own `leanOptions` and resolved extra `lean` arguments), whether the workspace contains
-Mathlib, the required Regula's `lean-toolchain`, the manifest and agent-guidance files, and the
+Mathlib, the compiler its `lean-toolchain` selects (`pinned`), the manifest and agent-guidance
+files, and the
 modules below a library root that no library includes, split by whether a claimed module imports
 them. -/
 def observe (root : FilePath) : IO Project := do
@@ -179,7 +192,7 @@ def observe (root : FilePath) : IO Project := do
     else pure false
   let excludedLibraries := (manifest.map (·.excludedLibraries.map (·.library))).getD #[]
   let excludedExecutables := (manifest.map (·.excludedExecutables.map (·.executable))).getD #[]
-  let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib, regulaDir,
+  let (lakefile, configFile, driver, options, targets, allClaimed, libraries, mathlib,
       uncovered, unimported) ← Workspace.withRootWorkspace root fun ws => do
       let pkg := ws.root
       -- The source of every module a root library includes and of every executable root, and
@@ -237,14 +250,11 @@ def observe (root : FilePath) : IO Project := do
           exes.map (fun exe => target true exe.name exe.config.leanOptions
             (Lake.executableOptions exe))).toList
       let kind := if pkg.configFile.extension == some "toml" then Lakefile.toml else .lean
-      let regulaDir := match ws.packages.find? (·.baseName == `regula) with
-        | some regula => regula.dir
-        | none => pkg.dir
       return (kind, pkg.configFile, pkg.lintDriver,
         (Lake.buildOptions pkg.leanOptions #[] #[]).options, targets,
         !invalid && libs.size == pkg.leanLibs.size && exes.size == pkg.leanExes.size,
         !pkg.leanLibs.isEmpty,
-        ws.packages.any (·.baseName == `mathlib), regulaDir, uncovered, unimported)
+        ws.packages.any (·.baseName == `mathlib), uncovered, unimported)
   let guidance ← guidanceFile root
   let skills ← skillPaths.filterMapM fun (p : String) => do
     let name := guidance.up ++ p
@@ -258,8 +268,7 @@ def observe (root : FilePath) : IO Project := do
       manifest := ← (Manifest.defaultPath root).pathExists
       agentsFile := guidance.name, agentsSection := guidance.hasSection
       skillFile := guidance.up ++ skillPath, skills
-      toolchain := ← readTrimmed (root / "lean-toolchain")
-      supported := ← readTrimmed (regulaDir / "lean-toolchain")
+      pin := ← pinned root
       uncovered, unimported } }
 
 /-! ## Text edits -/
@@ -669,7 +678,10 @@ def doctor (root : FilePath) : IO UInt32 := do
   for entry in o.unimported do IO.println (unimportedNote project.lakefile entry)
   let count := setup.length + findings.size
   if count == 0 then
-    IO.println "regula doctor: the setup is complete; run `lake lint`"
+    IO.println <| if RegulaPolicy.Compiler.candidate then
+        "regula doctor: the setup is complete, but this Regula revision declares Lean " ++
+          RegulaPolicy.Compiler.version ++ Regula.Setup.candidateNote
+      else "regula doctor: the setup is complete; run `lake lint`"
     return 0
   IO.println s!"regula doctor: {count} problem{if count == 1 then "" else "s"}"
   let edits := plan .agentsMd o

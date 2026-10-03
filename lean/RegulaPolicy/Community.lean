@@ -445,9 +445,9 @@ def contradicts (o : BuildOptions) (mathlib : Bool) (name : Name) (value : Optio
 
 /-- One way a target's build options fail RG2006. -/
 inductive Failure where
-  /-- A required option is not given, or is given a value the requirement does not admit; `given`
+  /-- A required option is not given, or is given a value the requirement does not admit; `actual`
   lists the values the options give. -/
-  | option (name : Name) (value : OptionValue) (given : List OptionValue)
+  | option (name : Name) (value : OptionValue) (actual : List OptionValue)
   /-- A linter outside the §6.7 exclusions is turned off for every module of the target. -/
   | disabledLinter (name : Name)
   /-- An extra `lean` argument sets `name` to `value` with `-D` against the requirement. -/

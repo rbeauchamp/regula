@@ -58,10 +58,10 @@ import leaves every reporter-only import restriction unchanged. -/
 theorem publishedInterface_not_reporterOnly :
     ∀ n ∈ publishedInterfaceModuleNames, n ∉ reporterOnlyModuleNames := by decide +kernel
 
-/-- Only the existing force-loaded reporter, public name codec and conditional collector
-can enter the infrastructure partition. This is not a whole-library exemption. -/
+/-- Exact reporter and observation modules eligible for authenticated infrastructure.
+The collector and compiler observer additionally require their force-only import conditions. -/
 def infrastructureModuleNames : Array Name :=
-  reporterModuleNames ++ #[`Regula.StructuralName, `Regula.Collect]
+  reporterModuleNames ++ #[`Regula.StructuralName, `Regula.Collect, `Regula.CompilerObservation]
 
 /-- Canonical-artifact equality for one exact infrastructure module and snapshot. The
 adapter obtains both paths independently from actual resolution and the checker library;
@@ -229,6 +229,10 @@ def InfrastructureOK (c : Claim) (i : EnvironmentCensus) : Prop :=
       ∃ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = origin.name) ∧
   (∀ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = `Regula.Collect →
     ∀ origin ∈ i.origins, `Regula.Collect ∈ origin.imports → origin.name ∈ reporterModuleNames) ∧
+  (∀ receipt ∈ i.infrastructure, receipt.moduleKey.name.name = `Regula.CompilerObservation →
+    ∀ origin ∈ i.origins, `Regula.CompilerObservation ∈ origin.imports →
+      (origin.name ∈ reporterModuleNames ∨ origin.name = `Regula.Collect) ∧
+        ∃ importer ∈ i.infrastructure, importer.moduleKey.name.name = origin.name) ∧
   i.infrastructureSources.toList.Pairwise (fun a b => a.1 ≠ b.1) ∧
   (∀ entry ∈ i.infrastructureSources,
     entry.1 ∈ i.infrastructureModules ∧ entry.2 ∈ snapshotSources c)
@@ -592,8 +596,8 @@ theorem requiredJobs_distinct_iff (c : Claim) (i : Census) :
 /-- Concrete plan validity checks the census, derived keys, profile assignments and root
 request coverage. Unknown module ownership cannot default to a permissive profile. -/
 def PlanOK (c : Claim) (i : Census) : Prop :=
-  c.val.snapshot.toolchain.leanVersion = "4.34.0" ∧
-  c.val.snapshot.toolchain.compilerCommit = "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b" ∧
+  c.val.snapshot.toolchain.leanVersion = Compiler.version ∧
+  c.val.snapshot.toolchain.compilerCommit = Compiler.commit ∧
   CensusOK c i ∧ (requiredJobs c i).toList.Pairwise (· ≠ ·) ∧
   (∀ job ∈ requiredJobs c i, stageSubjectCompatible job.1 job.2 = true) ∧
   (∀ e ∈ i.environments, ∀ d ∈ e.declarations,
@@ -613,6 +617,17 @@ instance (c : Claim) (i : Census) : Decidable (PlanOK c i) := by
 theorem planOK_decide_eq_previous (c : Claim) (i : Census) :
     decide (PlanOK c i) = @decide (PlanOK c i) (by unfold PlanOK; infer_instance) := by
   congr
+
+/-- An admitted transcript and valid plan share both compiler identity fields; a shared
+development version string cannot connect observations from different commits. -/
+theorem transcript_plan_compiler {decls : Array Declaration}
+    {transcripts : Array Frontend.Transcript} {t : Frontend.Transcript} {c : Claim} {i : Census}
+    (inventory : InventoryValid decls transcripts) (member : t ∈ transcripts)
+    (plan : PlanOK c i) :
+    t.leanVersion = c.val.snapshot.toolchain.leanVersion ∧
+      t.leanGitHash = c.val.snapshot.toolchain.compilerCommit := by
+  have transcript := inventory.2.2.2 t member
+  exact Compiler.unique ⟨transcript.2.2.2.1, transcript.2.2.2.2.1⟩ ⟨plan.1, plan.2.1⟩
 
 /-- The fixed JobKeys exactly realize the independently derived plan. Admission cannot
 accept a caller-selected shorter list, duplicates, or another claim's keys. -/

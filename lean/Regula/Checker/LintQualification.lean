@@ -17,6 +17,8 @@ namespace Regula.Checker.LintQualification
 
 open Lean System
 
+private def acceptanceLabel := RegulaPolicy.Compiler.verdict RegulaPolicy.Compiler.candidate
+
 private def lint (cwd : FilePath) (args : Array String := #[]) : IO ProcessResult :=
   runProcess cwd "lake" (#["lint"] ++ args) scrubbedLeanPathEnv
 
@@ -55,8 +57,8 @@ private def fileAudit (cwd : FilePath) (file : String) (args : Array String := #
 timing span, which only `--verbose` prints. -/
 private def accepted (label : String) (fresh : Bool := false) : Expectation :=
   { label, exitCode := 0, contains := #[if fresh then
-      "regula lint: PASS — fresh whole-project acceptance"
-    else "regula lint: PASS — incremental project acceptance"],
+      s!"regula lint: {acceptanceLabel} — fresh whole-project acceptance"
+    else s!"regula lint: {acceptanceLabel} — incremental project acceptance"],
     excludes := #["verification phase", "diagnostic span"] }
 
 /-- Replace one exact anchor; a missing or repeated anchor is a harness failure. -/
@@ -86,15 +88,15 @@ private def leanAdopter (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect adopter {
       label := "lean/explain-config", exitCode := 2,
       contains := #["no audit was run", "Widget.Additional", "kernel-only"],
-      excludes := #["regula lint: PASS"] } #["--", "--explain-config"])
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["--", "--explain-config"])
   -- The file audit lists only declarations with a finding, and timing spans are verbose output.
   failures := failures ++ (← assess {
-      label := "lean/file-positive", exitCode := 0, contains := #["file audit: PASS"],
+      label := "lean/file-positive", exitCode := 0, contains := #[s!"file audit: {acceptanceLabel}"],
       excludes := #["[OK]", "verification phase", "diagnostic span"] }
     (← fileAudit adopter "Widget.lean"))
   failures := failures ++ (← assess {
       label := "lean/file-verbose", exitCode := 0,
-      contains := #["file audit: PASS", "[OK]", "diagnostic span"] }
+      contains := #[s!"file audit: {acceptanceLabel}", "[OK]", "diagnostic span"] }
     (← fileAudit adopter "Widget.lean" #["--verbose"]))
   let additional := adopter / "Widget" / "Additional.lean"
   let manifest := adopter / "foundation_manifest.json"
@@ -199,7 +201,7 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
   failures := failures ++ (← expect repo {
       label := "toml/foreign-dir", exitCode := 2,
       contains := #["without -d/--dir", "regula lint: INVALID CONFIGURATION"],
-      excludes := #["regula lint: PASS"] } #["-d", adopter.toString])
+      excludes := #[s!"regula lint: {acceptanceLabel}"] } #["-d", adopter.toString])
   mutate double "end Gadget" <|
     "set_option linter.regula false in\n/-- A control assumption. -/\n" ++
       "axiom optedOut : True\nend Gadget"
@@ -257,7 +259,7 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
     label, exitCode := 2,
     contains := #["no audit was run", "executables: «gadget-tool»",
       "surface «gadget-extra»: claim"],
-    excludes := #["regula lint: PASS", "manifest-"] }
+    excludes := #[s!"regula lint: {acceptanceLabel}", "manifest-"] }
   IO.FS.writeFile lakefile <| (← IO.FS.readFile lakefile) ++
     "\n[[lean_lib]]\nname = \"gadget-extra\"\nroots = [\"Extra\"]\n" ++
     "\n[[lean_exe]]\nname = \"gadget-tool\"\nroot = \"Gadget.Cli\"\n"
@@ -303,7 +305,7 @@ private def tomlAdopter (repo adopter : FilePath) : IO (Array String) := do
       contains := #["RG2002",
         "manifest-incomplete: executable 'old-tool' is not a root Lean executable",
         rootExecutables],
-      excludes := #["RG2001", "RG2003", "build-failed", "file audit: PASS"] }
+      excludes := #["RG2001", "RG2003", "build-failed", s!"file audit: {acceptanceLabel}"] }
     (← fileAudit adopter "Gadget.lean"))
   IO.FS.writeFile manifest (claiming #["gadget-tool"] (library := "gadget-extr"))
   failures := failures ++ (← expect adopter
@@ -326,12 +328,45 @@ private def absentWorker (repo adopter : FilePath) : IO (Array String) := do
   IO.FS.removeFile (repo / ".lake" / "build" / "bin" / "axiomGate")
   expect adopter (accepted "toml/absent-worker")
 
+/-- The cold compiler guard of Regula's own `lakefile.lean`, through `lake` in a fresh package
+holding only that file, its toolchain pin and the policy source it executes. An inherited
+`LEAN_SYSROOT` whose `lean` is not the compiler running Lake is refused on each branch of the
+guard, naming that `lean`, and the same package then loads with the inherited environment. Two
+programs stand in for that `lean`, neither of them a compiler: this toolchain's `lake`, which
+fails on the policy source, and the `true` utility, which exits successfully without printing
+the running compiler's identity and so reaches the identity comparison. A compiler of another
+identity as the child is not exercised here. -/
+private def compilerGuard (repo project : FilePath) : IO (Array String) := do
+  for name in #["lakefile.lean", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"] do
+    if let some parent := (project / name).parent then IO.FS.createDirAll parent
+    IO.FS.writeFile (project / name) (← IO.FS.readFile (repo / name))
+  let path := System.SearchPath.parse ((← IO.getEnv "PATH").getD "")
+  let some silent ← path.findM? fun dir => (dir / "true").pathExists
+    | throw <| IO.userError "lake-lint: the compiler-guard control found no `true` on PATH"
+  let load (env : Array (String × Option String)) : IO ProcessResult :=
+    runProcess project "lake" #["check-lint"] (scrubbedLeanPathEnv ++ env)
+  let refused (label : String) (program : FilePath) (branch : String) : IO (Array String) := do
+    let sysroot := project / label
+    let lean := sysroot / "bin" / "lean"
+    IO.FS.createDirAll (sysroot / "bin")
+    let linked ← runProcess project "ln" #["-s", program.toString, lean.toString]
+    if !linked.succeeded then throw <| IO.userError linked.output
+    assess { label := s!"guard/{label}", exitCode := 1, contains := #[lean.toString, branch] }
+      (← load #[("LEAN_SYSROOT", some sysroot.toString)])
+  let failing ← refused "failing-child" ((← Lean.findSysroot) / "bin" / "lake")
+    "refused Regula's compiler policy or could not compile it"
+  let unidentified ← refused "unidentified-child" (silent / "true") "is not the Lean running Lake"
+  return failing ++ unidentified ++
+    (← assess { label := "guard/restored", exitCode := 0 } (← load #[]))
+
 /-- The absent-worker control first, alone, since the adopters share the checker's binaries;
-then both independent adopters, each in its own disposable workspace. -/
+then both independent adopters and the cold compiler guard, each in its own disposable
+workspace. -/
 def qualify (repo scratch : FilePath) (jobs : Nat) : IO (Array String) := do
   let absent ← withScratch scratch "lake-lint-worker" fun adopter => absentWorker repo adopter
   if !absent.isEmpty then return absent
-  let results ← mapConcurrent jobs #[("lean", leanAdopter), ("toml", tomlAdopter)]
+  let results ← mapConcurrent jobs
+    #[("lean", leanAdopter), ("toml", tomlAdopter), ("guard", compilerGuard)]
     fun (name, control) => withScratch scratch s!"lake-lint-{name}" fun adopter =>
                             control repo adopter
   return results.foldl (· ++ ·) #[]

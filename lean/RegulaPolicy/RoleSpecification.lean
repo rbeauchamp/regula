@@ -7,8 +7,9 @@ public import RegulaPolicy.NativeAxiom
 Generated-role relations over the complete observation inventory. A native-proof axiom needs
 exact metadata, replay and command provenance; a recursion helper needs exact metadata and the
 observation that Lean's own recursion compiler regenerates its base from it and that Lean's kernel
-checks the base's recursion equation for it. These finite decidable relations do not attest that
-an observation is truthful. -/
+checks the base's recursion equation for it. A constructor-index wrapper has a separate structural
+observation linked to an owned safe parent and base. These finite decidable relations do not attest
+that an observation is truthful. -/
 
 @[expose] public section
 
@@ -17,7 +18,7 @@ open Lean (Name)
 open Frontend
 
 /-- Only a declaration that could receive the native-proof exception needs the extra fresh
-frontend transcript; the recursion-helper exception reads no transcript. This core works over
+frontend transcript; the helper exceptions read no transcript. This core works over
 primitive fields so a batched harness can apply the identical predicate to raw environment
 constant records before paying any environment load. -/
 def declarationNeedsTranscript (kind : DeclarationKind) (name : Name) : Bool :=
@@ -131,5 +132,41 @@ def RecursiveHelperOK (ds : Array Declaration) (h : Declaration) : Prop :=
     h.unsafeRecBase = some b.name ∧ RecursiveBaseShape h b ∧ RecursiveGroup h b
 instance (ds : Array Declaration) (h : Declaration) : Decidable (RecursiveHelperOK ds h) := by
   unfold RecursiveHelperOK; infer_instance
+
+/-- A constructor-index implementation retains its unsafe status. Its observation names a
+safe inductive parent and safe base in the same inventory and module. The base replaces its
+runtime implementation with precisely this closed wrapper; neither may add another replacement
+or an external implementation. The observed structural comparison is a trusted producer boundary. -/
+def ConstructorIndexHelperOK (ds : Array Declaration) (h : Declaration) : Prop :=
+  h.kind = .definition ∧ h.internal = true ∧ h.ranges = none ∧
+  h.isUnsafe = true ∧ h.isPartial = false ∧ h.hints = some .opaque ∧
+  h.implementedBy = none ∧ h.extern = false ∧ h.all = #[h.name] ∧ h ∈ ds ∧
+  ∃ t ∈ ds, ∃ b ∈ ds,
+    h.constructorIndex = some (t.name, b.name) ∧
+    b.name = t.name.str "ctorIdx" ∧ h.name = b.name.str "_impl" ∧
+    t.kind = .inductive ∧ t.isUnsafe = false ∧ t.isPartial = false ∧
+    t.module = h.module ∧ b.module = h.module ∧ b.kind = .definition ∧
+    b.isUnsafe = false ∧ b.isPartial = false ∧ b.implementedBy = some h.name ∧
+    b.extern = false ∧ b.all = #[b.name] ∧ b.hints = some .regular ∧
+    h.type = b.type ∧ h.levelParams = b.levelParams ∧
+    (∀ a ∈ h.axioms, a ∈ b.axioms) ∧ ∀ a ∈ b.axioms, Permitted .standardLogical a
+
+/-- The observed parent rejects unrelated records before searching for the base. -/
+theorem constructorIndex_search_iff (ds : Array Declaration)
+    (observed : Option (Name × Name)) (relation : Declaration → Declaration → Prop) :
+    (∃ t ∈ ds, ∃ b ∈ ds, observed = some (t.name, b.name) ∧ relation t b) ↔
+      ∃ t ∈ ds, observed.map Prod.fst = some t.name ∧
+        ∃ b ∈ ds, observed = some (t.name, b.name) ∧ relation t b := by
+  constructor
+  · rintro ⟨t, ht, b, hb, pair, related⟩
+    exact ⟨t, ht, by simp [pair], b, hb, pair, related⟩
+  · rintro ⟨t, ht, _, b, hb, pair, related⟩
+    exact ⟨t, ht, b, hb, pair, related⟩
+
+instance (ds : Array Declaration) (h : Declaration) :
+    Decidable (ConstructorIndexHelperOK ds h) := by
+  unfold ConstructorIndexHelperOK
+  rw [constructorIndex_search_iff]
+  infer_instance
 
 end RegulaPolicy

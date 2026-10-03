@@ -21,8 +21,8 @@ Three kinds of evidence are kept apart:
 None of these proofs verifies the Lean compiler, the source collectors, the filesystem, the JSON
 parser, the registry adapter or a user's intended specification.
 
-The pure libraries (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `RegulaVerification`,
-`RegulaProvision`) are claimed Standard-Logical surfaces, so acceptance reports every
+The policy and toolchain libraries (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`,
+`RegulaVerification`, `RegulaProvision`, `RegulaCompiler`) are claimed Standard-Logical surfaces, so acceptance reports every
 declaration's exact axiom set; that profile is an upper bound, not a claim that every proof uses
 choice. Theorems in the excluded operational `Regula` library are kernel-checked by its
 warning-free build (`warningAsError` also rejects `sorry`); `Checker.Manifest`,
@@ -65,8 +65,10 @@ path; their coherence hypotheses are not instantiated for the operational collec
 operational equivalence is claimed. File runs bind the requested and compiled sources by
 `FileSourceBinding.sameBytes`; graph runs freeze their selected roots in `Census.graphRoots`, and
 `GraphOK` cannot select fewer roots than `GraphPlanOK` admitted. Repeated immutable requests use
-Lean's `withPtrEqDecEq` shortcut with structural equality as fallback; the kernel sees the
-structural computation and the pointer shortcut has Lean's runtime trust boundary. No wall-clock
+Lean's `withPtrEqDecEq` shortcut with structural equality as fallback where the compiler
+elaborates that shortcut, as Lean 4.34.0 does, and the generated structural equality alone
+otherwise; the kernel sees the structural computation and the pointer shortcut has Lean's
+runtime trust boundary. No wall-clock
 bound follows from these proofs.
 
 The stage relations `PolicyOK` combines, each a declarative relation whose decision function is
@@ -77,7 +79,7 @@ proved sound and complete against it:
 | `ScopeOK` (§7.1–§7.4) | Exact classified targets and modules, required ownership, source and origin bindings; no excluded import or unattributed declaration. |
 | `AdmissionOK` (§7.3) | A completed logical-admission receipt matching the owned dependency census and snapshot; no skipped replay, unsupported admission or emitted warning on a positive fresh claim. |
 | `FoundationOK` (§7.5) | No owned logical axiom, no `sorryAx`, unknown or compiler axiom; every axiom in the surface's permitted set. |
-| `SafetyOK` (§7.4) | No unsafe or partial declaration unless the exact recursive-helper relation holds; a helper is never logical proof evidence. The helper of a `partial def` (an opaque declaration Lean compiles through it) never holds it, and its finding names that declaration. |
+| `SafetyOK` (§7.4) | No unsafe or partial declaration unless the exact recursion-helper or constructor-index relation holds; a helper is never logical proof evidence. The helper of a `partial def` (an opaque declaration Lean compiles through it) satisfies neither relation, and its finding names that declaration. |
 | `ContractOK` (§7.5, §7.11) | Every registered contract targets the exact supported implementation and predicate, with completed admission. Registration adequacy is review. |
 | `ExecutionOK` (§7.6) | Every root's closure accounted for, no unresolved path; report mode permits reported trust, checked mode only checked evidence or a boundary of the toolchain's origin-checked trusted base. |
 | `DocumentOK` (§7.7) | Complete structural scan; warning-free, admitted Standard-Logical positives; one effective-error match per negative; classified teaching that is never positive conformance. |
@@ -133,6 +135,29 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. Also with `--verso`, `Regula.Prose.htmlErrors_nil_iff` for the rule IDs in the prose of the rendered pages: each is a registered rule linked to its page, for the runs the HTML scanner extracts, which is operational. `Documentation.Sources.check` compares the documentation inventory and bytes before fence work and before `finishDocuments`; that terminal recheck (with `Snapshot.inputsUnchanged`) and the fence audit run in `BaseIO`, so a failure of either is rethrown only after the structural problems and the fence results obtained are reported. With `--verso`, `Sources.checkLinked` rechecks the linked inputs after the Verso build. |
 | `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified; failed and incomplete checks retain their own outcomes, and the receipt retains each actual fence classification. The qualifier separately applies `PositiveClassifications` to require a nonempty list with every fence positive, passing and complete before admitting a positive correction. The adapter verifies the original requested documents before emitting accepted metadata. |
 | `FreshChecker.run` | A separate `serializedGraph` claim; `leanchecker` success is an observed process result. |
+
+**Project build order.** Before the refusal-only module-scope preflight, a project audit builds
+the original claimed library targets, preserving their custom facets, and each claimed
+executable's actual root `leanArts` facet. If preflight clears, it builds every original
+claimed target, including the executable links, before full inspection. Only that complete
+build's successful, warning-free process observation reaches `Acceptance.buildObservation`.
+`Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
+target array; `build_completed_iff` records the build stage before preflight exactly when no
+target build remains. A library-only claim keeps one original build
+(`claimedBuildPlan_without_executables`). For an executable root that cannot be spelled
+faithfully with Lake's `+module:leanArts` syntax, the plan also keeps the original full build;
+`moduleArtifactsTarget?_sound` proves the selected text retains the root name and introduces
+no extra facet separator. Both phases use the selected build adapter and warning checks,
+including the lint driver's options. A deferred build is followed by the source,
+configuration and frozen-artifact checks before the unchanged full inspection and terminal
+freshness checks.
+
+Preflight can now report an excluded-module violation before a native link that would fail;
+that run can therefore report [RG2004]/exit 1 instead of the later [RG2003]/incomplete/exit 3.
+Its build stage remains unfinished and it is never accepted. An incomplete finding actually
+observed by preflight still takes precedence over a violation. This is an ordering change
+for refusals, not a proof that arbitrary custom build effects commute or that any execution
+meets a wall-clock limit. Lake's facets, parsing, traces and process effects remain trusted.
 
 **`lake lint` dispatch.** Lake's lint dispatch builds only the driver, so the driver first builds its
 audit worker `regula/axiomGate` in the workspace `lake lint` ran in (never the `--project`
@@ -221,6 +246,23 @@ preserves each requested environment separately and never deduplicates job respo
 occurrences or positive owned declarations; the full admission module, required and admitted
 inventories survive the infrastructure partition.
 
+**Compiler capability** (`RegulaPolicy.Compiler`, `Decision`): every admitted inventory contains
+`Compiler.Capability`, whose `agrees` field equates the supplied legacy-family observation with
+the capability used by the compiled classifier. `admitCapability_iff` proves that admission
+exists exactly on a match. `Regula.Collect` obtains the observation from the isolated Core
+observer after checking the resolved compiler identity; both report decoders and the native
+linter feed it into admission. This linkage trusts compiler execution, installation integrity,
+import loading and canonical filesystem paths. It does not prove those IO mechanisms.
+`ProducerReport.validate_sound` and `fromJson_admissible` also require this agreement for every
+raw or decoded admitted report, without relying on sampled transport mutations. When the
+capability is absent (unsatisfiable on this stable revision, whose compiled capability is
+`present`; it holds once a prepared revision compiles `absent`), the checked decision
+theorems show that a retired name cannot become a compiler axiom or an authenticated native
+axiom and its singleton axiom set is unknown. A dependent non-axiom declaration without an
+earlier proof-hole failure receives the unknown-axiom refusal even in teaching mode.
+Native-proof authentication retains its separate statement, replay and command-provenance
+requirements.
+
 **Admission by construction** (`RegulaPolicy.Domain`, `Admission`): declaration kinds, boundary
 kinds, correspondence, foundation classes, profiles, modes, safety and evaluator roles are closed
 types whose parsers refuse unknown tags (pretty types and messages remain open text);
@@ -256,8 +298,8 @@ interfaces do not imply a library-wide exemption.
 | Least foundation | `leastFoundation_spec`, `leastFoundation_ext`, `foundationFor_least` | Every axiom set within Standard-Logical gets its least containing profile, invariant under order and duplicates. The actual public classifier (`foundationFor` with inventory-bound roles) uses this same result. Not the weakest possible proof of the proposition. |
 | Classification | `foundationFor_iff`, `declarationFailure_iff`, `policyFor_ordered`, `OrderedDecision.unique` | Each of the six foundation classes (three labels, hole, unknown axiom, compiler-trusting) has its exact meaning; a declaration's diagnostic is its first failed requirement (invalid membership, owned axiom, hole, unknown, escape hatch, compiler trust, contract failure, profile excess). For an axiom set outside Standard-Logical, classification keeps the diagnostic precedence hole, then unknown axiom, then compiler-trusting. Renderer strings are not proved. |
 | Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. A conforming request requires its permitted foundation, safety relation and recorded contract obligations. |
-| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` reads no transcript: it requires the recorded observation (`unsafeRecRegenerated`: the regeneration, and the kernel's check of the base's recursion equation), the helper's exact metadata, and a safe base of the same module and type whose axioms are within Standard-Logical, with the exact group mapping. `authorizedUnsafeRecHelpers_base` states those facts for every authorized helper; `partialParent_not_authorized` excludes the helper of an opaque (`partial def`) base. The observed replay and regeneration fields are inputs; the predicates do not prove them truthful. |
-| Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and Lean's three compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
+| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK`, the three authorization `_iff` theorems, `authorizedUnsafeRecHelpers_base`, `Roles.safetyHelpers_iff` | Each name has its full relation in this inventory. `RecursiveHelperOK` reads no transcript: it requires the recorded observation (`unsafeRecRegenerated`: the regeneration, and the kernel's check of the base's recursion equation), exact metadata, a safe base with the same module/type and Standard-Logical axioms, and the exact group mapping. `authorizedUnsafeRecHelpers_base` states a narrower part of that for every authorized helper: the recorded observation, and a base that is an inventory definition of the same module and type, neither `partial` nor `unsafe`, with axioms within Standard-Logical. Constructor-index wrappers require the separate structural observation, exact metadata, and an owned safe parent and base in the same module. `Roles.safetyHelpers_iff` states that a name is a safety helper exactly when one of those two full relations holds for it; the separate `helpers` and `constructorHelpers` fields keep the families apart. Native roles retain the three §7.5 conditions. `Roles.partialParent_not_safetyHelper` excludes a `partial def`'s helper from both safety exceptions. The observations are inputs; these predicates do not prove them truthful. |
+| Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and the enabled legacy compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. A toolchain-owned boundary never fails; every boundary without an admitted toolchain origin or checked evidence has its own failure record, in every root whose account contains it, under a checked claim; the audit's toolchain trusted base has each toolchain-owned boundary (constant and kind) of every labeled environment account in exactly one entry, which lists exactly the environments and roots that reach it. |
 | Execution findings | `executionFindings_empty_iff`, `failure_reported`, `unresolved_reported`, `executionFindings_sound`, `rootFindings_ids`, `executionFindings_unresolved`, `ExecutionRoot.boundary_reported`, `ExecutionRoot.first_record`, `ExecutionRoot.folded_trusted`, `ExecutionRoot.carries_spec`, `ExecutionBoundary.restates_spec`, `boundaryFailures_restates`, `ExecutionInventory.reported_or_folded` | The findings the gate reports are the failure records with each folded boundary's record reported in the finding of the boundary it is reported with. A boundary is folded in two cases only. It repeats an earlier record: a boundary of the same root with a smaller occurrence number is trusted like it and has the same constant, kind, replacement and toolchain origin, so the two have the same failures for every claim. Or it is a trusted partial-computation boundary without a toolchain origin whose constant is the source of no helper edge, and a boundary of the same root that is trusted, not toolchain-owned and not itself foldable names its constant, by its `replacement` or, as a partial-computation boundary, by a helper edge. Every folded boundary is trusted, and every boundary of a root is, or restates, one that is reported on its own or is an implementation of one reported on its own. So the findings are empty exactly when `ExecutionOK` holds; every failure record is its boundary's own finding, is named in the finding of a boundary whose implementations include it, or is a later record of a boundary that is; every unresolved path is a finding unchanged; every finding has the kind, root and detail of a record, followed by its implementations; a root has one finding per failing boundary reported on its own; the unresolved findings are as many as the unresolved records; and every boundary of the account is counted by the coverage counts or folded. These are statements about the supplied account: that the collector records a `partial` definition and the constant compiled to it, and two candidates of one equality, in this form is its observation of the environment, not proved. |
 | Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. |
@@ -302,7 +344,7 @@ the call through each success owner.
 | [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
 | [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
-| [RG1006] | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the recorded observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates or delay one under a binder, so the helper's termination trusts that preprocessing (standard §7.4). |
+| [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
 | [RG1007] | `ContractOK` through `ruleFor` | Recorded contract failures are enforced; Probe's extraction of the proposition and root, proof admission and adequacy are not proved by this relation. |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
@@ -746,6 +788,27 @@ assembly belong to the project routes.
 | `Collect.currentModule` | Every constant in the current module's map, including private, generated and unused ones. | Completion is the caller's; a partial environment is partial. |
 | Module hook | [RG5001] (module docstring present and first, no repeated import), [RG5002] and [RG5003] for registered public declarations. | Complete local declaration-policy coverage. |
 | `Collect.declaration` (`.snapshot`, `.replayCandidate`) | The canonical facts `Probe` uses, with replay and helper observations in the second form. | Replay and role authentication. |
+
+Constructor-index wrappers use a separate path. `Collect.constructorIndexObservation` rebuilds
+the base and wrapper forms it derives from the `ctorIdx` generator of a compiler that emits the
+wrapper, and compares the observed values with them (`Expr.eqv`): the safe base with the type's
+`casesOn` applied to a `Nat` motive and one constructor-index alternative for each constructor,
+and the unsafe wrapper with the origin-checked `getObjTagNat` applied to the unchanged argument.
+The only construction it invokes is the kernel's pure `mkCasesOnImp`, with whose result it also
+compares the observed `casesOn`; it calls neither `mkCtorIdx` nor `mkCtorIdxImpl`, adds no
+declarations and invokes no compiler. `Declaration.constructorIndex` transports the
+observed parent/base pair; missing fields fail decoding. `ConstructorIndexHelperOK` requires the
+parent, base and wrapper in the same inventory and module with exact metadata, and
+`authorizedConstructorIndexHelpers_iff` proves the executed validator recognizes precisely that
+relation. `Roles.safetyHelpers_iff` states that a name is a safety helper exactly when the
+recursion-helper or the constructor-index relation holds for it in full; the separate `helpers`
+and `constructorHelpers` fields of `Roles` keep the two families apart.
+These are proofs about the observations; native object-tag correspondence remains trusted.
+The owned unsafe and runtime-replacement boundaries remain in execution reports.
+The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
+observer's positive path, admission, transport and mutations only on a compiler that has
+`getObjTagNat`, such as the selected release-candidate and source compilers; on Lean 4.34.0,
+which generates no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
@@ -1481,10 +1544,41 @@ the nearest `AGENTS.md` with the section, else the nearest that exists, else the
 root's; the skill files are read and written at that repository root (the Lake root outside a Git
 repository).
 
-Regula's own `lakefile.lean` refuses to load, before any module compiles, when the running Lean's
-`Lean.versionString` is not the release its `lean-toolchain` names. This is an elaboration-time
-check, not a theorem; Lake reuses an elaborated configuration while the file's text and the
-running Lean are unchanged, and `lake update` elaborates it again.
+Regula's `lakefile.lean` executes the core-only source `RegulaPolicy.Compiler` when its
+configuration is elaborated, in a child `lean` that `LEAN_SYSROOT` or `PATH` selects. The
+source guard compares that child's version and full commit with the revision's declared
+identity and then prints them; the lakefile passes only when the child succeeds and the
+printed pair is the `Lean.versionString` and `Lean.githash` of the Lean elaborating the
+lakefile, so a child that is another compiler, fails or cannot be run is refused, with the
+adopter's remedy. That comparison is an elaboration-time check, not a theorem. The compiled
+probe, inventory admission, and plan admission use the same declared pair.
+`Compiler.accepts_iff` proves the executed Boolean matches the predicate;
+`transcript_plan_compiler` proves admitted transcripts and a valid plan agree on both fields.
+Compiler self-reports and locating and launching the compiler are trusted IO, and a
+self-report names the Git commit of a build's source tree, not uncommitted source edits or the
+executable's bytes. Lake may reuse an elaborated configuration; `lake update` elaborates it
+again. The compiled admission guards remain in force when a configuration is cached.
+
+`doctor` reads the project's own `lean-toolchain`, resolves it to a toolchain
+`elan toolchain list` names, and reads the version and commit that compiler reports,
+independently of the compiler running `regula`. Only a listed name is run, without Elan's
+`--install`, and no channel is resolved: `Regula.Toolchain.installedName?_spec` proves that the
+name is one of those supplied as listed and equals the selector.
+`Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
+decision reports no toolchain issue exactly when that resolved identity
+`RegulaPolicy.Compiler.Supports`, under any selector; an unresolved selector or a failed probe
+is an issue `init` does not fix. Elan's listing, that it runs a listed toolchain without
+installing, and the report are trusted.
+
+Prepared compatibility revisions have a compiled candidate marker. The ordinary audit
+entrypoints that call `CompilerMode.requireAllowed` refuse them: `axiomGate`, so also the audit
+`lake lint` runs, `docFenceAudit` and `freshChecker`. `regula`, `ruleExamples`, `toolchain` and
+the qualification executables do not call it themselves. An explicit qualification invocation may inspect the same internal accounts, but
+public result files wrap those observations with `status: unsupported`, diagnostic purpose and
+`grantsSupport: false`; accepted text labels them diagnostic rather than PASS. The pure
+`Compiler.mayRun` and `publication` functions decide these boundaries. The diagnostic switch is
+not support authority. See [development toolchains](toolchains.md) for promotion and evidence
+requirements; none of this qualifies every build sharing a development version string.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
 which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and
@@ -1496,8 +1590,16 @@ manifest excludes, with options written into bare and configured claimed targets
 with no `lean_lib`, a package-level `-D` setting Mathlib's options as in the first adopter, a
 `-D` in one library's own `moreLeanArgs` in both formats, and a Lake project in a subdirectory of
 a Git repository with and without a root `AGENTS.md`) are bounded observations, as are the
-lakefile's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command line and when a checker
-executable loads the workspace.
+historical version-string guard's refusal of Lean 4.33.0 and 4.34.1 through the `lake` command
+line and when a checker executable loaded the workspace. Those historical observations do not
+qualify the new exact-identity guard. Its retained control, in the `lint-driver` partition,
+loads a fresh copy of the lakefile and policy source through `lake`: an inherited
+`LEAN_SYSROOT` whose `lean` fails on the policy source is refused, one whose `lean` exits
+successfully without printing the running compiler's identity is refused by the identity
+comparison, and the same package then loads with the inherited environment. Neither child is
+a compiler. A compiler the policy refuses, an in-process load by a checker executable and
+`doctor`'s resolution of a pin need a second installed compiler or current observations and
+have no retained control.
 
 **Releases** ([procedure](contributing.md#release)): **Proved** in `lean/Regula/Release.lean`,
 and checked by the kernel each time a step elaborates it: `tagAction`, the decision of the
@@ -1571,13 +1673,13 @@ trusted.
 
 **Proved** in `lean/Regula/DiagnosticsGate.lean`, checked by the kernel in ordinary acceptance's
 build and each time a step of the [diagnostics workflow](../../.github/workflows/diagnostics.yml)
-elaborates it (its `applies` and `diagnostics` jobs, on every pull request): `verdict`, the
-decision of the required `diagnostics` check over the workflow's `needs` context, passes exactly
-when the job `applies` succeeded, every job it decided is one the gate needs, and every job the
-gate needs passed when it was decided to apply and was skipped when it was decided not to
-(`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one that ran
-out of time, which GitHub reports as one of the two, and as is a job decided to apply that was
-skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
+elaborates it (its `diagnostics` job on every pull request, and `applies` whenever it runs):
+`verdict`, the decision of the required `diagnostics` check over the workflow's `needs` context,
+passes exactly when the job `applies` succeeded, every job it decided is one the gate needs, and
+every job the gate needs passed when it was decided to apply and was skipped when it was decided
+not to (`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one
+that ran out of time, which GitHub reports as one of the two, and as is a job decided to apply that
+was skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
 `applies` writes and each partition job's `if:` reads, runs the campaigns on every run other than
 a pull request's (`campaign_of_ne`) and on a pull request's exactly when an input of `inputs`,
 the only statement of the campaigns' paths, covers one of its changed paths
@@ -1593,7 +1695,10 @@ timeouts, cancellation, that an `always()` job runs on a cancelled run, and the 
 requires `diagnostics`) and `git` (the commits it fetched and the paths `diff-tree` lists). That
 every partition job of the workflow is in the gate's `needs` and has its `if:` read its own
 decision is the workflow's wiring, which no step observes; a needed job without a decision and a
-decided job the gate does not need fail the gate.
+decided job the gate does not need fail the gate. The
+compiler-preparation job `compiler` is not a partition job: `applies` needs it and has no `if:`,
+so `applies` runs, and the gate can pass, only once `compiler` succeeded (GitHub's implicit
+`success()`, trusted, and also the workflow's wiring).
 
 ## Rule examples and the corpus runner
 
@@ -1687,7 +1792,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
-| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes | packaging, Lake and build integration | External | observed |
+| checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
 | ordinary | `RegistryChecks` codec, source and execution-account cases | registry, diagnostic and source codecs; the result file's shared execution form | Proved in part | round-trip theorems of `Json` values; that the shared form is kept, and that a parsed shared form reads back to the built account, are observed; open: state the remaining refusals as theorems |
 | standalone | `qualify environments` finalize mutations | `finalize` refusals | Proved relation | `finalize_iff`; instance membership sampled; no transcript substitution: an accepted run has no transcript job (`accepted_no_transcript_subjects`) |
@@ -1874,9 +1979,9 @@ variant excludes every actual `AuditApp` executable it stops claiming, and app-o
 leaves them unclassified on purpose; claimed-exe keeps claiming them beside its added
 executable, so two claimed roots each define `main`.
 
-One structural control needs the checker's own package as the audited project: a claimed module
-that imports the probe's report records must be refused as contamination although the force
-import brings those modules into every report. It runs in a copy of the repository whose
+The infrastructure controls need the checker's own package as the audited project: a claimed module
+that imports the probe's report records, collector or compiler observer must be refused as
+contamination although the force import brings those modules into every report. They run in a copy of the repository whose
 manifest `Manifest.structuralManifest` derives (`structural_libraries`,
 `structural_executables` and `structural_roundtrip`, under the claim hypothesis its guard
 checks at run time). `RegulaPolicy` stays claimed there because the checker probe's own imports
@@ -1884,21 +1989,20 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see). The control was changed when the structural partition was
-divided into shards, and is now two clusters. `structuralSelfHosted` builds the copy, runs the
-incremental gate on the mutation and restores it. No fresh gate runs on that mutated and
-restored copy any more: the accepting gate there is replaced by a checked identity of the
-restored copy's fresh input with that of a copy prepared anew, and by the accepting fresh gate
-of `structuralSelfHostedPositive` on a copy prepared the same way (`prepareSelfHosted`), which
-is in the other shard. `freshInput` takes what the gate's copy operation copies from each of
-the two copies, and any differing path or byte fails the first cluster. That the two together
-stand for the replaced gate rests on two facts, neither of them a theorem. First, a fresh gate
-reads the audited project only through `copyProject`, which prunes the project's `.lake`, and
-builds that copy from empty output; without `--with-docs`, as here, it reads no other file of
-the project, and the packages directory it links is the repository's for every copy. So equal
-fresh input gives the same gate run, and the setup build, the incremental gate and the
-restoration are observed to leave the prepared input. Second, the two shards are jobs of one
-workflow matrix, so whenever the diagnostics workflow runs them it starts both on the one commit
+states what it does not see). The controls are two clusters in different shards.
+`structuralSelfHosted` builds the copy and runs an accepting fresh gate on it, then the
+incremental gate on each of the three contaminations, restoring each before the next. It then
+checks the restored copy's fresh input against that of a copy prepared anew, and runs an
+accepting fresh gate on the restored copy itself. Both accepting gates audit that cluster's own
+copy, so neither depends on the other shard. `freshInput` takes what the gate's copy operation
+copies from each of the two copies, and any differing path or byte fails the cluster.
+`structuralSelfHostedPositive`, in the other shard, runs the accepting fresh gate on a copy
+prepared the same way (`prepareSelfHosted`). That equal fresh input gives the same gate run, so
+that the restored gate and that positive audit the same input, rests on a fact that is not a
+theorem: a fresh gate reads the audited project only through `copyProject`, which prunes the
+project's `.lake`, and builds that copy from empty output; without `--with-docs`, as here, it
+reads no other file of the project, and the packages directory it links is the repository's for
+every copy. The two shards are jobs of one workflow matrix, which starts both on the one commit
 it checks out. That both pass before merging is enforced by the ruleset of `main`, not by the
 self-test, which observes nothing of the other job: the workflow runs the matrix on a pull
 request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists, and its
@@ -2036,6 +2140,7 @@ operator's narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md
 [RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
 [RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
 [RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
+[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
 [RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/

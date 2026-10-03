@@ -172,6 +172,7 @@ structure Environment extends Regula.Report.Collected where
 
 instance : ToJson Environment := ⟨fun r => Json.mkObj [
   ("toolchain", toJson r.toolchain), ("modules", toJson r.modules),
+  ("compilerCapability", toJson r.compilerCapability),
   ("moduleOrigins", toJson r.moduleOrigins), ("declarations", toJson r.declarations),
   ("execution", toJson r.execution), ("census", toJson r.census),
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
@@ -222,6 +223,7 @@ root accounts; a result file holds what `SharedExecution.intern` writes for it. 
 decisions use the in-memory report; worker transport keeps the full `ToJson` shape. -/
 def Environment.resultJson (r : Environment) (kernelTypes : Bool := false) : Json := Json.mkObj [
   ("toolchain", toJson r.toolchain),
+  ("compilerCapability", toJson r.compilerCapability),
   ("declarations", toJson (r.declarations.map (declarationResultJson · kernelTypes))),
   ("execution", toJson r.execution), ("census", toJson r.census),
   ("admission", toJson r.admission), ("documentation", toJson r.documentation),
@@ -398,6 +400,8 @@ def Environment.validateRoot (r : Environment) (root : ExecutionRoot) : Except S
 checks supplied observations; truthful Lean/Lake extraction remains the trusted boundary.
 The guards run in this order and the first failure is the refusal. -/
 def Environment.validate (r : Environment) : Except String Unit := do
+  unless decide (r.compilerCapability = Compiler.legacyCompilerTrust) do
+    throw "compiler capability differs from this Regula build"
   unless r.censusModulesOK do throw "producer-census: missing or duplicate claimed modules"
   unless r.censusDeclarationsOK do throw "producer-census: declaration coverage mismatch"
   r.validateExecutionCensus
@@ -428,6 +432,7 @@ open RegulaPolicy.Guards
 converse direction excludes an always-refusing implementation. -/
 theorem validate_eq_ok (r : Environment) :
     r.validate = .ok () ↔
+      r.compilerCapability = Compiler.legacyCompilerTrust ∧
       r.censusModulesOK = true ∧ r.censusDeclarationsOK = true ∧
       r.validateExecutionCensus = .ok () ∧ (∃ i, admitExecution r.execution = .ok i) ∧
       r.validateSourceEvidence = .ok () ∧
@@ -561,6 +566,7 @@ def Environment.HistoryEdgesSound (r : Environment) : Prop :=
 
 /-- Everything a successful transport validation establishes about a report. -/
 def Environment.Admissible (r : Environment) : Prop :=
+  r.compilerCapability = Compiler.legacyCompilerTrust ∧
   r.CensusSound ∧ r.ExecutionCensusSound ∧ ExecutionValid r.execution ∧
   r.SourceEvidenceSound ∧ r.RecordedRangesSound ∧ r.AdmissionSound ∧ r.DocumentationSound ∧
   r.HistoryRequestsSound ∧ r.HistoriesSound ∧ r.ReplacementsSound ∧
@@ -834,10 +840,10 @@ theorem closureAccountSound_of (r : Environment)
 
 /-- Every report the executed validator admits satisfies every named account. -/
 theorem validate_sound (r : Environment) (h : r.validate = .ok ()) : r.Admissible := by
-  obtain ⟨hm, hd, he, ⟨i, hi⟩, hs, ⟨receipt, hr, hro⟩, ⟨docs, hdo, hdok⟩, hq, hh, hroots⟩ :=
+  obtain ⟨hc, hm, hd, he, ⟨i, hi⟩, hs, ⟨receipt, hr, hro⟩, ⟨docs, hdo, hdok⟩, hq, hh, hroots⟩ :=
     (validate_eq_ok r).mp h
   have roots := fun root hroot => validateRoot_eq_ok r root (hroots root hroot)
-  exact ⟨censusSound_of r hm hd, executionCensusSound_of r he,
+  exact ⟨hc, censusSound_of r hm hd, executionCensusSound_of r he,
     (admitExecution_preserves _ i hi).2, sourceEvidenceSound_of r hs,
     recordedRangesValid_of r hs,
     admissionSound_of r receipt hr hro, documentationSound_of r docs hdo hdok,
@@ -853,6 +859,7 @@ reduction: the soundness theorem is not satisfied by an always-refusing validato
 theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
   let r : Environment := {
     toolchain := "", modules := #[`A], moduleOrigins := #[], declarations := #[], execution := #[]
+    compilerCapability := Compiler.legacyCompilerTrust
     census :=
         { modules := #[`A], declarations := #[], executionRoots := none, historyRequests := #[] }
     admission := some
@@ -860,7 +867,7 @@ theorem validate_nonvacuous : ∃ r : Environment, r.validate = .ok () := by
     documentation := some {
       modules := #[(`A, ⟨true, true, []⟩)], materialDeclarations := #[], declarations := #[] }
     sourceBindings := #[{ moduleName := `A, path := "A.lean", content := "" }] }
-  refine ⟨r, (validate_eq_ok r).mpr ⟨by decide +kernel, by decide +kernel, rfl,
+  refine ⟨r, (validate_eq_ok r).mpr ⟨rfl, by decide +kernel, by decide +kernel, rfl,
     ⟨_, admitExecution_exact _ (by decide +kernel)⟩, ?_, ⟨_, rfl, by decide +kernel⟩,
         ⟨_, rfl, by decide +kernel⟩,
     by decide +kernel, by simp [r], by simp [r]⟩⟩
@@ -882,10 +889,13 @@ theorem checked_validate : Regula.ExecutableContract Environment.validate Transp
 
 /-- Field decoding only; admission is the separate `checked_validate` step. -/
 def Environment.decodeFields (j : Json) : Except String Environment := do
-  exactFields j ["toolchain", "modules", "moduleOrigins", "declarations", "execution",
+  exactFields j ["toolchain", "compilerCapability", "modules", "moduleOrigins", "declarations", "execution",
     "census", "admission", "documentation", "histories", "sourceBindings"]
+  let compilerCapability ← j.getObjValAs? _ "compilerCapability"
+  let _ ← Compiler.admitCapability compilerCapability
   return {
     toolchain := ← j.getObjValAs? _ "toolchain"
+    compilerCapability
     modules := ← j.getObjValAs? _ "modules"
     moduleOrigins := ← j.getObjValAs? _ "moduleOrigins"
     declarations := ← j.getObjValAs? _ "declarations"
@@ -939,7 +949,7 @@ theorem admit_eq_ok (r : Environment) (a : Admitted) :
 
 /-- The admitted report's execution inventory, built from the retained proof. -/
 def Admitted.execution (a : Admitted) : ExecutionInventory :=
-  ⟨a.report.execution, (validate_sound _ a.valid).2.2.1⟩
+  ⟨a.report.execution, (validate_sound _ a.valid).2.2.2.1⟩
 
 /-- Equal to what `admitExecution` returns on the same roots, for every admitted report:
 consumers may use it instead of deciding `ExecutionValid` again. -/
