@@ -256,7 +256,7 @@ interfaces do not imply a library-wide exemption.
 | Least foundation | `leastFoundation_spec`, `leastFoundation_ext`, `foundationFor_least` | Every axiom set within Standard-Logical gets its least containing profile, invariant under order and duplicates. The actual public classifier (`foundationFor` with inventory-bound roles) uses this same result. Not the weakest possible proof of the proposition. |
 | Classification | `foundationFor_iff`, `declarationFailure_iff`, `policyFor_ordered`, `OrderedDecision.unique` | Each of the six foundation classes (three labels, hole, unknown axiom, compiler-trusting) has its exact meaning; a declaration's diagnostic is its first failed requirement (invalid membership, owned axiom, hole, unknown, escape hatch, compiler trust, contract failure, profile excess). For an axiom set outside Standard-Logical, classification keeps the diagnostic precedence hole, then unknown axiom, then compiler-trusting. Renderer strings are not proved. |
 | Declaration policy | `policyFor_none_iff`, `policyFor_conforming_iff` | Success is inventory membership plus the independent requirements; teaching never relaxes a conforming profile. A conforming request requires its permitted foundation, safety relation and recorded contract obligations. |
-| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` reads no transcript: it requires the regeneration observation (`unsafeRecRegenerated`), the helper's exact metadata, and a safe base of the same module and type whose axioms are within Standard-Logical, with the exact group mapping. `authorizedUnsafeRecHelpers_base` states those facts for every authorized helper; `partialParent_not_authorized` excludes the helper of an opaque (`partial def`) base. The observed replay and regeneration fields are inputs; the predicates do not prove them truthful. |
+| Roles | `NativeTeachingOK`, `RecursiveHelperOK`, `authorizedNativeAxioms_iff`, `authorizedUnsafeRecHelpers_iff` | A name is authorized exactly when an inventory record meets every component (the §7.4 helper conditions; the three §7.5 native-axiom conditions). `RecursiveHelperOK` reads no transcript: it requires the recorded observation (`unsafeRecRegenerated`: the regeneration, and the kernel's check of the base's recursion equation), the helper's exact metadata, and a safe base of the same module and type whose axioms are within Standard-Logical, with the exact group mapping. `authorizedUnsafeRecHelpers_base` states those facts for every authorized helper; `partialParent_not_authorized` excludes the helper of an opaque (`partial def`) base. The observed replay and regeneration fields are inputs; the predicates do not prove them truthful. |
 | Native axiom names | `nativeAxiomOrigin?_sound`, `nativeAxiomOrigin?_nativeAxiomName`, `nativeAxiomOrigin?_isSome_iff`, `compilerTrustingAxiomName_sound`, `compilerTrustingAxiomName_iff`, `modulePrivacy_nativeAxiomName`, `generatedPrefix_iff`, `native_generated`, `native_compilerTrustingAxiomName`, `native_provenance` | A name is recognized exactly when it is `nativeAxiomName parent t idxs`, Lean's own `Name.append` and `appendIndexAfter` as `nativeEqTrue` and `DeclNameGenerator.mkUniqueName` apply them, for `native_decide`, `decide +native` or `bv_decide`, with or without module privacy. `compilerTrustingAxiomName`, the execution probe's classification, holds exactly for these names and Lean's three compiler axioms. The prefix is nonanonymous without macro scopes and the generator indices are a nonempty list of positive numbers. For a declaration name without macro scopes in a module without macro scopes, a recognized prefix related to it by `GeneratedPrefix` (the name itself, or its `mkPrivateNameCore` form when it is public) gives exactly the names `DeclNameGenerator.mkUniqueName.curr` gives its native axioms, whether or not the module elaborates the proof without exporting (`modulePrivacy`). The recognition direction and that characterization assume `RuntimeStringAppend`, because `appendIndexAfter` uses the logically opaque extern `String.Internal.append`. The three tactic names and the list of `nativeEqTrue` call sites are cited from the pinned sources, not derived; hygienic and anonymous prefixes are not recognized. |
 | Execution policy | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_ids`, `rootFailures_ids`, `boundaryFailures_toolchain`, `project_boundary_reported`, `checked_toolchainBase` | No failure exactly when there is no unresolved path and every boundary meets its mode's relation; the failure kind of every boundary and path for every claim. A toolchain-owned boundary never fails; every boundary without an admitted toolchain origin or checked evidence has its own failure record, in every root whose account contains it, under a checked claim; the audit's toolchain trusted base has each toolchain-owned boundary (constant and kind) of every labeled environment account in exactly one entry, which lists exactly the environments and roots that reach it. |
 | Execution findings | `executionFindings_empty_iff`, `failure_reported`, `unresolved_reported`, `executionFindings_sound`, `rootFindings_ids`, `executionFindings_unresolved`, `ExecutionRoot.boundary_reported`, `ExecutionRoot.first_record`, `ExecutionRoot.folded_trusted`, `ExecutionRoot.carries_spec`, `ExecutionBoundary.restates_spec`, `boundaryFailures_restates`, `ExecutionInventory.reported_or_folded` | The findings the gate reports are the failure records with each folded boundary's record reported in the finding of the boundary it is reported with. A boundary is folded in two cases only. It repeats an earlier record: a boundary of the same root with a smaller occurrence number is trusted like it and has the same constant, kind, replacement and toolchain origin, so the two have the same failures for every claim. Or it is a trusted partial-computation boundary without a toolchain origin whose constant is the source of no helper edge, and a boundary of the same root that is trusted, not toolchain-owned and not itself foldable names its constant, by its `replacement` or, as a partial-computation boundary, by a helper edge. Every folded boundary is trusted, and every boundary of a root is, or restates, one that is reported on its own or is an implementation of one reported on its own. So the findings are empty exactly when `ExecutionOK` holds; every failure record is its boundary's own finding, is named in the finding of a boundary whose implementations include it, or is a later record of a boundary that is; every unresolved path is a finding unchanged; every finding has the kind, root and detail of a record, followed by its implementations; a root has one finding per failing boundary reported on its own; the unresolved findings are as many as the unresolved records; and every boundary of the account is counted by the coverage counts or folded. These are statements about the supplied account: that the collector records a `partial` definition and the constant compiled to it, and two candidates of one equality, in this form is its observation of the environment, not proved. |
@@ -302,7 +302,7 @@ the call through each success owner.
 | [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
 | [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
-| [RG1006] | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the regeneration observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates or delay one under a binder, so the helper's termination trusts that preprocessing (standard §7.4). |
+| [RG1006] | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the recorded observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates or delay one under a binder, so the helper's termination trusts that preprocessing (standard §7.4). |
 | [RG1007] | `ContractOK` through `ruleFor` | Recorded contract failures are enforced; Probe's extraction of the proposition and root, proof admission and adequacy are not proved by this relation. |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
@@ -789,7 +789,8 @@ up to the definitions it adds, with the base's own relation in place of one elab
 termination measures; that it follows Lean's compiler is read from Lean 4.34.0's source, not
 checked. The termination argument read only selects which regeneration runs
 (`Collect.unsafeRecRegeneration` returns an origin only when the definitions that regeneration
-added match the observed ones), so what is read cannot admit a helper the comparison rejects; this
+added match the observed ones, and then only when the kernel checks the recursion equation of each
+base of the group, below), so what is read cannot admit a helper the comparison rejects; this
 is read from the code, with no theorem.
 That admission does not depend on which definitions were irreducible where a definition was
 elaborated is observed as well, for the shapes of issue #188: the same command admits every helper
@@ -1012,12 +1013,120 @@ otherwise only where `simp` unfolds declarations it is told to unfold, which the
 definition the structural compiler adds for a regenerated base is still compared with the observed
 one, like every definition a regeneration adds.
 
+That a helper admitted under [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1006/)
+computes its base rests on a theorem Lean's kernel checks, not on the regeneration
+([#210](https://github.com/rbeauchamp/regula/issues/210)). After a regeneration
+reproduces the base, `Collect.recursionEquationChecked` states, for each helper of the group, the
+recursion equation of its base: with the helper's value `fun xs => body`, every helper of the
+group replaced by its base `f`, the theorem
+
+`∀ xs, f xs = body`
+
+It builds the statement from the constant `f` and the helper's value alone, confirms its form by
+`Expr` equality (`Collect.isRecursionEquation`: every leading binder of the value is taken, the
+binder types and the body are the value's own, and `f` is applied to the bound variables in
+order), and gives it to the kernel of the inspected environment as the type of a theorem
+(`Collect.kernelChecked`: `Environment.addDeclCore`, then every axiom within Standard-Logical).
+The type of the equality is read from `body` by Lean's elaborator and is not compared: the kernel
+checks that the statement is well typed before it checks a proof, which leaves the equality only
+the type of `f xs`, up to definitional equality. No theorem is taken on its name, and no statement
+is compared with one found in the environment. What the search reads only proposes proofs, tried
+in this order:
+
+- `Eq.refl (f xs)` where `body` is a proof: Lean states no unfolding theorem for a definition
+  whose type is a proposition, under structural or well-founded recursion, and the kernel accepts
+  reflexivity by proof irrelevance;
+- the constant `f.eq_def`, under that name or the private one a `module` file uses, which Lean's
+  well-founded compiler adds with the definition;
+- the theorem `Meta.getUnfoldEqnFor?` realizes for `f`, as it does on demand for a structural
+  definition; and
+- the theorem it realizes for the regenerated definition, in the environment the regeneration
+  left, under the reducibility in which Lean's compiler reproduced the base. A definition whose
+  own type is a definition made irreducible afterwards (`fixtures_alias_binary` of
+  `Fixtures.Positive.ReducibilityChange`) is admitted by this one alone (observed).
+
+Lean realizes such a theorem with its kernel check deferred: `Environment.realizeConst` of Lean
+4.34.0 runs the realization with `debug.skipKernelTC` set and replays the result into the kernel
+afterwards, keeping a constant the kernel rejects out of the kernel environment but not out of the
+elaborator's. No constant a search adds is therefore trusted. `Collect.closedOver` replaces each
+constant the inspected environment does not hold by its value (a realized theorem by its proof, a
+regenerated definition by its body), and the kernel of the inspected environment checks the
+resulting term against the statement, so it checks every step that is not a constant of that
+environment. `closedOver_closed` proves that the term submitted mentions no other constant; it
+proves nothing about `Expr.replace` or the values put back, and the kernel rejects a term that
+mentions an unknown constant in any case. A constant the kernel of the inspected environment
+holds is one the gate's admission replays, one of the trusted import base (standard §7.3), or one
+Lean realized earlier in the checker's process and its kernel accepted on replay.
+
+What this establishes, and what it does not:
+
+- Kernel-checked, at each audit: the base satisfies the recursion equation of each helper of its
+  group, with every axiom within Standard-Logical. That holds whatever the regeneration or the
+  search read. Matcher and `casesOn` metadata, the `below` and `brecOn` declarations of an
+  inductive type, `_sunfold` declarations, reducibility statuses and Lean's equation records are
+  inputs of a selection or of a proof search; a statement the checker built and a proof the kernel
+  accepted do not depend on them.
+- Argued, with no theorem: whenever the helper returns, it returns the base's value. The compiled
+  helper evaluates its value, its recursive calls evaluating the helper again. By induction on
+  that evaluation, each recursive call that returns has returned the base's value, so the helper
+  returns what its value yields with each helper of the group replaced by its base, and the
+  equation says that is the base's value. The argument takes the compiled code to run the helper's
+  value (the trusted compiler, as for every definition) and to use a function it is given only by
+  calling it. A helper that calls a `partial` or `unsafe` constant outside its group is not
+  admitted: the kernel refuses a theorem whose statement mentions one (observed for a `partial`
+  helper on Lean 4.34.0: "safe declaration must not contain partial declaration").
+- Not established: that the helper returns whenever the base does (standard §7.4), or anything
+  about a helper for which the search finds no proof.
+
+The search tries only Lean's own proofs, so a helper is rejected where none of them is accepted,
+even where the equation holds. `fixtures_forged_measured_bare` of
+`Fixtures.Mutations.MeasuredMatchUnsafeRecForge` pins that outcome: a faithful copy of a
+well-founded definition and its helper, added by a metaprogram without the `eq_def` theorems Lean
+proves with the definition, is rejected, and the same copy with those theorems is admitted
+(observed). A faithful copy of a structural definition needs no theorem of its own, since Lean
+realizes one for the regenerated definition (`fixtures_forged_alias_faithful` of
+`Fixtures.Mutations.ReducibilityChangeUnsafeRecForge`, observed).
+`Fixtures.Positive.ProofValuedRecursion` pins a structural and a well-founded definition whose
+type is a proposition, both admitted by reflexivity (observed). A resource limit of the checker
+reached in the search or in the kernel leaves the helper undecided and the audit incomplete, as
+for the regeneration.
+
+Two forgeries show what the equation closes. Each is an ordinary definition that Lean's own
+compiler turns into a base and a helper that disagree, and `axiomGate --file` accepted each on
+`main` at `2e741c6`, before this check (observed; the regeneration paths they use are those of
+Regula v0.4.2, whose [RG1006](https://rbeauchamp.github.io/regula/v/0.4.2/rules/RG1006/) they were
+not run against):
+
+- `Fixtures.Mutations.AuthoredCompanionUnsafeRecForge`. A metaprogram adds an inductive type of
+  unary numbers with Lean's `casesOn` and `below`, and writes `brecOn` itself, as a function that
+  ignores its arguments and returns `0`. Lean's structural compiler finds `brecOn` by name and
+  checks only the type of the application it builds, so the base of a definition by recursion on
+  that type is `0` everywhere (a kernel-checked theorem of the fixture) while its helper returns
+  `1` at `zero`. The regeneration runs the same compiler over the same `brecOn` and reproduces the
+  base.
+- `Fixtures.Mutations.MatcherMetadataUnsafeRecForge`. A function that applies its one alternative
+  to a constant function is registered as a matcher whose alternative binds no pattern variable.
+  `MatcherApp.addArg` then puts the binder for the recursive-call function before the
+  alternative's own argument, where Lean's test that the type was refined succeeds because a
+  definition in it is irreducible and the kernel accepts the two argument types as one. The
+  recursive call becomes a call of the constant function: the base is `42` at `1` (a
+  kernel-checked theorem of the fixture) and the helper returns `0`. Lean itself reports that it
+  cannot prove `eq_def` for the definition, after it has added the base and the helper; the
+  fixture drops that error, as a metaprogram that adds both declarations would. The regenerated
+  base is the observed one, with no application left for the threading law to check.
+
+With the check, each forged helper is rejected and the honest helper beside it is admitted
+(observed, `checkerSelftest fixtures`): the equation is false at `zero` and at `1`, so no proof
+exists within Standard-Logical unless Lean's logic is inconsistent, and what Lean's search does in
+each case (it finds no `brecOn` application; it finds no unfolding theorem) only saves the kernel
+the attempt.
+
 What the admission of a helper reads by a derived name or from metadata the audited module can
 write, and what authenticates each:
 
 | Name or record | Read by | Authenticated by |
 | --- | --- | --- |
-| `f._unsafe_rec` → `f` | `Compiler.isUnsafeRecName?` | Selection only: the helper is admitted only where the regeneration from its value reproduces `f` and every auxiliary definition. |
+| `f._unsafe_rec` → `f` | `Compiler.isUnsafeRecName?` | Selection only: the helper is admitted only where the regeneration from its value reproduces `f` and every auxiliary definition, and the kernel checks the recursion equation of `f` for that value. |
 | `f._unary`, `f._mutual`, and `f._f` and `f._sunfold` of the helper's base | Added by the regeneration under its root; `Collect.wfRegeneration` reads the observed unary definition's relation | Each regenerated definition must equal the observed one of its name. The relation only selects: the comparison drops it, and the well-foundedness proof is the observed kernel-checked one. |
 | `g._sunfold` of any other constant | Lean's smart unfolding; formerly also `Collect.unfoldReferences` | Not read: every observation runs with smart unfolding off, and the search's closure follows no `_sunfold` declaration. |
 | Matcher and `casesOn` metadata, in the comparison | `Collect.threadedMatch?` | The kernel-checked threading law of each application (`Collect.threadingLawChecked`). |
@@ -1026,9 +1135,11 @@ write, and what authenticates each:
 | Projection metadata | The `paramProj` preprocessing step; unfolding a projection function | `paramProj` moves only `wfParam`, the identity; the function's own value is unfolded. |
 | `Structural.eqnInfoExt`, `WF.eqnInfoExt`, reducibility statuses | The regeneration | Selection only, never an argument of the comparison. |
 | `T.rec` | The structural compiler | A recursor is created by the kernel with its inductive type. |
-| Matcher and `casesOn` metadata, in Lean's compilers during the regeneration | `MatcherApp.addArg`, which passes the function standing for the recursive calls through a `match` | Open ([#210](https://github.com/rbeauchamp/regula/issues/210)): only the kernel's type check of the regenerated definition. That the passing is right rests on the threading law, which is not checked for these applications. No exploit is reproduced. |
-| `T.below`, `T.brecOn` of an inductive type of the audited module | The structural compiler, by name | Open ([#210](https://github.com/rbeauchamp/regula/issues/210)): only the kernel's type check. Lean generates them with an `inductive`; a module that adds an inductive type by metaprogram can declare others. No exploit is reproduced. |
-No theorem covers the regeneration itself, which runs in Lean's elaborator. The comparison
+| Matcher and `casesOn` metadata, in Lean's compilers during the regeneration | `MatcherApp.addArg`, which passes the function standing for the recursive calls through a `match` | Selection only: the kernel checks the recursion equation of the base (`Collect.recursionEquationChecked`). The regeneration alone admitted `Fixtures.Mutations.MatcherMetadataUnsafeRecForge`. |
+| `T.below`, `T.brecOn` of an inductive type of the audited module | The structural compiler, by name | Selection only: the kernel checks the recursion equation of the base. Lean generates them with an `inductive`; a module that adds an inductive type by metaprogram can declare others, and the regeneration alone admitted `Fixtures.Mutations.AuthoredCompanionUnsafeRecForge`. |
+| `f.eq_def`, by name; `Structural.eqnInfoExt` and the other records from which `Meta.getUnfoldEqnFor?` realizes a theorem, for the base and for the regenerated definition | The proof search of `recursionEquationChecked` | Guidance only: every constant the search adds is replaced by its value (`Collect.closedOver`), and the kernel of the inspected environment checks the proof against the statement the checker built. |
+No theorem covers the regeneration itself, which runs in Lean's elaborator; since the equation
+check, it selects the base and carries no claim about what the helper computes. The comparison
 never uses `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of
 the self-referential helper does not terminate. The regeneration runs Lean's elaborator in the
 report worker and is undone before the comparison, which reads the observed definitions and decides

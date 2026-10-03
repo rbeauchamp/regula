@@ -6,8 +6,9 @@ public import RegulaPolicy.NativeAxiom
 
 Generated-role relations over the complete observation inventory. A native-proof axiom needs
 exact metadata, replay and command provenance; a recursion helper needs exact metadata and the
-observation that Lean's own recursion compiler regenerates its base from it. These finite
-decidable relations do not attest that a compiler observation is truthful. -/
+observation that Lean's own recursion compiler regenerates its base from it and that Lean's kernel
+checks the base's recursion equation for it. These finite decidable relations do not attest that
+an observation is truthful. -/
 
 @[expose] public section
 
@@ -94,7 +95,8 @@ instance (ds : Array Declaration) (ts : Array Transcript) (a : Declaration) :
     Decidable (NativeTeachingOK ds ts a) := by unfold NativeTeachingOK; infer_instance
 
 /-- Range-less generated partial helper whose group Lean's own recursion compiler regenerates into
-the observed base and its auxiliary definitions (`Declaration.unsafeRecRegenerated`). -/
+the observed base and its auxiliary definitions, and for which Lean's kernel checks the recursion
+equation of each base of the group (`Declaration.unsafeRecRegenerated`, which records both). -/
 def RecursiveHelperShape (h : Declaration) : Prop :=
   h.kind = .definition ∧ h.internal = true ∧ h.ranges = none ∧ h.isPartial = true ∧
   h.isUnsafe = false ∧ h.hints = some .opaque ∧ h.implementedBy = none ∧ h.extern = false ∧
@@ -121,8 +123,9 @@ instance (h b : Declaration) : Decidable (RecursiveGroup h b) := by
 
 /-- A recursion helper is admitted exactly when its record, its Lean-linked base's record and their
 group meet every component. No transcript, provenance or elaborator record is consulted: the
-regeneration observation makes the base, up to compilation erasure, what Lean's recursion compiler
-produces from the helper's own recursion, whoever added it. -/
+recorded observation makes the base, up to compilation erasure, what Lean's recursion compiler
+produces from the helper's own recursion, and a definition the kernel checked to satisfy the
+helper's recursion equation, whoever added it. -/
 def RecursiveHelperOK (ds : Array Declaration) (h : Declaration) : Prop :=
   RecursiveHelperShape h ∧ h ∈ ds ∧ ∃ b ∈ ds,
     h.unsafeRecBase = some b.name ∧ RecursiveBaseShape h b ∧ RecursiveGroup h b

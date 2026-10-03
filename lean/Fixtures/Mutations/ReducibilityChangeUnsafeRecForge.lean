@@ -13,8 +13,12 @@ as one. `fixtures_forged_alias_honest` recurses structurally on an argument
 whose type is made `irreducible` afterwards, so only the regeneration with no
 definition irreducible reproduces its base. A custom command copies each
 definition, the auxiliary definitions Lean compiled it into (`_unary` for well-founded
-recursion, `_f` and `_sunfold` for structural) and its range-less
-`_unsafe_rec` helper twice:
+recursion, `_f` and `_sunfold` for structural), the unfolding theorems Lean
+proved with the well-founded definition (`eq_def`, issue #210: the kernel has
+to check the base's recursion equation, and for a well-founded definition the
+checker finds its proof in that theorem; for a structural one Lean realizes
+the theorem for the regenerated definition) and its range-less `_unsafe_rec`
+helper twice:
 
 - `fixtures_forged_threaded_faithful` and `fixtures_forged_alias_faithful`
   rename only, and
@@ -72,31 +76,40 @@ def fixtures_forged_alias_honest (xs : FixturesForgedAlias) : Nat :=
 attribute [irreducible] FixturesForgedAlias
 
 /-- `forge_reducibility_helper honest name diverge`: copy `honest`, its auxiliary definitions
-(`_unary`, or `_f` and `_sunfold`) and its helper under `name`; with `diverge`, the copied helper calls
+(`_unary`, or `_f` and `_sunfold`), the unfolding theorems Lean proved with a well-founded
+definition and its helper under `name`; with `diverge`, the copied helper calls
 `fixtures_forged_reducibility_skip` in place of `fixtures_forged_reducibility_step`. -/
 elab "forge_reducibility_helper " source:ident id:ident diverge:(&"diverge")? : command => do
   let honest := source.getId
   let forged := id.getId
   let auxiliaries := [`_unary, `_f, `_sunfold]
-  let copies := honest :: (honest ++ `_unsafe_rec) :: auxiliaries.map (honest ++ ·)
+  let theorems := [`_unary ++ `eq_def, `eq_def]
+  let copies := ([.anonymous, `_unsafe_rec] ++ auxiliaries ++ theorems).map (honest ++ ·)
   let env ← getEnv
+  let renamed := fun (swap : Bool) (e : Expr) => e.replace fun
+    | .const n us =>
+      if copies.contains n then some (mkConst (n.replacePrefix honest forged) us)
+      else if swap && n == ``fixtures_forged_reducibility_step then
+        some (mkConst ``fixtures_forged_reducibility_skip us)
+      else none
+    | _ => none
   let copied := fun (suffix : Name) (swap : Bool) => do
     let some (.defnInfo info) := env.find? (honest ++ suffix)
       | throwError "missing {honest ++ suffix}"
-    let value := info.value.replace fun
-      | .const n us =>
-        if copies.contains n then some (mkConst (n.replacePrefix honest forged) us)
-        else if swap && n == ``fixtures_forged_reducibility_step then
-          some (mkConst ``fixtures_forged_reducibility_skip us)
-        else none
-      | _ => none
-    pure { info with name := forged ++ suffix, value, all := [forged ++ suffix] }
+    pure { info with
+      name := forged ++ suffix, value := renamed swap info.value, all := [forged ++ suffix] }
   -- `_sunfold` mentions the definition; the definition mentions the other two.
   for suffix in [`_unary, `_f, .anonymous, `_sunfold] do
     if env.contains (honest ++ suffix) then
       liftCoreM <| addDecl (.defnDecl (← copied suffix false))
   liftCoreM <| Lean.Meta.markAsRecursive forged
   addDeclarationRangesFromSyntax forged (← getRef)
+  -- The theorem of the definition cites that of `_unary`.
+  for suffix in theorems do
+    if let some (.thmInfo info) := env.find? (honest ++ suffix) then
+      liftCoreM <| addDecl (.thmDecl { info with
+        name := forged ++ suffix, type := renamed false info.type
+        value := renamed false info.value, all := [forged ++ suffix] })
   liftCoreM <| addDecl (.mutualDefnDecl [← copied `_unsafe_rec diverge.isSome])
   liftCoreM <| compileDecls #[forged ++ `_unsafe_rec]
 
