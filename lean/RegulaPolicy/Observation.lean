@@ -411,7 +411,7 @@ theorem localDeclaration_preserves_flattened (c : Claim)
       (.declaration key) (.declaration declaration) := by
   change declaration ∈ _ ∧ _ ∧ _ ∧ _ ∧ _ at accepted ⊢
   refine ⟨retained, accepted.2.1, accepted.2.2.1, ?_,
-    fun registered written => decided (accepted.2.2.2.2 registered written)⟩
+    fun registered => decided (accepted.2.2.2.2 registered)⟩
   obtain ⟨profile, hp, judgment⟩ := accepted.2.2.2.1
   refine ⟨profile, hp, ?_⟩
   have compiler (n : Name) (hn : n ∈ declaration.axioms) :

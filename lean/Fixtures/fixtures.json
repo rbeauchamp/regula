@@ -211,13 +211,29 @@
    "decision-result=other"
   ]
  },
- "Fixtures.Mutations.DecisionGeneratedCopy": {
+ "Fixtures.Mutations.DecisionWellFounded": {
   "expect": "fail",
   "reason": "decision-contract",
   "output": [
    "[VIOLATION[decision-contract]] equalCount (def) type=Nat → Nat → Bool",
    "[OK] equalCount._unary (def) roles=",
    "[OK] equalCount._unsafe_rec (def) [partial]"
+  ]
+ },
+ "Fixtures.Mutations.DecisionProjection": {
+  "expect": "fail",
+  "reason": "decision-contract",
+  "output": [
+   "[VIOLATION[decision-contract]] Holder.check (def)",
+   "decision-result=other"
+  ]
+ },
+ "Fixtures.Mutations.DecisionForgedAttribution": {
+  "expect": "fail",
+  "reason": "decision-contract",
+  "output": [
+   "[VIOLATION[decision-contract]] holder.check (def)",
+   "decision-result=other"
   ]
  },
  "Fixtures.Positive.RuntimeReplacement": {

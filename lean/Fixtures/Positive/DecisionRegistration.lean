@@ -55,8 +55,8 @@ def Verdict (p : Prop) : Type := Decidable p
 def unregistered (n : Nat) : Bool := decide (n < 3)
 
 /-- Whether `a` and `b` are equal, by counting both down together. Lean defines it by
-well-founded recursion through `equalCount._unary` and copies the registration to that
-definition, which has no requirement of its own. -/
+well-founded recursion through `equalCount._unary`. The registration is applied after
+compilation, so Lean does not copy it to that definition, which carries no decision record. -/
 @[regula_decision] def equalCount (a b : Nat) : Bool :=
   if a = 0 then decide (b = 0) else if b = 0 then false else equalCount (a - 1) (b - 1)
 termination_by a

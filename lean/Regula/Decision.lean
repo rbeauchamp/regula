@@ -25,9 +25,14 @@ namespace Regula
 
 /-- Lean's persistent tag attribute retains selection across normal module imports, and applies
 only in the module that declares the function, so the registration is present wherever the
-function is. -/
+function is. It is applied after compilation: Lean applies an attribute of the earlier
+application time to the `_unary` or `_mutual` definition it generates for a function defined by
+well-founded recursion as well, and that definition is not the function the project registered.
+Applied after compilation, the registration is on the declaration that carries the attribute and
+on no other, so the collector and the policy need no exemption for a generated copy. -/
 initialize decisionAttribute : Lean.TagAttribute ←
   Lean.registerTagAttribute `regula_decision
       "Marks a function as a decision that must state which direction it proves."
+      (applicationTime := .afterCompilation)
 
 end Regula

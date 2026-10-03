@@ -53,14 +53,12 @@ def DecisionRegistered (ds : Array Declaration) (n : Name) : Prop :=
 
 /-- A function registered as a decision (`@[regula_decision]`) states the direction it proves: its
 result type is `Decidable _`, or it is among `decided`, the implementations the inventory's
-decision contracts decide. A declaration without the registration has no such requirement, and
-neither has one Lean generated from another declaration (`Declaration.generatedFrom`): Lean
-copies a registration to the `_unary` or `_mutual` definition it generates for a function defined
-by well-founded recursion, and the requirement is that function's own. The registration, the
-result type and that relation are the collector's observations
-(`Declaration.decisionResult`, `Declaration.generatedFrom`). -/
+decision contracts decide. A declaration without the registration has no such requirement; every
+registered declaration has it, whatever else the record says of the declaration, so no other
+observation waives it. The registration and the result type are the collector's observation
+(`Declaration.decisionResult`). -/
 def DecisionOK (d : Declaration) (decided : Array Name) : Prop :=
-  d.decisionResult = some .«other» → d.generatedFrom = none → d.name ∈ decided
+  d.decisionResult = some .«other» → d.name ∈ decided
 instance (d : Declaration) (decided : Array Name) : Decidable (DecisionOK d decided) := by
   unfold DecisionOK; infer_instance
 
