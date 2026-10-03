@@ -60,11 +60,13 @@ revision. Preparation does not declare that either revision supports the new com
 
 ### Build dependencies with the selected compiler
 
+For an adaptation selecting reusable source artifacts, follow [compiled source snapshots](contributing.md#compiled-source-snapshots). The direct-build procedure below applies to copies without a snapshot selection.
+
 Full repository acceptance also needs coherent Mathlib, Verso and transitive pins in the
 `audit/` and `website/` packages. All five `lean-toolchain` files must name the selected
 compiler: the root, `audit/`, `website/`, `examples/build-lint/` and
 `examples/lake-lint-toml/`. Upstream artifacts are usable only when their compiler matches. For a development
-commit without matching artifacts, set `dependency-build-mode` to `source` in the adaptation
+commit without matching artifacts or a selected snapshot, set `dependency-build-mode` to `source` in the adaptation
 and run `./scripts/provision.sh`, then `lean --run lean/RegulaProvision.lean verso`.
 An interrupted source setup retains its staging directory. A later invocation resumes only
 when its compiler/mode/policy key, pre-build artifact-policy marker, Lake configuration,
@@ -84,7 +86,7 @@ checker qualification or repository acceptance.
 
 ### Reproduce a source compiler in CI
 
-An adaptation using a local Elan alias also commits `.github/compiler-source.json`:
+The direct compiler-build route for a local Elan alias commits `.github/compiler-source.json`:
 
 ```json
 {
@@ -108,16 +110,15 @@ Before a fresh source compiler build or a selected snapshot restoration in GitHu
 
 CMake enforces the source revision's library requirements. The compiler configuration sets `LEANC_CC=cc`; on macOS it also leaves `CMAKE_OSX_SYSROOT` empty and sets `CMAKE_OSX_DEPLOYMENT_TARGET=15.0`, matching the snapshot's declared minimum macOS version.
 
-CI first runs the reusable compiler preparation job, then restores that compiler in the
-existing check jobs. Its cache key includes the specification, selector and installer
+CI first runs the reusable compiler setup job. Its toolchain cache applies only without a snapshot selection; [compiled source snapshots](contributing.md#compiled-source-snapshots) owns the snapshot route. Its cache key includes the specification, selector and installer
 source. The required `verify` and `title` checks, the rule-example shards and the dogfood jobs
-follow that job only for its cache and start whatever its result, so a failed or cancelled
+follow that setup job and start whatever its result, so a failed or cancelled
 preparation cannot leave them skipped, which GitHub reports as success: after a failed
 preparation each runs its own provisioning and checks, and on a cancelled run its steps do not
 pass, so it reports cancelled. In the diagnostics workflow `applies` runs only once preparation
 succeeded, so a failed or cancelled preparation fails the required `diagnostics` gate. The shell
 bootstrap installs fixed Lean 4.34.0 to run this Lean installer even when the repository's
-compiler is not installed yet. With no source specification, the installer asks Elan for the
+compiler is not installed yet. With neither a snapshot selection nor a source specification, the installer asks Elan for the
 committed official release or dated nightly unless Elan already lists it, and then runs that
 compiler.
 Compiler preparation does not establish checker support. The existing acceptance and
