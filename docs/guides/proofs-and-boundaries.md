@@ -1556,13 +1556,12 @@ again. The compiled admission guards remain in force when a configuration is cac
 `elan toolchain list` names, and reads the version and commit that compiler reports,
 independently of the compiler running `regula`. Only a listed name is run, without Elan's
 `--install`, and no channel is resolved: `Regula.Toolchain.installedName?_spec` proves that the
-name is one of those supplied as listed, spelled as the selector or as its release name.
+name is one of those supplied as listed and equals the selector.
 `Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
 decision reports no toolchain issue exactly when that resolved identity
 `RegulaPolicy.Compiler.Supports`, under any selector; an unresolved selector or a failed probe
 is an issue `init` does not fix. Elan's listing, that it runs a listed toolchain without
-installing, its naming of release selectors (transcribed from Elan 4.1.2, not proved to agree
-with it) and the report are trusted.
+installing, and the report are trusted.
 
 Prepared compatibility revisions have a compiled candidate marker. The ordinary audit
 entrypoints that call `CompilerMode.requireAllowed` refuse them: `axiomGate`, so also the audit

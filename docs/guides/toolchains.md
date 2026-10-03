@@ -29,13 +29,13 @@ elan toolchain link lean-issue /absolute/path/to/lean4/build/release/stage1
 lake exe toolchain prepare lean-issue /absolute/path/to/new-regula-candidate
 ```
 
-For an installed release candidate, substitute its full selector, for example
-`leanprover/lean4:v4.35.0-rc3`. The command probes the selected compiler for its version and
-full commit and legacy compiler-trust capability, creates a detached Git worktree from the
+For an installed release candidate, substitute its name exactly as `elan toolchain list` prints
+it, for example `leanprover/lean4:v4.35.0-rc3`. The command probes the selected compiler for its
+version and full commit and legacy compiler-trust capability, creates a detached Git worktree from the
 current commit, changes only the compiler declaration, capability, candidate marker and
 `lean-toolchain`, and commits the candidate.
-It refuses a selector unless `elan toolchain list` prints a toolchain spelled as it or as its
-release name; it resolves no channel such as `stable`, so it never installs a toolchain, changes
+It refuses a selector unless `elan toolchain list` prints exactly that name; it resolves no channel
+such as `stable` and completes no shorter spelling, so it never installs a toolchain, changes
 the caller's branch, or overrides the stable guard. The new worktree is retained for inspection,
 source adaptation, and ordinary Git worktree management.
 
@@ -220,7 +220,7 @@ Whichever instance a compiler elaborates decides the same proposition, as every 
 instance of it does; `snapshotDecidableEq_eq` and `claimCandidateDecidableEq_eq` state only
 that, and say nothing about which implementation was compiled or what it costs. `regula
 doctor` asks Elan for the compiler the project's own `lean-toolchain` selects and compares the
-version and commit that compiler reports with the supported identity, so two selectors of one
+version and commit that compiler reports with the supported identity, so two installed names of one
 compiler agree and an override cannot hide a project pinned to another. LRAT qualification
 setup now generates separate direct and grind certificates with the selected compiler before
 checking them.
@@ -270,8 +270,8 @@ complete, ordered campaign observations meeting each required exit and output.
 issue exactly when the project's pin resolved to a compiler whose reported identity
 `Compiler.Supports`; a pin that resolves to no installed compiler is an issue.
 `installedName?_spec` proves that the name `selectedLean` gives `elan run`, the path `prepare`,
-`qualify` and `doctor` use, is among the names parsed from `elan toolchain list`, spelled as
-the selector or as its release name, run without Elan's `--install`. These are
+`qualify` and `doctor` use, is among the names parsed from `elan toolchain list` and equals
+the selector, run without Elan's `--install`. These are
 kernel-checked statements about supplied values. They do not authenticate compiler binaries
 or Git commits, prove subprocess behavior, establish detector completeness, or prevent a
 filesystem change-and-restore race.

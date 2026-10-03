@@ -69,7 +69,7 @@ keeps the Mathlib revision it pins.
 
 Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
 patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
-runs. Regula `v0.2.0` through `v0.4.2` stop in Regula's `lakefile.lean` before anything compiles
+runs. Regula `v0.2.0` through `v0.4.3` stop in Regula's `lakefile.lean` before anything compiles
 when that Lean's version differs, naming both releases; they compare only the version, not the
 compiler's commit, and the earlier `v4.34.0` tag has no such guard:
 
@@ -140,7 +140,8 @@ setup, and that runtime check confirms the files as written match it. `init` end
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
 guidance, the compiler your `lean-toolchain` selects (resolved only to a toolchain Elan lists as
-installed, spelled as the selector or as its release name, so name an exact release rather than a
+installed under exactly that name, so write the name as `elan toolchain list` prints it, such as
+`leanprover/lean4:v4.34.0`, rather than a shorter spelling or a
 channel such as `stable`; `doctor` resolves no channel and installs nothing) and any module below a
 library root that no library includes but a claimed module imports (which `lake lint` rejects), and,
 once a manifest exists, the linter's own manifest validation ([RG2002]) and option decision ([RG2006])

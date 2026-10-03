@@ -47,7 +47,7 @@ package's configuration and each claimed target's as the plan decides, located t
 `doctor` applies Mathlib's options when the workspace contains Mathlib, where the linter applies
 them to a target whose modules import Mathlib; by
 `RegulaPolicy.Community.conforming_of_mathlib`, a target `doctor` accepts also passes the
-linter's decision. Elan's listing, Regula's transcription of its release naming, and that
+linter's decision. Elan's listing and that
 compiler's report of its own version and commit are trusted; nothing is installed, and a pin
 that does not resolve is a setup issue. -/
 

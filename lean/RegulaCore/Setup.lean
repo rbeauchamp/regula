@@ -21,7 +21,7 @@ commands execute over what they observe of a project.
 - `issues_run`: applying the plan removes exactly the fixable issues and adds none.
 - `Pin`, `toolchainIssues`, `toolchainIssues_eq_nil_iff`: `doctor` reports no toolchain issue
   exactly when the project's `lean-toolchain` resolves to a compiler whose reported version and
-  commit `RegulaPolicy.Compiler.Supports`, whatever the selector's spelling; a pin that resolves
+  commit `RegulaPolicy.Compiler.Supports`, under any selector; a pin that resolves
   to no installed compiler is an issue.
 - `Observation.starter`, `plan_manifest_mem`: the starter manifest is planned only when the package
   has a `lean_lib` for it to claim; a package with none has an issue `init` does not fix.
@@ -63,7 +63,7 @@ contains Mathlib, whether `foundation_manifest.json` and the agent guidance exis
 `AGENTS.md` holds or receives the section, whether the root package has a `lean_lib` for a starter
 manifest to claim, whether each skill file at the repository root equals the installed skill, the
 version and commit reported by the compiler of the toolchain `elan toolchain list` names for the
-project's `lean-toolchain` (a trusted listing, transcribed release naming and self-report,
+project's `lean-toolchain` (a trusted listing and self-report,
 independent of the compiler running `regula`), and the
 modules below a library root that no library includes, split by whether a claimed module
 imports them as Lean's import-header parser reads the package's sources (not a build). The command writes each edit into the lakefile, the
