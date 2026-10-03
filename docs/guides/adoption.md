@@ -68,16 +68,16 @@ keeps the Mathlib revision it pins.
 
 Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
 patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
-runs. From `v0.2.0` on, the releases in the table above stop in Regula's `lakefile.lean` before
-anything compiles when that Lean's version differs, naming both releases (they compare only the
-version, not the compiler's commit; `v4.34.0` has no such guard):
+runs. Regula `v0.2.0` through `v0.4.2` stop in Regula's `lakefile.lean` before anything compiles
+when that Lean's version differs, naming both releases; they compare only the version, not the
+compiler's commit, and the earlier `v4.34.0` tag has no such guard:
 
 ```text
 error: …/regula/lakefile.lean:…: this Regula release supports only Lean leanprover/lean4:v4.34.0, but Lake is running Lean 4.33.0. …
 ```
 
-The development revision on `main`, which no release in the table includes yet, guards the exact
-compiler instead. It declares one exact compiler version and commit in `RegulaPolicy.Compiler`.
+This source revision guards the exact compiler instead: it declares one exact compiler version and
+commit in `RegulaPolicy.Compiler`.
 A fresh configuration invokes that identity guard before building the checker; inventory, plan,
 and probe admission retain it. Elan aliases may differ when they resolve to the same compiler. A
 mismatch stops Regula's `lakefile.lean` with the remedy and both identities:
@@ -106,8 +106,7 @@ candidates` and keeps yours, so the stop above follows.
 
 For release candidates, nightlies, and source-built compilers, use the
 [development toolchain workflow](toolchains.md). Preparing a candidate does not qualify it or
-extend the support of the stable revision, and no revision is qualified yet for a compiler
-newer than Lean 4.34.0.
+extend the support of the revision it was prepared from.
 
 ## 2. Run `lake exe regula init`
 
