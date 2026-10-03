@@ -71,6 +71,8 @@ private unsafe def observe (toolchainLib : FilePath) (moduleName : Name) (source
     | .ok receipt => pure receipt
     | .error failure => return .error failure.detail
   let admitted := (receipt.admitted.filter (·.1 == moduleName)).size
+  if let .error refusal := Regula.Collect.ownedDecisionRegistrations env [moduleName] then
+    return .error refusal
   let own := Regula.Probe.ownedConstants env [moduleName]
   let ctx : Elab.Command.Context := {
     fileName := "<operational-self-audit>", fileMap := FileMap.ofString "",

@@ -706,9 +706,12 @@ several arguments, and state `Spec` without `check`. The accepted account then r
 and, for a one-way kind, the direction it leaves open.
 
 To make that registration a requirement, mark the function with `@[regula_decision]` (`import
-Regula.Decision`, or `meta import Regula.Decision` in a file that is a `module`). The audit then
-rejects the function unless a decision registration in the same library decides it, or its
-result type is `Decidable _`, which carries a proof either way ([RG1008]). So deleting the
+Regula.Decision`, or `meta import Regula.Decision` in a file that is a `module`). A function whose
+own module cannot import `Regula.Decision` is marked from another module of the same library, with
+`attribute [regula_decision] check`; marking a function of another library or of a dependency
+stops the audit, which decides the requirement only for the functions its inventory declares. The
+audit then rejects a marked function unless a decision registration in the same library decides
+it, or its result type is `Decidable _`, which carries a proof either way ([RG1008]). So deleting the
 theorem while the function stays marked fails `lake lint`. The editor does not report this rule,
 because a registration normally follows its function. Which functions you mark, and whether
 `Spec` is the specification you intend, stay your review

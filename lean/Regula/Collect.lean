@@ -1702,14 +1702,35 @@ def returnsDecidable (type : Expr) : MetaM Bool :=
     (whnfType := true)
 
 /-- The decision registration of a constant: `none` unless `@[regula_decision]` registers it
-(`Regula.decisionAttribute`, read from the environment's attribute state), and otherwise whether
-its result type is `Decidable _` (`returnsDecidable`). The attribute state is environment state an
-audited project writes; a registration only adds the RG1008 requirement, and its absence adds
-none. -/
+(`Regula.decisionRegistered`, read from the registrations of every module the environment
+loaded: the constant's own module or one that imports it), and otherwise whether its result type
+is `Decidable _` (`returnsDecidable`). The registrations are environment state an audited project
+writes; a registration only adds the RG1008 requirement, and its absence adds none. -/
 def decisionResult? (env : Environment) (info : ConstantInfo) :
     MetaM (Option RegulaPolicy.DecisionResult) := do
-  unless decisionAttribute.hasTag env info.name do return none
+  unless decisionRegistered env info.name do return none
   return some (if ← returnsDecidable info.type then .decidable else .other)
+
+/-- Refuses the first `@[regula_decision]` registration that one of the loaded `modules` writes
+for a declaration none of them declares, naming the registering module and the declaration. An
+inventory of `modules` records no declaration for it, so its RG1008 requirement would go
+undecided; a caller that builds such an inventory stops on the refusal. A registered name that
+no loaded module declares is refused too. -/
+def ownedDecisionRegistrations (env : Environment) (modules : List Name) : Except String Unit :=
+  let foreign := env.header.moduleNames.zipIdx.findSome? fun (moduleName, index) =>
+    if modules.contains moduleName then
+      (decisionExtension.getModuleEntries env index).findSome? fun declaration =>
+        let owned := (env.getModuleIdxFor? declaration).any fun home =>
+          (env.header.moduleNames[home.toNat]?).any modules.contains
+        if owned then none else some (moduleName, declaration)
+    else none
+  match foreign with
+  | none => .ok ()
+  | some (moduleName, declaration) => .error
+      s!"module {moduleName} registers {declaration} with `@[regula_decision]`, and no module \
+        of this inventory declares {declaration}: a registration is a requirement of the \
+        inventory that owns the function, so register it in a module of the library that \
+        declares it"
 
 /-- For each imported module index: whether the module is `target` or transitively imports it.
 This is the least fixed point of "is `target` or imports a marked module": a pass that marks

@@ -564,8 +564,8 @@ theorem admitCapability_isOk_iff (observed : Compiler.LegacyCompilerTrust) :
 registered here because `RegulaPolicy.Compiler` imports only `Init`, so that the compiler guard
 can elaborate it alone, and `admitIdentity` and `admitToolchainOrigin` are registered here with
 it, where their witnesses reduce. For the same reason `Compiler.admitCapability` and
-`Compiler.accepts` are not registered with `@[regula_decision]`: Lean applies that attribute only
-in the module that declares the function, which would then have to import it. -/
+`Compiler.accepts` are registered with `@[regula_decision]` below, from this module of their
+library, and not where they are declared. -/
 theorem checked_admitCapability : Regula.ExecutableContract Compiler.admitCapability
     (Regula.Decides (·.isOk = true) (· = Compiler.legacyCompilerTrust)) :=
   ⟨.of_iff admitCapability_isOk_iff
@@ -586,6 +586,8 @@ theorem checked_compilerAccepts : Regula.ExecutableContract Compiler.accepts (fu
       (Compiler.accepts_iff Compiler.version Compiler.commit).mpr ⟨rfl, rfl⟩⟩
     ⟨("", ""), fun accepted =>
       absurd ((Compiler.accepts_iff "" "").mp accepted).1 (by decide)⟩⟩
+
+attribute [regula_decision] Compiler.admitCapability Compiler.accepts
 
 /-- Origin admission succeeds exactly for a toolchain module with a nonempty origin equal to the
 expected one. -/

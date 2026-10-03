@@ -113,10 +113,11 @@ collector keeps it in the audit. No definition of the pure policy library uses t
 
 ### The decision registration import
 
-`Regula.Decision` declares the `@[regula_decision]` attribute ([RG1008]), and Lean applies a tag
-attribute only in the module that declares the function. So each claimed module with a
-registered decision imports it, and with it Lean's attribute framework, whose import closure
-contains `Lean.Environment`. A `module` imports it with `meta import Regula.Decision`: the
+`Regula.Decision` declares the `@[regula_decision]` attribute ([RG1008]) over its own environment
+extension, which keeps each registration with the module that writes it. A decision is
+registered where it is declared, so each claimed module with a registered decision imports
+`Regula.Decision`, and with it Lean's attribute framework, whose import closure contains
+`Lean.Environment`. A `module` imports it with `meta import Regula.Decision`: the
 attribute is then available while the file is elaborated, and Lean refuses a definition of that
 file that would run anything the import brings (`may not access declaration … imported as
 meta`), so those modules still cannot use the environment API. The claimed files that are not
@@ -124,10 +125,15 @@ modules (`RegulaPolicy.Claim`, `Execution`, `Pattern` and `Plan`, the registered
 `RegulaCore` other than `RuleId`, those of `RegulaQualification`, and `AuditApp.Limiter`) import
 it with a plain `import`,
 which brings those declarations into scope; that none of their definitions uses them is by
-inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`. The attribute is
-an ordinary definition, not a `meta` one, so the collector reads the registration through it.
+inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`. The extension is
+an ordinary definition, not a `meta` one, so the collector reads the registrations through it.
 `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone before
-the package is built, so its two decisions carry no registration
+the package is built, so its two decisions are registered from `RegulaPolicy.Claim`, a module of
+the same library that imports it (`attribute [regula_decision]`). Lean's own tag attribute refuses
+a declaration of an imported module, which is why the registration has its own extension. An
+audit refuses a registration that one of its modules writes for a declaration outside its
+inventory (`Regula.Collect.ownedDecisionRegistrations`), because it records no declaration to
+decide that requirement for
 ([proofs and boundaries](proofs-and-boundaries.md#decision-kinds-of-regulas-own-decisions)).
 
 `Diagnostic id` ([`Regula.Diagnostic`](../../lean/Regula/Diagnostic.lean)) carries `Payload id`

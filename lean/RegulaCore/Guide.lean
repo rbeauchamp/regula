@@ -636,7 +636,8 @@ def guide : RuleId → Guide
       trigger := [
         "The checker reads the `@[regula_decision]` registration of every owned declaration from \
           the completed Lean environment, and whether the declaration's type, with its arguments \
-          opened and its result type reduced, ends in `Decidable _`.",
+          opened and its result type reduced, ends in `Decidable _`. A registration counts \
+          whether the module that declares the function wrote it or another loaded module did.",
         "A registered declaration whose result type is not `Decidable _` is rejected, with \
           applicability `decision-contract`, unless a declaration of the same inventory records an \
           `ExecutableContract` that names it as the implementation, states a decision kind \
@@ -682,12 +683,17 @@ def guide : RuleId → Guide
       configuration := [
         "`@[regula_decision]` is declared in `Regula.Decision`, a published checker interface a \
           claimed module may import: `import Regula.Decision`, or `meta import Regula.Decision` \
-          in a file that is a `module`. Lean applies it only in the module that declares the \
-          function."]
+          in a file that is a `module`. Write it on the definition (`@[regula_decision] def \
+          f`), or with `attribute [regula_decision] f` in a module of the same library that \
+          imports `f`, for a function whose own module cannot import `Regula.Decision`."]
       limitations := [
         "A contract in another library, executable root or file of the project does not count: \
           the inventory is that of the audited environment that owns the function. Register the \
           contract in the function's library.",
+        "A registration that an audited module writes for a declaration outside its inventory \
+          stops the audit without a verdict, naming the module and the declaration: that \
+          inventory records no declaration to decide the requirement for. Register a function \
+          in a module of the library that declares it.",
         "A function whose argument or result type depends on an earlier argument, or that is \
           polymorphic in a type, has no decision kind (a limitation of RG1007). Decide a named \
           function over a product, sigma or subtype domain, or leave the function unregistered \

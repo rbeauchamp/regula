@@ -236,6 +236,11 @@
    "decision-result=other"
   ]
  },
+ "Fixtures.Mutations.DecisionForeignRegistration": {
+  "expect": "fail",
+  "reason": "audit-incomplete",
+  "pattern": "registers Nat.ble with.*no module of this inventory declares Nat.ble"
+ },
  "Fixtures.Positive.RuntimeReplacement": {
   "expect": "pass",
   "claim": "standard-logical",

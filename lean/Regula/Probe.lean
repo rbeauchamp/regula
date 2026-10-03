@@ -770,6 +770,7 @@ def environmentReport (modules : List Name)
   let moduleOrigins ← if includeExecution || includeModuleOrigins then
       liftIO <| loadedModuleOrigins env
     else pure #[]
+  IO.ofExcept (Regula.Collect.ownedDecisionRegistrations env modules)
   let own ← ownedDecls env modules
   let declarationKeys ← own.mapM fun (name, _) => do
     let some idx := env.getModuleIdxFor? name

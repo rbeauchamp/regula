@@ -347,7 +347,7 @@ the call through each success owner.
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure) | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the search that finds a mention of the implementation in a decision's acceptance predicate or specification, proof admission and adequacy are not proved by this relation. |
-| [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registration from Lean's attribute state and the result type by reduction (`Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so is each recorded contract. A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
+| [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistered`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
@@ -491,17 +491,21 @@ Decisions with no kind, and what stands instead:
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 38 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 40 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp` and 11 of the excluded `Regula` library, where the
-`self-audit` diagnostic decides the rule. The decisions below carry no registration. A
+`self-audit` diagnostic decides the rule. Two of the 40 are registered from another module of
+their library: `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates
+it alone before the package is built, so `RegulaPolicy.Claim` registers `Compiler.accepts` and
+`Compiler.admitCapability` beside their contracts (`attribute [regula_decision]`). Deleting
+`checked_compilerAccepts` or `checked_admitCapability` is then rejected under [RG1008] like any
+other registered decision's contract. The decisions below carry no registration. A
 registration is a requirement that the function has a decision contract or a `Decidable` result,
 so registering a function that can have neither would only make the rule fail.
 
 | Decision | Why it is not registered | What stands instead |
 | --- | --- | --- |
-| `RegulaPolicy.Compiler.accepts`, `Compiler.admitCapability` | Lean applies the attribute only in the module that declares the function, and `RegulaPolicy.Compiler` imports only `Init`: the compiler guard elaborates it alone, before the package is built, so it cannot import `Regula.Decision`. | Their two-way kinds, registered from `RegulaPolicy.Claim` (`checked_compilerAccepts`, `checked_admitCapability`) and reported by the account. That those registrations stay is not checked; it is by inspection. |
 | Every decision of the table "Decisions with no kind" above | None has a decision kind, for the reason that table gives for each, and none returns `Decidable _`. | The evidence that table names for each. A kind for the functions with dependent or polymorphic types is a later stage of [#199](https://github.com/rbeauchamp/regula/issues/199); each can be registered once it has one. |
-| The standalone programs `RegulaProvision`, `RegulaCompiler` and `RegulaVerification` | As for `RegulaPolicy.Compiler`: each runs with `lean --run` before the package is built and imports only the toolchain. | Their own theorems, which this guide names with each program. |
+| The standalone programs `RegulaProvision`, `RegulaCompiler` and `RegulaVerification` | Each is a claimed library of one module, which runs with `lean --run` before the package is built and so imports only the toolchain: it can import neither `Regula.Contract` nor `Regula.Decision`. Its decisions therefore have no kind, and its inventory has no second module that could register one, as `RegulaPolicy.Claim` does for `RegulaPolicy.Compiler`. No module of another library imports these programs, and a registration written there would name a declaration outside that library's inventory, which the audit refuses. | Their own theorems, which this guide names with each program. A further module in each program's library, importing the program and the two interfaces, could register a kind and the decision for each; none exists. |
 
 Two registrations moved so that each registered function has its contract in its own library, the
 inventory [RG1008] reads: the contract of `RuleId.parse?` from `Regula.RegistryCodec` to
@@ -509,7 +513,19 @@ inventory [RG1008] reads: the contract of `RuleId.parse?` from `Regula.RegistryC
 `RegulaCore.Assembly` to `RegulaPolicy.Claim`, a file of its own library in which its two
 witnesses reduce. Their requirements and proofs are unchanged.
 
-`@[regula_decision]` is applied after compilation (`Regula.decisionAttribute`). Lean applies an
+A registration is kept by the module that writes it (`Regula.decisionExtension`), and the
+collector reads the registrations of every module the audited environment loaded
+(`Regula.decisionRegistered`), so a function registered from another module of its inventory has
+the same requirement as one registered where it is declared. Lean's own tag attribute refuses a
+declaration of an imported module, so the registration has its own extension, and nothing in it
+knows which declarations an audit owns. That is decided where the inventory is built: an audit
+stops without a verdict on a registration that one of its modules writes for a declaration outside
+its inventory (`Regula.Collect.ownedDecisionRegistrations`,
+`Fixtures.Mutations.DecisionForeignRegistration`), since it records no declaration to decide the
+requirement for. Reading the registrations and that check are operational, not proved; the
+decision over the recorded declarations is (`policyFor_decisionContract_iff`).
+
+`@[regula_decision]` is applied after compilation. Lean applies an
 attribute of the earlier application time to the `_unary` or `_mutual` definition it generates
 for a function defined by well-founded recursion too, as `Regula.SharedExecution.same` is, and
 that definition is not the function the project registered. Applied after compilation, the
