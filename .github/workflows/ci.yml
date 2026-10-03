@@ -54,8 +54,9 @@ jobs:
       - name: Verify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh
 
-      # Second required step with its own 420 seconds: the fresh acceptance of the Mathlib package
-      # in audit/, then every docs/ Lean fence and every `lean` block of the Verso standard (built
+      # Second required step with its own 420 seconds: the rule-ID check of every Markdown document
+      # Git tracks (which needs the Git checkout), the fresh acceptance of the Mathlib package in
+      # audit/, then every docs/ Lean fence and every `lean` block of the Verso standard (built
       # fresh and rendered), admitted only when its inputs equal the accepted ordinary inputs at
       # this same commit.
       - name: Verify documentation fences (same command and seven-minute limit as local)

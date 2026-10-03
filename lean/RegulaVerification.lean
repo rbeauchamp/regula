@@ -14,10 +14,10 @@ inductive Mode where
   /-- No argument: the first acceptance step, which builds the acceptance executables, runs the
   registry checks and combined qualification, and audits the root package's claimed surfaces. -/
   | ordinary
-  /-- `docs`: the second acceptance step: the fresh acceptance of the Mathlib package whose
-  modules the standard's examples import, then the documentation audit and the Verso standard's
-  build and render, refused unless its inputs have the content identity the first step
-  recorded. -/
+  /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document,
+  the fresh acceptance of the Mathlib package whose modules the standard's examples import, then
+  the documentation audit and the Verso standard's build and render, refused unless its inputs
+  have the content identity the first step recorded. -/
   | docs
   /-- `serialized-graph`: the separate serialized-graph check (`freshChecker`). -/
   | graph
@@ -152,6 +152,9 @@ def versoStandard : String := "website:RegulaStandard:regula-standard"
 /-- Evidence receipt of one rule-example shard. -/
 def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of2.json"
 
+/-- The website package, which holds the Verso standard and, through its pinned Verso, md4c. -/
+def websitePackage : String := "website"
+
 /-- Rule-reference site artifact directory (the GitHub Pages upload). -/
 def siteOutput : String := "_site"
 
@@ -188,6 +191,10 @@ def commands : Mode → List Command
       lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .docs => [
       lake #["build", "docFenceAudit"],
+      -- Every Markdown document Git tracks, read by md4c: a rule ID in prose that is not a link
+      -- to its rule page is refused (`website/MarkdownMain.lean`). The argument is the repository
+      -- root, relative to the website package.
+      lakeIn websitePackage #["exe", "regula-markdown", ".."],
       -- The Mathlib package's own fresh acceptance, as a Mathlib adopter of `regula` runs it:
       -- the standard's `lean` blocks import its modules, and the linked identity below brackets
       -- the sources they need.
@@ -311,10 +318,11 @@ def run (args : List String) : IO Unit := do
   IO.println (match selection.val with
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
-    | .docs => "documentation verification: PASS (the Mathlib example package accepted fresh; \
-      every docs/ Lean fence and every lean block of the Verso standard, which built fresh and \
-      rendered; every rule ID in the prose `Regula.Prose` reads in the rendered standard links \
-      to its rule page; inputs equal the accepted ordinary inputs)"
+    | .docs => "documentation verification: PASS (every rule ID in the prose md4c reads in each \
+      tracked Markdown document links to its rule page; the Mathlib example package accepted \
+      fresh; every docs/ Lean fence and every lean block of the Verso standard, which built \
+      fresh and rendered; every rule ID in the prose `Regula.Prose` reads in the rendered \
+      standard links to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
       acceptance; publication is verified after deployment)"

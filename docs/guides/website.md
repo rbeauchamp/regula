@@ -24,6 +24,7 @@ Nothing on a rule page is a hand-maintained copy of the linter. Each part has on
 | The standard: normative text, checked Lean examples, section and checklist-row anchors | [`website/RegulaStandard.lean`](../../website/RegulaStandard.lean) and [`website/RegulaStandard/`](../../website/RegulaStandard/) (Verso, the only source), with the code blocks of [`RegulaExample`](../../website/RegulaExample.lean) | Included by the generated home page under `standard/`. Each `lean` block is elaborated where it is written, in a fresh [`regula-example`](../../website/RegulaExampleMain.lean) process with exactly its own imports. |
 | Colours and stylesheet | [`RegulaCore.SiteTheme`](../../lean/RegulaCore/SiteTheme.lean) (claimed; contrast proved) | Written by the builder as `website/Generated/regula.css`, copied to each edition's root and linked from every page. |
 | Rendering and theme script | [`website/`](../../website/): pinned Verso package (search feature only), `RegulaSite` extension (raw-HTML block and theme script) | `website/Generated/` is generated and ignored by Git. |
+| Rule IDs in tracked Markdown documents | [`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) (md4c, through the MD4Lean package the pinned Verso requires) and [`RegulaCore.Markdown`](../../lean/RegulaCore/Markdown.lean) (claimed, proved) | Not part of the site: `lake exe regula-markdown ..` runs in the documentation step of acceptance ([rule IDs in documentation](contributing.md#markdown-documents)). |
 | Publication | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) and [`Regula.Site.Deployment`](../../lean/Regula/Site/Deployment.lean) | `site`, `deploy` and `verify-deployment` jobs. |
 
 The site publishes the standard under `standard/` of every edition, next to the rule pages. A
@@ -142,7 +143,8 @@ Like `audit/`, it names the root `.lake/packages` as its packages directory (`pa
 one Mathlib checkout and its artifacts serve every workspace; its Git pins must equal those of
 the packages it requires by path (the documentation check refuses a difference). The website
 package and the checker and examples use the same supported Lean release. Verso setup is
-also required before `./scripts/verify.sh docs`, which builds the standard.
+also required before `./scripts/verify.sh docs`, which builds the standard and reads the tracked
+Markdown documents with the md4c that Verso brings.
 
 Any change to a module source, the corpus or the Lake configuration makes earlier shard
 exports stale; the site build refuses them, so rerun both shards. The checker embeds its commit

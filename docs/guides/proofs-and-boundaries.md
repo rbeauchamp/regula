@@ -1169,8 +1169,9 @@ for the regeneration.
 Two forgeries show what the equation closes. Each is an ordinary definition that Lean's own
 compiler turns into a base and a helper that disagree, and `axiomGate --file` accepted each on
 `main` at `2e741c6`, before this check (observed; the regeneration paths they use are those of
-Regula v0.4.2, whose [RG1006](https://rbeauchamp.github.io/regula/v/0.4.2/rules/RG1006/) they were
-not run against):
+Regula v0.4.2, whose [RG1006](https://rbeauchamp.github.io/regula/dev/rules/RG1006/)
+([as released](https://rbeauchamp.github.io/regula/v/0.4.2/rules/RG1006/)) they were not run
+against):
 
 - `Fixtures.Mutations.AuthoredCompanionUnsafeRecForge`. A metaprogram adds an inductive type of
   unary numbers with Lean's `casesOn` and `below`, and writes `brecOn` itself, as a function that
