@@ -327,7 +327,7 @@ from evidence for the current revision.
 
 The [adoption guide](adoption.md#cite-a-rule) states the convention. `Regula.Prose`
 ([`RegulaCore/Prose.lean`](../../lean/RegulaCore/Prose.lean)) defines it and checks it: a rule ID
-is `RG` and four digits with no letter, digit or `_` directly before or after, and each one in
+is `RG` and four digits with no ASCII letter or digit directly before or after (so `_RG2003_`, emphasis, is one, and an identifier that contains a rule ID is written as code), and each one in
 prose must be a registered rule inside a link to that rule's page (`bareMentions_nil_iff`). What
 is prose is a property of the document's structure, not of its file or its wording:
 
@@ -346,9 +346,10 @@ any rule ID in the `title` or `h1` of another page, is refused.
 (`docFenceAudit --rule-links`), and `./scripts/verify.sh site` checks every page of the
 development edition; each failure names the file, the line and the ID. The scanners are small
 and strict, not complete Markdown or HTML parsers: an indented code block and text between raw
-HTML tags in Markdown are read as prose, and a document with a fenced block, a `code`, `pre`,
-`title` or `h1` element, a comment or a script that is never closed is refused, since the text
-after it could not be read as prose. The release editions already published are frozen copies and are not rewritten.
+HTML tags in Markdown are read as prose. A Markdown document with a fenced block that is never
+closed, and a page with a `code`, `pre`, `title` or `h1` element, a comment or a script that is
+never closed, are refused, since the text after it could not be read as prose; a Markdown `<!--`
+that its paragraph does not close is read as prose, as CommonMark reads it. The release editions already published are frozen copies and are not rewritten.
 
 ## Change an acceptance boundary
 

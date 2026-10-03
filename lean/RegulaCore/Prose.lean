@@ -8,8 +8,8 @@ rule ID in prose that is not such a link, and rewrites generated prose so that i
 
 ## Main declarations
 
-- `tokenAt`, `splitTokens`: a rule-ID token is `RG` and four digits with no word character
-  directly before or after it.
+- `tokenAt`, `splitTokens`: a rule-ID token is `RG` and four digits with no ASCII letter or digit
+  directly before or after it, so emphasis such as `_RG2003_` does not hide one.
 - `Run`, `Mention`, `Run.mentions`: a run is a maximal piece of prose with the destination of the
   link it lies in, if any; a mention is one token of a run.
 - `Mention.Linked`, `bareMentions`, `bareMentions_nil_iff`, `checked_bareMentions`: a mention is
@@ -43,11 +43,13 @@ link to itself (`ownPage`): those two elements are read as text linked to the pa
 scanners for this repository's documents and the builder's own output, not complete CommonMark
 or HTML parsers: an indented code block and text between raw HTML tags are read as prose, so an
 ID there must be linked, and only the constructs listed above are skipped.
-A fenced block, element, comment or script that is never closed would hide the text after it, so
-`markdownErrors` and `htmlErrors` refuse such a document; an element closed and reopened out of
-order is not detected. `linkIds` rewrites the prose `scanInline` finds; that its output has no
-bare rule ID is established by `htmlErrors` on the rendered pages and `markdownErrors` on the
-committed agent skill, not by a theorem about the rewriting.
+A fenced block that is never closed would hide the text after it, so `markdownErrors` refuses such
+a Markdown document; a `<!--` that its paragraph does not close is read as prose, as CommonMark
+reads it. An element, comment or script that is never closed would hide the text after it, so
+`htmlErrors` refuses such a page; an element closed and reopened out of order is not detected.
+`linkIds` rewrites the prose `scanInline` finds; that its output has no bare rule ID is
+established by `htmlErrors` on the rendered pages and `markdownErrors` on the committed agent
+skill, not by a theorem about the rewriting.
 -/
 
 namespace Regula.Prose
@@ -56,8 +58,9 @@ open Regula.Site
 
 /-! ## Rule-ID tokens -/
 
-/-- A character that continues a word: an ASCII letter or digit, or `_`. -/
-def isWordChar (c : Char) : Bool := c.isAlphanum || c == '_'
+/-- A character that continues a word: an ASCII letter or digit. `_` is not one, so a rule ID in
+`_` emphasis is a token; an identifier that contains a rule ID is written as code. -/
+def isWordChar (c : Char) : Bool := c.isAlphanum
 
 /-- The rule-ID token at the head of `text`, when `prev` is the character before it: `RG` and
 four digits, with no word character directly before or after. -/
@@ -342,18 +345,19 @@ def codeClose (n : Nat) : Nat → List Char → Option Nat
     else if run == n then some 0
     else (codeClose n 0 rest).map (· + 1)
 
-/-- The number of characters of an HTML comment's text through its `-->`, or through the end of
-the text when it is not closed. -/
-def commentLength : List Char → Nat
-  | '-' :: '-' :: '>' :: _ => 3
-  | _ :: rest => commentLength rest + 1
-  | [] => 0
+/-- The number of characters of an HTML comment's text through its `-->`, when the text closes
+it. -/
+def commentLength : List Char → Option Nat
+  | '-' :: '-' :: '>' :: _ => some 3
+  | _ :: rest => (commentLength rest).map (· + 1)
+  | [] => none
 
 /-- The number of characters after a `<` through the end of the HTML comment, tag or autolink
-it opens, when it opens one; a tag or autolink closes on its own line. -/
+it opens, when it opens one: a comment closes in the rest of its paragraph, and a tag or autolink
+on its own line. Otherwise the `<` is prose, as CommonMark reads it. -/
 def tagLength (rest : List Char) : Option Nat :=
   match rest with
-  | '!' :: '-' :: '-' :: tail => some (3 + commentLength tail)
+  | '!' :: '-' :: '-' :: tail => (commentLength tail).map (3 + ·)
   | c :: _ =>
     let body := rest.takeWhile (· != '>')
     if (c.isAlpha || c == '/') && body.length < rest.length && !body.contains '\n' then
@@ -651,7 +655,17 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
   Edition.dev.url RuleId.projectAxiom.route ++ ") | axioms |\n") == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "See <https://x/rules/RG1001/> and https://x/rules/RG1002/, in \
-  xRG1001, RG10012 and RG1001_a.\n" == []
+  xRG1001, RG10012 and `RG1001_a`.\n" == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "In RG1001_a, _RG2003_ and __RG2003__.\n" ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+    "a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page",
+    "a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "Compare <!-- draft and RG1001 here.\n" ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "Compare <!-- draft RG1001 --> and that.\n" == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "## Why RG2003 fires first\n\nText.\n" ==
   ["a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
