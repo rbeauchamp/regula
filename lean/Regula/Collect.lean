@@ -584,8 +584,9 @@ private def withoutIrreducible (env : Environment) : Environment :=
     irreducible.foldl (fun statuses name => statuses.insert name (declared name)) statuses
 
 /-- The constants that unfolding `info` can introduce in the checker's own reduction: those its
-type and value mention (a theorem's and an opaque constant's too, since reduction at `.all`
-transparency unfolds theorems), and the constructors of an inductive and of a recursor's rules. A
+type and value mention (a theorem's and an opaque constant's too, though Lean 4.34.0's `Meta`
+unfolds neither at any transparency, `getUnfoldableConst?`, so following them only adds constants),
+and the constructors of an inductive and of a recursor's rules. A
 declaration named `info.name ++ `_sunfold`, which Lean's smart unfolding would take for the
 unfolding of `info`, is not among them: every observation runs with smart unfolding off
 (`withoutSmartUnfolding`), and such a declaration can be authored with any body. -/
@@ -600,12 +601,13 @@ private def unfoldReferences (info : ConstantInfo) : Array Name :=
   mentioned ++ structural
 
 /-- The constants whose reducibility status can decide what Lean's recursion compilers make of
-`info`: those its type mentions, those its value mentions where it is a definition, and the
-constructors of an inductive and of a recursor's rules (`unfoldReferences`). A theorem's value and
-an opaque constant's are not followed: Lean 4.34.0's `Meta` unfolds a theorem only at `.all`
-transparency, under which every definition unfolds whatever its status, and never unfolds an
-opaque constant, so no status of a constant they alone mention changes what the compilers
-generate. -/
+`info` once they reach it: those its type mentions, those its value mentions where it is a
+definition, and the constructors of an inductive and of a recursor's rules (`unfoldReferences`). A
+theorem's value and an opaque constant's are not followed: Lean 4.34.0's `Meta` unfolds neither, at
+any transparency (`getUnfoldableConst?`). The compilers read a theorem's value only where
+`Meta.unfoldIfArgIsAppOf` replaces a theorem applied to a bare function of the group they compile,
+in the value of a member of that group, and `earlierStatusOptions` takes those values after that
+step. -/
 private def statusReferences (info : ConstantInfo) : Array Name :=
   match info with
   | .thmInfo _ | .opaqueInfo _ => info.type.getUsedConstants
@@ -629,9 +631,14 @@ private def earlierStatuses : ReducibilityStatus → List ReducibilityStatus
 
 /-- For each definition of `name`'s module that `roots` reach and that a global attribute given
 after its declaration can have changed, the statuses it can have had before
-(`earlierStatuses` of its status in `env`), paired with its name. The definitions reached are those
-the types and values of `roots` mention, closed under `statusReferences` through the constants of
-that module: a constant of an imported module mentions none of this module's. An `abbrev`, which
+(`earlierStatuses` of its status in `env`), paired with its name. `roots` pairs each member of the
+helper's group with its value as Lean's recursion compilers work on it: after
+`Meta.unfoldIfArgIsAppOf` (Lean 4.34.0's `Meta/Transform.lean:266-288`), which replaces each theorem
+applied to a bare function of the group with the theorem's value, the step the structural compiler
+takes before it finds the fixed parameters (`Structural/Preprocess.lean:47`) and the well-founded
+one before its preprocessing (`WF/Main.lean:38`). The definitions reached are those the members'
+types and those values mention, closed under `statusReferences` through the constants of that
+module: a constant of an imported module mentions none of this module's. An `abbrev`, which
 the kernel's reducibility hint shows, is `reducible` from its declaration, so it is left out
 unless it is irreducible in `env`: `withoutIrreducible` gives such an `abbrev` back as
 `reducible`, and the status paired with it here keeps it irreducible in that environment too.
@@ -639,17 +646,20 @@ Every other definition is taken, because nothing tells a status given at the dec
 (`@[reducible] def`, `instance`) from one a later attribute gave. `none` if the search stops before
 it has visited every constant reached, which the bound, one step per constant of `env`, does not
 allow: a step visits a constant of the module that no earlier step visited. -/
-private def earlierStatusOptions (env : Environment) (name : Name) (roots : Array Name) :
+private def earlierStatusOptions (env : Environment) (name : Name) (roots : Array (Name × Expr)) :
     Option (List (List (Name × ReducibilityStatus))) := Id.run do
   let home := env.getModuleIdxFor? name
-  let mut seen : NameSet := roots.foldl (·.insert ·) {}
-  let mut pending := roots
+  let mut seen : NameSet := roots.foldl (fun seen (root, _) => seen.insert root) {}
+  let mut pending := roots.map (·.1)
   let mut options : Array (List (Name × ReducibilityStatus)) := #[]
   for _ in [:env.constants.fold (fun count _ _ => count + 1) 0] do
     let some reached := pending.back? | break
     pending := pending.pop
     let some info := env.find? reached | continue
-    for mentioned in statusReferences info do
+    let references := match roots.find? (·.1 == reached) with
+      | some (_, value) => info.type.getUsedConstants ++ value.getUsedConstants
+      | none => statusReferences info
+    for mentioned in references do
       if !seen.contains mentioned && env.contains mentioned
           && env.getModuleIdxFor? mentioned == home then
         seen := seen.insert mentioned
@@ -895,7 +905,11 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
     if let some origin ← regenerate unsealed then return some origin
     let undecided := m!"no regeneration of {name} reproduced its base, and the helper is \
       undecided, neither admitted nor rejected: "
-    let some options := earlierStatusOptions env name group
+    let fnNames := preDefs.map (·.declName)
+    let numSectionVars := preDefs[0]!.numSectionVars
+    let roots ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
+      return (group[i]!, ← Meta.unfoldIfArgIsAppOf fnNames numSectionVars preDef.value)
+    let some options := earlierStatusOptions env name roots
       | throwError "{undecided}the definitions of its module that it reaches were not all visited."
     let (assignments, exhaustive) := candidates candidateLimit options
     for assignment in assignments do

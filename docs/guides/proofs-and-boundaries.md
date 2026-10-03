@@ -857,9 +857,12 @@ irreducible afterwards; an `abbrev` that is irreducible at both points, beside a
 irreducible afterwards; and a definition whose six candidates allow exactly the 63 assignments the
 search tries, of which one that changes two of them reproduces the base; and a definition whose
 base needs two changes, beside an authored `_sunfold` declaration of its helper that mentions five
-more `@[reducible]` functions, or whose helper cites a theorem whose proof mentions five more,
-both found in review: following that declaration or that proof would exceed the bound and leave the
-helper undecided). The parameter under well-founded and under structural recursion, the
+more `@[reducible]` functions, or whose helper cites a theorem whose proof mentions five more and
+that is applied to no function of the group, both found in review: following that declaration or
+that proof would exceed the bound and leave the helper undecided; and a definition with a proof that calls it with a parameter passed through a
+function made `reducible` afterwards, abstracted by `as_aux_lemma` into a theorem applied to the
+function, found in review: Lean's compilers unfold that theorem into the definition, and the search
+follows it). The parameter under well-founded and under structural recursion, the
 `List.map` form and the `@[reducible]` function made irreducible afterwards were observed
 rejections before the search below, pinned as such by the fixture this one replaces. For the forms
 with an instance-implicit argument, that Lean finds the parameter fixed at only one of the two
@@ -874,9 +877,15 @@ reducibility hint tells only an `abbrev` apart.
 
 Where neither environment reproduces the base, `Collect.unsafeRecRegeneration` therefore searches.
 `Collect.earlierStatusOptions` collects the definitions of the helper's module that the values of
-the helper's group reach through that module's constants (`Collect.statusReferences`: the types,
-the values of definitions, and the constructors of inductive types and recursor rules, but not the
-value of a theorem or of an opaque constant), and pairs each that is not an `abbrev`
+the helper's group reach through that module's constants. It starts from each member's value as
+Lean's recursion compilers work on it, after `Meta.unfoldIfArgIsAppOf` has replaced each theorem
+applied to a bare function of the group with the theorem's value (Lean 4.34.0's
+`Meta/Transform.lean:266-288`; the structural compiler takes that step before it finds the fixed
+parameters, `Elab/PreDefinition/Structural/Preprocess.lean:47`, and the well-founded compiler
+before its preprocessing, `Elab/PreDefinition/WF/Main.lean:38`), and it follows types, the values
+of definitions, and the constructors of inductive types and recursor rules
+(`Collect.statusReferences`), but no other theorem's value and no opaque constant's, which Lean's
+`Meta` unfolds at no transparency (`getUnfoldableConst?`). It pairs each that is not an `abbrev`
 with the statuses `Collect.earlierStatuses` gives for its status at the end of the audit:
 semireducible for `reducible` and for `instance_reducible`, semireducible or `instance_reducible`
 for `implicit_reducible`, and `reducible`, `instance_reducible` or `implicit_reducible` for
@@ -928,12 +937,16 @@ no theorem:
   of the helper's module whose status the compilers consult is among those the helper's values
   reach: the compilers work on those values, on the types of the constants they mention and on what
   unfolding them introduces, which is the closure `earlierStatusOptions` computes; a constant of an
-  imported module mentions none of the helper's module. The closure follows no theorem's or opaque
-  constant's value:
-  Lean 4.34.0's `Meta` unfolds a theorem only at `.all` transparency, under which every definition
-  unfolds whatever its status, and it never unfolds an opaque constant, so a definition that only
-  such a value mentions has no status that changes what the compilers generate. An instance of the helper's module that
-  Lean's instance resolution selects without the values mentioning it is outside that argument.
+  imported module mentions none of the helper's module. The compilers read a theorem's value only
+  where `Meta.unfoldIfArgIsAppOf` puts it into a member's value, which is where the closure starts:
+  the structural compiler's fixed-parameter analysis then visits every subterm of that value,
+  proofs included, comparing each argument of a recursive call by
+  `withoutProofIrrelevance <| withReducible <| isDefEq`
+  (`Elab/PreDefinition/FixedParams.lean:205-226`), and the well-founded compiler preprocesses it;
+  `Meta` unfolds no other theorem and no
+  opaque constant, so a definition that only such a value mentions has no status that changes what
+  the compilers generate. An instance of the helper's module that Lean's instance resolution
+  selects without the values mentioning it is outside that argument.
 - Termination and cost. `earlierStatusOptions` visits each constant of the module at most once, in
   at most as many steps as the environment has constants, and reports it if it stops before the
   reached constants are exhausted, which that bound does not allow. `assignments?` stops as soon as

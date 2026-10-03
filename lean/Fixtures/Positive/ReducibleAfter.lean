@@ -50,11 +50,23 @@ other forms were not run without it.
 - `fixtures_reducible_proved` is that pair of changes again, with a leaf that
   cites `fixtures_proved_bound`, a theorem whose statement mentions no
   definition of this module and whose proof mentions five functions
-  `@[reducible]` from their declaration (found in review). Lean unfolds a
-  theorem only at `.all` transparency, where a status changes nothing, so the
-  search follows no theorem's value: two candidates, three assignments.
-  Following it, as the search did before, seven candidates exceeded the bound
-  and the helper was undecided.
+  `@[reducible]` from their declaration (found in review). Lean's recursion
+  compilers unfold a theorem only where it is applied to a bare function of
+  the group they compile (`Meta.unfoldIfArgIsAppOf`), which this one is not,
+  and `Meta` unfolds no theorem, so the search does not follow that proof: two
+  candidates, three assignments. Following every theorem's value, as the
+  search once did, seven candidates exceeded the bound and the helper was
+  undecided.
+- `fixtures_reducible_cited` has a proof that calls the definition with the
+  parameter passed through `fixtures_cited_keep`, made reducible afterwards,
+  and `as_aux_lemma` abstracts that proof into a theorem applied to the
+  function itself (found in review). Lean's compilers unfold such a theorem
+  into the definition (`Meta.unfoldIfArgIsAppOf`), so the structural compiler
+  finds the parameter varying where the definition is compiled and fixed once
+  `fixtures_cited_keep` is reducible. The search starts from the value as the
+  compilers see it, after that unfolding, and reaches `fixtures_cited_keep`:
+  one candidate, one assignment. Following no theorem's value, as the search
+  once did, it found no candidate and rejected the helper (observed).
 - `fixtures_reducible_then_not` is the other way round:
   `fixtures_reducible_before` is `@[reducible]` from its declaration, so Lean
   finds the parameter fixed, and is made `irreducible` afterwards, which Lean
@@ -193,6 +205,18 @@ def fixtures_reducible_proved (a b n : Nat) : Nat :=
 termination_by n
 
 attribute [reducible] fixtures_proved_first fixtures_proved_second
+
+def fixtures_cited_keep (a : Nat) : Nat := a
+
+def fixtures_cited_use (n : Nat) (_ : True) : Nat := n
+
+def fixtures_reducible_cited (a : Nat) : List Nat → Nat
+  | [] => a
+  | _ :: xs =>
+    fixtures_cited_use (fixtures_reducible_cited a xs) (by
+      as_aux_lemma => exact (fun _ => trivial) (fixtures_reducible_cited (fixtures_cited_keep a) xs))
+
+attribute [reducible] fixtures_cited_keep
 
 @[reducible] def fixtures_reducible_before (a : Nat) : Nat := a
 
