@@ -333,7 +333,7 @@ is prose is a property of the document's structure, not of its file or its wordi
 
 | Document | Not prose | The link |
 | --- | --- | --- |
-| Every Markdown document the repository tracks (`git ls-files -- '*.md'`), wherever it lies; none is excluded | Fenced code blocks, code spans, link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
+| Every Markdown document the repository tracks (`git ls-files -- '*.md'`), wherever it lies; none is excluded | Fenced code blocks, code spans, link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line, since a definition cannot interrupt a paragraph; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
 | A rendered page of the standard or of the rule-reference site | The `code`, `pre`, `script` and `style` elements, and comments | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
 
 Pasted tool output is a fenced block or a `pre` element, and a Lean identifier is written as
@@ -345,11 +345,14 @@ any rule ID in the `title` or `h1` of another page, is refused.
 `./scripts/verify.sh docs` checks the tracked Markdown and the standard rendered alone
 (`docFenceAudit --rule-links`), and `./scripts/verify.sh site` checks every page of the
 development edition; each failure names the file, the line and the ID. The scanners are small
-and strict, not complete Markdown or HTML parsers: an indented code block and text between raw
-HTML tags in Markdown are read as prose. A Markdown document with a fenced block that is never
+and strict, not complete Markdown or HTML parsers. In Markdown, an indented code block, text between
+raw HTML tags, an open tag that spans lines and an HTML block that a `<!--` at the start of a line
+opens are read as prose, which is stricter than CommonMark, so an ID there must be linked; a link
+reference definition counts only where a paragraph could start, after at most three spaces, as in
+CommonMark. A Markdown document with a fenced block that is never
 closed, and a page with a `code`, `pre`, `title` or `h1` element, a comment or a script that is
 never closed, are refused, since the text after it could not be read as prose; a Markdown `<!--`
-that its paragraph does not close is read as prose, as CommonMark reads it. The release editions already published are frozen copies and are not rewritten.
+that its paragraph does not close is read as prose, as CommonMark reads an inline one. The release editions already published are frozen copies and are not rewritten.
 
 ## Change an acceptance boundary
 

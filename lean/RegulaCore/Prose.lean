@@ -45,8 +45,12 @@ or HTML parsers: an indented code block and text between raw HTML tags are read 
 ID there must be linked, and only the constructs listed above are skipped.
 A fenced block that is never closed would hide the text after it, so `markdownErrors` refuses such
 a Markdown document; a `<!--` that its paragraph does not close is read as prose, as CommonMark
-reads it. An element, comment or script that is never closed would hide the text after it, so
-`htmlErrors` refuses such a page; an element closed and reopened out of order is not detected.
+reads an inline one. Stricter than CommonMark, an open tag that spans lines and an HTML block that
+a `<!--` at the start of a line opens are read as prose too, so an ID there must be linked. A link
+reference definition counts only after at most three spaces where a paragraph could start
+(`blocks`), as in CommonMark; elsewhere its line is prose. An element, comment or script that is
+never closed would hide the text after it, so `htmlErrors` refuses such a page; an element closed
+and reopened out of order is not detected.
 `linkIds` rewrites the prose `scanInline` finds; that its output has no bare rule ID is
 established by `htmlErrors` on the rendered pages and `markdownErrors` on the committed agent
 skill, not by a theorem about the rewriting.
@@ -264,9 +268,12 @@ def validTarget (raw : List Char) : Bool :=
 /-- A reference label as it is matched: trimmed and lowercase. -/
 def label (chars : List Char) : String := (String.ofList chars).trimAscii.toString.toLower
 
-/-- The label and destination of a link reference definition line, `[label]: destination`. -/
+/-- The label and destination of a link reference definition line, `[label]: destination`, after
+at most three spaces. -/
 def referenceDefinition? (line : String) : Option (String × String) :=
-  match line.toList.dropWhile (· == ' ') with
+  let indent := (line.toList.takeWhile (· == ' ')).length
+  if indent > 3 then none else
+  match line.toList.drop indent with
   | '[' :: rest =>
     (closeIndex '[' ']' 0 rest).bind fun i =>
       match rest.drop (i + 1) with
@@ -301,23 +308,40 @@ def unclosedFence (lines : List String) : Option Nat :=
   ((lines.foldl (fun (acc : Nat × Option (Nat × Char × Nat)) text =>
     (acc.1 + 1, fenceAfter acc.1 acc.2 text)) (1, none)).2).map (·.1)
 
-/-- The link reference definitions of a document's lines outside fenced code blocks. -/
-def definitions (lines : List (Nat × Option String)) : List (String × String) :=
-  lines.filterMap fun (_, text) => text.bind referenceDefinition?
+/-- Whether `line` is an ATX heading: after at most three spaces, one to six `#` and then a space
+or the end of the line. A heading ends the paragraph before it and is a paragraph of its own. -/
+def isHeading (line : String) : Bool :=
+  let indent := (line.toList.takeWhile (· == ' ')).length
+  let chars := line.toList.drop indent
+  let hashes := (chars.takeWhile (· == '#')).length
+  indent ≤ 3 && 1 ≤ hashes && hashes ≤ 6 && (chars.drop hashes).head?.all (· == ' ')
 
-private def closeBlock (line : Nat) (acc : List String) : List (Nat × String) :=
-  if acc.isEmpty then [] else [(line - acc.length, "\n".intercalate acc.reverse)]
+/-- A block of a document outside its fenced code blocks. -/
+inductive Block where
+  /-- A paragraph or a heading, with the line it starts on. -/
+  | paragraph (line : Nat) (text : String)
+  /-- A link reference definition, with its label and destination. -/
+  | definition (label destination : String)
 
-/-- The paragraphs of a document: maximal runs of consecutive lines that are not in a fenced code
-block, blank or a link reference definition, each with the line it starts on. `acc`
-holds the lines of the paragraph in progress, reversed, which ends before line `line`. -/
-def paragraphs : Nat → List String → List (Nat × Option String) → List (Nat × String)
+private def closeBlock (line : Nat) (acc : List String) : List Block :=
+  if acc.isEmpty then [] else [.paragraph (line - acc.length) ("\n".intercalate acc.reverse)]
+
+/-- The blocks of a document: each heading, each maximal run of consecutive lines that are not in a
+fenced code block, blank, a heading or a link reference definition, and each link reference
+definition. A definition cannot interrupt a paragraph, so a definition line is one only where no
+paragraph is open, at the start of the document or after a blank line, a fenced code block, a
+heading or another definition, as in CommonMark; elsewhere it continues the paragraph. `acc` holds
+the lines of the paragraph in progress, reversed, which ends before line `line`. -/
+def blocks : Nat → List String → List (Nat × Option String) → List Block
   | line, acc, [] => closeBlock line acc
-  | _, acc, (line, none) :: rest => closeBlock line acc ++ paragraphs (line + 1) [] rest
+  | _, acc, (line, none) :: rest => closeBlock line acc ++ blocks (line + 1) [] rest
   | _, acc, (line, some text) :: rest =>
-    if text.toList.all Char.isWhitespace || (referenceDefinition? text).isSome then
-      closeBlock line acc ++ paragraphs (line + 1) [] rest
-    else paragraphs (line + 1) (text :: acc) rest
+    if text.toList.all Char.isWhitespace then closeBlock line acc ++ blocks (line + 1) [] rest
+    else if isHeading text then
+      closeBlock line acc ++ .paragraph line text :: blocks (line + 1) [] rest
+    else match (if acc.isEmpty then referenceDefinition? text else none) with
+      | some (name, destination) => .definition name destination :: blocks (line + 1) [] rest
+      | none => blocks (line + 1) (text :: acc) rest
 
 /-- One piece of a paragraph. The pieces' raw texts, in order, are the paragraph. -/
 inductive Piece where
@@ -354,7 +378,8 @@ def commentLength : List Char → Option Nat
 
 /-- The number of characters after a `<` through the end of the HTML comment, tag or autolink
 it opens, when it opens one: a comment closes in the rest of its paragraph, and a tag or autolink
-on its own line. Otherwise the `<` is prose, as CommonMark reads it. -/
+on its own line. Otherwise the `<` is prose: as in CommonMark for an inline comment that is not
+closed, and, stricter than CommonMark, for an open tag that spans lines. -/
 def tagLength (rest : List Char) : Option Nat :=
   match rest with
   | '!' :: '-' :: '-' :: tail => (commentLength tail).map (3 + ·)
@@ -440,13 +465,17 @@ def runsOf (line : Nat) (pieces : List Piece) : List Run :=
       | .prose text link => ⟨acc.1, text, link⟩ :: acc.2
       | .skip _ => acc.2)) (line, [])).2.reverse
 
-/-- The prose of a Markdown document: for each paragraph outside fenced code blocks and link
-reference definitions, its text outside code spans, link destinations, HTML tags and comments,
-autolinks and bare URLs. -/
+/-- The prose of a Markdown document: for each paragraph and heading outside fenced code blocks
+and link reference definitions (`blocks`), its text outside code spans, link destinations, HTML
+tags and comments, autolinks and bare URLs. -/
 def markdownRuns (text : String) : List Run :=
-  let lines := proseLines 1 none (text.splitOn "\n")
-  let defined := definitions lines
-  (paragraphs 1 [] lines).flatMap fun (line, paragraph) => runsOf line (pieces defined paragraph)
+  let parts := blocks 1 [] (proseLines 1 none (text.splitOn "\n"))
+  let defined := parts.filterMap fun
+    | .definition name destination => some (name, destination)
+    | .paragraph .. => none
+  parts.flatMap fun
+    | .paragraph line paragraph => runsOf line (pieces defined paragraph)
+    | .definition .. => []
 
 /-- What the Markdown document `text` of `main` is refused for: a fenced code block that is never
 closed, and each rule ID in its prose that is not a link to its development page, reported with
@@ -666,6 +695,22 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
   ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Compare <!-- draft RG1001 --> and that.\n" == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+    ("See [RG1001] here.\n[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+    "a.md:2: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001] here.\n\n    [RG1001]: " ++
+    Edition.dev.url RuleId.projectAxiom.route ++ "\n") ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+    "a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+    ("See [RG1001] here.\n\n[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("# Links\n   [RG1001]: " ++
+    Edition.dev.url RuleId.projectAxiom.route ++ "\nSee [RG1001].\n") == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "## Why RG2003 fires first\n\nText.\n" ==
   ["a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
