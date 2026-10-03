@@ -1,8 +1,9 @@
 /-! Collector qualification on the declarations the selected compiler generates and on isolated,
 unchecked copies. Which controls run depends on that compiler's capability, not on whether the
-revision is a candidate: without `getObjTagNat`, as on Lean 4.34.0, the control checks only that
-the observer finds no constructor-index helper for any of the six parents; with it, as on the
-selected release-candidate and source compilers, it also exercises the observer's positive path,
+revision is a candidate: without `getObjTagNat`, as on Lean 4.34.0 and Lean 4.35.0-rc3
+(`470d5ce1400764999581fd26d5d72b00d990b0f4`), the control checks only that the observer finds no
+constructor-index helper for any of the six parents, and returns; with it, as on source compiler
+`6751f97b0c3dbefec2aaf1ce9e07b877101c5662`, it also exercises the observer's positive path,
 `ConstructorIndexHelperOK` admission, the transport round trip and the mutation controls.
 The altered environments are never exported or executed. This checks the actual observer and
 transport, not kernel admission or native correspondence of the mutated declarations.
