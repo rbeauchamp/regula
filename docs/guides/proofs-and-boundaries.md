@@ -399,11 +399,31 @@ decision itself is trusted.
 
 A decision kind (`Regula.DecidesSoundly`, `Regula.DecidesCompletely`, `Regula.Decides`, standard
 §3.8) states which directions of a decision are proved against a written specification, with a
-witness about the function itself. Regula registers its own pure decisions with a kind, so an
-accepted account of Regula states each direction, and a one-way guarantee is a declared choice.
+witness about the function itself. Regula registers its own pure decisions with a kind, so a
+one-way guarantee is a declared choice.
 A kind is evidence about the function between the supplied values and the written
 specification; it does not make the observations truthful, and it is not a verdict on the
 specification.
+
+Which report states a kind depends on the library that holds the registration:
+
+- **Claimed libraries** (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `AuditApp`). Their
+  registrations are contracts of the accepted inventory, so an accepted account of Regula states
+  the kind of each and, for a one-way kind, the direction it leaves open.
+- **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
+  states the kind of its twelve registrations, named here with their modules: `checked_same` and
+  `checked_read` (`Regula.SharedExecution`), `checked_intern` and `checked_expand`
+  (`Regula.SourceTexts`), `checked_parseMode`, `checked_parseRule` and `checked_ruleIdParse`
+  (`Regula.RegistryCodec`), `checked_parseName` and `checked_parsePrintedNameJson`
+  (`Regula.StructuralName`), `checked_checkCopies` (`Regula.Checker.Admission`),
+  `checked_parseValue` (`Regula.Checker.Manifest`) and `checked_validate`
+  (`Regula.Checker.ProducerReport`). Lean's kernel checks each kind's proof in the library's
+  warning-free build, and the `self-audit` diagnostic holds each registration to [RG1007],
+  including that the kind is stated about the implementation and that neither its acceptance
+  predicate nor its specification mentions it. That diagnostic is not part of acceptance and
+  prints the number of registrations, not their kinds.
+
+The tables below cover the decisions of both groups.
 
 The inventory is the pure functions whose result is a verdict of the checker: the decision
 behind a rule, the admission of a decoded record, the reader of a written form, a qualification
