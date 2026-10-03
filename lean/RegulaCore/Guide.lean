@@ -367,12 +367,16 @@ def guide : RuleId → Guide
           its declaration shows), and the comparison \
           takes a `match` that passes a variable through as the `match` that uses it directly, \
           where Lean's kernel checks that the two are equal for that matcher. Nor does a global \
-          reducibility attribute given after the definition to a function it calls matter \
-          (`attribute [reducible]`, `[instance_reducible]`, `[implicit_reducible]`, or \
-          `[irreducible]` after one of those): where neither regeneration reproduces the base, \
-          the checker searches the statuses such an attribute can have replaced, for the \
-          definitions of the helper's module that the helper reaches, and an assignment only \
-          selects which regeneration runs. The regeneration and the comparison run with Lean's \
+          reducibility attribute given after the definition (`attribute [reducible]`, \
+          `[instance_reducible]`, `[implicit_reducible]`, or `[irreducible]` after one of those) \
+          matter when it is given to a function of the helper's own module that is not an \
+          `abbrev`, the change is one the search covers (from a status on which Lean's \
+          validation admits that attribute, or from `reducible` to irreducible), and the \
+          definitions the helper reaches allow at most 63 assignments of an earlier status: \
+          where neither regeneration reproduces the base, the checker searches the statuses \
+          such an attribute can have replaced, for the definitions of the helper's module that \
+          the helper reaches, and an assignment only selects which regeneration runs. The \
+          limitations below list the forms outside this. The regeneration and the comparison run with Lean's \
           smart unfolding off, so no declaration named `g._sunfold` is read for the unfolding \
           of `g`.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
