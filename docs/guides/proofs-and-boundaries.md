@@ -1152,7 +1152,11 @@ consulted. The rest is argued, with no theorem:
 
 `Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` pins the bound of the enumeration: a
 forged helper whose seven candidates allow 127 assignments, and that neither the assignment its base
-selects nor any of the seven single changes reproduces, is neither admitted nor rejected.
+selects nor any of the seven single changes reproduces, is neither admitted nor rejected. The
+fallback stops at its bound for this helper too, since the same seven functions are the definitions
+of its module that it reaches, so the error names both bounds; the fixture's expected pattern
+requires the text of the enumeration's (`assignments of another status`), which the fallback's
+message does not hold.
 Every bound the search stops at ends the same way. `unsafeRecRegeneration` throws, naming the
 helper as undecided and the bound it stopped at, and the audit fails as incomplete, with no
 violation reported for

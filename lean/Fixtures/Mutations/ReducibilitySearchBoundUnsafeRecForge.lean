@@ -25,6 +25,14 @@ rejects, and so does each of the seven single changes the search then tries.
 The search has not tried every assignment, so it reports no rejection: a
 helper no attempt within the bound reproduces is undecided, and the audit is
 incomplete, with no violation reported for it.
+
+The assignments the checker tries after that search stop at their bound for
+this helper too: the seven functions are the definitions of its module that it
+reaches with a status a global attribute can have replaced, so they allow 127
+assignments there as well, of which the seven single changes are tried. The
+error names both bounds. The expectation requires the text of the first, the
+bound of the search, so this fixture pins that bound and not the other, which
+`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge` pins alone.
 -/
 open Lean Elab Command
 

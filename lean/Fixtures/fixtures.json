@@ -366,7 +366,7 @@
  "Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge": {
   "expect": "fail",
   "reason": "audit-incomplete",
-  "pattern": "fixtures_over_divergent.*undecided"
+  "pattern": "fixtures_over_divergent.*undecided.*assignments of another status"
  },
  "Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge": {
   "expect": "fail",
