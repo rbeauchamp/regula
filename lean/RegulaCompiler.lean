@@ -2,8 +2,9 @@ import Lean.Data.Json
 
 /-! # Install an exact compiler
 
-CI runs this standalone program with the fixed stable bootstrap. Without a source
-specification, Elan installs the repository's pin. A source specification builds the
+CI runs this standalone program with the fixed stable bootstrap. A snapshot selection
+restores and admits the immutable source-built compiler and dependencies. Without one,
+Elan installs the repository's pin. Explicit preparation of a source specification builds the
 named Git commit with a pinned official bootstrap, retains the checkout and build,
 and links an alias only after both compiler identity observations match. A pin or
 bootstrap that Elan already lists is reused, not installed again; its checks still run.
@@ -16,7 +17,7 @@ open Lean System
 
 /-- A single non-hidden component for aliases, repository owners and repositories. -/
 def component (value : String) : Bool :=
-  !value.isEmpty && !value.startsWith "." &&
+  !value.isEmpty && !value.startsWith "." && !value.startsWith "-" &&
     value.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.'
 
 /-- The full lowercase Git object names used by the source and bootstrap pins. -/
@@ -109,6 +110,16 @@ theorem installsSystemPackages_iff (githubActions runnerOS : Option String) :
       githubActions = some "true" ∧ runnerOS = some "Linux" := by
   simp [installsSystemPackages]
 
+/-- macOS build tools are installed only in the dedicated hosted Actions environment. -/
+def installsMacPackages (githubActions runnerOS : Option String) : Bool :=
+  githubActions == some "true" && runnerOS == some "macOS"
+
+/-- The macOS installer is confined to hosted macOS Actions jobs. -/
+theorem installsMacPackages_iff (githubActions runnerOS : Option String) :
+    installsMacPackages githubActions runnerOS = true ↔
+      githubActions = some "true" ∧ runnerOS = some "macOS" := by
+  simp [installsMacPackages]
+
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
   let result ← IO.Process.output { cmd, args, cwd := some cwd, stdin := .null }
   unless result.exitCode == 0 do
@@ -120,6 +131,15 @@ private def stream (cwd : FilePath) (cmd : String) (args : Array String) : IO Un
     cmd, args, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
   let code ← child.wait
   unless code == 0 do throw <| IO.userError s!"compiler setup: {cmd} failed ({code})"
+
+/-- Install the declared native runtime and build tools only on hosted Actions runners. -/
+private def installSystemPackages (root : FilePath) : IO Unit := do
+  if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
+    stream root "sudo" #["apt-get", "update"]
+    stream root "sudo" #["apt-get", "install", "--yes", "build-essential", "cmake",
+      "pkg-config", "libgmp-dev", "libuv1-dev", "libssl-dev"]
+  if installsMacPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
+    stream root "brew" #["install", "cmake", "pkg-config", "gmp", "libuv", "openssl"]
 
 /-- Read the selected compiler's CLI and library reports through the actual executable. -/
 private def checkIdentity (root : FilePath) (cmd : String) (argv : Array String)
@@ -187,12 +207,12 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
       stream root "elan" #["toolchain", "install", spec.bootstrap]
     checkIdentity root "elan" #["run", spec.bootstrap, "lean"] spec.bootstrapRevision
     let previous ← require root "elan" #["run", spec.bootstrap, "lean", "--print-prefix"]
-    if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
-      stream root "sudo" #["apt-get", "update"]
-      stream root "sudo" #["apt-get", "install", "--yes", "build-essential", "cmake",
-        "pkg-config", "libgmp-dev", "libuv1-dev", "libssl-dev"]
-    stream path "cmake" #["--preset", "release", s!"-DSTAGE1_PREV_STAGE={previous}",
-      "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON"]
+    installSystemPackages root
+    let configuration := #["--preset", "release", s!"-DSTAGE1_PREV_STAGE={previous}",
+      "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON", "-DLEANC_CC=cc"]
+    let configuration := if System.Platform.isOSX then configuration ++
+      #["-DCMAKE_OSX_SYSROOT=", "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0"] else configuration
+    stream path "cmake" configuration
     let jobs ← if System.Platform.isOSX then require root "sysctl" #["-n", "hw.logicalcpu"]
       else require root "getconf" #["_NPROCESSORS_ONLN"]
     let some jobs := jobs.toNat? | throw <| IO.userError "compiler setup: invalid CPU count"
@@ -205,9 +225,7 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
   finally
     lock.unlock
 
-/-- Install the committed compiler pin unless Elan already lists it; source aliases are
-never silently rebound. -/
-def install (root : FilePath) : IO Unit := do
+private def installDeclared (root : FilePath) : IO Unit := do
   let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
   match ← sourceSpec root with
   | some source => installSource root source
@@ -218,11 +236,50 @@ def install (root : FilePath) : IO Unit := do
       stream root "elan" #["toolchain", "install", selector]
   stream root "elan" #["run", selector, "lean", "--version"]
 
+/-- Whether ordinary setup must restore the selected compiled snapshot. -/
+def restoresSnapshot (selected : Bool) : Bool := selected
+
+/--
+Every snapshot selection takes the restore branch of ordinary setup.
+
+## Intent
+Refuse a missing location in that branch instead of falling back to source compilation.
+-/
+theorem restoresSnapshot_iff (selected : Bool) :
+    restoresSnapshot selected = true ↔ selected = true := Iff.rfl
+
+/--
+Install the declared ordinary compiler, or restore the complete selected snapshot.
+
+## Intent
+Snapshot selection never reaches the source compiler builder. The restore program
+admits the committed digest and receipt before activating compiler and packages.
+-/
+def install (root : FilePath) : IO Unit := do
+  if restoresSnapshot (← (root / ".github/snapshot-compiler.json").pathExists) then
+    installSystemPackages root
+    stream root "elan" #["run", "leanprover/lean4:v4.34.0", "lean", "--run",
+      "lean/RegulaSnapshot.lean", "restore"]
+  else installDeclared root
+
+/-- Build the selected compiler only for the explicit preparation entrypoint. -/
+def prepare (root : FilePath) : IO Unit := installDeclared root
+
 end RegulaCompiler
 
 /-- Standalone setup and the selected compiler's compiled library identity observation. -/
 def main (args : List String) : IO Unit := do
   match args with
   | [] => RegulaCompiler.install (← IO.FS.realPath (← IO.currentDir))
+  | ["setup"] =>
+    let root ← IO.FS.realPath (← IO.currentDir)
+    match (← IO.getEnv "REGULA_SETUP_ACQUISITION").getD "restore" with
+    | "restore" => RegulaCompiler.install root
+    | "prepare" => RegulaCompiler.prepare root
+    | _ => throw <| IO.userError "compiler setup: unknown acquisition mode"
+    if let some output ← IO.getEnv "GITHUB_OUTPUT" then
+      let handle ← IO.FS.Handle.mk output .append
+      handle.putStr s!"snapshot={(← (root / ".github/snapshot-compiler.json").pathExists)}\n"
+  | ["prepare"] => RegulaCompiler.prepare (← IO.FS.realPath (← IO.currentDir))
   | ["identity"] => IO.println Lean.githash
-  | _ => throw <| IO.userError "usage: lean --run lean/RegulaCompiler.lean [identity]"
+  | _ => throw <| IO.userError "usage: lean --run lean/RegulaCompiler.lean [identity|prepare|setup]"

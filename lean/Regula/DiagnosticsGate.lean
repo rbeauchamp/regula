@@ -22,8 +22,9 @@ lean --run lean/Regula/DiagnosticsGate.lean gate     # refuse unless each passed
 `inputs` is the one statement of the paths the campaigns depend on: the checker, the rules and
 their examples, the adopter fixtures, the application and fixture sources the structural and
 execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`, the provisioning
-and compiler-installation programs, the dependency mode, the declared compiler source, the
-workflow, the compiler-preparation workflow and the provisioning action. `decisions` decides each
+and compiler-installation programs, the snapshot controller, the dependency mode, the declared
+compiler source and snapshot selections, the workflow, both preparation workflows and the
+provisioning action. `decisions` decides each
 partition job by its job id: the campaigns (`campaign`) on every run other than a pull request's
 (`campaign_of_ne`), and on a pull request's exactly when one of its changed paths is an input
 (`campaign_pullRequest_iff`); the nightly rule-example shards (`rule-examples-nightly`) on the
@@ -86,8 +87,9 @@ def Input.covers : Input → List String → Bool
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
 application and fixture sources the structural and execution controls mutate, Lake configuration
 and manifests, `scripts/verify.sh`, the provisioning and compiler-installation programs, the
-dependency mode, the declared compiler source, the workflow, the compiler-preparation workflow
-and the provisioning action. This module is an input, below `lean/Regula`. -/
+snapshot controller, the dependency mode, the declared compiler source and snapshot selections,
+the workflow, both preparation workflows and the provisioning action. This module is an input,
+below `lean/Regula`. -/
 def inputs : List Input := [
   .tree ["lean", "Regula"],
   .tree ["lean", "RegulaPolicy"],
@@ -97,8 +99,11 @@ def inputs : List Input := [
   .file ["lean", "RegulaVerification.lean"],
   .file ["lean", "RegulaProvision.lean"],
   .file ["lean", "RegulaCompiler.lean"],
+  .file ["lean", "RegulaSnapshot.lean"],
   .file ["dependency-build-mode"],
   .file [".github", "compiler-source.json"],
+  .file [".github", "snapshot-compiler.json"],
+  .file [".github", "compiler-snapshot.json"],
   .tree ["lean", "AuditApp"],
   .file ["lean", "AuditApp.lean"],
   .file ["lean", "Main.lean"],
@@ -116,6 +121,7 @@ def inputs : List Input := [
   .file ["scripts", "verify.sh"],
   .file [".github", "workflows", "diagnostics.yml"],
   .file [".github", "workflows", "compiler.yml"],
+  .file [".github", "workflows", "snapshot.yml"],
   .tree [".github", "actions", "provision"]]
 
 /-- Whether some input covers the changed path `p`. -/

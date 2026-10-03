@@ -15,10 +15,13 @@ on:
       - lean-toolchain
       - dependency-build-mode
       - .github/compiler-source.json
+      - .github/snapshot-compiler.json
+      - .github/compiler-snapshot.json
       - foundation_manifest.json
       - scripts/verify.sh
       - .github/workflows/dogfood.yml
       - .github/workflows/compiler.yml
+      - .github/workflows/snapshot.yml
       - .github/actions/provision/**
   push:
     branches: [main]

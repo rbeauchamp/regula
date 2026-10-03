@@ -91,6 +91,9 @@ lean_lib «RegulaProvision»
 lean_lib «RegulaCompiler»
 
 @[default_target]
+lean_lib «RegulaSnapshot»
+
+@[default_target]
 lean_lib «RegulaQualification» where
   -- Pure, proof-backed observation contracts; no process or filesystem drivers.
   globs := #[.submodules `RegulaQualification]

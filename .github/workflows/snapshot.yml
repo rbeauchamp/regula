@@ -1,0 +1,148 @@
+name: Prepare compiled snapshot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: compiled-snapshot-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: prepare ${{ matrix.platform }}
+    # Preparation owns the one source build. Acceptance retains its own 420-second limits.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: ubuntu24.04-x86_64
+          - runner: macos-15
+            platform: macos-arm64-min15
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+        with:
+          acquisition: prepare
+          dependencies: 'false'
+
+      - name: Build complete pinned compiler and dependency snapshot from source
+        run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaSnapshot.lean prepare
+
+      - name: Publish the admitted preparation in Regula Packages
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaSnapshot.lean publish
+
+      - name: Keep the immutable location and preparation receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: compiled-snapshot-${{ github.sha }}-${{ matrix.platform }}
+          path: |
+            tmp/compiled-snapshot/location.json
+            tmp/compiled-snapshot/payload/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+  qualify:
+    name: qualify ${{ matrix.platform }}
+    needs: prepare
+    # Every command retains verify.sh's own 420-second deadline.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: ubuntu24.04-x86_64
+          - runner: macos-15
+            platform: macos-arm64-min15
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: compiled-snapshot-${{ github.sha }}-${{ matrix.platform }}
+          path: tmp/compiled-snapshot-input
+
+      - uses: ./.github/actions/provision
+        with:
+          bootstrap-only: 'true'
+          dependencies: 'false'
+
+      - name: Select the published preparation's immutable location
+        run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaSnapshot.lean select-for-qualification tmp/compiled-snapshot-input/location.json
+
+      - name: Restore on this fresh runner and admit all compiler and dependency inputs
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaCompiler.lean
+
+      - name: Verify
+        run: ./scripts/verify.sh
+
+      - name: Verify documentation fences
+        run: ./scripts/verify.sh docs
+
+      - name: Qualify the first rule-example shard
+        run: ./scripts/verify.sh diagnostics rule-examples 1/2
+
+      - name: Qualify the second rule-example shard
+        run: ./scripts/verify.sh diagnostics rule-examples 2/2
+
+      - name: Build and check the rule-reference site
+        run: ./scripts/verify.sh site
+
+      - name: Qualify producers
+        run: ./scripts/verify.sh diagnostics producers
+
+      - name: Qualify history
+        run: ./scripts/verify.sh diagnostics history
+
+      - name: Qualify Lake lint dispatch
+        run: ./scripts/verify.sh diagnostics lint-driver
+
+      - name: Qualify the first structural shard
+        run: ./scripts/verify.sh diagnostics structural 1/2
+
+      - name: Qualify the second structural shard
+        run: ./scripts/verify.sh diagnostics structural 2/2
+
+      - name: Qualify the first execution shard
+        run: ./scripts/verify.sh diagnostics execution 1/2
+
+      - name: Qualify the second execution shard
+        run: ./scripts/verify.sh diagnostics execution 2/2
+
+      - name: Lint Regula's own Lean surfaces
+        run: ./scripts/verify.sh diagnostics self-lint
+
+      - name: Audit Regula's own checker
+        run: ./scripts/verify.sh diagnostics self-audit
+
+      - name: Keep the qualified digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qualified-snapshot-${{ github.sha }}-${{ matrix.platform }}
+          path: tmp/compiled-snapshot-input/location.json
+          if-no-files-found: error
+          retention-days: 30
