@@ -125,7 +125,8 @@ context and is not an independent policy decision.
 
 `Roles` recomputes native axioms, recursion helpers and constructor-index wrappers separately
 for each inventory. Declaration safety uses the union of the two helper families;
-`Roles.safetyHelpers_iff` retains each family's full relation. Finding attribution still uses
+`Roles.safetyHelpers_iff` states that a name is in it exactly when one of the two full relations
+holds for it, and the separate fields keep the families apart. Finding attribution still uses
 only the recursion-helper relation, while reports expose constructor-index membership separately.
 Neither family changes the original unsafe/partial fields or execution-boundary correspondence.
 

@@ -150,7 +150,8 @@ candidate, an ordinary invocation of `axiomGate` (so also the audit `lake lint` 
 themselves, among them `regula` (`doctor`, `init` and the offline guidance commands),
 `ruleExamples`, `toolchain`, `qualify` and `checkerSelftest`: whatever they print on a
 candidate is unqualified. The driver selects the explicit diagnostic purpose
-(`REGULA_COMPILER_QUALIFICATION=1`) for its children; this does not enable supported PASS
+(`REGULA_COMPILER_QUALIFICATION=1`) for every campaign except `candidate-refusal`, which it runs
+with that variable cleared to observe the ordinary refusal; this does not enable supported PASS
 results, and a diagnostic run that accepts its controls still exits 0, so an exit status alone
 never distinguishes a diagnostic observation from a supported result. Candidate result files
 have an outer `status: unsupported`, `purpose: compiler-qualification`, and

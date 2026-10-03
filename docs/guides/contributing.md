@@ -125,14 +125,14 @@ reads the Audit libraries and the standard's Verso library through Lake, and use
 documentation scanners and Lean header parser to collect their Mathlib imports and those of
 the Markdown examples. Lake builds a generated executable with interpreter support, so it
 builds exported native objects for the complete transitive import closure. The planner itself
-uses a separate workspace with independent configuration and build caches, leaving the root acceptance build cold; its Lake loads of the Audit and standard packages may write those packages' configuration caches. This is dependency setup;
+uses a separate workspace with independent configuration and build caches, leaving the root acceptance build cold; its Lake loads of the Audit and standard packages may write those packages' configuration caches. That workspace is written in a staging directory under `.lake/regula-dependency-planner/` and published complete by one rename (a trusted filesystem effect, not a durability guarantee); an interrupted attempt stays in its staging directory, unused and never removed. This is dependency setup;
 the acceptance commands still check all their sources and documentation.
 Source artifacts have a separate key containing their policy version and an import-source
 hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
 another scope. Source admission also requires the current policy version, so a source store
 recorded under another policy is never served, only removed once no registered copy links it. CI keys contain this generated-source hash and source cache hits repeat receipt
 admission. Old receipts without a mode describe the upstream-cache route and cannot admit source
-requests. Missing configuration retains that route; an unknown spelling is refused.
+requests. A missing `dependency-build-mode` or an unknown spelling in it is refused.
 Each source invocation also receives a fresh artifact-cache directory under
 `.lake/regula-source-caches/`, disables Lake's separate artifact-cache default, and requests
 restoration of outputs to package build directories. A package's explicit cache setting can
@@ -208,7 +208,7 @@ the compiler and dependency setup: the installer, the provisioning program,
 `dependency-build-mode`, `.github/compiler-source.json` and the compiler-preparation workflow),
 and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
-passes exactly when `applies` succeeded and each of the other jobs passed and applies, or was
+passes exactly when `applies` succeeded and each partition job passed and applies, or was
 skipped and does not apply, so a pull request merges only once every one of these jobs that
 applies to it has passed on its head commit, and a failed, cancelled or timed-out one refuses the
 merge. A pull request that changes none of the listed paths, such as one that changes only

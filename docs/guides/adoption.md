@@ -70,7 +70,7 @@ keeps the Mathlib revision it pins.
 
 Each Regula release supports exactly one Lean release, the one in its `lean-toolchain`; a Lean
 patch release such as `v4.34.1` is another release. Lake loads Regula with the Lean your project
-runs. Regula `v0.2.0` through `v0.4.3` stop in Regula's `lakefile.lean` before anything compiles
+runs. Regula `v0.2.0` through `v0.5.0` stop in Regula's `lakefile.lean` before anything compiles
 when that Lean's version differs, naming both releases; they compare only the version, not the
 compiler's commit, and the earlier `v4.34.0` tag has no such guard:
 
@@ -91,8 +91,10 @@ error: …/regula/lakefile.lean:…: Regula's compiler guard stopped: Lake is ru
 
 A Lean too old to compile the policy prints its own errors in place of the second line. The
 guard runs the `lean` that `LEAN_SYSROOT` or `PATH` selects and requires it to be the Lean
-running Lake; when another toolchain's variables are inherited, it stops with `… is not the
-Lean running Lake …` instead, and running Lake without them is the remedy.
+running Lake. When another toolchain's variables are inherited, a `lean` the policy refuses
+stops with the message above, whichever Lean runs Lake, and a `lean` the policy accepts while
+Lake runs another Lean stops with `… is not the Lean running Lake …` instead. Running Lake
+without those variables is the remedy in both cases.
 `lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
 selects, whichever compiler an override runs. For a Lean too old to run its identity probe, it
 instead reports that the pin selects no installed compiler that reports its identity, with the
