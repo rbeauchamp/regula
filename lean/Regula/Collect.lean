@@ -1037,8 +1037,9 @@ def ContractScope.constantAware (scope : ContractScope) (env : Environment) (nam
 among the constants `type` mentions, closed under `unfoldReferences`. Lean's reduction steps
 (delta, iota, beta, zeta, eta, projection, and literal and native Boolean or natural-number steps)
 introduce only constants of that closure or of `Init`, which does not import `Regula.Contract`;
-the reduction this guards runs inside `declaration`, with smart unfolding off. Constants of modules outside the scope are not expanded, and a search that ends
-without finding the contract type records every constant it expanded as free. -/
+the reduction this guards runs inside `declaration`, with smart unfolding off. Constants of modules
+outside the scope are not expanded, and a search that ends without finding the contract type
+records every constant it expanded as free. -/
 def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : Expr) :
     BaseIO Bool := do
   let free ← scope.free.get

@@ -376,9 +376,9 @@ def guide : RuleId → Guide
           where neither regeneration reproduces the base, the checker searches the statuses \
           such an attribute can have replaced, for the definitions of the helper's module that \
           the helper reaches, and an assignment only selects which regeneration runs. The \
-          limitations below list the forms outside this. The regeneration and the comparison run with Lean's \
-          smart unfolding off, so no declaration named `g._sunfold` is read for the unfolding \
-          of `g`.",
+          limitations below list the forms outside this. The regeneration and the comparison \
+          run with Lean's smart unfolding off, so no declaration named `g._sunfold` is read for \
+          the unfolding of `g`.",
         "A `partial def` is an opaque declaration that Lean runs through its generated helper. \
           The finding names the `partial def`, at its source range, not the helper; this includes \
           the `partial def` functions that deriving `BEq`, `Hashable`, `Repr` or `Ord` generates \

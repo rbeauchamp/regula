@@ -755,7 +755,8 @@ helper's group (structural recursion with Lean's automatic choice, then on the a
 Lean recorded for each base, which admits a definition recursing on an argument
 `termination_by structural` selects, then well-founded recursion with the relation the base's
 fixpoint applies and every decreasing proof elided; where none of these reproduces the base, the
-same attempts once more with no definition irreducible, below), with only the toolchain's own
+same attempts once more with no definition irreducible, and then in both environments under the
+reducibility assignments it searches, both below), with only the toolchain's own
 `wf_preprocess` rules and the checker's built-in macros, tactic and term elaborators, generating
 no code for the fresh definitions, and compares each regenerated definition with the observed one
 up to compilation erasure: proofs and types, each classified in its own side's context, are erased,
@@ -859,12 +860,13 @@ search tries, of which one that changes two of them reproduces the base; and a d
 base needs two changes, beside an authored `_sunfold` declaration of its helper that mentions five
 more `@[reducible]` functions, or whose helper cites a theorem whose proof mentions five more and
 that is applied to no function of the group, both found in review: following that declaration or
-that proof would exceed the bound and leave the helper undecided; and a definition with a proof that calls it with a parameter passed through a
-function made `reducible` afterwards, abstracted by `as_aux_lemma` into a theorem applied to the
-function, found in review: Lean's compilers unfold that theorem into the definition, and the search
-follows it). The parameter under well-founded and under structural recursion, the
-`List.map` form and the `@[reducible]` function made irreducible afterwards were observed
-rejections before the search below, pinned as such by the fixture this one replaces. For the forms
+that proof would exceed the bound and leave the helper undecided; and a definition with a proof
+that calls it with a parameter passed through a function made `reducible` afterwards, abstracted
+by `as_aux_lemma` into a theorem applied to the function, found in review: Lean's compilers unfold
+that theorem into the definition, and the search follows it). The parameter under well-founded
+and under structural recursion, the `List.map` form and the `@[reducible]` function made
+irreducible afterwards were observed rejections before the search below, pinned as such by the
+fixture this one replaces. For the forms
 with an instance-implicit argument, that Lean finds the parameter fixed at only one of the two
 points was observed on Lean 4.34.0 from the fixed parameters it records; their rejection, and that
 of the form with a second parameter and of the `abbrev` form, without the search was not run.
@@ -994,13 +996,15 @@ Every observation the checker takes from Lean's reduction runs with smart unfold
 With `smartUnfolding` on, `Meta.unfoldDefinition?` of Lean 4.34.0 unfolds an application of `g`
 through the declaration named `g._sunfold`, looked up by that name, without comparing its type
 or body with `g`'s. Lean generates that declaration for a structurally recursive definition; an
-audited module can write one for any function. `Fixtures.Mutations.AuthoredSmartUnfoldingUnsafeRecForge`
-holds the two forgeries found in review ([#209](https://github.com/rbeauchamp/regula/issues/209)),
-both admitted before this change, on Regula v0.4.2 too (observed): an authored identity `_sunfold` for a `reducible` successor function, under which the
-fixed-parameter analysis takes `next a` for `a`, drops the argument and reproduces a base that
-returns `a` from a helper that returns `a + n`; and an authored `_sunfold` of value `Type` for a
-type-valued function, under which `Meta.isType` takes a value of that type for a type and the
-comparison erases a leaf that differs. With the option off both are rejected and the honest
+audited module can write one for any function.
+`Fixtures.Mutations.AuthoredSmartUnfoldingUnsafeRecForge` holds the two forgeries found in review
+([#209](https://github.com/rbeauchamp/regula/issues/209)), both admitted while the checker's
+observations ran with smart unfolding on, on Regula v0.4.2 too (observed): an authored identity
+`_sunfold` for a `reducible` successor function, under which the fixed-parameter analysis takes
+`next a` for `a`, drops the argument and reproduces a base that returns `a` from a helper that
+returns `a + n`; and an authored `_sunfold` of value `Type` for a type-valued function, under
+which `Meta.isType` takes a value of that type for a type and the comparison erases a leaf that
+differs. With the option off both are rejected and the honest
 helpers are admitted (observed). That Lean reads no `_sunfold` declaration with the option off is
 read from its source (the name is used behind the option in `Meta.unfoldDefinition?`, and
 otherwise only where `simp` unfolds declarations it is told to unfold, which the regeneration's
