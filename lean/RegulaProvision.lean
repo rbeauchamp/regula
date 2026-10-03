@@ -1063,22 +1063,24 @@ def provisionVerso (repo : FilePath) : IO Unit := do
   stream (repo / "website") "lake"
     (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
 
-/-- Emit compiler, artifact policy and discovered source scope for CI cache keys. Cache hits
-still run source receipt admission. GitHub's output and environment protocols are trusted IO. -/
+/-- Export artifact policy to CI and, without a snapshot selection, compiler and discovered
+source scope for cache keys. Cache hits still run source receipt admission.
+GitHub's output and environment protocols are trusted IO. -/
 def ciIdentity (repo : FilePath) : IO Unit := do
   requireCompiler repo
   let mode ← readBuildMode repo
   unless isObjectName Lean.githash do
     throw <| IO.userError "provisioning: the compiler commit is not a full Git object name"
-  let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
-  let source ← sourceModule repo mode
-  let value := s!"{Lean.githash}-{mode.spelling}{policy}"
-  say s!"dependency identity {value}"
-  if let some path ← IO.getEnv "GITHUB_OUTPUT" then
-    let handle ← IO.FS.Handle.mk path .append
-    handle.putStr s!"identity={value}\n"
-    handle.putStr s!"mode={mode.spelling}\n"
-    handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
+  unless ← (repo / ".github/snapshot-compiler.json").pathExists do
+    let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
+    let source ← sourceModule repo mode
+    let value := s!"{Lean.githash}-{mode.spelling}{policy}"
+    say s!"dependency identity {value}"
+    if let some path ← IO.getEnv "GITHUB_OUTPUT" then
+      let handle ← IO.FS.Handle.mk path .append
+      handle.putStr s!"identity={value}\n"
+      handle.putStr s!"mode={mode.spelling}\n"
+      handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
   if let some path ← IO.getEnv "GITHUB_ENV" then
     let handle ← IO.FS.Handle.mk path .append
     for (name, value) in ← freshBuildEnvironment repo mode do
