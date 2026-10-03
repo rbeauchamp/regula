@@ -17,7 +17,7 @@ def trackedDocuments (root : System.FilePath) : IO (List String) := do
 
 /-- Check the tracked Markdown documents of the repository at the directory given as the only
 argument. Exit code 0 when there is at least one document and none is refused, and 1
-otherwise, after printing each refusal with its file, line and ID. -/
+otherwise, after printing each refusal with its file, its line and the ID or the construct. -/
 def main (args : List String) : IO UInt32 := do
   let [root] := args
     | IO.eprintln "usage: lake exe regula-markdown REPOSITORY"
@@ -31,8 +31,8 @@ def main (args : List String) : IO UInt32 := do
     let source ← IO.FS.readFile (System.FilePath.mk root / document)
     refusals := refusals ++ check document source
   unless refusals.isEmpty do
-    IO.eprintln ("FAIL: rule IDs in tracked Markdown documents are not links to their rule \
-      pages:\n" ++ "\n".intercalate refusals)
+    IO.eprintln ("FAIL: tracked Markdown documents have a rule ID in prose that is not a link to \
+      its rule page, or a construct the check does not read:\n" ++ "\n".intercalate refusals)
     return 1
   IO.println s!"Markdown documents: {documents.length} tracked documents read by md4c; every rule \
     ID in their prose links to its rule page"

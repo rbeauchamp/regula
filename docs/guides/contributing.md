@@ -356,57 +356,64 @@ release editions already published are frozen copies and are not rewritten.
 
 `./scripts/verify.sh docs` checks every Markdown document Git tracks: each file `git ls-files`
 lists with the extension `md` or `markdown`, read from the working tree
-(`lake exe regula-markdown ..` in `website/`). No code of this repository reads Markdown syntax.
+(`lake exe regula-markdown ..` in `website/`). This check reads no Markdown syntax of its own.
 md4c, a CommonMark parser that the pinned Verso brings as MD4Lean, parses each document in its
 GitHub dialect (tables, strikethrough, task lists and autolinks), and
 [`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) hands its parse to
-`Regula.Markdown`, which decides on it (`documentErrors_nil_iff`):
+`Regula.Markdown`, which decides on it (`documentErrors_nil_iff`). Two hand-written readers of
+Markdown remain elsewhere in the repository and are no part of this check: the fence scanner of
+the documentation audit (`Regula.Checker.Documentation`, which finds the `lean` fences and their
+markers) and `Regula.Prose.scanGenerated`, which finds the code spans and links of generated
+prose.
 
 - Prose is every text md4c reports outside code spans and code blocks: paragraphs, headings,
   list items, block quotes, table cells, emphasis, link text and image descriptions. A rule ID
-  there must be a registered rule inside a link to its development page. The link may be inline,
-  a reference to a link reference definition, or an autolink; a reference without a definition
-  is prose. A rule ID spelled with numeric character references is one too.
-- A rule ID in a raw HTML block is refused, in a comment too: telling prose from markup there
-  needs an HTML parser. Write it in Markdown.
-- A document is refused whole, with the reason, in three cases for which MD4Lean has no value
-  for what md4c reports: inline raw HTML such as `<kbd>` (an HTML block is read), a table with no
-  body row, and a NUL character. md4c itself finds the inline raw HTML: the document is read
-  with inline raw HTML taken as text only when md4c renders it to the same HTML either way.
-- Each refusal names the file, the line and the ID. md4c reports text, not positions, so the
-  line is derived: the reported text is placed on the source lines in order, and every such
-  placement lies between the first and the last (`leftmost_le`, `le_rightmost`). Where they
-  differ, because the same text also stands on a line md4c does not report (a link reference
-  definition, usually), the refusal names both, as in `README.md:88-162`.
+  there must be a registered rule inside one link to its development page, written inline or as
+  a reference to a link reference definition; a reference without a definition is prose.
+- A rule ID is read in the rendered text of a line, across the edges of links and code spans.
+  One that such an edge divides, as in `RG[2003](…)`, is refused; one that is wholly code is not
+  a mention. md4c itself decodes each character reference, in text and in a link's destination.
+- An image's description is read as md4c renders it, as text alone: a link or a code span
+  inside it is description text, and only a link around the image links it.
+- No HTML is read. A raw HTML block is refused, a comment too, and so is a document with inline
+  raw HTML such as `<kbd>`; write it in Markdown. The one raw HTML that is read is a block that
+  is exactly a fence marker of the documentation audit, `<!-- lean-trusted-compiler -->` or
+  `<!-- lean-fail: PATTERN -->` with no `>` in the pattern: it is one comment and renders as
+  nothing (`auditMarker`).
+- A document with a table that has no body row, or with a NUL character, is refused: MD4Lean
+  cannot represent either.
+- Each refusal names the file, the line and the ID or the construct. md4c reports text, not
+  positions, so the line is derived: the reported text is placed on the source lines in order,
+  and every such placement lies between the first and the last (`leftmost_le`, `le_rightmost`).
+  Where they differ, because the same text also stands on a line md4c does not report (a link
+  reference definition, usually), the refusal names both, as in `README.md:88-162`.
 
 The check trusts, and does not verify:
 
-- md4c's conformance to CommonMark and to the GitHub extensions it implements.
+- md4c's conformance to CommonMark and to the GitHub extensions it implements, and its
+  rendering of a character reference, which is how one is decoded.
 - MD4Lean's wrapper, for the documents the check reads. At the pinned revision its parse of
   inline raw HTML is not a value of its own type (reading it crashed when tried), which is why
   the check never asks for it.
 - That md4c's HTML renderer and MD4Lean's parse see the same reading of the same text and flags.
-  The treatment of inline raw HTML rests on this: when md4c renders a document to the same HTML
-  with inline raw HTML enabled and with it taken as text, the parse taken with it as text
-  describes the rendering GitHub's dialect gives.
+  The treatment of inline raw HTML rests on this: a document is read only when md4c renders it
+  to the same HTML with inline raw HTML enabled and with it taken as text, and the parse taken
+  with it as text then describes the rendering GitHub's dialect gives.
 - That md4c reads a document as GitHub's renderer does (cmark-gfm and GitHub's later passes).
 
-Where md4c and GitHub are known to differ in a way that bears on the check, it does not make up
-the difference:
+Where md4c and GitHub are known to differ in a way that bears on the check, the check refuses
+what md4c's parse shows of the difference. The rest is not seen:
 
-| Difference between md4c and GitHub | What the check then misses or adds |
+| Difference between md4c and GitHub | What the check does |
 | --- | --- |
-| GitHub renders footnotes; md4c has none. | md4c reads a footnote whose whole text is one word as a link reference definition, which is not prose, so a rule ID that is a footnote's whole text is not seen. Longer footnote text is a paragraph and is checked. |
-| GitHub reads a table only when its header row has as many cells as its delimiter row; md4c takes the column count from the delimiter row and drops the cells beyond it. | Where the counts differ, GitHub shows the lines as a paragraph, and a rule ID in a header cell that md4c dropped is not seen. |
-| In a table row, GitHub ends a cell at an unescaped pipe character inside a code span; md4c keeps the code span whole. | GitHub shows such text as prose; md4c reports it as code, so a rule ID in it is not seen. |
-| The two find the end of a bare URL by their own rules. | A rule ID at the end of a bare URL can be link text for one and prose for the other. Write the link in brackets. |
+| GitHub renders footnotes; md4c has none. md4c reads a footnote whose body is a link destination, with or without a title and whatever lines continue it, as a link reference definition, which is not prose. | Such a footnote's reference becomes a link whose text starts with `^`, and that link is refused. Not seen: such a footnote referenced only in the second brackets of a full reference, and the indented lines that continue a footnote, which md4c reads as a code block. Every other footnote is a paragraph and is checked. |
+| GitHub reads a table only when its header row has as many cells as its delimiter row; md4c takes the column count from the delimiter row and drops the cells beyond it. | Not seen: where the counts differ, GitHub shows the lines as a paragraph, and md4c's parse has no trace of a cell it dropped. |
+| In a table row, GitHub ends a cell at a pipe character inside a code span; md4c keeps the code span whole. | A code span with a pipe character in a table cell is refused. |
+| The two find the end of a bare URL by their own rules. | A rule ID in an autolink is refused, in a bare URL and in `<URL>` alike, since MD4Lean does not tell them apart. Write the link in brackets. |
 | GitHub renders `$…$` and `$$…$$` as math; md4c reads them as text here. | A rule ID in math is refused as prose. |
 
 Link destinations and titles, code block info strings, and link reference definitions are not
-prose and are not checked. A named character reference is kept as written, which relies on no
-named reference of HTML expanding to text that contains `R`, `G` or a digit (checked against
-md4c's table of them). GitHub's treatment of raw HTML does not bear on the check, since a rule
-ID in raw HTML is refused.
+prose and are not checked.
 
 ## Change an acceptance boundary
 

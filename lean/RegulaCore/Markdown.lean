@@ -9,16 +9,19 @@ parse into the `Piece`s below, so what is prose, code or a link is md4c's decisi
 
 ## Main declarations
 
-- `Piece`, `Reading`: what the parser reports of a document, in document order: prose text with
-  the link it lies in, code, raw HTML, and the boundaries between runs and between source lines.
-- `decodeReference`: the character a numeric character reference renders as.
-- `Found`, `mentions`: the rule-ID tokens (`Regula.Prose.tokenAt`) of the prose and of the raw
-  HTML.
-- `Found.Accepted`, `refused`, `refused_nil_iff`: a mention is accepted when it is not in raw HTML
-  and is a registered rule ID inside a link to that rule's page (`Regula.Prose.Mention.Linked`).
+- `Piece`, `Reading`: what the parser reports of a document, in document order: prose, code, the
+  edges of each link's text, the constructs the check refuses, and the boundaries between runs
+  and between source lines.
+- `Place`, `Standing`, `Found`, `findings`: the rule-ID tokens (`Regula.Prose.tokenAt`) of the
+  rendered text, each with how it stands, and the refused constructs. A token is read over the
+  whole text of a run, so one that a link's edge or a code span's edge divides is found too.
+- `Found.Accepted`, `rejected`, `rejected_nil_iff`: a finding is accepted only when it is a
+  registered rule ID all of which lies in the text of one link to that rule's page
+  (`Regula.Prose.Mention.Linked`).
 - `target`: the page a Markdown document links a rule to, its development page.
+- `auditMarker`: the one form of raw HTML that is read, a fence marker of the documentation audit.
 - `Anchor`, `Placed`, `leftmost`, `rightmost`, `leftmost_le`, `le_rightmost`: the source lines of
-  a mention. The parser reports text, not positions, so the lines are bracketed: every placement
+  a finding. The parser reports text, not positions, so the lines are bracketed: every placement
   of the reported text on the source lines, in order, puts each piece between the lines
   `leftmost` and `rightmost` return for it.
 - `documentErrors`, `documentErrors_nil_iff`, `checked_documentErrors`: the executed check of one
@@ -27,21 +30,18 @@ parse into the `Piece`s below, so what is prose, code or a link is md4c's decisi
 ## What prose is
 
 Prose is every text the parser reports outside code spans and code blocks: paragraphs, headings,
-list items, block quotes, table cells, emphasis, link text and image descriptions. Text in a link
-is linked to that link's destination, whether the link is written inline, as a reference to a
-link reference definition or as an autolink. A rule ID in a raw HTML block is refused, since
-telling prose from markup there needs an HTML parser. Link destinations and titles, code block
-info strings and link reference definitions are not prose.
-
-A rule ID spelled with character references is one too. A numeric reference is decoded
-(`decodeReference`). A named reference is kept as written, which refuses `&RG1001;` (not a
-character reference of HTML, so rendered as written) and relies on this fact about HTML's named
-character references: none expands to text that contains `R`, `G` or an ASCII digit. It was
-checked against md4c's table of them, in which only `&fjlig;` expands to ASCII letters or digits.
+list items, block quotes, table cells, emphasis, link text and image descriptions. A run is the
+text of one line of a block, or of one table cell or image description: its prose, the text of
+its links and the text of its code spans, in order. A rule-ID token of a run's text is a mention
+unless all of it is code. A mention is accepted only when all of it lies in the text of one link
+whose destination is the rule's page, whether the link is written inline or as a reference to a
+link reference definition; a mention that a link's edge or a code span's edge divides is
+refused. Link destinations and titles, code block info strings and link reference definitions
+are not prose.
 
 ## Boundaries
 
-`refused_nil_iff` and `documentErrors_nil_iff` are about the pieces they are given: that the
+`rejected_nil_iff` and `documentErrors_nil_iff` are about the pieces they are given: that the
 pieces are the document's is the parser's part, stated in `website/RegulaMarkdown.lean` and in
 the contributor guide. `leftmost_le` and `le_rightmost` bound every placement that `Placed`
 admits; that the true lines of the reported text are such a placement rests on the parser
@@ -58,16 +58,21 @@ open Regula.Prose
 
 /-- One piece of a Markdown document as its parser reports it, in document order. -/
 inductive Piece where
-  /-- Prose: `slice` is the text as the parser reported it from the source, `rendered` what it
-  renders as (a character reference decoded) and `link` the destination of the link whose text
-  it lies in, if any. -/
-  | text (slice rendered : String) (link : Option String)
+  /-- Prose: `slice` is the text as the parser reported it from the source and `rendered` what it
+  renders as (a character reference decoded). It lies in the text of the link entered last and
+  not yet left, if any. -/
+  | text (slice rendered : String)
   /-- Text of a code span or code block, as the parser reported it from the source. -/
   | code (slice : String)
-  /-- Text of a raw HTML block, as the parser reported it from the source. -/
-  | raw (slice : String)
-  /-- A boundary between two runs of prose on one source line, such as a link's edge or the
-  edge of a table cell. -/
+  /-- The start of the text of a link that leads to `destination`. -/
+  | enter (destination : String)
+  /-- The end of a link's text. -/
+  | leave
+  /-- A construct the check refuses to read, for the reason given. Its place is that of the next
+  piece with source text. -/
+  | refused (reason : String)
+  /-- A boundary between two runs on one source line: the edge of a table cell or of an image's
+  description. -/
   | gap
   /-- A line boundary: the pieces after it lie on a later source line than the pieces before
   it. -/
@@ -82,35 +87,7 @@ inductive Reading where
   | read (pieces : List Piece)
   deriving DecidableEq, Repr
 
-/-- The value of the hexadecimal digit `c`, if it is one. -/
-def hexDigit? (c : Char) : Option Nat :=
-  if c.isDigit then some (c.toNat - '0'.toNat)
-  else if 'a' ≤ c && c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
-  else if 'A' ≤ c && c ≤ 'F' then some (c.toNat - 'A'.toNat + 10)
-  else none
-
-/-- The number that `digits` write in base `base`, if every one is a digit of that base. -/
-def number? (base : Nat) (digits : List Char) : Option Nat :=
-  digits.foldl (fun value c => value.bind fun n =>
-    (hexDigit? c).bind fun d => if d < base then some (base * n + d) else none) (some 0)
-
-/-- What the character reference `reference` renders as. A numeric reference, `&#N;` or `&#xN;`,
-is the character with that code point, or U+FFFD when there is none or it is zero, as CommonMark
-defines. Any other reference is kept as written (see the module documentation). -/
-def decodeReference (reference : String) : String :=
-  match reference.toList with
-  | '&' :: '#' :: rest =>
-    let digits := rest.takeWhile (· != ';')
-    let value := match digits with
-      | 'x' :: hex | 'X' :: hex => number? 16 hex
-      | decimal => number? 10 decimal
-    match value with
-    | some n => if n != 0 && (Char.ofNat n).toNat == n then String.singleton (Char.ofNat n)
-      else "�"
-    | none => reference
-  | _ => reference
-
-/-! ## Mentions -/
+/-! ## Findings -/
 
 /-- Whether `text` has no character other than whitespace. The parser reports the spaces and
 line ends it supplies itself as such text, so only other text is located in the source. -/
@@ -119,100 +96,172 @@ def blank (text : String) : Bool := text.toList.all Char.isWhitespace
 /-- The source text that locates a piece: what the parser reported for it, unless it is
 `blank`. -/
 def Piece.located? : Piece → Option String
-  | .text slice _ _ | .code slice | .raw slice => if blank slice then none else some slice
-  | .gap | .line => none
+  | .text slice _ | .code slice => if blank slice then none else some slice
+  | .enter _ | .leave | .refused _ | .gap | .line => none
 
-/-- One rule-ID token of a document. -/
+/-- Where one character of a run stands. -/
+inductive Place where
+  /-- In prose outside every link. -/
+  | prose
+  /-- In the text of the link numbered `index` in the document, which leads to
+  `destination`. -/
+  | link (index : Nat) (destination : String)
+  /-- In a code span or a code block. -/
+  | code
+  deriving DecidableEq, Repr
+
+/-- How a rule-ID token of a run stands. -/
+inductive Standing where
+  /-- All of it is prose outside every link. -/
+  | bare
+  /-- All of it is in the text of one link, which leads to `destination`. -/
+  | linked (destination : String)
+  /-- Its characters stand in different places: a link's edge or a code span's edge divides
+  it. -/
+  | split
+  deriving DecidableEq, Repr
+
+/-- What the check finds at one place of a document. -/
+inductive Finding where
+  /-- A rule-ID token of a run that is not wholly code, such as `RG1001`. -/
+  | mention (token : String) (standing : Standing)
+  /-- A construct the check refuses to read, with the reason. -/
+  | refused (reason : String)
+  deriving DecidableEq, Repr
+
+/-- One finding and its place. -/
 structure Found where
-  /-- The token, such as `RG1001`. -/
-  token : String
-  /-- The destination of the link whose text the token lies in, if any. -/
-  link : Option String
-  /-- Whether the token lies in a raw HTML block. -/
-  raw : Bool
-  /-- The number of located pieces (`Piece.located?`) before the piece the token starts in. -/
+  /-- What was found. -/
+  finding : Finding
+  /-- The number of located pieces (`Piece.located?`) before the piece it starts in. -/
   anchor : Nat
   deriving DecidableEq, Repr
 
-/-- The `anchor` of the part of a run that holds the character at `offset`; `parts` are the
-run's parts in order, each with its anchor and its text. -/
-def anchorAt : List (Nat × String) → Nat → Nat
-  | [], _ => 0
-  | [(anchor, _)], _ => anchor
-  | (anchor, text) :: rest, offset =>
-    if offset < text.length then anchor else anchorAt rest (offset - text.length)
+/-- One part of a run. -/
+structure Part where
+  /-- The number of located pieces before its piece. -/
+  anchor : Nat
+  /-- Where its characters stand. -/
+  place : Place
+  /-- Its rendered text. -/
+  text : String
+  deriving DecidableEq, Repr
 
-/-- The rule-ID tokens of one run, whose text is the texts of `parts` in order. -/
-def runTokens (link : Option String) (raw : Bool) (parts : List (Nat × String)) : List Found :=
-  ((splitTokens none 0 [] (String.join (parts.map (·.2))).toList).foldl
-    (fun (acc : Nat × List Found) part =>
-      match part with
+/-- How a token whose characters stand at `places` stands; `none` when all of it is code, which
+is then no mention. -/
+def standing : List Place → Option Standing
+  | [] => none
+  | first :: rest =>
+    if rest.all (· == first) then
+      match first with
+      | .prose => some .bare
+      | .link _ destination => some (.linked destination)
+      | .code => none
+    else some .split
+
+/-- The mentions of one run, whose text is the texts of `parts` in order. -/
+def runTokens (parts : List Part) : List Found :=
+  let tags : List (Nat × Place) :=
+    parts.flatMap fun part => List.replicate part.text.length (part.anchor, part.place)
+  ((splitTokens none 0 [] (String.join (parts.map (·.text))).toList).foldl
+    (fun (acc : Nat × List Found) piece =>
+      match piece with
       | .inl between => (acc.1 + between.length, acc.2)
-      | .inr token => (acc.1 + token.length, ⟨token, link, raw, anchorAt parts acc.1⟩ :: acc.2))
+      | .inr token =>
+        let here := (tags.drop acc.1).take token.length
+        (acc.1 + token.length,
+          match standing (here.map (·.2)) with
+          | some stands => ⟨.mention token stands, (here.head?.map (·.1)).getD 0⟩ :: acc.2
+          | none => acc.2))
     (0, [])).2.reverse
 
 /-- The state of the scan of a document's pieces. -/
 structure Scan where
   /-- The number of located pieces read so far. -/
   anchor : Nat := 0
-  /-- The link of the run in progress. -/
-  link : Option String := none
-  /-- The parts of the run in progress, last first, each with its anchor. -/
-  run : List (Nat × String) := []
-  /-- The tokens found so far, last first. -/
+  /-- The number of links entered so far. -/
+  links : Nat := 0
+  /-- The link whose text is being read, with its number. -/
+  link : Option (Nat × String) := none
+  /-- The parts of the run in progress, last first. -/
+  run : List Part := []
+  /-- The findings so far, last first. -/
   found : List Found := []
 
-/-- End the run in progress and keep its tokens. -/
+/-- End the run in progress and keep its mentions. -/
 def Scan.flush (s : Scan) : Scan :=
-  { s with run := [], found := (runTokens s.link false s.run.reverse).reverse ++ s.found }
+  { s with run := [], found := (runTokens s.run.reverse).reverse ++ s.found }
 
 /-- The scan after a piece with source text `slice`. -/
 def Scan.past (s : Scan) (slice : String) : Scan :=
   if blank slice then s else { s with anchor := s.anchor + 1 }
 
-/-- Read one piece. Prose with the same link continues the run in progress; any other piece
-ends it, so no token spans a code span, a link's edge, a table cell's edge or a line. A piece of
-a raw HTML block is a run of its own. -/
+/-- Where prose read now stands. -/
+def Scan.place (s : Scan) : Place :=
+  match s.link with
+  | some (index, destination) => .link index destination
+  | none => .prose
+
+/-- Read one piece. Prose and code continue the run in progress, each character with its place;
+the edge of a table cell or of an image's description and a line boundary end it, so a token is
+read across the edges of links and code spans and across nothing else. -/
 def Scan.step (s : Scan) : Piece → Scan
-  | .text slice rendered link =>
-    let s := if s.link == link then s else { s.flush with link }
-    Scan.past { s with run := (s.anchor, rendered) :: s.run } slice
-  | .code slice => s.flush.past slice
-  | .raw slice =>
-    let s := s.flush
-    Scan.past { s with found := (runTokens none true [(s.anchor, slice)]).reverse ++ s.found }
-      slice
+  | .text slice rendered =>
+    Scan.past { s with run := ⟨s.anchor, s.place, rendered⟩ :: s.run } slice
+  | .code slice => Scan.past { s with run := ⟨s.anchor, .code, slice⟩ :: s.run } slice
+  | .enter destination => { s with link := some (s.links, destination), links := s.links + 1 }
+  | .leave => { s with link := none }
+  | .refused reason => { s with found := ⟨.refused reason, s.anchor⟩ :: s.found }
   | .gap | .line => s.flush
 
-/-- The rule-ID tokens of a document's prose and raw HTML, in document order. -/
-def mentions (pieces : List Piece) : List Found :=
+/-- The findings of a document: the mentions of its runs and its refused constructs. -/
+def findings (pieces : List Piece) : List Found :=
   (pieces.foldl Scan.step {}).flush.found.reverse
 
-/-- The mention of prose that `f` is, on line `line`. -/
-def Found.mention (line : Nat) (f : Found) : Mention := ⟨line, f.token, f.link⟩
-
-/-- `f` is accepted: it is not in raw HTML, its token is a registered rule ID, and it lies in the
-text of a link whose destination `target` accepts as that rule's page. -/
+/-- `f` is accepted: it is a rule-ID token, a registered rule ID, all of which lies in the text of
+one link whose destination `target` accepts as that rule's page. A refused construct, a bare
+mention and a mention that an edge divides are not accepted. -/
 def Found.Accepted (target : RuleId → String → Bool) (f : Found) : Prop :=
-  f.raw = false ∧ (f.mention 0).Linked target
+  ∃ token destination, f.finding = .mention token (.linked destination) ∧
+    (⟨0, token, some destination⟩ : Mention).Linked target
 
 /-- `Found.Accepted`, decided. -/
 def Found.accepted (target : RuleId → String → Bool) (f : Found) : Bool :=
-  !f.raw && (f.mention 0).linked target
+  match f.finding with
+  | .mention token (.linked destination) =>
+    (⟨0, token, some destination⟩ : Mention).linked target
+  | _ => false
 
 theorem Found.accepted_iff (target : RuleId → String → Bool) (f : Found) :
     f.accepted target = true ↔ f.Accepted target := by
-  simp [Found.accepted, Found.Accepted, Mention.linked_iff]
+  unfold Found.accepted Found.Accepted
+  split
+  · rename_i token destination h
+    rw [Mention.linked_iff]
+    constructor
+    · intro hl
+      exact ⟨token, destination, h, hl⟩
+    · rintro ⟨token', destination', h', hl⟩
+      rw [h] at h'
+      cases h'
+      exact hl
+  · rename_i hne
+    constructor
+    · intro h
+      cases h
+    · rintro ⟨token, destination, h, _⟩
+      exact (hne token destination h).elim
 
-/-- The mentions of `pieces` that are not accepted, in document order. -/
-def refused (target : RuleId → String → Bool) (pieces : List Piece) : List Found :=
-  (mentions pieces).filter fun f => !f.accepted target
+/-- The findings of `pieces` that are not accepted, in document order. -/
+def rejected (target : RuleId → String → Bool) (pieces : List Piece) : List Found :=
+  (findings pieces).filter fun f => !f.accepted target
 
-/-- Nothing is refused exactly when every rule-ID token of the document's prose and raw HTML is
-accepted. -/
-theorem refused_nil_iff (target : RuleId → String → Bool) (pieces : List Piece) :
-    refused target pieces = [] ↔ ∀ f ∈ mentions pieces, f.Accepted target := by
-  simp only [refused, List.filter_eq_nil_iff, Bool.not_eq_true', Bool.not_eq_false]
+/-- Nothing is rejected exactly when every finding of the document is accepted: it has no
+refused construct, and every rule-ID token of its runs that is not wholly code is a registered
+rule ID inside one link to that rule's page. -/
+theorem rejected_nil_iff (target : RuleId → String → Bool) (pieces : List Piece) :
+    rejected target pieces = [] ↔ ∀ f ∈ findings pieces, f.Accepted target := by
+  simp only [rejected, List.filter_eq_nil_iff, Bool.not_eq_true', Bool.not_eq_false]
   exact ⟨fun h f hf => (Found.accepted_iff target f).mp (h f hf),
     fun h f hf => (Found.accepted_iff target f).mpr (h f hf)⟩
 
@@ -221,6 +270,19 @@ or without a fragment: the link every tracked Markdown document gives a rule. -/
 def target (id : RuleId) (destination : String) : Bool :=
   destination == Edition.dev.url id.route ||
     destination.startsWith (Edition.dev.url id.route ++ "#")
+
+/-- Whether `text`, the text of a raw HTML block, is exactly one fence marker of the
+documentation audit, the two forms the standard defines (§7, `Regula.Checker.Documentation`):
+`<!-- lean-trusted-compiler -->`, or `<!-- lean-fail: PATTERN -->` on one line with no `>` in
+`PATTERN`. Such a block is one HTML comment and nothing else, since a comment ends only at a
+`>`, so it renders as nothing. It is the only raw HTML the check reads. -/
+def auditMarker (text : String) : Bool :=
+  let value := text.trimAscii.toString
+  let chars := value.toList
+  !chars.contains '\n' &&
+    (value == "<!-- lean-trusted-compiler -->" ||
+      (value.startsWith "<!-- lean-fail:" && value.endsWith "-->" &&
+        !(chars.take (chars.length - 3)).contains '>'))
 
 /-! ## Source lines -/
 
@@ -491,21 +553,25 @@ theorem le_rightmost {α : Type} (fit : String → α → Bool) {n : Nat} {lines
 /-- Whether the source text `slice` occurs on the source line `line`. -/
 def occursOn (slice line : String) : Bool := line.contains slice
 
-/-- What a refused mention reports: the file, the line or the first and last line it can lie on,
-the ID and why it is refused. -/
+/-- What a rejected finding reports: the file, the line or the first and last line it can lie
+on, and the ID with why it is refused, or why the construct is refused. -/
 def Found.describe (file : String) (first last : Nat) (f : Found) : String :=
-  s!"{file}:{first}" ++ (if first == last then "" else s!"-{last}") ++ s!": {f.token} " ++
-    if f.raw then
-      "is in a raw HTML block, which is not read as prose; write it in Markdown, as a link to \
-        its rule page"
-    else (f.mention first).reason
+  s!"{file}:{first}" ++ (if first == last then "" else s!"-{last}") ++ ": " ++
+    match f.finding with
+    | .refused reason => reason
+    | .mention token .split =>
+      s!"{token} is only partly inside a link or a code span; write the whole ID as one link \
+        to its rule page"
+    | .mention token .bare => s!"{token} " ++ (⟨first, token, none⟩ : Mention).reason
+    | .mention token (.linked destination) =>
+      s!"{token} " ++ (⟨first, token, some destination⟩ : Mention).reason
 
-/-- What the document `file` with text `source` and pieces `pieces` is refused for: each rule ID
-in its prose that is not a link to its rule page (`target`) and each rule ID in a raw HTML block,
-with the line it lies on, or the first and last line it can lie on (`leftmost`, `rightmost`,
-`occursOn`; the whole document when the pieces have no placement). -/
+/-- What the document `file` with text `source` and pieces `pieces` is refused for: each
+construct the check refuses to read and each rule ID in its prose that is not a link to its rule
+page (`target`), with the line it lies on, or the first and last line it can lie on (`leftmost`,
+`rightmost`, `occursOn`; the whole document when the pieces have no placement). -/
 def errors (file source : String) (pieces : List Piece) : List String :=
-  match refused target pieces with
+  match rejected target pieces with
   | [] => []
   | found =>
     let lines := source.splitOn "\n"
@@ -516,8 +582,8 @@ def errors (file source : String) (pieces : List Piece) : List String :=
       f.describe file (first[f.anchor]?.getD 1) (last[f.anchor]?.getD lines.length)
 
 theorem errors_nil_iff (file source : String) (pieces : List Piece) :
-    errors file source pieces = [] ↔ refused target pieces = [] := by
-  cases h : refused target pieces <;> simp [errors, h]
+    errors file source pieces = [] ↔ rejected target pieces = [] := by
+  cases h : rejected target pieces <;> simp [errors, h]
 
 /-- What the document `file` with text `source` is refused for, given the parser's reading of
 it: that the reading cannot be used, or the `errors` of its pieces. -/
@@ -526,57 +592,71 @@ def documentErrors (file source : String) : Reading → List String
   | .read pieces => errors file source pieces
 
 /-- The document check reports nothing exactly when the parser's reading can be used and every
-rule-ID token of its prose and raw HTML is accepted: outside raw HTML, a registered rule ID, and
-linked to that rule's development page. -/
+finding of it is accepted: it has no construct the check refuses to read, and every rule-ID
+token of its runs that is not wholly code is a registered rule ID inside one link to that
+rule's development page. -/
 theorem documentErrors_nil_iff (file source : String) (reading : Reading) :
     documentErrors file source reading = [] ↔
-      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ mentions pieces, f.Accepted target := by
+      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target := by
   cases reading with
   | unread reason => simp [documentErrors]
-  | read pieces => simp [documentErrors, errors_nil_iff, refused_nil_iff]
+  | read pieces => simp [documentErrors, errors_nil_iff, rejected_nil_iff]
 
 /-- Registered contract of the executed Markdown document check. -/
 theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun run =>
     ∀ file source reading, run file source reading = [] ↔
-      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ mentions pieces, f.Accepted target) :=
+      ∃ pieces, reading = .read pieces ∧ ∀ f ∈ findings pieces, f.Accepted target) :=
   ⟨documentErrors_nil_iff⟩
 
 /-! Evaluated controls (observations of the compiled definitions, not proofs), on pieces written
 out by hand; the controls on Markdown text, read by md4c, are in `website/RegulaMarkdown.lean`. -/
+
+private def page : String := Edition.dev.url RuleId.sourceBuild.route
+
+private def bare (line : String) : String :=
+  s!"a.md:{line}: RG2003 is a bare rule ID in prose; make it a link to its rule page"
+
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard documentErrors "a.md" "x\n\nSee RG2003 and `RG2003`." (.read [.line,
-    .text "x" "x" none, .line, .text "See RG2003 and " "See RG2003 and " none, .code "RG2003",
-    .text "." "." none]) ==
-  ["a.md:3: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
+#guard documentErrors "a.md" "x\n\nSee RG2003 and `RG2003`." (.read [.line, .text "x" "x", .line,
+    .text "See RG2003 and " "See RG2003 and ", .code "RG2003", .text "." "."]) == [bare "3"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard documentErrors "a.md" ("[RG2003]\n\n[RG2003]: " ++ Edition.dev.url RuleId.sourceBuild.route)
-    (.read [.line, .gap,
-      .text "RG2003" "RG2003" (some (Edition.dev.url RuleId.sourceBuild.route ++ "#fix")), .gap]) ==
-  []
+#guard documentErrors "a.md" ("[RG2003]\n\n[RG2003]: " ++ page)
+    (.read [.line, .enter (page ++ "#fix"), .text "RG2003" "RG2003", .leave]) == []
+-- The same text also stands on a line the parser does not report, so the lines are a bracket.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard documentErrors "a.md" "*RG2003*\n\n[RG2003]: https://example.org/RG2003"
-    (.read [.line, .text "RG2003" "RG2003" none]) ==
-  ["a.md:1-3: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
+    (.read [.line, .text "RG2003" "RG2003"]) == [bare "1-3"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard documentErrors "a.md" "- RG1001\n- RG1001" (.read [.line, .text "RG1001" "RG1001" none,
-    .line, .text "RG1001" "RG1001" (some "https://example.org/")]) ==
-  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
-    "a.md:2: RG1001 is linked to https://example.org/, which is not its rule page"]
+#guard documentErrors "a.md" "- RG2003\n- RG2003" (.read [.line, .text "RG2003" "RG2003", .line,
+    .enter "https://example.org/", .text "RG2003" "RG2003", .leave]) ==
+  [bare "1", "a.md:2: RG2003 is linked to https://example.org/, which is not its rule page"]
+-- A token is read across the edges of links and code spans: one that an edge divides is refused,
+-- also between two links to the rule's page; one that is wholly code is no mention.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard documentErrors "a.md" "<p>RG1001</p>" (.read [.line, .raw "<p>RG1001</p>"]) ==
-  ["a.md:1: RG1001 is in a raw HTML block, which is not read as prose; write it in Markdown, as \
-    a link to its rule page"]
+#guard documentErrors "a.md" "RG2003 RG2003 RG2003 RG2003"
+    (.read [.line, .text "RG" "RG", .enter "u", .text "2003" "2003", .leave, .text " " " ",
+      .enter page, .text "RG" "RG", .leave, .enter page, .text "2003" "2003", .leave,
+      .text " RG" " RG", .code "2003", .text " " " ", .code "RG", .code "2003"]) ==
+  List.replicate 3 "a.md:1: RG2003 is only partly inside a link or a code span; write the whole \
+    ID as one link to its rule page"
+-- The edge of a table cell or of an image's description ends a run.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard documentErrors "a.md" "R&#71;1001 &RG1002; RG9999" (.read [.line, .text "R" "R" none,
-    .text "&#71;" (decodeReference "&#71;") none, .text "1001 " "1001 " none,
-    .text "&RG1002;" (decodeReference "&RG1002;") none, .text " RG9999" " RG9999" none]) ==
-  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
-    "a.md:1: RG1002 is a bare rule ID in prose; make it a link to its rule page",
-    "a.md:1: RG9999 is not a registered rule ID"]
+#guard documentErrors "a.md" "| RG | 2003 |" (.read [.line, .gap, .text "RG" "RG", .gap,
+    .text "2003" "2003"]) == []
+-- A refused construct is reported at the next text, whatever the text is.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard decodeReference "&#x47;" == "G" && decodeReference "&#0;" == "�" &&
-  decodeReference "&#xD800;" == "�" && decodeReference "&amp;" == "&amp;"
+#guard documentErrors "a.md" "x\n\n<p>\ny\n</p>" (.read [.line, .text "x" "x", .line,
+    .refused "raw HTML", .code "<p>", .line, .code "y", .line, .code "</p>"]) ==
+  ["a.md:3: raw HTML"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard documentErrors "a.md" "RG9999 and RG2003" (.read [.line, .enter page,
+    .text "RG9999 and " "RG9999 and ", .leave, .text "RG2003" "RG2003"]) ==
+  ["a.md:1: RG9999 is not a registered rule ID", bare "1"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard documentErrors "a.md" "" (.unread "no reading") == ["a.md: no reading"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard auditMarker "<!-- lean-trusted-compiler -->\n" && auditMarker "<!-- lean-fail: unknown -->" &&
+  !auditMarker "<!-- lean-fail: a --> RG2003 -->" && !auditMarker "<!-- RG2003 -->" &&
+  !auditMarker "<!-- lean-fail: a\nb -->" && !auditMarker "<!-->"
 
 end Regula.Markdown
