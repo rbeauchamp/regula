@@ -788,3 +788,19 @@ def observations {claim : Claim} (frozen : Frozen claim) (build : BuildObservati
   return values.toList
 
 end Regula.Checker.Acceptance
+
+namespace RegulaPolicy.Community
+
+/-- `failures` reports nothing exactly for options that are `Conforming`
+(`failures_eq_nil_iff`): nothing for the required baseline itself on a target without Mathlib,
+and a failure for a target that sets no option. The decision is over the options Lake resolved;
+reading them from the workspace is the adapter's. It is registered here, with the census that
+supplies those options, because its two witnesses are evaluations that the policy module, which
+sees its imports' declarations without their bodies, does not reduce. -/
+theorem checked_failures : Regula.ExecutableContract failures (fun run =>
+    Regula.Decides (· = [])
+      (fun input : BuildOptions × Bool => Conforming input.1 input.2) (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => failures_eq_nil_iff input.1 input.2)
+    ⟨(⟨required false, []⟩, false), by decide⟩ ⟨(⟨[], []⟩, false), by decide⟩⟩
+
+end RegulaPolicy.Community

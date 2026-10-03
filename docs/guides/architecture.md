@@ -208,7 +208,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 8, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 9, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -223,7 +223,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 8:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 9:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -406,7 +406,11 @@ metadata, not authenticated binary identity.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each [RG1007] registration with its
-  implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
+  implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`;
+  since schema 9 also `decisionKind`, which is `sound`, `complete` or `sound-and-complete` for a
+  requirement that is a `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`
+  and `null` for any other, and `notEstablished`, the direction a one-way kind leaves open and
+  `null` otherwise; a declaration's `executableContract` carries the same kind as `kind`),
   per-environment `executionSummary` counts (named `execution` before schema 8, when the writer
   began storing every `execution` member's root accounts once; `boundaries`, `checked` and
   `trusted` range over the boundaries reported on their own, so a later record of one trusted

@@ -96,6 +96,13 @@ instance : FromJson RecursionOrigin := ⟨fun j => do
   | some x => return x
   | none => throw "unknown RecursionOrigin"⟩
 
+instance : ToJson DecisionKind := ⟨fun x => .str x.spelling⟩
+instance : FromJson DecisionKind := ⟨fun j => do
+  let s ← j.getStr?
+  match DecisionKind.parse? s with
+  | some x => return x
+  | none => throw "unknown DecisionKind"⟩
+
 instance : ToJson EvaluatorRole := ⟨fun x => .str x.spelling⟩
 instance : FromJson EvaluatorRole := ⟨fun j => do
   match EvaluatorRole.parse? (← j.getStr?) with
@@ -138,16 +145,17 @@ instance : FromJson RegulaPolicy.Ranges := ⟨fun j => do
   }⟩
 
 /-- The collector's record of a registered executable contract: its root, rendered
-requirement and any refusal (`RegulaPolicy.ExecutableContract`), with its exact-field JSON
-codec. -/
+requirement, any refusal and its decision kind, `null` for a requirement that states none
+(`RegulaPolicy.ExecutableContract`), with its exact-field JSON codec. -/
 abbrev ExecutableContract := RegulaPolicy.ExecutableContract
 deriving instance ToJson for RegulaPolicy.ExecutableContract
 instance : FromJson RegulaPolicy.ExecutableContract := ⟨fun j => do
-  exactFields j ["root", "requirement", "failure"]
+  exactFields j ["root", "requirement", "failure", "kind"]
   return {
     root := ← j.getObjValAs? _ "root"
     requirement := ← j.getObjValAs? _ "requirement"
     failure := ← j.getObjValAs? _ "failure"
+    kind := ← j.getObjValAs? _ "kind"
   }⟩
 
 /-- The Lean-semantic record of one owned constant (`RegulaPolicy.Declaration`), with its

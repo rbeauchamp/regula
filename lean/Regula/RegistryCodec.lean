@@ -27,6 +27,17 @@ def parseMode : String → Except String EvidenceMode
 theorem mode_roundtrip (m : EvidenceMode) : parseMode (modeText m) = .ok m := by
   cases m <;> rfl
 
+/-- `parseMode` is a complete decision of the written modes (`mode_roundtrip`): it accepts the
+text of every evidence mode, and it refuses the empty text. The kind is one-way: that it accepts
+only those texts is not stated for this reader; `EvidenceMode.checked_parse` states it for the
+policy's own parser. -/
+theorem checked_parseMode : Regula.ExecutableContract parseMode
+    (Regula.DecidesCompletely (·.isOk = true) fun text => ∃ mode, text = modeText mode) :=
+  ⟨{ complete := fun _ ⟨mode, written⟩ => by
+       rw [written, mode_roundtrip]
+       rfl
+     refused := ⟨"", by decide⟩ }⟩
+
 /-- A rule ID as its JSON string, such as `"RG1001"`. -/
 def ruleJson (id : RuleId) : Json := .str id.spelling
 
@@ -40,6 +51,24 @@ def parseRule (j : Json) : Except String RuleId := do
 
 theorem rule_roundtrip (id : RuleId) : parseRule (ruleJson id) = .ok id := by
   cases id <;> rfl
+
+/-- `parseRule` is a complete decision of the written rule IDs (`rule_roundtrip`): it accepts
+the JSON string of every rule, and it refuses `null`. The kind is one-way: that it accepts only
+those strings is not stated for this reader; `checked_ruleIdParse` states it for the parser of
+the spelling. -/
+theorem checked_parseRule : Regula.ExecutableContract parseRule
+    (Regula.DecidesCompletely (·.isOk = true) fun json => ∃ id, json = ruleJson id) :=
+  ⟨{ complete := fun _ ⟨id, written⟩ => by
+       rw [written, rule_roundtrip]
+       rfl
+     refused := ⟨.null, by decide⟩ }⟩
+
+/-- `RuleId.parse?` accepts exactly the rule spellings (`RuleId.parse_spelling`,
+`RuleId.spelling_of_parse`). -/
+theorem checked_ruleIdParse : Regula.ExecutableContract RuleId.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ id : RuleId, text = id.spelling) :=
+  ⟨.of_roundtrip RuleId.parse_spelling (fun _ _ read => RuleId.spelling_of_parse read)
+    .projectAxiom (unwritten := "") rfl⟩
 
 private def categoryText : RuleCategory → String
   | .foundation => "foundation" | .declaration => "declaration"

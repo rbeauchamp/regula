@@ -369,6 +369,36 @@ theorem compilerTrustingAxiomName_iff (hAppend : RuntimeStringAppend) (n : Name)
   · simp [compilerTrustingAxiomName, h]
   · simp [compilerTrustingAxiomName, (nativeAxiomOrigin?_isSome_iff hAppend n).mpr h]
 
+/-- `nativeAxiomOrigin?` is a complete decision of the names the scheme generates, where the
+runtime's string append is concatenation: it accepts every `GeneratedNativeAxiom` name under
+`RuntimeStringAppend` (`nativeAxiomOrigin?_isSome_iff`), and it refuses the anonymous name. The
+hypothesis is part of the specification, so the registration is closed and the trusted runtime
+fact is stated where it is used.
+
+The kind is one-way for a reason the logic gives. Soundness holds with no hypothesis
+(`nativeAxiomOrigin?_sound`), but a sound kind also requires an input the function accepts, and
+accepting a generated name evaluates `String.Internal.append`, which no kernel proof does. -/
+theorem checked_nativeAxiomOrigin : Regula.ExecutableContract nativeAxiomOrigin?
+    (Regula.DecidesCompletely (·.isSome = true) fun n =>
+      RuntimeStringAppend ∧ GeneratedNativeAxiom n) :=
+  ⟨{ complete := fun n generated => (nativeAxiomOrigin?_isSome_iff generated.1 n).mpr generated.2
+     refused := ⟨.anonymous, by decide⟩ }⟩
+
+/-- `compilerTrustingAxiomName` is a complete decision of the compiler-trusting names: it accepts
+every enabled legacy compiler axiom, and every `GeneratedNativeAxiom` name under
+`RuntimeStringAppend` (`compilerTrustingAxiomName_iff`), and it refuses the anonymous name. The
+kind is one-way as for `checked_nativeAxiomOrigin`; soundness with no hypothesis is
+`compilerTrustingAxiomName_sound`. -/
+theorem checked_compilerTrustingAxiomName :
+    Regula.ExecutableContract compilerTrustingAxiomName
+      (Regula.DecidesCompletely (· = true) fun n =>
+        builtinCompilerAxiom n = true ∨ (RuntimeStringAppend ∧ GeneratedNativeAxiom n)) :=
+  ⟨{ complete := fun n trusting => by
+       rcases trusting with builtin | ⟨hAppend, generated⟩
+       · simp [compilerTrustingAxiomName, builtin]
+       · exact (compilerTrustingAxiomName_iff hAppend n).mpr (.inr generated)
+     refused := ⟨.anonymous, by decide⟩ }⟩
+
 /-! ## Module privacy: the prefix of a declaration's generated names -/
 
 /-- Appending names without macro scopes adds none. -/

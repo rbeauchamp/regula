@@ -43,10 +43,15 @@ theorem validate_exact (exitCode : Nat) (report : Json) :
   simp [validate, Regula.ExecutableContract.run, evaluate_success, Satisfied,
     checks, Invalidated]
 
-/-- Closed executable contract: deleting the equivalence proof breaks this registration. -/
-theorem checked_validation : Regula.ExecutableContract validate
-    (fun run => ∀ code report, run code report = .ok () ↔ Invalidated code report) :=
-  ⟨validate_exact⟩
+/-- Closed executable contract: deleting the equivalence proof breaks this registration. It is a
+two-way decision (`validate_exact`) that accepts a nonzero exit with a clean incomplete object
+and refuses a zero exit. -/
+theorem checked_validation : Regula.ExecutableContract validate (fun run =>
+    Regula.Decides (· = .ok ()) (fun input : Nat × Json => Invalidated input.1 input.2)
+      (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => validate_exact input.1 input.2)
+    ⟨(2, Json.mkObj [("status", .str "incomplete")]), rfl⟩
+    ⟨(0, .null), fun accepted => ((validate_exact 0 .null).mp accepted).1 rfl⟩⟩
 
 /-- Non-vacuity: a nonzero exit and a clean incomplete object can pass. -/
 theorem positive_control :

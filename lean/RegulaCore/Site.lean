@@ -740,10 +740,13 @@ theorem linkErrors_nil_iff (pages : List Page) :
   · intro h page hp link hl
     simp [(linkOKIn_pageIndex pages page link).mpr (h page hp link hl)]
 
-/-- Registered contract of the executed link check. -/
-theorem checked_linkErrors : Regula.ExecutableContract linkErrors (fun run =>
-    ∀ pages, run pages = [] ↔ ∀ page ∈ pages, ∀ link ∈ page.links, LinkOK pages page link) :=
-  ⟨linkErrors_nil_iff⟩
+/-- Registered contract of the executed link check, as a two-way decision
+(`linkErrors_nil_iff`): it reports nothing for no page, and reports a `javascript:` link. -/
+theorem checked_linkErrors : Regula.ExecutableContract linkErrors
+    (Regula.Decides (· = [])
+      fun pages => ∀ page ∈ pages, ∀ link ∈ page.links, LinkOK pages page link) :=
+  ⟨.of_iff linkErrors_nil_iff ⟨[], (linkErrors_nil_iff []).mpr (by simp)⟩
+    ⟨[⟨"a", true, [], none, ["javascript:x"]⟩], by decide +kernel⟩⟩
 
 /-! Evaluated controls (observations of the compiled tokenizer, not proofs): a missing
 target is reported, a resolving relative link with a fragment under a `<base href>` is
@@ -838,12 +841,19 @@ theorem missingAnchors_nil_iff (pages : List Page) (anchors : List (String × St
           (anchor.2 = "" ∨ anchor.2 ∈ page.ids) := by
   simp [missingAnchors, List.filter_eq_nil_iff, mem_pageIndex, Decidable.or_iff_not_imp_left]
 
-/-- Registered contract of the executed anchor check. -/
+/-- Registered contract of the executed anchor check, as a two-way decision
+(`missingAnchors_nil_iff`): it reports nothing for no anchor, and reports an anchor of a page
+that no page list holds. -/
 theorem checked_missingAnchors : Regula.ExecutableContract missingAnchors (fun run =>
-    ∀ pages anchors, run pages anchors = [] ↔
-      ∀ anchor ∈ anchors, ∃ page ∈ pages, page.path = anchor.1 ∧
-          (anchor.2 = "" ∨ anchor.2 ∈ page.ids)) :=
-  ⟨missingAnchors_nil_iff⟩
+    Regula.Decides (· = [])
+      (fun input : List Page × List (String × String) =>
+        ∀ anchor ∈ input.2, ∃ page ∈ input.1, page.path = anchor.1 ∧
+          (anchor.2 = "" ∨ anchor.2 ∈ page.ids))
+      (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => missingAnchors_nil_iff input.1 input.2)
+    ⟨([], []), (missingAnchors_nil_iff [] []).mpr (by simp)⟩
+    ⟨([], [("page", "")]), fun accepted => by
+      simpa using (missingAnchors_nil_iff [] [("page", "")]).mp accepted⟩⟩
 
 /-! ## Checklist rows and coverage -/
 
@@ -867,10 +877,14 @@ theorem rowsMismatch_eq_none_iff (rendered : List String) :
   unfold rowsMismatch
   split <;> simp_all
 
-/-- Registered contract of the executed row check. -/
-theorem checked_rowsMismatch : Regula.ExecutableContract rowsMismatch (fun run =>
-    ∀ rendered, run rendered = none ↔ rendered = checklistRows) :=
-  ⟨rowsMismatch_eq_none_iff⟩
+/-- Registered contract of the executed row check, as a two-way decision
+(`rowsMismatch_eq_none_iff`): it reports no mismatch for `checklistRows` itself, and one for the
+empty list. -/
+theorem checked_rowsMismatch : Regula.ExecutableContract rowsMismatch
+    (Regula.Decides (· = none) (· = checklistRows)) :=
+  ⟨.of_iff rowsMismatch_eq_none_iff
+    ⟨checklistRows, (rowsMismatch_eq_none_iff _).mpr rfl⟩
+    ⟨[], fun accepted => absurd ((rowsMismatch_eq_none_iff _).mp accepted) (by decide)⟩⟩
 
 /-- Every row a rule explanation lists is a checklist row. -/
 theorem guide_checklist_listed (id : RuleId) :

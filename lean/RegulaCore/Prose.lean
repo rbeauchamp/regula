@@ -163,11 +163,18 @@ theorem bareMentions_nil_iff (target : RuleId → String → Bool) (runs : List 
   · rintro h m ⟨run, hr, hm⟩
     exact (Mention.linked_iff target m).mpr (h run hr m hm)
 
-/-- Registered contract of the executed prose check. -/
+/-- Registered contract of the executed prose check, as a two-way decision over the page
+predicate and the runs (`bareMentions_nil_iff`): it reports nothing for no run, and reports a
+bare rule ID in a run outside every link. -/
 theorem checked_bareMentions : Regula.ExecutableContract bareMentions (fun run =>
-    ∀ target runs, run target runs = [] ↔
-      ∀ r ∈ runs, ∀ m ∈ r.mentions, m.Linked target) :=
-  ⟨bareMentions_nil_iff⟩
+    Regula.Decides (· = [])
+      (fun input : (RuleId → String → Bool) × List Run =>
+        ∀ r ∈ input.2, ∀ m ∈ r.mentions, m.Linked input.1)
+      (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => bareMentions_nil_iff input.1 input.2)
+    ⟨(fun _ _ => false, []), (bareMentions_nil_iff _ []).mpr (by simp)⟩
+    ⟨(fun _ _ => false, [⟨1, "RG1001", none⟩]),
+      (by decide +kernel : ¬ bareMentions (fun _ _ => false) [⟨1, "RG1001", none⟩] = [])⟩⟩
 
 /-- Why a mention that is not linked is refused. -/
 def Mention.reason (m : Mention) : String :=

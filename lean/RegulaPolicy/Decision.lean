@@ -323,6 +323,34 @@ theorem declarationFailure_none_iff (d : Declaration) (r : InspectionRequest)
       conditional_none, Option.isSome_iff_ne_none] <;>
     grind
 
+/-- `declarationFailure` reports nothing exactly when the recorded declaration meets
+`DeclarationOK` for the request and the supplied role sets (`declarationFailure_none_iff`):
+nothing for an axiom-free definition under Kernel-only, and a failure for an authored axiom. The
+decision is over the recorded declaration and the supplied role sets. That the record is what
+Lean holds is the collector's, and that the role sets are the inventory's is `policyFor`'s
+`Roles` argument, whose type depends on the inventory and so has theorems
+(`policyFor_none_iff`) and no kind. -/
+theorem checked_declarationFailure : Regula.ExecutableContract @declarationFailure
+    (fun (failure : Declaration → InspectionRequest → Array Name → Array Name →
+        Option DeclarationFailure) =>
+    Regula.Decides (· = none)
+      (fun input : ((Declaration × InspectionRequest) × Array Name) × Array Name =>
+        DeclarationOK input.1.1.1 input.1.1.2 input.1.2 input.2)
+      (Function.uncurry (Function.uncurry (Function.uncurry failure)))) :=
+  let recorded (kind : DeclarationKind) : Declaration :=
+    { name := `subject, «module» := `Module, kind, «type» := "", prettyType := "", isProp := false
+      isUnsafe := false, isPartial := false, safety := none, «instance» := false
+      «noncomputable» := false, implementedBy := none, «extern» := false, internal := false
+      «private» := false, projection := false, matcher := false, recursive := false
+      unsafeRecBase := none, levelParams := #[], all := #[], hints := none, valueConstants := #[]
+      unsafeRecRegenerated := none, constructorIndex := none, nativeStatement := none
+      nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[] }
+  ⟨.of_iff (fun input => declarationFailure_none_iff input.1.1.1 input.1.1.2 input.1.2 input.2)
+    ⟨(((recorded .«definition», .conforming .«kernelOnly»), #[]), #[]),
+      by simp [Function.uncurry, declarationFailure, recorded]⟩
+    ⟨(((recorded .«axiom», .conforming .«kernelOnly»), #[]), #[]),
+      by simp [Function.uncurry, declarationFailure, recorded]⟩⟩
+
 /-- The actual public decision is sound and complete for the exact inventory member. -/
 theorem policyFor_none_iff (i : Inventory) (roles : Roles i) (d : Declaration)
     (r : InspectionRequest) :
