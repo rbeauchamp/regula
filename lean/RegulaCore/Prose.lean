@@ -61,9 +61,9 @@ line that starts with a list marker, a footnote marker (`[^label]:`) or `>` or h
 `=`, `*` or `_` (`interrupts`), and, when its first line is indented four spaces or more, before
 the first line that is not. A footnote definition is a container like a list item, whose text is
 prose. In each paragraph, heading and cell, `scanInline` reads code spans, links whose text holds
-no `[`, `<` or open code span and whose target is well formed (`validTarget`), HTML tags on one
-line, comments that close in their paragraph other than `<!-->`, `<!--->` and one whose text
-holds `--` or ends in `-`, autolinks and bare URLs; every other character is prose.
+no `[`, `<` or open code span and whose target is well formed (`validTarget`), comments that
+open and close on one line other than `<!-->`, `<!--->` and one whose text holds `--` or ends in
+`-`, autolinks and bare URLs; every other character is prose. Raw HTML is not in the subset.
 
 Refused (`Refusal`): a fenced code block that is never closed; a fence run indented four spaces
 or more; a line of a fenced code block with fewer leading spaces than its fence; a line whose text
@@ -73,9 +73,12 @@ spaces or more, or directly after a paragraph line, a table row or a line that e
 line that starts with an HTML tag, processing instruction or declaration other than an autolink; a
 line that starts with a comment that is not all of it; a numeric character reference; a code span
 left open where a paragraph ends at an `interrupts` line, a table's header row or the end of an
-indented first line's paragraph; and a code span, link or HTML tag that a `|` splits in a table
-row (`splitCell`). That GitHub renders a document of the subset as these definitions read it is
-the check's premise, observed in the controls below, not proved.
+indented first line's paragraph; a code span or link that a `|` splits in a table row
+(`splitCell`); raw HTML in text, a `<` outside a code span that a letter, `/`, `?` or `!` follows,
+other than an autolink or a comment that opens and closes on one line (`rawHtml?`); and a link
+reference definition split over lines (`splitDefinition`). That GitHub renders a document of the
+subset as these definitions read it is the check's premise, observed in the controls below, not
+proved.
 
 In HTML, an element, comment or script that is never closed would hide the text after it, so
 `htmlErrors` refuses such a page; an element closed and reopened out of order is not detected.
@@ -439,8 +442,13 @@ inductive Refusal where
   /-- A line that is a link reference definition where the scanner does not read one: after a
   paragraph line, a table row or a line that ends a paragraph. -/
   | strayDefinition
-  /-- A code span, link or HTML tag that a `|` splits in a table row. -/
+  /-- A code span or link that a `|` splits in a table row. -/
   | splitTableCell
+  /-- Raw HTML in text: a `<` that starts a tag, processing instruction, declaration or `CDATA`
+  section, or a comment that does not open and close on one line (`rawHtml?`). -/
+  | inlineHtml
+  /-- A link reference definition split over lines (`splitDefinition`). -/
+  | splitDefinition
   deriving DecidableEq, Repr
 
 /-- What a refusal reports: the construct, and how to write it inside the subset. -/
@@ -472,7 +480,12 @@ def Refusal.message (r : Refusal) : String :=
     | .strayDefinition => ("a link reference definition directly after a paragraph line, a table \
         row or a line that ends a paragraph, where the scanner reads it as prose",
       "put each link reference definition after a blank line, at the end of the document")
-    | .splitTableCell => ("a code span, link or HTML tag that a `|` splits in a table row",
+    | .inlineHtml => ("raw HTML in text: a `<` that starts a tag, processing instruction, \
+        declaration or CDATA section, or a comment that does not open and close on one line",
+      "write it in Markdown, put it in a code span, or write each comment on one line")
+    | .splitDefinition => ("a link reference definition split over lines",
+      "write each link reference definition on one line")
+    | .splitTableCell => ("a code span or link that a `|` splits in a table row",
       "escape the `|` as `\\|` or keep the construct in one cell")
   "unsupported Markdown construct: " ++ construct ++ "; " ++ remedy
 
@@ -517,8 +530,8 @@ def interrupts (line : String) : Bool :=
 inductive Piece where
   /-- Prose, with the destination of the link whose text it lies in, if any. -/
   | prose (text : String) (link : Option String)
-  /-- Text that is not prose: a code span, a link's brackets and destination, an HTML tag or
-  comment, an autolink or a bare URL. -/
+  /-- Text that is not prose: a code span, a link's brackets and destination, a comment, an
+  autolink or a bare URL. -/
   | skip (raw : String)
   deriving DecidableEq, Repr
 
@@ -560,71 +573,44 @@ def commentLength : List Char → Option Nat
   | _ :: rest => (commentLength rest).map (· + 1)
   | [] => none
 
-/-- The text after the attributes at the head of `chars`: each an attribute name after spaces or
-tabs, with an optional `=` and a value, quoted or unquoted (the attribute grammar of CommonMark
-§6.6), or `none` when a value is malformed. `fuel` bounds the attributes read. -/
-def afterAttributes : Nat → List Char → Option (List Char)
-  | 0, chars => some chars
-  | fuel + 1, chars =>
-    let spaced := chars.dropWhile isBlank
-    match spaced with
-    | [] => some chars
-    | c :: _ =>
-      if spaced.length == chars.length || !(c.isAlpha || c == '_' || c == ':') then some chars
-      else
-        let afterName := spaced.dropWhile fun c =>
-          c.isAlphanum || c == '_' || c == '.' || c == ':' || c == '-'
-        match afterName.dropWhile isBlank with
-        | '=' :: value =>
-          match value.dropWhile isBlank with
-          | [] => none
-          | q :: v =>
-            if q == '"' || q == '\'' then
-              match v.dropWhile (· != q) with
-              | _ :: after => afterAttributes fuel after
-              | [] => none
-            else
-              let n := ((q :: v).takeWhile fun c =>
-                !(isBlank c || "\"'=<>`".toList.contains c)).length
-              if n == 0 then none else afterAttributes fuel ((q :: v).drop n)
-        | _ => afterAttributes fuel afterName
-
-/-- Whether `body`, the text between a `<` and the next `>`, is an open tag, a closing tag or a
-URI autolink, in the grammar of CommonMark §6.5 and §6.6. -/
-def inlineTag (body : List Char) : Bool :=
-  let tagName (chars : List Char) := chars.takeWhile fun c => c.isAlphanum || c == '-'
-  match body with
-  | '/' :: rest => rest.head?.any Char.isAlpha && (rest.drop (tagName rest).length).all isBlank
-  | c :: _ =>
-    let name := tagName body
-    let after := body.drop name.length
-    c.isAlpha && match after with
-      | ':' :: link =>
-        2 ≤ name.length && name.length ≤ 32 && !link.any fun c => c.isWhitespace || c == '<'
-      | _ => match afterAttributes (after.length + 1) after with
-        | some tail => match tail.dropWhile isBlank with
-          | [] | ['/'] => true
-          | _ => false
-        | none => false
-  | [] => false
-
-/-- The number of characters after a `<` through the end of the HTML comment, tag or autolink
-it opens, when it opens one: a comment closes in the rest of its paragraph, and a tag or autolink
-(`inlineTag`) is well formed on its own line. Otherwise, as for a comment its paragraph does not
-close, a malformed tag or an open tag that spans lines, the `<` is prose. -/
+/-- The number of characters after a `<` through the end of the comment or autolink it opens, when
+it opens one: a comment that closes on its line, whose text does not start with `>` or `->`, end
+with `-` or hold `--`, or an autolink (`startsAutolink`). Every other `<` that a letter, `/`, `?`
+or `!` follows is raw HTML, which the subset does not hold (`rawHtml?`). -/
 def tagLength (rest : List Char) : Option Nat :=
   match rest with
   | '!' :: '-' :: '-' :: '>' :: _ => none
   | '!' :: '-' :: '-' :: '-' :: '>' :: _ => none
   | '!' :: '-' :: '-' :: tail => (commentLength tail).bind fun k =>
     let text := tail.take (k - 3)
-    if ((String.ofList text).splitOn "--").length > 1 || text.getLast? == some '-' then none
+    if text.contains '\n' || ((String.ofList text).splitOn "--").length > 1 ||
+        text.getLast? == some '-' then none
     else some (3 + k)
   | _ =>
-    let body := rest.takeWhile (· != '>')
-    if body.length < rest.length && !body.contains '\n' && inlineTag body then
-      some (body.length + 1)
-    else none
+    if startsAutolink ('<' :: rest) then some ((rest.takeWhile (· != '>')).length + 1) else none
+
+/-- The line, counted from 0, of the first `<` of `chars`, outside a code span and not after a
+backslash, that starts raw HTML: a letter, `/`, `?` or `!` after it, other than a comment or an
+autolink that `tagLength` reads. `line` counts the line breaks read and `fuel` bounds the
+characters read. -/
+def rawHtml? : Nat → Nat → List Char → Option Nat
+  | _, _, [] => none
+  | 0, line, _ => some line
+  | fuel + 1, line, '\n' :: rest => rawHtml? fuel (line + 1) rest
+  | fuel + 1, line, '\\' :: c :: rest => rawHtml? fuel (if c == '\n' then line + 1 else line) rest
+  | fuel + 1, line, '`' :: rest =>
+    let n := 1 + (rest.takeWhile (· == '`')).length
+    let after := rest.drop (n - 1)
+    match codeClose n 0 after with
+    | some k => rawHtml? fuel (line + (after.take k).count '\n') (after.drop k)
+    | none => rawHtml? fuel line after
+  | fuel + 1, line, '<' :: c :: rest =>
+    if c.isAlpha || c == '/' || c == '?' || c == '!' then
+      match tagLength (c :: rest) with
+      | some k => rawHtml? fuel line ((c :: rest).drop k)
+      | none => some line
+    else rawHtml? fuel line (c :: rest)
+  | fuel + 1, line, _ :: rest => rawHtml? fuel line rest
 
 /-- Whether `chars` starts a bare URL. -/
 def startsUrl (chars : List Char) : Bool :=
@@ -704,15 +690,6 @@ def runsOf (line : Nat) (pieces : List Piece) : List Run :=
       | .prose text link => ⟨acc.1, text, link⟩ :: acc.2
       | .skip _ => acc.2)) (line, [])).2.reverse
 
-/-- Whether `chars` has an `<` that starts what could be an HTML tag or comment (a letter, `/` or
-`!` after it) that `tagLength` does not close. -/
-def tagUnclosed : List Char → Bool
-  | '<' :: c :: rest =>
-    ((c.isAlpha || c == '/' || c == '!') && (tagLength (c :: rest)).isNone) ||
-      tagUnclosed (c :: rest)
-  | _ :: rest => tagUnclosed rest
-  | [] => false
-
 /-- The cells of a table row: `chars` split at each `|` that no backslash escapes; `acc` holds the
 cell in progress, reversed. -/
 def cells : List Char → List Char → List (List Char)
@@ -721,11 +698,25 @@ def cells : List Char → List Char → List (List Char)
   | acc, '|' :: rest => acc.reverse :: cells [] rest
   | acc, c :: rest => cells (c :: acc) rest
 
-/-- Whether a cell of a table row holds part of a code span, link or HTML tag that a `|` splits:
-a backtick run that does not close in it (`codeBalanced`), a `[` or `]` without its pair, or a
-`<` that does not close as a tag or comment. -/
+/-- Whether a cell of a table row holds part of a code span or link that a `|` splits: a backtick
+run that does not close in it (`codeBalanced`), or a `[` or `]` without its pair. -/
 def splitCell (cell : List Char) : Bool :=
-  !codeBalanced (cell.length + 1) cell || cell.count '[' != cell.count ']' || tagUnclosed cell
+  !codeBalanced (cell.length + 1) cell || cell.count '[' != cell.count ']'
+
+/-- Whether the paragraph `text` is a link reference definition split over lines: after its
+container markers, a `[` label, other than a footnote's, that closes on a later line and is followed
+by `:`, or a label and a `:` that end its first line. -/
+def splitDefinition (text : List Char) : Bool :=
+  match (afterContainers text.length false text).2 with
+  | '[' :: rest =>
+    match closeIndex '[' ']' 0 rest with
+    | some i =>
+      rest.head? != some '^' && match rest.drop (i + 1) with
+        | ':' :: after =>
+          (rest.take i).contains '\n' || (after.takeWhile (· != '\n')).all Char.isWhitespace
+        | _ => false
+    | none => false
+  | _ => false
 
 /-- A block of a document. -/
 inductive Block where
@@ -737,6 +728,15 @@ inductive Block where
   | definition (label destination : String)
   /-- A line for which the document is refused, with the construct. -/
   | refused (line : Nat) (refusal : Refusal)
+
+/-- The paragraph `text` that starts on line `line`, refused (`Refusal.inlineHtml`) at the line of
+its first raw HTML (`rawHtml?`) and (`Refusal.splitDefinition`) when it is a link reference
+definition split over lines (`splitDefinition`). -/
+def paragraphBlocks (line : Nat) (text : String) : List Block :=
+  .paragraph line text ::
+    ((rawHtml? (text.length + 1) 0 text.toList).map fun k =>
+      Block.refused (line + k) .inlineHtml).toList ++
+    if splitDefinition text.toList then [.refused line .splitDefinition] else []
 
 /-- The block open before a line. -/
 inductive Open where
@@ -750,17 +750,21 @@ inductive Open where
   character and length. -/
   | fence (line indent : Nat) (character : Char) (count : Nat)
 
-/-- The block that `o` is when it ends before line `line`: a table with a refusal for each row
-that a `|` splits a construct of (`splitCell`), and a refusal for a fenced code block that the
+/-- The block that `o` is when it ends before line `line`: a paragraph with its refusals
+(`paragraphBlocks`), a table with a refusal for each row that a `|` splits a construct of
+(`splitCell`) or that holds raw HTML (`rawHtml?`), and a refusal for a fenced code block that the
 document never closes, since everything after it would be code. -/
 def Open.close (line : Nat) : Open → List Block
   | .idle => []
-  | .paragraph lines => [.paragraph (line - lines.length) ("\n".intercalate lines.reverse)]
+  | .paragraph lines => paragraphBlocks (line - lines.length) ("\n".intercalate lines.reverse)
   | .table start rows =>
-    .table start rows.reverse :: ((List.range rows.length).zip rows.reverse).filterMap
+    .table start rows.reverse :: ((List.range rows.length).zip rows.reverse).flatMap
       fun (i, row) =>
-        if (cells [] row.toList).any splitCell then some (.refused (start + i) .splitTableCell)
-        else none
+        let parts := cells [] row.toList
+        (if parts.any splitCell then [.refused (start + i) .splitTableCell] else []) ++
+          if parts.any fun cell => (rawHtml? (cell.length + 1) 0 cell).isSome then
+            [.refused (start + i) .inlineHtml]
+          else []
   | .fence opened _ _ _ => [.refused opened .unclosedFence]
 
 /-- The paragraph `o` when the scanner ends it before line `line` at an `interrupts` line or a
@@ -802,7 +806,7 @@ def blocks : Nat → Open → List String → List Block
     else if let some (character, count) := fenceOpen? text then
       o.close line ++ blocks (line + 1) (.fence line spaces character count) rest
     else if isHeading text || (spaces ≤ 3 && wholeComment (text.toList.drop spaces)) then
-      o.close line ++ .paragraph line text :: blocks (line + 1) .idle rest
+      o.close line ++ paragraphBlocks line text ++ blocks (line + 1) .idle rest
     else if !(o matches .idle) &&
         (referenceDefinition? (String.ofList (text.toList.dropWhile isBlank))).isSome then
       o.close line ++ .refused line .strayDefinition :: blocks (line + 1) .idle rest
@@ -828,8 +832,8 @@ def refusals (lines : List String) : List (Nat × Refusal) :=
     | _ => none
 
 /-- The prose of a Markdown document (`blocks`): for each paragraph, heading and comment line, and
-each cell of each table row (`cells`), its text outside code spans, link destinations, HTML tags
-and comments, autolinks and bare URLs. -/
+each cell of each table row (`cells`), its text outside code spans, link destinations, comments,
+autolinks and bare URLs. -/
 def markdownRuns (text : String) : List Run :=
   let parts := blocks 1 .idle (text.splitOn "\n")
   let defined := parts.filterMap fun
@@ -1055,7 +1059,8 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
     "a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Compare <!-- draft and RG1001 here.\n" ==
-  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+  ["a.md:1: " ++ Refusal.inlineHtml.message,
+    "a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Compare <!-- draft RG1001 --> and that.\n" == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
@@ -1144,7 +1149,8 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md"
     "Text <!--> RG1001 -->, <!---> RG1002 --> and <!-- a -- RG1003 -->.\n" ==
-  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+  ["a.md:1: " ++ Refusal.inlineHtml.message,
+    "a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
     "a.md:1: RG1002 is a bare rule ID in prose; make it a link to its rule page",
     "a.md:1: RG1003 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
@@ -1193,11 +1199,14 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md"
     ("See [RG1001].\n\n[RG1001]: <" ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") ==
-  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+  ["a.md:3: " ++ Refusal.inlineHtml.message,
+    "a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
     "a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("See [RG1001](<" ++ Edition.dev.url RuleId.projectAxiom.route ++
-    ").\n") == ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+    ").\n") == 
+  ["a.md:1: " ++ Refusal.inlineHtml.message,
+    "a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("[RG1001 [x](u)](" ++ Edition.dev.url RuleId.projectAxiom.route ++
     ") and [RG1002\\](" ++ Edition.dev.url RuleId.proofHole.route ++ ")\n") ==
@@ -1209,7 +1218,28 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
   ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "See <a \"RG1001\"> and <a title=\"RG1002\">it</a>.\n" ==
-  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+  ["a.md:1: " ++ Refusal.inlineHtml.message,
+    "a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+    "a.md:1: RG1002 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "See <span title=\"`>\"> RG1001 and `code`.\n" ==
+  ["a.md:1: " ++ Refusal.inlineHtml.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See <span\ntitle=\"[\">RG1001](" ++
+    Edition.dev.url RuleId.projectAxiom.route ++ ")\n") ==
+  ["a.md:1: " ++ Refusal.inlineHtml.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("> x <!--\n> [-->RG1001](" ++
+    Edition.dev.url RuleId.projectAxiom.route ++ ")\n") ==
+  ["a.md:1: " ++ Refusal.inlineHtml.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001].\n\n[RG1001]:\nhttps://example.com/wrong\n\n" ++
+    "[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") ==
+  ["a.md:3: " ++ Refusal.splitDefinition.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001].\n\n[RG1001\n]: https://example.com/wrong\n\n" ++
+    "[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") ==
+  ["a.md:3: " ++ Refusal.splitDefinition.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "## Why RG2003 fires first\n\nText.\n" ==
   ["a.md:1: RG2003 is a bare rule ID in prose; make it a link to its rule page"]
@@ -1251,7 +1281,8 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
       <td><a href=\"rules/RG1002/\">RG1002</a></td></tr></table>" == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "[note](see RG1001 below) and <b\nRG1002>.\n\n[x]: see RG1003\n" ==
-  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+  ["a.md:1: " ++ Refusal.inlineHtml.message,
+    "a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
     "a.md:2: RG1002 is a bare rule ID in prose; make it a link to its rule page",
     "a.md:4: RG1003 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.

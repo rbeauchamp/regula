@@ -360,9 +360,9 @@ before a blank line, a fence, a heading, a comment line, a table's header row or
 starts with a list marker, a footnote marker or `>` or holds only `-`, `=`, `*` or `_`, and, when
 its first line is indented four spaces or more, before the first line that is not. In them it
 reads code spans, links whose text holds no `[`, `<` or open code span and whose destination and
-title are well formed, HTML tags on one line, comments that close in their paragraph (other than
-`<!-->`, `<!--->` and one whose text holds `--` or ends in `-`), autolinks and bare URLs;
-everything else is prose. It refuses a fenced code block that is never closed; a fence run
+title are well formed, comments that open and close on one line (other than `<!-->`, `<!--->` and
+one whose text holds `--` or ends in `-`), autolinks and bare URLs; everything else is prose, and
+raw HTML is not in the subset. It refuses a fenced code block that is never closed; a fence run
 indented four spaces or more; a line of a fenced code block less indented than its fence; a line
 whose text after its list markers, footnote markers or `>` starts with a fence run, an HTML tag, a
 comment, a table's delimiter row or a link reference definition, so write those outside the list
@@ -371,8 +371,11 @@ more, or directly after a paragraph line, a table row or a line that ends a para
 each after a blank line at the end of the document; a line that starts with an HTML tag,
 processing instruction or declaration, so raw HTML blocks are not supported; a line that starts
 with a comment that is not all of it; a numeric character reference; a code span left open where
-a paragraph ends at such a line, at a table's header row or after an indented first line; and a
-code span, link or HTML tag that a `|` splits in a table row. A page with a
+a paragraph ends at such a line, at a table's header row or after an indented first line; a code
+span or link that a `|` splits in a table row; raw HTML in text, a `<` outside a code span that a
+letter, `/`, `?` or `!` follows, other than an autolink or a comment that opens and closes on one
+line, so put HTML in a code span or write it in Markdown; and a link reference definition split
+over lines. A page with a
 `code`, `pre`, `title` or `h1` element, a comment or a script that is never closed is refused,
 since the text after it could not be read as prose. The release editions already published are frozen copies and are not rewritten.
 
