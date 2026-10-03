@@ -1059,8 +1059,7 @@ consulted. The rest is argued, with no theorem:
   restored and Lean's caches are emptied, so it reads the observed definitions in the inspected
   environment whatever assignment the regeneration ran under. Every question the search asks
   (`Collect.decisionIn`) is undone the same way, and its answers reach nothing but the list of
-  assignments and, through the definitions recorded, whether a helper that nothing reproduces is
-  reported as undecided or as rejected. The fallback's assignments are read from statuses, kernel
+  assignments. The fallback's assignments are read from statuses, kernel
   hints and module membership, and select a regeneration like the others.
   So no assignment, and no failure to find one, admits a helper whose value differs
   from its base: a search that finds nothing returns no origin, and one that stops at its bound
@@ -1162,24 +1161,19 @@ outcome with no violation before it matches the text). Incomplete, not a violati
 the checker has: a helper no attempt within the bound reproduces may still be what Lean generated,
 so reporting it as a violation of the rule would assert what the checker has not established, and
 the helper is not admitted either way. The helper Lean generated for a definition of the
-seven-candidate shape does not need the enumeration (`fixtures_where_seven`), and the shape that the
-replaced search left undecided is now decided in both directions: `fixtures_bound_searched` is
-admitted, and in `Fixtures.Mutations.ReducibleAfterUnsafeRecForge` its faithful copy is admitted and
-its divergent copy rejected.
+seven-candidate shape does not need the enumeration (`fixtures_where_seven`), and the helper Lean
+generated for the shape that the replaced search left undecided is now admitted:
+`fixtures_bound_searched`, and in `Fixtures.Mutations.ReducibleAfterUnsafeRecForge` the helper of
+that shape and its faithful copy.
 
-The fallback has the same bound, with one exception. Where the definitions it gives a status allow
-more than 63 assignments, only the first 63 single changes are tried, and a helper none of them
-reproduces is undecided in the same way, unless `Collect.statusCandidates` recorded Lean's
-compilers asking about each of those definitions, in both environments: the fixed-parameter
-analysis with every definition unfolding, or the preprocessing before any change. The search has
-then given each such definition every status and enumerated those that change a decision, and the
-assignments the fallback left untried give statuses to such definitions alone, so the helper is
-rejected as it is where the enumerations are exhaustive. That divergent copy is the case: it
-reaches seven definitions of its module with a status a global attribute can have replaced, the
-fallback tries their seven single changes, and Lean's compilers were recorded asking about all
-seven. Like the candidates themselves this is argued, not proved: it rests on the recorded
-questions being what decides a regeneration for those definitions. A helper is undecided, too,
-where `earlierStatusOptions` did not visit every definition reached.
+The fallback has the same bound. Where the definitions it gives a status allow more than 63
+assignments, only the first 63 single changes are tried, and a helper none of them reproduces is
+undecided in the same way, as is one for which `earlierStatusOptions` did not visit every
+definition reached. `Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge` pins it: the
+divergent copy of a helper of that shape reaches seven definitions of its module with a status a
+global attribute can have replaced, none of the three assignments of the two that change a
+decision reproduces it, and neither does any of the fallback's seven single changes, so it is
+neither admitted nor rejected, as it was under the replaced search.
 
 Every observation the checker takes from Lean's reduction runs with smart unfolding off
 (`Collect.withoutSmartUnfolding`, applied by `Collect.declaration` and by `Probe`'s observations).

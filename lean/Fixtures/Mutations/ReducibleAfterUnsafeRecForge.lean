@@ -16,10 +16,10 @@ definition, the `_unary` definition Lean compiled it into where there is one,
 the unfolding theorems Lean proved with them (`eq_def`, issue #210: the kernel
 has to check the base's recursion equation, and for a well-founded definition
 the checker looks for its proof in a theorem of that name, whoever declared
-it) and its range-less `_unsafe_rec` helper twice:
+it) and its range-less `_unsafe_rec` helper:
 
-- `fixtures_forged_after_faithful` and `fixtures_forged_before_faithful`
-  rename only, and
+- `fixtures_forged_after_faithful`, `fixtures_forged_before_faithful` and
+  `fixtures_forged_bound_faithful` rename only, and
 - `fixtures_forged_after_divergent` and `fixtures_forged_before_divergent`
   also make the helper call `fixtures_forged_after_skip` at its non-recursive
   leaf, where the kernel-checked base calls `fixtures_forged_after_step`, so
@@ -31,14 +31,12 @@ made `reducible` afterwards, and its leaf calls five more functions that are
 stopped without a verdict, when it enumerated every definition of the module
 the helper reaches (seven of them, 127 assignments, more than the 63 it
 tries). Only the two functions in the recursive call change a decision of
-Lean's compilers, so the search is exhaustive over three assignments. For the
-divergent copy, which none of them reproduces, the checker then tries the
-seven single changes of that enumeration, which are not all of its 127
-assignments, and decides all the same: Lean's compilers were recorded asking
-about each of the seven definitions, so the search has already enumerated the
-statuses of theirs that change a decision. Each of the three helpers is
-decided: the honest one and its faithful copy are admitted, and the divergent
-copy is rejected, where it was undecided before.
+Lean's compilers, so the search is exhaustive over three assignments, and the
+honest helper and its faithful copy are admitted under one of them. The
+divergent copy of this shape is no control here: none of the three reproduces
+it, the checker then tries that enumeration, whose seven single changes are
+not all of its 127 assignments, and the helper is undecided
+(`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge`).
 
 Exact match admits the honest helpers and the faithful copies, and rejects the
 divergent ones alone. An assignment only selects which regeneration runs: the
@@ -145,5 +143,3 @@ forge_reducible_after_helper fixtures_forged_before_honest fixtures_forged_befor
 forge_reducible_after_helper fixtures_forged_before_honest fixtures_forged_before_divergent diverge
 
 forge_reducible_after_helper fixtures_forged_bound_honest fixtures_forged_bound_faithful
-
-forge_reducible_after_helper fixtures_forged_bound_honest fixtures_forged_bound_divergent diverge

@@ -18,8 +18,15 @@ before any other. Before that search each form below was an observed
 rejection, or an audit that stopped without a verdict, on Lean 4.34.0, except
 those marked as new, which were not run before it.
 
-All but `fixtures_where_instance` and `fixtures_where_implicit` need
-`set_option allowUnsafeReducibility true`.
+`set_option allowUnsafeReducibility true` is needed by the forms with
+`attribute [local reducible]` or `attribute [local irreducible]`, and by
+`fixtures_where_unreduced`, `fixtures_where_elsewhere` and
+`fixtures_where_upgraded`, whose change after the definition Lean's validation
+does not admit. The others need no option: `fixtures_where_instance` and
+`fixtures_where_implicit`, and the forms that make a semireducible function of
+this file `reducible` after the definition (`fixtures_bound_searched`,
+`fixtures_where_seven`, `fixtures_where_later`, `fixtures_where_both` and
+`fixtures_where_accessible`).
 
 * `fixtures_where_local` passes a parameter through
   `fixtures_where_local_keep`, `reducible` only for that definition

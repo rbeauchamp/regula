@@ -500,9 +500,7 @@ def guide : RuleId → Guide
           replaced on the definitions of the helper's module that it reaches, tried after \
           those, have the same bound: where they allow more than 63 assignments only the first \
           63 single changes are tried, and a helper none of them reproduces is undecided in the \
-          same way, unless Lean's recursion compilers were recorded asking about each of those \
-          definitions, whose statuses that change a decision the search has then already \
-          enumerated.",
+          same way (`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge`).",
         "A function the definition calls is followed through the functions that it unfolds to \
           and that do not unfold at the end of the audit, however many, and is then tried \
           together with each definition Lean's preprocessing asks about before any change and \

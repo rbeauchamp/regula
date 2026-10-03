@@ -334,8 +334,7 @@
    "[OK] fixtures_forged_before_faithful._unsafe_rec",
    "[VIOLATION[escape-hatch]] fixtures_forged_before_divergent._unsafe_rec",
    "[OK] fixtures_forged_bound_honest._unsafe_rec",
-   "[OK] fixtures_forged_bound_faithful._unsafe_rec",
-   "[VIOLATION[escape-hatch]] fixtures_forged_bound_divergent._unsafe_rec"
+   "[OK] fixtures_forged_bound_faithful._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.AuthoredSmartUnfoldingUnsafeRecForge": {
@@ -368,6 +367,11 @@
   "expect": "fail",
   "reason": "audit-incomplete",
   "pattern": "fixtures_over_divergent.*undecided"
+ },
+ "Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge": {
+  "expect": "fail",
+  "reason": "audit-incomplete",
+  "pattern": "fixtures_forged_bound_divergent.*undecided.*earlier reducibility status"
  },
  "Fixtures.Mutations.ForgedMatchElaborator": {
   "expect": "fail",
