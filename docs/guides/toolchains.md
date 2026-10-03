@@ -34,11 +34,10 @@ For an installed release candidate, substitute its full selector, for example
 full commit and legacy compiler-trust capability, creates a detached Git worktree from the
 current commit, changes only the compiler declaration, capability, candidate marker and
 `lean-toolchain`, and commits the candidate.
-It refuses a selector that names no toolchain `elan toolchain list` prints, a release channel
-such as `stable` included, so it
-never installs a toolchain, changes the caller's branch, or overrides the stable guard. The
-new worktree is retained for inspection, source adaptation, and ordinary Git worktree
-management.
+It refuses a selector unless `elan toolchain list` prints a toolchain spelled as it or as its
+release name; it resolves no channel such as `stable`, so it never installs a toolchain, changes
+the caller's branch, or overrides the stable guard. The new worktree is retained for inspection,
+source adaptation, and ordinary Git worktree management.
 
 The capability probe executes the same isolated Core observer used by the checker. It accepts
 only the complete legacy axiom family with the expected types and origins, or all three names
@@ -69,12 +68,14 @@ commit without matching artifacts, set `dependency-build-mode` to `source` in th
 and run `./scripts/provision.sh`, then `lean --run lean/RegulaProvision.lean verso`.
 An interrupted source setup retains its staging directory. A later invocation resumes only
 when its compiler/mode/policy key, pre-build artifact-policy marker, Lake configuration,
-manifest, toolchain selector and generated import module match exactly. Existing package checkouts must retain their
-pinned origins and commits, without working-tree edits, stashes or additional local branch
-work. Unknown stages and local changes are preserved. It still completes the requested
-transitive dependency build before publishing the read-only store. A setup
-timeout remains a failed invocation. Finish setup before running acceptance; this does not
-divide either acceptance step or change its deadline.
+manifest, toolchain selector and generated import module match exactly, and its existing
+package checkouts retain their pinned origins and commits, without working-tree edits, stashes
+or additional local branch work. A matching stage that fails those package checks, such as one
+an interrupted clone left without a checked-out revision, is reported and left untouched; another
+admissible stage is resumed, or else a new one is created. Unknown stages and local changes are
+preserved. It still completes the requested transitive dependency build before publishing the
+read-only store. A setup timeout remains a failed invocation. Finish setup before running
+acceptance; this does not divide either acceptance step or change its deadline.
 The source plan disables Lake and Mathlib cache downloads; shared receipts and CI keys
 distinguish its artifacts by compiler commit and mode. See
 [dependency provisioning](contributing.md#share-one-mathlib-across-local-copies) for the
@@ -111,10 +112,16 @@ The proved package-installation predicate requires both `GITHUB_ACTIONS=true` an
 
 CI first runs the reusable compiler preparation job, then restores that compiler in the
 existing check jobs. Its cache key includes the specification, selector and installer
-source. The shell bootstrap installs fixed Lean 4.34.0 to run this Lean installer even
-when the repository's compiler is not installed yet. With no source specification, the
-installer asks Elan for the committed official release or dated nightly unless Elan already
-lists it, and then runs that compiler.
+source. The required `verify` and `title` checks, the rule-example shards and the dogfood jobs
+follow that job only for its cache and start whatever its result, so a failed or cancelled
+preparation cannot leave them skipped, which GitHub reports as success: after a failed
+preparation each runs its own provisioning and checks, and on a cancelled run its steps do not
+pass, so it reports cancelled. In the diagnostics workflow `applies` runs only once preparation
+succeeded, so a failed or cancelled preparation fails the required `diagnostics` gate. The shell
+bootstrap installs fixed Lean 4.34.0 to run this Lean installer even when the repository's
+compiler is not installed yet. With no source specification, the installer asks Elan for the
+committed official release or dated nightly unless Elan already lists it, and then runs that
+compiler.
 Compiler preparation does not establish checker support. The existing acceptance and
 diagnostic commands keep their deadlines, and their results must still pass at the
 reviewed revision. Compiler self-reports, the build tools, cache storage and filesystem
@@ -185,7 +192,8 @@ candidate `3fc295bc179835ad19505fcde016b7b0888b4a3c`, prepared from
 `16fba8111c4861bd6483b04c0367b835a1b1eb68`. Both built Regula and remained **unqualified**;
 their ordinary audit commands refused. The candidate commits and their receipts and logs are
 local to the machine that ran them and are not published. The receipts predate later changes
-on this branch: the shared documentation labels, compiler-specific LRAT generation, the cold
+on this branch: the #192, #193 and #195 repairs, the shared documentation labels,
+compiler-specific LRAT generation, the cold
 guard's binding to the running compiler, the identity probe, and `doctor`'s check of the
 project's pin. No receipt exercised those paths, so the final source remains unqualified on
 both newer compilers and these observations add neither to the supported stable release.
@@ -223,7 +231,8 @@ native-proof control does not replace the retired direct-axiom control. Construc
 helpers are authenticated against Lean's generator under their own declaration policy, while
 their unsafe and runtime-replacement execution boundaries remain visible. The
 `replacement-cycle` control now reaches the detector through compiler-compatible construction.
-The RG5002 failure came from the changed documentation parser behavior described above.
+The RG5002 failure is attributed to the changed documentation parser behavior described above
+by reading the producer's exact documentation check, not by a rerun.
 The original failures remain historical evidence; these repairs need qualification at the
 actual compatibility revision before that revision is promoted.
 
@@ -233,8 +242,9 @@ actual compatibility revision before that revision is promoted.
 
 At compiler commit `6751f97b0c3dbefec2aaf1ce9e07b877101c5662`,
 `ToLCNF.constantReplacer` performs at most one `CSimp.replaceConstant?` lookup per call, and
-conversion revisits the resulting expression. This replaces the historical two-stage
-4.34.0 explanation in standard §7.6 for this pin. The accepted constant-equality shape and
+conversion revisits the resulting expression. This differs from the two-stage 4.34.0 account in
+standard §7.6, which this guide does not replace: only the standard is normative, and a
+compatibility revision for this compiler must amend it. The accepted constant-equality shape and
 positional universe substitution are unchanged.
 
 Regula's `simplificationCandidates` recognizes every declaration of that equality shape,
@@ -259,9 +269,9 @@ complete, ordered campaign observations meeting each required exit and output.
 `Regula.Setup.toolchainIssues_eq_nil_iff` proves that `doctor`'s decision reports no toolchain
 issue exactly when the project's pin resolved to a compiler whose reported identity
 `Compiler.Supports`; a pin that resolves to no installed compiler is an issue.
-`installedName?_spec` proves that `prepare`, `qualify` and `doctor` give `elan run` only a
-name among those `elan toolchain list` printed, spelled as the selector or as its release
-name; Elan would install any other known release. These are
+`installedName?_spec` proves that the name `selectedLean` gives `elan run`, the path `prepare`,
+`qualify` and `doctor` use, is among the names parsed from `elan toolchain list`, spelled as
+the selector or as its release name, run without Elan's `--install`. These are
 kernel-checked statements about supplied values. They do not authenticate compiler binaries
 or Git commits, prove subprocess behavior, establish detector completeness, or prevent a
 filesystem change-and-restore race.

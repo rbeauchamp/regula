@@ -1,4 +1,9 @@
-/-! Collector qualification on real generated declarations and isolated, unchecked copies.
+/-! Collector qualification on the declarations the selected compiler generates and on isolated,
+unchecked copies. Which controls run depends on that compiler's capability, not on whether the
+revision is a candidate: without `getObjTagNat`, as on Lean 4.34.0, the control checks only that
+the observer finds no constructor-index helper for any of the six parents; with it, as on the
+selected release-candidate and source compilers, it also exercises the observer's positive path,
+`ConstructorIndexHelperOK` admission, the transport round trip and the mutation controls.
 The altered environments are never exported or executed. This checks the actual observer and
 transport, not kernel admission or native correspondence of the mutated declarations.
 The harness prefixes imports and the positive fixture's source so its declarations are local. -/

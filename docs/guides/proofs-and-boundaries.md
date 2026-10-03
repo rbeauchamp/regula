@@ -255,11 +255,13 @@ linter feed it into admission. This linkage trusts compiler execution, installat
 import loading and canonical filesystem paths. It does not prove those IO mechanisms.
 `ProducerReport.validate_sound` and `fromJson_admissible` also require this agreement for every
 raw or decoded admitted report, without relying on sampled transport mutations. When the
-capability is absent, the checked decision theorems show that a retired name cannot become a
-compiler axiom or an authenticated native axiom and its singleton axiom set is unknown. A
-dependent non-axiom declaration without an earlier proof-hole failure receives the unknown-axiom
-refusal even in teaching mode. Native-proof authentication
-retains its separate statement, replay and command-provenance requirements.
+capability is absent (unsatisfiable on this stable revision, whose compiled capability is
+`present`; it holds once a prepared revision compiles `absent`), the checked decision
+theorems show that a retired name cannot become a compiler axiom or an authenticated native
+axiom and its singleton axiom set is unknown. A dependent non-axiom declaration without an
+earlier proof-hole failure receives the unknown-axiom refusal even in teaching mode.
+Native-proof authentication retains its separate statement, replay and command-provenance
+requirements.
 
 **Admission by construction** (`RegulaPolicy.Domain`, `Admission`): declaration kinds, boundary
 kinds, correspondence, foundation classes, profiles, modes, safety and evaluator roles are closed
@@ -797,6 +799,10 @@ parent, base and wrapper in the same inventory and module with exact metadata, a
 relation. `Roles.safetyHelpers_iff` preserves which of the two helper families supplied admission.
 These are proofs about the observations; native object-tag correspondence remains trusted.
 The owned unsafe and runtime-replacement boundaries remain in execution reports.
+The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
+observer's positive path, admission, transport and mutations only on a compiler that has
+`getObjTagNat`, such as the selected release-candidate and source compilers; on Lean 4.34.0,
+which generates no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
@@ -1271,8 +1277,8 @@ again. The compiled admission guards remain in force when a configuration is cac
 
 `doctor` reads the project's own `lean-toolchain`, resolves it to a toolchain
 `elan toolchain list` names, and reads the version and commit that compiler reports,
-independently of the compiler running `regula`. `elan run` installs a known release that is
-missing, so only a listed name is run: `Regula.Toolchain.installedName?_spec` proves that the
+independently of the compiler running `regula`. Only a listed name is run, without Elan's
+`--install`, and no channel is resolved: `Regula.Toolchain.installedName?_spec` proves that the
 name is one of those supplied as listed, spelled as the selector or as its release name.
 `Regula.Setup.toolchainIssues_eq_nil_iff` proves that the
 decision reports no toolchain issue exactly when that resolved identity
@@ -1379,6 +1385,37 @@ creates its tag at the given commit, tags, immutable releases, pull requests, sq
 taking the pull request's title and description, workflow ordering, and that Lake and Reservoir
 read and order versions as their source shows ([Reservoir](contributing.md#reservoir)) are
 trusted.
+
+## The diagnostics gate
+
+**Proved** in `lean/Regula/DiagnosticsGate.lean`, checked by the kernel in ordinary acceptance's
+build and each time a step of the [diagnostics workflow](../../.github/workflows/diagnostics.yml)
+elaborates it (its `diagnostics` job on every pull request, and `applies` whenever it runs):
+`verdict`, the decision of the required `diagnostics` check over the workflow's `needs` context,
+passes exactly when the job `applies` succeeded, every job it decided is one the gate needs, and
+every job the gate needs passed when it was decided to apply and was skipped when it was decided
+not to (`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one
+that ran out of time, which GitHub reports as one of the two, and as is a job decided to apply that
+was skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
+`applies` writes and each partition job's `if:` reads, runs the campaigns on every run other than
+a pull request's (`campaign_of_ne`) and on a pull request's exactly when an input of `inputs`,
+the only statement of the campaigns' paths, covers one of its changed paths
+(`campaign_pullRequest_iff`); a pull request whose every changed path lies in `docs/` or
+`website/`, or is `README.md` or `AGENTS.md`, runs none (`campaign_documentation`). A pull
+request's changed paths are those at which the merge commit GitHub creates and tests differs from
+its first parent, the head of the base branch, a rename as both of its paths; `applies` refuses a
+checked-out commit without exactly two parents. Reading the event, the changed paths, the
+context's JSON and the decisions `applies` wrote is operational, and a result, event or decision
+the steps do not know fails them. **Trusted:** GitHub (the event, the merge commit, the `needs`
+context and its report of a matrix job as succeeded only when every job of it did, a job's `if:`,
+timeouts, cancellation, that an `always()` job runs on a cancelled run, and the ruleset that
+requires `diagnostics`) and `git` (the commits it fetched and the paths `diff-tree` lists). That
+every partition job of the workflow is in the gate's `needs` and has its `if:` read its own
+decision is the workflow's wiring, which no step observes; a needed job without a decision and a
+decided job the gate does not need fail the gate. The
+compiler-preparation job `compiler` is not a partition job: `applies` needs it and has no `if:`,
+so `applies` runs, and the gate can pass, only once `compiler` succeeded (GitHub's implicit
+`success()`, trusted, and also the workflow's wiring).
 
 ## Rule examples and the corpus runner
 
@@ -1669,14 +1706,68 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see).
+states what it does not see). The controls are two clusters in different shards.
+`structuralSelfHosted` builds the copy and runs an accepting fresh gate on it, then the
+incremental gate on each of the three contaminations, restoring each before the next. It then
+checks the restored copy's fresh input against that of a copy prepared anew, and runs an
+accepting fresh gate on the restored copy itself. Both accepting gates audit that cluster's own
+copy, so neither depends on the other shard. `freshInput` takes what the gate's copy operation
+copies from each of the two copies, and any differing path or byte fails the cluster.
+`structuralSelfHostedPositive`, in the other shard, runs the accepting fresh gate on a copy
+prepared the same way (`prepareSelfHosted`). That equal fresh input gives the same gate run, so
+that the restored gate and that positive audit the same input, rests on a fact that is not a
+theorem: a fresh gate reads the audited project only through `copyProject`, which prunes the
+project's `.lake`, and builds that copy from empty output; without `--with-docs`, as here, it
+reads no other file of the project, and the packages directory it links is the repository's for
+every copy. The two shards are jobs of one workflow matrix, which starts both on the one commit
+it checks out. That both pass before merging is enforced by the ruleset of `main`, not by the
+self-test, which observes nothing of the other job: the workflow runs the matrix on a pull
+request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists, and its
+required `diagnostics` check, which reports on every pull request, passes on a run where the
+matrix applies only when the matrix job succeeded in that run
+([the diagnostics gate](#the-diagnostics-gate)). That GitHub reports a matrix job succeeded
+only when every job of it did is GitHub's behaviour, trusted.
+
+Each partition's baseline build names what its controls read from the repository's own build
+(`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
+projects of their own, where the gate builds that project's targets itself, and the manifest
+controls run `axiomGate` on the repository with a manifest it refuses before any build. So the
+structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its second shard runs
+no `docFenceAudit`), the execution baseline is `axiomGate` alone, and neither builds the
+repository's claimed surface; the other partitions keep the complete baseline. That is a
+reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
+`toolPath` refuses an executable that build did not name (for every checker executable the
+self-test's own module runs, other than itself), and `baselineOf_axiomGate` proves that every
+baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run by its path. A
+claimed-surface `.olean` that a control read from the repository's build without the baseline
+naming it would be absent on a clean checkout and fail that control there; on a warm local
+build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate` and, for a
+structural selection, its other checker executables in one Lake invocation
+(`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
+ones instead of after its link; that command selects nothing, and the baseline build still
+names and builds its targets. The frozen-artifact, library cycle and manifest
+controls run in the structural clusters' queue, so no more of them run at once than the queue
+has workers.
+
+The controls of each of these two partitions are divided into two shards, `1/2` and `2/2`
+(`--shard`), which the diagnostics workflow runs as separate jobs. Every control carries its one
+shard where the partition lists it, and a shard runs the controls that carry it (`inShard`);
+`inShard_cover` proves that the two selections together are a rearrangement of the whole list,
+so each control runs in exactly one shard. Both shards list the same controls because they run
+the same sources, which no theorem states. The structural shards are the mutation clusters
+`self-hosted`, `a` and `b` with the frozen-artifact controls, and `self-hosted-positive`, `c`
+and `d` with the library cycle and manifest controls; the execution shards hold one
+correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
+controls it ran and is not the partition's.
 
 Before the structural project, every cluster ran in a copy of the whole repository claiming
 `RegulaPolicy`, and one partition held the structural, correspondence and compiler-path
 controls: an instrumented run took 513 s, in which 21 gate runs each inspected the unchanged
 `RegulaPolicy` library (about 475 s of roughly 1,200 s of control work). `diagnostics
-structural` and `diagnostics execution` now each run under the 420-second deadline, locally and
-as jobs of the diagnostics workflow. Observed on 2026-10-01 on a 14-core machine that other
+structural` and `diagnostics execution` then each ran under the 420-second deadline, locally
+and as jobs of the diagnostics workflow, where the slowest hosted `structural` run observed
+(2026-10-02) took 413 s; the workflow now runs each partition as two shards, a job each.
+Observed on 2026-10-01 on a 14-core machine that other
 builds kept at a load average of 10 to 13, `structural` passed in 96 s and `execution` in 90 s
 (102 s and 94 s for the whole `verify.sh` invocation). These are observations of two runs, not
 a bound: the deadline itself is what refuses a slower run. The `structural` run predates that

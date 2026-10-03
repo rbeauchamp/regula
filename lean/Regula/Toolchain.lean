@@ -33,18 +33,22 @@ private def prepare (root : FilePath) (selector : String) (destination : FilePat
   unless (← IO.FS.readFile (root / "lean/RegulaPolicy/Compiler.lean")) == template do
     throw <| IO.userError "compiler policy differs from this driver build; rebuild the driver"
   let identity ← probe root selector
+  -- The imported policy is also a build dependency of this executable. Replacing escaped
+  -- Lean string literals specializes the same policy; the candidate recompiles its proofs.
+  let replaceOnce (text old new : String) : IO String := do
+    unless (text.splitOn old).length == 2 do
+      throw <| IO.userError s!"compiler policy does not contain exactly one {old}"
+    return text.replace old new
+  let policy ← [(reprStr RegulaPolicy.Compiler.version, reprStr identity.version),
+      (reprStr RegulaPolicy.Compiler.commit, reprStr identity.commit),
+      (s!"def legacyCompilerTrust : LegacyCompilerTrust := .{RegulaPolicy.Compiler.legacyCompilerTrust.spelling}",
+        s!"def legacyCompilerTrust : LegacyCompilerTrust := .{identity.legacyCompilerTrust.spelling}"),
+      ("def candidate : Bool := false", "def candidate : Bool := true")].foldlM
+    (fun text (old, new) => replaceOnce text old new) template
   if ← destination.pathExists then
     throw <| IO.userError s!"candidate destination already exists: {destination}"
   let _ ← checked root "git" #["worktree", "add", "--detach", destination.toString, base]
   let candidate ← IO.FS.realPath destination
-  -- The imported policy is also a build dependency of this executable. Replacing escaped
-  -- Lean string literals specializes the same policy; the candidate recompiles its proofs.
-  let policy := template.replace (reprStr RegulaPolicy.Compiler.version) (reprStr identity.version)
-    |>.replace (reprStr RegulaPolicy.Compiler.commit) (reprStr identity.commit)
-    |>.replace
-      s!"def legacyCompilerTrust : LegacyCompilerTrust := .{RegulaPolicy.Compiler.legacyCompilerTrust.spelling}"
-      s!"def legacyCompilerTrust : LegacyCompilerTrust := .{identity.legacyCompilerTrust.spelling}"
-    |>.replace "def candidate : Bool := false" "def candidate : Bool := true"
   IO.FS.writeFile (candidate / "lean/RegulaPolicy/Compiler.lean") policy
   IO.FS.writeFile (candidate / "lean-toolchain") (selector ++ "\n")
   let _ ← checked candidate "git" #["add", "lean-toolchain", "lean/RegulaPolicy/Compiler.lean"]

@@ -37,11 +37,11 @@ jobs:
   # adoption guide's compatibility table and each .unreleased on a `lifecycle :=` line;
   # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, push it as
   # release/v<version> and write the link that opens its pull request to the job summary. When
-  # that pull request is already open, dispatch ci.yml and title.yml on the rebuilt branch, whose
-  # push with this job's token starts no checks; hence `actions: write`, on this job only. A
-  # re-run rebuilds the branch on the same commit; a new run rebuilds it on the current head of
-  # main. The derivation reads main's history since the previous release's tag, hence the full
-  # clone.
+  # that pull request is already open, dispatch ci.yml, title.yml and diagnostics.yml on the
+  # rebuilt branch, whose push with this job's token starts no checks; hence `actions: write`, on
+  # this job only. A re-run rebuilds the branch on the same commit; a new run rebuilds it on the
+  # current head of main. The derivation reads main's history since the previous release's tag,
+  # hence the full clone.
   open:
     needs: compiler
     if: github.ref == 'refs/heads/main'

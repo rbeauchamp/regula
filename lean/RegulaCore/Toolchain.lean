@@ -51,10 +51,11 @@ theorem parseIdentity_valid {output : String} {i : Identity}
       · cases h
   · cases h
 
-/-- The toolchains `elan toolchain list` printed, one name on each line. A line with a space,
+/-- The toolchains `elan toolchain list` printed, one name on each line, without the
+` (default)` marker Elan 3 appends to the default toolchain. A remaining line with a space,
 such as Elan's notice that none is installed, names no toolchain. -/
 def listedToolchains (output : String) : List String :=
-  (output.splitOn "\n").map (·.trimAscii.toString) |>.filter
+  (output.splitOn "\n").map (·.trimAscii.toString.dropSuffix " (default)" |>.toString) |>.filter
     (fun line => !line.isEmpty && !line.contains ' ')
 
 /-- The full name Elan 4.1.2 gives a release selector: its default origin when the selector
@@ -68,7 +69,9 @@ def releaseName (selector : String) : String :=
     else origin) ++ ":" ++ (if release.front.isDigit then "v" ++ release else release)
 
 /-- The listed toolchain `selector` names: itself when listed (a linked toolchain or a full
-name), else its release name. A release channel such as `stable` names none. -/
+name), else its release name when that is listed. It resolves no channel and installs nothing: a
+channel such as `stable` resolves only when the listing names a toolchain spelled as it or as its
+release name. -/
 def installedName? (listed : List String) (selector : String) : Option String :=
   listed.find? (· == selector) <|> listed.find? (· == releaseName selector)
 

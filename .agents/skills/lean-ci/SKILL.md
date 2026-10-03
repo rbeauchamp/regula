@@ -21,6 +21,13 @@ When timing pure work lifted into IO, suspend it with `IO.lazyPure`: an eager
 `IO.ofExcept expensiveResult` can compute the result before the timer starts.
 Inspect generated calls to confirm the measured work remains inside the timed action.
 
+Compare a slow and a fast run phase by phase before choosing a target. When every phase
+differs by the same ratio, the spread is runner speed: no single phase carries it, and only
+removing work moves the slowest run, by the fraction of work removed. Then bound the result
+before changing a schedule: a phase on `n` cores takes at least its total core-seconds over
+`n`, and at least its longest serial chain. If that bound exceeds the target, reordering
+cannot meet it; say so and name what would.
+
 A deadline kill identifies unfinished work, not its physical cause. Preflight free memory
 and CPU count do not establish utilization or peak memory during the run. Use existing
 phase evidence first; if attribution remains material, choose a bounded observation that
@@ -53,6 +60,22 @@ faster sample.
   children, timeouts and changed import paths; never reconstruct paths or reuse verdicts.
   Compare all original controls under both launchers on the supported host. Keep inherited
   environment values out of logs, and do not transfer measured speedups across platforms.
+- Two Lake invocations in sequence each end in a serial tail (last module, its C file, the
+  link) while other cores idle. Name the second build's long chain in the first invocation,
+  and build per selection only what that selection's checks read. Do both: a merged build
+  that is processor-bound gains nothing until work is removed, and a trimmed build that is
+  chain-bound gains nothing until the chain starts earlier. Keep the later build as the one
+  that names its targets, so the earlier command decides cost, never results; refuse an
+  output the selected build did not name, since a stale file can stand in for it locally.
+- Tasks started beside a bounded worker queue run outside its bound. Put them in the queue,
+  behind the items that decide its end, so they take workers that would otherwise idle.
+- When the bound still exceeds the target, divide the checks into shards under an approved
+  budget each, and size them on the slowest observed run. Let every check carry its one shard
+  where it is listed and select by that tag, so cover and disjointness are a theorem about the
+  selection rather than two lists kept in step. A check whose steps land in different shards
+  keeps its meaning only if the later step's input is shown equal to what the earlier steps
+  leave: compare, in the earlier shard, exactly what the later step reads. A shard's success
+  names what it ran, never the whole.
 - Compare configured concurrency with the actual queues and inner caps. Increase useful
   parallelism only where environment/scratch ownership, result association and lifetimes
   permit it; account for simultaneous memory demand. Sharing immutable imported regions
