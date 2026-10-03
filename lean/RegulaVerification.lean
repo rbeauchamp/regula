@@ -182,7 +182,7 @@ def commands : Mode → List Command
         "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
         "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
         "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
-        "+Regula.Cli.Main:olean", "+Regula.Release:olean"],
+        "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean"],
       lake #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
       lake #["exe", "qualify", "--under-deadline", "combined"],
       lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]

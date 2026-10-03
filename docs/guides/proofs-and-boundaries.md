@@ -1289,6 +1289,34 @@ taking the pull request's title and description, workflow ordering, and that Lak
 read and order versions as their source shows ([Reservoir](contributing.md#reservoir)) are
 trusted.
 
+## The diagnostics gate
+
+**Proved** in `lean/Regula/DiagnosticsGate.lean`, checked by the kernel in ordinary acceptance's
+build and each time a step of the [diagnostics workflow](../../.github/workflows/diagnostics.yml)
+elaborates it (its `applies` and `diagnostics` jobs, on every pull request): `verdict`, the
+decision of the required `diagnostics` check over the workflow's `needs` context, passes exactly
+when the job `applies` succeeded, every job it decided is one the gate needs, and every job the
+gate needs passed when it was decided to apply and was skipped when it was decided not to
+(`verdict_iff`, with `admits_iff`). So a failed or cancelled job is refused, as is one that ran
+out of time, which GitHub reports as one of the two, and as is a job decided to apply that was
+skipped, as the jobs not yet started are when a run is cancelled. `decisions`, the decision
+`applies` writes and each partition job's `if:` reads, runs the campaigns on every run other than
+a pull request's (`campaign_of_ne`) and on a pull request's exactly when an input of `inputs`,
+the only statement of the campaigns' paths, covers one of its changed paths
+(`campaign_pullRequest_iff`); a pull request whose every changed path lies in `docs/` or
+`website/`, or is `README.md` or `AGENTS.md`, runs none (`campaign_documentation`). A pull
+request's changed paths are those at which the merge commit GitHub creates and tests differs from
+its first parent, the head of the base branch, a rename as both of its paths; `applies` refuses a
+checked-out commit without exactly two parents. Reading the event, the changed paths, the
+context's JSON and the decisions `applies` wrote is operational, and a result, event or decision
+the steps do not know fails them. **Trusted:** GitHub (the event, the merge commit, the `needs`
+context and its report of a matrix job as succeeded only when every job of it did, a job's `if:`,
+timeouts, cancellation, that an `always()` job runs on a cancelled run, and the ruleset that
+requires `diagnostics`) and `git` (the commits it fetched and the paths `diff-tree` lists). That
+every partition job of the workflow is in the gate's `needs` and has its `if:` read its own
+decision is the workflow's wiring, which no step observes; a needed job without a decision and a
+decided job the gate does not need fail the gate.
+
 ## Rule examples and the corpus runner
 
 **Proved:** `admitExampleRequest` admits exactly expected/observed request equality;
@@ -1592,15 +1620,14 @@ builds that copy from empty output; without `--with-docs`, as here, it reads no 
 the project, and the packages directory it links is the repository's for every copy. So equal
 fresh input gives the same gate run, and the setup build, the incremental gate and the
 restoration are observed to leave the prepared input. Second, the two shards are jobs of one
-workflow matrix, so whenever the diagnostics workflow runs for a pull request it starts both on
-the one commit it checks out. That both pass before merging is the repository's process rule in
-[AGENTS.md](../../AGENTS.md#changes-and-verification) (applicable diagnostics pass before
-merge), not a GitHub required check, and it applies only to a pull request that triggers the
-workflow, which is filtered by path. The self-test observes nothing of the other job, and the
-ruleset does not refuse a merge when either job fails:
-[#206](https://github.com/rbeauchamp/regula/issues/206) tracks enforcement by the ruleset. The
-division into shards did not change that enforcement, since the undivided job was not a
-required check either.
+workflow matrix, so whenever the diagnostics workflow runs them it starts both on the one commit
+it checks out. That both pass before merging is enforced by the ruleset of `main`, not by the
+self-test, which observes nothing of the other job: the workflow runs the matrix on a pull
+request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists, and its
+required `diagnostics` check, which reports on every pull request, passes on a run where the
+matrix applies only when the matrix job succeeded in that run
+([the diagnostics gate](#the-diagnostics-gate)). That GitHub reports a matrix job succeeded
+only when every job of it did is GitHub's behaviour, trusted.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in

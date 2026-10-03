@@ -1429,14 +1429,14 @@ them a theorem:
    equal fresh input gives the same gate run, and the setup build, the incremental gate and the
    restoration are observed to leave the prepared input.
 2. The two shards are jobs of one workflow matrix, so whenever the diagnostics workflow runs
-   for a pull request it starts both on the one commit it checks out, where
-   `prepareSelfHosted` prepares the same copy for each. That both pass before merging is the
-   repository's process rule in `AGENTS.md` (applicable diagnostics pass before merge), not a
-   GitHub required check, and it applies only to a pull request that triggers the workflow,
-   which is filtered by path. Nothing in this module observes the other job, and the ruleset
-   does not refuse a merge when either job fails; enforcement by the ruleset is tracked in
-   https://github.com/rbeauchamp/regula/issues/206. The division into shards did not change
-   that enforcement: the undivided job was not a required check either. -/
+   them it starts both on the one commit it checks out, where `prepareSelfHosted` prepares the
+   same copy for each. That both pass before merging is enforced by the ruleset of `main`, not
+   by this module, which observes nothing of the other job. The workflow runs the matrix on a
+   pull request exactly when the pull request changes one of the paths
+   `Regula.DiagnosticsGate.inputs` lists, and its last job, `diagnostics`, a required check that
+   reports on every pull request, passes on a run where the matrix applies only when the matrix
+   job succeeded in that run (`Regula.DiagnosticsGate.verdict_iff`). That GitHub reports a
+   matrix job succeeded only when every job of it did is GitHub's behaviour, trusted. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)

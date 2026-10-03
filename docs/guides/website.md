@@ -199,8 +199,9 @@ Each run on `main` cancels older runs of `main`, the deploy job refuses to publi
 that is no longer the head of `main` (for example a manual re-run of an older run, which
 re-checks because the check is part of that job), and deployments are serialized in the
 `github-pages` concurrency group. The `site` job and the corpus shards are not yet required
-status checks (only `verify` and `title` are); until the operator adds them, a change that
-breaks the site can merge and `main` stops deploying until it is fixed. The site can lag `main`
+status checks (the required checks are `verify`, `title`, `diagnostics` and code scanning's
+`CodeQL` and `Analyze (actions)`); until the operator adds them, a change that breaks the site
+can merge and `main` stops deploying until it is fixed. The site can lag `main`
 while checks run or after they fail; each page states its commit. Repository Pages settings use
 **GitHub Actions** as the source. There is no custom domain or paid hosting. Actions are pinned by commit SHA.
 
