@@ -932,18 +932,18 @@ no theorem:
   `reducible` to irreducible. By `validate`, a global `reducible` or `instance_reducible` is
   admitted only on a semireducible definition of the same file, `implicit_reducible` only on a
   semireducible or `instance_reducible` one, `irreducible` on any of those three, and no global
-  attribute on a `reducible` or an irreducible one; so the status a definition had where the helper's
-  definition was compiled is its final status or one of `earlierStatuses` (or semireducible, for an
-  irreducible one, which the environment with no definition irreducible gives). A definition of
-  another module had its final status already, since its module was compiled first. And a constant
-  of the helper's module whose status the compilers consult is among those the helper's values
-  reach: the compilers work on those values, on the types of the constants they mention and on what
-  unfolding them introduces, which is the closure `earlierStatusOptions` computes; a constant of an
-  imported module mentions none of the helper's module. The compilers read a theorem's value only
-  where `Meta.unfoldIfArgIsAppOf` puts it into a member's value, which is where the closure starts:
-  the structural compiler's fixed-parameter analysis then visits every subterm of that value,
-  proofs included, comparing each argument of a recursive call by
-  `withoutProofIrrelevance <| withReducible <| isDefEq`
+  attribute on a `reducible` or an irreducible one; so the status a definition had where the
+  helper's definition was compiled is its final status or one of `earlierStatuses` (or
+  semireducible, for an irreducible one, which the environment with no definition irreducible
+  gives). A definition of another module had its final status already, since its module was
+  compiled first. And a constant of the helper's module whose status the compilers consult is
+  among those the helper's values reach: the compilers work on those values, on the types of the
+  constants they mention and on what unfolding them introduces, which is the closure
+  `earlierStatusOptions` computes; a constant of an imported module mentions none of the helper's
+  module. The compilers read a theorem's value only where `Meta.unfoldIfArgIsAppOf` puts it into a
+  member's value, which is where the closure starts: the structural compiler's fixed-parameter
+  analysis then visits every subterm of that value, proofs included, comparing each argument of a
+  recursive call by `withoutProofIrrelevance <| withReducible <| isDefEq`
   (`Elab/PreDefinition/FixedParams.lean:205-226`), and the well-founded compiler preprocesses it;
   `Meta` unfolds no other theorem and no
   opaque constant, so a definition that only such a value mentions has no status that changes what
