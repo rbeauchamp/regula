@@ -2,7 +2,10 @@
 Known checker limit (standard §7.4), not a forgery and not intended
 behaviour: the definition is safe, Lean accepts it, and its helper is exactly
 what Lean generated. The audit this fixture expects is incomplete: the checker
-reports the helper as undecided, neither admitted nor rejected.
+reports the helper as undecided, neither admitted nor rejected. That is the
+verdict the checker has, not a violation: a helper no attempt within the bound
+reproduces may be what Lean generated, and it is not admitted either way. A
+forged helper over the bound ends the same way.
 
 `fixtures_bound_searched` passes each of two parameters through a function
 made `reducible` afterwards, so its base packs both and only the assignment

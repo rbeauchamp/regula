@@ -47,6 +47,14 @@ other forms were not run without it.
   them: two candidates, three assignments. Were it to follow that declaration,
   seven candidates would exceed the bound, the pair would never be tried and
   the helper would be undecided.
+- `fixtures_reducible_proved` is that pair of changes again, with a leaf that
+  cites `fixtures_proved_bound`, a theorem whose statement mentions no
+  definition of this module and whose proof mentions five functions
+  `@[reducible]` from their declaration (found in review). Lean unfolds a
+  theorem only at `.all` transparency, where a status changes nothing, so the
+  search follows no theorem's value: two candidates, three assignments.
+  Following it, as the search did before, seven candidates exceeded the bound
+  and the helper was undecided.
 - `fixtures_reducible_then_not` is the other way round:
   `fixtures_reducible_before` is `@[reducible]` from its declaration, so Lean
   finds the parameter fixed, and is made `irreducible` afterwards, which Lean
@@ -157,6 +165,34 @@ attribute [reducible] fixtures_decoyed_first fixtures_decoyed_second
 def fixtures_reducible_decoyed._unsafe_rec._sunfold (a b n : Nat) : Nat :=
   fixtures_decoy_one (fixtures_decoy_two (fixtures_decoy_three (fixtures_decoy_four
     (fixtures_decoy_five (a + b + n)))))
+
+def fixtures_proved_first (a : Nat) : Nat := a
+
+def fixtures_proved_second (a : Nat) : Nat := a
+
+@[reducible] def fixtures_proved_one (a : Nat) : Nat := a
+
+@[reducible] def fixtures_proved_two (a : Nat) : Nat := a
+
+@[reducible] def fixtures_proved_three (a : Nat) : Nat := a
+
+@[reducible] def fixtures_proved_four (a : Nat) : Nat := a
+
+@[reducible] def fixtures_proved_five (a : Nat) : Nat := a
+
+theorem fixtures_proved_bound (a : Nat) : a ≤ a + 0 :=
+  Nat.le_refl (fixtures_proved_one (fixtures_proved_two (fixtures_proved_three
+    (fixtures_proved_four (fixtures_proved_five a)))))
+
+def fixtures_proved_keep (a : Nat) (_ : a ≤ a + 0) : Nat := a
+
+def fixtures_reducible_proved (a b n : Nat) : Nat :=
+  match n with
+  | 0 => fixtures_proved_keep (a + b) (fixtures_proved_bound (a + b))
+  | k + 1 => fixtures_reducible_proved (fixtures_proved_first a) (fixtures_proved_second b) k
+termination_by n
+
+attribute [reducible] fixtures_proved_first fixtures_proved_second
 
 @[reducible] def fixtures_reducible_before (a : Nat) : Nat := a
 

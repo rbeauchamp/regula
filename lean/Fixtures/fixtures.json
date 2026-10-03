@@ -270,6 +270,7 @@
    "[OK] fixtures_reducible_mixed._unsafe_rec",
    "[OK] fixtures_reducible_limit._unsafe_rec",
    "[OK] fixtures_reducible_decoyed._unsafe_rec",
+   "[OK] fixtures_reducible_proved._unsafe_rec",
    "[OK] fixtures_reducible_then_not._unsafe_rec",
    "[OK] fixtures_instance_later._unsafe_rec",
    "[OK] fixtures_implicit_later._unsafe_rec",

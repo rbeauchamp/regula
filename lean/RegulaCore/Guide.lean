@@ -428,16 +428,25 @@ def guide : RuleId → Guide
           `attribute [local instance_reducible]` or `[local implicit_reducible]`), an `abbrev` \
           that is not `reducible` where the definition is compiled, a function of another \
           module whose status changes afterwards, or a change Lean's validation does not admit, \
-          such as `reducible` given to an `instance_reducible` function (all under that option). Give such a function \
+          such as `reducible` given to an `instance_reducible` function (all under that option). \
+          These are limits of this release, which issue #196 keeps open \
+          (`Fixtures.Mutations.KnownLimitReducibleWhereCompiled`). Give such a function \
           its reducibility where it is declared. Otherwise a definition for which the only \
           difference is that ordinary (semireducible) definitions are irreducible at one of the \
           two points \
           (`attribute [local irreducible]`, `attribute [irreducible]` after the definition, \
           `unseal`), or that an `abbrev` is irreducible at the end of the audit, is admitted.",
         "A helper whose reached definitions allow more than 63 assignments of an earlier \
-          reducibility status is searched over single changes only. If none reproduces its base \
-          the helper is undecided, neither admitted nor rejected: the checker stops with an \
-          error that names it, and the audit is incomplete.",
+          reducibility status is searched over the first 63 single changes only, each giving one \
+          definition one earlier status. If none reproduces its base the helper is undecided, \
+          neither admitted nor rejected: the checker stops with an error that names it, and the \
+          audit is incomplete, not a violation of this rule. A helper no attempt within the bound \
+          reproduces may still be what Lean generated, so a violation would assert what the \
+          checker has not established, and the helper is not admitted either way. A forged \
+          helper over the bound ends the same way. \
+          `Fixtures.Mutations.KnownLimitReducibilitySearchBound` shows the outcome for a helper \
+          Lean generated. The bound of 63 is a limit of this release, which issue #196 keeps \
+          open.",
         "Editor feedback may be pending until the project command completes the regeneration."]
       residuals := [.qualify, .cost, .intent]
       checklist := ["COMP-02", "THEOREM-05", "THEOREM-01", "DECL-03", "BUILD-01"]

@@ -857,8 +857,9 @@ irreducible afterwards; an `abbrev` that is irreducible at both points, beside a
 irreducible afterwards; and a definition whose six candidates allow exactly the 63 assignments the
 search tries, of which one that changes two of them reproduces the base; and a definition whose
 base needs two changes, beside an authored `_sunfold` declaration of its helper that mentions five
-more `@[reducible]` functions, found in review: following that declaration would exceed the bound
-and leave the helper undecided). The parameter under well-founded and under structural recursion, the
+more `@[reducible]` functions, or whose helper cites a theorem whose proof mentions five more,
+both found in review: following that declaration or that proof would exceed the bound and leave the
+helper undecided). The parameter under well-founded and under structural recursion, the
 `List.map` form and the `@[reducible]` function made irreducible afterwards were observed
 rejections before the search below, pinned as such by the fixture this one replaces. For the forms
 with an instance-implicit argument, that Lean finds the parameter fixed at only one of the two
@@ -873,7 +874,9 @@ reducibility hint tells only an `abbrev` apart.
 
 Where neither environment reproduces the base, `Collect.unsafeRecRegeneration` therefore searches.
 `Collect.earlierStatusOptions` collects the definitions of the helper's module that the values of
-the helper's group reach through that module's constants, and pairs each that is not an `abbrev`
+the helper's group reach through that module's constants (`Collect.statusReferences`: the types,
+the values of definitions, and the constructors of inductive types and recursor rules, but not the
+value of a theorem or of an opaque constant), and pairs each that is not an `abbrev`
 with the statuses `Collect.earlierStatuses` gives for its status at the end of the audit:
 semireducible for `reducible` and for `instance_reducible`, semireducible or `instance_reducible`
 for `implicit_reducible`, and `reducible`, `instance_reducible` or `implicit_reducible` for
@@ -883,7 +886,8 @@ taken from `allowUnsafeReducibility`, under which it checks nothing. An `abbrev`
 irreducible at the end is paired with irreducible, so that an assignment can keep it so in the
 environment with no definition irreducible. `Collect.candidates` then enumerates the assignments:
 every way to give one or more of those definitions one of its statuses, when there are at most
-`Collect.candidateLimit` (63), and otherwise the first 63 single changes. Each assignment is
+`Collect.candidateLimit` (63), and otherwise only the first 63 single changes, each of which gives
+one definition one of its statuses, in the order the definitions are reached. Each assignment is
 installed (`Collect.withStatuses`) over the inspected environment and over the one with no
 definition irreducible, and all attempts run under it, each regeneration with the heartbeat budget
 of one declaration (`withCurrHeartbeats`): at most 2 + 2 × 63 = 128 regenerations for one helper,
@@ -924,7 +928,11 @@ no theorem:
   of the helper's module whose status the compilers consult is among those the helper's values
   reach: the compilers work on those values, on the types of the constants they mention and on what
   unfolding them introduces, which is the closure `earlierStatusOptions` computes; a constant of an
-  imported module mentions none of the helper's module. An instance of the helper's module that
+  imported module mentions none of the helper's module. The closure follows no theorem's or opaque
+  constant's value:
+  Lean 4.34.0's `Meta` unfolds a theorem only at `.all` transparency, under which every definition
+  unfolds whatever its status, and it never unfolds an opaque constant, so a definition that only
+  such a value mentions has no status that changes what the compilers generate. An instance of the helper's module that
   Lean's instance resolution selects without the values mentioning it is outside that argument.
 - Termination and cost. `earlierStatusOptions` visits each constant of the module at most once, in
   at most as many steps as the environment has constants, and reports it if it stops before the
@@ -944,16 +952,29 @@ definition (`attribute [local instance_reducible]`, which Lean allows without
 function of an imported module made `reducible` after the definition; and an `instance_reducible`
 function made `reducible` after the definition, a change `validate` does not admit, so that
 semireducible, the one earlier status tried for a `reducible` definition, is not the status it
-had (found in review). All but the fourth need `set_option allowUnsafeReducibility true`. Each has the same remedy: give the function its
-reducibility where it is declared. Covering them would need every definition a helper reaches, of
-any module, as a candidate for every status, which no bound on the search allows.
+had (found in review). All but the fourth need `set_option allowUnsafeReducibility true`. Each has
+the same remedy: give the function its reducibility where it is declared.
 `Fixtures.Mutations.KnownLimitReducibilitySearchBound` pins the bound: a helper whose seven
 candidates allow 127 assignments, and whose base only a change of two of them reproduces, is
 neither admitted nor rejected. `unsafeRecRegeneration` throws, naming the helper as undecided, and
 the audit fails as incomplete, with no violation reported for the helper, as it does at a resource
 limit of the checker (observed: `axiomGate --file` reports one incomplete finding whose detail is
 that error, exit class 3, and `checkerSelftest fixtures` requires that outcome with no violation
-before it matches the text).
+before it matches the text). Incomplete, not a violation, is the verdict the checker has: a helper
+no attempt within the bound reproduces may still be what Lean generated, so reporting it as a
+violation of the rule would assert what the checker has not established, and the helper is not
+admitted either way. The same holds for a forged helper over the bound: its audit is incomplete
+too, not rejected, and the fixture's helper, which Lean generated, shows that outcome.
+
+These are limits of this release, not of the design, and
+[#196](https://github.com/rbeauchamp/regula/issues/196) stays open for them: a status that holds
+only where the definition is compiled, including `attribute [local instance_reducible]` and
+`attribute [local implicit_reducible]`, which need no `allowUnsafeReducibility`
+(`Fixtures.Mutations.KnownLimitReducibleWhereCompiled`); a definition of another module
+(the same fixture); and the fixed bound of 63 assignments
+(`Fixtures.Mutations.KnownLimitReducibilitySearchBound`). An assignment only selects which
+regeneration runs, so a wider candidate set or a larger bound keeps the argument for soundness
+above and costs only search time.
 
 Every observation the checker takes from Lean's reduction runs with smart unfolding off
 (`Collect.withoutSmartUnfolding`, applied by `Collect.declaration` and by `Probe`'s observations).

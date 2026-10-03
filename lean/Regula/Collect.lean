@@ -599,6 +599,18 @@ private def unfoldReferences (info : ConstantInfo) : Array Name :=
     | _ => #[]
   mentioned ++ structural
 
+/-- The constants whose reducibility status can decide what Lean's recursion compilers make of
+`info`: those its type mentions, those its value mentions where it is a definition, and the
+constructors of an inductive and of a recursor's rules (`unfoldReferences`). A theorem's value and
+an opaque constant's are not followed: Lean 4.34.0's `Meta` unfolds a theorem only at `.all`
+transparency, under which every definition unfolds whatever its status, and never unfolds an
+opaque constant, so no status of a constant they alone mention changes what the compilers
+generate. -/
+private def statusReferences (info : ConstantInfo) : Array Name :=
+  match info with
+  | .thmInfo _ | .opaqueInfo _ => info.type.getUsedConstants
+  | _ => unfoldReferences info
+
 /-- The statuses a definition that has `status` at the end of the audit can have had before a
 global attribute gave it `status`: Lean 4.34.0's validation of a global reducibility attribute
 (`ReducibilityAttrs.validate`) admits `reducible` and `instance_reducible` on a semireducible
@@ -618,7 +630,7 @@ private def earlierStatuses : ReducibilityStatus → List ReducibilityStatus
 /-- For each definition of `name`'s module that `roots` reach and that a global attribute given
 after its declaration can have changed, the statuses it can have had before
 (`earlierStatuses` of its status in `env`), paired with its name. The definitions reached are those
-the types and values of `roots` mention, closed under `unfoldReferences` through the constants of
+the types and values of `roots` mention, closed under `statusReferences` through the constants of
 that module: a constant of an imported module mentions none of this module's. An `abbrev`, which
 the kernel's reducibility hint shows, is `reducible` from its declaration, so it is left out
 unless it is irreducible in `env`: `withoutIrreducible` gives such an `abbrev` back as
@@ -637,7 +649,7 @@ private def earlierStatusOptions (env : Environment) (name : Name) (roots : Arra
     let some reached := pending.back? | break
     pending := pending.pop
     let some info := env.find? reached | continue
-    for mentioned in unfoldReferences info do
+    for mentioned in statusReferences info do
       if !seen.contains mentioned && env.contains mentioned
           && env.getModuleIdxFor? mentioned == home then
         seen := seen.insert mentioned
@@ -893,9 +905,9 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
           return some origin
     unless exhaustive do
       throwError "{undecided}the definitions of its module that it reaches allow more than \
-        {candidateLimit} assignments of an earlier reducibility status, of which only single \
-        changes were tried. Give each function it calls its reducibility where the function is \
-        declared."
+        {candidateLimit} assignments of an earlier reducibility status, of which only the first \
+        {candidateLimit} single changes were tried. Give each function it calls its reducibility \
+        where the function is declared."
     return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/
