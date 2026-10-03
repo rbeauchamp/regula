@@ -910,150 +910,275 @@ which the search finds no proof is compared strictly, which rejects and never ad
 limit of the kernel reached while it checks the law (its deterministic timeout, deep recursion or
 excessive memory) is rethrown as the checker's limit, so the helper is then undecided, not
 rejected.
-That admission does not depend on a global reducibility attribute given after a definition is
-observed for the shapes of issue #196: the same command admits every helper of
-`Fixtures.Positive.ReducibleAfter` (a parameter passed through a function made `reducible`
-afterwards, under well-founded and under structural recursion; a `List.map` behind such a function,
-which the toolchain's `wf_preprocess` rule then sees through; a second parameter passed through a
-function that is `@[reducible]` from its declaration; a `@[reducible]` function made irreducible
-afterwards, under `allowUnsafeReducibility`; a function an instance-implicit argument goes through,
-made `instance_reducible` or `implicit_reducible` afterwards, or `instance_reducible` first and
-irreducible afterwards; an `abbrev` that is irreducible at both points, beside a type made
-irreducible afterwards; and a definition whose six candidates allow exactly the 63 assignments the
-search tries, of which one that changes two of them reproduces the base; and a definition whose
-base needs two changes, beside an authored `_sunfold` declaration of its helper that mentions five
-more `@[reducible]` functions, or whose helper cites a theorem whose proof mentions five more and
-that is applied to no function of the group, both found in review: following that declaration or
-that proof would exceed the bound and leave the helper undecided; and a definition with a proof
-that calls it with a parameter passed through a function made `reducible` afterwards, abstracted
-by `as_aux_lemma` into a theorem applied to the function, found in review: Lean's compilers unfold
-that theorem into the definition, and the search follows it). The parameter under well-founded
-and under structural recursion, the `List.map` form and the `@[reducible]` function made
-irreducible afterwards were observed rejections before the search below, pinned as such by the
-fixture this one replaces. For the forms
-with an instance-implicit argument, that Lean finds the parameter fixed at only one of the two
-points was observed on Lean 4.34.0 from the fixed parameters it records; their rejection, and that
-of the form with a second parameter and of the `abbrev` form, without the search was not run.
-Lean's fixed-parameter analysis (`getFixedParamPerms`) compares each argument of a recursive call
-with the parameter by `withReducible <| isDefEq`, which checks an instance-implicit argument at
-implicit transparency, and the preprocessing `simp` matches through reducible definitions, so both
-depend on which definitions are `reducible`, `instance_reducible` or `implicit_reducible`. Lean
-keeps no history of a status (`reducibilityCoreExt` holds the last one), and the kernel's
-reducibility hint tells only an `abbrev` apart.
+That admission does not depend on the reducibility status a called function had where a definition
+was compiled is observed for the shapes of [#196](https://github.com/rbeauchamp/regula/issues/196):
+the same command admits every helper of `Fixtures.Positive.ReducibleAfter` (a parameter passed
+through a function made `reducible` afterwards, under well-founded and under structural recursion; a
+`List.map` behind such a function, which the toolchain's `wf_preprocess` rule then sees through; a
+second parameter passed through a function that is `@[reducible]` from its declaration; a
+`@[reducible]` function made irreducible afterwards, under `allowUnsafeReducibility`; a function an
+instance-implicit argument goes through, made `instance_reducible` or `implicit_reducible`
+afterwards, or `instance_reducible` first and irreducible afterwards; an `abbrev` that is
+irreducible at both points, beside a type made irreducible afterwards; a definition whose base needs
+two changes, beside four further `@[reducible]` functions at its leaf, beside an authored `_sunfold`
+declaration of its helper that mentions five more, or whose helper cites a theorem whose proof
+mentions five more and that is applied to no function of the group, none of which Lean's compilers
+ask about; and a definition with a proof that calls it with a parameter passed through a function
+made `reducible` afterwards, abstracted by `as_aux_lemma` into a theorem applied to the function,
+which the structural compiler unfolds before its fixed-parameter analysis) and of
+`Fixtures.Positive.ReducibleWhereCompiled` (a status that holds only where the definition is
+compiled: `attribute [local reducible]` under well-founded and under structural recursion, on the
+two functions of two recursive calls that pass one parameter, on a function the `List.map` rule then
+matches through, on two functions of which one unfolds to the other and that one to `List.map`, also
+where the definition calls the second directly as well, on six functions of which each unfolds to
+the next and the last to `List.map`, on a
+function that a `@[reducible]` function the definition calls unfolds to, on two functions that the
+rule matches through only together, on three such functions under a definition with one varying
+argument, which Lean does not pack, and on the discriminant of a `match` in a recursive call's
+argument, also behind a function that unfolds to that `match`; a `@[reducible]` function made
+semireducible afterwards; `attribute [local irreducible]` on an `abbrev`; `attribute [local
+instance_reducible]` and `attribute [local implicit_reducible]`, which need no
+`allowUnsafeReducibility`; a function of an imported module made `reducible` after the definition;
+an `instance_reducible` function made `reducible` after it; a definition that reaches seven
+definitions of its module, of which two change a decision; and one that passes seven parameters
+through seven functions made `reducible` afterwards; a definition by structural recursion over
+an inductive predicate; and a parameter passed through a `match` whose discriminant is made
+`reducible` afterwards, also beside one passed through a function made `reducible` afterwards). The
+search this one replaces enumerated the definitions of the helper's
+module that the helper reaches and gave each the statuses a global attribute could have replaced.
+Under it the forms that the second fixture's comment names as such were observed rejections on
+Lean 4.34.0, and the definition that reaches seven definitions an audit that stopped without a
+verdict; the forms it marks as new were not run under that search, and of those found in review
+the comment states what was observed. Its assignments are
+still tried, after those of the search described here (the fallback below). Lean's fixed-parameter
+analysis (`getFixedParamPerms`) compares each argument of a recursive call with the parameter by
+`withReducible <| isDefEq`, which checks an instance-implicit argument at implicit transparency, and
+the preprocessing `simp` matches through reducible definitions, so both depend on which definitions
+are `reducible`, `instance_reducible` or `implicit_reducible`. Lean keeps no history of a status
+(`reducibilityCoreExt` holds the last one, and a `local` attribute leaves nothing behind), and the
+kernel's reducibility hint tells only an `abbrev` apart.
 
-Where neither environment reproduces the base, `Collect.unsafeRecRegeneration` therefore searches.
-`Collect.earlierStatusOptions` collects the definitions of the helper's module that the values of
-the helper's group reach through that module's constants. It starts from each member's value as
-Lean's recursion compilers work on it, after `Meta.unfoldIfArgIsAppOf` has replaced each theorem
-applied to a bare function of the group with the theorem's value (Lean 4.34.0's
-`Meta/Transform.lean:266-288`; the structural compiler takes that step before it finds the fixed
-parameters, `Elab/PreDefinition/Structural/Preprocess.lean:47`, and the well-founded compiler
-before its preprocessing, `Elab/PreDefinition/WF/Main.lean:38`), and it follows types, the values
-of definitions, and the constructors of inductive types and recursor rules
-(`Collect.statusReferences`), but no other theorem's value and no opaque constant's, which Lean's
-`Meta` unfolds at no transparency (`getUnfoldableConst?`). It pairs each that is not an `abbrev`
-with the statuses `Collect.earlierStatuses` gives for its status at the end of the audit:
-semireducible for `reducible` and for `instance_reducible`, semireducible or `instance_reducible`
-for `implicit_reducible`, and `reducible`, `instance_reducible` or `implicit_reducible` for
-irreducible. Those are the statuses from which `ReducibilityAttrs.validate` of Lean 4.34.0 admits a
-global attribute that gives the final one, and `reducible` before irreducible is the one change
-taken from `allowUnsafeReducibility`, under which it checks nothing. An `abbrev` that is
-irreducible at the end is paired with irreducible, so that an assignment can keep it so in the
-environment with no definition irreducible. `Collect.candidates` then enumerates the assignments:
-every way to give one or more of those definitions one of its statuses, when there are at most
-`Collect.candidateLimit` (63), and otherwise only the first 63 single changes, each of which gives
-one definition one of its statuses, in the order the definitions are reached. Each assignment is
-installed (`Collect.withStatuses`) over the inspected environment and over the one with no
-definition irreducible, and all attempts run under it, each regeneration with the heartbeat budget
-of one declaration (`withCurrHeartbeats`): at most 2 + 2 × 63 = 128 regenerations for one helper,
-of at most three compiler runs each.
+Where neither environment reproduces the base, `Collect.unsafeRecRegeneration` therefore searches,
+and `Collect.statusCandidates` proposes what it tries in each of the two environments:
 
-What is machine-checked is the enumeration: `Collect.mem_candidates` (where `candidates` reports
-that it is exhaustive, it holds every nonempty list that takes one status each from some of the
-definitions, the relation `Collect.Picks`) and `Collect.candidates_length_le` (it never holds more
-than the limit). Neither states anything about what a regeneration does with an assignment, or
-that the definitions and statuses collected are the ones Lean consulted. The rest is argued, with
-no theorem:
+- Which definitions. `Collect.recordConsults` is installed as `Meta`'s unfolding predicate
+  (`Meta.withCanUnfoldPred`) around Lean's own function and records each definition Lean asks about
+  at reducible, instance or implicit transparency, whatever module declares it, and for each
+  whether Lean's own answer (`Meta.canUnfoldDefault`) was, each time, that the definition
+  unfolds. Lean 4.34.0 decides such an unfolding from the status alone
+  (`Meta/GetUnfoldableConst.lean:17-31`): `reducible` unfolds
+  at all three, `instance_reducible` at instance and implicit, `implicit_reducible` at implicit, and
+  semireducible and irreducible at none. The checker holds no copy of that rule: it gives a
+  definition each of the four statuses of `Collect.triedStatuses` (semireducible,
+  `implicit_reducible`, `instance_reducible`, `reducible`, the one that unfolds least first), runs
+  Lean's function under each, and keeps one status for each result. Irreducible is left out, since
+  it answers there as semireducible does.
+- The fixed parameters (`Collect.fixedParameterStatuses`). The group is given to
+  `getFixedParamPerms` as each compiler gives it: after `Structural.preprocess` for the structural
+  compiler, which replaces each theorem applied to a bare function of the group with the theorem's
+  value (`Meta.unfoldIfArgIsAppOf`, `Meta/Transform.lean:266-288` of Lean 4.34.0), and after
+  `WF.floatRecApp` for the well-founded one; the one the observed bases show, and both where their
+  kind is not read. A first run answers that every definition asked about unfolds, so that every
+  comparison runs to its end and the definitions any comparison unfolds are recorded. Each is then
+  given each of the four statuses, and its own where that is irreducible, while the others are
+  `reducible`, and is a candidate where another status than its own changes which parameters are
+  fixed.
+- The preprocessing (`Collect.preprocessingStatuses`), where the recursion can be well-founded. The
+  first steps of Lean's `wfRecursion` run as in the regeneration (`Collect.wfPacked`), and
+  `WF.preprocess` runs on the packed definition under the recording predicate with Lean's own
+  answers. Each definition recorded is given each of the four statuses but its own, alone, whether
+  the helpers' values mention it or another definition unfolds to it (found in review: a function
+  behind a `@[reducible]` one was left out, and its helper rejected, `FixturesWhereTree.hidden`). A
+  change that changes the preprocessed body is a candidate. Where a change leaves the body as it
+  was, it is followed (`Collect.effectiveChange?`): each definition the preprocessing then asks
+  about that it did not ask about before any change, that the change gives no status, and for which
+  Lean answered at least once that it does not unfold is made `reducible` too, and the
+  preprocessing is rerun, until a run changes the body or asks about no such definition. That
+  follows a function through the functions it unfolds to that do not unfold at the end of the
+  audit, however many (found in review: the search stopped after five runs, and left a helper Lean
+  generated undecided, `FixturesWhereTree.chained`). A change that still leaves the body as it was
+  is then paired (`Collect.pairedChanges`) with each definition the preprocessing did ask about
+  before any change and that its last run still asked about without the definition unfolding each
+  time: that definition is made `reducible` beside the change, one at a time, and the pair is
+  followed in the same way. A pair is a candidate, of the definition whose status was changed
+  first, where it gives a body that no change found before it gives; one whose body one of its two
+  changes gives alone says nothing about the other. This covers a function that another one
+  unfolds to and that the definition also calls directly, which the preprocessing asks about before
+  any change (found in review, `FixturesWhereTree.shared`).
+- The assignment tried first. `Collect.observedFixedParameters?` reads which parameters each
+  observed base keeps outside its recursion, from the shape Lean's compilers give it: the parameters
+  passed to the `_unary` or `_mutual` definition a well-founded group is packed into, the ones bound
+  before the fixpoint where the base is that definition itself, or the ones passed to the functional
+  `_f` of a structural definition. Each candidate of the fixed parameters is given the status that
+  unfolds least among those under which the analysis still fixes all of them.
+  `Collect.survivingMentions` counts the mentions of a constant that compilation keeps (outside
+  proofs, types, and the relation and measure of a fixpoint). Where the preprocessed body keeps
+  another number of mentions of some constant than the observed definitions do, the change selected
+  is one after which it keeps the observed number of each. Tried first for that is one change for
+  all the functions concerned, each made `reducible` where the body keeps more mentions of it and
+  semireducible where it keeps fewer, since a rule can need several functions to unfold together,
+  and that change is followed and paired in the same way;
+  then each candidate's own changes. The numbers only order the candidates and select that change:
+  no candidate is left out for them.
+- The enumeration. `Collect.candidates` then enumerates the assignments: every way to give one or
+  more of the candidates another of its changes, when there are at most `Collect.candidateLimit`
+  (63), and otherwise only the first 63 single candidate changes, each of which gives one candidate
+  another status and, where it was followed or paired, the functions it was followed through and the
+  one it was paired with theirs. Each assignment
+  is installed (`Collect.withStatuses`) over the environment it was found in, and all attempts run
+  under it, each regeneration with the heartbeat budget of one declaration (`withCurrHeartbeats`).
+- The fallback. Where none of those assignments reproduces the base, `unsafeRecRegeneration` tries
+  the assignments of the search this one replaces. `Collect.earlierStatusOptions` visits the
+  definitions of the helper's own module that the group reaches, from the members' types and from
+  their values after `Meta.unfoldIfArgIsAppOf`, closed under `Collect.statusReferences`, and pairs
+  each with the statuses a global attribute can have replaced (`Collect.earlierStatuses`):
+  semireducible for a `reducible` or an `instance_reducible` definition, semireducible or
+  `instance_reducible` for an `implicit_reducible` one, and `reducible`, `instance_reducible` or
+  `implicit_reducible` for an irreducible one. An `abbrev` is left out, except that one that is
+  irreducible at the end of the audit is kept irreducible in the environment with no definition
+  irreducible. `Collect.candidates` enumerates them under the same limit, and each assignment is
+  tried in both environments. The options, the limit and the order are those of the replaced
+  search, so each assignment it tried is tried. This is what reaches a definition Lean asks about
+  only while it reduces the discriminant of a `match`, where that discriminant reduces at the end
+  of the audit (found in review, `fixtures_where_later`; `fixtures_where_both` needs such a status
+  together with one the recorded questions find).
 
-- Soundness. An assignment only selects which regeneration runs.
-  `Collect.unsafeRecRegeneration` returns an origin only when `Collect.regenerationMatches` accepts
-  the definitions a regeneration added, and that comparison takes those definitions alone as its
-  argument and runs after the saved state, environment included, is restored and Lean's caches are
-  emptied, so it reads the observed definitions in the inspected environment whatever assignment
-  the regeneration ran under. The comparison does consult state the audited module can write (the
-  inspected environment's own statuses, where it decides what is a proof or a type, and matcher
-  metadata), as it did before the search; an assignment adds nothing to that. That a regeneration
-  under any assignment is Lean's compilation of the helper's recursion is the same trust as for the
-  environment with no definition irreducible: the fixed-parameter analysis keeps a parameter
-  outside the fixpoint only where `isDefEq` accepts that every recursive call passes it unchanged,
-  `isDefEq` proceeds by unfolding definitions to their values, and a status decides only whether a
-  definition is unfolded; the preprocessing rewrites by the toolchain's proved equations.
+One helper's search therefore runs at most 2 + 2 × (1 + 63) + 2 × 63 = 256 regenerations, of at
+most three compiler runs each.
+
+What is machine-checked is the enumeration, `Collect.mem_candidates` (where `candidates` reports
+that it is exhaustive, it holds every nonempty list that takes one alternative each from some of the
+candidates, the relation `Collect.Picks`) and `Collect.candidates_length_le` (it never holds more
+than the limit). Neither states anything about what a regeneration does with an
+assignment, about Lean's own `canUnfoldDefault`, or that the definitions recorded are all that Lean
+consulted. The rest is argued, with no theorem:
+
+- Soundness. An assignment only selects which regeneration runs. `Collect.unsafeRecRegeneration`
+  returns an origin only when `Collect.regenerationMatches` accepts the definitions a regeneration
+  added and the kernel then checks the recursion equation, and that comparison takes those
+  definitions alone as its argument and runs after the saved state, environment included, is
+  restored and Lean's caches are emptied, so it reads the observed definitions in the inspected
+  environment whatever assignment the regeneration ran under. Every question the search asks
+  (`Collect.decisionIn`) is undone the same way, and its answers reach nothing but the list of
+  assignments. The fallback's assignments are read from statuses, kernel
+  hints and module membership, and select a regeneration like the others.
+  So no assignment, and no failure to find one, admits a helper whose value differs
+  from its base: a search that finds nothing returns no origin, and one that stops at its bound
+  throws. The comparison does consult state the audited module can write (the inspected
+  environment's own statuses, where it decides what is a proof or a type, and matcher metadata), as
+  it did before the search; an assignment adds nothing to that. That a regeneration under any
+  assignment is Lean's compilation of the helper's recursion is the same trust as for the
+  environment with no definition irreducible: the fixed-parameter analysis keeps a parameter outside
+  the fixpoint only where `isDefEq` accepts that every recursive call passes it unchanged, `isDefEq`
+  proceeds by unfolding definitions to their values, and a status decides only whether a definition
+  is unfolded; the preprocessing rewrites by the toolchain's proved equations.
   `Fixtures.Mutations.ReducibleAfterUnsafeRecForge` is the control: with a candidate assignment
   available in each direction, a faithful copy of the helper is admitted and one that calls another
   function at its non-recursive leaf is rejected.
-- Completeness, for a definition of the helper's module, other than an `abbrev`, whose status a
-  global attribute changed after the helper's definition in a way `validate` admits, or from
-  `reducible` to irreducible. By `validate`, a global `reducible` or `instance_reducible` is
-  admitted only on a semireducible definition of the same file, `implicit_reducible` only on a
-  semireducible or `instance_reducible` one, `irreducible` on any of those three, and no global
-  attribute on a `reducible` or an irreducible one; so the status a definition had where the
-  helper's definition was compiled is its final status or one of `earlierStatuses` (or
-  semireducible, for an irreducible one, which the environment with no definition irreducible
-  gives). A definition of another module had its final status already, since its module was
-  compiled first. And a constant of the helper's module whose status the compilers consult is
-  among those the helper's values reach: the compilers work on those values, on the types of the
-  constants they mention and on what unfolding them introduces, which is the closure
-  `earlierStatusOptions` computes; a constant of an imported module mentions none of the helper's
-  module. The compilers read a theorem's value only where `Meta.unfoldIfArgIsAppOf` puts it into a
-  member's value, which is where the closure starts: the structural compiler's fixed-parameter
-  analysis then visits every subterm of that value, proofs included, comparing each argument of a
-  recursive call by `withoutProofIrrelevance <| withReducible <| isDefEq`
-  (`Elab/PreDefinition/FixedParams.lean:205-226`), and the well-founded compiler preprocesses it;
-  `Meta` unfolds no other theorem and no
-  opaque constant, so a definition that only such a value mentions has no status that changes what
-  the compilers generate. An instance of the helper's module that Lean's instance resolution
-  selects without the values mentioning it is outside that argument.
-- Termination and cost. `earlierStatusOptions` visits each constant of the module at most once, in
-  at most as many steps as the environment has constants, and reports it if it stops before the
-  reached constants are exhausted, which that bound does not allow. `assignments?` stops as soon as
-  more than 64 assignments exist, deciding list by list, so it never builds more than 64 times one
-  definition's statuses plus one.
+- Completeness, for a status that changes which parameters Lean finds fixed or which toolchain rule
+  applies. The two decisions are the steps that the source of Lean 4.34.0's recursion compilers
+  shows to unfold below default transparency (`Elab/PreDefinition/FixedParams.lean:205-226` and the
+  `simp` call of `Elab/PreDefinition/WF/Preprocess.lean`); the other steps unfold at default
+  transparency, where only an irreducible status decides, which the environment with no definition
+  irreducible gives back. Below default transparency a status decides only through Lean's answers,
+  so two assignments that answer alike for every definition a decision asks about run it alike, and
+  the four statuses a definition is given cover every way its status can answer there, since
+  irreducible, the one left out, answers as semireducible does (read from
+  `Meta/GetUnfoldableConst.lean:17-31`, not checked). For the fixed parameters, a
+  parameter is fixed exactly where each comparison for it succeeds, and a comparison succeeds where
+  the definitions on its way unfold at the transparency asked. With every definition unfolding, each
+  comparison runs to its end, so each such definition is recorded, and with every other one
+  unfolding each such need shows as a change of the result. The assignment that gives each candidate
+  the status that unfolds least while the observed fixed parameters stay fixed therefore meets every
+  need of those parameters and no other, wherever more unfolding never makes a comparison fail. For
+  the preprocessing, a rule that matches through a function replaces the application it matches, so
+  the number of mentions the base keeps tells whether it applied.
+- What that argument leaves out. Lean puts its unfolding predicate aside while it reduces the
+  discriminant of a `match` below default transparency (`Meta.whnfMatcher`, through
+  `Meta.withCanUnfoldAtMatcherPred`, which sets the custom predicate to none), so a definition it
+  asks about only there is not recorded. Where the discriminant does not reduce at the end of the
+  audit, the `match` is stuck; the fixed-parameter analysis, run with every definition unfolding,
+  goes on to unfold the matcher, and Lean asks about the discriminant again, which is recorded:
+  `fixtures_where_discriminant` and `fixtures_where_matched`, whose flag is `reducible` only where
+  the definition is compiled, are admitted, and were rejections under the replaced search
+  (observed). Where the discriminant reduces at the end of the audit, Lean reduces the `match` with
+  the predicate aside, does not unfold the matcher, and nothing is recorded for the discriminant.
+  Only the fallback then finds its status: where it is a definition of the helper's own module
+  that the helper reaches and that is not an `abbrev`, and the status it had is one a global
+  attribute can have replaced. `fixtures_where_later` and `fixtures_where_both`, whose flag is made
+  `reducible` afterwards, are admitted that way; under the recorded questions alone they were
+  rejections (observed). A helper whose
+  base needs another status of such a discriminant (of a definition of another module, of an
+  `abbrev`, or a status no global attribute replaces), or one of those statuses together with a
+  status that only the recorded questions find, since the fallback's assignments are not joined
+  with the others, is rejected; that is traced from Lean 4.34.0's source and was not run.
+  The candidates the enumeration has for the preprocessing are found from one definition at a time:
+  its change is extended only with the definitions the preprocessing newly asks about once the
+  change is made, those it did not ask about before any change, and then with one definition it did
+  ask about before, made `reducible`. So a rule that applies only where three or more definitions
+  the preprocessing asks about before any change have another status, or two of which the second
+  needs another status than `reducible`, is found only through the assignment the observed bases
+  select, where the mentions the bases keep tell those functions apart. `FixturesWhereTree.total`,
+  with two functions that do not unfold to one another, was a rejection before that assignment
+  changed the functions all at once (observed), when no pair was tried either.
+  `FixturesWhereTree.size`, with three such functions and one varying argument, rests on that
+  assignment alone. The constants whose mentions are counted leave out the group's own functions:
+  Lean packs nothing for one function with one varying argument (`WF.packMutual`), so the
+  preprocessed body keeps its calls to the function itself, which a base, calling itself through
+  its fixpoint's argument, never mentions (found in review: with those calls counted no change was
+  selected for that definition, and it was a rejection, observed). A definition by
+  structural recursion over an inductive predicate has none of the
+  shapes `observedFixedParameters?` reads, so no assignment is selected for its fixed parameters and
+  it rests on the enumeration (`fixtures_where_accessible`, one candidate). Neither of these last
+  two limits was observed to reject a definition Lean accepts.
+- Termination and cost. Each question is one run of Lean's own function with the heartbeat budget of
+  one declaration, and the counts below are for one environment, of the two searched. The fixed
+  parameters take, for each input (one, or two where the kind of the bases is not read), one run
+  and then four for each definition recorded, five where that definition is irreducible there. The
+  preprocessing takes two runs, and then for each definition recorded three changes, four where it
+  is irreducible there. A change takes one run, and one more for each time it is extended with
+  newly asked definitions. A change that leaves the body as it was takes, beside that, one such
+  followed change for each definition it is paired with, so the runs grow with the square of the
+  number of definitions recorded. The change made for several functions at once is one more
+  change, followed and paired in the same way. `effectiveChange?` recurses on its count of runs,
+  which is the number of constants of the environment: each run after the first gives at least one
+  more definition of the environment a status, and none twice, so no change uses them up; it
+  reports a change that did all the same as undecided (`Collect.ChangeOutcome.exhausted`), not as
+  unchanged. `assignments?` stops as soon as more than 64 assignments exist, deciding list by
+  list, so it never builds more than 64 times one candidate's alternatives plus one.
+  `earlierStatusOptions` takes one step for each constant of the environment at most, and each
+  step visits a constant of the helper's module that no earlier step visited, so the visit ends;
+  it answers that it did not, and the helper is undecided, if constants were still pending. The 256
+  regenerations bound the regenerations alone, not these runs.
 
-What the search does not try, it does not admit (standard §7.4), and
-`Fixtures.Mutations.KnownLimitReducibleWhereCompiled` pins those forms as observed rejections on
-Lean 4.34.0, each a false rejection of a helper Lean generated, for the fixed parameters under
-well-founded recursion: a function that is `reducible` only for the definition
-(`attribute [local reducible]`) or `@[reducible]` and made semireducible afterwards, both of which
-leave it semireducible at the end, a status no global attribute gives; an `abbrev` that is
-irreducible only for the definition; a function that is `instance_reducible` only for the
-definition (`attribute [local instance_reducible]`, which Lean allows without
-`allowUnsafeReducibility`, as it does `attribute [local implicit_reducible]`, not run); a
-function of an imported module made `reducible` after the definition; and an `instance_reducible`
-function made `reducible` after the definition, a change `validate` does not admit, so that
-semireducible, the one earlier status tried for a `reducible` definition, is not the status it
-had (found in review). All but the fourth need `set_option allowUnsafeReducibility true`. Each has
-the same remedy: give the function its reducibility where it is declared.
-`Fixtures.Mutations.KnownLimitReducibilitySearchBound` pins the bound: a helper whose seven
-candidates allow 127 assignments, and whose base only a change of two of them reproduces, is
-neither admitted nor rejected. `unsafeRecRegeneration` throws, naming the helper as undecided, and
-the audit fails as incomplete, with no violation reported for the helper, as it does at a resource
-limit of the checker (observed: `axiomGate --file` reports one incomplete finding whose detail is
-that error, exit class 3, and `checkerSelftest fixtures` requires that outcome with no violation
-before it matches the text). Incomplete, not a violation, is the verdict the checker has: a helper
-no attempt within the bound reproduces may still be what Lean generated, so reporting it as a
-violation of the rule would assert what the checker has not established, and the helper is not
-admitted either way. The same holds for a forged helper over the bound: its audit is incomplete
-too, not rejected, and the fixture's helper, which Lean generated, shows that outcome.
+`Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` pins the bound of the enumeration: a
+forged helper whose seven candidates allow 127 assignments, and that neither the assignment its base
+selects nor any of the seven single changes reproduces, is neither admitted nor rejected. The
+fallback stops at its bound for this helper too, since the same seven functions are the definitions
+of its module that it reaches, so the error names both bounds; the fixture's expected pattern
+requires the text of the enumeration's (`assignments of another status`), which the fallback's
+message does not hold.
+Every bound the search stops at ends the same way. `unsafeRecRegeneration` throws, naming the
+helper as undecided and the bound it stopped at, and the audit fails as incomplete, with no
+violation reported for
+the helper, as it does at a resource limit of the checker (`checkerSelftest fixtures` requires that
+outcome with no violation before it matches the text). Incomplete, not a violation, is the verdict
+the checker has: a helper no attempt within the bound reproduces may still be what Lean generated,
+so reporting it as a violation of the rule would assert what the checker has not established, and
+the helper is not admitted either way. The helper Lean generated for a definition of the
+seven-candidate shape does not need the enumeration (`fixtures_where_seven`), and the helper Lean
+generated for the shape that the replaced search left undecided is now admitted:
+`fixtures_bound_searched`, and in `Fixtures.Mutations.ReducibleAfterUnsafeRecForge` the helper of
+that shape and its faithful copy.
 
-These are limits of this release, not of the design, and
-[#196](https://github.com/rbeauchamp/regula/issues/196) stays open for them: a status that holds
-only where the definition is compiled, including `attribute [local instance_reducible]` and
-`attribute [local implicit_reducible]`, which need no `allowUnsafeReducibility`
-(`Fixtures.Mutations.KnownLimitReducibleWhereCompiled`); a definition of another module
-(the same fixture); and the fixed bound of 63 assignments
-(`Fixtures.Mutations.KnownLimitReducibilitySearchBound`). An assignment only selects which
-regeneration runs, so a wider candidate set or a larger bound keeps the argument for soundness
-above and costs only search time.
+The fallback has the same bound. Where the definitions it gives a status allow more than 63
+assignments, only the first 63 single changes are tried, and a helper none of them reproduces is
+undecided in the same way, as is one for which `earlierStatusOptions` did not visit every
+definition reached. `Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge` pins it: the
+divergent copy of a helper of that shape reaches seven definitions of its module with a status a
+global attribute can have replaced, none of the three assignments of the two that change a
+decision reproduces it, and neither does any of the fallback's seven single changes, so it is
+neither admitted nor rejected, as it was under the replaced search.
 
 Every observation the checker takes from Lean's reduction runs with smart unfolding off
 (`Collect.withoutSmartUnfolding`, applied by `Collect.declaration` and by `Probe`'s observations).

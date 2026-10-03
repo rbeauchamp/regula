@@ -479,20 +479,17 @@ private def fixpointRelation? (e : Expr) : Option Expr :=
     | _ => none
   else none
 
-/-- Lean 4.34.0's `wfRecursion` up to the definitions it adds, with one change: the relation is
-the observed base's own. Where `wfRecursion` elaborates a relation from termination measures
-(`WF.elabWFRel`, which synthesizes a `WellFoundedRelation` instance in the current environment),
-this reads it from the fixpoint of the observed definition that has the name of the unary
-definition Lean packs the group into, less `root`, applied to the group's fixed parameters
-(`fixpointRelation?`). Every step is Lean's own function, in `wfRecursion`'s order; what
-`wfRecursion` does after adding the definitions (helper compilation, equation lemmas, attributes)
-is left out. Throws if the observed definition applies no such fixpoint. -/
-private def wfRegeneration (root : Name) (docCtx : LocalContext × LocalInstances)
-    (preDefs : Array PreDefinition) : TermElabM Unit := do
+/-- The first steps of Lean 4.34.0's `wfRecursion`, each Lean's own function in its order: the
+recursive applications floated (`WF.floatRecApp`), the fixed parameters found
+(`getFixedParamPerms`), and the group packed into one unary definition (`WF.packMutual`). Returns
+the floated definitions, the fixed parameters, the packing and that unary definition. Throws if a
+definition has no varying argument. -/
+private def wfPacked (preDefs : Array PreDefinition) :
+    TermElabM (Array PreDefinition × FixedParamPerms × Meta.ArgsPacker × PreDefinition) := do
   let names := preDefs.map (·.declName)
   let preDefs ← preDefs.mapM fun preDef =>
     return { preDef with value := (← WF.floatRecApp preDef.value) }
-  let (fixedParamPerms, argsPacker, unaryPreDef) ← withoutModifyingEnv do
+  withoutModifyingEnv do
     for preDef in preDefs do
       addAsAxiom preDef
     let fixedParamPerms ← getFixedParamPerms preDefs
@@ -505,7 +502,22 @@ private def wfRegeneration (root : Name) (docCtx : LocalContext × LocalInstance
     let unfolded ← preDefs.mapM fun preDef =>
       return { preDef with
         value := (← Meta.unfoldIfArgIsAppOf names numSectionVars preDef.value) }
-    return (fixedParamPerms, argsPacker, ← WF.packMutual fixedParamPerms argsPacker unfolded)
+    return (preDefs, fixedParamPerms, argsPacker,
+      ← WF.packMutual fixedParamPerms argsPacker unfolded)
+
+/-- Lean 4.34.0's `wfRecursion` up to the definitions it adds, with one change: the relation is
+the observed base's own. Where `wfRecursion` elaborates a relation from termination measures
+(`WF.elabWFRel`, which synthesizes a `WellFoundedRelation` instance in the current environment),
+this reads it from the fixpoint of the observed definition that has the name of the unary
+definition Lean packs the group into, less `root`, applied to the group's fixed parameters
+(`fixpointRelation?`). Every step is Lean's own function, in `wfRecursion`'s order (`wfPacked`
+holds the first of them); what `wfRecursion` does after adding the definitions (helper
+compilation, equation lemmas, attributes) is left out. Throws if the observed definition applies
+no such fixpoint. -/
+private def wfRegeneration (root : Name) (docCtx : LocalContext × LocalInstances)
+    (preDefs : Array PreDefinition) : TermElabM Unit := do
+  let names := preDefs.map (·.declName)
+  let (preDefs, fixedParamPerms, argsPacker, unaryPreDef) ← wfPacked preDefs
   let processed ← withoutModifyingEnv do
     addAsAxiom unaryPreDef
     return { unaryPreDef with value := (← WF.preprocess unaryPreDef.value).expr }
@@ -598,8 +610,8 @@ Reducibility guides elaboration and is no part of a declaration: nothing records
 were irreducible where a definition was elaborated, and whatever the assignment, a recursion
 compiler's result is a definition the kernel checks. A definition that was `@[reducible]` without
 being an `abbrev`, `instance_reducible` or `implicit_reducible` before it was made irreducible is
-not told apart from an ordinary one here; `unsafeRecRegeneration` then searches those statuses for
-the definitions of the helper's module (`earlierStatuses`). -/
+not told apart from an ordinary one here; `unsafeRecRegeneration` then searches the statuses of
+the definitions Lean's compilers ask about (`statusCandidates`). -/
 private def withoutIrreducible (env : Environment) : Environment :=
   let marked := fun (names : Array Name) (name : Name) (status : ReducibilityStatus) =>
     if status matches .irreducible then names.push name else names
@@ -664,8 +676,11 @@ private def earlierStatuses : ReducibilityStatus → List ReducibilityStatus
 
 /-- For each definition of `name`'s module that `roots` reach and that a global attribute given
 after its declaration can have changed, the statuses it can have had before
-(`earlierStatuses` of its status in `env`), paired with its name. `roots` pairs each member of the
-helper's group with its value as Lean's recursion compilers work on it: after
+(`earlierStatuses` of its status in `env`), paired with its name: what `unsafeRecRegeneration`
+tries where the statuses Lean's compilers were recorded asking about reproduce nothing, since a
+definition Lean asks about with its unfolding predicate put aside is not recorded
+(`recordConsults`). `roots` pairs each member of the helper's group with its value as Lean's
+recursion compilers work on it: after
 `Meta.unfoldIfArgIsAppOf` (Lean 4.34.0's `Meta/Transform.lean:266-288`), which replaces each theorem
 applied to a bare function of the group with the theorem's value, the step the structural compiler
 takes before it finds the fixed parameters (`Structural/Preprocess.lean:47`) and the well-founded
@@ -706,6 +721,12 @@ private def earlierStatusOptions (env : Environment) (name : Name) (roots : Arra
       unless earlier.isEmpty do
         options := options.push (earlier.map fun status => (reached, status))
   return if pending.isEmpty then some options.toList else none
+
+/-- The statuses the search gives a definition, the one that unfolds least first. Irreducible is
+not among them: below default transparency Lean 4.34.0 answers for it as for semireducible
+(`Meta.canUnfoldDefault`, `Meta/GetUnfoldableConst.lean:17-31`, read from its source). -/
+private def triedStatuses : List ReducibilityStatus :=
+  [.semireducible, .implicitReducible, .instanceReducible, .reducible]
 
 /-- `picked` takes, for some of the lists of `options` and in their order, one member each. -/
 private inductive Picks {α : Type} : List α → List (List α) → Prop
@@ -804,9 +825,12 @@ private theorem mem_candidates {α : Type} (limit : Nat) (options : List (List �
     simpa [nonempty] using member
   · simp at exhaustive
 
-/-- The candidate assignments one helper's search tries at most: with the two regenerations before
-the search and two per assignment, at most `2 + 2 * candidateLimit` regenerations, 128, of at most
-three compiler runs each. -/
+/-- The candidate assignments one enumeration holds at most. One helper's search makes three: one
+in each of its two environments, and one of the definitions of its module that it reaches
+(`earlierStatusOptions`), tried in both. With the two regenerations before the search and, in each
+environment, the one the observed base selects, that is at most
+`2 + 2 * (1 + candidateLimit) + 2 * candidateLimit` regenerations, 256, of at most three compiler
+runs each. -/
 private def candidateLimit : Nat := 63
 
 /-- `env` with each definition of `statuses` given the status paired with it. -/
@@ -814,6 +838,389 @@ private def withStatuses (env : Environment) (statuses : List (Name × Reducibil
     Environment :=
   reducibilityExtraExt.modifyState env fun recorded =>
     statuses.foldl (fun recorded (name, status) => recorded.insert name status) recorded
+
+/-- A status assignment: definitions, each with the status it is given. -/
+private abbrev Statuses := List (Name × ReducibilityStatus)
+
+/-- The unfolding predicate under which a run's questions are recorded: for each definition Lean
+asks about at reducible, instance or implicit transparency, `consulted` holds whether Lean's own
+answer (`Meta.canUnfoldDefault`) was, each time, that it unfolds. That answer is returned, except
+that with `unfoldAll` every definition asked about at those transparencies unfolds. A question at
+another transparency is answered by Lean and not recorded: Lean 4.34.0 answers it alike for every
+status the search gives (`triedStatuses`), read from its source. Lean 4.34.0 puts this predicate
+aside while it reduces the discriminant of a `match` below default transparency
+(`Meta.whnfMatcher`, through `Meta.withCanUnfoldAtMatcherPred`), so a definition it asks about
+only there is not recorded. Where the discriminant does not reduce there, the `match` is stuck,
+and a comparison that goes on to unfold the matcher asks about the discriminant again under this
+predicate; where it reduces, nothing is recorded for it. -/
+private def recordConsults (consulted : IO.Ref (NameMap Bool)) (unfoldAll : Bool)
+    (config : Meta.Config) (info : ConstantInfo) : CoreM Bool := do
+  let unfolds ← Meta.canUnfoldDefault config info
+  unless config.transparency matches .reducible | .instances | .implicit do return unfolds
+  consulted.modify fun asked =>
+    asked.insert info.name (unfolds && (asked.find? info.name).getD true)
+  return unfoldAll || unfolds
+
+/-- `run` under `recordConsults` where `consulted?` is given, and as it is otherwise. -/
+private def recording {α : Type} (consulted? : Option (IO.Ref (NameMap Bool) × Bool))
+    (run : MetaM α) : MetaM α :=
+  match consulted? with
+  | some (consulted, unfoldAll) => Meta.withCanUnfoldPred (recordConsults consulted unfoldAll) run
+  | none => run
+
+/-- The definitions `consulted` holds, each with whether Lean answered, each time it was asked,
+that the definition unfolds. -/
+private def consultedDefinitions (consulted : IO.Ref (NameMap Bool)) :
+    BaseIO (Array (Name × Bool)) :=
+  return (← consulted.get).foldl (fun all name unfolds => all.push (name, unfolds)) #[]
+
+/-- What `run` answers in `environment`, with the heartbeat budget of one declaration, every change
+it makes undone and Lean's elaboration caches emptied on entering and leaving; `none` if it
+throws. A `checkerLimit?` reached is rethrown. The search for a status assignment asks its
+questions through this: an answer only proposes an assignment, and decides no admission. -/
+private def decisionIn {α : Type} (environment : Environment) (run : TermElabM α) :
+    TermElabM (Option α) := do
+  let saved ← saveState
+  try
+    setEnv environment
+    Meta.resetCache
+    return some (← withCurrHeartbeats run)
+  catch ex =>
+    if (← checkerLimit? ex).isSome then throw ex
+    return none
+  finally
+    saved.restore
+    Meta.resetCache
+
+/-- Which parameters Lean's fixed-parameter analysis (`getFixedParamPerms`) finds fixed for
+`preDefs` in the current environment: for each definition, one answer for each parameter. -/
+private def fixedParameters (consulted? : Option (IO.Ref (NameMap Bool) × Bool))
+    (preDefs : Array PreDefinition) : TermElabM (Array (Array Bool)) :=
+  withoutModifyingEnv do
+    for preDef in preDefs do
+      addAsAxiom preDef
+    return (← recording consulted? (getFixedParamPerms preDefs)).perms.map (·.map Option.isSome)
+
+/-- Whether `found` fixes every parameter `observed` does, for the same definitions and
+parameters. -/
+private def keepsFixed (found observed : Array (Array Bool)) : Bool :=
+  found.size == observed.size && (observed.zip found).all fun (wanted, fixed) =>
+    wanted.size == fixed.size && (wanted.zip fixed).all fun (wanted, fixed) => !wanted || fixed
+
+/-- The statuses that change which parameters Lean finds fixed for `input`, the group as one of
+Lean's compilers gives it to the fixed-parameter analysis, and the assignment `observed?` selects.
+
+The definitions are those the analysis asks about when every definition it asks about unfolds
+(`recordConsults` with `unfoldAll`): under that reading each comparison of a recursive call's
+argument with a parameter runs to its end, so the definitions any of them unfolds are asked about.
+Each is then given each status of `triedStatuses`, and its own in `environment` where that is not
+one of them, with every other one `reducible`, and the analysis is rerun. Returned first: each
+definition for which another status than its own in `environment` changes the result, with one
+status, the one that unfolds least, for each such result. Returned second, where `observed?` gives
+the parameters the observed bases keep fixed: each definition given the status that unfolds least
+among those under which the analysis still fixes all of them, where that changes the result. A
+parameter is fixed when every comparison for it succeeds, and a comparison succeeds when the
+definitions on its way unfold, so that assignment unfolds what the observed fixed parameters need
+and nothing else the analysis asks about. Everything here is read from Lean's analysis and from
+statuses the audited source can write; it only proposes assignments. -/
+private def fixedParameterStatuses (environment : Environment) (input : Array PreDefinition)
+    (observed? : Option (Array (Array Bool))) :
+    TermElabM (Array (Name × List ReducibilityStatus) × Statuses) := do
+  let consulted ← IO.mkRef ({} : NameMap Bool)
+  let some _ ← decisionIn environment (fixedParameters (some (consulted, true)) input)
+    | return (#[], [])
+  let consulted ← consultedDefinitions consulted
+  let unfolded :=
+    withStatuses environment (consulted.toList.map fun (name, _) => (name, .reducible))
+  let mut options := #[]
+  let mut directed := #[]
+  for (name, _) in consulted do
+    let current := getReducibilityStatusCore environment name
+    let mut outcomes := #[]
+    for status in if triedStatuses.contains current then triedStatuses
+        else triedStatuses ++ [current] do
+      if let some fixed ← decisionIn (withStatuses unfolded [(name, status)])
+          (fixedParameters none input) then
+        outcomes := outcomes.push (status, fixed)
+    let some (_, kept) := outcomes.find? (·.1 == current) | continue
+    let others := outcomes.foldl (fun others (status, fixed) =>
+      if fixed == kept || others.any (·.2 == fixed) then others
+      else others.push (status, fixed)) #[]
+    unless others.isEmpty do
+      options := options.push (name, others.toList.map (·.1))
+    if let some observed := observed? then
+      if let some (status, fixed) := outcomes.find? fun (_, fixed) => keepsFixed fixed observed then
+        if fixed != kept then directed := directed.push (name, status)
+  return (options, directed.toList)
+
+/-- The number of mentions of the constant `name` in `e` that compilation keeps: those outside
+every proof and every type, decided in the term's own local context (`erasedByCompilation`), and
+outside the relation, measure and well-foundedness proof of a well-founded fixpoint
+(`fixpointArguments?`); a binder's type is not counted. `fuel` bounds the depth; exhausting it
+counts nothing. A count only proposes an assignment. -/
+private def survivingMentions (name : Name) (fuel : Nat) (e : Expr) : MetaM Nat := do
+  match fuel with
+  | 0 => return 0
+  | fuel + 1 =>
+    if (e.find? (·.isConstOf name)).isNone then return 0
+    if ← erasedByCompilation e then return 0
+    match e with
+    | .const .. => return 1
+    | .mdata _ e => survivingMentions name fuel e
+    | .proj _ _ e => survivingMentions name fuel e
+    | .app .. =>
+      let parts := (fixpointArguments? e).getD (#[e.getAppFn] ++ e.getAppArgs)
+      parts.foldlM (fun count part => return count + (← survivingMentions name fuel part)) 0
+    | .lam n t body bi | .forallE n t body bi =>
+      Meta.withLocalDecl n bi t fun x => survivingMentions name fuel (body.instantiate1 x)
+    | .letE n t v body _ =>
+      return (← survivingMentions name fuel v)
+        + (← Meta.withLetDecl n t v fun x => survivingMentions name fuel (body.instantiate1 x))
+    | _ => return 0
+
+/-- What Lean's well-founded preprocessing (`WF.preprocess`) makes of the unary definition Lean
+packs `preDefs` into (`wfPacked`), in the current environment, with the mentions of each constant
+of `counted` that compilation keeps in it (`survivingMentions`); where the result is `unchanged?`
+nothing is counted, and no counts are returned. Only the preprocessing is recorded. -/
+private def preprocessed (consulted? : Option (IO.Ref (NameMap Bool) × Bool))
+    (preDefs : Array PreDefinition) (counted : Array Name) (unchanged? : Option Expr) :
+    TermElabM (Expr × Array Nat) := do
+  let (_, _, _, unaryPreDef) ← wfPacked preDefs
+  withoutModifyingEnv do
+    addAsAxiom unaryPreDef
+    let processed := (← recording consulted? (WF.preprocess unaryPreDef.value)).expr
+    if unchanged? == some processed then return (processed, #[])
+    return (processed, ← counted.mapM (survivingMentions · 100000 processed))
+
+/-- What a status change comes to for the preprocessing (`effectiveChange?`). -/
+private inductive ChangeOutcome where
+  /-- The change, as extended, changes the result: the change, the result and its counts. -/
+  | changed (change : Statuses) (processed : Expr) (counts : Array Nat)
+  /-- The change, as extended, leaves the result as it was, and its last run asked about no
+  further definition to unfold: the change, and the definitions that run asked about, without
+  each unfolding every time, that the preprocessing asks about before any change too. -/
+  | unchanged (change : Statuses) (asked : Array Name)
+  /-- The runs given were used up while each still found a further function to unfold: whether
+  the change changes the result is not known. -/
+  | exhausted
+
+/-- What `change` comes to for the preprocessing of `preDefs` in `environment`
+(`ChangeOutcome`). Where the result is still `unchanged`, each definition the preprocessing now
+asks about that `known` does not hold, that `change` gives no status, and for which Lean answered
+at least once that it does not unfold is made `reducible` too, and the preprocessing is rerun,
+until a run changes the result or asks about no such definition. This follows a function that
+unfolds to another function that does not unfold in `environment`, which only the two together
+let a `wf_preprocess` rule see through. `known` holds the definitions the preprocessing asks about
+before any change: they are not made `reducible` here, and those the last run asked about in the
+same way are returned for the caller to pair with the change (`pairedChanges`). Each rerun gives
+at least one more definition of `environment` a status, so as many `runs` as `environment` has
+constants are enough; a change whose runs are used up all the same is `exhausted`, not
+`unchanged`: the caller must not take the search for complete. A run that throws leaves the result
+unchanged. -/
+private def effectiveChange? (environment : Environment) (preDefs : Array PreDefinition)
+    (counted : Array Name) (unchanged : Expr) (known : NameSet) (change : Statuses) :
+    Nat → TermElabM ChangeOutcome
+  | 0 => return .exhausted
+  | runs + 1 => do
+    let consulted ← IO.mkRef ({} : NameMap Bool)
+    let some (processed, counts) ← decisionIn (withStatuses environment change)
+        (preprocessed (some (consulted, false)) preDefs counted (some unchanged))
+      | return .unchanged change #[]
+    if processed != unchanged then return .changed change processed counts
+    let stuck := (← consultedDefinitions consulted).filterMap fun (name, unfolds) =>
+      if unfolds || change.any (·.1 == name) then none else some name
+    let (asked, exposed) := stuck.partition known.contains
+    if exposed.isEmpty then return .unchanged change asked
+    effectiveChange? environment preDefs counted unchanged known
+      (change ++ exposed.toList.map (·, .reducible)) runs
+
+/-- The changes that pair `change` with one definition of `asked` each, where they change the
+result of the preprocessing of `preDefs` in `environment`, each with its result and counts, and
+whether every one was decided. `change` is one that `effectiveChange?` followed and that left the
+result unchanged, and `asked` the definitions of `known` it returned with it: each is made
+`reducible` beside `change`, one at a time, and that change is followed in turn. A function a
+change unfolds to can be one the definitions also call directly, which the preprocessing asks
+about before any change and `effectiveChange?` therefore leaves as it is. Returned second: `false`
+if a pair used up its `runs` (`ChangeOutcome.exhausted`). -/
+private def pairedChanges (environment : Environment) (preDefs : Array PreDefinition)
+    (counted : Array Name) (unchanged : Expr) (known : NameSet) (change : Statuses)
+    (asked : Array Name) (runs : Nat) :
+    TermElabM (Array (Statuses × Expr × Array Nat) × Bool) := do
+  let mut found := #[]
+  let mut complete := true
+  for partner in asked do
+    match ← effectiveChange? environment preDefs counted unchanged known
+        (change ++ [(partner, .reducible)]) runs with
+    | .changed change processed counts => found := found.push (change, processed, counts)
+    | .unchanged .. => pure ()
+    | .exhausted => complete := false
+  return (found, complete)
+
+/-- The status changes that change what Lean's well-founded preprocessing makes of `preDefs` in
+`environment`, the change the observed bases select, and whether every change was decided.
+
+The definitions are those the preprocessing asks about at reducible, instance or implicit
+transparency (`recordConsults`, with Lean's own answers), whether the helpers' values mention them
+or another definition unfolds to them. Returned first: for each, the changes that change the
+result when it is given another status of `triedStatuses` than its own, one for each result. Such
+a change is followed through the functions it unfolds to (`effectiveChange?`). One that still
+leaves the result unchanged is then paired with each definition the preprocessing asked about
+before any change and still asks about without its unfolding (`pairedChanges`), and a pair is
+returned, with the definition whose status was changed first, where its result is one that no
+change found before it gives: a pair whose result one of its two changes gives alone says nothing
+about the other. The observed definitions only order the changes: `wanted` counts the mentions of
+a constant they keep (`survivingMentions`), and the changes after which the result keeps the
+observed number of most of the constants counted come first. The constants counted are those
+definitions and the constants the helpers' values mention, less the functions of `preDefs`
+themselves: an observed base calls itself through its fixpoint's argument and never mentions
+them, while the preprocessed body keeps its calls to them where Lean packs nothing (one function
+with one varying argument, `WF.packMutual`). A toolchain rule that matches through
+a function replaces the application it matches, and a parameter Lean finds fixed is dropped from
+the recursive calls, so those numbers tell the readings of a status apart. Returned second, where
+the result keeps another number for some constant: a change after which it keeps the observed
+number of each. Tried first for that is one change for all the functions concerned, each made
+`reducible` where the result mentions it more often than the observed definitions do and
+semireducible where it mentions it less often, since a rule can need several functions to unfold
+together, followed and paired in the same way; then the changes returned first, in the order they
+were found. Returned third: `false` if a change used up its runs (`ChangeOutcome.exhausted`), so
+that what was returned is not all there is. Each change is given as many runs as `environment` has
+constants. Everything here only proposes assignments. -/
+private def preprocessingStatuses (environment : Environment) (preDefs : Array PreDefinition)
+    (wanted : Name → MetaM Nat) :
+    TermElabM (Array (Name × List Statuses) × Statuses × Bool) := do
+  let consulted ← IO.mkRef ({} : NameMap Bool)
+  let some _ ← decisionIn environment (preprocessed (some (consulted, false)) preDefs #[] none)
+    | return (#[], [], true)
+  let consulted ← consultedDefinitions consulted
+  let known := consulted.foldl (fun known (name, _) => known.insert name) ({} : NameSet)
+  let own := preDefs.map (·.declName)
+  let counted := (preDefs.foldl (fun names preDef =>
+    preDef.value.getUsedConstants.foldl NameSet.insert names) known).toArray.filter
+      (!own.contains ·)
+  let some (unchanged, counts) ← decisionIn environment (preprocessed none preDefs counted none)
+    | return (#[], [], true)
+  let observed ← counted.mapM fun name => withCurrHeartbeats <| wanted name
+  let distance (counts : Array Nat) : Nat :=
+    (Array.range observed.size).countP fun index => counts[index]? != observed[index]?
+  let runs := environment.constants.fold (fun runs _ _ => runs + 1) 0
+  let follow (change : Statuses) :=
+    effectiveChange? environment preDefs counted unchanged known change runs
+  let paired (change : Statuses) (asked : Array Name) :=
+    pairedChanges environment preDefs counted unchanged known change asked runs
+  let mut found : Array (Name × Nat × Statuses × Expr) := #[]
+  let mut pending : Array (Name × Statuses × Array Name) := #[]
+  let mut together : Statuses := []
+  let mut complete := true
+  for (name, _) in consulted do
+    let current := getReducibilityStatusCore environment name
+    for status in triedStatuses do
+      if status == current then continue
+      match ← follow [(name, status)] with
+      | .changed change processed counts =>
+        unless found.any fun (other, _, _, result) => other == name && result == processed do
+          found := found.push (name, distance counts, change, processed)
+      | .unchanged change asked => pending := pending.push (name, change, asked)
+      | .exhausted => complete := false
+    let some index := counted.idxOf? name | continue
+    let (some kept, some wanted) := (counts[index]?, observed[index]?) | continue
+    let status := if kept > wanted then ReducibilityStatus.reducible else .semireducible
+    if kept != wanted && status != current then
+      together := together ++ [(name, status)]
+  for (name, change, asked) in pending do
+    let (pairs, decided) ← paired change asked
+    complete := complete && decided
+    for (change, processed, counts) in pairs do
+      unless found.any (·.2.2.2 == processed) do
+        found := found.push (name, distance counts, change, processed)
+  let options := consulted.filterMap fun (name, _) =>
+    let changes := found.filter (·.1 == name)
+    if changes.isEmpty then none else
+      some (changes.foldl (fun closest (_, far, _, _) => min closest far) (distance #[]), name,
+        changes.toList.map (·.2.2.1))
+  let ordered := (options.qsort fun a b => a.1 < b.1).map fun (_, name, changes) => (name, changes)
+  if distance counts == 0 then return (ordered, [], complete)
+  unless together.isEmpty do
+    let (changes, decided) ← match ← follow together with
+      | .changed change processed counts => pure (#[(change, processed, counts)], true)
+      | .unchanged change asked => paired change asked
+      | .exhausted => pure (#[], false)
+    complete := complete && decided
+    if let some (change, _, _) := changes.find? fun (_, _, counts) => distance counts == 0 then
+      return (ordered, change, complete)
+  let directed := (found.find? (·.2.1 == 0)).map (·.2.2.1)
+  return (ordered, directed.getD [], complete)
+
+/-- The parameters the observed bases keep outside their recursion, with whether that recursion
+is well-founded, read from the shape Lean 4.34.0's compilers give a base: with the leading binders
+of its value its parameters, the ones passed, as they are, to the unary definition Lean packs a
+well-founded group into (`_unary`, `_mutual`; all arguments but the last, which packs the others),
+the ones bound before the fixpoint where the base is that unary definition itself, or the ones
+passed to the functional of a structural definition (`_f`). `arities` gives each helper's
+parameter count. `none` where a base has none of these shapes, as a definition by structural
+recursion over an inductive predicate, or the bases differ in kind. What is read only directs the
+search (`fixedParameterStatuses`). -/
+private def observedFixedParameters? (bases : Array Name) (arities : Array Nat) :
+    MetaM (Option (Bool × Array (Array Bool))) := do
+  let env ← getEnv
+  let some first := bases[0]? | return none
+  let packed := #[first ++ `_unary, first ++ `_mutual].filter env.contains
+  let functionals := bases.map (· ++ `_f)
+  let headed (names : Array Name) (e : Expr) : Bool :=
+    e.getAppFn.isConst && names.contains e.getAppFn.constName!
+  let observed ← (bases.zip arities).mapM fun (base, arity) => do
+    let some (.defnInfo definition) := env.find? base | return none
+    Meta.lambdaBoundedTelescope definition.value arity fun params body => do
+      let marked (fixed : Array Expr) : Array Bool :=
+        (Array.range arity).map fun i => params[i]?.any fixed.contains
+      if let some core := body.find? (headed packed) then
+        return some (true, marked core.getAppArgs.pop)
+      if packed.isEmpty then
+        if let some arguments := fixpointArguments? body then
+          return some (true, marked (params.extract 0 (params.size + 3 - arguments.size)))
+      if let some core := body.find? (headed functionals) then
+        return some (false, marked core.getAppArgs)
+      return none
+  let some observed := observed.mapM id | return none
+  let some (wellFounded, _) := observed[0]? | return none
+  unless observed.all (·.1 == wellFounded) do return none
+  return some (wellFounded, observed.map (·.2))
+
+/-- The status assignments to regenerate `preDefs` under in `environment`: the one the observed
+bases select, and for each definition whose status changes a decision, its other statuses.
+`inputs` holds the group as Lean's compilers give it to the fixed-parameter analysis, `observed?`
+what `observedFixedParameters?` read, and `wanted` counts a constant's mentions in the observed
+definitions. The fixed parameters are analysed first (`fixedParameterStatuses`), and the
+preprocessing, where the recursion can be well-founded, under the assignment that analysis
+selects (`preprocessingStatuses`); a change that only restores a status of `environment` is
+dropped. The assignment returned first joins the two selections. Returned last: `false` if
+the preprocessing left a change undecided (`ChangeOutcome.exhausted`), so that the candidates are
+not all there are. -/
+private def statusCandidates (environment : Environment) (preDefs : Array PreDefinition)
+    (inputs : List (Array PreDefinition)) (observed? : Option (Bool × Array (Array Bool)))
+    (wanted : Name → MetaM Nat) : TermElabM (Statuses × List (List Statuses) × Bool) := do
+  let mut options : Array (Name × List Statuses) := #[]
+  let mut directed : Statuses := []
+  let mut complete := true
+  for input in inputs do
+    let (found, selected) ← fixedParameterStatuses environment input (observed?.map (·.2))
+    options := options ++ found.map fun (name, statuses) =>
+      (name, statuses.map fun status => [(name, status)])
+    directed := directed ++ selected
+  if observed?.all (·.1) then
+    let (found, selected, decided) ←
+      preprocessingStatuses (withStatuses environment directed) preDefs wanted
+    complete := decided
+    let restores (change : Statuses) : Bool := change.all fun (name, status) =>
+      getReducibilityStatusCore environment name == status
+    options := options ++ found.map fun (name, changes) => (name, changes.filter (!restores ·))
+    directed := directed ++ selected
+  let merged := options.foldl (fun merged (name, changes) =>
+    match merged.findIdx? (·.1 == name) with
+    | some index => merged.modify index fun (name, known) =>
+        (name, changes.foldl (fun known change =>
+          if known.contains change then known else known ++ [change]) known)
+    | none => merged.push (name, changes.eraseDups)) (#[] : Array (Name × List Statuses))
+  return (directed, (merged.toList.map (·.2)).filter (!·.isEmpty), complete)
 
 /-- Whether `value` mentions a constant that `inspected` does not hold. -/
 private def mentionsAbsent (inspected : Environment) (value : Expr) : Bool :=
@@ -1016,23 +1423,50 @@ with no definition irreducible, each given the status its declaration shows (`wi
 Lean does not record which definitions were irreducible where the base was compiled, and what it
 unfolds decides which argument its structural compiler finds and where the function is passed
 through a `match`. That, too, only selects which regeneration runs. Where neither environment
-reproduces the base, the regeneration searches the statuses a later global attribute can have
-replaced: Lean's fixed-parameter analysis and its `wf_preprocess` simplification unfold at
+reproduces the base, the regeneration searches the statuses of the definitions Lean's compilers
+ask about: Lean's fixed-parameter analysis and its `wf_preprocess` simplification unfold at
 reducible transparency, and at implicit transparency where they compare an instance-implicit
 argument, so a definition that is `reducible`, `instance_reducible` or `implicit_reducible` at only
 one of the two points changes which parameters the compilers pack and which toolchain rule
-rewrites the body. Each candidate assignment (`candidates` of `earlierStatusOptions`) gives some
-of the definitions of the helper's module that its group reaches an earlier status
-(`earlierStatuses`), and all attempts run under it in the inspected environment and in the one
-with no definition irreducible, each run with the heartbeat budget of one declaration. An
-assignment is read from statuses, kernel hints and module membership, all of which the audited
-source can write; like the termination argument it only selects which regeneration runs, is never
-an argument of the comparison, and is undone with the rest of the run before the comparison. The
-search is exhaustive over those assignments when there are at most `candidateLimit` of them
-(`mem_candidates`), and then a helper no attempt reproduces is not regenerated. Otherwise only the
-first `candidateLimit` single changes are tried (`candidates_length_le`), and a helper none of them
-reproduces is undecided, as is one whose reached definitions were not all visited: the
-regeneration throws, so the audit is incomplete and the helper is neither admitted nor rejected.
+rewrites the body. The search runs those two decisions alone, as Lean's own functions, and records
+through `Meta`'s unfolding predicate which definitions they ask about below default transparency,
+and for each whether Lean answered each time that it unfolds (`recordConsults`): definitions of
+any module, and whatever attribute, global or `local`, gave a status. For
+each such definition it finds the statuses under which a decision comes out differently
+(`statusCandidates`); for the preprocessing, a change that leaves the result as it was is followed
+through the functions it unfolds to that do not unfold at the end of the audit, and paired with
+each definition the preprocessing still asks about (`pairedChanges`). From the observed bases
+it reads which parameters they keep fixed
+(`observedFixedParameters?`) and how many mentions of a function they keep, which select one
+assignment directly. The search runs in the inspected environment and then in the one with no
+definition irreducible: in each, that assignment is tried first, and then every assignment that
+gives one or more of those definitions another status (`candidates`), each regeneration with the
+heartbeat budget of one declaration. An assignment is read from Lean's analysis, from statuses
+and from the observed definitions, all of which the audited source can write; like the
+termination argument it only selects which regeneration runs, is never an argument of the
+comparison, and is undone with the rest of the run before the comparison. The enumeration is
+exhaustive over those assignments when there are at most `candidateLimit` of them
+(`mem_candidates`), and then a helper no attempt reproduces is not regenerated. Otherwise only
+the first `candidateLimit` single candidate changes are tried (`candidates_length_le`), each of
+which can give several definitions a status, and a helper none of them reproduces is undecided:
+the regeneration throws, so the audit is incomplete and the helper is neither admitted nor
+rejected. The same holds where a change was followed
+through as many runs as the environment has constants without being decided
+(`ChangeOutcome.exhausted`), which the argument at `effectiveChange?` says no change reaches.
+Where none of those assignments reproduces the base, the regeneration tries the assignments of
+the search this one replaces (`earlierStatusOptions`, `candidates`): each gives some of the
+definitions of the helper's module that its group reaches an earlier status (`earlierStatuses`),
+and all attempts run under it in both environments. They are that search's assignments, in its
+order, so every assignment it tried is tried here. They are read from statuses, kernel hints and
+module membership, all of which the audited source can write, and like the others only select
+which regeneration runs. This reaches a definition Lean asks about only
+while it reduces the discriminant of a `match`, with the recording predicate put aside
+(`recordConsults`), which the search above does not record where the discriminant reduces at the
+end of the audit. It is exhaustive over those assignments when there are at most `candidateLimit`
+of them. Otherwise only the first `candidateLimit` single changes are tried, and a helper none of
+them reproduces is undecided, as is one whose reached definitions were not all visited. Every
+bound the search stops at ends in an incomplete audit, never in a rejection, and the error names
+the bound.
 Lean's elaboration caches
 are emptied on entering and leaving each attempt, since the environments differ in what unfolds
 and `saveState` does not cover the caches. A regeneration that reports an error does not count.
@@ -1132,25 +1566,68 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
     if let some (origin, after) ← regenerate regenerating then return ← admitted origin after
     let unsealed := withoutIrreducible regenerating
     if let some (origin, after) ← regenerate unsealed then return ← admitted origin after
-    let undecided := m!"no regeneration of {name} reproduced its base, and the helper is \
-      undecided, neither admitted nor rejected: "
     let fnNames := preDefs.map (·.declName)
     let numSectionVars := preDefs[0]!.numSectionVars
+    let observed? := (← decisionIn regenerating <|
+      observedFixedParameters? bases (preDefs.map (·.value.getNumHeadLambdas))).join
+    let structural ← decisionIn regenerating <| withoutModifyingEnv do
+      for preDef in preDefs do
+        addAsAxiom preDef
+      preDefs.mapM fun (preDef : PreDefinition) => do
+        let value ← Structural.preprocess preDef.value fnNames numSectionVars
+        return { preDef with value }
+    let wellFounded ← decisionIn regenerating <| preDefs.mapM fun (preDef : PreDefinition) =>
+      return { preDef with value := (← WF.floatRecApp preDef.value) }
+    let inputs := match observed? with
+      | some (true, _) => wellFounded.toList
+      | some (false, _) => structural.toList
+      | none => structural.toList ++ wellFounded.toList
+    let observedNames :=
+      (bases ++ #[bases[0]! ++ `_unary, bases[0]! ++ `_mutual]).filter env.contains
+    let wanted (constant : Name) : MetaM Nat :=
+      observedNames.foldlM (init := 0) fun count observed => do
+        let some (.defnInfo definition) := env.find? observed | return count
+        return count + (← survivingMentions constant 100000 definition.value)
     let roots ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
       return (group[i]!, ← Meta.unfoldIfArgIsAppOf fnNames numSectionVars preDef.value)
-    let some options := earlierStatusOptions env name roots
-      | throwError "{undecided}the definitions of its module that it reaches were not all visited."
-    let (assignments, exhaustive) := candidates candidateLimit options
-    for assignment in assignments do
+    let reached? := earlierStatusOptions env name roots
+    let mut enumerated := true
+    let mut followed := true
+    for environment in [regenerating, unsealed] do
+      let (directed, options, complete) ←
+        statusCandidates environment preDefs inputs observed? wanted
+      let (assignments, all) := candidates candidateLimit options
+      enumerated := enumerated && all
+      followed := followed && complete
+      for assignment in directed :: (assignments.map List.flatten).filter (· != directed) do
+        if assignment.isEmpty then continue
+        if let some (origin, after) ← withCurrHeartbeats <|
+            regenerate (withStatuses environment assignment) then
+          return ← admitted origin after
+    let (earlier, exhaustive) := candidates candidateLimit (reached?.getD [])
+    for assignment in earlier do
       for environment in [regenerating, unsealed] do
         if let some (origin, after) ← withCurrHeartbeats <|
             regenerate (withStatuses environment assignment) then
           return ← admitted origin after
-    unless exhaustive do
-      throwError "{undecided}the definitions of its module that it reaches allow more than \
-        {candidateLimit} assignments of an earlier reducibility status, of which only the first \
-        {candidateLimit} single changes were tried. Give each function it calls its reducibility \
-        where the function is declared."
+    let bounds :=
+      (if enumerated then [] else [m!"the definitions whose status changes what Lean's \
+        recursion compilers generate for it allow more than {candidateLimit} assignments of \
+        another status, of which only the one its observed base selects and the first \
+        {candidateLimit} single candidate changes were tried"]) ++
+      (if followed then [] else [m!"a function it calls was followed through functions that do \
+        not unfold at the end of the audit for as many preprocessing runs as the environment has \
+        constants, and a further one was still found"]) ++
+      (if reached?.isSome then [] else [m!"the definitions of its module that it reaches were \
+        not all visited"]) ++
+      (if exhaustive then [] else [m!"the definitions of its module that it reaches allow more \
+        than {candidateLimit} assignments of an earlier reducibility status, of which only the \
+        first {candidateLimit} single changes were tried"])
+    unless bounds.isEmpty do
+      throwError "no regeneration of {name} reproduced its base, and the helper is undecided, \
+        neither admitted nor rejected: the search for the reducibility statuses its definition \
+        was compiled under stopped at a bound: {MessageData.joinSep bounds "; and "}. Give each \
+        function it calls its reducibility where the function is declared."
     return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/
