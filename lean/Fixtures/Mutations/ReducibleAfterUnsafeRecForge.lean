@@ -1,0 +1,92 @@
+import Lean
+
+/-
+Mutation (issue #196, adversarial) at the compiler boundary: forged helpers
+where a candidate reducibility assignment exists, in each direction.
+
+`fixtures_forged_after_honest` passes a parameter through
+`fixtures_forged_after_keep`, made `reducible` afterwards, so its base packs
+that parameter and no regeneration in the inspected environment does: only the
+assignment that gives `fixtures_forged_after_keep` back as semireducible
+reproduces the base. `fixtures_forged_before_honest` is the other way round:
+`fixtures_forged_before_keep` is `@[reducible]` where the definition is
+compiled and `irreducible` afterwards, and only the assignment that gives it
+back as `reducible` reproduces the base. A custom command copies each
+definition, the `_unary` definition Lean compiled it into where there is one,
+and its range-less `_unsafe_rec` helper twice:
+
+- `fixtures_forged_after_faithful` and `fixtures_forged_before_faithful`
+  rename only, and
+- `fixtures_forged_after_divergent` and `fixtures_forged_before_divergent`
+  also make the helper call `fixtures_forged_after_skip` at its non-recursive
+  leaf, where the kernel-checked base calls `fixtures_forged_after_step`, so
+  the code Lean runs for each is not the definition the kernel checked.
+
+Exact match admits the honest helpers and the faithful copies, and rejects the
+divergent ones alone. An assignment only selects which regeneration runs: the
+one that reproduces the honest base regenerates, from a divergent helper, a
+definition whose leaf calls `fixtures_forged_after_skip`, which the comparison,
+made in the inspected environment against the observed base, rejects.
+-/
+open Lean Elab Command
+
+def fixtures_forged_after_step (n : Nat) : Nat := n + 1
+
+def fixtures_forged_after_skip (n : Nat) : Nat := n + 2
+
+def fixtures_forged_after_keep (a : Nat) : Nat := a
+
+def fixtures_forged_after_honest (a n : Nat) : Nat :=
+  match n with
+  | 0 => fixtures_forged_after_step a
+  | k + 1 => fixtures_forged_after_honest (fixtures_forged_after_keep a) k
+termination_by n
+
+attribute [reducible] fixtures_forged_after_keep
+
+@[reducible] def fixtures_forged_before_keep (a : Nat) : Nat := a
+
+def fixtures_forged_before_honest (a n : Nat) : Nat :=
+  match n with
+  | 0 => fixtures_forged_after_step a
+  | k + 1 => fixtures_forged_before_honest (fixtures_forged_before_keep a) k
+termination_by n
+
+set_option allowUnsafeReducibility true in
+attribute [irreducible] fixtures_forged_before_keep
+
+/-- `forge_reducible_after_helper honest name diverge`: copy `honest`, its `_unary` definition
+where there is one, and its helper under `name`; with `diverge`, the copied helper calls
+`fixtures_forged_after_skip` in place of `fixtures_forged_after_step`. -/
+elab "forge_reducible_after_helper " source:ident id:ident diverge:(&"diverge")? : command => do
+  let honest := source.getId
+  let forged := id.getId
+  let copies := [honest, honest ++ `_unsafe_rec, honest ++ `_unary]
+  let env ← getEnv
+  let copied := fun (suffix : Name) (swap : Bool) => do
+    let some (.defnInfo info) := env.find? (honest ++ suffix)
+      | throwError "missing {honest ++ suffix}"
+    let value := info.value.replace fun
+      | .const n us =>
+        if copies.contains n then some (mkConst (n.replacePrefix honest forged) us)
+        else if swap && n == ``fixtures_forged_after_step then
+          some (mkConst ``fixtures_forged_after_skip us)
+        else none
+      | _ => none
+    pure { info with name := forged ++ suffix, value, all := [forged ++ suffix] }
+  -- The definition mentions `_unary`.
+  for suffix in [`_unary, .anonymous] do
+    if env.contains (honest ++ suffix) then
+      liftCoreM <| addDecl (.defnDecl (← copied suffix false))
+  liftCoreM <| Lean.Meta.markAsRecursive forged
+  addDeclarationRangesFromSyntax forged (← getRef)
+  liftCoreM <| addDecl (.mutualDefnDecl [← copied `_unsafe_rec diverge.isSome])
+  liftCoreM <| compileDecls #[forged ++ `_unsafe_rec]
+
+forge_reducible_after_helper fixtures_forged_after_honest fixtures_forged_after_faithful
+
+forge_reducible_after_helper fixtures_forged_after_honest fixtures_forged_after_divergent diverge
+
+forge_reducible_after_helper fixtures_forged_before_honest fixtures_forged_before_faithful
+
+forge_reducible_after_helper fixtures_forged_before_honest fixtures_forged_before_divergent diverge

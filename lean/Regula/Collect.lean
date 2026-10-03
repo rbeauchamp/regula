@@ -105,6 +105,17 @@ def checkerLimit? (ex : Exception) : BaseIO (Option String) := do
   return kernelLimits.findSome? fun (rendering, limit) =>
     if text.contains rendering then some limit else none
 
+/-- Run `act` with Lean's smart unfolding off. With it on, `Meta` unfolds an application of `g`
+through a declaration named `g._sunfold` (`Meta.unfoldDefinition?`), which it finds by that name
+alone and whose type it does not compare with `g`'s. Lean generates one for a structurally
+recursive definition, but an audited module can declare one for any function, with another body,
+and the kernel checks it as the ordinary definition it is. Every answer the checker takes from
+`Meta` reduction (what is a proposition, a type or a proof, which parameters a recursion compiler
+finds fixed, what a type reduces to) would then rest on that name. With the option off, Lean 4.34.0
+reads no such declaration: each unfolding is of the constant's own kernel-checked value. -/
+def withoutSmartUnfolding {α : Type} (act : CommandElabM α) : CommandElabM α :=
+  withScope (fun scope => { scope with opts := Meta.smartUnfolding.set scope.opts false }) act
+
 /-- The root under which a regeneration names the definitions it adds. -/
 private def regenerationRoot : Name := `_regula_regeneration
 
@@ -554,7 +565,8 @@ Reducibility guides elaboration and is no part of a declaration: nothing records
 were irreducible where a definition was elaborated, and whatever the assignment, a recursion
 compiler's result is a definition the kernel checks. A definition that was `@[reducible]` without
 being an `abbrev`, `instance_reducible` or `implicit_reducible` before it was made irreducible is
-not told apart from an ordinary one. -/
+not told apart from an ordinary one here; `unsafeRecRegeneration` then searches those statuses for
+the definitions of the helper's module (`earlierStatuses`). -/
 private def withoutIrreducible (env : Environment) : Environment :=
   let marked := fun (names : Array Name) (name : Name) (status : ReducibilityStatus) =>
     if status matches .irreducible then names.push name else names
@@ -570,6 +582,205 @@ private def withoutIrreducible (env : Environment) : Environment :=
     | _ => .semireducible
   reducibilityExtraExt.modifyState env fun statuses =>
     irreducible.foldl (fun statuses name => statuses.insert name (declared name)) statuses
+
+/-- The constants that unfolding `info` can introduce in the checker's own reduction: those its
+type and value mention (a theorem's and an opaque constant's too, though Lean 4.34.0's `Meta`
+unfolds neither at any transparency, `getUnfoldableConst?`, so following them only adds constants),
+and the constructors of an inductive and of a recursor's rules. A
+declaration named `info.name ++ `_sunfold`, which Lean's smart unfolding would take for the
+unfolding of `info`, is not among them: every observation runs with smart unfolding off
+(`withoutSmartUnfolding`), and such a declaration can be authored with any body. -/
+private def unfoldReferences (info : ConstantInfo) : Array Name :=
+  let mentioned := info.type.getUsedConstants ++
+    ((info.value? (allowOpaque := true)).map Expr.getUsedConstants).getD #[]
+  let structural := match info with
+    | .inductInfo value => value.ctors.toArray
+    | .recInfo value =>
+      value.rules.foldl (fun names rule => (names.push rule.ctor) ++ rule.rhs.getUsedConstants) #[]
+    | _ => #[]
+  mentioned ++ structural
+
+/-- The constants whose reducibility status can decide what Lean's recursion compilers make of
+`info` once they reach it: those its type mentions, those its value mentions where it is a
+definition, and the constructors of an inductive and of a recursor's rules (`unfoldReferences`). A
+theorem's value and an opaque constant's are not followed: Lean 4.34.0's `Meta` unfolds neither, at
+any transparency (`getUnfoldableConst?`). The compilers read a theorem's value only where
+`Meta.unfoldIfArgIsAppOf` replaces a theorem applied to a bare function of the group they compile,
+in the value of a member of that group, and `earlierStatusOptions` takes those values after that
+step. -/
+private def statusReferences (info : ConstantInfo) : Array Name :=
+  match info with
+  | .thmInfo _ | .opaqueInfo _ => info.type.getUsedConstants
+  | _ => unfoldReferences info
+
+/-- The statuses a definition that has `status` at the end of the audit can have had before a
+global attribute gave it `status`: Lean 4.34.0's validation of a global reducibility attribute
+(`ReducibilityAttrs.validate`) admits `reducible` and `instance_reducible` on a semireducible
+definition, `implicit_reducible` on a semireducible or `instance_reducible` one, and `irreducible`
+on any of those three, and under `set_option allowUnsafeReducibility true`, where it checks
+nothing, the one further change taken here is `irreducible` on a `reducible` definition. The
+semireducible status an irreducible definition can have had is `withoutIrreducible`'s, and is left
+out. Nothing is listed for a semireducible definition: the validation admits no global attribute
+that gives that status. -/
+private def earlierStatuses : ReducibilityStatus → List ReducibilityStatus
+  | .reducible => [.semireducible]
+  | .instanceReducible => [.semireducible]
+  | .implicitReducible => [.semireducible, .instanceReducible]
+  | .irreducible => [.reducible, .instanceReducible, .implicitReducible]
+  | .semireducible => []
+
+/-- For each definition of `name`'s module that `roots` reach and that a global attribute given
+after its declaration can have changed, the statuses it can have had before
+(`earlierStatuses` of its status in `env`), paired with its name. `roots` pairs each member of the
+helper's group with its value as Lean's recursion compilers work on it: after
+`Meta.unfoldIfArgIsAppOf` (Lean 4.34.0's `Meta/Transform.lean:266-288`), which replaces each theorem
+applied to a bare function of the group with the theorem's value, the step the structural compiler
+takes before it finds the fixed parameters (`Structural/Preprocess.lean:47`) and the well-founded
+one before its preprocessing (`WF/Main.lean:38`). The definitions reached are those the members'
+types and those values mention, closed under `statusReferences` through the constants of that
+module: a constant of an imported module mentions none of this module's. An `abbrev`, which
+the kernel's reducibility hint shows, is `reducible` from its declaration, so it is left out
+unless it is irreducible in `env`: `withoutIrreducible` gives such an `abbrev` back as
+`reducible`, and the status paired with it here keeps it irreducible in that environment too.
+Every other definition is taken, because nothing tells a status given at the declaration
+(`@[reducible] def`, `instance`) from one a later attribute gave. `none` if the search stops before
+it has visited every constant reached, which the bound, one step per constant of `env`, does not
+allow: a step visits a constant of the module that no earlier step visited. -/
+private def earlierStatusOptions (env : Environment) (name : Name) (roots : Array (Name × Expr)) :
+    Option (List (List (Name × ReducibilityStatus))) := Id.run do
+  let home := env.getModuleIdxFor? name
+  let mut seen : NameSet := roots.foldl (fun seen (root, _) => seen.insert root) {}
+  let mut pending := roots.map (·.1)
+  let mut options : Array (List (Name × ReducibilityStatus)) := #[]
+  for _ in [:env.constants.fold (fun count _ _ => count + 1) 0] do
+    let some reached := pending.back? | break
+    pending := pending.pop
+    let some info := env.find? reached | continue
+    let references := match roots.find? (·.1 == reached) with
+      | some (_, value) => info.type.getUsedConstants ++ value.getUsedConstants
+      | none => statusReferences info
+    for mentioned in references do
+      if !seen.contains mentioned && env.contains mentioned
+          && env.getModuleIdxFor? mentioned == home then
+        seen := seen.insert mentioned
+        pending := pending.push mentioned
+    if let .defnInfo definition := info then
+      let status := getReducibilityStatusCore env reached
+      let earlier := match definition.hints with
+        | .regular _ => earlierStatuses status
+        | .abbrev => if status matches .irreducible then [.irreducible] else []
+        | .opaque => []
+      unless earlier.isEmpty do
+        options := options.push (earlier.map fun status => (reached, status))
+  return if pending.isEmpty then some options.toList else none
+
+/-- `picked` takes, for some of the lists of `options` and in their order, one member each. -/
+private inductive Picks {α : Type} : List α → List (List α) → Prop
+  /-- Nothing is taken from no list. -/
+  | nil : Picks [] []
+  /-- The first list is passed over. -/
+  | skip {picked : List α} {alternatives : List α} {rest : List (List α)} :
+      Picks picked rest → Picks picked (alternatives :: rest)
+  /-- A member of the first list is taken. -/
+  | pick {a : α} {picked : List α} {alternatives : List α} {rest : List (List α)} :
+      a ∈ alternatives → Picks picked rest → Picks (a :: picked) (alternatives :: rest)
+
+/-- Every list that takes, for some of the lists of `options` and in their order, one member each,
+the empty one first; `none` once there are more than `limit + 1` of them, which is decided list by
+list from the last one, so that no more than `limit + 1` times the longest list's length plus one
+are ever built. -/
+private def assignments? {α : Type} (limit : Nat) : List (List α) → Option (List (List α))
+  | [] => some [[]]
+  | alternatives :: rest =>
+    match assignments? limit rest with
+    | none => none
+    | some tail =>
+      let all := tail ++ alternatives.flatMap fun a => tail.map (a :: ·)
+      if all.length ≤ limit + 1 then some all else none
+
+/-- What `assignments?` returns begins with the empty list, holds at most `limit + 1` lists, and
+holds every list that `Picks` relates to `options`. This states nothing about what the lists of
+`options` are. -/
+private theorem assignments?_spec {α : Type} (limit : Nat) (options : List (List α))
+    (all : List (List α)) (returned : assignments? limit options = some all) :
+    (∃ others, all = [] :: others) ∧ all.length ≤ limit + 1 ∧
+      ∀ picked, Picks picked options → picked ∈ all := by
+  induction options generalizing all with
+  | nil =>
+    simp only [assignments?, Option.some.injEq] at returned
+    subst returned
+    refine ⟨⟨[], rfl⟩, by simp, ?_⟩
+    intro picked picks
+    cases picks
+    simp
+  | cons alternatives rest ih =>
+    unfold assignments? at returned
+    split at returned
+    · cases returned
+    · rename_i tail found
+      dsimp only at returned
+      split at returned
+      · rename_i bounded
+        cases returned
+        obtain ⟨⟨others, shape⟩, _, complete⟩ := ih tail found
+        refine ⟨⟨others ++ alternatives.flatMap fun a => tail.map (a :: ·), by simp [shape]⟩,
+          bounded, ?_⟩
+        intro picked picks
+        cases picks with
+        | skip picks => exact List.mem_append_left _ (complete _ picks)
+        | pick member picks =>
+          refine List.mem_append_right _ (List.mem_flatMap.mpr ⟨_, member, ?_⟩)
+          exact List.mem_map.mpr ⟨_, complete _ picks, rfl⟩
+      · cases returned
+
+/-- The candidate assignments searched for `options`, and whether they are all of them: every
+nonempty list that takes one member each from some of the lists of `options` when there are at most
+`limit` (`assignments?`), and otherwise the first `limit` single members. -/
+private def candidates {α : Type} (limit : Nat) (options : List (List α)) :
+    List (List α) × Bool :=
+  match assignments? limit options with
+  | some all => (all.tail, true)
+  | none => ((options.flatten.take limit).map fun a => [a], false)
+
+/-- `candidates` returns at most `limit` assignments, whatever `options` holds: the bound on the
+search. -/
+private theorem candidates_length_le {α : Type} (limit : Nat) (options : List (List α)) :
+    (candidates limit options).1.length ≤ limit := by
+  unfold candidates
+  split
+  · rename_i all found
+    have bounded := (assignments?_spec limit options all found).2.1
+    simp only [List.length_tail]
+    omega
+  · simp only [List.length_map, List.length_take]
+    omega
+
+/-- Where `candidates` answers that its assignments are all of them, they hold every nonempty
+list that `Picks` relates to `options`: the search over them is exhaustive. This states nothing
+about what a regeneration does with an assignment. -/
+private theorem mem_candidates {α : Type} (limit : Nat) (options : List (List α))
+    (picked : List α) (exhaustive : (candidates limit options).2 = true)
+    (picks : Picks picked options) (nonempty : picked ≠ []) :
+    picked ∈ (candidates limit options).1 := by
+  unfold candidates at exhaustive ⊢
+  split at exhaustive
+  · rename_i all found
+    obtain ⟨⟨others, shape⟩, _, complete⟩ := assignments?_spec limit options all found
+    have member := complete picked picks
+    subst shape
+    simpa [nonempty] using member
+  · simp at exhaustive
+
+/-- The candidate assignments one helper's search tries at most: with the two regenerations before
+the search and two per assignment, at most `2 + 2 * candidateLimit` regenerations, 128, of at most
+three compiler runs each. -/
+private def candidateLimit : Nat := 63
+
+/-- `env` with each definition of `statuses` given the status paired with it. -/
+private def withStatuses (env : Environment) (statuses : List (Name × ReducibilityStatus)) :
+    Environment :=
+  reducibilityExtraExt.modifyState env fun recorded =>
+    statuses.foldl (fun recorded (name, status) => recorded.insert name status) recorded
 
 /-- `Declaration.unsafeRecRegenerated`: rerun Lean's own recursion compiler on the helper's group,
 each helper's value becoming the body of a fresh definition under `regenerationRoot` with its calls
@@ -593,12 +804,33 @@ generated for them. Where none of these attempts matches, all run once more in t
 with no definition irreducible, each given the status its declaration shows (`withoutIrreducible`):
 Lean does not record which definitions were irreducible where the base was compiled, and what it
 unfolds decides which argument its structural compiler finds and where the function is passed
-through a `match`. That, too, only selects which regeneration runs. Lean's elaboration caches
+through a `match`. That, too, only selects which regeneration runs. Where neither environment
+reproduces the base, the regeneration searches the statuses a later global attribute can have
+replaced: Lean's fixed-parameter analysis and its `wf_preprocess` simplification unfold at
+reducible transparency, and at implicit transparency where they compare an instance-implicit
+argument, so a definition that is `reducible`, `instance_reducible` or `implicit_reducible` at only
+one of the two points changes which parameters the compilers pack and which toolchain rule
+rewrites the body. Each candidate assignment (`candidates` of `earlierStatusOptions`) gives some
+of the definitions of the helper's module that its group reaches an earlier status
+(`earlierStatuses`), and all attempts run under it in the inspected environment and in the one
+with no definition irreducible, each run with the heartbeat budget of one declaration. An
+assignment is read from statuses, kernel hints and module membership, all of which the audited
+source can write; like the termination argument it only selects which regeneration runs, is never
+an argument of the comparison, and is undone with the rest of the run before the comparison. The
+search is exhaustive over those assignments when there are at most `candidateLimit` of them
+(`mem_candidates`), and then a helper no attempt reproduces is not regenerated. Otherwise only the
+first `candidateLimit` single changes are tried (`candidates_length_le`), and a helper none of them
+reproduces is undecided, as is one whose reached definitions were not all visited: the
+regeneration throws, so the audit is incomplete and the helper is neither admitted nor rejected.
+Lean's elaboration caches
 are emptied on entering and leaving each attempt, since the environments differ in what unfolds
 and `saveState` does not cover the caches. A regeneration that reports an error does not count.
 Every change is undone before the comparison, which reads the observed definitions and decides
 erasure in the inspected environment: whatever code runs during a regeneration, only the
-definitions it adds are compared,
+definitions it adds are compared. The regeneration and the comparison run with smart unfolding off
+(`withoutSmartUnfolding`, which `declaration` applies), so no `_sunfold` declaration is read for
+another constant's unfolding; the `_sunfold` definition the structural compiler adds for a
+regenerated base is compared with the observed one like every definition it adds,
 each with the theorems the regeneration abstracted from it put back (`regeneratedDefinitions`), so
 the result does not depend on how Lean named or shared those theorems. A comparison that throws
 does not count either. A `checkerLimit?` reached is rethrown. -/
@@ -669,7 +901,28 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         return some .wellFounded
       return none
     if let some origin ← regenerate regenerating then return some origin
-    regenerate (withoutIrreducible regenerating)
+    let unsealed := withoutIrreducible regenerating
+    if let some origin ← regenerate unsealed then return some origin
+    let undecided := m!"no regeneration of {name} reproduced its base, and the helper is \
+      undecided, neither admitted nor rejected: "
+    let fnNames := preDefs.map (·.declName)
+    let numSectionVars := preDefs[0]!.numSectionVars
+    let roots ← preDefs.mapIdxM fun i (preDef : PreDefinition) => do
+      return (group[i]!, ← Meta.unfoldIfArgIsAppOf fnNames numSectionVars preDef.value)
+    let some options := earlierStatusOptions env name roots
+      | throwError "{undecided}the definitions of its module that it reaches were not all visited."
+    let (assignments, exhaustive) := candidates candidateLimit options
+    for assignment in assignments do
+      for environment in [regenerating, unsealed] do
+        if let some origin ← withCurrHeartbeats <|
+            regenerate (withStatuses environment assignment) then
+          return some origin
+    unless exhaustive do
+      throwError "{undecided}the definitions of its module that it reaches allow more than \
+        {candidateLimit} assignments of an earlier reducibility status, of which only the first \
+        {candidateLimit} single changes were tried. Give each function it calls its reducibility \
+        where the function is declared."
+    return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/
 private def assertedBool? (type : Expr) : Option Expr := do
@@ -780,26 +1033,13 @@ def ContractScope.constantAware (scope : ContractScope) (env : Environment) (nam
   | some index => scope.aware[(index : Nat)]?.getD true
   | none => scope.mainAware
 
-/-- The constants that unfolding `info` can introduce: those its type and value mention (a
-theorem's and an opaque constant's too, since reduction at `.all` transparency unfolds theorems),
-the constructors of an inductive and of a recursor's rules, and its smart-unfolding definition. -/
-private def unfoldReferences (env : Environment) (info : ConstantInfo) : Array Name :=
-  let mentioned := info.type.getUsedConstants ++
-    ((info.value? (allowOpaque := true)).map Expr.getUsedConstants).getD #[]
-  let structural := match info with
-    | .inductInfo value => value.ctors.toArray
-    | .recInfo value =>
-      value.rules.foldl (fun names rule => (names.push rule.ctor) ++ rule.rhs.getUsedConstants) #[]
-    | _ => #[]
-  let smart := Lean.Meta.mkSmartUnfoldingNameFor info.name
-  mentioned ++ structural ++ (if env.contains smart then #[smart] else #[])
-
 /-- Whether reducing `type` can produce `Regula.ExecutableContract`: whether the contract type is
 among the constants `type` mentions, closed under `unfoldReferences`. Lean's reduction steps
-(delta, iota, beta, zeta, eta, projection, smart unfolding, and literal and native Boolean or
-natural-number steps) introduce only constants of that closure or of `Init`, which does not import
-`Regula.Contract`. Constants of modules outside the scope are not expanded, and a search that ends
-without finding the contract type records every constant it expanded as free. -/
+(delta, iota, beta, zeta, eta, projection, and literal and native Boolean or natural-number steps)
+introduce only constants of that closure or of `Init`, which does not import `Regula.Contract`;
+the reduction this guards runs inside `declaration`, with smart unfolding off. Constants of modules
+outside the scope are not expanded, and a search that ends without finding the contract type
+records every constant it expanded as free. -/
 def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : Expr) :
     BaseIO Bool := do
   let free ← scope.free.get
@@ -812,7 +1052,7 @@ def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : E
     if expanded.contains name || free.contains name || !scope.constantAware env name then continue
     expanded := expanded.insert name
     if let some info := env.find? name then
-      pending := pending ++ unfoldReferences env info
+      pending := pending ++ unfoldReferences info
   scope.free.modify fun free => expanded.foldl (fun free name => free.insert name) free
   return false
 
@@ -1267,9 +1507,9 @@ def generatedFrom? (name : Name) : MetaM (Option Name) := do
 Replay candidates still require the existing fresh transcript and admission guards;
 these observations alone never authorize a generated role. A caller recording several declarations
 of one environment passes one `ContractScope.new` of it, so its memo is shared; without one, a
-fresh scope is built. -/
+fresh scope is built. Every observation runs with smart unfolding off (`withoutSmartUnfolding`). -/
 def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := none) :
-    CommandElabM RegulaPolicy.Declaration := do
+    CommandElabM RegulaPolicy.Declaration := withoutSmartUnfolding do
   let env ← getEnv
   let scope ← match scope? with
     | some scope => pure scope
