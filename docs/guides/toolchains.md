@@ -100,7 +100,7 @@ The direct compiler-build route for a local Elan alias commits `.github/compiler
 The alias must match `lean-toolchain` and the artifact mode must be `source`.
 `lean/RegulaCompiler.lean` checks the specification, obtains the exact source commit,
 configures Lean's release preset using that commit's own committed stage0, and runs the documented `make -j… -C build/release` command. The full source revision pins stage0 as part of the source tree. The stable Lean 4.34.0 executable runs this setup program; the target's staged build produces the selected compiler.
-It checks both identities of the resulting compiler before linking the alias. An existing
+It copies the source checkout's `LICENSE` and `LICENSES` files byte-for-byte into the staged compiler prefix and checks both identities of the resulting compiler before linking the alias. An existing
 alias is reused only when both reports match; a mismatch is refused. Source and build
 directories remain under `~/.cache/regula-compilers` for inspection or resumption.
 Before a fresh source compiler build or a selected snapshot restoration in GitHub Actions, the Lean installer installs the compiler toolset and development packages for GMP, LibUV and OpenSSL through Apt on Linux or Homebrew on macOS. `installsSystemPackages_iff` and `installsMacPackages_iff` prove that their decisions require the supplied `GITHUB_ACTIONS=true` flag and, respectively, `RUNNER_OS=Linux` or `RUNNER_OS=macOS`. Other environments must provide those prerequisites. These observations and package-manager effects remain trusted.
