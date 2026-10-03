@@ -90,6 +90,22 @@ theorem checked_validation : Regula.ExecutableContract validate
       ∃ checks, requirements expected code transcript result = .ok checks ∧ Satisfied checks) :=
   ⟨fun _ _ _ _ => validateDecoded_exact _⟩
 
+/-- `validate` is a complete decision of its requirements: it accepts every observation whose
+requirements decode and all hold, and it refuses a nonzero exit where success was expected.
+Soundness also holds (`checked_validation` registers the equivalence), but the kind is one-way
+because a sound kind requires an observation the function accepts, and accepting evaluates
+`String.contains` on the transcript, which the kernel does not reduce. -/
+theorem checked_validation_complete : Regula.ExecutableContract validate (fun run =>
+    Regula.DecidesCompletely (· = .ok ())
+      (fun input : ((Expected × Nat) × String) × Option Json =>
+        ∃ checks, requirements input.1.1.1 input.1.1.2 input.1.2 input.2 = .ok checks ∧
+          Satisfied checks)
+      (Function.uncurry (Function.uncurry (Function.uncurry run)))) :=
+  ⟨{ complete := fun input holds =>
+       (checked_validation.evidence input.1.1.1 input.1.1.2 input.1.2 input.2).mpr holds
+     refused := ⟨((({}, 1), ""), none),
+       fun accepted => absurd (congrArg Except.isOk accepted) (by decide +kernel)⟩ }⟩
+
 /-- Original documentation mutation transcript requirements, including two distinct
 admission diagnostics (fence and project), and exactly one compilation diagnostic. For a phase
 that makes an input unavailable, the transcript must also contain the supplied IO reason, which
@@ -128,4 +144,28 @@ theorem checked_documentation : Regula.ExecutableContract validateDocumentation
       run transcript scope reason phase missing directory = .ok () ↔ Satisfied
           (documentationChecks transcript scope reason phase missing directory)) :=
   ⟨fun _ _ _ _ _ _ => evaluate_success _⟩
+
+/-- `validateDocumentation` is a complete decision of its transcript requirements: it accepts
+every transcript that satisfies them, and it refuses a missing-source phase with no failure
+detail. Soundness also holds (`checked_documentation` registers the equivalence), but the kind
+is one-way because a sound kind requires a transcript the function accepts, and accepting
+evaluates `String.splitOn` and `String.contains`, which the kernel does not reduce. -/
+theorem checked_documentation_complete :
+    Regula.ExecutableContract validateDocumentation (fun run =>
+      Regula.DecidesCompletely (· = .ok ())
+        (fun input : ((((String × String) × String) × String) × String) × String =>
+          Satisfied (documentationChecks input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2
+            input.1.1.2 input.1.2 input.2))
+        (Function.uncurry (Function.uncurry (Function.uncurry (Function.uncurry
+          (Function.uncurry run)))))) :=
+  ⟨{ complete := fun input holds =>
+       (checked_documentation.evidence input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2
+         input.1.1.2 input.1.2 input.2).mpr holds
+     refused := ⟨((((("", ""), ""), "source-missing"), ""), ""), fun accepted => by
+       have satisfied : Satisfied (documentationChecks "" "" "" "source-missing" "" "") :=
+         (evaluate_success _).mp accepted
+       have detail := satisfied _ (List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <|
+         List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <| List.mem_cons_of_mem _ <|
+         List.mem_cons_of_mem _ <| List.mem_cons_self)
+       exact absurd detail (by decide)⟩ }⟩
 end RegulaQualification.Evidence

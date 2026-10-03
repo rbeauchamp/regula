@@ -493,4 +493,123 @@ theorem admitJobKey_exact (key : JobKey) :
   rw [dite_eq_left key.requiredStage, dite_eq_left key.compatibleSubject,
       dite_eq_left key.subjectSnapshot]
 
+/-- A fresh-file claim over one source of its snapshot: the claim of the witnesses of
+`checked_admitJobKey`. -/
+private def fileClaim : Claim :=
+  ⟨⟨.file ⟨"Example.lean", ""⟩ .kernelOnly .report, .freshFile,
+      ⟨#[⟨"Example.lean", ""⟩], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, #[]⟩,
+    by decide +kernel⟩
+
+/-- Job-key admission succeeds exactly for a stage the claim's mode requires, with a compatible
+subject of the claim's snapshot. -/
+theorem admitJobKey_isOk_iff (claim : Claim) (stage : Stage) (subject : JobSubject) :
+    (admitJobKey claim stage subject).isOk = true ↔
+      stage ∈ requiredStages claim ∧ stageSubjectCompatible stage subject = true ∧
+        SubjectSnapshotOK claim subject := by
+  unfold admitJobKey
+  by_cases required : stage ∈ requiredStages claim
+  · by_cases compatible : stageSubjectCompatible stage subject = true
+    · by_cases snapshot : SubjectSnapshotOK claim subject <;>
+        simp [required, compatible, snapshot, Except.isOk, Except.toBool]
+    · simp [required, compatible, Except.isOk, Except.toBool]
+  · simp [required, Except.isOk, Except.toBool]
+
+/-- `admitJobKey` accepts exactly a stage the claim's mode requires, with a compatible subject
+of the claim's snapshot: for a fresh-file claim it accepts the discovery stage of the whole
+request and refuses the configuration stage, which that mode does not require. Which key it
+returns is `admitJobKey_exact`. -/
+theorem checked_admitJobKey : Regula.ExecutableContract admitJobKey (fun admit =>
+    Regula.Decides (·.isOk = true)
+      (fun input : (Claim × Stage) × JobSubject =>
+        input.1.2 ∈ requiredStages input.1.1 ∧
+          stageSubjectCompatible input.1.2 input.2 = true ∧ SubjectSnapshotOK input.1.1 input.2)
+      (Function.uncurry (Function.uncurry admit))) :=
+  ⟨.of_iff (fun input => admitJobKey_isOk_iff input.1.1 input.1.2 input.2)
+    ⟨((fileClaim, .discovery), .scope),
+      (admitJobKey_isOk_iff fileClaim .discovery .scope).mpr
+        ⟨by simp [requiredStages, fileClaim], rfl, trivial⟩⟩
+    ⟨((fileClaim, .configuration), .scope), fun accepted => absurd
+      ((admitJobKey_isOk_iff fileClaim .configuration .scope).mp accepted).1
+      (by simp [requiredStages, fileClaim])⟩⟩
+
+section
+open Lean (Name)
+
+/-- Identity admission succeeds exactly for a name other than the anonymous one. -/
+theorem admitIdentity_isOk_iff (n : Name) : (admitIdentity n).isOk = true ↔ n ≠ .anonymous := by
+  unfold admitIdentity
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitIdentity` accepts exactly the names other than the anonymous one: it accepts `a` and
+refuses the anonymous name. Which identity it returns is `admitIdentity_exact`. -/
+theorem checked_admitIdentity : Regula.ExecutableContract admitIdentity
+    (Regula.Decides (·.isOk = true) (· ≠ .anonymous)) :=
+  ⟨.of_iff admitIdentity_isOk_iff ⟨`a, (admitIdentity_isOk_iff _).mpr (by decide)⟩
+    ⟨.anonymous, fun accepted => (admitIdentity_isOk_iff _).mp accepted rfl⟩⟩
+
+/-- Capability admission succeeds exactly for the capability this revision declares. -/
+theorem admitCapability_isOk_iff (observed : Compiler.LegacyCompilerTrust) :
+    (Compiler.admitCapability observed).isOk = true ↔
+      observed = Compiler.legacyCompilerTrust := by
+  rw [← Compiler.admitCapability_iff]
+  cases Compiler.admitCapability observed <;> simp [Except.isOk, Except.toBool]
+
+/-- `Compiler.admitCapability` accepts exactly the capability this revision declares
+(`Compiler.admitCapability_iff`): it accepts that capability and refuses the other one. It is
+registered here because `RegulaPolicy.Compiler` imports only `Init`, so that the compiler guard
+can elaborate it alone, and `admitIdentity` and `admitToolchainOrigin` are registered here with
+it, where their witnesses reduce. -/
+theorem checked_admitCapability : Regula.ExecutableContract Compiler.admitCapability
+    (Regula.Decides (·.isOk = true) (· = Compiler.legacyCompilerTrust)) :=
+  ⟨.of_iff admitCapability_isOk_iff
+    ⟨Compiler.legacyCompilerTrust, (admitCapability_isOk_iff _).mpr rfl⟩
+    ⟨match Compiler.legacyCompilerTrust with | .present => .absent | .absent => .present,
+      fun accepted => absurd ((admitCapability_isOk_iff _).mp accepted) (by decide)⟩⟩
+
+/-- `Compiler.accepts`, the support decision at the compiler and probe boundaries, accepts
+exactly the version and commit this revision declares (`Compiler.accepts_iff`): it accepts that
+pair and refuses the empty pair. That the pair is the running compiler's is the caller's
+observation. -/
+theorem checked_compilerAccepts : Regula.ExecutableContract Compiler.accepts (fun accepts =>
+    Regula.Decides (· = true)
+      (fun input : String × String => Compiler.Supports input.1 input.2)
+      (Function.uncurry accepts)) :=
+  ⟨.of_iff (fun input => Compiler.accepts_iff input.1 input.2)
+    ⟨(Compiler.version, Compiler.commit),
+      (Compiler.accepts_iff Compiler.version Compiler.commit).mpr ⟨rfl, rfl⟩⟩
+    ⟨("", ""), fun accepted =>
+      absurd ((Compiler.accepts_iff "" "").mp accepted).1 (by decide)⟩⟩
+
+/-- Origin admission succeeds exactly for a toolchain module with a nonempty origin equal to the
+expected one. -/
+theorem admitToolchainOrigin_isOk_iff (moduleName : Name) (actual expected : String) :
+    (admitToolchainOrigin moduleName actual expected).isOk = true ↔
+      ToolchainRoot moduleName.getRoot ∧ actual ≠ "" ∧ actual = expected := by
+  unfold admitToolchainOrigin
+  by_cases root : ToolchainRoot moduleName.getRoot
+  · by_cases empty : actual = ""
+    · simp [root, empty, Except.isOk, Except.toBool]
+    · by_cases equal : actual = expected
+      · subst equal
+        simp [root, empty, Except.isOk, Except.toBool]
+      · simp [root, empty, equal, Except.isOk, Except.toBool]
+  · simp [root, Except.isOk, Except.toBool]
+
+/-- `admitToolchainOrigin` accepts exactly a module under `Init`, `Std` or `Lean` whose observed
+origin is nonempty and equal to the expected one: it accepts `Init` with equal origins and
+refuses the anonymous module. What it returns is `toolchainOrigin_roundtrip`. -/
+theorem checked_admitToolchainOrigin :
+    Regula.ExecutableContract admitToolchainOrigin (fun admit =>
+      Regula.Decides (·.isOk = true)
+        (fun input : (Name × String) × String =>
+          ToolchainRoot input.1.1.getRoot ∧ input.1.2 ≠ "" ∧ input.1.2 = input.2)
+        (Function.uncurry (Function.uncurry admit))) :=
+  ⟨.of_iff (fun input => admitToolchainOrigin_isOk_iff input.1.1 input.1.2 input.2)
+    ⟨((`Init, "origin"), "origin"),
+      (admitToolchainOrigin_isOk_iff `Init "origin" "origin").mpr (by decide)⟩
+    ⟨((.anonymous, ""), ""),
+      fun accepted => ((admitToolchainOrigin_isOk_iff .anonymous "" "").mp accepted).2.1 rfl⟩⟩
+
+end
+
 end RegulaPolicy

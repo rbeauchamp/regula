@@ -1,4 +1,5 @@
 import Lean.Data.Json
+import Regula.Contract
 import Std.Data.TreeMap.Raw.AdditionalOperations
 
 /-! # Source texts of a result document, stored once
@@ -692,5 +693,32 @@ theorem expand_texts {written document : Json} (h : expand written = .ok documen
       next => cases h
     next => cases h
   next => cases h
+
+/-- Writing succeeds exactly for an internable document, with `isOk` as the acceptance. -/
+theorem intern_isOk_eq_true_iff (document : Json) :
+    (intern document).isOk = true ↔
+      slots document = [.null] ∧ ∀ value ∈ texts document, ∃ text, value = .str text := by
+  rw [← intern_isOk_iff]
+  cases intern document <;> simp [Except.isOk, Except.toBool]
+
+/-- `intern` accepts exactly the documents with one `sourceTexts` member, `null`, whose
+`sourceText` members are all strings (`intern_isOk_iff`): it accepts an object with only that
+member and refuses `null`. What it writes is `intern_eq_ok` and `intern_table`. -/
+theorem checked_intern : Regula.ExecutableContract intern
+    (Regula.Decides (·.isOk = true) fun document =>
+      slots document = [.null] ∧ ∀ value ∈ texts document, ∃ text, value = .str text) :=
+  ⟨.of_iff intern_isOk_eq_true_iff
+    ⟨.obj ⟨⟨.inner 1 "sourceTexts" .null .leaf .leaf⟩⟩, by decide +kernel⟩ ⟨.null, by decide⟩⟩
+
+/-- `expand` is a complete decision of the written documents (`expand_intern`): it accepts
+every document `intern` writes, and it refuses `null`. The kind is one-way: no theorem says it
+accepts only documents `intern` writes. -/
+theorem checked_expand : Regula.ExecutableContract expand
+    (Regula.DecidesCompletely (·.isOk = true) fun written =>
+      ∃ document, intern document = .ok written) :=
+  ⟨{ complete := fun _ ⟨_, wrote⟩ => by
+       rw [expand_intern wrote]
+       rfl
+     refused := ⟨.null, by decide⟩ }⟩
 
 end Regula.SourceTexts

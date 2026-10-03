@@ -210,6 +210,24 @@ theorem checked_validation : Regula.ExecutableContract validate
             Satisfied checks) :=
   ⟨fun _ _ _ _ _ _ => validateDecoded_exact _⟩
 
+/-- `validate` is a complete decision of its requirements: it accepts every report whose
+requirements decode and all hold, and it refuses a `null` report. Soundness also holds
+(`checked_validation` registers the equivalence), but the kind is one-way because a sound kind
+requires a report the function accepts, and a conforming history report is a result document
+that only an audit produces; accepted reports are observed by the `history` diagnostic. -/
+theorem checked_validation_complete : Regula.ExecutableContract validate (fun run =>
+    Regula.DecidesCompletely (· = .ok ())
+      (fun input : ((((Json × Nat) × String) × String) × Bool) × Bool =>
+        ∃ checks, requirements input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2 input.1.1.2
+          input.1.2 input.2 = .ok checks ∧ Satisfied checks)
+      (Function.uncurry (Function.uncurry (Function.uncurry (Function.uncurry
+        (Function.uncurry run)))))) :=
+  ⟨{ complete := fun input holds =>
+       (checked_validation.evidence input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2 input.1.1.2
+         input.1.2 input.2).mpr holds
+     refused := ⟨(((((.null, 0), ""), ""), false), false),
+       fun accepted => absurd (congrArg Except.isOk accepted) (by decide +kernel)⟩ }⟩
+
 /-! ### What an admitted history report establishes
 
 These replace the former sampled oracle mutations (a dropped imported-root module and

@@ -398,47 +398,68 @@ decision itself is trusted.
 
 A decision kind (`Regula.DecidesSoundly`, `Regula.DecidesCompletely`, `Regula.Decides`, standard
 §3.8) states which directions of a decision are proved against a written specification, with a
-witness about the function itself. Regula registers its own pure decisions with a kind where one
-applies, so an accepted account of Regula states each direction, and a one-way guarantee is a
-declared choice. The tables below are the inventory. A kind is evidence about the function
-between the supplied values and the written specification; it does not make the observations
-truthful, and it is not a verdict on the specification.
+witness about the function itself. Regula registers its own pure decisions with a kind, so an
+accepted account of Regula states each direction, and a one-way guarantee is a declared choice.
+A kind is evidence about the function between the supplied values and the written
+specification; it does not make the observations truthful, and it is not a verdict on the
+specification.
+
+The inventory is the pure functions whose result is a verdict of the checker: the decision
+behind a rule, the admission of a decoded record, the reader of a written form, a qualification
+validator, and the decisions of the example application. A helper that only computes part of
+such a verdict (`admits`, `orderedLiterals`, `hasIntentLines` and the like) is covered through
+the proof of the decision that calls it. Functions whose result is a plan, a label or a parsed
+command for Regula's own tooling (`RegulaCore.Setup`, `RegulaCore.Edition`,
+`RegulaCore.Toolchain`, `RegulaCore.Guidance`) are not verdicts about audited code and are not
+in it; which further functions a project declares as decisions is what the tag of
+[#199](https://github.com/rbeauchamp/regula/issues/199) will record.
 
 Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 
 | Decision | Specification | Used by |
 | --- | --- | --- |
-| `RegulaPolicy.declarationFailure` (accepts on `none`) | `DeclarationOK` (`declarationFailure_none_iff`) | The declaration decision of [RG1001]–[RG1007], over the recorded declaration and the supplied role sets. |
-| `RegulaPolicy.boundaryFailures` (accepts on `#[]`) | `BoundaryOK` (`boundaryFailures_empty_iff`) | [RG3001], [RG3002], for one supplied boundary. |
+| `RegulaPolicy.declarationFailure`, `operationalFailure` (accept on `none`) | `DeclarationOK`, `OperationalOK` | The declaration decision of [RG1001]–[RG1007], over the recorded declaration and the supplied role sets, and the operational self-audit's. |
+| `RegulaPolicy.boundaryFailures`, `executionFailureRecords`, `executionFindings` (accept on `#[]`) | `BoundaryOK`, `ExecutionOK` | [RG3001], [RG3002], for one supplied boundary and for an admitted inventory. |
 | `RegulaPolicy.Intent.hasIntentSection`, `RegulaPolicy.materialDocumentationFailure` | `IntentSection`, `MaterialDocumentationOK` | [RG5002], [RG5003]. |
-| `RegulaPolicy.ModuleHeader.failures` (accepts on `[]`) | `ModuleHeader.OK` | [RG5001]. |
-| `RegulaPolicy.Community.failures` (accepts on `[]`) | `Conforming` | [RG2006]. |
-| `RegulaPolicy.admitSnapshot`, `admitClaim`, `admitInventory`, `admitExecution` (accept on `.ok`) | `Snapshot.Valid`, `ClaimCandidate.Valid`, `InventoryValid`, `ExecutionValid` | Admission of decoded records. Which value is returned is each function's `_exact` theorem. |
+| `RegulaPolicy.ModuleHeader.failures`, `RegulaPolicy.Community.failures` (accept on `[]`) | `ModuleHeader.OK`, `Conforming` | [RG5001], [RG2006]. |
+| `admitSnapshot`, `admitClaim`, `admitInventory`, `admitExecution`, `admitJobKey`, `admitInfrastructureOrigin`, `admitIdentity`, `admitToolchainOrigin`, `admitToolchainAxioms`, `Compiler.admitCapability`, and the scope admission `admitScopeImpl` (accept on `.ok`) | The validity relation each names (`Snapshot.Valid`, `ClaimCandidate.Valid`, `InventoryValid`, `ExecutionValid` and so on) | Admission of decoded records. Which value is returned is each function's `_exact` theorem. |
+| `Compiler.accepts` | `Compiler.Supports` | The compiler-identity guard. |
+| `Regula.Checker.Frontend.coordinateCheck` (accepts on `.ok`) | `CoordinatesAgree` | Transcript coordinates, checked before inventory admission (`checked_scope`). |
 | The spelling parsers `DeclarationKind.parse?`, `BoundaryKind.parse?`, `Correspondence.parse?`, `FoundationClass.parse?`, `ConformingProfile.parse?`, `ExecutionClaim.parse?`, `EvidenceMode.parse?`, `Safety.parse?`, `Reducibility.parse?`, `RecursionOrigin.parse?`, `DecisionKind.parse?`, `EvaluatorRole.parse?`, `Profile.parse?` and `RuleId.parse?` | The text is the spelling of a value (`roundtrip`, `canonical`) | Transport of closed vocabularies. |
 | `RegulaPolicy.DecisionKind.ofStructureName?` | The name is a kind's structure | Reading a registration's kind ([RG1007]). |
-| `Regula.Markdown.documentErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The Markdown rule-ID check and the site's anchor and checklist checks. |
-| `RegulaQualification.validateDecoded`, `Registry.validate`, `Launcher.equivalent` | Their `_exact` relations | Qualification evidence. |
+| `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
+| `Regula.Markdown.documentErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. |
+| `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
+| `AuditApp.admit`, `AuditApp.grant`, `AuditApp.runChecked` | Positive capacity, a free slot, `Fits` | The example application (standard §3.7). |
 
-One-way decisions, each a declared choice:
+Sound only, each a declared choice:
 
-| Decision | Kind | Left open, and why |
+| Decision | Specification | Left open, and why |
 | --- | --- | --- |
-| `Regula.SharedExecution.same` | Sound for equality (`same_eq`) | It may refuse equal values, as it does for two objects whose trees are balanced differently. Nothing depends on the converse. |
-| `Regula.Checker.Admission.checkCopies` | Sound for `CopyAdmitted` of every copy (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
-| `Regula.Checker.ProducerReport.Environment.validate` | Sound for `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
-| `Regula.RegistryCodec.parseMode`, `parseRule`, `parseName`, `parsePrintedNameJson`, `RegulaPolicy.Codec.parseName`, `parseIdentity` | Complete for the written forms (their `_roundtrip` theorems) | Each may accept a value its writer does not write. No theorem says otherwise, and `parsePrintedNameJson` runs Lean's own name parser. |
+| `Regula.SharedExecution.same` | The two values are equal (`same_eq`) | That it accepts every pair of equal values is not proved, and nothing depends on it. The equality is `=`: two objects with the same members whose trees are balanced differently are different values, which `same` refuses and Lean's runtime `Json` comparison identifies. |
+| `Regula.Checker.Admission.checkCopies` | Every copy is `CopyAdmitted` (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
+| `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
+
+Complete only. A sound kind requires an input the function accepts, with a proof:
+
+| Decision | Specification | Why the kind is one-way, and what covers soundness |
+| --- | --- | --- |
+| `Regula.RegistryCodec.parseMode`, `parseRule`, `parseName`, `parsePrintedNameJson`, `RegulaPolicy.Codec.parseName`, `parseIdentity`, `Regula.SourceTexts.expand`, `Regula.SharedExecution.read` | The input is a form its writer writes (their `_roundtrip` theorems, `expand_intern`, `read_write`) | No theorem says a reader accepts only written forms, so each may accept a value its writer does not write. |
+| `nativeAxiomOrigin?`, `compilerTrustingAxiomName` | A generated native-axiom name, where `RuntimeStringAppend` holds (and, for the second, an enabled legacy compiler axiom) | Soundness holds with no hypothesis (`nativeAxiomOrigin?_sound`, `compilerTrustingAxiomName_sound`), but accepting a generated name evaluates `String.Internal.append`, an `extern` that no kernel proof evaluates. The hypothesis is part of the specification; that the runtime satisfies it is trusted. |
+| `matchesPattern`, `Regula.Checker.Manifest.parseValue`, `RegulaQualification.Evidence.validate`, `Evidence.validateDocumentation` | `PatternMatch`; the value encodes a valid manifest; the decoded requirements hold | Soundness is proved (`matchesPattern_iff`, `parseValue_ok`, the registered equivalences `checked_validation` and `checked_documentation`), but every acceptance evaluates `String.splitOn`, `String.contains` or a JSON object lookup that the kernel does not reduce. Accepted inputs are observed by the fence corpus, this repository's manifest and the qualification campaigns. |
+| `RegulaQualification.History.validate`, `Producer.validate` | The decoded requirements hold | Soundness is proved (the registered equivalences `checked_validation`), but an accepted report is a result document that only an audit produces. Accepted reports are observed by the `history` and `producers` diagnostics. |
 
 Decisions with no kind, and what stands instead:
 
 | Decision | Why no kind applies | Evidence that stands |
 | --- | --- | --- |
-| `nativeAxiomOrigin?`, `compilerTrustingAxiomName` | A kind requires an input the function accepts. Accepting a generated name evaluates `String.Internal.append`, an `extern` that no kernel proof evaluates. | Soundness with no hypothesis (`nativeAxiomOrigin?_sound`, `compilerTrustingAxiomName_sound`), and a registration of the two-way decision under the hypothesis `RuntimeStringAppend`, which the runtime is trusted to satisfy. |
-| `matchesPattern`, `Regula.Site.linkErrors`, `Regula.Prose.bareMentions`, `Regula.Checker.Manifest.parseValue` | One witness is an evaluation of Lean string functions, such as `String.splitOn`, or of a JSON object lookup that the kernel does not reduce. | The two-way theorems `matchesPattern_iff`, `parseValue_ok` and the registered equivalences `checked_linkErrors` and `checked_bareMentions`, reported with no kind; the missing evaluations are observed by `#guard` controls and the fence corpus. |
-| `executionFailureRecords` | Its refused witness needs a nonempty admitted inventory, whose validity compares hashed names that the kernel does not evaluate. | `executionFailureRecords_empty_iff`, and the kind of `boundaryFailures`, which it applies to every boundary. |
-| `Regula.Checker.Admission.checkProof` | Every acceptance needs Lean's kernel to accept a declaration, which no proof evaluates, so it has no accepted witness. | `checkProof_ok`, and the kind of `checkCopies`, which calls it. |
-| `accept`, `finalize`, `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults`, `policyFor`, `memberFailure`, `admitPlan`, `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` | An argument or the result has a type that depends on an earlier argument, or the function is polymorphic in a type. The kinds cover functions whose argument types are independent, through `Function.uncurry`. | Evidence by construction, where the accepted value carries its proof, and the two-way theorems `accept_iff`, `finalize_iff`, `insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`, `policyFor_none_iff`, `admitExampleRequest_sound` with `admitExampleRequest_complete`, and the `_sound` and `_complete` or `_exact` pairs of the others. |
-| `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions). |
-| `RegulaQualification.evaluate`, `Evidence.validate`, `Evidence.validateDocumentation`, `History.validate`, `Native.validate`, `Producer.validate`, `Regula.Checker.Frontend.coordinateCheck` and the checker's other registered contracts | None: each is a registered requirement that contains its two-way clause, stated as an ordinary requirement. | The registered requirement itself, reported with no kind. Restating these as kinds is left to the stage of [#199](https://github.com/rbeauchamp/regula/issues/199) that requires a kind of each function a project marks as a decision. |
+| `Regula.Checker.Admission.checkProof` | Its theorem is soundness, and a sound kind requires an accepted input; it succeeds only after `checkRenamed`, which asks Lean's kernel to accept a declaration, and no proof evaluates that call. | `checkProof_ok`, and the kind of `checkCopies`, which calls it. |
+| `Regula.Checker.Manifest.parse` | It adds the JSON text parser, about which nothing is proved, so only soundness is stated, and an accepted input would evaluate that parser. | `parse_sound`, and the kind of `parseValue`, the stage it runs after parsing. |
+| `Regula.SharedExecution.restore?` | Its writer `internValue` chooses a written form by running the reader (`recovers`), so "a form the writer writes" is stated through `restore?` itself, and a kind's specification must not mention its implementation. | `restore?_internValue`, which holds for every value and proposal list, and the kind of `read`, the document reader that calls it. |
+| `accept`, `finalize`, `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults`, `policyFor`, `memberFailure`, `admitPlan`, `admitBoundaryEvidence`, the editor decision, `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` | An argument or the result has a type that depends on an earlier argument, or the function is polymorphic in a type. A kind is stated about a function whose argument types are independent, through `Function.uncurry`. | Evidence by construction, where the accepted value carries its proof, and the two-way theorems `accept_iff`, `finalize_iff`, `insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`, `policyFor_none_iff`, `editor_decision_none_iff`, `admitExampleRequest_sound` with `admitExampleRequest_complete`, and the `_sound` and `_complete` or `_exact` pairs of the others. `policyFor` and `memberFailure` run `declarationFailure`, which has a kind. |
+| `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ClassifyContract`). |
+| The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
+| The standalone programs `RegulaProvision`, `RegulaCompiler` and `RegulaVerification` | Each runs with `lean --run` before the package is built, so it imports only the toolchain and cannot import `Regula.Contract`. | Their own theorems, which this guide names with each program. `RegulaPolicy.Compiler` has the same restriction; its decisions are registered from `RegulaPolicy.Claim`. |
 
 The producers that run in `MetaM` or `IO` (the recursion-helper comparison, native replay,
 contract recognition and reach, receipt validation, root and closure discovery and the fence

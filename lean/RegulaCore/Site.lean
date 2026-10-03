@@ -740,10 +740,13 @@ theorem linkErrors_nil_iff (pages : List Page) :
   · intro h page hp link hl
     simp [(linkOKIn_pageIndex pages page link).mpr (h page hp link hl)]
 
-/-- Registered contract of the executed link check. -/
-theorem checked_linkErrors : Regula.ExecutableContract linkErrors (fun run =>
-    ∀ pages, run pages = [] ↔ ∀ page ∈ pages, ∀ link ∈ page.links, LinkOK pages page link) :=
-  ⟨linkErrors_nil_iff⟩
+/-- Registered contract of the executed link check, as a two-way decision
+(`linkErrors_nil_iff`): it reports nothing for no page, and reports a `javascript:` link. -/
+theorem checked_linkErrors : Regula.ExecutableContract linkErrors
+    (Regula.Decides (· = [])
+      fun pages => ∀ page ∈ pages, ∀ link ∈ page.links, LinkOK pages page link) :=
+  ⟨.of_iff linkErrors_nil_iff ⟨[], (linkErrors_nil_iff []).mpr (by simp)⟩
+    ⟨[⟨"a", true, [], none, ["javascript:x"]⟩], by decide +kernel⟩⟩
 
 /-! Evaluated controls (observations of the compiled tokenizer, not proofs): a missing
 target is reported, a resolving relative link with a fragment under a `<base href>` is

@@ -91,6 +91,13 @@ theorem admit_exact (capacity : Nat) :
     admit capacity = if 0 < capacity then
       some ⟨capacity, 0, Nat.zero_le capacity⟩ else none := rfl
 
+/-- `admit` accepts exactly the positive capacities (`admit_exact`): it accepts `1` and refuses
+`0`. Which limiter it returns is `admit_exact` and `admit_sound`. -/
+theorem checked_admit : Regula.ExecutableContract admit
+    (Regula.Decides (·.isSome = true) fun capacity => 0 < capacity) :=
+  ⟨.of_iff (fun capacity => by rw [admit_exact]; split <;> simp_all)
+    ⟨1, by decide⟩ ⟨0, by decide⟩⟩
+
 /-- Update boundary: grant one slot while one is free. The new proof field is
 exactly the guard `inUse < capacity`, which is `inUse + 1 ≤ capacity` by
 definition of `Nat.lt`; a full limiter grants nothing. -/
@@ -409,6 +416,38 @@ theorem requestedCapacity_exact (args : List String) :
       | [] => 2
       | arg :: _ => arg.toNat?.getD 2 := by
   cases args <;> rfl
+
+/-- A grant succeeds exactly while a slot is free. -/
+theorem grant_isSome_iff (l : Limiter) : (grant l).isSome = true ↔ l.inUse < l.capacity := by
+  unfold grant
+  split <;> simp_all
+
+/-- `grant` accepts exactly the limiters with a free slot (`grant_isSome_iff`): it accepts an
+idle limiter of capacity one and refuses a limiter of capacity zero. Which limiter it returns
+is `grant_some`. -/
+theorem checked_grant : Regula.ExecutableContract grant
+    (Regula.Decides (·.isSome = true) fun l => l.inUse < l.capacity) :=
+  ⟨.of_iff grant_isSome_iff ⟨⟨1, 0, by decide⟩, by decide⟩ ⟨⟨0, 0, by decide⟩, by decide⟩⟩
+
+/-- The strict runner succeeds exactly for a script that fits the limiter. -/
+theorem runChecked_ok_iff (ops : List Op) (l : Limiter) :
+    (runChecked ops l).1 = .ok () ↔ Fits ops l := by
+  constructor
+  · intro ok
+    exact ((runChecked_success ops l (runChecked ops l).2).mp (Prod.ext ok rfl)).1
+  · intro fits
+    rw [(runChecked_success ops l (run ops l)).mpr ⟨fits, rfl⟩]
+
+/-- `runChecked` succeeds exactly for the scripts and limiters that satisfy `Fits`
+(`runChecked_success`): it accepts the empty script and refuses a grant at capacity zero. Which
+state it returns is `runChecked_success` and `runChecked_error`. -/
+theorem checked_runChecked : Regula.ExecutableContract runChecked (fun runScript =>
+    Regula.Decides (·.1 = .ok ())
+      (fun input : List Op × Limiter => Fits input.1 input.2) (Function.uncurry runScript)) :=
+  ⟨.of_iff (fun input => runChecked_ok_iff input.1 input.2)
+    ⟨([], ⟨1, 0, by decide⟩), (runChecked_ok_iff _ _).mpr trivial⟩
+    ⟨([.grant], ⟨0, 0, by decide⟩), fun accepted =>
+      absurd (((runChecked_ok_iff [.grant] ⟨0, 0, by decide⟩).mp accepted).1 rfl) (by decide)⟩⟩
 
 /-- Explicit required propositions for the actual application definitions. These
 fields specify admission, each update, dispatch, and composition; their adequacy

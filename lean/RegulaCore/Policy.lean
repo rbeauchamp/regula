@@ -166,6 +166,33 @@ theorem checked_scope : Regula.ExecutableContract admitScopeImpl
         exact ⟨rfl, rfl, rfl⟩
       · simp [admitScopeImpl, hts, bind, Except.bind, RegulaPolicy.admitInventory, hv] at h
 
+/-- `admitScopeImpl` accepts exactly when every transcript passes the coordinate check and the
+inventory is valid (`ScopeContract`'s third clause), whatever the capability and the check: it
+accepts no declaration and no transcript, and refuses a transcript of the anonymous module.
+`checked_scope` registers the larger requirement, which also fixes the first refusal and the
+admitted scope; this registration states the accepted set as a two-way decision. -/
+theorem checked_scopeAdmission : Regula.ExecutableContract admitScopeImpl (fun admit =>
+    Regula.Decides (·.isOk = true)
+      (fun input : ((RegulaPolicy.Compiler.Capability × CoordinateCheck) × Array Declaration) ×
+          Array RegulaPolicy.Frontend.Transcript =>
+        (∀ t ∈ input.2, input.1.1.2 input.1.2 t = .ok ()) ∧
+          RegulaPolicy.InventoryValid input.1.2 input.2)
+      (Function.uncurry (Function.uncurry (Function.uncurry admit)))) :=
+  have accepts (compiler : RegulaPolicy.Compiler.Capability) (check : CoordinateCheck)
+      (ds : Array Declaration) (ts : Array RegulaPolicy.Frontend.Transcript) :
+      (admitScopeImpl compiler check ds ts).isOk = true ↔
+        (∀ t ∈ ts, check ds t = .ok ()) ∧ RegulaPolicy.InventoryValid ds ts := by
+    rw [← (checked_scope.evidence compiler check).2.2.1 ds ts]
+    cases admitScopeImpl compiler check ds ts <;> simp [Except.isOk, Except.toBool]
+  ⟨.of_iff (fun input => accepts input.1.1.1 input.1.1.2 input.1.2 input.2)
+    ⟨(((⟨RegulaPolicy.Compiler.legacyCompilerTrust, rfl⟩, fun _ _ => .ok ()), #[]), #[]),
+      (accepts _ _ _ _).mpr
+        ⟨by simp, by simp [RegulaPolicy.InventoryValid, RegulaPolicy.UniqueNames]⟩⟩
+    ⟨(((⟨RegulaPolicy.Compiler.legacyCompilerTrust, rfl⟩, fun _ _ => .ok ()), #[]),
+        #[⟨.anonymous, "", 0, "", "", "", #[], #[], #[], #[]⟩]),
+      fun accepted =>
+        ((((accepts _ _ _ _).mp accepted).2.2.2.2 _ (Array.mem_singleton.mpr rfl)).1 rfl)⟩⟩
+
 /-- Required meaning of a claim: no claim selects classification, compiler-trusting selects
 teaching inspection, and every other profile selects the conforming profile of its spelling. -/
 def RequestContract (request : Option Profile → RegulaPolicy.InspectionRequest) : Prop :=

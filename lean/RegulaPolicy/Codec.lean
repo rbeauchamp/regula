@@ -159,4 +159,5 @@ theorem checked_parseIdentity : Regula.ExecutableContract parseIdentity
        rw [written, identity_roundtrip]
        rfl
      refused := ⟨.text "", by decide⟩ }⟩
+
 end RegulaPolicy.Codec

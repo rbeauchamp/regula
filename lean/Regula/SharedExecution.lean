@@ -142,9 +142,11 @@ theorem same_eq (a b : Json) (h : same a b = true) : a = b := by
       rw [valueStep value' values, leftStep left' lefts, rightStep right' rights]
 
 /-- `same` is a sound decision of equality on pairs of JSON values (`same_eq`): it accepts only
-equal values, and it accepts `null` with `null`. The kind is one-way by design: `same` may refuse
-equal values, as it does for two objects whose trees are balanced differently, and nothing
-depends on the converse. -/
+equal values, and it accepts `null` with `null`. The kind is one-way by choice: that `same`
+accepts every pair of equal values is not proved, and nothing depends on it. The equality is
+Lean's `=`, under which two objects with the same members whose trees are balanced differently
+are different values, so refusing them is not a refusal of equal values; it is only stricter
+than Lean's runtime comparison of `Json`, which identifies them. -/
 theorem checked_same : Regula.ExecutableContract same (fun test =>
     Regula.DecidesSoundly (· = true) (fun values : Json × Json => values.1 = values.2)
       (Function.uncurry test)) :=
@@ -640,6 +642,17 @@ theorem read_write {proposals : List (Json → Json)} {document written : Json}
     SourceTexts.expand_intern h
   simp only [read, texts, bind, Except.bind]
   exact expand_intern proposals document
+
+/-- `read` is a complete decision of the written result documents (`read_write`): it accepts
+every value `write` produces, and it refuses `null`. The kind is one-way: no theorem says it
+accepts only values `write` produces. -/
+theorem checked_read : Regula.ExecutableContract read
+    (Regula.DecidesCompletely (·.isOk = true) fun written =>
+      ∃ proposals document, write proposals document = .ok written) :=
+  ⟨{ complete := fun _ ⟨_, _, wrote⟩ => by
+       rw [read_write wrote]
+       rfl
+     refused := ⟨.null, by decide⟩ }⟩
 
 /-- Whether a written account is a shared form whose every root entry is derived from the shared
 part alone: none is `explicit`. An observation for controls; no law depends on it. -/

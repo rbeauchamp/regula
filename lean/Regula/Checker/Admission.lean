@@ -1444,11 +1444,13 @@ theorem checkCopies_sound {checked : Kernel.Environment} {kept : Name → Option
   fun copy hc => checkCopy_ok (forM_eq_ok.mp h copy hc)
 
 /-- `checkCopies` is a sound decision (`checkCopies_sound`): when it succeeds, every copy is
-admitted, and it succeeds for no copies. The kind is one-way by design. A refusal fails closed:
-the search for a proof's axioms is bounded by `fuel`, so `checkCopies` may refuse copies that
-satisfy `CopyAdmitted`. The accepted witness is the empty array because acceptance of any copy
-runs Lean's kernel, which no proof evaluates; for the same reason `checkProof`, whose every
-acceptance needs the kernel to accept a declaration, has `checkProof_ok` and no kind. -/
+admitted, and it succeeds for no copies, the accepted witness. The kind is one-way by design. A
+refusal fails closed: the search for a proof's axioms is bounded by `fuel`, so `checkCopies` may
+refuse copies that satisfy `CopyAdmitted`.
+
+`checkProof` has `checkProof_ok` and no kind. Its only theorem is soundness, and a sound kind
+requires an input it accepts; it succeeds only after `checkRenamed`, which asks Lean's kernel to
+accept a declaration (`Kernel.Environment.addDeclCore`), and no proof evaluates that call. -/
 theorem checked_checkCopies : Regula.ExecutableContract checkCopies (fun check =>
     Regula.DecidesSoundly (· = .ok ())
       (fun input : (((Kernel.Environment × (Name → Option ConstantInfo)) × Nat) ×

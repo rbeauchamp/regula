@@ -1,4 +1,5 @@
 import RegulaPolicy.Collections
+import Regula.Contract
 
 /-! # Diagnostic pattern language
 
@@ -71,4 +72,19 @@ end RegulaPolicy
 namespace RegulaPolicy
 instance (pattern text : String) : Decidable (PatternMatch pattern text) :=
   decidable_of_iff (matchesPattern pattern text = true) (matchesPattern_iff pattern text)
+end RegulaPolicy
+
+namespace RegulaPolicy
+
+/-- `matchesPattern` is a complete decision of `PatternMatch` on a pattern and a text: it
+accepts every pair the relation holds of, and it refuses the empty pattern on the empty text.
+Soundness also holds (`matchesPattern_iff`), but the kind is one-way because a sound kind
+requires a pair the function accepts, and accepting evaluates `String.splitOn`, which the kernel
+does not reduce; accepted patterns are observed by the documentation fence corpus. -/
+theorem checked_matchesPattern : Regula.ExecutableContract matchesPattern (fun run =>
+    Regula.DecidesCompletely (· = true)
+      (fun input : String × String => PatternMatch input.1 input.2) (Function.uncurry run)) :=
+  ⟨{ complete := fun input holds => (matchesPattern_iff input.1 input.2).mpr holds
+     refused := ⟨("", ""), (by decide : ¬ matchesPattern "" "" = true)⟩ }⟩
+
 end RegulaPolicy
