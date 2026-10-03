@@ -215,11 +215,15 @@ unsafe def run (args : List String) : IO UInt32 := do
   let linked ← sources.captureLinked repo
   if options.ruleLinks then
     let markdown ← trackedMarkdown repo
-    let bare ← markdown.toList.flatMapM fun (path : String) => do
-      return Regula.Prose.markdownErrors path (← IO.FS.readFile (repo / path))
-    unless bare.isEmpty do
-      for line in bare do IO.println s!"FAIL: {line}"
-      IO.println s!"FAIL: {bare.length} rule ID(s) in documentation prose are not links to their \
+    let results ← markdown.toList.mapM fun (path : String) => do
+      let source ← IO.FS.readFile (repo / path)
+      return (Regula.Prose.markdownErrors path source, (Regula.Prose.markdownRefusals source).length)
+    let errors := results.flatMap (·.1)
+    let refused := (results.map (·.2)).foldl (· + ·) 0
+    unless errors.isEmpty do
+      for line in errors do IO.println s!"FAIL: {line}"
+      IO.println s!"FAIL: {refused} unsupported Markdown construct(s) and \
+        {errors.length - refused} rule ID(s) in documentation prose that are not links to their \
         development rule pages"
       return 1
     IO.println s!"rule links: every rule ID in the prose `Regula.Prose` reads in the {markdown.size} \

@@ -29,7 +29,8 @@ rule ID in prose that is not such a link, and rewrites generated prose so that i
 ## What prose is
 
 In a Markdown document, prose is the text outside fenced code blocks (`fenceOpen?`), code spans,
-link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs.
+link reference definitions, link destinations and titles, comments that open and close on one
+line, autolinks and bare URLs; raw HTML is refused.
 In an HTML page, prose is the text outside the `code`, `pre`, `script` and `style` elements
 (`exemptElement`). Pasted tool output is a fenced block or a `pre` element; a Lean identifier is
 code. A rule table that is the index of rule pages names each rule as a link to its page, so its
@@ -45,7 +46,7 @@ parsers.
 
 The Markdown check's contract: it does not imitate CommonMark. It reads a supported subset of
 Markdown, scans that subset exactly as these definitions say, and refuses every document outside
-it, with the line, the construct and how to write it inside the subset (`refusals`,
+it, with the line, the construct and how to write it inside the subset (`markdownRefusals`,
 `Refusal.message`). A construct it does not model is refused, not modelled.
 
 The subset (`blocks`): fenced code blocks opened by a fence run after at most three spaces
@@ -74,9 +75,10 @@ line that starts with an HTML tag, processing instruction or declaration other t
 line that starts with a comment that is not all of it; a numeric character reference; a code span
 left open where a paragraph ends at an `interrupts` line, a table's header row or the end of an
 indented first line's paragraph; a code span or link that a `|` splits in a table row
-(`splitCell`); raw HTML in text, a `<` outside a code span that a letter, `/`, `?` or `!` follows,
-other than an autolink or a comment that opens and closes on one line (`rawHtml?`); and a link
-reference definition split over lines (`splitDefinition`). That GitHub renders a document of the
+(`splitCell`); raw HTML, a `<` that `scanInline` reads as prose, so outside code spans, link
+destinations and titles, comments and autolinks, and that a letter, `/`, `?` or `!` follows
+(`Piece.rawHtml`, `markdownRefusals`); and a link reference definition split over lines
+(`splitDefinition`). That GitHub renders a document of the
 subset as these definitions read it is the check's premise, observed in the controls below, not
 proved.
 
@@ -444,8 +446,9 @@ inductive Refusal where
   | strayDefinition
   /-- A code span or link that a `|` splits in a table row. -/
   | splitTableCell
-  /-- Raw HTML in text: a `<` that starts a tag, processing instruction, declaration or `CDATA`
-  section, or a comment that does not open and close on one line (`rawHtml?`). -/
+  /-- Raw HTML: a `<` that `scanInline` reads as prose and that a letter, `/`, `?` or `!` follows
+  (`Piece.rawHtml`), a tag, processing instruction, declaration, `CDATA` section or comment that
+  does not open and close on one line. -/
   | inlineHtml
   /-- A link reference definition split over lines (`splitDefinition`). -/
   | splitDefinition
@@ -530,15 +533,19 @@ def interrupts (line : String) : Bool :=
 inductive Piece where
   /-- Prose, with the destination of the link whose text it lies in, if any. -/
   | prose (text : String) (link : Option String)
-  /-- Text that is not prose: a code span, a link's brackets and destination, a comment, an
-  autolink or a bare URL. -/
+  /-- Text that is not prose: a code span, a link's brackets, destination and title, a comment,
+  an autolink or a bare URL. -/
   | skip (raw : String)
+  /-- A `<` that the scan reads as prose and that a letter, `/`, `?` or `!` follows: raw HTML,
+  which the subset does not hold. -/
+  | rawHtml
   deriving DecidableEq, Repr
 
 /-- The text of the paragraph that the piece stands for. -/
 def Piece.raw : Piece → String
   | .prose text _ => text
   | .skip raw => raw
+  | .rawHtml => "<"
 
 private def flush (link : Option String) (acc : List Char) : List Piece :=
   if acc.isEmpty then [] else [.prose (String.ofList acc.reverse) link]
@@ -576,7 +583,7 @@ def commentLength : List Char → Option Nat
 /-- The number of characters after a `<` through the end of the comment or autolink it opens, when
 it opens one: a comment that closes on its line, whose text does not start with `>` or `->`, end
 with `-` or hold `--`, or an autolink (`startsAutolink`). Every other `<` that a letter, `/`, `?`
-or `!` follows is raw HTML, which the subset does not hold (`rawHtml?`). -/
+or `!` follows is raw HTML, which the subset does not hold (`Piece.rawHtml`). -/
 def tagLength (rest : List Char) : Option Nat :=
   match rest with
   | '!' :: '-' :: '-' :: '>' :: _ => none
@@ -588,29 +595,6 @@ def tagLength (rest : List Char) : Option Nat :=
     else some (3 + k)
   | _ =>
     if startsAutolink ('<' :: rest) then some ((rest.takeWhile (· != '>')).length + 1) else none
-
-/-- The line, counted from 0, of the first `<` of `chars`, outside a code span and not after a
-backslash, that starts raw HTML: a letter, `/`, `?` or `!` after it, other than a comment or an
-autolink that `tagLength` reads. `line` counts the line breaks read and `fuel` bounds the
-characters read. -/
-def rawHtml? : Nat → Nat → List Char → Option Nat
-  | _, _, [] => none
-  | 0, line, _ => some line
-  | fuel + 1, line, '\n' :: rest => rawHtml? fuel (line + 1) rest
-  | fuel + 1, line, '\\' :: c :: rest => rawHtml? fuel (if c == '\n' then line + 1 else line) rest
-  | fuel + 1, line, '`' :: rest =>
-    let n := 1 + (rest.takeWhile (· == '`')).length
-    let after := rest.drop (n - 1)
-    match codeClose n 0 after with
-    | some k => rawHtml? fuel (line + (after.take k).count '\n') (after.drop k)
-    | none => rawHtml? fuel line after
-  | fuel + 1, line, '<' :: c :: rest =>
-    if c.isAlpha || c == '/' || c == '?' || c == '!' then
-      match tagLength (c :: rest) with
-      | some k => rawHtml? fuel line ((c :: rest).drop k)
-      | none => some line
-    else rawHtml? fuel line (c :: rest)
-  | fuel + 1, line, _ :: rest => rawHtml? fuel line rest
 
 /-- Whether `chars` starts a bare URL. -/
 def startsUrl (chars : List Char) : Bool :=
@@ -666,7 +650,10 @@ def scanInline (definitions : List (String × String)) :
     else if c == '<' then
       match tagLength rest with
       | some k => skip (k + 1)
-      | none => scanInline definitions fuel link rest (c :: acc)
+      | none =>
+        if rest.head?.any fun d => d.isAlpha || d == '/' || d == '?' || d == '!' then
+          flush link acc ++ Piece.rawHtml :: scanInline definitions fuel link rest []
+        else scanInline definitions fuel link rest (c :: acc)
     else if startsUrl (c :: rest) then skip (urlLength (c :: rest))
     else if c == '[' && link.isNone then
       match linkAt definitions rest with
@@ -688,7 +675,14 @@ def runsOf (line : Nat) (pieces : List Piece) : List Run :=
     (acc.1 + newlines piece.raw,
       match piece with
       | .prose text link => ⟨acc.1, text, link⟩ :: acc.2
-      | .skip _ => acc.2)) (line, [])).2.reverse
+      | _ => acc.2)) (line, [])).2.reverse
+
+/-- The line of the first raw HTML (`Piece.rawHtml`) of `pieces`, a paragraph that starts on line
+`line`, if it has any. -/
+def rawHtmlLine? (line : Nat) : List Piece → Option Nat
+  | [] => none
+  | .rawHtml :: _ => some line
+  | piece :: rest => rawHtmlLine? (line + newlines piece.raw) rest
 
 /-- The cells of a table row: `chars` split at each `|` that no backslash escapes; `acc` holds the
 cell in progress, reversed. -/
@@ -729,13 +723,10 @@ inductive Block where
   /-- A line for which the document is refused, with the construct. -/
   | refused (line : Nat) (refusal : Refusal)
 
-/-- The paragraph `text` that starts on line `line`, refused (`Refusal.inlineHtml`) at the line of
-its first raw HTML (`rawHtml?`) and (`Refusal.splitDefinition`) when it is a link reference
-definition split over lines (`splitDefinition`). -/
+/-- The paragraph `text` that starts on line `line`, refused (`Refusal.splitDefinition`) when it is
+a link reference definition split over lines (`splitDefinition`). -/
 def paragraphBlocks (line : Nat) (text : String) : List Block :=
   .paragraph line text ::
-    ((rawHtml? (text.length + 1) 0 text.toList).map fun k =>
-      Block.refused (line + k) .inlineHtml).toList ++
     if splitDefinition text.toList then [.refused line .splitDefinition] else []
 
 /-- The block open before a line. -/
@@ -752,7 +743,7 @@ inductive Open where
 
 /-- The block that `o` is when it ends before line `line`: a paragraph with its refusals
 (`paragraphBlocks`), a table with a refusal for each row that a `|` splits a construct of
-(`splitCell`) or that holds raw HTML (`rawHtml?`), and a refusal for a fenced code block that the
+(`splitCell`), and a refusal for a fenced code block that the
 document never closes, since everything after it would be code. -/
 def Open.close (line : Nat) : Open → List Block
   | .idle => []
@@ -760,11 +751,7 @@ def Open.close (line : Nat) : Open → List Block
   | .table start rows =>
     .table start rows.reverse :: ((List.range rows.length).zip rows.reverse).flatMap
       fun (i, row) =>
-        let parts := cells [] row.toList
-        (if parts.any splitCell then [.refused (start + i) .splitTableCell] else []) ++
-          if parts.any fun cell => (rawHtml? (cell.length + 1) 0 cell).isSome then
-            [.refused (start + i) .inlineHtml]
-          else []
+        if (cells [] row.toList).any splitCell then [.refused (start + i) .splitTableCell] else []
   | .fence opened _ _ _ => [.refused opened .unclosedFence]
 
 /-- The paragraph `o` when the scanner ends it before line `line` at an `interrupts` line or a
@@ -831,33 +818,45 @@ def refusals (lines : List String) : List (Nat × Refusal) :=
     | .refused line refusal => some (line, refusal)
     | _ => none
 
-/-- The prose of a Markdown document (`blocks`): for each paragraph, heading and comment line, and
-each cell of each table row (`cells`), its text outside code spans, link destinations, comments,
-autolinks and bare URLs. -/
-def markdownRuns (text : String) : List Run :=
+/-- The inline text of a Markdown document (`blocks`), scanned with its link reference definitions
+(`pieces`): each paragraph, heading and comment line, and each cell of each table row (`cells`),
+with the line it starts on. -/
+def markdownPieces (text : String) : List (Nat × List Piece) :=
   let parts := blocks 1 .idle (text.splitOn "\n")
   let defined := parts.filterMap fun
     | .definition name destination => some (name, destination)
     | _ => none
   parts.flatMap fun
-    | .paragraph line paragraph => runsOf line (pieces defined paragraph)
+    | .paragraph line paragraph => [(line, pieces defined paragraph)]
     | .table line rows => ((List.range rows.length).zip rows).flatMap fun (i, row) =>
-      (cells [] row.toList).flatMap fun cell =>
-        runsOf (line + i) (pieces defined (String.ofList cell))
+      (cells [] row.toList).map fun cell => (line + i, pieces defined (String.ofList cell))
     | _ => []
 
+/-- The prose of a Markdown document: the prose runs of its inline text (`markdownPieces`), that
+is, its text outside code spans, link destinations and titles, comments, autolinks and bare URLs.
+-/
+def markdownRuns (text : String) : List Run :=
+  (markdownPieces text).flatMap fun (line, pieces) => runsOf line pieces
+
+/-- Each line for which the Markdown document `text` is refused, with the construct: the block
+structure's (`refusals`), then the first raw HTML of each paragraph, heading, comment line and
+table cell that `scanInline` reads (`rawHtmlLine?`). -/
+def markdownRefusals (text : String) : List (Nat × Refusal) :=
+  refusals (text.splitOn "\n") ++
+    ((markdownPieces text).filterMap fun (line, pieces) =>
+      (rawHtmlLine? line pieces).map (·, Refusal.inlineHtml)).eraseDups
+
 /-- What the Markdown document `text` of `main` is refused for: each line of a construct outside
-the subset (`refusals`, `Refusal.message`), and each rule ID in its prose that is not a link to its
-development page, reported with `file`, the line and the construct or the ID. -/
+the subset (`markdownRefusals`, `Refusal.message`), and each rule ID in its prose that is not a
+link to its development page, reported with `file`, the line and the construct or the ID. -/
 def markdownErrors (file text : String) : List String :=
-  (refusals (text.splitOn "\n")).map (fun (line, refusal) =>
-    s!"{file}:{line}: {refusal.message}") ++
+  (markdownRefusals text).map (fun (line, refusal) => s!"{file}:{line}: {refusal.message}") ++
   (bareMentions developmentTarget (markdownRuns text)).map (·.describe file)
 
 /-- The Markdown check reports nothing exactly when no line of the document is refused and every
 rule-ID token in the document's prose is a registered rule ID linked to its development page. -/
 theorem markdownErrors_nil_iff (file text : String) :
-    markdownErrors file text = [] ↔ refusals (text.splitOn "\n") = [] ∧
+    markdownErrors file text = [] ↔ markdownRefusals text = [] ∧
       ∀ run ∈ markdownRuns text, ∀ m ∈ run.mentions, m.Linked developmentTarget := by
   unfold markdownErrors
   simp [bareMentions_nil_iff]
@@ -1224,6 +1223,15 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "See <span title=\"`>\"> RG1001 and `code`.\n" ==
   ["a.md:1: " ++ Refusal.inlineHtml.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "See [a](u \"`\") <span title=\"`>\"> RG1001 and `code`.\n" ==
+  ["a.md:1: " ++ Refusal.inlineHtml.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "See [a](u`v) <span title=\"`>\"> RG1001 and `code`.\n" ==
+  ["a.md:1: " ++ Refusal.inlineHtml.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001](<" ++ Edition.dev.url RuleId.projectAxiom.route ++
+    ">) and [RG1001](" ++ Edition.dev.url RuleId.projectAxiom.route ++ " \"a <b> c\").\n") == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("See <span\ntitle=\"[\">RG1001](" ++
     Edition.dev.url RuleId.projectAxiom.route ++ ")\n") ==

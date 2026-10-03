@@ -333,7 +333,7 @@ is prose is a property of the document's structure, not of its file or its wordi
 
 | Document | Not prose | The link |
 | --- | --- | --- |
-| Every Markdown document the repository tracks (`git ls-files -- '*.md'`), wherever it lies; none is excluded | Fenced code blocks, code spans, link reference definitions, link destinations, HTML tags and comments, autolinks and bare URLs | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line, since a definition cannot interrupt a paragraph; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
+| Every Markdown document the repository tracks (`git ls-files -- '*.md'`), wherever it lies; none is excluded | Fenced code blocks, code spans, link reference definitions, link destinations and titles, comments that open and close on one line, autolinks and bare URLs; raw HTML is refused | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line, since a definition cannot interrupt a paragraph; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
 | A rendered page of the standard or of the rule-reference site | The `code`, `pre`, `script` and `style` elements, and comments | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
 
 Pasted tool output is a fenced block or a `pre` element, and a Lean identifier is written as
@@ -372,9 +372,9 @@ each after a blank line at the end of the document; a line that starts with an H
 processing instruction or declaration, so raw HTML blocks are not supported; a line that starts
 with a comment that is not all of it; a numeric character reference; a code span left open where
 a paragraph ends at such a line, at a table's header row or after an indented first line; a code
-span or link that a `|` splits in a table row; raw HTML in text, a `<` outside a code span that a
-letter, `/`, `?` or `!` follows, other than an autolink or a comment that opens and closes on one
-line, so put HTML in a code span or write it in Markdown; and a link reference definition split
+span or link that a `|` splits in a table row; raw HTML, a `<` read as text (outside code spans,
+link destinations and titles, comments and autolinks) that a letter, `/`, `?` or `!` follows, so
+put HTML in a code span or write it in Markdown; and a link reference definition split
 over lines. A page with a
 `code`, `pre`, `title` or `h1` element, a comment or a script that is never closed is refused,
 since the text after it could not be read as prose. The release editions already published are frozen copies and are not rewritten.
