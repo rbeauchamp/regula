@@ -1003,8 +1003,8 @@ def guide : RuleId → Guide
           compiler or external code; a Lean equality does not prove external machine code. These \
           stay trusted and reported.",
         "Anything about code the program selects at runtime rather than references: a constant \
-          it evaluates by name (`Lean.Environment.evalConst`, `Lean.Meta.reduceBoolNative`), a \
-          dynamic library or plugin it loads, or a process it spawns. The account is the static \
+          it evaluates by name (`Lean.Environment.evalConst`), a dynamic library or plugin it \
+          loads, or a process it spawns. The account is the static \
           closure; such code is data to it, and the toolchain primitive that runs it is trusted \
           base. The `initialize` and `[init]` actions of imported modules, static or at runtime, \
           are likewise outside the account.",

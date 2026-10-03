@@ -255,8 +255,7 @@ linter feed it into admission. This linkage trusts compiler execution, installat
 import loading and canonical filesystem paths. It does not prove those IO mechanisms.
 `ProducerReport.validate_sound` and `fromJson_admissible` also require this agreement for every
 raw or decoded admitted report, without relying on sampled transport mutations. When the
-capability is absent (unsatisfiable on this stable revision, whose compiled capability is
-`present`; it holds once a prepared revision compiles `absent`), the checked decision
+capability is absent, as this adaptation's compiled policy declares, the checked decision
 theorems show that a retired name cannot become a compiler axiom or an authenticated native
 axiom and its singleton axiom set is unknown. A dependent non-axiom declaration without an
 earlier proof-hole failure receives the unknown-axiom refusal even in teaching mode.
@@ -807,8 +806,8 @@ These are proofs about the observations; native object-tag correspondence remain
 The owned unsafe and runtime-replacement boundaries remain in execution reports.
 The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
 observer's positive path, admission, transport and mutations only on a compiler that has
-`getObjTagNat`, such as the selected release-candidate and source compilers; on Lean 4.34.0,
-which generates no wrapper, it checks only that the observer finds none.
+`getObjTagNat`, as on source compiler `6751f97`; on Lean 4.34.0 and 4.35.0-rc3, which generate
+no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
 `Regula.ExecutableContract` (`ContractScope.mayReach`). That holds when the contract type is among
@@ -1351,7 +1350,7 @@ the report worker's error names the module, the declaration (for an execution wa
 the failing stage: `declaration record` (any observation of `Collect.declaration`),
 `executable-root classification`, `proposition test` or `execution walk`. When the failure is one
 of those limits, or a kernel limit (deterministic timeout, deep recursion or excessive memory,
-recognized by its pinned Lean v4.34.0 message), it says the limit is the checker's own, that
+recognized by the pinned compiler's message), it says the limit is the checker's own, that
 options set in the source, such as `maxRecDepth`, do not apply to the checker, and to report it
 as a Regula issue; the audit is still incomplete. The recursion helper's regeneration and native
 replay, which otherwise record their own failure as missing evidence, rethrow such a limit

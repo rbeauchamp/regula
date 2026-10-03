@@ -9,7 +9,7 @@ packagesDir = "../.lake/packages"
 [[require]]
 name = "verso"
 git = "https://github.com/leanprover/verso"
-rev = "cad4b633e75ea769b851f12f9ca3b4f0dfcc625f"
+rev = "8fc7a297f14d5adc1a551b5b4ecf283c08bd691f"
 
 # The root package: the standard's examples import its modules (such as `AuditApp`).
 [[require]]

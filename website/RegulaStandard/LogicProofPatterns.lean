@@ -373,7 +373,7 @@ tag := "324-decidability-logical-vs-executable"
 number := false
 %%%
 
-*Rationale*: A proposition `p : Prop` states a property; it is not a proof or a decision procedure. `Decidable p` is data with two constructors: one carries a proof of `p`, the other a proof of `¬p`. A computable producer of that data gives an executable decision procedure. `Classical.propDecidable` supplies such data logically for any proposition, but is noncomputable and depends on `Classical.choice`.
+*Rationale*: A proposition `p : Prop` states a property; it is not a proof or a decision procedure. `Decidable p` supplies a decision together with a proof of `p` in the positive case or `¬p` in the negative case. A computable producer of that data gives an executable decision procedure. `Classical.propDecidable` supplies such data logically for any proposition, but is noncomputable and depends on `Classical.choice`.
 
 A branch that affects runtime data needs a computable decision procedure. Classical reasoning may be used in erased proofs under an allowed foundation profile or in noncomputable logical definitions. Proof erasure and noncomputability do not prevent all logical reduction; they distinguish what must execute in compiled code. For example, this logical constructor uses noncomputable real order:
 
@@ -490,7 +490,7 @@ example : sumWf 10 = 55 := by decide +kernel
 
 The elaborator does not unfold the `@[irreducible]` well-founded definition at default transparency, so a plain `decide` fails before any kernel replay starts. This is an elaboration-domain failure, not a kernel fact. The preceding `decide +kernel` proves the same statement by kernel replay.
 
-```lean (fails := "did not reduce to `isTrue` or `isFalse`")
+```lean (fails := "Tactic `decide` failed to reduce")
 import Audit.Economy
 
 example : Economy.sumWf 10 = 55 := by decide
@@ -839,7 +839,7 @@ example (ops : List Op) (l final : Limiter) :
 
 `executeChecked_exact` composes admission with this runner. `Main` passes `required_contracts` to `executeChecked`, so required admission, update, input policy, success/refusal, and composition propositions are proof obligations about the same core it calls (§7.5). The shell describes success/refusal output using the returned result and state. The proofs do not establish terminal effects, native arithmetic correctness, complexity, empirical benefit, or external liveness. The default demonstration reaches a refusal; `AuditApp.demo_checked_error` derives its stopped state from the universal contract.
 
-*Choose the smallest proof interface.* The pinned Lean 4.34.0 library provides `Std.Do.Triple` (precondition entails weakest precondition), `Std.Do.Triple.bind` for composition, `WPMonad` instances for `StateT`/`ExceptT`, and `Std.Tactic.Do`'s `mvcgen`. Use these when they simplify verification conditions; no tactic is mandatory. This example reuses the standard transformers and proves exact outcome equations by reduction and list induction, avoiding an additional predicate-transformer encoding of the same equations. For a larger monadic program, `Triple.bind` connects the first result's postcondition to the continuation's precondition while retaining explicit exceptional postconditions.
+*Choose the smallest proof interface.* The pinned Lean library provides `Std.Do.Triple` (precondition entails weakest precondition), `Std.Do.Triple.bind` for composition, and `WPMonad` instances for `StateT`/`ExceptT`. Use these when they simplify verification conditions; no tactic is mandatory. This example reuses the standard transformers and proves exact outcome equations by reduction and list induction, avoiding an additional predicate-transformer encoding of the same equations. For a larger monadic program, `Triple.bind` connects the first result's postcondition to the continuation's precondition while retaining explicit exceptional postconditions.
 
 Local `let mut`, a `for` loop, or an efficient array representation does not itself imply external effects or `unsafe` execution. Inspect the elaborated total function and prove its relation; efficient representations remain permitted with their boundary/correspondence proofs. For example, local rebinding below denotes a pure function for every `Nat`:
 
