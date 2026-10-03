@@ -121,14 +121,16 @@ theorem installsMacPackages_iff (githubActions runnerOS : Option String) :
   simp [installsMacPackages]
 
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
-  let result ← IO.Process.output { cmd, args, cwd := some cwd, stdin := .null }
+  let result ← IO.Process.output {
+    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
   unless result.exitCode == 0 do
     throw <| IO.userError s!"compiler setup: {cmd} failed ({result.exitCode}): {result.stderr}"
   return result.stdout.trimAscii.toString
 
 private def stream (cwd : FilePath) (cmd : String) (args : Array String) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd, args, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
+    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)],
+    stdin := .null, stdout := .inherit, stderr := .inherit }
   let code ← child.wait
   unless code == 0 do throw <| IO.userError s!"compiler setup: {cmd} failed ({code})"
 
@@ -236,18 +238,6 @@ private def installDeclared (root : FilePath) : IO Unit := do
       stream root "elan" #["toolchain", "install", selector]
   stream root "elan" #["run", selector, "lean", "--version"]
 
-/-- Whether ordinary setup must restore the selected compiled snapshot. -/
-def restoresSnapshot (selected : Bool) : Bool := selected
-
-/--
-Every snapshot selection takes the restore branch of ordinary setup.
-
-## Intent
-Refuse a missing location in that branch instead of falling back to source compilation.
--/
-theorem restoresSnapshot_iff (selected : Bool) :
-    restoresSnapshot selected = true ↔ selected = true := Iff.rfl
-
 /--
 Install the declared ordinary compiler, or restore the complete selected snapshot.
 
@@ -256,7 +246,7 @@ Snapshot selection never reaches the source compiler builder. The restore progra
 admits the committed digest and receipt before activating compiler and packages.
 -/
 def install (root : FilePath) : IO Unit := do
-  if restoresSnapshot (← (root / ".github/snapshot-compiler.json").pathExists) then
+  if ← (root / ".github/snapshot-compiler.json").pathExists then
     installSystemPackages root
     stream root "elan" #["run", "leanprover/lean4:v4.34.0", "lean", "--run",
       "lean/RegulaSnapshot.lean", "restore"]
@@ -273,10 +263,7 @@ def main (args : List String) : IO Unit := do
   | [] => RegulaCompiler.install (← IO.FS.realPath (← IO.currentDir))
   | ["setup"] =>
     let root ← IO.FS.realPath (← IO.currentDir)
-    match (← IO.getEnv "REGULA_SETUP_ACQUISITION").getD "restore" with
-    | "restore" => RegulaCompiler.install root
-    | "prepare" => RegulaCompiler.prepare root
-    | _ => throw <| IO.userError "compiler setup: unknown acquisition mode"
+    RegulaCompiler.install root
     if let some output ← IO.getEnv "GITHUB_OUTPUT" then
       let handle ← IO.FS.Handle.mk output .append
       handle.putStr s!"snapshot={(← (root / ".github/snapshot-compiler.json").pathExists)}\n"

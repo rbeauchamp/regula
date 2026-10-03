@@ -9,12 +9,6 @@ inputs:
     description: Install pinned Elan, stable Lean and system bootstrap tools only.
     required: false
     default: 'false'
-  acquisition:
-    description: >-
-      Ordinary setup restores a selected compiled snapshot. Only the dedicated preparation
-      workflow uses prepare to build the declared compiler from source.
-    required: false
-    default: 'restore'
   dependencies:
     description: >-
       Restore or provision the pinned Lake dependency artifacts (Mathlib and its dependencies).
@@ -43,38 +37,43 @@ runs:
         key: lean-toolchain-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', '.github/compiler-source.json', 'lean/RegulaCompiler.lean') }}
 
     - name: Install Elan and pinned Lean
+      env:
+        ELAN_TARGET: ${{ runner.os == 'Linux' && runner.arch == 'X64' && 'x86_64-unknown-linux-gnu' || runner.os == 'macOS' && runner.arch == 'ARM64' && 'aarch64-apple-darwin' || '' }}
       shell: bash
       run: |
-        case "$RUNNER_OS/$RUNNER_ARCH" in
-          Linux/X64) elan_target=x86_64-unknown-linux-gnu ;;
-          macOS/ARM64) elan_target=aarch64-apple-darwin ;;
-          *) echo "Unsupported Elan bootstrap target" >&2; exit 1 ;;
-        esac
         curl --fail --location --retry 3 \
-          "https://github.com/leanprover/elan/releases/download/v4.2.4/elan-$elan_target.tar.gz" \
+          "https://github.com/leanprover/elan/releases/download/v4.2.4/elan-$ELAN_TARGET.tar.gz" \
           -o "$RUNNER_TEMP/elan.tar.gz"
         tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
         "$RUNNER_TEMP/elan-init" -y --default-toolchain none
         echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
         "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.34.0
-        if [ "$RUNNER_OS" = macOS ]; then
-          brew install coreutils shellcheck
-          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
-          "$(brew --prefix coreutils)/libexec/gnubin/timeout" --version
-        else
-          if ! command -v timeout >/dev/null || ! command -v shellcheck >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install --yes coreutils shellcheck
-          fi
-          timeout --version
+
+    - name: Install Linux bootstrap tools
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        if ! command -v timeout >/dev/null || ! command -v shellcheck >/dev/null; then
+          sudo apt-get update
+          sudo apt-get install --yes coreutils shellcheck
         fi
+
+    - name: Install macOS bootstrap tools
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install coreutils shellcheck
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+
+    - name: Check bootstrap tools
+      shell: bash
+      run: |
+        timeout --version
         shellcheck --version
 
     - name: Install the declared compiler
       if: inputs.bootstrap-only != 'true'
       id: compiler
-      env:
-        REGULA_SETUP_ACQUISITION: ${{ inputs.acquisition }}
       shell: bash
       run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaCompiler.lean setup
 

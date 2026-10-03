@@ -29,7 +29,7 @@
       "library": "RegulaSnapshot",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Source-built compiler and dependency snapshot preparation and restoration. The executed admission constructor binds the complete decoded input identity, compiler observations, exact package census and completed target plan. The transport predicate admits both closed archive roots and every layer name and digest. Ordinary restoration schedules no source compilation. Compiler and package self-reports, native ABI compatibility, Git, ORAS, SHA-256, tar, subprocesses, locking and filesystem effects remain trusted; value-level proofs do not authenticate these observations or establish artifact qualification."
+      "rationale": "Source-built compiler and dependency snapshot preparation and restoration. The executed admission constructor binds the complete decoded input identity, compiler observations, exact package census and completed target plan. The transport predicate admits both closed archive roots and every layer name and digest. The shared acquisition runner executes the chosen build plan; its restoration invocation is proved equal to pure unit. Compiler and package self-reports, native ABI compatibility, Git, ORAS, SHA-256, tar, subprocesses, locking and filesystem effects remain trusted; value-level proofs do not authenticate these observations or establish artifact qualification."
     },
     {
       "library": "RegulaQualification",

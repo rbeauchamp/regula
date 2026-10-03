@@ -12,7 +12,7 @@ run_cmd do
     let lean := ((← Lean.findSysroot) / "bin" / "lean").toString
     let child ← IO.Process.output {
       cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]
-      env := #[("REGULA_COMPILER_GUARD", some "1")] }
+      env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)] }
     if child.exitCode != 0 then
       return some s!"Regula's compiler guard stopped: Lake is running Lean \
         {Lean.versionString} ({Lean.githash}), and `{lean}`, which LEAN_SYSROOT or PATH selects, \

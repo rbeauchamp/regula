@@ -435,7 +435,8 @@ structure Ran where
   stderr : String
 
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
-  let out ← IO.Process.output { cmd, args, cwd := some cwd, stdin := .null }
+  let out ← IO.Process.output {
+    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
@@ -449,7 +450,8 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
 private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd, args, env, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
+    cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
+    stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
     throw <|
