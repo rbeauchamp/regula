@@ -1481,7 +1481,14 @@ audit the same input, rests on a fact that is not a theorem: a fresh gate reads 
 project only through its copy operation (`copyProject`, which prunes the project's `.lake`), and
 builds that copy from empty output; without `--with-docs`, as here, it reads no other file of
 the project, and the packages directory it links is the repository's for every copy.
-`freshInput` is that operation's output. -/
+`freshInput` is that operation's output. The two shards are jobs of one workflow matrix, which
+starts both on the one commit it checks out. That both pass before merging is enforced by the
+ruleset of `main`, not by this module, which observes nothing of the other job. The workflow
+runs the matrix on a pull request exactly when the pull request changes one of the paths
+`Regula.DiagnosticsGate.inputs` lists, and its last job, `diagnostics`, a required check that
+reports on every pull request, passes on a run where the matrix applies only when the matrix
+job succeeded in that run (`Regula.DiagnosticsGate.verdict_iff`). That GitHub reports a matrix
+job succeeded only when every job of it did is GitHub's behaviour, trusted. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)

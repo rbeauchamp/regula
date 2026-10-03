@@ -4,39 +4,26 @@ name: Diagnostics
 # campaigns, the `lake lint` dispatch over the maintained adopter fixtures, which crosses
 # Lake, process and filesystem boundaries that the driver's proofs do not cover, and the
 # checker self-test's structural and execution partitions, each in two shards whose controls
-# together are the partition's. They run when a path listed below changes, always on main,
-# and nightly. They are diagnostics, not a partition of ordinary acceptance.
+# together are the partition's. They are diagnostics, not a partition of ordinary acceptance.
+#
+# The workflow runs on every pull request, every push to main, nightly and on dispatch. Its first
+# job, `compiler`, prepares the selected compiler. The next, `applies`, needs it and has no `if:`,
+# so it runs only once `compiler` succeeded; it decides which partition jobs apply to the run
+# (lean/Regula/DiagnosticsGate.lean): the campaigns on a pull request exactly when it changes one
+# of the paths listed there (`inputs`, the only statement of them: the checker, rules, rule
+# examples, adopter fixtures, the application and fixture sources the structural and execution
+# partitions mutate, Lake configuration and manifests, the compiler and dependency setup), and on
+# every other run; the nightly rule-example shards on the schedule alone. Each partition job runs
+# only when it applies. The last job, `diagnostics`, runs once every other job has finished,
+# whatever their results, and passes exactly when `applies` succeeded and each partition job passed
+# and applies, or was skipped and does not apply (`verdict_iff`); a failed, cancelled or timed-out
+# job fails it. The ruleset of main requires that check, so a pull request merges only once every
+# diagnostics job that applies to it has passed on its head commit, and one that changes no input
+# passes it without running a campaign. Every job other than `compiler`, `applies` and
+# `diagnostics` is in the `needs` of `diagnostics` and has its `if:` read its own decision; the
+# gate refuses a job it needs that `applies` did not decide, and a decided job it does not need.
 on:
   pull_request:
-    paths:
-      - lean/Regula/**
-      - lean/RegulaPolicy/**
-      - lean/RegulaPolicy.lean
-      - lean/RegulaCore/**
-      - lean/RegulaQualification/**
-      - lean/RegulaVerification.lean
-      - lean/RegulaProvision.lean
-      - lean/RegulaCompiler.lean
-      - dependency-build-mode
-      - .github/compiler-source.json
-      - lean/AuditApp/**
-      - lean/AuditApp.lean
-      - lean/Main.lean
-      - lean/Fixtures/**
-      - audit/lakefile.lean
-      - audit/lake-manifest.json
-      - audit/foundation_manifest.json
-      - examples/rules/**
-      - examples/lake-lint-toml/**
-      - examples/build-lint/**
-      - lakefile.lean
-      - lake-manifest.json
-      - lean-toolchain
-      - foundation_manifest.json
-      - scripts/verify.sh
-      - .github/workflows/diagnostics.yml
-      - .github/workflows/compiler.yml
-      - .github/actions/provision/**
   push:
     branches: [main]
   schedule:
@@ -51,12 +38,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Source compilation is setup; it precedes `applies` and the gate, 15-minute jobs that provision
+  # the selected compiler too, so they reuse its cache.
   compiler:
     uses: ./.github/workflows/compiler.yml
 
-  campaign:
+  # A JSON object from partition job id to whether that job applies. On a pull request the
+  # checked-out commit is the merge commit GitHub creates, and the step compares it with its first
+  # parent, the head of the base branch: hence the two commits.
+  applies:
     needs: compiler
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      decisions: ${{ steps.decide.outputs.decisions }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      # The decision needs the pinned toolchain alone.
+      - uses: ./.github/actions/provision
+        with:
+          dependencies: 'false'
+
+      - name: Decide which diagnostics apply
+        id: decide
+        run: lean --run lean/Regula/DiagnosticsGate.lean applies
+
+  campaign:
     name: ${{ matrix.campaign }}
+    needs: applies
+    if: fromJSON(needs.applies.outputs.decisions).campaign
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; verify.sh enforces exactly 420 seconds.
     timeout-minutes: 30
@@ -85,9 +99,9 @@ jobs:
   # run nightly on an unchanged main, where a failure shows drift in the runner image or the
   # restored dependency caches rather than in the pinned sources.
   rule-examples-nightly:
-    needs: compiler
     name: nightly diagnostics rule-examples ${{ matrix.shard }}
-    if: github.event_name == 'schedule'
+    needs: applies
+    if: fromJSON(needs.applies.outputs.decisions)['rule-examples-nightly']
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -103,3 +117,25 @@ jobs:
 
       - name: Qualify (same command and seven-minute limit as local)
         run: ./scripts/verify.sh diagnostics rule-examples ${{ matrix.shard }}
+
+  # The required check. `always()`, not `!cancelled()`: a skipped job reports success, so the
+  # gate runs on a cancelled run too, where it fails.
+  diagnostics:
+    needs: [applies, campaign, rule-examples-nightly]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The gate needs the pinned toolchain alone.
+      - uses: ./.github/actions/provision
+        with:
+          dependencies: 'false'
+
+      - name: Refuse unless every diagnostics job passed exactly when it applies
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: lean --run lean/Regula/DiagnosticsGate.lean gate

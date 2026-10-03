@@ -64,9 +64,10 @@ in place of one published by then. GitHub creates and signs the commit, and
 `release/v<version>` and writes the link that opens its pull request to the job summary; a
 maintainer opens the pull request from that link, which starts its checks, and merges it through
 normal review. When that pull request is already open, `open` starts the checks of the rebuilt
-branch by dispatching `ci.yml` and `title.yml` on it, because a push with the workflow's token
-starts no workflow; the dispatched `title` step reads the pull request's title through GitHub's
-API. No step creates a pull request: the repository does not let GitHub Actions create one.
+branch by dispatching `ci.yml`, `title.yml` and `diagnostics.yml` on it, because a push with the
+workflow's token starts no workflow; the dispatched `title` step reads the pull request's title
+through GitHub's API. No step creates a pull request: the repository does not let GitHub Actions
+create one.
 
 On `main`, once acceptance and the rule-example shards pass on a commit that lists a release not
 yet published, `candidate` refuses unless the releases GitHub reports published are exactly the
@@ -1176,19 +1177,19 @@ private def summarize (text : String) : IO Unit := do
     handle.putStr text
 
 /-- Point `branch` at `commit`; its pull request is a maintainer's to open. When one is already
-open, start the checks of the rebuilt branch by dispatching `ci.yml` and `title.yml` on it,
-because a push with the workflow's token starts no workflow. Otherwise write the link that opens
-it, with `title` and `body` filled in, to the job summary and the log; opening it starts its
-checks. The workflow never creates a pull request: the repository does not let GitHub Actions
-create one. -/
+open, start the checks of the rebuilt branch by dispatching `ci.yml`, `title.yml` and
+`diagnostics.yml` on it, because a push with the workflow's token starts no workflow. Otherwise
+write the link that opens it, with `title` and `body` filled in, to the job summary and the log;
+opening it starts its checks. The workflow never creates a pull request: the repository does not
+let GitHub Actions create one. -/
 private def pushBranch (repo branch commit title body : String) : IO Unit := do
   pointBranch repo branch commit
   if let some pull ← openPull repo branch then
-    for workflow in ["ci.yml", "title.yml"] do
+    for workflow in ["ci.yml", "title.yml", "diagnostics.yml"] do
       discard <| gh #["workflow", "run", workflow, "--repo", repo, "--ref", branch]
     let url := (pull.getObjValD "html_url").getStr?.toOption.getD branch
     IO.println s!"branch {branch} names {commit}; its pull request {url} is open, and the \
-      dispatched runs of ci.yml and title.yml check it"
+      dispatched runs of ci.yml, title.yml and diagnostics.yml check it"
     return
   let link := s!"https://github.com/{repo}/compare/main...{branch}?expand=1&title=\
     {percentEncode title}&body={percentEncode body}"
@@ -1385,11 +1386,12 @@ def openRelease : IO Unit := do
       published, its `site` check builds and checks the artifact with a preview at \
       `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
       release's own edition exists only once CI builds it from the release commit, and no \
-      artifact with a preview is deployed. `verify` and `title` are the required checks.\n\n\
+      artifact with a preview is deployed. The required checks are `verify`, `title`, \
+      `diagnostics` and code scanning's `CodeQL` and `Analyze (actions)`.\n\n\
       The Release workflow pushed this signed branch, and a maintainer opened this pull request \
       from the link in the job summary, which started its checks; when the workflow rebuilds \
-      the branch while this pull request is open, it starts them by dispatching `ci.yml` and \
-      `title.yml`."
+      the branch while this pull request is open, it starts them by dispatching `ci.yml`, \
+      `title.yml` and `diagnostics.yml`."
 
 /-- Refuse unless the checked-out commit is unreleased: no commit of `main` or of a pull request
 carries a release label; only the release commit that `candidate` creates does, and publication

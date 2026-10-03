@@ -195,16 +195,27 @@ claimed graph, so run the driver when that graph, claim or driver changes, and r
 coverage already obtained for the same inputs rather than repeating the same roots in a raw
 invocation. Diagnostics do not replace a failed acceptance run.
 
-The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs `producers`,
-`history`, `lint-driver` and the two shards each of `structural` and `execution` as parallel
-jobs, each with its own hard 420-second limit, when the checker, rules, rule examples, the
+The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on every pull request,
+every push to `main`, nightly and on dispatch. Its first job, `compiler`, prepares the selected
+compiler. The next, `applies` (`lean --run lean/Regula/DiagnosticsGate.lean applies`), runs only
+once `compiler` succeeded and decides which of its jobs apply. It runs
+`producers`, `history`, `lint-driver` and the two shards each of `structural` and `execution` as
+parallel jobs, each with its own hard 420-second limit, on a pull request exactly when it changes
+one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
-fixture sources the structural and execution controls mutate, Lake configuration, manifests or
-the compiler and dependency setup (the installer, the provisioning program,
-`dependency-build-mode` and `.github/compiler-source.json`) change, on every push to `main`,
-and nightly; it also runs both `rule-examples` shards nightly. [CI](../../.github/workflows/ci.yml)
-runs both shards on every pull request and push to `main`, where they feed
-`./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
+fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
+the compiler and dependency setup: the installer, the provisioning program,
+`dependency-build-mode`, `.github/compiler-source.json` and the compiler-preparation workflow),
+and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
+`diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
+passes exactly when `applies` succeeded and each of the other jobs passed and applies, or was
+skipped and does not apply, so a pull request merges only once every one of these jobs that
+applies to it has passed on its head commit, and a failed, cancelled or timed-out one refuses the
+merge. A pull request that changes none of the listed paths, such as one that changes only
+documentation, passes it without running a campaign
+([proofs and boundaries](proofs-and-boundaries.md#the-diagnostics-gate)).
+[CI](../../.github/workflows/ci.yml) runs both shards on every pull request and push to `main`,
+where they feed `./scripts/verify.sh site` ([website guide](website.md)). These campaigns are
 capability-triggered diagnostics (standard §7.8), not a partition of ordinary acceptance.
 The [dogfood workflow](../../.github/workflows/dogfood.yml) runs `self-lint` and `self-audit`
 as parallel jobs under the same limit when Lean sources, Lake configuration, manifests or
@@ -502,7 +513,8 @@ until the release commit has passed the same checks as `main`:
    and checks the artifact with a preview of the release's edition, rendered from that commit
    without a release label ([versions](website.md#versions-and-routes)): the release's own
    edition exists only once CI builds it from the release commit, and an artifact with a preview
-   is never deployed. Only `verify` and `title` are required checks.
+   is never deployed. The required checks are `verify`, `title`, `diagnostics` and code
+   scanning's `CodeQL` and `Analyze (actions)`.
 2. **candidate** (`ci.yml`, the `candidate` job on `main`): once acceptance and both rule-example
    shards pass on a commit of `main` that lists a release not yet published, it refuses unless
    the releases GitHub reports published are exactly the releases listed before it
@@ -591,8 +603,9 @@ Who opens the pull request, and when its checks start: a maintainer opens it fro
 job summary of **open**, and opening it starts its checks. No workflow creates a pull request,
 because the repository does not let GitHub Actions create one. When **open** rebuilds the branch
 of a pull request that is already open, its push with the workflow's token starts no checks, so
-it dispatches `ci.yml` and [`title.yml`](../../.github/workflows/title.yml) on the branch, which
-run them on its new head; the dispatched `title` check reads the pull request's title through
+it dispatches `ci.yml`, [`title.yml`](../../.github/workflows/title.yml) and
+[`diagnostics.yml`](../../.github/workflows/diagnostics.yml) on the branch, which run them on its
+new head; the dispatched `title` check reads the pull request's title through
 GitHub's API and refuses unless the pull request's head is the commit it checked out. Only the
 `open` job has `actions: write` for that dispatch.
 
