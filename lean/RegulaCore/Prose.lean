@@ -40,28 +40,35 @@ link to itself (`ownPage`): those two elements are read as text linked to the pa
 ## Boundaries
 
 `bareMentions_nil_iff` is about the runs it is given. `markdownRuns` and `htmlRuns` are small
-scanners for this repository's documents and the builder's own output, not complete CommonMark
-or HTML parsers. They follow one rule: they may refuse a rule ID that renders as a link, but must
-never accept one that renders as plain text.
+scanners for this repository's documents and the builder's own output, not Markdown or HTML
+parsers.
 
-The Markdown check reads an explicit subset of CommonMark and refuses every document outside it,
-with the line and the reason (`refusals`): a fenced code block that is never closed; a fence run
-indented four spaces or more, anywhere; in a fenced code block, a line with fewer leading spaces
-than its fence; and, outside one (`unsupported?`), a fence run, an HTML tag or a comment after a
-list marker or `>`, a line that starts with an HTML tag, processing instruction or declaration
-other than an autolink, a line that starts with a comment that is not all of it, and a numeric
-character reference. For a document it does not refuse, its fenced code blocks are CommonMark's,
-and its prose differs from CommonMark's only by refusing more: an indented code block, a setext
-heading, a thematic break, a table and a list item or block quote are read as paragraph text; a
-line that can open another block (`interrupts`) ends the paragraph before it even where
-CommonMark continues it; a link reference definition counts only at the start of the document or
-directly after a blank line, a fenced code block, an ATX heading, a comment line or another
-definition, after at most three spaces and with a title, if any, on its line and closed by its
-quote; and the text of a link that holds a `[` or a `<`, an open tag that spans lines and a
-comment that its paragraph does not close are prose. GitHub's tables are outside this claim: a
-table splits each row at an unescaped `|` before it reads code spans and links, which the scanner
-does not model. The claim is argued from these definitions and observed in the controls below; it
-is not proved.
+The Markdown check's contract: it does not imitate CommonMark. It reads a supported subset of
+Markdown, scans that subset exactly as these definitions say, and refuses every document outside
+it, with the line, the construct and how to write it inside the subset (`refusals`,
+`Refusal.message`). A construct it does not model is refused, not modelled.
+
+The subset (`blocks`): fenced code blocks opened by a fence run after at most three spaces
+(`fenceOpen?`), whose lines are indented at least as far as the fence and which close at a fence
+run of the same character at least as long with nothing after it; ATX headings; comments alone on
+a line; tables, a header row, a delimiter row (`delimiterRow`) and the rows after them to the
+next blank line, fence, heading or comment line, each row split into cells at every `|` that no
+backslash escapes (`cells`); link reference definitions after at most three spaces, at the start
+of the document or directly after a blank line, a fenced code block, a heading, a comment line or
+another definition; and paragraphs of every other line, which end before a blank line, a fence, a
+heading, a comment line, a table's header row or an `interrupts` line. In each paragraph, heading
+and cell, `scanInline` reads code spans, links whose text holds no `[`, `<` or open code span and
+whose target is well formed (`validTarget`), HTML tags and comments on one line, autolinks and
+bare URLs; every other character is prose.
+
+Refused (`Refusal`): a fenced code block that is never closed; a fence run indented four spaces
+or more; a line of a fenced code block with fewer leading spaces than its fence; a fence run, an
+HTML tag or a comment on the line of a list marker or `>`; a line that starts with an HTML tag,
+processing instruction or declaration other than an autolink; a comment that is not alone on its
+line; a numeric character reference; a code span left open where a paragraph ends at an
+`interrupts` line or a table's header row; and a code span, link or HTML tag that a `|` splits in a
+table row (`splitCell`). That GitHub renders a document of the subset as these definitions read it
+is the check's premise, observed in the controls below, not proved.
 
 In HTML, an element, comment or script that is never closed would hide the text after it, so
 `htmlErrors` refuses such a page; an element closed and reopened out of order is not detected.
@@ -269,21 +276,36 @@ def destinationOf (raw : List Char) : String :=
   | '<' :: rest => String.ofList (rest.takeWhile (· != '>'))
   | chars => String.ofList (chars.takeWhile (!Char.isWhitespace ·))
 
-/-- Whether a link's raw target is a destination alone, or a destination and a title in `"` or `'`
-that its quote closes with only whitespace after it, on one line. Any other text in a link's
-parentheses or after a definition's colon is prose, so it is not skipped as a destination. -/
+/-- Whether the parentheses of `chars` are balanced, none closing before it opens. -/
+def balanced (chars : List Char) : Bool :=
+  chars.foldl (fun (depth : Option Nat) c => depth.bind fun d =>
+    if c == '(' then some (d + 1) else if c == ')' then (if d == 0 then none else some (d - 1))
+    else some d) (some 0) == some 0
+
+/-- Whether a link's raw target is, on one line, a destination alone or a destination, whitespace
+and a title in `"` or `'` that its quote closes with only whitespace after it. A destination is
+`<`, text with no `<` or `>` and `>`, or text with no whitespace whose parentheses are balanced
+(`balanced`). Any other text in a link's parentheses or after a definition's colon is prose, so it
+is not skipped as a destination. -/
 def validTarget (raw : List Char) : Bool :=
   let chars := raw.dropWhile Char.isWhitespace
-  let destination := match chars with
-    | '<' :: rest => (rest.takeWhile (· != '>')).length + 2
-    | _ => (chars.takeWhile (!Char.isWhitespace ·)).length
-  let after := (chars.drop destination).dropWhile Char.isWhitespace
+  let after : Option (List Char) := match chars with
+    | '<' :: rest =>
+      let inside := rest.takeWhile (· != '>')
+      if inside.length < rest.length && !inside.contains '<' then
+        some (rest.drop (inside.length + 1))
+      else none
+    | _ =>
+      let destination := chars.takeWhile (!Char.isWhitespace ·)
+      if balanced destination then some (chars.drop destination.length) else none
   !raw.contains '\n' && match after with
-    | [] => true
-    | quote :: title => (quote == '"' || quote == '\'') &&
-      match title.dropWhile (· != quote) with
-      | _ :: tail => tail.all Char.isWhitespace
-      | [] => false
+    | none => false
+    | some after => match after.dropWhile Char.isWhitespace with
+      | [] => true
+      | quote :: title => after.head?.any Char.isWhitespace && (quote == '"' || quote == '\'') &&
+        match title.dropWhile (· != quote) with
+        | _ :: tail => tail.all Char.isWhitespace
+        | [] => false
 
 /-- A reference label as it is matched: trimmed and lowercase. -/
 def label (chars : List Char) : String := (String.ofList chars).trimAscii.toString.toLower
@@ -304,13 +326,18 @@ def referenceDefinition? (line : String) : Option (String × String) :=
       | _ => none
   | _ => none
 
-/-- Whether `line` is an ATX heading: after at most three spaces, one to six `#` and then a space
-or the end of the line. A heading ends the paragraph before it and is a paragraph of its own. -/
+private def isBlank (c : Char) : Bool := c == ' ' || c == '\t'
+
+private def blank (text : String) : Bool := text.toList.all Char.isWhitespace
+
+/-- Whether `line` is an ATX heading: after at most three spaces, one to six `#` and then a space,
+a tab or the end of the line. A heading ends the paragraph before it and is a paragraph of its own.
+-/
 def isHeading (line : String) : Bool :=
   let indent := (line.toList.takeWhile (· == ' ')).length
   let chars := line.toList.drop indent
   let hashes := (chars.takeWhile (· == '#')).length
-  indent ≤ 3 && 1 ≤ hashes && hashes ≤ 6 && (chars.drop hashes).head?.all (· == ' ')
+  indent ≤ 3 && 1 ≤ hashes && hashes ≤ 6 && (chars.drop hashes).head?.all isBlank
 
 /-- The fenced code block that `line` opens, as its fence character and length: after at most three
 spaces, a fence run (`fenceRun?`), with no backtick in the text after a run of backticks. -/
@@ -322,10 +349,6 @@ def fenceOpen? (line : String) : Option (Char × Nat) :=
       some (character, count)
     else none
   | _, _ => none
-
-private def isBlank (c : Char) : Bool := c == ' ' || c == '\t'
-
-private def blank (text : String) : Bool := text.toList.all Char.isWhitespace
 
 /-- Whether `line` is a fence run indented four spaces or more, or by a tab. -/
 def indentedFence (line : String) : Bool :=
@@ -375,111 +398,88 @@ def wholeComment (chars : List Char) : Bool :=
     | _ => false
   | _ => false
 
-/-- Why `line`, outside a fenced code block, uses a construct the scanner does not model, if it
-does: a fence run indented four spaces or more; a fence run, an HTML tag or a comment after a
-list marker or `>`; a line that starts with an HTML tag, processing instruction or declaration,
-other than an autolink; a line that starts with a comment that is not all of it; or a numeric
-character reference, which the scanner does not decode. -/
-def unsupported? (line : String) : Option String :=
+/-- A construct outside the subset of Markdown that the check reads, for which a document is
+refused. -/
+inductive Refusal where
+  /-- A fenced code block that the document never closes. -/
+  | unclosedFence
+  /-- A fence run indented four spaces or more, or by a tab. -/
+  | indentedFence
+  /-- A line of a fenced code block with fewer leading spaces than its fence. -/
+  | shallowFenceLine
+  /-- A fence run, an HTML tag or a comment on the line of a list marker or `>`. -/
+  | containedBlock
+  /-- A line that starts with an HTML tag, processing instruction or declaration. -/
+  | htmlLine
+  /-- A line that starts with a comment that is not all of it. -/
+  | partialComment
+  /-- A numeric character reference. -/
+  | characterReference
+  /-- A code span left open where the scanner ends a paragraph (`interrupts`, a table's header
+  row). -/
+  | openCodeSpan
+  /-- A code span, link or HTML tag that a `|` splits in a table row. -/
+  | splitTableCell
+  deriving DecidableEq, Repr
+
+/-- What a refusal reports: the construct, and how to write it inside the subset. -/
+def Refusal.message (r : Refusal) : String :=
+  let (construct, remedy) : String × String := match r with
+    | .unclosedFence => ("a fenced code block that is never closed",
+      "close it with a fence run of its character, at least as long, alone on its line")
+    | .indentedFence => ("a fence run indented four spaces or more",
+      "indent a fence at most three spaces")
+    | .shallowFenceLine =>
+      ("a line of a fenced code block with fewer leading spaces than its fence",
+      "indent every line of the block at least as far as its fence")
+    | .containedBlock =>
+      ("a fenced code block, HTML or a comment on the line of a list marker or `>`",
+      "start a fenced code block on a line of its own, indented as the list item's text, and write \
+        the rest in Markdown")
+    | .htmlLine => ("a line that starts with an HTML tag, processing instruction or declaration",
+      "write it in Markdown, or start the line with text")
+    | .partialComment => ("a comment that is not alone on its line",
+      "put each comment on a line of its own, opened and closed there")
+    | .characterReference => ("a numeric character reference", "write the character itself")
+    | .openCodeSpan => ("a code span left open before a line that ends the paragraph here (a list \
+        marker, `>`, a line of only `-`, `=`, `*` or `_`, or a table's header row)",
+      "close the code span before that line")
+    | .splitTableCell => ("a code span, link or HTML tag that a `|` splits in a table row",
+      "escape the `|` as `\\|` or keep the construct in one cell")
+  "unsupported Markdown construct: " ++ construct ++ "; " ++ remedy
+
+/-- The construct outside the subset that `line`, outside a fenced code block, uses, if it uses
+one: a fence run indented four spaces or more; a fence run, an HTML tag or a comment after a list
+marker or `>`; a line that starts with an HTML tag, processing instruction or declaration, other
+than an autolink; a line that starts with a comment that is not all of it; or a numeric character
+reference. -/
+def unsupported? (line : String) : Option Refusal :=
   let chars := line.toList
   let (contained, content) := afterContainers chars.length false chars
   let html := match content with
     | '<' :: c :: _ => (c.isAlpha || c == '/' || c == '?' || c == '!') && !startsAutolink content
     | _ => false
-  let reason := if indentedFence line then some "a fence run indented four spaces or more"
-    else if contained && ((fenceRun? (String.ofList content)).isSome || html) then
-      some "a fenced code block, HTML or a comment after a list marker or `>`"
-    else if html && !"<!--".toList.isPrefixOf content then
-      some "a line that starts with an HTML tag, processing instruction or declaration"
-    else if html && !wholeComment content then some "a comment that is not alone on its line"
-    else if (line.splitOn "&#").length > 1 then some "a numeric character reference"
-    else none
-  reason.map ("unsupported Markdown construct: " ++ ·)
+  if indentedFence line then some .indentedFence
+  else if contained && ((fenceRun? (String.ofList content)).isSome || html) then
+    some .containedBlock
+  else if html && !"<!--".toList.isPrefixOf content then some .htmlLine
+  else if html && !wholeComment content then some .partialComment
+  else if (line.splitOn "&#").length > 1 then some .characterReference
+  else none
 
-/-- Whether `line` can open a block that ends the paragraph before it: a block quote or a list
-item (`afterContainers`), or a line of only `-`, `=`, `*`, `_`, spaces and tabs, such as a thematic
-break or a setext heading's underline. -/
+/-- Whether `line` ends the paragraph before it: a block quote or a list item (`afterContainers`),
+or a line of only `-`, `=`, `*`, `_`, spaces and tabs. -/
 def interrupts (line : String) : Bool :=
   let chars := line.toList.dropWhile isBlank
   (afterContainers chars.length false chars).1 ||
     (!chars.isEmpty && chars.all fun c => c == '-' || c == '=' || c == '*' || c == '_' || isBlank c)
 
-/-- A block of a document. -/
-inductive Block where
-  /-- A paragraph, a heading or a comment line, with the line it starts on. -/
-  | paragraph (line : Nat) (text : String)
-  /-- A link reference definition, with its label and destination. -/
-  | definition (label destination : String)
-  /-- A line for which the document is refused, with the reason. -/
-  | refused (line : Nat) (reason : String)
-
-/-- The block open before a line. -/
-inductive Open where
-  /-- No block: one can start. -/
-  | idle
-  /-- A paragraph, with its lines so far, last first. -/
-  | paragraph (lines : List String)
-  /-- A fenced code block, with the line that opens it, the spaces before its fence and its fence
-  character and length. -/
-  | fence (line indent : Nat) (character : Char) (count : Nat)
-
-/-- The block that `o` is when it ends before line `line`; a fenced code block that the document
-never closes is refused, since everything after it would be code. -/
-def Open.close (line : Nat) : Open → List Block
-  | .idle => []
-  | .paragraph lines => [.paragraph (line - lines.length) ("\n".intercalate lines.reverse)]
-  | .fence opened _ _ _ =>
-    [.refused opened "the fenced code block is not closed, so the text after it is not read as \
-      prose"]
-
-/-- The blocks of a document's lines, from line `line` with `o` open before it. A fenced code
-block (`fenceOpen?`) closes at a fence run of its character at least as long (`closingFence`); in
-it, a fence run indented four spaces or more and a line with fewer leading spaces than its fence
-are refused, so that a fenced code block of a list item ends where CommonMark ends it. Outside
-one, a line of a construct the scanner does not model is refused (`unsupported?`). A heading, and a
-line that is one comment after at most three spaces, is a block of its own. A paragraph ends
-before a blank line, a fence, a heading, such a comment line or a line that can open another block
-(`interrupts`). A link reference definition cannot interrupt a paragraph, so a line is one
-(`referenceDefinition?`) only at the start of the document or directly after a blank line, a
-fenced code block, a heading, a comment line or another definition; anywhere else, such as after a
-thematic break, a setext underline, a list item or a table row, the line is prose. -/
-def blocks : Nat → Open → List String → List Block
-  | line, o, [] => o.close line
-  | line, .fence opened indent character count, text :: rest =>
-    let spaces := (text.toList.takeWhile (· == ' ')).length
-    let refused :=
-      if indentedFence text then
-        [Block.refused line
-          "unsupported Markdown construct: a fence run indented four spaces or more"]
-      else if !blank text && spaces < indent then
-        [.refused line "unsupported Markdown construct: a line of a fenced code block with fewer \
-          leading spaces than its fence"]
-      else []
-    refused ++ blocks (line + 1)
-      (if closingFence text character count then .idle else .fence opened indent character count)
-      rest
-  | line, o, text :: rest =>
-    let lines := match o with
-      | .paragraph lines => lines
-      | _ => []
-    let spaces := (text.toList.takeWhile (· == ' ')).length
-    if let some reason := unsupported? text then
-      o.close line ++ .refused line reason :: blocks (line + 1) .idle rest
-    else if blank text then o.close line ++ blocks (line + 1) .idle rest
-    else if let some (character, count) := fenceOpen? text then
-      o.close line ++ blocks (line + 1) (.fence line spaces character count) rest
-    else if isHeading text || (spaces ≤ 3 && wholeComment (text.toList.drop spaces)) then
-      o.close line ++ .paragraph line text :: blocks (line + 1) .idle rest
-    else if interrupts text then o.close line ++ blocks (line + 1) (.paragraph [text]) rest
-    else match (if lines.isEmpty then referenceDefinition? text else none) with
-      | some (name, destination) => .definition name destination :: blocks (line + 1) .idle rest
-      | none => blocks (line + 1) (.paragraph (text :: lines)) rest
-
-/-- Each line for which the document `lines` is refused, with the reason (`blocks`). -/
-def refusals (lines : List String) : List (Nat × String) :=
-  (blocks 1 .idle lines).filterMap fun
-    | .refused line reason => some (line, reason)
-    | _ => none
+/-- Whether `line` is a table's delimiter row: only `|`, `:`, `-` and whitespace, with a `|` and a
+`-`. -/
+def delimiterRow (line : String) : Bool :=
+  let chars := line.toList
+  chars.contains '|' && chars.contains '-' &&
+    chars.all fun c => c == '|' || c == ':' || c == '-' || c.isWhitespace
 
 /-- One piece of a paragraph. The pieces' raw texts, in order, are the paragraph. -/
 inductive Piece where
@@ -507,6 +507,20 @@ def codeClose (n : Nat) : Nat → List Char → Option Nat
     else if run == n then some 0
     else (codeClose n 0 rest).map (· + 1)
 
+/-- Whether the backtick runs of `chars` pair up within it as `scanInline` pairs them: each run
+that no backslash escapes, outside a code span, closes at a later run of the same length
+(`codeClose`). `fuel` bounds the characters read. -/
+def codeBalanced : Nat → List Char → Bool
+  | _, [] => true
+  | 0, chars => !chars.contains '`'
+  | fuel + 1, '\\' :: _ :: rest => codeBalanced fuel rest
+  | fuel + 1, '`' :: rest =>
+    let n := 1 + (rest.takeWhile (· == '`')).length
+    match codeClose n 0 (rest.drop (n - 1)) with
+    | some k => codeBalanced fuel ((rest.drop (n - 1)).drop k)
+    | none => false
+  | fuel + 1, _ :: rest => codeBalanced fuel rest
+
 /-- The number of characters of an HTML comment's text through its `-->`, when the text closes
 it. -/
 def commentLength : List Char → Option Nat
@@ -515,8 +529,8 @@ def commentLength : List Char → Option Nat
   | [] => none
 
 /-- The text after the attributes at the head of `chars`: each an attribute name after spaces or
-tabs, with an optional `=` and a value, quoted or unquoted (CommonMark §6.6), or `none` when a
-value is malformed. `fuel` bounds the attributes read. -/
+tabs, with an optional `=` and a value, quoted or unquoted (the attribute grammar of CommonMark
+§6.6), or `none` when a value is malformed. `fuel` bounds the attributes read. -/
 def afterAttributes : Nat → List Char → Option (List Char)
   | 0, chars => some chars
   | fuel + 1, chars =>
@@ -544,7 +558,7 @@ def afterAttributes : Nat → List Char → Option (List Char)
         | _ => afterAttributes fuel afterName
 
 /-- Whether `body`, the text between a `<` and the next `>`, is an open tag, a closing tag or a
-URI autolink (CommonMark §6.5 and §6.6). -/
+URI autolink, in the grammar of CommonMark §6.5 and §6.6. -/
 def inlineTag (body : List Char) : Bool :=
   let tagName (chars : List Char) := chars.takeWhile fun c => c.isAlphanum || c == '-'
   match body with
@@ -588,13 +602,14 @@ def urlLength (chars : List Char) : Nat :=
 /-- The link that the text after a `[` continues, as the length of its text, the length of what
 follows the text (from its `]` through the destination or label) and its destination: an inline
 link `[text](destination)`, or a reference `[text][label]`, `[text][]` or `[text]` whose label
-`definitions` defines. Text with a `[` or a `<` in it, which could hold another link or an HTML
-tag that CommonMark reads first, is not read as a link's. -/
+`definitions` defines. Text with a `[`, a `<` or a backtick run that does not close in it
+(`codeBalanced`) is not a link's text. -/
 def linkAt (definitions : List (String × String)) (rest : List Char) :
     Option (Nat × Nat × String) :=
   (closeIndex '[' ']' 0 rest).bind fun i =>
     let text := rest.take i
-    if text.contains '[' || text.contains '<' then none else
+    if text.contains '[' || text.contains '<' || !codeBalanced (text.length + 1) text then none
+    else
     match rest.drop (i + 1) with
     | '(' :: tail =>
       (closeIndex '(' ')' 0 tail).bind fun j =>
@@ -652,8 +667,128 @@ def runsOf (line : Nat) (pieces : List Piece) : List Run :=
       | .prose text link => ⟨acc.1, text, link⟩ :: acc.2
       | .skip _ => acc.2)) (line, [])).2.reverse
 
-/-- The prose of a Markdown document (`blocks`): for each paragraph, heading and comment line, its
-text outside code spans, link destinations, HTML tags and comments, autolinks and bare URLs. -/
+/-- Whether `chars` has an `<` that starts what could be an HTML tag or comment (a letter, `/` or
+`!` after it) that `tagLength` does not close. -/
+def tagUnclosed : List Char → Bool
+  | '<' :: c :: rest =>
+    ((c.isAlpha || c == '/' || c == '!') && (tagLength (c :: rest)).isNone) ||
+      tagUnclosed (c :: rest)
+  | _ :: rest => tagUnclosed rest
+  | [] => false
+
+/-- The cells of a table row: `chars` split at each `|` that no backslash escapes; `acc` holds the
+cell in progress, reversed. -/
+def cells : List Char → List Char → List (List Char)
+  | acc, [] => [acc.reverse]
+  | acc, '\\' :: c :: rest => cells (c :: '\\' :: acc) rest
+  | acc, '|' :: rest => acc.reverse :: cells [] rest
+  | acc, c :: rest => cells (c :: acc) rest
+
+/-- Whether a cell of a table row holds part of a code span, link or HTML tag that a `|` splits:
+a backtick run that does not close in it (`codeBalanced`), a `[` or `]` without its pair, or a
+`<` that does not close as a tag or comment. -/
+def splitCell (cell : List Char) : Bool :=
+  !codeBalanced (cell.length + 1) cell || cell.count '[' != cell.count ']' || tagUnclosed cell
+
+/-- A block of a document. -/
+inductive Block where
+  /-- A paragraph, a heading or a comment line, with the line it starts on. -/
+  | paragraph (line : Nat) (text : String)
+  /-- A table, with the line of its header row and its rows in order. -/
+  | table (line : Nat) (rows : List String)
+  /-- A link reference definition, with its label and destination. -/
+  | definition (label destination : String)
+  /-- A line for which the document is refused, with the construct. -/
+  | refused (line : Nat) (refusal : Refusal)
+
+/-- The block open before a line. -/
+inductive Open where
+  /-- No block: one can start. -/
+  | idle
+  /-- A paragraph, with its lines so far, last first. -/
+  | paragraph (lines : List String)
+  /-- A table, with the line of its header row and its rows so far, last first. -/
+  | table (line : Nat) (rows : List String)
+  /-- A fenced code block, with the line that opens it, the spaces before its fence and its fence
+  character and length. -/
+  | fence (line indent : Nat) (character : Char) (count : Nat)
+
+/-- The block that `o` is when it ends before line `line`: a table with a refusal for each row
+that a `|` splits a construct of (`splitCell`), and a refusal for a fenced code block that the
+document never closes, since everything after it would be code. -/
+def Open.close (line : Nat) : Open → List Block
+  | .idle => []
+  | .paragraph lines => [.paragraph (line - lines.length) ("\n".intercalate lines.reverse)]
+  | .table start rows =>
+    .table start rows.reverse :: ((List.range rows.length).zip rows.reverse).filterMap
+      fun (i, row) =>
+        if (cells [] row.toList).any splitCell then some (.refused (start + i) .splitTableCell)
+        else none
+  | .fence opened _ _ _ => [.refused opened .unclosedFence]
+
+/-- The paragraph `o` when the scanner ends it before line `line` at an `interrupts` line or a
+table's header row, refused (`Refusal.openCodeSpan`) when a code span is open there. -/
+def Open.cut (line : Nat) (o : Open) : List Block :=
+  o.close line ++ match o with
+    | .paragraph lines =>
+      let text := "\n".intercalate lines.reverse
+      if codeBalanced (text.length + 1) text.toList then [] else [.refused line .openCodeSpan]
+    | _ => []
+
+/-- The blocks of a document's lines, from line `line` with `o` open before it. A fenced code
+block (`fenceOpen?`) closes at a fence run of its character at least as long (`closingFence`); in
+it, a fence run indented four spaces or more and a line with fewer leading spaces than its fence
+are refused. Outside one, a line of a construct outside the subset is refused (`unsupported?`). A
+heading, and a line that is one comment after at most three spaces, is a block of its own. A
+paragraph ends before a blank line, a fence, a heading, such a comment line, an `interrupts` line or
+a table's delimiter row (`delimiterRow`), whose previous line is the table's header row; a table's
+rows run to the next blank line, fence, heading or comment line. A link reference definition is
+one (`referenceDefinition?`) only at the start of the document or directly after a blank line, a
+fenced code block, a heading, a comment line or another definition; anywhere else the line is
+prose. -/
+def blocks : Nat → Open → List String → List Block
+  | line, o, [] => o.close line
+  | line, .fence opened indent character count, text :: rest =>
+    let spaces := (text.toList.takeWhile (· == ' ')).length
+    let refused :=
+      if indentedFence text then [Block.refused line .indentedFence]
+      else if !blank text && spaces < indent then [.refused line .shallowFenceLine]
+      else []
+    refused ++ blocks (line + 1)
+      (if closingFence text character count then .idle else .fence opened indent character count)
+      rest
+  | line, o, text :: rest =>
+    let spaces := (text.toList.takeWhile (· == ' ')).length
+    if let some refusal := unsupported? text then
+      o.close line ++ .refused line refusal :: blocks (line + 1) .idle rest
+    else if blank text then o.close line ++ blocks (line + 1) .idle rest
+    else if let some (character, count) := fenceOpen? text then
+      o.close line ++ blocks (line + 1) (.fence line spaces character count) rest
+    else if isHeading text || (spaces ≤ 3 && wholeComment (text.toList.drop spaces)) then
+      o.close line ++ .paragraph line text :: blocks (line + 1) .idle rest
+    else match o with
+      | .table start rows => blocks (line + 1) (.table start (text :: rows)) rest
+      | .paragraph (header :: before) =>
+        if delimiterRow text then
+          Open.cut (line - 1) (.paragraph before) ++
+            blocks (line + 1) (.table (line - 1) [text, header]) rest
+        else if interrupts text then o.cut line ++ blocks (line + 1) (.paragraph [text]) rest
+        else blocks (line + 1) (.paragraph (text :: header :: before)) rest
+      | _ =>
+        if interrupts text then blocks (line + 1) (.paragraph [text]) rest
+        else match referenceDefinition? text with
+          | some (name, destination) => .definition name destination :: blocks (line + 1) .idle rest
+          | none => blocks (line + 1) (.paragraph [text]) rest
+
+/-- Each line for which the document `lines` is refused, with the construct (`blocks`). -/
+def refusals (lines : List String) : List (Nat × Refusal) :=
+  (blocks 1 .idle lines).filterMap fun
+    | .refused line refusal => some (line, refusal)
+    | _ => none
+
+/-- The prose of a Markdown document (`blocks`): for each paragraph, heading and comment line, and
+each cell of each table row (`cells`), its text outside code spans, link destinations, HTML tags
+and comments, autolinks and bare URLs. -/
 def markdownRuns (text : String) : List Run :=
   let parts := blocks 1 .idle (text.splitOn "\n")
   let defined := parts.filterMap fun
@@ -661,14 +796,17 @@ def markdownRuns (text : String) : List Run :=
     | _ => none
   parts.flatMap fun
     | .paragraph line paragraph => runsOf line (pieces defined paragraph)
+    | .table line rows => ((List.range rows.length).zip rows).flatMap fun (i, row) =>
+      (cells [] row.toList).flatMap fun cell =>
+        runsOf (line + i) (pieces defined (String.ofList cell))
     | _ => []
 
-/-- What the Markdown document `text` of `main` is refused for: each line that `refusals` names, a
-fenced code block that is never closed or a construct the scanner does not model, and each rule
-ID in its prose that is not a link to its development page, reported with `file`, the line and
-the reason or the ID. -/
+/-- What the Markdown document `text` of `main` is refused for: each line of a construct outside
+the subset (`refusals`, `Refusal.message`), and each rule ID in its prose that is not a link to its
+development page, reported with `file`, the line and the construct or the ID. -/
 def markdownErrors (file text : String) : List String :=
-  (refusals (text.splitOn "\n")).map (fun (line, reason) => s!"{file}:{line}: {reason}") ++
+  (refusals (text.splitOn "\n")).map (fun (line, refusal) =>
+    s!"{file}:{line}: {refusal.message}") ++
   (bareMentions developmentTarget (markdownRuns text)).map (·.describe file)
 
 /-- The Markdown check reports nothing exactly when no line of the document is refused and every
@@ -906,18 +1044,13 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("<p align=\"center\">See [RG1001](" ++
     Edition.dev.url RuleId.projectAxiom.route ++ ").</p>\n") ==
-  ["a.md:1: unsupported Markdown construct: a line that starts with an HTML tag, processing \
-    instruction or declaration"]
+  ["a.md:1: " ++ Refusal.htmlLine.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "<div>\n```\n</div>\n\nRG1001 here.\n\n```\n" ==
-  ["a.md:1: unsupported Markdown construct: a line that starts with an HTML tag, processing \
-    instruction or declaration"]
+  ["a.md:1: " ++ Refusal.htmlLine.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "<!DOCTYPE html>\n<?php echo 1; ?>\n" ==
-  ["a.md:1: unsupported Markdown construct: a line that starts with an HTML tag, processing \
-    instruction or declaration",
-    "a.md:2: unsupported Markdown construct: a line that starts with an HTML tag, processing \
-    instruction or declaration"]
+  ["a.md:1: " ++ Refusal.htmlLine.message, "a.md:2: " ++ Refusal.htmlLine.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md"
     "<https://example.com/x>\n```text\nout\n\nmore\n```\n\nAfter RG1001.\n\n```lean\nx\n```\n" ==
@@ -930,45 +1063,68 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
     "<!-- lean-trusted-compiler -->\n```lean\ntheorem RG1001 : True := trivial\n```\n" == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "```text\nout\n    ```\n```\n\nSee RG1001.\n\n```lean\nx\n```\n" ==
-  ["a.md:3: unsupported Markdown construct: a fence run indented four spaces or more"]
+  ["a.md:3: " ++ Refusal.indentedFence.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Text.\n\n    ```\ncode\n    ```\n" ==
-  ["a.md:3: unsupported Markdown construct: a fence run indented four spaces or more",
-    "a.md:5: unsupported Markdown construct: a fence run indented four spaces or more"]
+  ["a.md:3: " ++ Refusal.indentedFence.message, "a.md:5: " ++ Refusal.indentedFence.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard (markdownErrors "a.md"
     "- ```text\n output\n ```\n\nSee RG1001 here.\n\n```lean\nx\n```\n").head? ==
-  some "a.md:1: unsupported Markdown construct: a fenced code block, HTML or a comment after a \
-    list marker or `>`"
+  some ("a.md:1: " ++ Refusal.containedBlock.message)
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "> ```lean\n> x\n> ```\n" ==
-  ["a.md:1: unsupported Markdown construct: a fenced code block, HTML or a comment after a list \
-    marker or `>`",
-    "a.md:3: unsupported Markdown construct: a fenced code block, HTML or a comment after a list \
-    marker or `>`"]
+  ["a.md:1: " ++ Refusal.containedBlock.message, "a.md:3: " ++ Refusal.containedBlock.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("- <p>See [RG1001](" ++ Edition.dev.url RuleId.projectAxiom.route ++
-    ").</p>\n") ==
-  ["a.md:1: unsupported Markdown construct: a fenced code block, HTML or a comment after a list \
-    marker or `>`"]
+    ").</p>\n") == ["a.md:1: " ++ Refusal.containedBlock.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "1. Run:\n   ```sh\nRG1001 output\n   ```\n" ==
-  ["a.md:3: unsupported Markdown construct: a line of a fenced code block with fewer leading \
-    spaces than its fence"]
+  ["a.md:3: " ++ Refusal.shallowFenceLine.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("1. Run:\n   ```sh\n   lake lint\n   ```\n\nSee [RG1001].\n\n" ++
     "[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") == []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "<!--\nRG1001\n-->\n" ==
-  ["a.md:1: unsupported Markdown construct: a comment that is not alone on its line",
+  ["a.md:1: " ++ Refusal.partialComment.message,
     "a.md:2: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("<!-- note --> [RG1001](" ++
     Edition.dev.url RuleId.projectAxiom.route ++ ")\n") ==
-  ["a.md:1: unsupported Markdown construct: a comment that is not alone on its line"]
+  ["a.md:1: " ++ Refusal.partialComment.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "See &#82;G1001.\n" ==
-  ["a.md:1: unsupported Markdown construct: a numeric character reference"]
+  ["a.md:1: " ++ Refusal.characterReference.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "> Run `lake exe\n> regula` and see RG1001 `here`.\n" ==
+  ["a.md:2: " ++ Refusal.openCodeSpan.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "Text `x\n2. y` and RG1001 then `z`.\n" ==
+  ["a.md:2: " ++ Refusal.openCodeSpan.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "Text `x\n| a | b |\n| - | - |\n" ==
+  ["a.md:2: " ++ Refusal.openCodeSpan.message]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001 flags `sorry](" ++
+    Edition.dev.url RuleId.projectAxiom.route ++ ") and `admit`.\n") ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "Text `x RG1001\n#\ty` z\n" ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" "| Rule | Note |\n| --- | --- |\n| x | `a | RG1001` |\n" ==
+  ["a.md:3: " ++ Refusal.splitTableCell.message,
+    "a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("| Rule | Checks |\n| --- | --- |\n| [RG1001] | `a \\| b` |\n\n" ++
+    "[RG1001]: " ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") == []
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md"
+    ("See [RG1001].\n\n[RG1001]: <" ++ Edition.dev.url RuleId.projectAxiom.route ++ "\n") ==
+  ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page",
+    "a.md:3: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard markdownErrors "a.md" ("See [RG1001](<" ++ Edition.dev.url RuleId.projectAxiom.route ++
+    ").\n") == ["a.md:1: RG1001 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" ("[RG1001 [x](u)](" ++ Edition.dev.url RuleId.projectAxiom.route ++
     ") and [RG1002\\](" ++ Edition.dev.url RuleId.proofHole.route ++ ")\n") ==
@@ -1027,7 +1183,7 @@ pasted tool output, a rule index table whose IDs are links and Lean identifiers 
     "a.md:4: RG1003 is a bare rule ID in prose; make it a link to its rule page"]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard markdownErrors "a.md" "Text.\n\n```text\nRG1001\n" ==
-  ["a.md:3: the fenced code block is not closed, so the text after it is not read as prose"]
+  ["a.md:3: " ++ Refusal.unclosedFence.message]
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard htmlErrors "dev/" "dev/index.html" "<p>Text <code>x</p><p>RG1001</p>" != []
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
