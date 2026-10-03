@@ -610,8 +610,12 @@ def guide : RuleId → Guide
         "A requirement that contains a kind inside a larger proposition, such as a conjunction, \
           is reported with no kind: the kind is read from the head constant only. Register the \
           further clauses separately.",
-        "A specification that mentions the implementation only inside a proof term is refused \
-          like any other mention; state it without the implementation."]
+        "A specification that mentions the implementation only inside a proof term written in \
+          the registration is refused like any other mention; state it without the \
+          implementation. A proof that Lean abstracts into an auxiliary theorem of a named \
+          definition is not followed: that theorem's statement is searched and its proof is \
+          not, so a mention that occurs only in such a proof is not reported. The specification \
+          does not depend on which proof of that statement it is."]
       residuals := [.intent, .invariant, .qualify]
       checklist :=
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
