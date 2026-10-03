@@ -1,4 +1,5 @@
 import RegulaQualification.Checks
+import Regula.Decision
 
 /-! # Decoder and evaluator composition
 
@@ -9,6 +10,7 @@ namespace RegulaQualification
 
 /-- Convert decoded assertions into the same checked decision. A decoding failure is
 always refusal; successful decoding is admitted exactly when all assertions hold. -/
+@[regula_decision]
 def validateDecoded (decoded : Except String (List Check)) : Except String Unit :=
   decoded.bind checked_evaluation.run
 

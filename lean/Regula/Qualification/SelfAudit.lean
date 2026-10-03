@@ -13,7 +13,9 @@ The library is not a conforming proof surface, so the project audit excludes it.
 campaign applies the rules that do hold for operational code, per module of the library as
 Lake discovers it: completed kernel admission of every owned safe declaration (RG2005), the
 executed `RegulaPolicy.checked_operationalFailure` decision (RG1001–RG1005, RG1007) on the
-observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, and
+observations the live linter's shared collector (`Regula.Collect.declaration`) constructs, the
+executed `RegulaPolicy.checked_decisionFailure` decision (RG1008) against the decision contracts
+the same module registers (`RegulaPolicy.decidedImplementations` of its declarations), and
 the live linter's module-header (RG5001: docstring present and first, no repeated import) and
 material-documentation presence predicates
 (`Regula.Linter.Documentation`, RG5001–RG5003). Authored `unsafe`/`partial` declarations and
@@ -115,7 +117,8 @@ structure ModuleResult where
   /-- How many of its declarations carry an executable-contract registration. -/
   contracts : Nat
   /-- The rendered text of every finding: module documentation, material documentation and
-  declarations that `RegulaPolicy.operationalFailure` rejects. -/
+  declarations that `RegulaPolicy.operationalFailure` or, where that passes,
+  `RegulaPolicy.decisionFailure` rejects. -/
   violations : Array String
   /-- Declarations that are `unsafe` or `partial` and have no unsafe-recursion base, reported
   rather than failed. -/
@@ -144,6 +147,9 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
   let mut partialDefinitions := #[]
   let mut dependents := #[]
   let mut contracts := 0
+  -- A registered decision is decided by a contract of its own module: each module is audited in
+  -- its own environment, so a contract in another module of the library does not count.
+  let decided := decidedImplementations o.declarations
   for d in o.declarations do
     if d.executableContract.isSome then contracts := contracts + 1
     match d.unsafeRecBase with
@@ -156,7 +162,8 @@ private def decide (o : ModuleObservation) : Except String ModuleResult := do
         partialDefinitions := partialDefinitions.push base.toString
     if !d.isProp && d.axioms.any toolchain.names.contains then
       dependents := dependents.push d.name.toString
-    if let some failure := checked_operationalFailure.run toolchain d then
+    if let some failure := (checked_operationalFailure.run toolchain d).or
+        (checked_decisionFailure.run d decided) then
       let id := ruleForFailure failure
       let extra := d.axioms.filter fun n => !standardLogicalAxiom n
       let detail := (descriptor id).applicability ++

@@ -1,4 +1,5 @@
 import RegulaQualification.Json
+import Regula.Decision
 
 /-! # Launcher capture admission
 
@@ -66,6 +67,7 @@ structure Observation where
 
 /-- Exact full-sequence comparison also preserves order, multiplicity and all 42
 controls. Equality includes the environment and resolved compiler path. -/
+@[regula_decision]
 def equivalent (before after : Array Observation) : Bool :=
   decide (before.size = 42 ∧ before = after)
 

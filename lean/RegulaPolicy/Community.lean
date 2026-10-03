@@ -1,5 +1,7 @@
 module
 
+meta import Regula.Decision
+
 /-! # Community build configuration decision
 
 The decision behind RG2006 for one claimed Lake target (standard §7.1, §6.7 and §6.2): the
@@ -456,6 +458,7 @@ inductive Failure where
 
 /-- Every failure of one target's build options: required options in the order of `required`,
 then each turned-off linter in option order, then each contradicting `-D` in argument order. -/
+@[regula_decision]
 def failures (o : BuildOptions) (mathlib : Bool) : List Failure :=
   (required mathlib).filterMap (fun r =>
       if meets o r then none else some (.option r.1 r.2 (valuesOf o r.1))) ++

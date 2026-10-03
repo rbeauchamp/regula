@@ -21,6 +21,7 @@ import Std.Internal.UV.System
 import Regula.Report
 import Regula.Contract
 import Regula.MaterialClaim
+import Regula.Decision
 
 /-!
 # Machine-audit environment probe

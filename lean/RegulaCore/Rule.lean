@@ -63,8 +63,8 @@ inductive RuleCategory where
   | foundation
   /-- The form of a declaration itself, such as `unsafe` or `partial` (RG1006). -/
   | declaration
-  /-- Executable contracts and the execution closure of executable roots (RG1007, RG3001,
-  RG3002). -/
+  /-- Executable contracts, decision contracts and the execution closure of executable roots
+  (RG1007, RG1008, RG3001, RG3002). -/
   | execution
   /-- Availability of the declared Lean environment (RG2001). -/
   | environment
@@ -128,7 +128,7 @@ inductive EvidenceKind where
   (`native_decide`, `decide +native` or `bv_decide`) or the helper of an `unsafe` or `partial`
   definition. -/
   | generatedRole
-  /-- `ExecutableContract` registrations. -/
+  /-- `ExecutableContract` registrations and `@[regula_decision]` registrations. -/
   | contractEvidence
   /-- The loaded Lake workspace, toolchain and dependencies. -/
   | environment
@@ -153,7 +153,7 @@ inductive EvidenceKind where
 /-- The scope of each rule's findings; `RuleDescriptor.scope` defaults to it. -/
 def scopeFor : RuleId → RuleScope
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract => .declaration
+  | .escapeHatch | .executableContract | .decisionContract => .declaration
   | .environment | .configuration | .sourceBuild | .coverage | .admission
   | .communityConfiguration => .project
   | .executionUnresolved | .executionBoundary => .executionRoot
@@ -165,7 +165,7 @@ def scopeFor : RuleId → RuleScope
 def evidenceFor : RuleId → EvidenceKind
   | .projectAxiom | .proofHole | .unknownAxiom | .profileExceeded => .kernelAxioms
   | .compilerTrusting | .escapeHatch => .generatedRole
-  | .executableContract => .contractEvidence
+  | .executableContract | .decisionContract => .contractEvidence
   | .environment => .environment
   | .configuration | .communityConfiguration => .configuration
   | .sourceBuild => .compilation
@@ -370,7 +370,8 @@ def ruleForFailure : RegulaPolicy.DeclarationFailure → RuleId
   | .projectAxiom => .projectAxiom | .proofHole => .proofHole
   | .unknownAxiom => .unknownAxiom | .escapeHatch => .escapeHatch
   | .compilerTrusting => .compilerTrusting | .executableContract => .executableContract
-  | .profileExceeded => .profileExceeded | .invalidInventory => .coverage
+  | .profileExceeded => .profileExceeded | .decisionContract => .decisionContract
+  | .invalidInventory => .coverage
 
 /-- Distinct policy failures reach distinct rules, so the rule preserves the failure category. -/
 theorem ruleForFailure_injective : Function.Injective ruleForFailure := by
@@ -615,6 +616,39 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         noncompliant := include_str "../../examples/rules/RG1007/Violation.lean"
         correction := "The correction moves the complete natural-number domain inside the identity \
           contract's predicate, retaining the same pointwise equality." } }
+  | .decisionContract => {
+      lifecycle := .active .unreleased
+      title := "Registered decision functions require a decision contract", category := .execution
+      normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
+      applicability := "decision-contract"
+      evidenceModes := declarationModes
+      requirement := "Each `@[regula_decision]` function has a decision contract in its \
+        inventory (`DecidesSoundly`, `DecidesCompletely` or `Decides`) or a `Decidable` result \
+        type."
+      rationale := "A checker with no stated direction can refuse every input or accept every \
+        input, and an unstated one-way guarantee cannot be told from an omission. The tag makes \
+        the contract a requirement of the function itself, so deleting the contract while the \
+        function stays tagged fails the gate instead of removing the requirement with it."
+      remedy := "Register `theorem c : ExecutableContract f (Decides accepts Spec)` in the \
+        function's library, with `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, \
+        or return `Decidable (Spec x)`."
+      rewrites := [
+        "Prove both directions and a witness of each outcome: `ExecutableContract f (Decides (· = \
+          true) Spec)`, from an existing equivalence by `Decides.of_iff`.",
+        "State a deliberate one-way guarantee with `DecidesSoundly` (may refuse inputs that \
+          satisfy `Spec`) or `DecidesCompletely` (may accept inputs that do not).",
+        "Decide several arguments on their product: `ExecutableContract f (fun g => Decides \
+          accepts Spec (Function.uncurry g))`.",
+        "Return the proof with the verdict: `def f (x : α) : Decidable (Spec x)`. Each result \
+          then carries a proof of `Spec x` or of its negation, and no contract is needed."]
+      examples := {
+        language := .lean
+        audience := .adopter
+        compliant := include_str "../../examples/rules/RG1008/Fixed.lean"
+        noncompliant := include_str "../../examples/rules/RG1008/Violation.lean"
+        correction := "The correction registers the two-way contract of the unchanged zero \
+          test: it accepts exactly zero, with zero as the accepted input and one as the refused \
+          input." } }
   | .environment => {
       lifecycle := .active (.release ⟨4, 34, 0⟩)
       title := "The declared Lean environment must be available", category := .environment

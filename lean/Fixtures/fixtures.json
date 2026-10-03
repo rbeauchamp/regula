@@ -149,6 +149,77 @@
    "failure=decision contract decides `model`, not its implementation `positive`"
   ]
  },
+ "Fixtures.Positive.DecisionRegistration": {
+  "expect": "pass",
+  "claim": "standard-logical",
+  "output": [
+   "[OK] positive (def) type=Nat → Bool axioms=[] -> kernel-only decision-result=other",
+   "[OK] smallEven (def) type=Nat → Bool axioms=[] -> kernel-only decision-result=other",
+   "[OK] within (def) type=Nat → Nat → Bool axioms=[] -> kernel-only decision-result=other",
+   "[OK] positiveEvidence (def) type=(n : Nat) → Decidable (0 < n) axioms=[] -> kernel-only decision-result=decidable",
+   "[OK] positiveVerdict (def) type=(n : Nat) → Verdict (0 < n) axioms=[] -> kernel-only decision-result=decidable",
+   "[OK] positivePredicate (def) [instance] type=DecidablePred fun n => 0 < n axioms=[] -> kernel-only decision-result=decidable",
+   "[OK] unregistered (def) type=Nat → Bool axioms=[] -> kernel-only",
+   "[OK] equalCount (def) type=Nat → Nat → Bool",
+   "[OK] equalCount._unary (def) roles=",
+   "-> choice-free decision-result=other",
+   "executable-contract=equalCount decision-kind=sound"
+  ]
+ },
+ "Fixtures.Mutations.DecisionUnregistered": {
+  "expect": "fail",
+  "reason": "decision-contract",
+  "output": [
+   "[VIOLATION[decision-contract]] positive (def) type=Nat → Bool axioms=[] -> kernel-only decision-result=other"
+  ]
+ },
+ "Fixtures.Mutations.DecisionOrdinaryContract": {
+  "expect": "fail",
+  "reason": "decision-contract",
+  "output": [
+   "[VIOLATION[decision-contract]] positive (def)",
+   "[OK] positive_contract (theorem)",
+   "executable-contract=positive requires="
+  ]
+ },
+ "Fixtures.Mutations.DecisionRefusedContract": {
+  "expect": "fail",
+  "reasons": [
+   "decision-contract",
+   "executable-contract"
+  ],
+  "output": [
+   "[VIOLATION[decision-contract]] positive (def)",
+   "[VIOLATION[executable-contract]] positive_decides (theorem)",
+   "failure=decision contract's specification mentions its implementation `positive`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionOtherRegistration": {
+  "expect": "fail",
+  "reason": "decision-contract",
+  "output": [
+   "[VIOLATION[decision-contract]] positive (def)",
+   "[OK] model_decides (theorem)",
+   "executable-contract=model decision-kind=sound-and-complete"
+  ]
+ },
+ "Fixtures.Mutations.DecisionOpaqueResult": {
+  "expect": "fail",
+  "reason": "decision-contract",
+  "output": [
+   "[VIOLATION[decision-contract]] positiveVerdict (def)",
+   "decision-result=other"
+  ]
+ },
+ "Fixtures.Mutations.DecisionGeneratedCopy": {
+  "expect": "fail",
+  "reason": "decision-contract",
+  "output": [
+   "[VIOLATION[decision-contract]] equalCount (def) type=Nat → Nat → Bool",
+   "[OK] equalCount._unary (def) roles=",
+   "[OK] equalCount._unsafe_rec (def) [partial]"
+  ]
+ },
  "Fixtures.Positive.RuntimeReplacement": {
   "expect": "pass",
   "claim": "standard-logical",

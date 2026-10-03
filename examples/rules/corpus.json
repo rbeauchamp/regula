@@ -578,6 +578,57 @@
       }
     ]
   },
+  "RG1008": {
+    "invocation": "file",
+    "mode": "freshFile",
+    "kind": "policyRejection",
+    "diagnostics": [
+      {
+        "id": "RG1008",
+        "subreason": "decision-contract",
+        "detailPattern": "decision-result=other",
+        "location": {
+          "uri": "$SOURCE",
+          "sourceText": "$SOURCE_TEXT",
+          "selectionRange": {
+            "startByte": 154,
+            "endByte": 160
+          },
+          "range": {
+            "startByte": 103,
+            "endByte": 208
+          },
+          "lspSelectionRange": {
+            "start": {
+              "line": 5,
+              "character": 23
+            },
+            "end": {
+              "line": 5,
+              "character": 29
+            }
+          },
+          "lspRange": {
+            "start": {
+              "line": 4,
+              "character": 0
+            },
+            "end": {
+              "line": 7,
+              "character": 18
+            }
+          },
+          "kind": "source"
+        },
+        "subject": {
+          "declaration": "isZero",
+          "sourceDeclaration": null
+        },
+        "impact": "violation",
+        "claim": "kernel-only"
+      }
+    ]
+  },
   "RG2001": {
     "invocation": "file",
     "mode": "freshFile",

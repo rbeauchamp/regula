@@ -5,6 +5,7 @@ import RegulaPolicy.Guards
 import RegulaCore.Assembly
 import Lean.Elab.Command
 import Lake.Util.Name
+import Regula.Decision
 
 /-! # Strict surface-manifest parsing
 
@@ -635,6 +636,7 @@ theorem empty_inv : ({} : Acc).Inv := by
   simp [Acc.Inv, libraries, executables, Acc.manifest]
 
 /-- The JSON value stage of `parse`: the top-level object, then the three ordered folds. -/
+@[regula_decision]
 def parseValue (value : Json) : Except String Manifest := do
   let (surfaceValues, excludedValues, excludedExeValues) ← topLevel value
   let acc ← parseAll parseSurface surfaceValues.toList 0 {}

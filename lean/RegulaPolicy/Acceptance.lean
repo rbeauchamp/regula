@@ -546,7 +546,7 @@ private theorem localDeclarationPolicy_judgment {c : Claim} {e : EnvironmentCens
       ∃ profile ∈ profileForModule c d.module,
         DeclarationOK d (.conforming profile) roles.native roles.safetyHelpers := by
   cases evidence <;> simp only [LocalStageOK] at accepted
-  obtain ⟨member, name, _, judgment⟩ := accepted
+  obtain ⟨member, name, _, judgment, _⟩ := accepted
   exact ⟨_, member, name, judgment⟩
 
 /-- An accepted run of a claim whose mode requires declaration policy has no declaration that

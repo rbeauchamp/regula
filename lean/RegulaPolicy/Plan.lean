@@ -1,6 +1,7 @@
 import RegulaPolicy.Claim
 import RegulaPolicy.Decision
 import RegulaPolicy.Execution
+import Regula.Decision
 
 /-! # Census and required-job plan
 
@@ -43,10 +44,11 @@ def reporterOnlyModuleNames : Array Name :=
   #[`Regula.Probe, `Regula.Report, `Regula.Checker.PolicyCodec]
 
 /-- The published checker interfaces a claimed module may import by design (standard §7.10):
-the executable-contract type and the material-claim registration attribute. The probe
-force-loads both, so they are authenticated like the reporter and are never owned. -/
+the executable-contract type, the material-claim registration attribute and the decision
+registration attribute. The probe force-loads all three, so they are authenticated like the
+reporter and are never owned. -/
 def publishedInterfaceModuleNames : Array Name :=
-  #[`Regula.Contract, `Regula.MaterialClaim]
+  #[`Regula.Contract, `Regula.MaterialClaim, `Regula.Decision]
 
 /-- Exact reporter identities used only to select authentication obligations. Membership
 alone never grants an exemption. -/
@@ -82,6 +84,7 @@ structure InfrastructureOrigin where
   deriving DecidableEq
 
 /-- Refuse unsupported identities, absent origins and mismatched canonical artifacts. -/
+@[regula_decision]
 def admitInfrastructureOrigin (key : ModuleKey) (actual expected : String) :
     Except String InfrastructureOrigin :=
   if hn : key.name.name ∈ infrastructureModuleNames then

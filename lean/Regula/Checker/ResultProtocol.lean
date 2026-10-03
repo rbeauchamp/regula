@@ -20,11 +20,15 @@ open Lean
 /-- This checker build's producer identity, written into every result envelope. -/
 abbrev producer := Regula.Checker.Producer.identity
 
-/-- Result schema 9 records the decision kind of each registered contract: a declaration's
+/-- Result schema 10 records the decision registration of each declaration: its `decisionResult`
+is `decidable` or `other` for a declaration registered with `@[regula_decision]`, by whether its
+result type is `Decidable _` (`RegulaPolicy.DecisionResult.spelling`), and `null` for any other.
+Earlier schemas did not write the member.
+Schema 9 records the decision kind of each registered contract: a declaration's
 `executableContract` carries `kind` (`sound`, `complete`, `sound-and-complete`, or `null` for a
 requirement that states none, `RegulaPolicy.DecisionKind.spelling`), and each `contracts` entry
 of the acceptance account carries that spelling as `decisionKind` with `notEstablished`, the
-direction a one-way kind leaves open (`accountJson`). Earlier schemas wrote neither member.
+direction a one-way kind leaves open (`accountJson`). Schemas before 9 wrote neither member.
 Schema 8 can store what the roots of an environment's execution account share once,
 and omits kernel-expression text. In a result file, the `execution` member of an environment
 report is what `SharedExecution.internValue` writes for its roots' accounts: the shared form when
@@ -96,7 +100,7 @@ frozen configuration and dependency text from the snapshot (`snapshotJson`: a cl
 dependency is identified by its pinned revision, a dirty one only by package and `dirty`
 status) and imported-environment module lists (`acceptedJson`,
 `ProducerReport.Environment.resultJson`); schema 1 embedded them. -/
-def schemaVersion : Nat := 9
+def schemaVersion : Nat := 10
 
 /-- Envelope identity of every result file. -/
 def identityFields : List (String × Json) := RegistryCodec.identityFields producer schemaVersion
@@ -177,7 +181,7 @@ def blockedStage (mode : EvidenceMode) : RuleId → Option Stage
   | .coverage => some .admission
   | .admission => some (match mode with | .documentationExample => .example | _ => .admission)
   | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
-  | .escapeHatch | .executableContract => some .declarationPolicy
+  | .escapeHatch | .executableContract | .decisionContract => some .declarationPolicy
   | .executionBoundary => some .execution
   | .executionUnresolved => none
   | .fenceStructure | .positiveExample | .negativeExample | .trustedExample => some .example

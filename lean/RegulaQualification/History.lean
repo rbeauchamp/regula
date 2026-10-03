@@ -1,6 +1,7 @@
 import RegulaQualification.Json
 import RegulaPolicy.Guards
 import Regula.StructuralName
+import Regula.Decision
 
 /-! # History observation requirements
 
@@ -197,6 +198,7 @@ def requirements (report : Json) (code : Nat) (mode source : String)
 
 /-- Exact admission contract for the decoded history requirements. Missing fields
 refuse before assertion evaluation; all predicates in `requirements` must hold. -/
+@[regula_decision]
 def validate (report : Json) (code : Nat) (mode source : String)
     (fileMode unsupported : Bool) : Except String Unit :=
   checked_decoded.run (requirements report code mode source fileMode unsupported)

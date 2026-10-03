@@ -279,7 +279,8 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
       o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       ∀ d ∈ i.declarations, d.module = o.unitName → DeclarationOK d
-          (.conforming .standardLogical) roles.native roles.safetyHelpers
+          (.conforming .standardLogical) roles.native roles.safetyHelpers ∧
+        DecisionOK d roles.decided
   | .compilerRejection pattern _, .compilerRejection errors =>
       ∃ message ∈ errors, PatternMatch pattern message
   | .policyRejection expected _, .policyRejection actual =>
@@ -290,7 +291,8 @@ def ExampleExpectationOK (c : Claim) (fences : Array FenceKey) (f : FenceKey)
       o.warnings = #[] ∧ o.declarationCensus = i.declarations.map (fun d => (d.module, d.name)) ∧
       ExampleSourceOK fences f o i ∧ ExampleAdmissionOK i required admitted failures ∧
       (∀ d ∈ i.declarations, d.module = o.unitName →
-          DeclarationOK d .teaching roles.native roles.safetyHelpers) ∧
+          DeclarationOK d .teaching roles.native roles.safetyHelpers ∧
+            DecisionOK d roles.decided) ∧
       ∃ d ∈ i.declarations, d.module = o.unitName ∧ ∃ n ∈ d.axioms, CompilerAxiom roles.native n
   | _, _ => False
 
@@ -365,8 +367,9 @@ def LocalStageOK (c : Claim) (i : EnvironmentCensus) (roles : Roles i.policy)
     | .admission, .scope, .admission observed => AdmissionOK i observed
     | .declarationPolicy, .declaration k, .declaration d =>
         d ∈ i.policy.declarations ∧ d.name = k.name.name ∧ d.module = k.moduleKey.name.name ∧
-        ∃ profile ∈ profileForModule c d.module,
-          DeclarationOK d (.conforming profile) roles.native roles.safetyHelpers
+        (∃ profile ∈ profileForModule c d.module,
+          DeclarationOK d (.conforming profile) roles.native roles.safetyHelpers) ∧
+        DecisionOK d roles.decided
     | .execution, .root k, .execution r =>
         r ∈ i.execution.roots ∧ r.name = k.name.name ∧ r.module = k.moduleKey.name.name ∧
         ∀ request ∈ rootRequests c i r.name,
@@ -391,7 +394,9 @@ instance (c : Claim) (i : EnvironmentCensus) (roles : Roles i.policy)
 
 /-- When a former combined inventory was valid and role authentication agrees, its
 declaration judgment is preserved for the identical locally retained declaration.
-Role agreement is an explicit hypothesis, not a consequence of bare-name uniqueness. -/
+Role agreement is an explicit hypothesis, not a consequence of bare-name uniqueness, and so is
+that a decision contract which decided the declaration in the combined inventory still decides
+it in the local one. -/
 theorem localDeclaration_preserves_flattened (c : Claim)
     (localInventory flattened : EnvironmentCensus)
     (localRoles : Roles localInventory.policy) (flattenedRoles : Roles flattened.policy)
@@ -399,13 +404,15 @@ theorem localDeclaration_preserves_flattened (c : Claim)
     (retained : declaration ∈ localInventory.policy.declarations)
     (native : ∀ n ∈ declaration.axioms, n ∈ localRoles.native ↔ n ∈ flattenedRoles.native)
     (helpers : declaration.name ∈ flattenedRoles.safetyHelpers → declaration.name ∈ localRoles.safetyHelpers)
+    (decided : declaration.name ∈ flattenedRoles.decided → declaration.name ∈ localRoles.decided)
     (accepted : LocalStageOK c flattened flattenedRoles .declarationPolicy
       (.declaration key) (.declaration declaration)) :
     LocalStageOK c localInventory localRoles .declarationPolicy
       (.declaration key) (.declaration declaration) := by
-  change declaration ∈ _ ∧ _ ∧ _ ∧ _ at accepted ⊢
-  refine ⟨retained, accepted.2.1, accepted.2.2.1, ?_⟩
-  obtain ⟨profile, hp, judgment⟩ := accepted.2.2.2
+  change declaration ∈ _ ∧ _ ∧ _ ∧ _ ∧ _ at accepted ⊢
+  refine ⟨retained, accepted.2.1, accepted.2.2.1, ?_,
+    fun registered written => decided (accepted.2.2.2.2 registered written)⟩
+  obtain ⟨profile, hp, judgment⟩ := accepted.2.2.2.1
   refine ⟨profile, hp, ?_⟩
   have compiler (n : Name) (hn : n ∈ declaration.axioms) :
       CompilerAxiom localRoles.native n ↔ CompilerAxiom flattenedRoles.native n := by
@@ -458,11 +465,13 @@ inductive LocalEvidenceTransfer (c : Claim) (localInventory flattened : Environm
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .admission .scope (.admission before) (.admission after)
   /-- The same declaration record, retained locally, with the same native-role status for each
-  of its axioms, and a helper under the local roles whenever it is one under the combined roles. -/
+  of its axioms, a helper under the local roles whenever it is one under the combined roles, and
+  decided by a local decision contract whenever a combined one decides it. -/
   | declaration (key : DeclarationKey) (d : Declaration)
       (retained : d ∈ localInventory.policy.declarations)
       (native : ∀ n ∈ d.axioms, n ∈ localRoles.native ↔ n ∈ flattenedRoles.native)
-      (helpers : d.name ∈ flattenedRoles.safetyHelpers → d.name ∈ localRoles.safetyHelpers) :
+      (helpers : d.name ∈ flattenedRoles.safetyHelpers → d.name ∈ localRoles.safetyHelpers)
+      (decided : d.name ∈ flattenedRoles.decided → d.name ∈ localRoles.decided) :
       LocalEvidenceTransfer c localInventory flattened localRoles flattenedRoles
         .declarationPolicy (.declaration key) (.declaration d) (.declaration d)
   /-- The same execution root, retained locally, whose local execution requests are all
@@ -526,9 +535,9 @@ theorem LocalEvidenceTransfer.sound {c : Claim} {localInventory flattened : Envi
       exact requested d (required ▸ hd)
     · intro d hd
       exact ((retained d).mp hd).2
-  | declaration key d retained native helpers =>
+  | declaration key d retained native helpers decided =>
     exact localDeclaration_preserves_flattened c localInventory flattened localRoles flattenedRoles
-      key d retained native helpers accepted
+      key d retained native helpers decided accepted
   | execution key r retained requests =>
     exact localExecution_preserves_flattened c localInventory flattened localRoles flattenedRoles
       key r retained requests accepted
@@ -556,7 +565,7 @@ theorem LocalEvidenceTransfer.refl {c : Claim} {inventory : EnvironmentCensus}
   split at accepted
   · exact .admission _ _ accepted.1 accepted.2.1 (fun _ h => h) (.refl _)
       (fun d => ⟨fun h => ⟨h, accepted.2.2.2.2.1 d h⟩, And.left⟩) rfl
-  · exact .declaration _ _ accepted.1 (fun _ _ => Iff.rfl) (fun h => h)
+  · exact .declaration _ _ accepted.1 (fun _ _ => Iff.rfl) (fun h => h) (fun h => h)
   · exact .execution _ _ accepted.1 (fun _ h => h)
   · exact .transcript _ _ accepted.1 (fun _ h _ => h)
   · exact .history _ _ (fun _ h => h) (fun _ h _ => h)

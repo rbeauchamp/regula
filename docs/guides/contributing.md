@@ -309,8 +309,9 @@ worker (several roots define `main`, so the modules cannot share one environment
 module it kernel-replays every owned declaration that is not `unsafe` or `partial` ([RG2005],
 `Admission.validate`), decides every declaration record from the live linter's collector
 (`Regula.Collect.declaration`) with the proved `RegulaPolicy.checked_operationalFailure`
-([RG1001]–[RG1005], [RG1007]), and checks module and material-claim docs with the linter's predicates
-([RG5001]–[RG5003]). Operational code is held to Standard-Logical with two facts reported, not
+([RG1001]–[RG1005], [RG1007]) and, where that passes, `RegulaPolicy.checked_decisionFailure`
+([RG1008]) against the decision contracts of the same module, and checks module and
+material-claim docs with the linter's predicates ([RG5001]–[RG5003]). Operational code is held to Standard-Logical with two facts reported, not
 failed: authored `unsafe`/`partial` declarations ([RG1006]), and, in a definition whose type is not
 a proposition, the pinned toolchain's Lake axioms (those a `Lake` module in the toolchain's own
 library directory declares). `operationalFailure_none_iff` states the exact success relation,
@@ -769,6 +770,7 @@ Git requires such as `rev = "v0.2.0"` name the tag directly and involve no versi
 [RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
 [RG1006]: https://rbeauchamp.github.io/regula/dev/rules/RG1006/
 [RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
+[RG1008]: https://rbeauchamp.github.io/regula/dev/rules/RG1008/
 [RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/

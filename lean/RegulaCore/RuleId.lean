@@ -1,5 +1,7 @@
 module
 
+public import Regula.Contract
+meta import Regula.Decision
 
 /-!
 # Closed rule identity
@@ -8,7 +10,9 @@ Closed public rule identity. Canonical construction is inspired by con-leche's
 `PropWhen.lean` and `Cached/Installed.lean`, revision
 c431b1ca1b7a93486dd3e0440d3ee82abe90ccd0 (Lean FRO, Joachim Breitner and contributors).
 No upstream code or proof is copied. Normative predicates remain in the standard
-(`website/RegulaStandard`).
+(`website/RegulaStandard`). The two imports are the published checker interfaces: the contract
+type that states `parse?`'s decision kind (`checked_parse`), and the `@[regula_decision]`
+registration, imported for elaboration only.
 -/
 
 @[expose] public section
@@ -34,6 +38,9 @@ inductive RuleId where
   /-- RG1007: an `ExecutableContract` registration is not closed over a safe, computable
   implementation and its complete domain. -/
   | executableContract
+  /-- RG1008: a function registered with `@[regula_decision]` has neither a decision contract in
+  its inventory nor a `Decidable` result type. -/
+  | decisionContract
   /-- RG2001: the audit cannot run in the declared environment (toolchain, workspace or
   dependencies). -/
   | environment
@@ -83,6 +90,7 @@ def spelling : RuleId → String
   | .profileExceeded => "RG1005"
   | .escapeHatch => "RG1006"
   | .executableContract => "RG1007"
+  | .decisionContract => "RG1008"
   | .environment => "RG2001"
   | .configuration => "RG2002"
   | .sourceBuild => "RG2003"
@@ -101,7 +109,7 @@ def spelling : RuleId → String
 
 /-- Reads a stable ID such as `"RG1001"`; `parse_spelling` and `spelling_of_parse` show it
 inverts `spelling` and accepts nothing else. -/
-def parse? : String → Option RuleId
+@[regula_decision] def parse? : String → Option RuleId
   | "RG1001" => some .projectAxiom
   | "RG1002" => some .proofHole
   | "RG1003" => some .unknownAxiom
@@ -109,6 +117,7 @@ def parse? : String → Option RuleId
   | "RG1005" => some .profileExceeded
   | "RG1006" => some .escapeHatch
   | "RG1007" => some .executableContract
+  | "RG1008" => some .decisionContract
   | "RG2001" => some .environment
   | "RG2002" => some .configuration
   | "RG2003" => some .sourceBuild
@@ -128,10 +137,10 @@ def parse? : String → Option RuleId
 
 /-- Every rule ID once, in registry order; `mem_all` and `all_nodup` state both properties. -/
 def all : List RuleId := [.projectAxiom, .proofHole, .unknownAxiom, .compilerTrusting,
-  .profileExceeded, .escapeHatch, .executableContract, .environment, .configuration, .sourceBuild,
-  .coverage, .admission, .communityConfiguration, .executionUnresolved, .executionBoundary,
-  .fenceStructure, .positiveExample, .negativeExample, .trustedExample, .moduleDocumentation,
-  .materialDocumentation, .materialIntent]
+  .profileExceeded, .escapeHatch, .executableContract, .decisionContract, .environment,
+  .configuration, .sourceBuild, .coverage, .admission, .communityConfiguration,
+  .executionUnresolved, .executionBoundary, .fenceStructure, .positiveExample, .negativeExample,
+  .trustedExample, .moduleDocumentation, .materialDocumentation, .materialIntent]
 
 theorem parse_spelling (id : RuleId) : parse? id.spelling = some id := by
   cases id <;> rfl
@@ -141,6 +150,12 @@ theorem spelling_of_parse {s : String} {id : RuleId} (h : parse? s = some id) :
     id.spelling = s := by
   unfold parse? at h
   split at h <;> first | cases h; rfl | cases h
+
+/-- `parse?` accepts exactly the rule spellings (`parse_spelling`, `spelling_of_parse`). -/
+theorem checked_parse : Regula.ExecutableContract parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ id : RuleId, text = id.spelling) :=
+  ⟨.of_roundtrip parse_spelling (fun _ _ read => spelling_of_parse read)
+    .projectAxiom (unwritten := "") rfl⟩
 
 theorem spelling_injective {a b : RuleId} (h : a.spelling = b.spelling) : a = b := by
   have e := congrArg parse? h

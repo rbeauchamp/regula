@@ -103,6 +103,13 @@ instance : FromJson DecisionKind := ⟨fun j => do
   | some x => return x
   | none => throw "unknown DecisionKind"⟩
 
+instance : ToJson DecisionResult := ⟨fun x => .str x.spelling⟩
+instance : FromJson DecisionResult := ⟨fun j => do
+  let s ← j.getStr?
+  match DecisionResult.parse? s with
+  | some x => return x
+  | none => throw "unknown DecisionResult"⟩
+
 instance : ToJson EvaluatorRole := ⟨fun x => .str x.spelling⟩
 instance : FromJson EvaluatorRole := ⟨fun j => do
   match EvaluatorRole.parse? (← j.getStr?) with
@@ -177,13 +184,14 @@ instance : ToJson RegulaPolicy.Declaration := ⟨fun d => Json.mkObj [
   ("constructorIndex", toJson d.constructorIndex),
   ("nativeStatement", toJson d.nativeStatement), ("nativeReplay", toJson d.nativeReplay),
   ("ranges", toJson d.recordedRanges), ("generatedFrom", toJson d.generatedFrom),
-  ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract)]⟩
+  ("axioms", toJson d.axioms), ("executableContract", toJson d.executableContract),
+  ("decisionResult", toJson d.decisionResult)]⟩
 instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
   exactFields j ["name", "module", "kind", "type", "prettyType", "isProp", "isUnsafe", "isPartial",
       "safety", "instance", "noncomputable", "implementedBy", "extern", "internal", "private",
           "projection", "matcher", "recursive", "unsafeRecBase", "levelParams", "all", "hints",
               "valueConstants", "unsafeRecRegenerated", "constructorIndex", "nativeStatement", "nativeReplay",
-                  "ranges", "generatedFrom", "axioms", "executableContract"]
+                  "ranges", "generatedFrom", "axioms", "executableContract", "decisionResult"]
   return {
     name := ← j.getObjValAs? _ "name"
     «module» := ← j.getObjValAs? _ "module"
@@ -216,6 +224,7 @@ instance : FromJson RegulaPolicy.Declaration := ⟨fun j => do
     generatedFrom := ← j.getObjValAs? _ "generatedFrom"
     axioms := ← j.getObjValAs? _ "axioms"
     executableContract := ← j.getObjValAs? _ "executableContract"
+    decisionResult := ← j.getObjValAs? _ "decisionResult"
   }⟩
 
 /-- One execution boundary a root's closure reaches (`RegulaPolicy.ExecutionBoundary`), with a

@@ -32,6 +32,7 @@ public import Lean.ProjFns
 public import Lean.Util.FoldConsts
 public import RegulaPolicy.Domain
 public import Regula.Contract
+public import Regula.Decision
 
 public import Lean.Linter.Util
 public import Lean.Linter.EnvLinter.Frontend
@@ -1690,6 +1691,26 @@ def returnsSort (type : Expr) : MetaM Bool :=
   Meta.withTransparency .all <|
     Meta.forallTelescopeReducing type (fun _ body => pure body.isSort) (whnfType := true)
 
+/-- Whether the result type of `type` is `Decidable _`: `type`, with every leading binder opened
+and the remaining type reduced to weak head normal form at the ambient transparency, is an
+application of `Decidable` to one argument. So a `DecidablePred`, `DecidableRel` or
+`DecidableEq` instance has such a result type, and so does a definition whose result type unfolds
+to one. A result type that the reduction does not unfold to `Decidable _`, such as an irreducible
+alias of it, is not one: the function then needs a decision contract. -/
+def returnsDecidable (type : Expr) : MetaM Bool :=
+  Meta.forallTelescopeReducing type (fun _ body => pure (body.isAppOfArity ``Decidable 1))
+    (whnfType := true)
+
+/-- The decision registration of a constant: `none` unless `@[regula_decision]` registers it
+(`Regula.decisionAttribute`, read from the environment's attribute state), and otherwise whether
+its result type is `Decidable _` (`returnsDecidable`). The attribute state is environment state an
+audited project writes; a registration only adds the RG1008 requirement, and its absence adds
+none. -/
+def decisionResult? (env : Environment) (info : ConstantInfo) :
+    MetaM (Option RegulaPolicy.DecisionResult) := do
+  unless decisionAttribute.hasTag env info.name do return none
+  return some (if ← returnsDecidable info.type then .decidable else .other)
+
 /-- For each imported module index: whether the module is `target` or transitively imports it.
 This is the least fixed point of "is `target` or imports a marked module": a pass that marks
 nothing has reached it, and every other pass marks one of the finitely many modules, so at most
@@ -2494,6 +2515,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     generatedFrom := ← liftTermElabM (generatedFrom? name)
     axioms := RegulaPolicy.canonicalNames axioms
     executableContract := ← executableContract? env scope info
+    decisionResult := ← liftTermElabM (decisionResult? env info)
   }
 
 /-- Complete current-module inventory, with no visibility or generated-name filter.

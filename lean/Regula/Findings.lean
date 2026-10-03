@@ -48,6 +48,9 @@ def declarationFinding (id : RuleId) (name : Name) (detail : String)
   | .executableContract =>
       (fun d => ⟨.executableContract, d⟩) <$> makeDiagnostic .executableContract a location mode
           claim .violation (related := related)
+  | .decisionContract =>
+      (fun d => ⟨.decisionContract, d⟩) <$> makeDiagnostic .decisionContract a location mode
+          claim .violation (related := related)
   | .materialDocumentation =>
       (fun d => ⟨.materialDocumentation, d⟩) <$> makeDiagnostic .materialDocumentation a location
           mode claim .violation (related := related)

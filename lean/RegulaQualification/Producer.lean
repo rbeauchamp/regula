@@ -1,5 +1,6 @@
 import RegulaQualification.Json
 import Regula.StructuralName
+import Regula.Decision
 
 /-! # Producer observation requirements
 
@@ -133,6 +134,7 @@ def requirements (report : Json) (code : Nat) (rule mode source : String)
   return checks
 
 /-- Actual executable oracle, with fail-closed mandatory decoding. -/
+@[regula_decision]
 def validate (report : Json) (code : Nat) (rule mode source : String)
     (fixed : Bool) (theoremType : Json) : Except String Unit :=
   checked_decoded.run (requirements report code rule mode source fixed theoremType)

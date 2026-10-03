@@ -1,5 +1,6 @@
 import RegulaPolicy.Collections
 import Regula.Contract
+import Regula.Decision
 
 /-! # Diagnostic pattern language
 
@@ -59,6 +60,7 @@ theorem orderedLiterals_iff (literals : List String) (text : String) :
     split <;> simp_all
 
 /-- Invalid patterns are refused even when a direct caller omits scanner validation. -/
+@[regula_decision]
 def matchesPattern (pattern text : String) : Bool :=
   decide (PatternValid pattern) && (patternAlternatives pattern).any
       (fun ls => orderedLiterals ls text)

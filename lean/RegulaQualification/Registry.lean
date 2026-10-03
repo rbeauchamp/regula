@@ -1,4 +1,5 @@
 import RegulaQualification.Checks
+import Regula.Decision
 
 /-! # Malformed registry CLI observation contract
 
@@ -33,6 +34,7 @@ def Invalidated (exitCode : Nat) (report : Json) : Prop :=
     (report.getObjValAs? String "status").toOption = some "incomplete" ∧ oldPresent report = false
 
 /-- Run the same generic proof-backed evaluator consumed by the operational driver. -/
+@[regula_decision]
 def validate (exitCode : Nat) (report : Json) : Except String Unit :=
   checked_evaluation.run (checks exitCode report)
 

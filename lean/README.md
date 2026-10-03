@@ -14,6 +14,7 @@ relative path and Mathlib.
 | --- | --- | --- |
 | Use the proof-bearing contract interface | [Regula.Contract](Regula/Contract.lean) | Public interface tying evidence to the named executable definition, with the decision kinds (`Decides`, `DecidesSoundly`, `DecidesCompletely`) that state which directions of a checker are proved. |
 | Register a material claim | [Regula.MaterialClaim](Regula/MaterialClaim.lean) | Public `@[regula_material]` attribute selecting the [RG5002]/[RG5003] docstring and Intent-section obligations. |
+| Register a decision function | [Regula.Decision](Regula/Decision.lean) | Public `@[regula_decision]` attribute selecting the [RG1008] obligation: a decision contract in the function's inventory, or a `Decidable` result type. It does not find functions that are not registered. |
 | Inspect mathematical/specification examples | [Audit](../audit/Audit.lean) | Claimed abstract-specification surface of the Mathlib-dependent package; representative checks of the standard's claims. |
 | Inspect the verified application | [Main](Main.lean), [AuditApp](AuditApp.lean) | Claimed limiter application; proofs concern its actual definitions and its IO boundary remains reported. |
 | Use typed policy data and admission | [RegulaPolicy](RegulaPolicy.lean), [proofs and boundaries](../docs/guides/proofs-and-boundaries.md#keys-census-and-collection) | Separate claimed pure library; representation proofs do not authenticate compiler observations or establish complete acceptance. |
@@ -51,5 +52,6 @@ use the [contributor guide](../docs/guides/contributing.md).
 
 The [architecture](../docs/guides/architecture.md) fixes the registry, diagnostic, editor and site modules and how the rules cover the standard.
 
+[RG1008]: https://rbeauchamp.github.io/regula/dev/rules/RG1008/
 [RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
 [RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

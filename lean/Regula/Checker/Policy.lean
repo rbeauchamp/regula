@@ -184,11 +184,15 @@ private def classifyWith (decl : Declaration) (foundation : String) : String :=
       (contract.kind.map (s!" decision-kind={·.spelling}")).getD "" ++
       s!" requires={contract.requirement}" ++
       (contract.failure.map (s!" failure={·}")).getD "") |>.getD ""
+  let decisionText := (decl.decisionResult.map (s!" decision-result={·.spelling}")).getD ""
   s!"{decl.name} ({decl.kind}){flagText}{roleText} type={decl.prettyType} " ++
-    s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}"
+    s!"axioms={repr (decl.axioms.toList.map (·.toString))} -> {foundation}{contractText}" ++
+    decisionText
 
 /-- One-line text of a declaration for `--verbose` output: its name, kind, flags, roles,
-type, axioms and foundation label, or `invalid-inventory` when the scope has no label for it. -/
+type, axioms and foundation label, or `invalid-inventory` when the scope has no label for it,
+then its executable-contract record and, for a declaration registered with `@[regula_decision]`,
+whether its result type is `Decidable _` (`decision-result=`). -/
 def classify (decl : Declaration) (scope : PolicyScope) : String :=
   classifyWith decl ((labelOf decl scope).toOption.map (·.spelling) |>.getD "invalid-inventory")
 

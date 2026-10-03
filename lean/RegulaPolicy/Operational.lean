@@ -2,6 +2,7 @@ module
 
 public import RegulaPolicy.Decision
 public import Regula.Contract
+meta import Regula.Decision
 
 /-! # Operational self-audit policy
 
@@ -44,6 +45,7 @@ structure ToolchainAxioms where
   not_compiler : ∀ n ∈ names, ¬ CompilerAxiom #[] n
 
 /-- Admission of an observed toolchain axiom set; it refuses a hole or compiler axiom. -/
+@[regula_decision]
 def admitToolchainAxioms (names : Array Name) : Except String ToolchainAxioms :=
   if h : `sorryAx ∉ names ∧ ∀ n ∈ names, ¬ CompilerAxiom #[] n then
     .ok ⟨names, h.1, h.2⟩
@@ -87,6 +89,7 @@ def operationalView (t : ToolchainAxioms) (d : Declaration) : Declaration :=
 
 /-- Operational declaration decision: the conforming Standard-Logical decision on the view,
 with no generated roles. -/
+@[regula_decision]
 def operationalFailure (t : ToolchainAxioms) (d : Declaration) : Option DeclarationFailure :=
   declarationFailure (operationalView t d) (.conforming .standardLogical) #[] #[]
 

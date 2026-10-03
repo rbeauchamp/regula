@@ -1,4 +1,6 @@
 import RegulaPolicy.Domain
+import RegulaPolicy.Community
+import Regula.Decision
 
 /-! # Claims, snapshots and coverage keys
 
@@ -72,6 +74,7 @@ abbrev AdmittedSnapshot := { s : Snapshot // s.Valid }
 
 /-- Admit `s` unchanged when it satisfies `Snapshot.Valid`; otherwise an error.
 `admitSnapshot_exact` shows every valid snapshot is admitted as itself. -/
+@[regula_decision]
 def admitSnapshot (s : Snapshot) : Except String AdmittedSnapshot :=
   if h : s.Valid then .ok ⟨s, h⟩ else .error "invalid snapshot identity or content map"
 
@@ -348,6 +351,7 @@ inspection are separate request constructors in Decision, not inhabitants of thi
 abbrev Claim := { c : ClaimCandidate // c.Valid }
 
 /-- Admit `c` unchanged when it satisfies `ClaimCandidate.Valid`; otherwise an error. -/
+@[regula_decision]
 def admitClaim (c : ClaimCandidate) : Except String Claim :=
   if h : c.Valid then .ok ⟨c, h⟩ else .error "unsupported or malformed policy claim"
 
@@ -477,6 +481,7 @@ structure JobKey where
   subjectSnapshot : SubjectSnapshotOK claim subject
   deriving Repr, DecidableEq
 /-- Admit a requested stage/subject without inventing a compatible replacement. -/
+@[regula_decision]
 def admitJobKey (claim : Claim) (stage : Stage) (subject : JobSubject) : Except String JobKey :=
   if hr : stage ∈ requiredStages claim then
     if hc : stageSubjectCompatible stage subject = true then
@@ -558,7 +563,9 @@ theorem admitCapability_isOk_iff (observed : Compiler.LegacyCompilerTrust) :
 (`Compiler.admitCapability_iff`): it accepts that capability and refuses the other one. It is
 registered here because `RegulaPolicy.Compiler` imports only `Init`, so that the compiler guard
 can elaborate it alone, and `admitIdentity` and `admitToolchainOrigin` are registered here with
-it, where their witnesses reduce. -/
+it, where their witnesses reduce. For the same reason `Compiler.admitCapability` and
+`Compiler.accepts` are not registered with `@[regula_decision]`: Lean applies that attribute only
+in the module that declares the function, which would then have to import it. -/
 theorem checked_admitCapability : Regula.ExecutableContract Compiler.admitCapability
     (Regula.Decides (·.isOk = true) (· = Compiler.legacyCompilerTrust)) :=
   ⟨.of_iff admitCapability_isOk_iff
@@ -611,5 +618,21 @@ theorem checked_admitToolchainOrigin :
       fun accepted => ((admitToolchainOrigin_isOk_iff .anonymous "" "").mp accepted).2.1 rfl⟩⟩
 
 end
+
+namespace Community
+
+/-- `failures` reports nothing exactly for options that are `Conforming`
+(`failures_eq_nil_iff`): nothing for the required baseline itself on a target without Mathlib,
+and a failure for a target that sets no option. The decision is over the options Lake resolved;
+reading them from the workspace is the adapter's. It is registered here, in the library that
+declares it, because its two witnesses are evaluations that its own `module`, which sees its
+imports' declarations without their bodies, does not reduce. -/
+theorem checked_failures : Regula.ExecutableContract failures (fun run =>
+    Regula.Decides (· = [])
+      (fun input : BuildOptions × Bool => Conforming input.1 input.2) (Function.uncurry run)) :=
+  ⟨.of_iff (fun input => failures_eq_nil_iff input.1 input.2)
+    ⟨(⟨required false, []⟩, false), by decide⟩ ⟨(⟨[], []⟩, false), by decide⟩⟩
+
+end Community
 
 end RegulaPolicy

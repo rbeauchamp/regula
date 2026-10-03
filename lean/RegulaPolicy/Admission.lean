@@ -3,6 +3,7 @@ module
 public import RegulaPolicy.Domain
 public import RegulaPolicy.Compiler
 public import Std.Data.ExtHashSet.Lemmas
+meta import Regula.Decision
 
 /-! # Observation admission
 
@@ -231,6 +232,7 @@ structure Inventory where
   deriving DecidableEq
 
 /-- Validate without dropping, substituting, or deduplicating result observations. -/
+@[regula_decision]
 def admitInventory (compiler : Compiler.Capability) (decls : Array Declaration)
     (transcripts : Array Frontend.Transcript) :
     Except String Inventory :=
@@ -385,6 +387,7 @@ structure ExecutionInventory where
 
 /-- Admit the roots unchanged when `ExecutionValid` holds, and refuse them otherwise
 (`admitExecution_exact`, `admitExecution_preserves`). -/
+@[regula_decision]
 def admitExecution (roots : Array ExecutionRoot) : Except String ExecutionInventory :=
   if h : ExecutionValid roots then .ok ⟨roots, h⟩
   else .error "invalid execution inventory: identity, occurrence, or origin binding"

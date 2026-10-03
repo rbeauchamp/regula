@@ -1,5 +1,6 @@
 import Lean.Data.Json
 import RegulaPolicy.Codec
+import Regula.Decision
 
 /-! # Structural-name transport
 
@@ -39,6 +40,7 @@ def parseNameParts (xs : List Json) : Except String Name := do
 
 /-- Decode a JSON array of name components; it recovers every name from its `nameJson`
 (`name_roundtrip`). -/
+@[regula_decision]
 def parseName (j : Json) : Except String Name := do
   parseNameParts (← j.getArr?).toList
 
@@ -82,6 +84,7 @@ def printedNameJson (n : Name) : Json :=
 Lean prints for the name it reads (`parsePrintedNameJson_str`); anything else is read as structural
 components (`parseName`) and must be of a name whose printed text Lean's parser does not read
 back. -/
+@[regula_decision]
 def parsePrintedNameJson : Json → Except String Name
   | .str text =>
     let n := text.toName

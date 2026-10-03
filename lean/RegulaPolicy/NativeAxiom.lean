@@ -4,6 +4,7 @@ public import RegulaPolicy.Foundation
 public import Lean.PrivateName
 import all Init.Meta.Defs
 import all Lean.PrivateName
+meta import Regula.Decision
 
 /-! # Generated native-proof axiom names
 
@@ -141,6 +142,7 @@ def generatedIndices? (base suffix : String) : Option (List Nat) := do
 /-- The owning prefix and tactic of a name `nativeEqTrue`'s scheme generates for a native tactic,
 recovered by parsing and then regenerating the name with Lean's own functions; otherwise
 `none`. -/
+@[regula_decision]
 def nativeAxiomOrigin? (n : Name) : Option (Name × NativeTactic) :=
   match n with
   | .str (.str (.str parent "_native") component) suffix => do
@@ -186,6 +188,7 @@ instance (m parent pfx : Name) : Decidable (GeneratedPrefix m parent pfx) := by
 /-- Name-level compiler trust: an enabled legacy compiler axiom or a name the `nativeEqTrue`
 scheme generates for a native tactic. The execution probe classifies by this definition; the
 declaration policy additionally authenticates the generated axiom itself. -/
+@[regula_decision]
 def compilerTrustingAxiomName (n : Name) : Bool :=
   builtinCompilerAxiom n || (nativeAxiomOrigin? n).isSome
 
