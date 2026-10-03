@@ -49,7 +49,7 @@ lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+requires both packages), builds and renders the standard fresh, refuses a rule ID in the prose of the rendered standard that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -244,15 +244,15 @@ the root package and then in `audit/`, exactly as an adopter does. Both packages
 incremental mode and checks the same claimed surfaces as acceptance, through the driver's
 dispatch and exit classes. `./scripts/verify.sh
 diagnostics self-audit` checks the excluded operational `Regula` library: `lake build Regula`
-builds every module warning-free (RG2003, because the package sets `warningAsError`), then
+builds every module warning-free ([RG2003], because the package sets `warningAsError`), then
 `qualify self-audit` inspects each module of the library as Lake discovers it, each in its own
 worker (several roots define `main`, so the modules cannot share one environment). For each
-module it kernel-replays every owned declaration that is not `unsafe` or `partial` (RG2005,
+module it kernel-replays every owned declaration that is not `unsafe` or `partial` ([RG2005],
 `Admission.validate`), decides every declaration record from the live linter's collector
 (`Regula.Collect.declaration`) with the proved `RegulaPolicy.checked_operationalFailure`
-(RG1001–RG1005, RG1007), and checks module and material-claim docs with the linter's predicates
-(RG5001–RG5003). Operational code is held to Standard-Logical with two facts reported, not
-failed: authored `unsafe`/`partial` declarations (RG1006), and, in a definition whose type is not
+([RG1001]–[RG1005], [RG1007]), and checks module and material-claim docs with the linter's predicates
+([RG5001]–[RG5003]). Operational code is held to Standard-Logical with two facts reported, not
+failed: authored `unsafe`/`partial` declarations ([RG1006]), and, in a definition whose type is not
 a proposition, the pinned toolchain's Lake axioms (those a `Lake` module in the toolchain's own
 library directory declares). `operationalFailure_none_iff` states the exact success relation,
 `operationalFailure_ne_escapeHatch` that an escape hatch never fails a declaration,
@@ -293,12 +293,12 @@ requires of claimed code:
 - **Options and linters.** Every library and executable builds with `autoImplicit` and
   `relaxedAutoImplicit` off and `linter.missingDocs` on (the package `leanOptions`; only the
   `Fixtures` controls turn the linter off); `Audit` also enables Mathlib's standard linter set
-  with the §6.7 exclusions (`mathlibLinters` in `audit/lakefile.lean`). RG2006 checks these options on the claimed targets. Declare universes and
+  with the §6.7 exclusions (`mathlibLinters` in `audit/lakefile.lean`). [RG2006] checks these options on the claimed targets. Declare universes and
   implicit binders explicitly, and give every public declaration, constructor and field a
   docstring that states what it is or guarantees, no more than its definition and proofs
   establish (standard §5.1).
 - **Module docstrings.** Each module starts, directly after its imports and before any
-  `public section`, with a `/-! # Title … -/` docstring (RG5001 checks the position).
+  `public section`, with a `/-! # Title … -/` docstring ([RG5001] checks the position).
 - **Evaluation is observation.** Prefer a kernel-checked `example … := by decide` to a
   `#guard`; where kernel reduction is infeasible, keep the `#guard` with a comment saying it is
   a compiled-evaluation observation.
@@ -322,6 +322,37 @@ For review, use the repository-local
 [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/), with the repository rows above. Scope verification to
 the affected claims, retain required checks, and distinguish historical results
 from evidence for the current revision.
+
+### Rule IDs in documentation
+
+The [adoption guide](adoption.md#cite-a-rule) states the convention. `Regula.Prose`
+([`RegulaCore/Prose.lean`](../../lean/RegulaCore/Prose.lean)) defines it for rendered pages and
+checks it there: a rule ID is `RG` and four digits with no ASCII letter or digit directly before or
+after, and each one in prose must be a registered rule inside a link to that rule's page
+(`bareMentions_nil_iff`).
+
+| Document | The link |
+| --- | --- |
+| Every Markdown document the repository tracks | The development page, `https://rbeauchamp.github.io/regula/dev/rules/<ID>/` (`Edition.url`, which a finding's rule link also uses), optionally with a fragment. Write `[RG2003]` and define `[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/` once at the end of the document, after a blank line; an inline link is accepted too. The agent skill, `.agents/skills/regula/SKILL.md`, is generated with every rule ID it names already such a link (`Regula.Guidance.citation`); regenerate it with `lake exe regula skill` and never edit it. |
+| A rendered page of the standard or of the rule-reference site | The rule's page in the same edition: its route `rules/<ID>/` (`RuleId.route`) relative to the edition root. In the standard write `{rule}[RG2003]`, which refuses an unregistered ID; generated pages link the IDs of registry and explanation prose themselves (`Prose.linkVerso`, `ruleLink`), and generator text names a rule with `Prose.relativeCitation`. |
+
+In a rendered page, prose is the text outside the `code`, `pre`, `script` and `style` elements and
+comments. Pasted tool output is a `pre` element, and a Lean identifier is written as code. A rule
+table that is an index of rule pages names each rule as a link to its page, so its IDs are already
+linked. A heading is prose, so a rule ID in one is a link. The one rule ID that is not written as
+a link is a rule page's own, in that page's `title` and `h1`, because a page cannot usefully link
+to itself (`Prose.ownPage`); any other rule's ID there, and any rule ID in the `title` or `h1` of
+another page, is refused. `./scripts/verify.sh docs` checks the standard rendered alone
+(`docFenceAudit --verso`), and `./scripts/verify.sh site` checks every page of the
+development edition; each failure names the file, the line and the ID. The scanner is small and
+strict, not an HTML parser: a page with a `code`, `pre`, `title` or `h1` element, a comment or a
+script that is never closed is refused, since the text after it could not be read as prose. The
+release editions already published are frozen copies and are not rewritten.
+
+The Markdown sources are not checked yet, so a bare rule ID in a Markdown document is caught in
+review. A check of them built on a conforming CommonMark parser (md4c through MD4Lean, already a
+dependency of the website) is tracked in
+[issue #214](https://github.com/rbeauchamp/regula/issues/214).
 
 ## Change an acceptance boundary
 
@@ -599,3 +630,13 @@ one. That Reservoir behaves so is an observation of its source at
 (`testbed-analyze.py`, `testbed-save.py`, `utils/manifest.py`) and of Lake 4.34.0's
 (`Lake/CLI/Main.lean`, `Lake/Load/Materialize.lean`), not a guarantee.
 Git requires such as `rev = "v0.2.0"` name the tag directly and involve no version order.
+
+[RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
+[RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
+[RG1006]: https://rbeauchamp.github.io/regula/dev/rules/RG1006/
+[RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
+[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
+[RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
+[RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

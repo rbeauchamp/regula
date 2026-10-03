@@ -42,11 +42,11 @@ Mathlib and Batteries linters, which it requires or recommends rather than repla
 
 | `lake lint` does not accept | Left to your review, or trusted |
 | --- | --- |
-| `sorry` and `admit`, project `axiom`s and unknown axioms, anywhere in a declaration's transitive dependencies (RG1001–RG1003) | Whether each theorem states what you meant |
-| Compiler-trusting proofs: `native_decide`, `decide +native`, `bv_decide` (RG1004) | Whether your invariants cover every write path |
-| Axioms beyond the foundation each library claims: kernel-only (none), choice-free (`propext`, `Quot.sound`) or standard-logical (adds `Classical.choice`) (RG1005) | Whether your documentation describes the formal claim faithfully |
-| `partial` or `unsafe` declarations you write (RG1006); unresolved `extern`/`implemented_by` paths (RG3001) and, in `checked` mode, unproved boundaries (RG3002) | Lean's kernel, compiler and runtime; Lake; the operating system |
-| Build warnings (RG2003), modules outside the manifest (RG2004), automatic implicits or a missing `linter.missingDocs` (RG2006), modules without a module docstring (RG5001) | |
+| `sorry` and `admit`, project `axiom`s and unknown axioms, anywhere in a declaration's transitive dependencies ([RG1001]–[RG1003]) | Whether each theorem states what you meant |
+| Compiler-trusting proofs: `native_decide`, `decide +native`, `bv_decide` ([RG1004]) | Whether your invariants cover every write path |
+| Axioms beyond the foundation each library claims: kernel-only (none), choice-free (`propext`, `Quot.sound`) or standard-logical (adds `Classical.choice`) ([RG1005]) | Whether your documentation describes the formal claim faithfully |
+| `partial` or `unsafe` declarations you write ([RG1006]); unresolved `extern`/`implemented_by` paths ([RG3001]) and, in `checked` mode, unproved boundaries ([RG3002]) | Lean's kernel, compiler and runtime; Lake; the operating system |
+| Build warnings ([RG2003]), modules outside the manifest ([RG2004]), automatic implicits or a missing `linter.missingDocs` ([RG2006]), modules without a module docstring ([RG5001]) | |
 
 The [rule reference](https://rbeauchamp.github.io/regula/dev/rules/) lists every rule, each
 with a checked violating and corrected example.
@@ -84,11 +84,11 @@ the [compatibility table](docs/guides/adoption.md#1-require-regula); the first r
 **To update**, change the tag, and `lean-toolchain` when the new release supports another
 toolchain, then run `lake update regula` and `lake exe regula init` again.
 
-**Why your first `sorry` shows RG2003 and INCOMPLETE.** Lean warns `declaration uses 'sorry'`,
-and `lake lint` inspects its rules only after a build without warnings (RG2003). A warning
+**Why your first `sorry` shows [RG2003] and INCOMPLETE.** Lean warns `declaration uses 'sorry'`,
+and `lake lint` inspects its rules only after a build without warnings ([RG2003]). A warning
 stops the audit before that inspection, so the evidence the proof rules need is missing and
-the result is INCOMPLETE (exit 3), not a RG1002 violation. Neither is accepted, and silencing
-the warning does not help: the hole is then reported as RG1002. For the same reason, a first run
+the result is INCOMPLETE (exit 3), not a [RG1002] violation. Neither is accepted, and silencing
+the warning does not help: the hole is then reported as [RG1002]. For the same reason, a first run
 on an existing project usually reports build warnings, such as missing docstrings, before any
 foundation rule.
 
@@ -152,3 +152,16 @@ Each release supports only the Lean toolchain pinned in its `lean-toolchain`; th
 [MIT](LICENSE), except the adapted container recursion of Lean's JSON parser in
 `lean/Regula/Checker/PolicyCodec.lean`, which keeps its upstream Apache 2.0 notice
 ([license text](LICENSES/Apache-2.0.txt); see [design influences](docs/guides/design-influences.md#adapted-code-and-licenses)).
+
+[RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
+[RG1002]: https://rbeauchamp.github.io/regula/dev/rules/RG1002/
+[RG1003]: https://rbeauchamp.github.io/regula/dev/rules/RG1003/
+[RG1004]: https://rbeauchamp.github.io/regula/dev/rules/RG1004/
+[RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
+[RG1006]: https://rbeauchamp.github.io/regula/dev/rules/RG1006/
+[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
+[RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
+[RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
+[RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
+[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/

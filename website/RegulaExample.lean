@@ -31,9 +31,9 @@ declaration, kernel-admission and axiom classification of every `lean` block is 
 documentation fence audit's (`lake exe docFenceAudit`), which reads the same blocks from this
 package's sources. The helper process, its search path and the file system are trusted.
 
-The roles `{repo "PATH"}[text]` (a repository link whose path must exist) and
-`{checklistRow}[ID]` (a checklist row identifier that is also its anchor) complete the
-standard's markup.
+The roles `{repo "PATH"}[text]` (a repository link whose path must exist),
+`{checklistRow}[ID]` (a checklist row identifier that is also its anchor) and `{rule}[ID]` (a
+registered rule ID, linked to its page in the same edition) complete the standard's markup.
 -/
 
 open Lean Elab
@@ -271,6 +271,19 @@ def checklistRow : RoleExpanderOf Unit
     unless row.length > 0 && row.all (fun c => c.isUpper || c.isDigit || c == '-') do
       throwError "not a checklist row identifier: {row}"
     ``(Verso.Doc.Inline.other (Inline.row $(quote row)) #[])
+
+/-- `{rule}[ID]`: a rule ID, linked to that rule's page in the same edition. The ID must be a
+registered rule (`Regula.RuleId.parse?`), and the link is the rule's route relative to the edition
+root (`Regula.RuleId.route`, the route a finding's rule link ends with), which a page resolves
+through its `<base href>`. -/
+@[role]
+def rule : RoleExpanderOf Unit
+  | (), content => do
+    let #[inl] := content | throwError "a rule reference takes exactly its ID"
+    let `(inline| $s:str) := inl | throwErrorAt inl "a rule reference takes exactly its ID"
+    let some id := Regula.RuleId.parse? s.getString
+      | throwErrorAt inl "not a registered rule ID: {s.getString}"
+    ``(Verso.Doc.Inline.link #[Verso.Doc.Inline.text $(quote id.spelling)] $(quote id.route))
 
 end RegulaExample
 

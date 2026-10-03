@@ -50,7 +50,7 @@ at least one compliant rewrite and the checked `examples` pair. The pair is the 
 `examples/rules/<ID>/Fixed.<ext>` and `Violation.<ext>`, embedded with `include_str`; the
 `RegulaCore` library `needs` the corpus directory, so editing an example rebuilds the registry,
 and `RegistryChecks` rereads every file and refuses a mismatch. A pair's `audience` is `adopter`
-(shown to agents as written) or `qualification` (RG1003's stand-in dependency and RG2001's runner
+(shown to agents as written) or `qualification` ([RG1003]'s stand-in dependency and [RG2001]'s runner
 requests, which agent-facing output replaces with the pair's `correction` sentence).
 `RuleDescriptor.wellFormed` (nonempty fields within byte budgets, one-line requirement and
 remedy, distinct examples) is checked by compiled evaluation over `RuleId.all` when
@@ -162,9 +162,9 @@ snapshot never becomes a project result. Source compilation is distinct from lat
 normal pinned-compiler exit with a source-located error or warning can establish an emitted
 diagnostic, while crashes, termination and inspection exceptions are incomplete, and flattened
 Lake build failures stay incomplete with the original text kept; neither permits acceptance.
-RG2001 reports setup failures in fresh, incremental and file audits, and a failed inspection
+[RG2001] reports setup failures in fresh, incremental and file audits, and a failed inspection
 worker with the worker's own error text; in a project or file audit, an inspected environment
-that loads a root-package module outside every library is refused as RG2004, a violation, naming
+that loads a root-package module outside every library is refused as [RG2004], a violation, naming
 the module and its importers, while a documentation audit leaves that fence incomplete;
 documentation-audit setup failures print `FAIL` without a finding. Combined project
 and documentation output stays incomplete while its documentation stage is pending, and
@@ -206,7 +206,7 @@ metadata, not authenticated binary identity.
   order) and `unresolved`. A writer records the stages its run completed: a context failure the
   stages its call site finished, and a finished audit every stage; an empty documentation scan
   leaves the documentation stages unrecorded. `stagesCompleted` is the recorded stages without
-  each stage a stopping finding (an incomplete finding, or an RG2002 or RG2003 refusal) left
+  each stage a stopping finding (an incomplete finding, or an [RG2002] or [RG2003] refusal) left
   unfinished and every later one; `complete` holds exactly when no required stage is missing.
   One function, `ResultProtocol.guidanceFields`, derives these members for writer and reader,
   and `ResultProtocol.admitGuidance` re-derives them on admission. The
@@ -323,7 +323,7 @@ metadata, not authenticated binary identity.
   `«_aux_…»` inside a namespace is not related; and a clause that reads the relation from the
   declaration's name applies only to a declaration with no recorded declaration range, which Lean
   records for what an author writes and not for these generated declarations, so a theorem an
-  author names like one of them keeps its own location. The RG1005 rewrite names the families from
+  author names like one of them keeps its own location. The [RG1005] rewrite names the families from
   `GeneratedFamily.all` and `GeneratedFamily.text`, and `RegistryChecks` requires the adoption
   guide to quote it verbatim, so the guidance and the guide name exactly the families the checker
   relates; the [enumeration](proofs-and-boundaries.md#generated-declaration-families) records
@@ -337,11 +337,11 @@ metadata, not authenticated binary identity.
   located at the source declaration's range when that has one and its module has a snapshot
   (`Findings.findingLocation`), and its `related` then names the declaration's own module. Other
   declaration findings carry no attribution: a documentation example's, a material-documentation
-  one (RG5002, RG5003) and the editor linter's record `null` and their declaration's own location
+  one ([RG5002], [RG5003]) and the editor linter's record `null` and their declaration's own location
   (`Findings.declarationLocation`). Which clause records which declaration is Lean's behavior,
   read from its environment, not proved;
   derived instances and the declarations deriving handlers add, such as an enumeration's `ofNat`,
-  are not related, since Lean records no such relation. The `lake lint` text prints the RG1005
+  are not related, since Lean records no such relation. The `lake lint` text prints the [RG1005]
   findings under one declaration at one location as one block, and a generated declaration with a
   range of its own as its own block under the same declaration
   (`groupFindings`, `groupEntry`, `Finding.sameGroup`; `declarationFinding_groupUnder?` proves such
@@ -354,7 +354,7 @@ metadata, not authenticated binary identity.
   the one a metaprogram such as Mathlib's `compile_inductive%` adds, named as the target of a
   `csimp` candidate or an `implemented_by` replacement, or the `_unsafe_rec` helper Lean
   generates for a `partial def`, named by a helper edge from that `partial def`'s opaque
-  constant. Where both are trusted and neither is the toolchain's, the RG3002 diagnostic of the
+  constant. Where both are trusted and neither is the toolchain's, the [RG3002] diagnostic of the
   first names the second in its `detail`
   (`…, with its implementation NAME (partial-computation)`), and the second has no diagnostic
   and no count of its own, in text and JSON alike (`RegulaPolicy.executionFindings`,
@@ -381,7 +381,7 @@ metadata, not authenticated binary identity.
   execution claim and exact source even without findings.
 - **Acceptance account:** a completed result's `acceptance.account` renders the report account:
   `coverage` (only `freshWholeProject` is whole-project acceptance), `checked` (the theorem
-  `RegulaPolicy.accept_iff` and the job count), `contracts` (each RG1007 registration with its
+  `RegulaPolicy.accept_iff` and the job count), `contracts` (each [RG1007] registration with its
   implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`),
   per-environment `executionSummary` counts (named `execution` before schema 8, when the writer
   began storing every `execution` member's root accounts once; `boundaries`, `checked` and
@@ -458,20 +458,20 @@ inspection; the compiler-dependent account is specified in standard §7.6.
 ## Rule examples
 
 [`examples/rules/<ID>/`](../../examples/rules/) holds each rule's `Violation` and `Fixed` source,
-or an unchanged `Example.lean` with a changed dependency (RG1003) or configuration (RG2001,
-RG2002, RG2006) pair; RG2006's pair is the package's `lakefile.lean`, to which the run appends the
-`require` line of its producer slot, and RG2002's pair is two manifests for one layout, in which
+or an unchanged `Example.lean` with a changed dependency ([RG1003]) or configuration ([RG2001],
+[RG2002], [RG2006]) pair; [RG2006]'s pair is the package's `lakefile.lean`, to which the run appends the
+`require` line of its producer slot, and [RG2002]'s pair is two manifests for one layout, in which
 the run gives library `Example` the submodule glob and `lean_exe cli` its root `Example.Cli`
 (`Cli.lean`) inside that library. [`corpus.json`](../../examples/rules/corpus.json) fixes each
 phase's invocation, evidence mode, expected IDs, subreasons, message patterns, subjects and full
 primary locations before execution; its [README](../../examples/rules/README.md) gives the
 authoring rules and placeholders. Keep a pair's `correction` sentence and its fixtures in the
-same change. The RG5001, RG5002 and RG5003 corrections each preserve exactly
+same change. The [RG5001], [RG5002] and [RG5003] corrections each preserve exactly
 `∀ n : Nat, n = n`, with the same proof and no new assumptions; only documentation is added.
 
 `Website.ExampleExpectation` has exactly four accepted kinds: positive, compiler rejection (one
 effective error matching the restricted pattern), policy rejection (the expected findings, none
-extra; RG1001's source elaborates and is then rejected) and trusted teaching. The
+extra; [RG1001]'s source elaborates and is then rejected) and trusted teaching. The
 compiler-rejection pattern and the policy-rejection expected-diagnostic specification are
 nonempty; a policy rejection requires completed real checker rejection for the exact source,
 configuration and mode, matching the expected rule ID, the subreason where specified, and the
@@ -479,7 +479,7 @@ expected primary and related source ranges or explicit module or project locatio
 detector keeps its module or project location; an example adapter must not manufacture a source
 range. `Website.ExampleBinding` retains an admitted snapshot, mode and typed `ExampleRequest`;
 `validateBoundExample` checks binding and completion and the exact diagnostic list before
-applying the four-kind policy. RG2001, RG2005 and RG3001 instead have **diagnostic
+applying the four-kind policy. [RG2001], [RG2005] and [RG3001] instead have **diagnostic
 demonstrations** of unavailable analysis: completed, authentic production of the expected
 INCOMPLETE finding with the exact source, configuration, mode, rule, reason and locations,
 outside the four kinds, never accepted evidence. A crash, missing response, stale source or
@@ -489,7 +489,7 @@ demonstration guarantees (`incomplete_example_refused`, `admitDemonstration_soun
 `_complete`, `demonstration_completed`, `demonstration_observed_incomplete`,
 `demonstration_not_accepted`) depend exactly on `propext`,
 `Classical.choice` and `Quot.sound`: Standard-Logical, not Kernel-only. If the initial configuration read fails, the result keeps the original IO
-diagnostic as RG2001, incomplete, with an empty source account and a null effective
+diagnostic as [RG2001], incomplete, with an empty source account and a null effective
 configuration; it cannot qualify as an example or a demonstration. After that read succeeds,
 early terminal failures keep the producer's request and any configuration captured before the
 failure.
@@ -520,7 +520,7 @@ both phases of each selected rule once, and is the single admission of every can
 by `qualify_sound` it refuses, among others, a demonstration relabelled to another rule while
 keeping its findings, and a record whose observed sources are not in its bound snapshot, whose
 displayed source is stale or whose required source account was dropped. Three refusal controls are admitted individually and must be refused:
-`RG1005/WrongClaim`, authentic Standard-Logical output of RG1005's violation refused against its
+`RG1005/WrongClaim`, authentic Standard-Logical output of [RG1005]'s violation refused against its
 frozen Kernel-only request; and `RG4004/TrustedControl` and `RG4004/NegativeControl`, a
 trusted-teaching fence and a compiler-rejection fence that complete as `classified` and are
 refused as a positive documentation correction. The full corpus is 47 productions (44
@@ -535,7 +535,7 @@ lake exe qualify rule-examples --evidence tmp/rule-examples.json
 ```
 
 `--rules RG1001 RG1002` after the evidence path scopes a development run; `--shard K/N` selects
-every rule at corpus position K − 1 modulo N, keeping RG5002 with RG5001 so their shared
+every rule at corpus position K − 1 modulo N, keeping [RG5002] with [RG5001] so their shared
 fresh-project theorem-type check still runs (`mem_selectRules_shard`,
 `mem_selectRules_some_shard`, `rg5001_rg5002_same_shard`). CI runs the two shards through
 `./scripts/verify.sh diagnostics rule-examples 1/2` and `2/2`, and the site build admits both
@@ -569,8 +569,8 @@ the rows whose review or mechanical check the clauses feed, not that those rows 
 | 3.9–3.10 | THEOREM-04/08/09, SCOPE-02/03, DOC-02, FOUND-01/02. Conditional and open claims are not rejected for lacking an antecedent witness. |
 | 4.1–4.4 | TYPE-01–05, THEOREM-01/02/07/08, SCOPE-02/03. Numeric and mathematical-interface adequacy are specified-domain obligations. |
 | 4.5 | FOUND-01–05, BUILD-02, COMP-01. The exact least label is reported separately from the selected maximum and from executable witnesses. |
-| 5.1–5.4 | DOC-01/02, THEOREM-01, SCOPE-02. Presence checks are RG5001–RG5003, and RG5001 also checks module-docstring placement; prose fidelity, intent adequacy and readability remain review. |
-| 6.1–6.7 | DECL-01/04 (acyclic imports and actual elaboration), DOC-01, TYPE-06, SCOPE-04. Naming, import minimality and layout are recommendations. The §6.7 community linters are required configuration: RG2003 rejects their warnings, RG2006 checks their Lake enablement and rejects a target-wide disable, and every declaration-scoped disable (§6.2) is DECL-01 review. RG5001 checks module-docstring placement (§5.3) and repeated imports (§6.4). Batteries' environment linters are recommended; no community linter discharges a row. |
+| 5.1–5.4 | DOC-01/02, THEOREM-01, SCOPE-02. Presence checks are [RG5001]–[RG5003], and [RG5001] also checks module-docstring placement; prose fidelity, intent adequacy and readability remain review. |
+| 6.1–6.7 | DECL-01/04 (acyclic imports and actual elaboration), DOC-01, TYPE-06, SCOPE-04. Naming, import minimality and layout are recommendations. The §6.7 community linters are required configuration: [RG2003] rejects their warnings, [RG2006] checks their Lake enablement and rejects a target-wide disable, and every declaration-scoped disable (§6.2) is DECL-01 review. [RG5001] checks module-docstring placement (§5.3) and repeated imports (§6.4). Batteries' environment linters are recommended; no community linter discharges a row. |
 | 7.1–7.5 | DECL-01–04, FOUND-01–05, THEOREM-01/07. Exact environment, ownership, admission, attribution and contract scope. |
 | 7.6–7.7 | COMP-01–04, DOC-03–05. Conservative compiler closure and the exact document-worker protocol. |
 | 7.8–7.9 | MUT-01–05; checker qualification and the optional serialized graph are conditional. |
@@ -584,7 +584,7 @@ The review obligations no mechanical result discharges are the checker's `Residu
 [enforcement page](https://rbeauchamp.github.io/regula/dev/enforcement/) defines them, each rule
 page links the ones its rule leaves open, and `lake exe regula explain` prints them. Every
 accepted result lists them as unresolved where applicable (`R-GRAPH` only for a
-serialized-graph claim), and each RG1007 contract it reports carries `R-INTENT` and
+serialized-graph claim), and each [RG1007] contract it reports carries `R-INTENT` and
 `R-INVARIANT`. A listed identifier is an open obligation, never a completed review; no heuristic
 detector replaces one.
 
@@ -605,3 +605,19 @@ Lean's authors supply the linter, elaboration, message and Lake APIs; Verso's au
 rendering. Design influences (including con-leche and Microsoft CA1416) and the license notices
 of adapted code are credited in [design influences](design-influences.md). No external tool
 defines Lean policy or permits suppressing mandatory requirements.
+
+[RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
+[RG1003]: https://rbeauchamp.github.io/regula/dev/rules/RG1003/
+[RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
+[RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
+[RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
+[RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
+[RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/
+[RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
+[RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
+[RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
+[RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
+[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
+[RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

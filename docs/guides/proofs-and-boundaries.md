@@ -81,7 +81,7 @@ proved sound and complete against it:
 | `ContractOK` (§7.5, §7.11) | Every registered contract targets the exact supported implementation and predicate, with completed admission. Registration adequacy is review. |
 | `ExecutionOK` (§7.6) | Every root's closure accounted for, no unresolved path; report mode permits reported trust, checked mode only checked evidence or a boundary of the toolchain's origin-checked trusted base. |
 | `DocumentOK` (§7.7) | Complete structural scan; warning-free, admitted Standard-Logical positives; one effective-error match per negative; classified teaching that is never positive conformance. |
-| `DocumentationPresenceOK`, `MaterialDocumentationOK` (§5.1–§5.3) | A module docstring is present (`docstring ≠ none`); each registered material declaration's docstring has a nonempty Intent section. For a module's `documentationPresence` job the unproved adapter computes the RG5001 header decision (`RegulaPolicy.ModuleHeader.failures`, characterized by `failures_eq_nil_iff`: presence, placement first after the imports and no repeated import) as that evidence, and `checked_environmentEvidence` proves only the selection of that frozen record. Registration completeness and fidelity remain R-DOC, intent adequacy R-INTENT. |
+| `DocumentationPresenceOK`, `MaterialDocumentationOK` (§5.1–§5.3) | A module docstring is present (`docstring ≠ none`); each registered material declaration's docstring has a nonempty Intent section. For a module's `documentationPresence` job the unproved adapter computes the [RG5001] header decision (`RegulaPolicy.ModuleHeader.failures`, characterized by `failures_eq_nil_iff`: presence, placement first after the imports and no repeated import) as that evidence, and `checked_environmentEvidence` proves only the selection of that frozen record. Registration completeness and fidelity remain R-DOC, intent adequacy R-INTENT. |
 | `ExampleExpectationOK` | Exactly the configured positive, compiler-rejection, policy-rejection or trusted-teaching expectation for the exact source snapshot. Elaborated observations bind group modules and role transcripts to the fixed fences' original bytes, and policy assessment selects the current example unit. Expected policy diagnostics keep stable identity tokens, optional subreason, and exact primary and related locations; matching requires the configured ordered list with no additional diagnostics. The sole registry adapter validates the identity vocabulary and authentic locations, and a completed rejection observation is not itself proof that the external producer did that work. |
 | `StageOK` (§7.2–§7.3, §7.8–§7.11) | `StageOK` checks the appropriate relation for the stage and subject; an unrelated payload constructor cannot pass. Every required producer completed for this mode; absence, crash, unknown or unsupported state is incomplete. |
 
@@ -127,10 +127,10 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | --- | --- |
 | `AxiomGate.auditSurfaceAt` (fresh, `--incremental`, `--build-lint`) | `Acceptance.freeze` reconciles Lake modules, sources, configuration, dependencies, reports, replay inventories and origins; `Acceptance.finish` returns `AcceptedRun` with checked equality to `finalize` (`finalize_collection_error`, `finalize_of_collected`). Cached build artifacts never cache a policy decision, and build-lint has no second exit-code-only PASS branch. |
 | `Lint.run` (`lake lint`) | The same project audit; exit 0 only through the claimed `Lint.classify` (`checked_classify`, `accepted_sound`): a zero audit exit and a recorded `completed` account of the requested mode. Exits 1, 2, 3 classify rejected, configuration-only and incomplete statuses; a missing or disagreeing status is 3. The audit's own exit code is the recorded `Lint.Observation`'s, or 3 when it recorded none or failed after recording a success (`gateExitCode`, `gateExitCode_some`, `gateExitCode_eq_zero`); an error escaping the audit discards any recorded result, so both sides are 3 (`AxiomGate.entry`). The driver reports the code the audit returned for its recorded result (`classify_gateExitCode`); the observation also decides the result status and the summary counts, each the number of findings of its impact (`Observation.status`, `Observation.tally`, `tally_eq`), and an incomplete finding exits 3 (`exitCode_incomplete`). Which findings a run records is operational. That the recorded observation is this invocation's audit is checked by inspection. `--explain-config` validates the manifest and Lake scope with the audit's own functions (`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and issues no audit certificate; it and `--help` are read-only, exit 2, refuse `--json-out` and `--verbose`, and first invalidate any recognizable `--json-out` destination. An error escaping `Lint.run` is exit 3, or 2 for a `manifest-` refusal, never 0 or 1. |
-| `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. The documentation stage runs inside the project's frozen-input guard (`withSourceEvidenceOr`): a source or configuration change during it is the project's RG2005 refusal, which replaces the stage's result. |
+| `AxiomGate.auditSurface --with-docs` | One process: the project plan and the documentation plan over the same snapshot and build, joined by `combineAccepted`; no evidence crosses a process boundary between the stages. The documentation stage runs inside the project's frozen-input guard (`withSourceEvidenceOr`): a source or configuration change during it is the project's [RG2005] refusal, which replaces the stage's result. |
 | `--acceptance-link PATH` (`axiomGate`, `docFenceAudit`) | `axiomGate` records the link for fresh project success only (no `--with-docs`): after `AcceptedRun`, the SHA-256 of the copy-relative accepted sources, configuration, dependency captures, `docs/` Markdown and, with `--verso`, the Verso library's inputs; `docFenceAudit` computes the same identity from its own fresh capture before building and refuses unless it is equal. `axiomGate` invalidates PATH before the audit starts and records the identity only after its outer configuration recheck passes, so any refusal leaves it incomplete. Equality establishes identical captured inputs; `shasum` and the filesystem are trusted. |
 | `AxiomGate.auditFile` with a conforming profile | A `freshFile` plan and `AcceptedRun`; dependencies stay incremental. No profile or a compiler-trusting file without a finding is `CLASSIFIED` (exit 0); the file audit's other exits follow its recorded observation as a project audit's do. |
-| `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. `Documentation.Sources.check` compares the documentation inventory and bytes before fence work and before `finishDocuments`; that terminal recheck (with `Snapshot.inputsUnchanged`) and the fence audit run in `BaseIO`, so a failure of either is rethrown only after the structural problems and the fence results obtained are reported. With `--verso`, `Sources.checkLinked` rechecks the linked inputs after the Verso build. |
+| `Documentation.auditBuiltProject`, `DocFenceAudit.run` | Markdown (and Verso) bytes, fence spans and task identities frozen before compiling; `finishDocuments` calls `finalize`. A corpus with a structural problem has no request plan: it reports each located problem and is refused. Group observations retain every unit and authenticate roles against the whole reconciled inventory; policy selection is per original fence. With `--verso`, the fresh build and render of the standard, then `Regula.Site.missingAnchors_nil_iff` for the registry's and the docs' links into it and `rowsMismatch_eq_none_iff` for its checklist rows. Also with `--verso`, `Regula.Prose.htmlErrors_nil_iff` for the rule IDs in the prose of the rendered pages: each is a registered rule linked to its page, for the runs the HTML scanner extracts, which is operational. `Documentation.Sources.check` compares the documentation inventory and bytes before fence work and before `finishDocuments`; that terminal recheck (with `Snapshot.inputsUnchanged`) and the fence audit run in `BaseIO`, so a failure of either is rethrown only after the structural problems and the fence results obtained are reported. With `--verso`, `Sources.checkLinked` rechecks the linked inputs after the Verso build. |
 | `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified; failed and incomplete checks retain their own outcomes, and the receipt retains each actual fence classification. The qualifier separately applies `PositiveClassifications` to require a nonempty list with every fence positive, passing and complete before admitting a positive correction. The adapter verifies the original requested documents before emitting accepted metadata. |
 | `FreshChecker.run` | A separate `serializedGraph` claim; `leanchecker` success is an observed process result. |
 
@@ -150,8 +150,8 @@ enter its warning check.
 
 `./scripts/verify.sh` runs `axiomGate --acceptance-link tmp/acceptance-link.json --verso
 website:RegulaStandard:regula-standard` after its builds and other required checks, and
-`./scripts/verify.sh docs` runs `docFenceAudit` with the same arguments over every `docs/` fence and
-every `lean` block of the standard. The shell's zero exit records completed execution of those
+`./scripts/verify.sh docs` runs `docFenceAudit` with the same arguments over
+every `docs/` fence and every `lean` block of the standard. The shell's zero exit records completed execution of those
 commands, not a separate Lean proof.
 
 Source capture keeps each prefix for failure reporting; a prefix is not a completed inventory. A
@@ -299,18 +299,18 @@ the call through each success owner.
 
 | Rules | Proved relation | Remaining boundary |
 | --- | --- | --- |
-| RG1001–RG1003 | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
-| RG1004 | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
-| RG1005 | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
-| RG1006 | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the regeneration observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates or delay one under a binder, so the helper's termination trusts that preprocessing (standard §7.4). |
-| RG1007 | `ContractOK` through `ruleFor` | Recorded contract failures are enforced; Probe's extraction of the proposition and root, proof admission and adequacy are not proved by this relation. |
-| RG2004 | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
-| RG3001, RG3002 | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
-| RG4003 | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
-| RG5002, RG5003 | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
-| RG2001–RG2005, RG4001–RG4004, RG5001–RG5003 | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
+| [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
+| [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
+| [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
+| [RG1006] | `authorizedUnsafeRecHelpers_iff`, `authorizedUnsafeRecHelpers_base`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the regeneration observation and the base's axioms are checked, and a `partial def`'s helper always has a finding that names the `partial def` (its opaque declaration) when that declaration is in the inventory. The regeneration itself (Lean's recursion compiler rerun by `Collect`) and its erasure comparison, compiled-code correspondence and execution coverage are not proved. Admission does not establish that the helper terminates whenever the base does: Lean compiles the base from a body its `wf_preprocess` rules rewrote, which Lean documents can remove a subterm the compiled helper still evaluates or delay one under a binder, so the helper's termination trusts that preprocessing (standard §7.4). |
+| [RG1007] | `ContractOK` through `ruleFor` | Recorded contract failures are enforced; Probe's extraction of the proposition and root, proof admission and adequacy are not proved by this relation. |
+| [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
+| [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
+| [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
+| [RG5002], [RG5003] | `materialDocumentationFailure_eq_none_iff`, `_eq_missingDocstring_iff`, `_eq_missingIntent_iff` (which docstrings each rule reports; the two never both fire), `hasIntentSection_iff`, `ruleForMaterialDocumentation_injective`; the native linter and the project gate both execute `RegulaPolicy.materialDocumentationFailure`, which `materialDocumentationFailure_eq_none_iff` ties to `MaterialDocumentationOK` | The ATX line grammar (`heading?`) is a definition with checked instances, not a theorem about Markdown (`intentHeading_examples`); `findDocString?` lookup is Lean's. Intent adequacy is R-INTENT. |
+| [RG2001]–[RG2005], [RG4001]–[RG4004], [RG5001]–[RG5003] | The stage relations above, composed by `accept_iff` and `accepted_report_identity` | The adapters that populate them. |
 
-RG2006 checks the Lake options with a proved decision over Lake's resolved configuration
+[RG2006] checks the Lake options with a proved decision over Lake's resolved configuration
 (`RegulaPolicy.Community.failures`, `failures_eq_nil_iff`), not by re-implementing any linter.
 It admits Mathlib's header linter on only when the target configures the linter's license option
 (`conforming_header`, `header_on_unlicensed_fails`); every other required option admits only its
@@ -374,7 +374,7 @@ inferred from any pure proof.
   Replay scope includes owned dependencies and the existing reporter closure where required; it
   may exceed the reported surface. Imported unowned modules remain trusted; the receipt records
   the completed operation and does not authenticate replay. Admission failures carry the
-  `[INCOMPLETE[kernel-admission]]` tag (`Admission.failureTag`), since RG2005 reports them as
+  `[INCOMPLETE[kernel-admission]]` tag (`Admission.failureTag`), since [RG2005] reports them as
   incomplete.
 - **Several copies of one name.** Lean realizes equation, unfolding and match-equation lemmas,
   functional induction and case principles, and congruence and injectivity lemmas in the module
@@ -461,7 +461,7 @@ inferred from any pure proof.
   `.olean.server` and the `.olean.private` Lean takes its kernel constants from) the coordinator
   read before the first inspection, read again as this environment started with the frozen
   presence and bytes (`Inspection.readings`, `Admission.Unchanged`), and compares again after the
-  last inspection (a change is RG2005, incomplete); (3) each declaration of each owned module of
+  last inspection (a change is [RG2005], incomplete); (3) each declaration of each owned module of
   the closure refers only to constants of its own closure (`Admission.referencesWithin` over
   `ConstantInfo.getUsedConstantsAsSet`, the dependencies `Kernel.Environment.replay` replays
   first); (4) every constant of the module is attributed to it in this environment and is the
@@ -481,7 +481,7 @@ inferred from any pure proof.
   its receipt lists every owned module its environment loaded as replayed or reused
   (`Admission.accountsFor`), no module as both (`ProducerReport.Environment.receiptOK`), and the
   admission its worker published is the one the report records (`Completed.ofReport`, compared by
-  decidable equality); otherwise the environment is RG2005, incomplete. **Proved** about the
+  decidable equality); otherwise the environment is [RG2005], incomplete. **Proved** about the
   executed definitions: `Admission.mem_reusedModules` (a reused module is owned and satisfies the
   offer of (1), (3), (4) and (5)); `Admission.importClosure_some` and
   `Admission.importClosure_trans` (over an index that holds every origin under its own name, as
@@ -558,9 +558,9 @@ inferred from any pure proof.
 - **Documentation.** `Environment.loadReportCoreAtSearchPath` freezes the `@[regula_material]`
   selector from the completed owned environment and reads module docs (Markdown and Verso) and
   docstrings with `Lean.findDocString?`, the same lookup as native feedback, so the project gate's
-  RG5001–RG5003 findings do not depend on whether native feedback was imported. Observed RG5003
+  [RG5001]–[RG5003] findings do not depend on whether native feedback was imported. Observed [RG5003]
   evidence is the fresh-project corpus pair and the native `MissingIntent` control; no incremental
-  or build-lint RG5003 run is claimed.
+  or build-lint [RG5003] run is claimed.
 - **Transport.** `Report.Collected` adds extraction keys to the pure policy report;
   `Checker.ProducerReport.Environment` adds the operational receipts and owns their JSON decoder:
   `census` (requested modules, declaration keys, optional execution root keys and root/module
@@ -596,7 +596,7 @@ inferred from any pure proof.
   the decoder.
   Replay and source-evidence failures cross workers as typed
   `ProducerReport.Outcome.admissionFailed` (the shared `Environment.validateSourceEvidence` guard)
-  and surface as RG2005, incomplete; initial setup failures stay RG2001. A transported refusal is
+  and surface as [RG2005], incomplete; initial setup failures stay [RG2001]. A transported refusal is
   consumed only after worker-packet validation; the parent's own snapshot check can return a typed
   refusal even when a worker crashes or a packet is malformed, and this does not accept or
   authenticate that worker result. Documentation retains its fence finding alongside the typed
@@ -643,7 +643,7 @@ inferred from any pure proof.
   roots and proves `ExecutionValid`. They establish connectedness and structural admission, not
   completeness or authenticity of IR extraction, that a candidate edge executes, machine-code
   correspondence or intended-specification adequacy. An active `csimp` self-edge stays an
-  unresolved replacement-only cycle (RG3001). Reflexive constant equalities remain in the candidate
+  unresolved replacement-only cycle ([RG3001]). Reflexive constant equalities remain in the candidate
   set, so that self-edge satisfies the active-edge subset invariant; an inactive reflexive
   candidate does not create an active cycle, and ordinary recursive IR self-edges remain a separate
   channel.
@@ -659,10 +659,10 @@ inferred from any pure proof.
   compilation creates snippet files in its parent before dispatch, which workers consume without
   rewriting. `SourceBinding.withUnchanged` rechecks sources and configuration around every
   frozen-input operation, including failed builds, crashed workers and decoding failures, and
-  returns a typed refusal (RG2005, incomplete) on a change while preserving the original outcome
+  returns a typed refusal ([RG2005], incomplete) on a change while preserving the original outcome
   otherwise. This includes missing or unreadable previously frozen source or configuration, and
   read failures preserve the underlying IO reason; initial environment and setup failures remain
-  RG2001, and only re-reading existing frozen evidence receives this normalization. Terminal
+  [RG2001], and only re-reading existing frozen evidence receives this normalization. Terminal
   results keep captured sources (`sourceAccount`) even on failure; an absent or partial account
   does not establish coverage. Capture callbacks retain the growing account in memory, and
   serialization occurs at terminal success/error boundaries; when an outer handler has no
@@ -726,7 +726,7 @@ retained, nor is any Git diff, untracked-file content list or directory-wide byt
 files and build outputs are not inputs merely because they share a dependency directory.
 
 Project census construction keeps failures until the policy diagnostic pass has completed.
-Unavailable history prevents acceptance, while its execution findings keep RG3001,
+Unavailable history prevents acceptance, while its execution findings keep [RG3001],
 `execution-unresolved` and root locations in fresh, incremental and build-lint modes. A stored
 census error is raised if no typed policy failure already refuses the run; it is never replaced
 by an empty census.
@@ -742,9 +742,9 @@ assembly belong to the project routes.
 
 | Interface | Establishes | Outside it |
 | --- | --- | --- |
-| Command hook (`Collect.commandDeclarations`) | Records for the constant binders in this command's information trees; RG1001–RG1007 when evidence is available. | Constants added without binder information; not a census. |
+| Command hook (`Collect.commandDeclarations`) | Records for the constant binders in this command's information trees; [RG1001]–[RG1007] when evidence is available. | Constants added without binder information; not a census. |
 | `Collect.currentModule` | Every constant in the current module's map, including private, generated and unused ones. | Completion is the caller's; a partial environment is partial. |
-| Module hook | RG5001 (module docstring present and first, no repeated import), RG5002 and RG5003 for registered public declarations. | Complete local declaration-policy coverage. |
+| Module hook | [RG5001] (module docstring present and first, no repeated import), [RG5002] and [RG5003] for registered public declarations. | Complete local declaration-policy coverage. |
 | `Collect.declaration` (`.snapshot`, `.replayCandidate`) | The canonical facts `Probe` uses, with replay and helper observations in the second form. | Replay and role authentication. |
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
@@ -1048,8 +1048,8 @@ runs under its own budget and records exhaustion as an unresolved correspondence
 
 The adapter runs the same pure policy and total failure-to-ID mapping as the project checker
 (`Regula.Checker.Policy.editor_decision_rule`); a potential generated-role exception is deferred
-as RG2005 rather than guessed. Recoverable compiler errors can leave hole-bearing declarations,
-which still yield RG1002 while the original compiler error is preserved; unavailable collection is
+as [RG2005] rather than guessed. Recoverable compiler errors can leave hole-bearing declarations,
+which still yield [RG1002] while the original compiler error is preserved; unavailable collection is
 reported as such. A module or project finding keeps its module or project location: Lean hosts
 module findings at the end of the in-memory file and configuration refusals at the owning
 command, never at an invented declaration. An unsupported `regula.localFoundation` request is a
@@ -1068,10 +1068,10 @@ import-time options and under which it emits nothing.
 
 **Documentation presence.** `Lean.findDocString?` accepts ordinary, Verso and inherited
 docstrings; private names follow Lean's visibility and never enter the public `@[regula_material]`
-selector. RG5001 reads Markdown and Verso module-doc metadata loaded with `importAll := true`,
+selector. [RG5001] reads Markdown and Verso module-doc metadata loaded with `importAll := true`,
 `loadExts := true` and `level := .private`; an empty loaded array means absence, an unknown module
 identity is unavailable evidence rather than an absent doc comment, and current metadata is
-checked only after module completion by the module hook. RG5001 reads the header's imports with
+checked only after module completion by the module hook. [RG5001] reads the header's imports with
 Lean's `parseHeader` (`HeaderSyntax.imports` without the implicit `Init`) and parses the first
 command once with `topLevelCommandParserFn`; a first command that does not parse is not a module
 docstring. Presence alone does not discharge module 5's requirements.
@@ -1117,7 +1117,7 @@ base: `stepOf`, `stepOf_eq_some_iff`) leads to from it and relates to nothing fu
 (`sourceName?_eq_some_iff`, over `chainEnd_eq_some_iff`: the executed walk is bounded by the number
 of declarations, which the proof shows no such chain exceeds), so the declaration it names
 is not itself attributed to another (`sourceName?_source`); the executed index equals the
-inventory search it replaces (`declarationIndex_get`), and an RG1005 finding built with that
+inventory search it replaces (`declarationIndex_get`), and an [RG1005] finding built with that
 attribution groups under it (`declarationFinding_groupUnder?`). Which declaration Lean generated a
 declaration from is read from the environment by `Collect.generatedFrom?`, one clause per family
 of `GeneratedFamily`: from the marks Lean's generators leave, from a recursive definition's
@@ -1137,7 +1137,7 @@ to `f` only when the admitted scope authorizes it
 (`authorizedUnsafeRecHelpers`), and `helperStep_base` proves `f` is then an audited definition of
 the helper's module and type, and that Lean's recursion compiler was observed to regenerate the
 helper; the observation itself is the boundary module 7 states, not proved.
-`GeneratedFamily.mem_all` proves the list the checker tries and the RG1005 guidance names holds
+`GeneratedFamily.mem_all` proves the list the checker tries and the [RG1005] guidance names holds
 every family, `generatedBy?` matches every family by construction (Lean's exhaustiveness check),
 and `RegistryChecks` requires the adoption guide to quote the guidance verbatim. That the clauses
 match Lean's generators is read from Lean's source and observed, not proved: the `cli` self-test's
@@ -1249,7 +1249,7 @@ declaration related to one that is itself related (such as `T.c.injEq` to `T.c`,
 | parent projection `S.toP` that is not a subobject | `Lean/Elab/Structure.lean:1409-1440` | `projection`: `getAuxParentProjectionInfo?` | |
 | `S.mk._flat_ctor` | `Lean/Elab/Structure.lean:1229-1240` | `constructorLemma`: its precondition (a registered structure) | `Channel.mk._flat_ctor` |
 | `S.x._default`, `S.x._inherited_default` | `Lean/Elab/Structure.lean:1354-1392` | `fieldDefault`: Lean's own lookup (`getEffectiveDefaultFnForField?`) | `Rec.x._default` |
-| `S.x._autoParam` | `Lean/Elab/Structure.lean:1120-1123` | own location: a `Syntax` value, which uses no axiom, so it has no RG1005 finding | |
+| `S.x._autoParam` | `Lean/Elab/Structure.lean:1120-1123` | own location: a `Syntax` value, which uses no axiom, so it has no [RG1005] finding | |
 | an inductive predicate's `T.below` (an inductive type) and `T.brecOn` (a theorem) | `Lean/Meta/IndPredBelow.lean:83-234` | own location: Lean marks only `T.below.casesOn`; `T.below`'s constructors and recursors are related to `T.below` | |
 | computed fields: `T._impl` and its constructions, `T.casesOn._override`, `T.c._override`, `T.f._override` | `Lean/Elab/ComputedFields.lean:107-205` | own location: `T._impl` is tied to `T` by its name alone; an `_override` is recorded only as an `implemented_by` target, which an author can write too | |
 | coinductive `T._functor`, its constructions and `T.functor_unfold` | `Lean/Elab/MutualInductive.lean:1359-1409`, `Lean/Elab/Coinductive.lean:118-495` | own location: tied to `T` by its name alone | |
@@ -1301,13 +1301,13 @@ and the `_private.<Mod>.0.` and `._@.…_hyg.N` spellings of other declarations
 `plan_eq_nil_iff`, the plan is empty exactly when every setup issue is one `init` does not fix;
 `issues_run`, the plan removes exactly the fixable issues and adds none. The option check covers
 exactly the claimed targets (the root targets the manifest does not exclude, and none while an
-existing manifest fails RG2002), as RG2006 does: `run_sets`, every required option a claimed
+existing manifest fails [RG2002]), as [RG2006] does: `run_sets`, every required option a claimed
 target built without is then set to its required value as `RegulaPolicy.Community.sets` reads
-it, which meets RG2006's requirement on that option (`meets_of_sets`); `resolved_run`, every
+it, which meets [RG2006]'s requirement on that option (`meets_of_sets`); `resolved_run`, every
 claimed target then has a value for every required option or a `-D` candidate of its own extra
 `lean` arguments names it; `added_unargued`, no option the plan adds to the package or to a
 claimed target's own configuration names an option that a `-D` candidate of that target sets
-(the candidates of `RegulaPolicy.Community.argumentSettings`, RG2006's own reading, which
+(the candidates of `RegulaPolicy.Community.argumentSettings`, [RG2006]'s own reading, which
 includes every `-D` that `lean` reads only under the command-line assumption stated in
 `RegulaPolicy.Community`); `argued_run`, the plan leaves unchanged the required options that
 claimed targets set only with such a `-D`, which `doctor` reports once as a setup issue `init`
@@ -1325,14 +1325,14 @@ planned exactly when there is no manifest and the package has a `lean_lib` for i
 file it wrote unless the new plan is empty and each claimed target of both observations, matched
 by kind and name, sets the same required options only with a `-D` as before (`arguedBy_run`'s
 executable counterpart, which catches an added option that reaches such a target; a target the
-new observation does not claim, as while a starter manifest fails RG2002, is not compared), and it
+new observation does not claim, as while a starter manifest fails [RG2002], is not compared), and it
 writes the starter manifest only after `Manifest.parse` reads the text back as exactly that
 manifest. That the lakefile edits realize
 the model's `apply` is this check, not a theorem. That `allClaimed` holds only when the observed
 targets are every root `lean_lib` and `lean_exe` is how `observe` builds the observation, and the
 extra `lean` arguments it reads are those of the audit's inventory, read by the same
-`Lake.libraryOptions` and `Lake.executableOptions`. `doctor` runs the audit's own RG2002 functions
-(`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and RG2006
+`Lake.libraryOptions` and `Lake.executableOptions`. `doctor` runs the audit's own [RG2002] functions
+(`Manifest.loadFor`, `Acceptance.surfaceAssignments`, `AxiomGate.checkClassification`) and [RG2006]
 decision (`Community.failures`) over Lake's resolved options of each claimed target. It applies
 Mathlib's options when the workspace contains Mathlib, where the audit applies them to a target
 whose modules import Mathlib: by `conforming_of_mathlib` a target `doctor` accepts also passes the
@@ -1349,8 +1349,8 @@ count is exactly the rest, and `wrapFrom_flatten` that grouping keeps each name,
 the finding text is `moduleLines` is by definition, and the line width is layout. The starter
 manifest lists each `lean_exe` with the first library containing its root module, so, by its
 definition rather than a theorem, it meets `RootsClassifiedAlike` unless a root lies in two
-libraries; a library whose modules are all such roots is refused as RG2002 by `doctor`. `doctor`
-prints one RG2006 finding for the claimed targets that share a claim and the same failure
+libraries; a library whose modules are all such roots is refused as [RG2002] by `doctor`. `doctor`
+prints one [RG2006] finding for the claimed targets that share a claim and the same failure
 detail, where the audit prints one per target. The agent-guidance file is found operationally:
 from the Lake root up to the nearest directory holding a `.git` entry (Git itself is not run),
 the nearest `AGENTS.md` with the section, else the nearest that exists, else the repository
@@ -1573,7 +1573,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | project audit | changed import, changed `.olean` part | an owned module is replayed unless an offer covers it over its closure here and over artifacts read again with their frozen parts | Proved | `Admission.replayed_unless_offered`, `Admission.replayed_of_changed`, `Admission.replayed_of_changed_import`; an artifact not read again with its frozen parts cannot support an offer (`Admission.Unchanged`) |
 | checkerSelftest structural | a changed, removed and added `.olean`, `.olean.server` and `.olean.private`, each restored, for a module with three parts and with one, through `Inspection.readings` and `Admission.currentOffers` | reading the frozen parts: each change withdraws the offer and `Inspection.changedArtifact?` reports it | External | observed |
 | checkerSelftest structural | a fresh audit of two claimed libraries that import one another | the report workers, Lean's import and the kernel reuse a requested module: accepted, each module replayed in one environment, the reused module's key required | External | observed; the decision is `Admission.reuseJustified_admitted` and `Admission.replayed_of_loaded` |
-| project audit | none | a frozen `.olean` part that changes during the audit is RG2005 | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (two rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
+| project audit | none | a frozen `.olean` part that changes during the audit is [RG2005] | External | open: MUT-02 not yet evidenced through the gate; reading the parts is observed directly (two rows above), and no intended-reason control rewrites a part between the freeze and the final comparison |
 
 The `qualify` campaigns and what they observe:
 
@@ -1585,13 +1585,13 @@ The `qualify` campaigns and what they observe:
   in dependency order: imported-artifact controls after the artifacts they import, restored
   controls after every malformed one.
 - `native-launcher`: 42 paired baseline/cached-environment controls with exact equality.
-- `producers`: for the incremental and build-lint entrypoints and each of RG5001/RG5002, one
+- `producers`: for the incremental and build-lint entrypoints and each of [RG5001]/[RG5002], one
   workspace runs Fixed, then Violation over that Fixed build (so a stale build must not hide the
   violation), then Fixed again from a cleared build. A standalone executable additionally has
   positive and owned-axiom controls, each in its own fresh workspace, and each carries module
   documentation so the intended axiom violation is isolated. Each invocation checks exact stable
   ID, detail, primary location, related locations and result status, and requires unique output
-  and exact embedded source/selector/type/axiom evidence. The fresh-project RG5001/RG5002
+  and exact embedded source/selector/type/axiom evidence. The fresh-project [RG5001]/[RG5002]
   observations are the rule-example corpus records, validated there by the same producer oracle.
   Optional raw export: `lake exe qualify producers --evidence tmp/producer-examples.json`; the
   export embeds exact source bytes and canonical diagnostic/result data, including the checker
@@ -1623,7 +1623,7 @@ The `qualify` campaigns and what they observe:
   [Operational assumptions](#operational-assumptions)).
 - `acceptance fences`: fence-compilation packet mutations with positive restoration.
 - `acceptance-snapshots`: `dependencies` (ignored Git and non-Git dependency input coverage and
-  mutation), `history` (RG3001 fresh, incremental and build-lint history refusal and restoration)
+  mutation), `history` ([RG3001] fresh, incremental and build-lint history refusal and restoration)
   and `git-status` (the dirty decision against a literal-pathspec status for G1–G3, plus the
   symlinked-root and outside-root cases); `all` runs all three under one deadline. It checks typed
   root/source attribution and absence of acceptance on unavailable history; these are scoped
@@ -1902,3 +1902,24 @@ or exceptional return; a killed run's directory is reclaimed by the next scratch
 process holds the scratch lock (`Regula.Scratch`).
 Helpers invoke external programs with argument arrays, never generated shell programs. The
 operator's narrow shell exceptions are recorded in [`AGENTS.md`](../../AGENTS.md).
+
+[RG1001]: https://rbeauchamp.github.io/regula/dev/rules/RG1001/
+[RG1002]: https://rbeauchamp.github.io/regula/dev/rules/RG1002/
+[RG1003]: https://rbeauchamp.github.io/regula/dev/rules/RG1003/
+[RG1004]: https://rbeauchamp.github.io/regula/dev/rules/RG1004/
+[RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
+[RG1006]: https://rbeauchamp.github.io/regula/dev/rules/RG1006/
+[RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
+[RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
+[RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
+[RG2004]: https://rbeauchamp.github.io/regula/dev/rules/RG2004/
+[RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
+[RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
+[RG3001]: https://rbeauchamp.github.io/regula/dev/rules/RG3001/
+[RG3002]: https://rbeauchamp.github.io/regula/dev/rules/RG3002/
+[RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/
+[RG4003]: https://rbeauchamp.github.io/regula/dev/rules/RG4003/
+[RG4004]: https://rbeauchamp.github.io/regula/dev/rules/RG4004/
+[RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
+[RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

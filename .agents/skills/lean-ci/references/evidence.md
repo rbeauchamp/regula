@@ -39,7 +39,7 @@ The timings and hosted outcomes below were observed; they are not proofs.
 The corpus's displayed `detectorSeconds` brackets the fresh checker subprocess, including
 nested builds, fence compilation/import/admission and result serialization as applicable.
 Fixture setup, Python export and the subsequent qualifier are outside that timer.
-For example, RG4001's orphan-marker fixture also has a valid Lean fence: the documentation
+For example, [RG4001]'s orphan-marker fixture also has a valid Lean fence: the documentation
 driver checks that fence before emitting its structural finding. Seconds for that complete
 invocation do not measure the scanner alone. The separate native-editor observations
 use already-live snapshots and provisioned imports, not fresh project admission.
@@ -130,3 +130,5 @@ This skill follows the system `skill-creator` guidance and OpenAI's
 [Rethinking skills and prompts for GPT-6 Astra](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra):
 use a narrow discovery description, expose details when relevant, and retain decision-bearing
 constraints instead of prescribing a long fixed itinerary. Repository rules remain authoritative.
+
+[RG4001]: https://rbeauchamp.github.io/regula/dev/rules/RG4001/

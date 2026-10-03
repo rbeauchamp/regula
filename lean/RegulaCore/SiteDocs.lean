@@ -128,19 +128,21 @@ def enforcementPage (ident : Identity) : Except String String := do
     "Every rule's findings are errors under a strict claim. An established violation makes the \
       result FAIL; missing or unsupported evidence makes it INCOMPLETE. Neither is accepted. \
       `lake lint` exits with " ++ exitCodesText ++ "; it exits `2` when every finding of a FAIL \
-      is RG2002. The editor shows a rule's local findings as warnings (errors under \
-      `warningAsError`); they are not project results, and the rule pages say which rules the \
-      editor reports.\n\n" ++
+      is " ++ Prose.relativeCitation .configuration ++ ". The editor shows a rule's local \
+      findings as warnings (errors under `warningAsError`); they are not project results, and the \
+      rule pages say which rules the editor reports.\n\n" ++
     subsection "enforcement-options" "No local exception" ++
     "No source option, attribute or command-line flag makes a rule pass on a claimed surface. \
       `set_option linter.regula false` and `regula.localFoundation` never waive a rule: \
       `lake lint`, the build-lint `policy` target and `axiomGate` still apply it. Where Regula's \
       local linter reports a finding during a project build (`axiomGate` and the `policy` target \
       keep it on by default; `lake lint` builds with it off, whatever the source sets \
-      `linter.regula` to), that finding is a build warning, so the result is INCOMPLETE under \
-      RG2003 instead of carrying the rule's finding. Switching the local linter off changes which \
-      finding is reported, never whether the result is accepted. Hiding a diagnostic does not \
-      establish the property it checks. RG5002 and RG5003 check the declarations registered with \
+      `linter.regula` to), that finding is a build warning, so the result is INCOMPLETE under " ++
+      Prose.relativeCitation .sourceBuild ++ " instead of carrying the rule's finding. Switching \
+      the local linter off changes which finding is reported, never whether the result is \
+      accepted. Hiding a diagnostic does not establish the property it checks. " ++
+      Prose.relativeCitation .materialDocumentation ++ " and " ++
+      Prose.relativeCitation .materialIntent ++ " check the declarations registered with \
       `@[regula_material]`; removing a registration changes the reviewed claim, not only their \
       result.\n\n" ++
     subsection "enforcement-commands" "Where rules run" ++
