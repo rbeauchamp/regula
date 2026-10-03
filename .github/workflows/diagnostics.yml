@@ -132,3 +132,5 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: lean --run lean/Regula/DiagnosticsGate.lean gate
+
+# Throwaway demonstration for #211: a change to an input, whose run is then cancelled.
