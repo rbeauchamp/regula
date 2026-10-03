@@ -599,3 +599,5 @@ one. That Reservoir behaves so is an observation of its source at
 (`testbed-analyze.py`, `testbed-save.py`, `utils/manifest.py`) and of Lake 4.34.0's
 (`Lake/CLI/Main.lean`, `Lake/Load/Materialize.lean`), not a guarantee.
 Git requires such as `rev = "v0.2.0"` name the tag directly and involve no version order.
+
+<!-- Throwaway demonstration of a documentation-only pull request for #211; not for merging. -->
