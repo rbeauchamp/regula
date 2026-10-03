@@ -255,8 +255,7 @@ linter feed it into admission. This linkage trusts compiler execution, installat
 import loading and canonical filesystem paths. It does not prove those IO mechanisms.
 `ProducerReport.validate_sound` and `fromJson_admissible` also require this agreement for every
 raw or decoded admitted report, without relying on sampled transport mutations. When the
-capability is absent (unsatisfiable on this stable revision, whose compiled capability is
-`present`; it holds once a prepared revision compiles `absent`), the checked decision
+capability is absent, as this adaptation's compiled policy declares, the checked decision
 theorems show that a retired name cannot become a compiler axiom or an authenticated native
 axiom and its singleton axiom set is unknown. A dependent non-axiom declaration without an
 earlier proof-hole failure receives the unknown-axiom refusal even in teaching mode.

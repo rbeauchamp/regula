@@ -65,7 +65,7 @@ def version : String := "4.35.0-rc3"
 def commit : String := "470d5ce1400764999581fd26d5d72b00d990b0f4"
 
 /-- Prepared revisions are candidates until reviewed qualification permits promotion. -/
-def candidate : Bool := true
+def candidate : Bool := false
 
 /-- The entrypoints that call this decision (`axiomGate`, so also the `lake lint` audit,
 `docFenceAudit` and `freshChecker`) refuse candidates. Explicit diagnostics may observe them. -/
