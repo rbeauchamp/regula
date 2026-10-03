@@ -970,6 +970,23 @@ otherwise only where `simp` unfolds declarations it is told to unfold, which the
 `simp` is not), not proved. The `_sunfold`
 definition the structural compiler adds for a regenerated base is still compared with the observed
 one, like every definition a regeneration adds.
+
+What the admission of a helper reads by a derived name or from metadata the audited module can
+write, and what authenticates each:
+
+| Name or record | Read by | Authenticated by |
+| --- | --- | --- |
+| `f._unsafe_rec` → `f` | `Compiler.isUnsafeRecName?` | Selection only: the helper is admitted only where the regeneration from its value reproduces `f` and every auxiliary definition. |
+| `f._unary`, `f._mutual`, and `f._f` and `f._sunfold` of the helper's base | Added by the regeneration under its root; `Collect.wfRegeneration` reads the observed unary definition's relation | Each regenerated definition must equal the observed one of its name. The relation only selects: the comparison drops it, and the well-foundedness proof is the observed kernel-checked one. |
+| `g._sunfold` of any other constant | Lean's smart unfolding | Not read: every observation runs with smart unfolding off. |
+| Matcher and `casesOn` metadata, in the comparison | `Collect.threadedMatch?` | The kernel-checked threading law of each application (`Collect.threadingLawChecked`). |
+| Matcher metadata, in reduction | `Meta.whnfMatcher`, `Meta.reduceMatcher` | The constant's own value is unfolded. |
+| A matcher's equations and splitter | The proof search of `threadingLawChecked` | Guidance only: the kernel checks the theorem found. |
+| Projection metadata | The `paramProj` preprocessing step; unfolding a projection function | `paramProj` moves only `wfParam`, the identity; the function's own value is unfolded. |
+| `Structural.eqnInfoExt`, `WF.eqnInfoExt`, reducibility statuses | The regeneration | Selection only, never an argument of the comparison. |
+| `T.rec` | The structural compiler | A recursor is created by the kernel with its inductive type. |
+| Matcher and `casesOn` metadata, in Lean's compilers during the regeneration | `MatcherApp.addArg`, which passes the function standing for the recursive calls through a `match` | Open ([#210](https://github.com/rbeauchamp/regula/issues/210)): only the kernel's type check of the regenerated definition. That the passing is right rests on the threading law, which is not checked for these applications. No exploit is reproduced. |
+| `T.below`, `T.brecOn` of an inductive type of the audited module | The structural compiler, by name | Open ([#210](https://github.com/rbeauchamp/regula/issues/210)): only the kernel's type check. Lean generates them with an `inductive`; a module that adds an inductive type by metaprogram can declare others. No exploit is reproduced. |
 No theorem covers the regeneration itself, which runs in Lean's elaborator. The comparison
 never uses `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of
 the self-referential helper does not terminate. The regeneration runs Lean's elaborator in the
