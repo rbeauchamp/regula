@@ -929,11 +929,12 @@ which the structural compiler unfolds before its fixed-parameter analysis) and o
 `Fixtures.Positive.ReducibleWhereCompiled` (a status that holds only where the definition is
 compiled: `attribute [local reducible]` under well-founded and under structural recursion, on the
 two functions of two recursive calls that pass one parameter, on a function the `List.map` rule then
-matches through, on two functions of which one unfolds to the other and that one to `List.map`, on
-two functions that the rule matches through only together, and on the discriminant of a `match` in a
-recursive call's argument, also behind a function that unfolds to that `match`; a `@[reducible]`
-function made semireducible afterwards; `attribute [local irreducible]` on an `abbrev`; `attribute
-[local instance_reducible]` and `attribute [local implicit_reducible]`, which need no
+matches through, on two functions of which one unfolds to the other and that one to `List.map`, on a
+function that a `@[reducible]` function the definition calls unfolds to, on two functions that the
+rule matches through only together, and on the discriminant of a `match` in a recursive call's
+argument, also behind a function that unfolds to that `match`; a `@[reducible]` function made
+semireducible afterwards; `attribute [local irreducible]` on an `abbrev`; `attribute [local
+instance_reducible]` and `attribute [local implicit_reducible]`, which need no
 `allowUnsafeReducibility`; a function of an imported module made `reducible` after the definition;
 an `instance_reducible` function made `reducible` after it; a definition that reaches seven
 definitions of its module, of which two change a decision; and one that passes seven parameters
@@ -974,11 +975,15 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
 - The preprocessing (`Collect.preprocessingStatuses`), where the recursion can be well-founded. The
   first steps of Lean's `wfRecursion` run as in the regeneration (`Collect.wfPacked`), and
   `WF.preprocess` runs on the packed definition under the recording predicate with Lean's own
-  answers. Each definition recorded that the helpers' values mention is given each of its statuses
-  alone. Where one that unfolds more leaves the result unchanged, the definitions the preprocessing
-  newly asks about are made `reducible` too, at most four times (`Collect.effectiveChange?`), which
-  follows a function that unfolds to another function. A change that changes the preprocessed body
-  is a candidate.
+  answers. Each definition recorded is given each of its statuses alone, whether the helpers' values
+  mention it or another definition unfolds to it (found in review: a function behind a
+  `@[reducible]` one was left out, and its helper rejected, `FixturesWhereTree.hidden`). Where a
+  status that unfolds more leaves the result unchanged, the definitions the preprocessing newly asks
+  about that do not unfold are made `reducible` too, and the preprocessing is rerun, at most five
+  runs in all (`Collect.effectiveChange?`, `Collect.chainRuns`), which follows a function that
+  unfolds to another function. A change that changes the preprocessed body is a candidate. A change
+  whose five runs each found a further function is undecided (`Collect.ChangeOutcome.exhausted`),
+  and the search then reports that it is not complete.
 - The assignment tried first. `Collect.observedFixedParameters?` reads which parameters each
   observed base keeps outside its recursion, from the shape Lean's compilers give it: the parameters
   passed to the `_unary` or `_mutual` definition a well-founded group is packed into, the ones bound
@@ -986,17 +991,20 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
   `_f` of a structural definition. Each candidate of the fixed parameters is given the status that
   unfolds least among those under which the analysis still fixes all of them.
   `Collect.survivingMentions` counts the mentions of a constant that compilation keeps (outside
-  proofs, types, and the relation and measure of a fixpoint). Each function the helpers mention
-  whose count in the preprocessed body differs from its count in the observed definitions is made
-  `reducible` where the body keeps more and semireducible where it keeps fewer, all at once, since a
-  rule can need several functions to unfold together, and that change is selected where the body
-  then keeps the observed number of each.
+  proofs, types, and the relation and measure of a fixpoint). Where the preprocessed body keeps
+  another number of mentions of some constant than the observed definitions do, the change selected
+  is one after which it keeps the observed number of each. Tried first for that is one change for
+  all the functions concerned, each made `reducible` where the body keeps more mentions of it and
+  semireducible where it keeps fewer, since a rule can need several functions to unfold together;
+  then each candidate's own changes. The numbers only order the candidates and select that change:
+  no candidate is left out for them.
 - The enumeration. `Collect.candidates` then enumerates the assignments: every way to give one or
-  more of the candidates another of its statuses, when there are at most `Collect.candidateLimit`
-  (63), and otherwise only the first 63 single changes. Each assignment is installed
-  (`Collect.withStatuses`) over the environment it was found in, and all attempts run under it, each
-  regeneration with the heartbeat budget of one declaration (`withCurrHeartbeats`): at most 2 + 2 ×
-  (1 + 63) = 130 regenerations for one helper, of at most three compiler runs each.
+  more of the candidates another of its changes, when there are at most `Collect.candidateLimit`
+  (63), and otherwise only the first 63 single candidate changes, each of which gives one candidate
+  another status and, where it followed a chain, the functions of that chain theirs. Each assignment
+  is installed (`Collect.withStatuses`) over the environment it was found in, and all attempts run
+  under it, each regeneration with the heartbeat budget of one declaration (`withCurrHeartbeats`):
+  at most 2 + 2 × (1 + 63) = 130 regenerations for one helper, of at most three compiler runs each.
 
 What is machine-checked is the enumeration, `Collect.mem_candidates` (where `candidates` reports
 that it is exhaustive, it holds every nonempty list that takes one alternative each from some of the
@@ -1061,21 +1069,26 @@ consulted. The rest is argued, with no theorem:
   observed to reject a definition Lean accepts.
 - Termination and cost. Each question is one run of Lean's own function with the heartbeat budget of
   one declaration. The fixed parameters take one run, and at most three more for each definition
-  recorded; the preprocessing takes one run, and at most three runs of at most five steps for each
-  definition recorded that the helpers mention. `effectiveChange?` recurses on its count of runs.
-  `assignments?` stops as soon as more than 64 assignments exist, deciding list by list, so it never
-  builds more than 64 times one candidate's alternatives plus one.
+  recorded; the preprocessing takes two runs, and at most three changes of at most five runs for
+  each definition recorded. `effectiveChange?` recurses on its count of runs, and reports when they
+  are used up. `assignments?` stops as soon as more than 64 assignments exist, deciding list by
+  list, so it never builds more than 64 times one candidate's alternatives plus one.
 
-`Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` pins the bound: a forged helper whose
-seven candidates allow 127 assignments, and that neither the assignment its base selects nor any of
-the seven single changes reproduces, is neither admitted nor rejected. `unsafeRecRegeneration`
-throws, naming the helper as undecided, and the audit fails as incomplete, with no violation
-reported for the helper, as it does at a resource limit of the checker (`checkerSelftest fixtures`
-requires that outcome with no violation before it matches the text). Incomplete, not a violation, is
-the verdict the checker has: a helper no attempt within the bound reproduces may still be what Lean
-generated, so reporting it as a violation of the rule would assert what the checker has not
-established, and the helper is not admitted either way. The helper Lean generated for a definition
-of that shape does not need the enumeration (`fixtures_where_seven`), and the shape that the
+`Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` pins the bound of the enumeration: a
+forged helper whose seven candidates allow 127 assignments, and that neither the assignment its base
+selects nor any of the seven single changes reproduces, is neither admitted nor rejected.
+`Fixtures.Mutations.KnownLimitReducibilityChain` pins the bound of a chain, for a helper Lean
+generated: its definition maps through six functions of which each unfolds to the next, all
+`reducible` only where it was compiled, one more than the five runs follow (found in review: the
+search took the chain it had not followed to its end for a change with no effect, and reported a
+violation). Every bound the search stops at ends the same way. `unsafeRecRegeneration` throws,
+naming the helper as undecided, and the audit fails as incomplete, with no violation reported for
+the helper, as it does at a resource limit of the checker (`checkerSelftest fixtures` requires that
+outcome with no violation before it matches the text). Incomplete, not a violation, is the verdict
+the checker has: a helper no attempt within the bound reproduces may still be what Lean generated,
+so reporting it as a violation of the rule would assert what the checker has not established, and
+the helper is not admitted either way. The helper Lean generated for a definition of the
+seven-candidate shape does not need the enumeration (`fixtures_where_seven`), and the shape that the
 replaced search left undecided is now decided in both directions: `fixtures_bound_searched` is
 admitted, and in `Fixtures.Mutations.ReducibleAfterUnsafeRecForge` its faithful copy is admitted and
 its divergent copy rejected.

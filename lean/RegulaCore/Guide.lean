@@ -471,14 +471,24 @@ def guide : RuleId → Guide
         "A helper for which the definitions whose reducibility status changes a decision of \
           Lean's recursion compilers allow more than 63 assignments of another status is tried \
           under the assignment its observed base selects and then under the first 63 single \
-          changes only, each giving one definition one other status. If none reproduces its \
-          base the helper is undecided, neither admitted nor rejected: the checker stops with \
-          an error that names it, and the audit is incomplete, not a violation of this rule. A \
-          helper no attempt within the bound reproduces may still be what Lean generated, so a \
-          violation would assert what the checker has not established, and the helper is not \
-          admitted either way. `Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` shows \
-          the outcome for a forged helper; the helper Lean generated for a definition of that \
-          shape is admitted under the assignment its base selects.",
+          candidate changes only. One candidate change gives one definition another status \
+          and, where that definition unfolds to further functions that had to unfold too, \
+          those functions theirs, so it can assign statuses to several definitions. If none \
+          reproduces its base the helper is undecided, neither admitted nor rejected: the \
+          checker stops with an error that names it, and the audit is incomplete, not a \
+          violation of this rule. A helper no attempt within the bound reproduces may still be \
+          what Lean generated, so a violation would assert what the checker has not \
+          established, and the helper is not admitted either way. \
+          `Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge` shows the outcome for a \
+          forged helper; the helper Lean generated for a definition of that shape is admitted \
+          under the assignment its base selects.",
+        "A function the definition calls is followed through at most four further functions \
+          that it unfolds to and that had another status where the definition was compiled. \
+          Where a fifth is found, the search has not decided that change, and a helper nothing \
+          reproduces is undecided in the same way: the audit is incomplete, not a violation. \
+          `Fixtures.Mutations.KnownLimitReducibilityChain` shows that outcome for a helper Lean \
+          generated, whose definition maps through six functions of which each unfolds to the \
+          next, all `reducible` only where it was compiled.",
         "A helper is not admitted where the checker finds no proof of its recursion equation \
           that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
           Lean adds with a well-founded definition, in the theorem Lean realizes for a \

@@ -974,85 +974,118 @@ private def preprocessed (consulted? : Option (IO.Ref (NameMap Asked) × Bool))
     let processed := (← recording consulted? (WF.preprocess unaryPreDef.value)).expr
     return (processed, ← counted.mapM (survivingMentions · 100000 processed))
 
-/-- `change`, extended until it changes what the preprocessing makes of `preDefs` in
-`environment`, with that result and its counts: where the result is still `unchanged`, each
-definition the preprocessing now asks about and `known` does not hold is made `reducible` too, and
-the preprocessing is rerun, at most `runs` times in all. This follows a function that unfolds to
-another function that does not unfold yet, which only the two together let a `wf_preprocess` rule
-see through. `none` if no run changes the result or one throws. -/
+/-- What a status change comes to for the preprocessing (`effectiveChange?`). -/
+private inductive ChangeOutcome where
+  /-- The change, as extended, changes the result: the change, the result and its counts. -/
+  | changed (change : Statuses) (processed : Expr) (counts : Array Nat)
+  /-- The change leaves the result as it was, and there is nothing further to unfold. -/
+  | unchanged
+  /-- The runs allowed were used up while each still found a further function to unfold: whether
+  the change changes the result is not known. -/
+  | exhausted
+
+/-- What `change` comes to for the preprocessing of `preDefs` in `environment`
+(`ChangeOutcome`). With `follow`, where the result is still `unchanged`, each definition the
+preprocessing now asks about that `known` does not hold and that does not unfold wherever it was
+asked is made `reducible` too, and the preprocessing is rerun, at most `runs` times in all. This
+follows a function that unfolds to another function that does not unfold yet, which only the two
+together let a `wf_preprocess` rule see through. A change whose runs are used up is `exhausted`,
+not `unchanged`: the caller must not take the search for complete. A run that throws leaves the
+result unchanged. -/
 private def effectiveChange? (environment : Environment) (preDefs : Array PreDefinition)
-    (counted : Array Name) (unchanged : Expr) (known : NameSet) (change : Statuses) :
-    Nat → TermElabM (Option (Statuses × Expr × Array Nat))
-  | 0 => return none
+    (counted : Array Name) (unchanged : Expr) (follow : Bool) (known : NameSet)
+    (change : Statuses) : Nat → TermElabM ChangeOutcome
+  | 0 => return .exhausted
   | runs + 1 => do
+    let changed := withStatuses environment change
     let consulted ← IO.mkRef ({} : NameMap Asked)
-    let some (processed, counts) ← decisionIn (withStatuses environment change)
+    let some (processed, counts) ← decisionIn changed
         (preprocessed (some (consulted, false)) preDefs counted)
-      | return none
-    if processed != unchanged then return some (change, processed, counts)
-    let exposed := (← consultedDefinitions consulted).filterMap fun (name, _) =>
-      if known.contains name then none else some name
-    if exposed.isEmpty then return none
-    effectiveChange? environment preDefs counted unchanged (exposed.foldl NameSet.insert known)
-      (change ++ exposed.toList.map (·, .reducible)) runs
+      | return .unchanged
+    if processed != unchanged then return .changed change processed counts
+    unless follow do return .unchanged
+    let exposed := (← consultedDefinitions consulted).filterMap fun (name, asked) =>
+      let status := getReducibilityStatusCore changed name
+      if known.contains name || asked.answers status == asked.answers .reducible then none
+      else some name
+    if exposed.isEmpty then return .unchanged
+    effectiveChange? environment preDefs counted unchanged follow
+      (exposed.foldl NameSet.insert known) (change ++ exposed.toList.map (·, .reducible)) runs
 
 /-- The preprocessing runs `effectiveChange?` makes at most for one change that unfolds more: the
 change itself and four further links of a chain of functions. -/
 private def chainRuns : Nat := 5
 
 /-- The status changes that change what Lean's well-founded preprocessing makes of `preDefs` in
-`environment`, and the assignment the observed bases select.
+`environment`, the change the observed bases select, and whether every change was decided.
 
-The definitions are those the helpers' values mention and the preprocessing asks about at a low
-mode (`recordConsults`, with Lean's own answers). Returned first: for each, the changes that
-change the result when it alone is given a status that answers differently from its own where it
-was asked (`Asked.statuses`), one for each result; a status that unfolds more is followed along a
-chain of functions (`effectiveChange?`). Returned second: one change for all of them of which the
-result keeps another number of mentions than the observed definitions do (`wanted`, counted by
-`survivingMentions`). A toolchain rule that matches through a function replaces the application
-it matches, and a parameter Lean finds fixed is dropped from the recursive calls, so a function
-the result mentions more often than the observed definitions do is made `reducible`, and one it
-mentions less often semireducible, all at once, since a rule can need several functions to unfold
-together, and that change too is followed along a chain. It is returned where the result then
-keeps the observed number for each of them. Everything here only proposes assignments. -/
+The definitions are those the preprocessing asks about at a low mode (`recordConsults`, with
+Lean's own answers), whether the helpers' values mention them or another definition unfolds to
+them. Returned first: for each, the changes that change the result when it alone is given a
+status that answers differently from its own where it was asked (`Asked.statuses`), one for each
+result; a status that unfolds more is followed along a chain of functions (`effectiveChange?`).
+The observed definitions only order them: `wanted` counts the mentions of a constant they keep
+(`survivingMentions`), and the changes after which the result keeps the observed number of most
+of the constants counted come first. A toolchain rule that matches through a function replaces
+the application it matches, and a parameter Lean finds fixed is dropped from the recursive calls,
+so those numbers tell the readings of a status apart. Returned second, where the result keeps
+another number for some constant: a change after which it keeps the observed number of each. Tried
+first for that is one change for all the functions concerned, each made `reducible` where the
+result mentions it more often than the observed definitions do and semireducible where it
+mentions it less often, since a rule can need several functions to unfold together; then the
+changes returned first, in their order. Returned third: `false` if a change used up its runs
+(`ChangeOutcome.exhausted`), so that what was returned is not all there is. Everything here only
+proposes assignments. -/
 private def preprocessingStatuses (environment : Environment) (preDefs : Array PreDefinition)
-    (wanted : Name → MetaM Nat) : TermElabM (Array (Name × List Statuses) × Statuses) := do
-  let counted := (preDefs.foldl (fun names preDef =>
-    preDef.value.getUsedConstants.foldl NameSet.insert names) ({} : NameSet)).toArray
+    (wanted : Name → MetaM Nat) :
+    TermElabM (Array (Name × List Statuses) × Statuses × Bool) := do
   let consulted ← IO.mkRef ({} : NameMap Asked)
-  let some (unchanged, counts) ← decisionIn environment
-      (preprocessed (some (consulted, false)) preDefs counted)
-    | return (#[], [])
+  let some _ ← decisionIn environment (preprocessed (some (consulted, false)) preDefs #[])
+    | return (#[], [], true)
   let consulted ← consultedDefinitions consulted
   let known := consulted.foldl (fun known (name, _) => known.insert name) ({} : NameSet)
-  let mut options := #[]
-  let mut differing : Array (Nat × Nat) := #[]
+  let counted := (preDefs.foldl (fun names preDef =>
+    preDef.value.getUsedConstants.foldl NameSet.insert names) known).toArray
+  let some (unchanged, counts) ← decisionIn environment (preprocessed none preDefs counted)
+    | return (#[], [], true)
+  let observed ← counted.mapM fun name => withCurrHeartbeats <| wanted name
+  let distance (counts : Array Nat) : Nat :=
+    (Array.range observed.size).countP fun index => counts[index]? != observed[index]?
+  let mut options : Array (Nat × Name × List Statuses) := #[]
+  let mut selected : Array (Nat × Statuses) := #[]
   let mut together : Statuses := []
+  let mut complete := true
   for (name, asked) in consulted do
-    let some index := counted.idxOf? name | continue
     let current := getReducibilityStatusCore environment name
-    let mut changes := #[]
+    let mut changes : Array (Nat × Statuses × Expr) := #[]
     for status in asked.statuses do
       if asked.answers status == asked.answers current then continue
-      let runs := if unfoldsBeyond status current then chainRuns else 1
-      if let some (change, processed, _) ← effectiveChange? environment preDefs counted
-          unchanged known [(name, status)] runs then
-        unless changes.any (·.2 == processed) do
-          changes := changes.push (change, processed)
+      match ← effectiveChange? environment preDefs counted unchanged
+          (unfoldsBeyond status current) known [(name, status)] chainRuns with
+      | .changed change processed counts =>
+        unless changes.any (·.2.2 == processed) do
+          changes := changes.push (distance counts, change, processed)
+      | .unchanged => pure ()
+      | .exhausted => complete := false
     unless changes.isEmpty do
-      options := options.push (name, changes.toList.map (·.1))
-    let wanted ← withCurrHeartbeats <| wanted name
-    let some kept := counts[index]? | continue
+      let closest := changes.foldl (fun closest (far, _, _) => min closest far) (distance #[])
+      options := options.push (closest, name, changes.toList.map (·.2.1))
+      selected := selected ++ changes.map fun (far, change, _) => (far, change)
+    let some index := counted.idxOf? name | continue
+    let (some kept, some wanted) := (counts[index]?, observed[index]?) | continue
     let status := if kept > wanted then ReducibilityStatus.reducible else .semireducible
     if kept != wanted && asked.answers status != asked.answers current then
-      differing := differing.push (index, wanted)
       together := together ++ [(name, status)]
-  if together.isEmpty then return (options, [])
-  let some (change, _, counts) ← effectiveChange? environment preDefs counted unchanged known
-      together chainRuns
-    | return (options, [])
-  let selected := differing.all fun (index, wanted) => counts[index]? == some wanted
-  return (options, if selected then change else [])
+  let ordered := (options.qsort fun a b => a.1 < b.1).map fun (_, name, changes) => (name, changes)
+  if distance counts == 0 then return (ordered, [], complete)
+  unless together.isEmpty do
+    match ← effectiveChange? environment preDefs counted unchanged true known together
+        chainRuns with
+    | .changed change _ counts => if distance counts == 0 then return (ordered, change, complete)
+    | .unchanged => pure ()
+    | .exhausted => complete := false
+  let directed := (selected.find? (·.1 == 0)).map (·.2)
+  return (ordered, directed.getD [], complete)
 
 /-- The parameters the observed bases keep outside their recursion, with whether that recursion
 is well-founded, read from the shape Lean 4.34.0's compilers give a base: with the leading binders
@@ -1096,20 +1129,24 @@ what `observedFixedParameters?` read, and `wanted` counts a constant's mentions 
 definitions. The fixed parameters are analysed first (`fixedParameterStatuses`), and the
 preprocessing, where the recursion can be well-founded, under the assignment that analysis
 selects (`preprocessingStatuses`); a change that only restores a status of `environment` is
-dropped. The assignment returned first joins the two selections. -/
+dropped. The assignment returned first joins the two selections. Returned last: `false` if
+the preprocessing left a change undecided (`ChangeOutcome.exhausted`), so that the candidates are
+not all there are. -/
 private def statusCandidates (environment : Environment) (preDefs : Array PreDefinition)
     (inputs : List (Array PreDefinition)) (observed? : Option (Bool × Array (Array Bool)))
-    (wanted : Name → MetaM Nat) : TermElabM (Statuses × List (List Statuses)) := do
+    (wanted : Name → MetaM Nat) : TermElabM (Statuses × List (List Statuses) × Bool) := do
   let mut options : Array (Name × List Statuses) := #[]
   let mut directed : Statuses := []
+  let mut complete := true
   for input in inputs do
     let (found, selected) ← fixedParameterStatuses environment input (observed?.map (·.2))
     options := options ++ found.map fun (name, statuses) =>
       (name, statuses.map fun status => [(name, status)])
     directed := directed ++ selected
   if observed?.all (·.1) then
-    let (found, selected) ←
+    let (found, selected, decided) ←
       preprocessingStatuses (withStatuses environment directed) preDefs wanted
+    complete := decided
     let restores (change : Statuses) : Bool := change.all fun (name, status) =>
       getReducibilityStatusCore environment name == status
     options := options ++ found.map fun (name, changes) => (name, changes.filter (!restores ·))
@@ -1120,7 +1157,7 @@ private def statusCandidates (environment : Environment) (preDefs : Array PreDef
         (name, changes.foldl (fun known change =>
           if known.contains change then known else known ++ [change]) known)
     | none => merged.push (name, changes.eraseDups)) (#[] : Array (Name × List Statuses))
-  return (directed, (merged.toList.map (·.2)).filter (!·.isEmpty))
+  return (directed, (merged.toList.map (·.2)).filter (!·.isEmpty), complete)
 
 /-- Whether `value` mentions a constant that `inspected` does not hold. -/
 private def mentionsAbsent (inspected : Environment) (value : Expr) : Bool :=
@@ -1342,9 +1379,12 @@ definitions, all of which the audited source can write; like the termination arg
 selects which regeneration runs, is never an argument of the comparison, and is undone with the
 rest of the run before the comparison. The enumeration is exhaustive over those assignments when
 there are at most `candidateLimit` of them (`mem_candidates`), and then a helper no attempt
-reproduces is not regenerated. Otherwise only the first `candidateLimit` single changes are tried
-(`candidates_length_le`), and a helper none of them reproduces is undecided: the regeneration
-throws, so the audit is incomplete and the helper is neither admitted nor rejected.
+reproduces is not regenerated. Otherwise only the first `candidateLimit` single candidate changes
+are tried (`candidates_length_le`), each of which can give several definitions a status, and a
+helper none of them reproduces is undecided: the regeneration throws, so the audit is incomplete
+and the helper is neither admitted nor rejected. The same holds where a change was followed
+through `chainRuns` runs without being decided (`ChangeOutcome.exhausted`): every bound the
+search stops at ends in an incomplete audit, never in a rejection.
 Lean's elaboration caches
 are emptied on entering and leaving each attempt, since the environments differ in what unfolds
 and `saveState` does not cover the caches. A regeneration that reports an error does not count.
@@ -1468,9 +1508,10 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         return count + (← survivingMentions constant 100000 definition.value)
     let mut exhaustive := true
     for environment in [regenerating, unsealed] do
-      let (directed, options) ← statusCandidates environment preDefs inputs observed? wanted
+      let (directed, options, complete) ←
+        statusCandidates environment preDefs inputs observed? wanted
       let (assignments, all) := candidates candidateLimit options
-      exhaustive := exhaustive && all
+      exhaustive := exhaustive && all && complete
       for assignment in directed :: (assignments.map List.flatten).filter (· != directed) do
         if assignment.isEmpty then continue
         if let some (origin, after) ← withCurrHeartbeats <|
@@ -1478,11 +1519,13 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
           return ← admitted origin after
     unless exhaustive do
       throwError "no regeneration of {name} reproduced its base, and the helper is undecided, \
-        neither admitted nor rejected: the definitions whose reducibility status changes what \
+        neither admitted nor rejected: the search for the reducibility statuses its definition \
+        was compiled under stopped at a bound. Either the definitions whose status changes what \
         Lean's recursion compilers generate for it allow more than {candidateLimit} assignments \
         of another status, of which only the one its observed base selects and the first \
-        {candidateLimit} single changes were tried. Give each function it calls its reducibility \
-        where the function is declared."
+        {candidateLimit} single candidate changes were tried, or a function it calls unfolds \
+        through more than {chainRuns} functions in a row that had another status. Give each \
+        function it calls its reducibility where the function is declared."
     return none
 
 /-- The Boolean expression `e` of a type `e = true`. -/

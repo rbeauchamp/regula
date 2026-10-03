@@ -72,6 +72,12 @@ All but `fixtures_where_instance` and `fixtures_where_implicit` need
   another, both `reducible` only for that definition (new): the rule matches
   only where both unfold, so no change of one status alone changes the
   preprocessed body, and the mentions the observed base keeps select both.
+  `FixturesWhereTree.hidden` maps through `fixtures_where_hidden_outer`,
+  `@[reducible]` from its declaration, which unfolds to
+  `fixtures_where_hidden_inner`, `reducible` only for that definition (found in
+  review): the helper mentions only the outer function, whose status is the
+  same at both points, and the function whose status differs is one Lean asks
+  about only because the outer one unfolds to it.
 * `fixtures_where_discriminant` passes a parameter through a `match` on
   `fixtures_where_flag`, `reducible` only for that definition, so the `match`
   reduces and Lean finds the parameter fixed (new). `fixtures_where_matched`
@@ -275,6 +281,20 @@ def FixturesWhereTree.total : FixturesWhereTree → Nat → Nat
     | 0 => 0
     | fuel + 1 =>
       1 + (fixtures_where_map (fun child => child.total fuel) (fixtures_where_pick children)).sum
+termination_by _ fuel => fuel
+
+def fixtures_where_hidden_inner {α β : Type} (f : α → β) (xs : List α) : List β := List.map f xs
+
+@[reducible] def fixtures_where_hidden_outer {α β : Type} (f : α → β) (xs : List α) : List β :=
+  fixtures_where_hidden_inner f xs
+
+set_option allowUnsafeReducibility true in
+attribute [local reducible] fixtures_where_hidden_inner in
+def FixturesWhereTree.hidden : FixturesWhereTree → Nat → Nat
+  | .node children, fuel =>
+    match fuel with
+    | 0 => 0
+    | fuel + 1 => 1 + (fixtures_where_hidden_outer (fun child => child.hidden fuel) children).sum
 termination_by _ fuel => fuel
 
 def fixtures_where_flag : Bool := true

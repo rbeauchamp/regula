@@ -312,6 +312,7 @@
    "[OK] FixturesWhereTree.count._unsafe_rec",
    "[OK] FixturesWhereTree.depth._unsafe_rec",
    "[OK] FixturesWhereTree.total._unsafe_rec",
+   "[OK] FixturesWhereTree.hidden._unsafe_rec",
    "[OK] fixtures_where_discriminant._unsafe_rec",
    "[OK] fixtures_where_matched._unsafe_rec",
    "[OK] fixtures_where_accessible._unsafe_rec"
@@ -357,6 +358,11 @@
    "[OK] fixtures_threaded_honest._unsafe_rec",
    "[VIOLATION[escape-hatch]] fixtures_threaded_forged._unsafe_rec"
   ]
+ },
+ "Fixtures.Mutations.KnownLimitReducibilityChain": {
+  "expect": "fail",
+  "reason": "audit-incomplete",
+  "pattern": "FixturesChainTree.chained.*undecided"
  },
  "Fixtures.Mutations.ReducibilitySearchBoundUnsafeRecForge": {
   "expect": "fail",
