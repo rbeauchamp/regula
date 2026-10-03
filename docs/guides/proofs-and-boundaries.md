@@ -136,6 +136,29 @@ or an INCOMPLETE diagnostic demonstration is not an audit-success certificate.
 | `RuleExamples.documentation` | Keeps the documentation driver's accepted run. Canonical positive completion additionally requires a nonempty, all-positive fence inventory; negative and teaching expectations stay classified; failed and incomplete checks retain their own outcomes, and the receipt retains each actual fence classification. The qualifier separately applies `PositiveClassifications` to require a nonempty list with every fence positive, passing and complete before admitting a positive correction. The adapter verifies the original requested documents before emitting accepted metadata. |
 | `FreshChecker.run` | A separate `serializedGraph` claim; `leanchecker` success is an observed process result. |
 
+**Project build order.** Before the refusal-only module-scope preflight, a project audit builds
+the original claimed library targets, preserving their custom facets, and each claimed
+executable's actual root `leanArts` facet. If preflight clears, it builds every original
+claimed target, including the executable links, before full inspection. Only that complete
+build's successful, warning-free process observation reaches `Acceptance.buildObservation`.
+`Lake.ClaimedBuildPlan.completionTargets_exact` binds the deferred build to the original
+target array; `build_completed_iff` records the build stage before preflight exactly when no
+target build remains. A library-only claim keeps one original build
+(`claimedBuildPlan_without_executables`). For an executable root that cannot be spelled
+faithfully with Lake's `+module:leanArts` syntax, the plan also keeps the original full build;
+`moduleArtifactsTarget?_sound` proves the selected text retains the root name and introduces
+no extra facet separator. Both phases use the selected build adapter and warning checks,
+including the lint driver's options. A deferred build is followed by the source,
+configuration and frozen-artifact checks before the unchanged full inspection and terminal
+freshness checks.
+
+Preflight can now report an excluded-module violation before a native link that would fail;
+that run can therefore report RG2004/exit 1 instead of the later RG2003/incomplete/exit 3.
+Its build stage remains unfinished and it is never accepted. An incomplete finding actually
+observed by preflight still takes precedence over a violation. This is an ordering change
+for refusals, not a proof that arbitrary custom build effects commute or that any execution
+meets a wall-clock limit. Lake's facets, parsing, traces and process effects remain trusted.
+
 **`lake lint` dispatch.** Lake's lint dispatch builds only the driver, so the driver first builds its
 audit worker `regula/axiomGate` in the workspace `lake lint` ran in (never the `--project`
 directory). That workspace built the driver, so it resolves the same `regula`, dependencies and
