@@ -1153,9 +1153,11 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
 
 - Which definitions. `Collect.recordConsults` is installed as `Meta`'s unfolding predicate
   (`Meta.withCanUnfoldPred`) around Lean's own function and records each definition Lean asks about
-  at reducible, instance or implicit transparency, whatever module declares it, and for each
-  whether Lean's own answer (`Meta.canUnfoldDefault`) was, each time, that the definition
-  unfolds. Lean 4.34.0 decides such an unfolding from the status alone
+  at reducible, instance or implicit transparency, whatever module declares it, and for each what
+  the answers came to (`Collect.Consults`): whether the answer was, each time, that the definition
+  unfolds, and how often, at each of the three transparencies, it was that it does not. The answer
+  is Lean's own (`Meta.canUnfoldDefault`), except in the second recording of the preprocessing
+  below. Lean 4.34.0 decides such an unfolding from the status alone
   (`Meta/GetUnfoldableConst.lean:17-31`): `reducible` unfolds
   at all three, `instance_reducible` at instance and implicit, `implicit_reducible` at implicit, and
   semireducible and irreducible at none. To decide what a status changes the checker does not
@@ -1387,8 +1389,9 @@ consulted. The rest is argued, with no theorem:
   unchanged; a change so recorded that a later change reaches with runs left is run then, and no
   longer counts. No fixture reaches that bound: that it ends in an incomplete audit is read from
   `followChange`, `preprocessingStatuses` and `unsafeRecRegeneration`, which throws before it can
-  answer that the helper is not regenerated, not observed. `assignments?` stops as soon as more than 64 assignments exist, deciding list by
-  list, so it never builds more than 64 times one candidate's alternatives plus one.
+  answer that the helper is not regenerated, not observed. `assignments?` stops as soon as more
+  than 64 assignments exist, deciding list by list, so it never builds more than 64 times one
+  candidate's alternatives plus one.
   `earlierStatusOptions` takes one step for each constant of the environment at most, and each
   step visits a constant of the helper's module that no earlier step visited, so the visit ends;
   it answers that it did not, and the helper is undecided, if constants were still pending. The 256
