@@ -110,9 +110,8 @@ toolchain, `lake update` itself moves an older `lean-toolchain` to Regula's rele
 When Mathlib pins another one, `lake update` prints `toolchain not updated; multiple toolchain
 candidates` and keeps yours, so the stop above follows.
 
-For release candidates, nightlies, and source-built compilers, use the
-[development toolchain workflow](toolchains.md). Preparing a candidate does not qualify it or
-extend the support of the revision it was prepared from.
+This revision supports only the exact pinned release. Other compiler identities require a
+future deliberate port; see the [supported toolchain](toolchains.md).
 
 ## 2. Run `lake exe regula init`
 

@@ -14,9 +14,9 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 | Library | Role | Claim |
 | --- | --- | --- |
 | `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
-| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the development-compiler qualification decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
+| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the installed-compiler identity and selector decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
-| `RegulaVerification`, `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` | Toolchain-only acceptance runner, dependency provisioning, exact-compiler installation and compiled source snapshot admission. Pure decision contracts surround trusted build, transport, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
+| `RegulaVerification`, `RegulaProvision` | Toolchain-only acceptance runner and dependency provisioning for the pinned release. Pure decision contracts surround trusted build, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
 | `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI and project setup, linter hooks, qualification drivers, the site builder and the release steps. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
 | `Fixtures` | Isolated positive controls and intended-failure mutations. | Excluded; never imported by a claimed surface |
@@ -34,9 +34,7 @@ Mathlib: a Mathlib adopter of the root package that the separate
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
 `lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,
 `freshChecker` (optional serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples`
-and `ruleExampleQualification` (qualification), `toolchain` (unqualified candidates for other
-compilers, [development toolchains](toolchains.md)), `dependencyScope` (the discovered Mathlib
-import closure of the integration package, used by its source provisioning), `site` (the rule reference) and `auditApp`.
+and `ruleExampleQualification` (qualification), `site` (the rule reference) and `auditApp`.
 
 ## The rule registry
 
@@ -127,7 +125,7 @@ file that would run anything the import brings (`may not access declaration … 
 meta`), so those modules still cannot use the environment API. The claimed files that are not
 modules (`RegulaPolicy.Claim`, `Execution`, `Pattern` and `Plan`, the registered files of
 `RegulaCore` other than `RuleId`, those of `RegulaQualification`, `AuditApp.Limiter`, and the
-`Decisions` modules of `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` and
+`Decisions` modules of `RegulaProvision` and
 `RegulaVerification`) import
 it with a plain `import`,
 which brings those declarations into scope; that none of their definitions uses them is by
@@ -135,7 +133,7 @@ inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`.
 an ordinary definition, not a `meta` one, so the collector reads the registrations through it.
 `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone before
 the package is built, so its two decisions are registered from `RegulaPolicy.Claim`, a module of
-the same library that imports it (`attribute [regula_decision]`). The four standalone programs
+the same library that imports it (`attribute [regula_decision]`). The two standalone programs
 import only the toolchain for the same reason, since each runs with `lean --run` before the
 package is built, and the `Decisions` module of each one's library registers its decisions the
 same way; no program imports that module. Lean's own tag attribute refuses
