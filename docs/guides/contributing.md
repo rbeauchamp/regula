@@ -151,6 +151,24 @@ dangling link is relinked by its next provisioning, which recreates the director
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
 so copies wait while another copy creates a new pin.
 
+A copy provisioned before the Mathlib integration package existed linked Mathlib at the root
+`.lake/packages/mathlib`, which no package uses any more. Its next
+`lean --run lean/RegulaProvision.lean mathlib` removes that link when it is a symbolic link that
+a shared directory's registry records and that still resolves to that directory's Mathlib
+(`RegulaProvision.retires`, `retires_iff`), and drops its registration, so the link no longer keeps
+a shared directory. Nothing else is removed from the copy: a real directory there, an
+unregistered link and a dangling one stay as they are. A copy that will not provision Mathlib
+again keeps the link, and the shared directory it names, until the link is removed by hand
+(`rm .lake/packages/mathlib` removes only the link). The same earlier provisioning left writable
+clones of the rest of Mathlib's closure in the root `.lake/packages`: `batteries`, `aesop`, `Qq`,
+`proofwidgets`, `importGraph` and `LeanSearchClient`. No manifest names them there now and
+provisioning never deletes them; after checking that they hold no work of yours, remove them once
+by hand:
+
+```sh
+rm -rf .lake/packages/{batteries,aesop,Qq,proofwidgets,importGraph,LeanSearchClient}
+```
+
 - Do not run Mathlib's `cache get` locally (`lake exe cache get` in `integration/mathlib/`): it unpacks a full
   Mathlib into the copy, and with the link in place it fails on the read-only directory. A Lake write into the shared
   Mathlib fails the same way, which is how an unintended rebuild shows up.

@@ -335,50 +335,45 @@ number := false
 
 *Rationale*: A claim about distance or continuity needs the corresponding laws. Mathlib provides those verified interfaces, while other geometric claims may require different structures. Selecting the matching interface preserves the exact claim boundary from §1.4.
 
-*Example - Geometric Constraints on Network Edges* (a discrete line of integer positions, with the two distance laws it proves; a real-valued location reuses Mathlib's `MetricSpace ℝ` instead, checked as `MathlibModels.InRange` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package]):
+*Example - Incidence Constraints on Network Edges* (an incidence claim: which cells lie in which coverage zones. It needs no distance, so it uses no metric; a claim about range measures distance through Mathlib's `MetricSpace ℝ`, checked as `MathlibModels.InRange` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package]):
 
 ```lean
 import Audit.DocPrelude
 open Glossary
 
-/-- One-dimensional grid locations are integer positions. -/
-abbrev Location := Int
+/-- A location is a cell of a floor plan: its row and its column. -/
+abbrev Cell := Nat × Nat
 
-/-- A network node: an identifier and a location. -/
+/-- A network node: an identifier and the cell it is in. -/
 structure NetworkNode where
   /-- The node's identifier, tagged as a network-node identifier. -/
   id : Glossary.Id NetworkNodeTag
-  /-- Where the node is. -/
-  location : Location
+  /-- The cell the node is in. -/
+  cell : Cell
 
-/-- Coordinate distance is core's `Int.natAbs` of the difference, not a
-hand-written distance relation. -/
-def distance (l₁ l₂ : Location) : Nat := (l₁ - l₂).natAbs
+/-- A coverage zone lists the cells it contains. A cell lies in a zone by
+core's list membership, not by a hand-written incidence relation. -/
+abbrev Zone := List Cell
 
-/-- The distance is symmetric. -/
-theorem distance_comm (l₁ l₂ : Location) : distance l₁ l₂ = distance l₂ l₁ := by
-  unfold distance
-  omega
+/-- Two nodes share a zone: one listed zone contains both their cells. The
+identifier field does not locate a node; incidence goes through the cell field. -/
+def ShareZone (zones : List Zone) (n₁ n₂ : NetworkNode) : Prop :=
+  ∃ zone ∈ zones, n₁.cell ∈ zone ∧ n₂.cell ∈ zone
 
-/-- The distance satisfies the triangle inequality. -/
-theorem distance_triangle (l₁ l₂ l₃ : Location) :
-    distance l₁ l₃ ≤ distance l₁ l₂ + distance l₂ l₃ := by
-  unfold distance
-  omega
+/-- Listing further zones keeps every shared zone, by the definition of core's
+`List.Subset`. -/
+theorem ShareZone.of_subset {zones zones' : List Zone} (h : zones ⊆ zones')
+    {n₁ n₂ : NetworkNode} : ShareZone zones n₁ n₂ → ShareZone zones' n₁ n₂ :=
+  fun ⟨zone, listed, incident⟩ ↦ ⟨zone, h listed, incident⟩
 
-/-- Nodes within communication range, measured through their locations.
-The identifier field does not itself supply a distance; route distance
-through the location field. -/
-def InRange (n₁ n₂ : NetworkNode) (range : Nat) : Prop :=
-  distance n₁.location n₂.location ≤ range
-
-/-- Admissible directed edge relations: each edge connects in-range listed nodes. -/
-def NetworkTopology (listed : NetworkNode → Prop) (range : Nat) : Type :=
+/-- Admissible directed edge relations: each edge connects listed nodes that
+share a zone. -/
+def NetworkTopology (listed : NetworkNode → Prop) (zones : List Zone) : Type :=
   {edges : NetworkNode → NetworkNode → Prop //
-    ∀ n₁ n₂, edges n₁ n₂ → listed n₁ ∧ listed n₂ ∧ InRange n₁ n₂ range}
+    ∀ n₁ n₂, edges n₁ n₂ → listed n₁ ∧ listed n₂ ∧ ShareZone zones n₁ n₂}
 ```
 
-This subtype constrains which edges may be present. It does not require every in-range pair to be an edge. The empty edge relation always satisfies it. It also requires neither symmetry nor absence of self-loops. A claim of a complete range graph or a simple undirected graph needs the corresponding definition and laws. Here `NetworkTopology` names a type of constrained edge relations, not a topological-space instance or a verified communication network. `distance_comm` and `distance_triangle` are the two laws this example proves about its distance; a claim that needs a full metric states the remaining laws or reuses an interface that carries them.
+This subtype constrains which edges may be present. It does not require every pair that shares a zone to be an edge. The empty edge relation always satisfies it. It also requires neither symmetry nor absence of self-loops. A claim of a complete zone graph or a simple undirected graph needs the corresponding definition and laws. Here `NetworkTopology` names a type of constrained edge relations, not a topological-space instance or a verified communication network. `ShareZone` states incidence only: it is not transitive when zones overlap, and it says nothing about how far apart two cells are. `ShareZone.of_subset` is the one law this example proves about it. A claim about distance or range needs a metric and its laws, reused from the matching interface, not defined beside the example.
 
 # 4.5 Foundation Strength: Kernel-Only, Choice-Free, Standard-Logical
 %%%

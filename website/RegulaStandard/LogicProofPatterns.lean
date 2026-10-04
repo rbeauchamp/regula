@@ -1031,7 +1031,7 @@ A stateful safety transfer MUST identify the concrete and abstract semantics, th
 
 For this method, prove initialization, abstract invariant preservation, and that the invariant together with `R` implies the concrete property. Its simulation hypothesis covers *every* related pair and *every* concrete successor: `R c a → StepC c c' → ∃ a', StepA* a a' ∧ R c' a'`. The abstract successor is existential, even when the abstract system is nondeterministic; this is neither reverse simulation nor equivalence of behaviors.
 
-Define `StepA*` explicitly. Here `StepA* a a'` is `a = a' ∨ Relation.TransGen StepA a a'`: zero steps, or core's transitive closure, which is one edge (`single`) or a finite path extended by one edge (`tail`). Zero steps permit stuttering. Mathlib names the same closure `Relation.ReflTransGen StepA`, and the {repo "integration/mathlib/MathlibAudit/Refinement.lean"}[Mathlib integration package] states this refinement with it. {repo "audit/Audit/Refinement.lean"}[`AuditApp.Refinement.finite_transfer`] proves the reusable transfer by induction over `Relation.TransGen StepC`: given a related initial pair and the initial abstract invariant, each finite concrete path ends at a state with a reachable abstract witness, the relation, the abstract invariant, and the concrete safety property. Its types and relations are parameters; it assumes neither deterministic transitions nor an executable procedure that selects matching abstract paths. The caller supplies initialization; it is not silently assumed to exist.
+Define `StepA*` explicitly. Here `StepA*` is core's transitive closure `Relation.TransGen StepA`: one edge (`single`), or a finite path extended by one edge (`tail`). Every match therefore has at least one abstract edge, and stuttering is a property of the abstract relation, not of the closure: an abstract relation with an idle edge matches a concrete edge that changes nothing. Mathlib's `Relation.ReflTransGen StepA` puts the zero-step case in the closure instead, and the {repo "integration/mathlib/MathlibAudit/Refinement.lean"}[Mathlib integration package] states this refinement with it over an abstract relation that has no idle edge. {repo "audit/Audit/Refinement.lean"}[`AuditApp.Refinement.finite_transfer`] proves the reusable transfer by induction over `Relation.TransGen StepC`: given a related initial pair and the initial abstract invariant, each concrete path of one or more edges ends at a state with a reachable abstract witness, the relation, the abstract invariant, and the concrete safety property. Before any concrete edge the claim is the soundness hypothesis applied to the initial pair, which needs no closure. Its types and relations are parameters; it assumes neither deterministic transitions nor an executable procedure that selects matching abstract paths. The caller supplies initialization; it is not silently assumed to exist.
 
 The concrete step MUST be the actual executable definition or have exact checked correspondence to it. If you claim observable agreement, state the observations and prove that agreement at the promised granularity. Matching endpoints after several abstract steps does not establish equality of intermediate observations or labeled traces.
 
@@ -1052,7 +1052,7 @@ The concrete step MUST be the actual executable definition or have exact checked
   * `c.capacity = cap ∧ c.inUse + a = cap`. It fixes capacity and relates occupied to free slots.
 *
   * `StepA cap a a'`
-  * Either `0 < a ∧ a' = a - 1`, or `a < cap ∧ a' = a + 1`. Both choices may be enabled.
+  * One of `a' = a` (idle), `0 < a ∧ a' = a - 1`, or `a < cap ∧ a' = a + 1`. Several choices may be enabled.
 *
   * `StepC c c'`
   * `∃ op, c' = AuditApp.step c op`, using the existing executable dispatcher.
@@ -1061,7 +1061,7 @@ The concrete step MUST be the actual executable definition or have exact checked
   * `initial_related` proves `R cap c cap ∧ Inv cap cap` whenever actual `admit cap = some c`. `admit_exact` establishes that this occurs for every positive capacity.
 *
   * Preservation and simulation
-  * `preserve` covers both abstract edges; `simulation` covers every related pair and concrete edge. Grants consume one free slot; releases return one; refused grants and idle releases stutter; reset uses `free_to_capacity`, a finite sequence of releases.
+  * `preserve` covers all three abstract edges; `simulation` covers every related pair and concrete edge. Grants consume one free slot; releases return one; refused grants and idle releases stutter, matching the idle edge; reset uses `free_to_capacity`, an idle edge followed by a finite sequence of releases.
 *
   * Transfer and observations
   * `sound` gives `c.capacity = cap ∧ c.inUse ≤ cap`; `observations` gives `(c.capacity, c.inUse) = (cap, cap - a)` at related endpoints.
@@ -1080,19 +1080,20 @@ example (cap : Nat) (h : 0 < cap) :
 
 /-- Universal simulation, with an existential finite abstract match. -/
 example (cap a : Nat) (c c' : Limiter) (hr : R cap c a) (hs : StepC c c') :
-    ∃ a', (a = a' ∨ Relation.TransGen (StepA cap) a a') ∧ R cap c' a' :=
+    ∃ a', Relation.TransGen (StepA cap) a a' ∧ R cap c' a' :=
   simulation hr hs
 
-/-- Every finite prefix, including refusal, has an abstract witness and is safe. -/
+/-- Every finite prefix, including refusal and the empty prefix, has an abstract
+witness and is safe. -/
 example (cap : Nat) (c : Limiter) (h : admit cap = some c) (ops : List Op) (n : Nat) :
-    ∃ a, (cap = a ∨ Relation.TransGen (StepA cap) cap a) ∧
+    ∃ a, Relation.TransGen (StepA cap) cap a ∧
       R cap (runChecked (ops.take n) c).2 a ∧ Inv cap a ∧
       ((runChecked (ops.take n) c).2.capacity = cap ∧
         (runChecked (ops.take n) c).2.inUse ≤ cap) :=
   prefix_safe h ops n
 ```
 
-`reachable_safe` covers every finite concrete path, not a selected set of scripts or a bounded search. `run_path` links the total fold to those paths; `runChecked_path` uses the strict runner's exact state/error equation, including retained state on refusal. `prefix_safe` specializes transfer to every `ops : List Op` and `n : Nat`; taking beyond the list length selects the whole list. The existing `executeChecked_exact` connects positive admission to that same strict runner used by `Main`. This refinement observes only the returned capacity and occupancy; the runner's success/error contract remains §3.7, and terminal effects remain trusted.
+`reachable_safe` covers every concrete path of one or more edges, not a selected set of scripts or a bounded search; `admitted_safe` covers the admitted state before any edge. `run_path` links the total fold of every nonempty script to those paths; `runChecked_path` uses the strict runner's exact state/error equation, including retained state on refusal, which `refused_edge` shows is a concrete edge that changes nothing. `prefix_safe` combines both cases for every `ops : List Op` and `n : Nat`, the empty prefix included; taking beyond the list length selects the whole list. The existing `executeChecked_exact` connects positive admission to that same strict runner used by `Main`. This refinement observes only the returned capacity and occupancy; the runner's success/error contract remains §3.7, and terminal effects remain trusted.
 
 A safety transfer MUST NOT be read as progress, fairness, productivity, termination of a continuing process, or liveness. Unlimited stuttering or starvation can preserve safety; any such additional claim needs its own explicit hypotheses and proof. Totality of each finite Lean runner does not establish a matching infinite abstract execution with progress. Theorems about these Lean definitions also do not verify their compiled natural arithmetic, code generation, runtime, external adapters, or scheduling (§3.6).
 
@@ -1130,7 +1131,7 @@ A kernel-checked proof establishes its elaborated proposition under its explicit
 
 *External platforms.* A proof platform's open cards, sketches, and accepted results are distinct from conformance under this standard. An intentionally incomplete sketch or adapter MUST stay outside every positive surface and outside the dependency closure of any declaration presented as closed ({ref "72-define-surfaces-through-lake-semantics"}[module 7 §7.2]). Before reusing a platform-accepted result, state the exact elaborated type, toolchain, and foundation under which it was accepted; a result about another elaboration environment is a result about that environment (§7.1).
 
-*Worked example.* {repo "audit/Audit/Research.lean"}[`audit/Audit/Research.lean`] states the existence of a counterexample to the Collatz conjecture as `Research.CounterexampleExists : Prop` and proves nothing about it unconditionally. Read-back of that definition: one existential over `Nat`; the number is positive _and_ no step count takes it to `1`, where `ReachesOne n` is `∃ k, Nat.repeat collatzStep k n = 1` and `collatzStep` halves an even number and sends an odd `n` to `3 * n + 1`. The positivity conjunct is part of the target: `0` is a fixed point of `collatzStep` and never reaches `1` (`not_reachesOne_zero`), so the statement without it, `exists_not_reachesOne`, is true and is a different proposition that settles nothing. The conjecture is `¬ CounterexampleExists`; no declaration proves either. `counterexample_nine_le` is a conditional restriction, `every counterexample is at least 9`, proved from the closed finite case analysis `search_below_nine`, whose eight cases the kernel evaluates; it needs no witness. `Counterexample.ne_two_pow` is another, proved for every exponent by induction through `repeat_collatzStep_two_pow_mul`. `not_counterexampleExists_of_bound` is a complete reduction: an explicit upper bound plus a finite search below it refutes the target. `search_below_nine` discharges the search half at `9`; the bound half remains an open binder, so the goal remains open. `exists_odd_reachesOne` shows the contrasting claim kind: an unconditional existence theorem, delivered with its witness `7`.
+*Worked example.* {repo "audit/Audit/Research.lean"}[`audit/Audit/Research.lean`] states the existence of a counterexample to the Collatz conjecture as `Research.CounterexampleExists : Prop` and proves nothing about it unconditionally. Read-back of that definition: one existential over `Nat`; the number is positive _and_ no step count takes it to `1`, where `ReachesOne n` is `∃ k, Nat.repeat collatzStep k n = 1` and `collatzStep` halves an even number and sends an odd `n` to `3 * n + 1`. The positivity conjunct is part of the target: `0` is a fixed point of `collatzStep` and never reaches `1` (`not_reachesOne_zero`), so the statement without it, `exists_not_reachesOne`, is true and is a different proposition that settles nothing. The conjecture, `∀ n, 0 < n → ReachesOne n`, implies `¬ CounterexampleExists` constructively and is classically equivalent to it, since the converse eliminates a double negation of `ReachesOne n`; no declaration proves either. `counterexample_nine_le` is a conditional restriction, `every counterexample is at least 9`, proved from the closed finite case analysis `search_below_nine`, whose eight cases the kernel evaluates; it needs no witness. `Counterexample.ne_two_pow` is another, proved for every exponent by induction through `repeat_collatzStep_two_pow_mul`. `not_counterexampleExists_of_bound` is a complete reduction: an explicit upper bound plus a finite search below it refutes the target. `search_below_nine` discharges the search half at `9`; the bound half remains an open binder, so the goal remains open. `exists_odd_reachesOne` shows the contrasting claim kind: an unconditional existence theorem, delivered with its witness `7`.
 
 ```lean
 import Audit.Research

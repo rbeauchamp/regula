@@ -18,7 +18,8 @@ sections. The declarations keep the `AuditApp.Refinement` namespace of the appli
 they refine; this module belongs to the `MathlibAudit` library of the Mathlib integration
 package, because the Core-only `AuditApp` surface in the `regula` package does not import
 Mathlib. The standard's own example is the Lean/Std `audit/Audit/Refinement.lean`, which states
-the same refinement with core's `Relation.TransGen`.
+the refinement over core's `Relation.TransGen`: its paths have one or more edges, and an idle
+abstract edge there takes the place of this closure's zero-step case.
 -/
 
 namespace AuditApp.Refinement

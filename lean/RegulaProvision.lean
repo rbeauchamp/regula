@@ -365,7 +365,9 @@ Each shared directory has a registry beside it of the copies provisioned to link
 one provisioning lock, a copy registers before it links, and a run removes a shared directory
 only when it is not the run's own and no registered copy still links it. A removal first
 renames the directory out of use, so a later run finishes one that was interrupted. Only a
-directory whose receipt identifies it is ever removed. -/
+directory whose receipt identifies it is ever removed. A copy provisioned while the root package's
+packages directory held Mathlib still has its registered link there (`retiredLink`); a run removes
+that link while it links a shared directory, so the directory is kept only by links in use. -/
 
 /-- The name of the shared directory `key` while it is being removed, before a unique suffix. -/
 def removingPrefix (key : String) : String := s!"{key}.removing-"
@@ -438,6 +440,21 @@ theorem prunes_sound (current name : String) (copies : Array (String × Bool))
   refine ⟨h.1, fun copy hCopy => ?_⟩
   obtain ⟨i, hi, rfl⟩ := Array.mem_iff_getElem.mp hCopy
   exact h.2 i hi
+
+/-- Where a copy linked Mathlib while the root package's packages directory held it, relative to
+the repository root. No package of this repository pins Mathlib there any more. -/
+def retiredLink : FilePath := ".lake/packages/mathlib"
+
+/-- A registered link is removed from its copy when it still links the shared directory whose
+registry records it and is the copy's retired link, not the link this run provisions. -/
+def retires (link retired copy : String) (linked : Bool) : Bool :=
+  linked && copy == retired && copy != link
+
+/-- Only the retired link is removed, only while it links the shared directory, and never the
+link this run provisions. -/
+theorem retires_iff (link retired copy : String) (linked : Bool) :
+    retires link retired copy linked = true ↔ linked = true ∧ copy = retired ∧ copy ≠ link := by
+  simp [retires, and_assoc]
 
 /-! ### Applicability of the Mathlib integration check -/
 
@@ -954,9 +971,12 @@ private def links (copy target : String) : IO Bool := do
 
 /-- Remove every shared directory under `parent`, other than `current`, that no registered
 copy still links, and finish every removal an interrupted run began; drop from each kept
-registry the copies that no longer link its directory. Only directories that their receipt
-identifies are touched, and a failure is reported, not fatal. The caller holds the lock. -/
-private def prune (parent : FilePath) (current : String) : IO Unit := do
+registry the copies that no longer link its directory. First remove this copy's `retired` link
+where a registry records it and it still links that registry's directory (`retires`), so it
+keeps no directory; `link` is the link this run provisions. Only a symbolic link is removed from
+a copy, never a directory. Only directories that their receipt identifies are touched, and a
+failure is reported, not fatal. The caller holds the lock. -/
+private def prune (parent : FilePath) (current link retired : String) : IO Unit := do
   for entry in ← parent.readDir do
     try
       if (← kind? entry.path) == some .dir then
@@ -971,9 +991,13 @@ private def prune (parent : FilePath) (current : String) : IO Unit := do
               pure (some (← IO.FS.realPath (sharedPackages entry.path / "mathlib")).toString)
             catch _ => pure none
           let observed ← copies.mapM fun copy => do
-            return (copy, ← match target with
+            let linked ← match target with
               | some target => links copy target
-              | none => pure false)
+              | none => pure false
+            unless retires link retired copy linked do return (copy, linked)
+            IO.FS.removeFile copy
+            say s!"removed the retired link {copy} to {entry.path}"
+            return (copy, false)
           if prunes current entry.fileName observed then
             if ← registry.pathExists then IO.FS.removeFile registry
             let removing := parent / s!"{removingPrefix entry.fileName}{← nonce}"
@@ -1086,9 +1110,10 @@ def provision (repo : FilePath) : IO Unit := do
     lock.lock
   let shared ← try
       let (shared, receipt) ← ensureShared repo parent key manifest pins mode source
-      registerCopy parent key.val (packages / "mathlib").toString
+      let link := (packages / "mathlib").toString
+      registerCopy parent key.val link
       provisionPackages packages shared receipt pins
-      prune parent key.val
+      prune parent key.val link (repo / retiredLink).toString
       pure shared
     finally
       lock.unlock
@@ -1109,8 +1134,10 @@ def provisionVerso (repo : FilePath) : IO Unit := do
   stream (repo / "website") "lake"
     (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
 
-/-- Export artifact policy to CI and, without a snapshot selection, compiler and discovered
-source scope for cache keys. Cache hits still run source receipt admission.
+/-- Export artifact policy to CI and, without a snapshot selection, compiler and source scope
+for cache keys. Only the Mathlib cache key reads the scope, so the source scope is discovered
+only for a copy the Mathlib integration check applies to (`mathlibApplies`) and is the constant
+`none` for any other source-mode copy. Cache hits still run source receipt admission.
 GitHub's output and environment protocols are trusted IO. -/
 def ciIdentity (repo : FilePath) : IO Unit := do
   requireCompiler repo
@@ -1119,14 +1146,18 @@ def ciIdentity (repo : FilePath) : IO Unit := do
     throw <| IO.userError "provisioning: the compiler commit is not a full Git object name"
   unless ← (repo / ".github/snapshot-compiler.json").pathExists do
     let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
-    let source ← sourceModule repo mode
+    let scope ←
+      if mode != .source then pure "full"
+      else if (← mathlibApplicability repo).1 then
+        pure (toString (hash (← sourceModule repo mode)))
+      else pure "none"
     let value := s!"{Lean.githash}-{mode.spelling}{policy}"
     say s!"dependency identity {value}"
     if let some path ← IO.getEnv "GITHUB_OUTPUT" then
       let handle ← IO.FS.Handle.mk path .append
       handle.putStr s!"identity={value}\n"
       handle.putStr s!"mode={mode.spelling}\n"
-      handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
+      handle.putStr s!"scope={scope}\n"
   if let some path ← IO.getEnv "GITHUB_ENV" then
     let handle ← IO.FS.Handle.mk path .append
     for (name, value) in ← freshBuildEnvironment repo mode do

@@ -134,7 +134,21 @@ theorem checked_mathlibApplies : Regula.ExecutableContract mathlibApplies (fun a
     ⟨((true, ""), ""), fun accepted =>
       nomatch ((mathlibApplies_iff true "" "").mp accepted).1⟩⟩
 
+/-- `retires` removes exactly a registered link that still links its shared directory, is the
+copy's retired link and is not the link the run provisions (`retires_iff`): it removes such a
+link and keeps the link the run provisions. -/
+theorem checked_retires : Regula.ExecutableContract retires (fun removes =>
+    Regula.Decides (· = true)
+      (fun input : ((String × String) × String) × Bool =>
+        input.2 = true ∧ input.1.2 = input.1.1.2 ∧ input.1.2 ≠ input.1.1.1)
+      (Function.uncurry (Function.uncurry (Function.uncurry removes)))) :=
+  ⟨.of_iff (fun input => retires_iff input.1.1.1 input.1.1.2 input.1.2 input.2)
+    ⟨((("new", "old"), "old"), true),
+      (retires_iff "new" "old" "old" true).mpr ⟨rfl, rfl, by decide⟩⟩
+    ⟨((("new", "new"), "new"), true), fun accepted =>
+      ((retires_iff "new" "new" "new" true).mp accepted).2.2 rfl⟩⟩
+
 attribute [regula_decision]
-  buildMode? component? resumes admits mathlibStep cloneStep found prunes mathlibApplies
+  buildMode? component? resumes admits mathlibStep cloneStep found prunes retires mathlibApplies
 
 end RegulaProvision

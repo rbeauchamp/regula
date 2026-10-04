@@ -27,8 +27,10 @@ a bounded-search reduction, and one witnessed unconditional existence claim.
 
 `collatzStep n` halves an even `n` and sends an odd `n` to `3 * n + 1`; iteration is
 core's `Nat.repeat`. The Collatz conjecture says that every positive natural number
-reaches `1`; `CounterexampleExists` is the existence of a number refuting it, so the
-conjecture is `¬ CounterexampleExists`. The positivity conjunct is part of the target:
+reaches `1`; `CounterexampleExists` is the existence of a number refuting it. The
+conjecture implies `¬ CounterexampleExists` constructively and is classically equivalent
+to it: the converse eliminates a double negation of `ReachesOne n`. The positivity
+conjunct is part of the target:
 `0` is a fixed point of `collatzStep` and never reaches `1`
 (`Research.not_reachesOne_zero`), so the bare statement `∃ n, ¬ ReachesOne n` is true
 and settles nothing. Every result states only its displayed binders and hypotheses.
@@ -55,8 +57,9 @@ def ReachesOne (n : Nat) : Prop := ∃ k, Nat.repeat collatzStep k n = 1
 
 This is a `Prop`-valued definition, not a theorem. Read-back: one existential
 over `Nat`; the number is positive *and* no step count takes it to `1`. The
-Collatz conjecture is the negation of this proposition. Nothing in this module
-proves or refutes it, and no project axiom stands in for a proof. -/
+Collatz conjecture is classically equivalent to the negation of this proposition,
+and implies that negation constructively. Nothing in this module proves or refutes
+it, and no project axiom stands in for a proof. -/
 def CounterexampleExists : Prop := ∃ n : Nat, 0 < n ∧ ¬ ReachesOne n
 
 /-- Every iterate of `0` is `0`: `collatzStep` halves it. -/
