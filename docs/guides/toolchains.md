@@ -15,9 +15,6 @@ source compiler installer, source dependency mode, or compiled toolchain snapsho
 Historical diagnostic envelopes remain inadmissible as ordinary audit evidence. Historical
 published artifacts and their notices are unchanged.
 
-The root package, example library and website remain Mathlib-free. Provision the website's
-pinned Verso with `lean --run lean/RegulaProvision.lean verso`. The separate Mathlib integration
-package uses its pinned release and dependencies; its preflight fails on a compiler mismatch.
 See [contributing](contributing.md) for setup and verification and
 [adoption](adoption.md) for release compatibility.
 

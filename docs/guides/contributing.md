@@ -140,7 +140,9 @@ directories of other stable pins and toolchains that no
 registered copy still links, and drops the
 registrations of copies that are gone or link elsewhere. Only a directory whose receipt names
 it with a decodable stable receipt is removed; this retention step leaves staging directories,
-source stores and anything else there as they are. A stable-store removal a killed run began is
+source stores and anything else there as they are. Before creating a missing stable store,
+provisioning separately removes abandoned staging directories with that store's exact stable-key
+prefix. A stable-store removal a killed run began is
 finished by the next run. A copy left with a dangling link requires manual disposition before
 provisioning can continue. One lock,
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,

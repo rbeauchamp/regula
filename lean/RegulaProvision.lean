@@ -20,7 +20,7 @@ Git, Lake, Mathlib's cache tool, compiler reports, copying, locking and filesyst
 trusted; the pure decisions below carry their execution-linked contracts.
 
 The integration preflight requires the integration package's toolchain to match the root and,
-with --require, requires provisioned Mathlib before the timed integration check begins.
+with --require, requires provisioned Mathlib as the first step inside the timed integration check.
 -/
 namespace RegulaProvision
 open System Lean
