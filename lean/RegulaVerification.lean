@@ -63,7 +63,8 @@ inductive Mode where
   | site
   /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the fresh
   acceptance and the lint of the Mathlib integration package, whose pinned Mathlib
-  `lean --run lean/RegulaProvision.lean mathlib` provisions beforehand. -/
+  `lean --run lean/RegulaProvision.lean mathlib` provisions beforehand. It refuses a copy the
+  check does not apply to (`RegulaProvision.mathlibApplies`) instead of reporting a pass. -/
   | mathlib
   deriving DecidableEq
 
@@ -240,8 +241,14 @@ def commands : Mode → List Command
           (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++
               #[shardEvidence 1, shardEvidence 2])]
   -- The Mathlib integration check: the integration package's fresh acceptance and lint, as a
-  -- Mathlib adopter of `regula` runs them. Its Mathlib is provisioned beforehand, as setup.
-  | .mathlib => [lakeIn mathlibPackage #["exe", "axiomGate"], lakeIn mathlibPackage #["lint"]]
+  -- Mathlib adopter of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the
+  -- first command refuses a copy the check does not apply to (a compiler snapshot, or another
+  -- toolchain than that package selects) and one whose Mathlib is not provisioned, so an
+  -- excluded copy fails here and is never reported as passing.
+  | .mathlib => [
+      { program := "lean",
+        args := #["--run", "lean/RegulaProvision.lean", "mathlib-applies", "--require"] },
+      lakeIn mathlibPackage #["exe", "axiomGate"], lakeIn mathlibPackage #["lint"]]
   | .structural => selftest #["--partition", "structural"] #["docFenceAudit", "freshChecker"]
   -- A shard of a partition: the partition's name, then the shard after `--shard`.
   | .structuralFirst =>

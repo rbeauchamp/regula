@@ -35,9 +35,8 @@ structure DecayingValue where
 
 /-- Reference value `initial * (1 + decayRate * (t.val - startTime.val))`: the
 initial non-negative rational multiplied by one plus the decay rate times elapsed
-nominal time. The formula is linear in `t`, is negative once a decay has run past
-`initial`'s worth of time, and makes no claim about native evaluation or an
-external runtime. -/
+nominal time. The formula is linear in `t`; nothing here bounds its sign, and no
+claim is made about native evaluation or an external runtime. -/
 def DecayingValue.valueAt (v : DecayingValue) (t : Time) : Rat :=
   v.initial.val * (1 + v.decayRate * (t.val - v.startTime.val))
 

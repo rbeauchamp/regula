@@ -122,7 +122,19 @@ theorem checked_prunes : Regula.ExecutableContract prunes (fun removes =>
   ⟨{ sound := fun input removed => prunes_sound input.1.1 input.1.2 input.2 removed
      accepted := ⟨(("current", "other"), #[]), by simp [Function.uncurry, prunes]⟩ }⟩
 
+/-- `mathlibApplies` accepts exactly a copy with no snapshot selection whose two toolchain
+selectors are equal (`mathlibApplies_iff`): it accepts equal selectors without a snapshot and
+refuses them with one. -/
+theorem checked_mathlibApplies : Regula.ExecutableContract mathlibApplies (fun applies =>
+    Regula.Decides (· = true)
+      (fun input : (Bool × String) × String => input.1.1 = false ∧ input.1.2 = input.2)
+      (Function.uncurry (Function.uncurry applies))) :=
+  ⟨.of_iff (fun input => mathlibApplies_iff input.1.1 input.1.2 input.2)
+    ⟨((false, ""), ""), (mathlibApplies_iff _ _ _).mpr ⟨rfl, rfl⟩⟩
+    ⟨((true, ""), ""), fun accepted =>
+      nomatch ((mathlibApplies_iff true "" "").mp accepted).1⟩⟩
+
 attribute [regula_decision]
-  buildMode? component? resumes admits mathlibStep cloneStep found prunes
+  buildMode? component? resumes admits mathlibStep cloneStep found prunes mathlibApplies
 
 end RegulaProvision

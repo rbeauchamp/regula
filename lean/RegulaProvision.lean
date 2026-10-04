@@ -48,7 +48,13 @@ writable packages directory, and its source Mathlib command uses the shared dire
 
 `scripts/verify.sh` runs `./scripts/provision.sh` before its deadline. Run
 `lean --run lean/RegulaProvision.lean mathlib` once in a copy before the first Lake command in
-`integration/mathlib/`; otherwise Lake clones and builds a per-copy Mathlib there. -/
+`integration/mathlib/`; otherwise Lake clones and builds a per-copy Mathlib there.
+
+The Mathlib integration check applies to a copy exactly when no compiler snapshot is selected
+and that package selects the repository's toolchain (`mathlibApplies`, `mathlibApplies_iff`).
+The `mathlib-applies` argument reports that decision, recording it for CI, which schedules the
+integration job only then; with `--require` it refuses an excluded copy and one whose Mathlib is
+not provisioned, which is the first step of `./scripts/verify.sh mathlib`. -/
 namespace RegulaProvision
 open System Lean
 
@@ -432,6 +438,20 @@ theorem prunes_sound (current name : String) (copies : Array (String × Bool))
   refine ⟨h.1, fun copy hCopy => ?_⟩
   obtain ⟨i, hi, rfl⟩ := Array.mem_iff_getElem.mp hCopy
   exact h.2 i hi
+
+/-! ### Applicability of the Mathlib integration check -/
+
+/-- Whether the Mathlib integration check applies to a copy: no compiler snapshot is selected,
+and the Mathlib integration package selects the repository's own toolchain. A snapshot holds no
+Mathlib, and a package that selects another toolchain has no Mathlib built for this compiler. -/
+def mathlibApplies (snapshot : Bool) (toolchain integration : String) : Bool :=
+  !snapshot && toolchain == integration
+
+/-- The check applies exactly when no snapshot is selected and the two selectors are equal. -/
+theorem mathlibApplies_iff (snapshot : Bool) (toolchain integration : String) :
+    mathlibApplies snapshot toolchain integration = true ↔
+      snapshot = false ∧ toolchain = integration := by
+  simp [mathlibApplies]
 
 /-! ## Process and filesystem effects -/
 
@@ -1023,15 +1043,26 @@ def requireCompiler (repo : FilePath) : IO Unit := do
     throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
       but this program runs on {Lean.githash}"
 
-/-- Refuse a Mathlib integration package that pins another toolchain than the repository. The
-shared directory is built with the root toolchain, so that package must pin it; where it does
-not, its check is not qualified for this compiler and nothing is provisioned. -/
-def requireMathlibToolchain (repo : FilePath) : IO Unit := do
-  unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
-      (← IO.FS.readFile (repo / mathlibPackage / "lean-toolchain")) do
-    throw <| IO.userError s!"provisioning: {mathlibPackage}/lean-toolchain differs from the \
-      repository's lean-toolchain; the Mathlib integration check is qualified only for the \
-      toolchain and Mathlib revision that package pins"
+/-- Observe whether the Mathlib integration check applies to this copy (`mathlibApplies`), with
+the reason it does not. The shared directory is built with the root toolchain, so the Mathlib
+integration package must select it, and a compiler snapshot holds no Mathlib. -/
+def mathlibApplicability (repo : FilePath) : IO (Bool × String) := do
+  let snapshot ← (repo / ".github/snapshot-compiler.json").pathExists
+  let applies := mathlibApplies snapshot (← IO.FS.readFile (repo / "lean-toolchain"))
+    (← IO.FS.readFile (repo / mathlibPackage / "lean-toolchain"))
+  let reason := if snapshot then "a compiler snapshot is selected, and a snapshot holds no Mathlib"
+    else s!"{mathlibPackage}/lean-toolchain differs from the repository's lean-toolchain"
+  return (applies, reason)
+
+/-- Refuse a copy to which the Mathlib integration check does not apply: the check is qualified
+only for the toolchain and Mathlib revision the integration package pins, so nothing is
+provisioned or checked for another compiler. -/
+def requireMathlibApplies (repo : FilePath) : IO Unit := do
+  let (applies, reason) ← mathlibApplicability repo
+  unless applies do
+    throw <| IO.userError s!"provisioning: the Mathlib integration check does not apply to this \
+      copy: {reason}. It is qualified only for the toolchain and Mathlib revision that \
+      {mathlibPackage} pins; not run, so nothing Mathlib-specific is claimed"
 
 /-- Provision this copy. -/
 def provision (repo : FilePath) : IO Unit := do
@@ -1040,7 +1071,7 @@ def provision (repo : FilePath) : IO Unit := do
     return
   let mode ← readBuildMode repo
   requireCompiler repo
-  requireMathlibToolchain repo
+  requireMathlibApplies repo
   let some (manifest, pins) ← readPins repo
     | say s!"{mathlibPackage}/lake-manifest.json pins no Mathlib; nothing to share"
   let source ← sourceModule repo mode
@@ -1128,15 +1159,11 @@ def main (args : List String) : IO Unit := do
         Verso, and `lean --run lean/RegulaProvision.lean mathlib` the Mathlib of \
         {RegulaProvision.mathlibPackage}, which only `./scripts/verify.sh mathlib` needs)"
   | ["mathlib"] =>
-    if ← (repo / ".github/snapshot-compiler.json").pathExists then
-      throw <| IO.userError s!"provisioning: a compiler snapshot holds no Mathlib; the Mathlib \
-        integration check of {RegulaProvision.mathlibPackage} is qualified only for the released \
-        toolchain and Mathlib revision it pins, not for a snapshot compiler"
-    else if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
+    RegulaProvision.requireMathlibApplies repo
+    if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
       -- CI keeps a writable packages directory of its own: the upstream route only fetches the
       -- published artifacts into it, and the source route uses the shared directory.
       RegulaProvision.requireCompiler repo
-      RegulaProvision.requireMathlibToolchain repo
       let mode ← RegulaProvision.readBuildMode repo
       if mode == .source then RegulaProvision.provision repo
       else RegulaProvision.buildMathlib (repo / RegulaProvision.mathlibPackage) mode false
@@ -1146,10 +1173,31 @@ def main (args : List String) : IO Unit := do
       IO.println s!"provisioning: sharing is not supported on Windows; provision with \
         `lake exe cache get` in {RegulaProvision.mathlibPackage}"
     else RegulaProvision.provision repo
+  -- Whether the Mathlib integration check applies to this copy. CI gates the integration job on
+  -- the recorded output, so an excluded copy shows that job as skipped, never as passed.
+  | ["mathlib-applies"] =>
+    let (applies, reason) ← RegulaProvision.mathlibApplicability repo
+    if applies then
+      IO.println "Mathlib integration check: applies (no compiler snapshot is selected and the \
+        integration package selects this toolchain)"
+    else
+      IO.println s!"Mathlib integration check: NOT RUN, INCOMPLETE ({reason}); nothing \
+        Mathlib-specific is claimed for this copy"
+    if let some path ← IO.getEnv "GITHUB_OUTPUT" then
+      let handle ← IO.FS.Handle.mk path .append
+      handle.putStr s!"mathlib={applies}\n"
+  -- The check itself refuses an excluded copy, and one whose Mathlib is not provisioned, before
+  -- Lake could clone and build a per-copy Mathlib inside the deadline.
+  | ["mathlib-applies", "--require"] =>
+    RegulaProvision.requireMathlibApplies repo
+    let mathlib := repo / RegulaProvision.mathlibPackage / ".lake" / "packages" / "mathlib"
+    unless ← mathlib.pathExists do
+      throw <| IO.userError s!"provisioning: {mathlib} is absent; run \
+        `lean --run lean/RegulaProvision.lean mathlib` before `./scripts/verify.sh mathlib`"
   | ["verso"] => RegulaProvision.provisionVerso repo
   | ["identity"] => RegulaProvision.ciIdentity repo
   | "exec" :: dir :: command :: rest =>
     RegulaProvision.execute repo dir command rest.toArray
   | _ =>
     throw <| IO.userError "usage: lean --run lean/RegulaProvision.lean \
-      [mathlib | verso | identity | exec DIR COMMAND ARGS...]"
+      [mathlib | mathlib-applies [--require] | verso | identity | exec DIR COMMAND ARGS...]"

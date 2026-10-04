@@ -68,10 +68,12 @@ jobs:
   # and no other job needs its result: acceptance, the corpus, the site and a release require no
   # Mathlib. Its result is about the toolchain and Mathlib revision that package pins. A compiler
   # snapshot holds no Mathlib, and a commit whose toolchain is not the one that package pins has
-  # no Mathlib built for it: on either the steps below are skipped and the check is not run.
+  # no Mathlib built for it: the `compiler` job decides this first
+  # (RegulaProvision.mathlibApplies), and on such a commit this whole job is skipped, so the
+  # check is shown as not run and never as passed. The check itself refuses such a commit too.
   mathlib:
     needs: compiler
-    if: always()
+    if: needs.compiler.outputs.mathlib == 'true'
     name: mathlib integration
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; the verify.sh step enforces exactly 420 seconds.
@@ -82,12 +84,10 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/provision
-        if: hashFiles('.github/snapshot-compiler.json') == '' && hashFiles('lean-toolchain') == hashFiles('integration/mathlib/lean-toolchain')
         with:
           mathlib: 'true'
 
-      - name: Check the Mathlib integration package (seven-minute limit; not run for a snapshot or another toolchain)
-        if: hashFiles('.github/snapshot-compiler.json') == '' && hashFiles('lean-toolchain') == hashFiles('integration/mathlib/lean-toolchain')
+      - name: Check the Mathlib integration package (same command and seven-minute limit as local)
         run: ./scripts/verify.sh mathlib
 
   # The rule-example corpus: detector qualification (standard §7.8) and the only

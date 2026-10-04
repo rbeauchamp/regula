@@ -96,7 +96,9 @@ lean --run lean/RegulaProvision.lean mathlib   # setup: the shared, read-only Ma
 ./scripts/verify.sh mathlib                    # the check, under its own seven-minute limit
 ```
 
-`./scripts/verify.sh mathlib` runs `lake exe axiomGate` in the package, the fresh acceptance of its
+`./scripts/verify.sh mathlib` first refuses a copy the check does not apply to, or whose Mathlib is
+not provisioned (`lean --run lean/RegulaProvision.lean mathlib-applies --require`), then runs
+`lake exe axiomGate` in the package, the fresh acceptance of its
 claimed surface against its own `foundation_manifest.json`, and then `lake lint` there. It is never
 part of acceptance and no acceptance step, diagnostic or site build depends on it. In CI the
 `mathlib integration` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on every pull
@@ -108,8 +110,12 @@ support for a compiler is established by acceptance, the rule-example corpus and
 need no Mathlib, so a compiler can be supported while no Mathlib revision exists for it. For
 such a compiler the integration check has not run, and nothing Mathlib-specific is claimed: a
 check that did not run is `INCOMPLETE`, never a pass. A compiler snapshot holds no Mathlib, and
-a root toolchain other than the one this package pins has no Mathlib built for it: on such a
-commit the setup command refuses and the CI job skips its steps.
+a root toolchain other than the one this package selects has no Mathlib built for it. The proved
+decision `RegulaProvision.mathlibApplies` (`mathlibApplies_iff`) states exactly these two
+conditions. On a commit it excludes, the setup command and `./scripts/verify.sh mathlib` both
+refuse, and CI's `compiler` job runs `lean --run lean/RegulaProvision.lean mathlib-applies` before
+the integration job is scheduled: the job is then skipped as a whole, shown as skipped and never
+as passed, and that step's log states the reason and that the check is `INCOMPLETE`.
 
 ### Share one Mathlib across local copies
 
