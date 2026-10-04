@@ -72,9 +72,9 @@ private def resolve (repo path : FilePath) : FilePath :=
   if path.isAbsolute then path else repo / path.toString
 
 /-- The first package that the Verso package at `package` and a package it requires by local path
-both pin by Git at different revisions or sources, with that package's recorded directory. They
-share one packages directory, so such a pin would make one build check out another revision of a
-shared dependency. -/
+both pin by Git at different revisions or sources, with that package's recorded directory. Where
+the two share one packages directory, such a pin would make one build check out another revision
+of a shared dependency. -/
 private def sharedPinMismatch (package : FilePath) : IO (Option String) := do
   let entries (dir : FilePath) : IO (Array Json) := do
     IO.ofExcept ((← readJson (dir / "lake-manifest.json")).getObjValAs? (Array Json) "packages")
