@@ -21,9 +21,10 @@ lean --run lean/Regula/DiagnosticsGate.lean gate     # refuse unless each passed
 
 `inputs` is the one statement of the paths the campaigns depend on: the checker, the rules and
 their examples, the adopter fixtures, the application and fixture sources the structural and
-execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`, the provisioning
-and compiler-installation programs, the snapshot controller, the dependency mode, the declared
-compiler source and snapshot selections, the workflow, both preparation workflows and the
+execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`, the verification,
+provisioning, compiler-installation and snapshot programs with their decision contracts, the
+dependency mode, the declared compiler source and snapshot selections, the workflow, both
+preparation workflows and the
 provisioning action. `decisions` decides each
 partition job by its job id: the campaigns (`campaign`) on every run other than a pull request's
 (`campaign_of_ne`), and on a pull request's exactly when one of its changed paths is an input
@@ -86,9 +87,10 @@ def Input.covers : Input → List String → Bool
 /-- The paths the campaigns depend on, and the only statement of them: the checker, the rules and
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
 application and fixture sources the structural and execution controls mutate, Lake configuration
-and manifests, `scripts/verify.sh`, the provisioning and compiler-installation programs, the
-snapshot controller, the dependency mode, the declared compiler source and snapshot selections,
-the workflow, both preparation workflows and the provisioning action. This module is an input,
+and manifests, `scripts/verify.sh`, the verification, provisioning, compiler-installation and
+snapshot programs with their decision contracts, the dependency mode, the declared compiler source
+and snapshot selections, the workflow, both preparation workflows and the provisioning action.
+This module is an input,
 below `lean/Regula`. -/
 def inputs : List Input := [
   .tree ["lean", "Regula"],
@@ -97,9 +99,13 @@ def inputs : List Input := [
   .tree ["lean", "RegulaCore"],
   .tree ["lean", "RegulaQualification"],
   .file ["lean", "RegulaVerification.lean"],
+  .tree ["lean", "RegulaVerification"],
   .file ["lean", "RegulaProvision.lean"],
+  .tree ["lean", "RegulaProvision"],
   .file ["lean", "RegulaCompiler.lean"],
+  .tree ["lean", "RegulaCompiler"],
   .file ["lean", "RegulaSnapshot.lean"],
+  .tree ["lean", "RegulaSnapshot"],
   .file ["dependency-build-mode"],
   .file [".github", "compiler-source.json"],
   .file [".github", "snapshot-preparation.json"],

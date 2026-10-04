@@ -4,10 +4,13 @@ public import RegulaPolicy.Identity
 public import RegulaPolicy.Collections
 public import RegulaPolicy.Compiler
 public import Regula.Contract
+meta import Regula.Decision
 
 /-! # Policy vocabulary and observation data
 
-Closed policy vocabulary and observation data. No operational Lean imports.
+Closed policy vocabulary and observation data. No operational Lean imports: `Regula.Decision`
+is imported for elaboration only (`meta import`), for the `@[regula_decision]` registration of the
+parsers and admissions below, so no definition here can run what it brings.
 Canonical representation is informed by con-leche PropWhen; these are original domain
 definitions, not imported con-leche proofs. Source observation authenticity remains
 with the operational collector. -/
@@ -51,6 +54,7 @@ def DeclarationKind.spelling : DeclarationKind → String
 
 /-- The kind a report text names; `none` for any text that is not a `spelling`
 (`DeclarationKind.canonical`). -/
+@[regula_decision]
 def DeclarationKind.parse? : String → Option DeclarationKind
   | "axiom" => some .«axiom»
   | "def" => some .«definition»
@@ -113,6 +117,7 @@ def BoundaryKind.spelling : BoundaryKind → String
 
 /-- The kind a report text names; `none` for any text that is not a `spelling`
 (`BoundaryKind.canonical`). -/
+@[regula_decision]
 def BoundaryKind.parse? : String → Option BoundaryKind
   | "runtime-replacement" => some .«runtimeReplacement»
   | "compiler-simplification" => some .«compilerSimplification»
@@ -178,6 +183,7 @@ def Correspondence.spelling : Correspondence → String
 
 /-- The account a report text names; `none` for any text that is not a `spelling`
 (`Correspondence.canonical`). -/
+@[regula_decision]
 def Correspondence.parse? : String → Option Correspondence
   | "checked" => some .«checked»
   | "trusted" => some .«trusted»
@@ -261,6 +267,7 @@ def FoundationClass.spelling : FoundationClass → String
 
 /-- The class a report text names; `none` for any text that is not a `spelling`
 (`FoundationClass.canonical`). -/
+@[regula_decision]
 def FoundationClass.parse? : String → Option FoundationClass
   | "kernel-only" => some .«kernelOnly»
   | "choice-free" => some .«choiceFree»
@@ -301,6 +308,7 @@ def ConformingProfile.spelling : ConformingProfile → String
 
 /-- The profile a text names; `none` for any text that is not a `spelling`
 (`ConformingProfile.canonical`). -/
+@[regula_decision]
 def ConformingProfile.parse? : String → Option ConformingProfile
   | "kernel-only" => some .«kernelOnly»
   | "choice-free" => some .«choiceFree»
@@ -338,6 +346,7 @@ def ExecutionClaim.spelling : ExecutionClaim → String
 
 /-- The claim a text names; `none` for any text that is not a `spelling`
 (`ExecutionClaim.canonical`). -/
+@[regula_decision]
 def ExecutionClaim.parse? : String → Option ExecutionClaim
   | "report" => some .«report»
   | "checked" => some .«checked»
@@ -383,6 +392,7 @@ def EvidenceMode.spelling : EvidenceMode → String
 
 /-- The mode a text names; `none` for any text that is not a `spelling`
 (`EvidenceMode.canonical`). -/
+@[regula_decision]
 def EvidenceMode.parse? : String → Option EvidenceMode
   | "editorSnapshot" => some .«editorSnapshot»
   | "incrementalProject" => some .«incrementalProject»
@@ -419,6 +429,7 @@ def Safety.spelling : Safety → String
 
 /-- The safety a text names; `none` for any text that is not a `spelling`
 (`Safety.canonical`). -/
+@[regula_decision]
 def Safety.parse? : String → Option Safety
   | "unsafe" => some .«unsafe»
   | "partial" => some .«partial»
@@ -455,6 +466,7 @@ def Reducibility.spelling : Reducibility → String
 
 /-- The hint a text names; `none` for any text that is not a `spelling`
 (`Reducibility.canonical`). -/
+@[regula_decision]
 def Reducibility.parse? : String → Option Reducibility
   | "opaque" => some .«opaque»
   | "abbrev" => some .«abbrev»
@@ -490,6 +502,7 @@ def RecursionOrigin.spelling : RecursionOrigin → String
 
 /-- The origin a text names; `none` for any text that is not a `spelling`
 (`RecursionOrigin.canonical`). -/
+@[regula_decision]
 def RecursionOrigin.parse? : String → Option RecursionOrigin
   | "structural" => some .«structural»
   | "well-founded" => some .«wellFounded»
@@ -615,6 +628,7 @@ def DecisionKind.spelling : DecisionKind → String
 
 /-- The kind a text names; `none` for any text that is not a `spelling`
 (`DecisionKind.canonical`). -/
+@[regula_decision]
 def DecisionKind.parse? : String → Option DecisionKind
   | "sound" => some .«sound»
   | "complete" => some .«complete»
@@ -642,6 +656,7 @@ def DecisionKind.structureName : DecisionKind → Lean.Name
 /-- The kind whose structure `name` is; `none` for every other name
 (`DecisionKind.ofStructureName?_eq_some_iff`). The collector applies it to the head constant of
 a registration's reduced requirement. -/
+@[regula_decision]
 def DecisionKind.ofStructureName? : Lean.Name → Option DecisionKind
   | .str (.str .anonymous "Regula") "DecidesSoundly" => some .«sound»
   | .str (.str .anonymous "Regula") "DecidesCompletely" => some .«complete»
@@ -680,6 +695,42 @@ does not establish. -/
 theorem DecisionKind.leavesOpen_eq_none_iff (kind : DecisionKind) :
     kind.leavesOpen = none ↔ kind = .«soundAndComplete» := by
   cases kind <;> simp [leavesOpen]
+
+/-- What the collector observes of a function registered with `@[regula_decision]`: whether its
+result type is `Decidable _`, the form whose every result carries a proof of the decided
+proposition or of its negation; parsing cannot manufacture an unknown constructor. -/
+inductive DecisionResult where
+  /-- The result type is `Decidable _`: both directions hold by construction. -/
+  | «decidable»
+  /-- Any other result type: which direction is proved needs a registered decision contract. -/
+  | «other»
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The observation's text in reports (`decidable` or `other`); `parse?` reads it back
+(`DecisionResult.roundtrip`). -/
+def DecisionResult.spelling : DecisionResult → String
+  | .«decidable» => "decidable"
+  | .«other» => "other"
+
+/-- The observation a text names; `none` for any text that is not a `spelling`
+(`DecisionResult.canonical`). -/
+@[regula_decision]
+def DecisionResult.parse? : String → Option DecisionResult
+  | "decidable" => some .«decidable»
+  | "other" => some .«other»
+  | _ => none
+
+instance : ToString DecisionResult := ⟨DecisionResult.spelling⟩
+
+/-- Every value survives its actual spelling parser. -/
+@[simp] theorem DecisionResult.roundtrip (x : DecisionResult) : parse? x.spelling = some x := by
+  cases x <;> rfl
+
+/-- The parser accepts only the canonical spelling of its result. -/
+theorem DecisionResult.canonical (s : String) (x : DecisionResult) (h : parse? s = some x) :
+    x.spelling = s := by
+  unfold parse? at h
+  split at h <;> cases h <;> rfl
 
 /-- The collector's observation of a registered proof-bearing executable contract.
 The actual contract is checked during elaboration and admission; this record contains
@@ -786,6 +837,9 @@ structure Declaration where
   axioms : Array Lean.Name
   /-- The collector's observation when the constant registers an executable contract. -/
   executableContract : Option ExecutableContract := none
+  /-- For a constant registered with `@[regula_decision]`: whether its result type is
+  `Decidable _`. `none` for a constant without that registration. -/
+  decisionResult : Option DecisionResult := none
   deriving Repr, DecidableEq
 
 /-- The declaration's admitted ranges: the pair Lean recorded (`recordedRanges`) when its
@@ -828,6 +882,7 @@ structure ToolchainOrigin where
 
 /-- Admit an origin observation: an error unless the module is under `Init`, `Std` or `Lean`
 and `actual` is nonempty and equal to `expected` (`toolchainOrigin_roundtrip`). -/
+@[regula_decision]
 def admitToolchainOrigin (moduleName : Lean.Name) (actual expected : String) :
     Except String ToolchainOrigin :=
   if hm : ToolchainRoot moduleName.getRoot then
@@ -1155,6 +1210,7 @@ def EvaluatorRole.spelling : EvaluatorRole → String
   | .command => "command" | .tactic => "tactic" | .term => "term"
 /-- The role a text names; `none` for any text that is not a `spelling`
 (`EvaluatorRole.canonical`). -/
+@[regula_decision]
 def EvaluatorRole.parse? : String → Option EvaluatorRole
   | "command" => some .command | "tactic" => some .tactic | "term" => some .term | _ => none
 instance : ToString EvaluatorRole := ⟨EvaluatorRole.spelling⟩
@@ -1293,6 +1349,11 @@ theorem RecursionOrigin.checked_parse : Regula.ExecutableContract RecursionOrigi
 theorem DecisionKind.checked_parse : Regula.ExecutableContract DecisionKind.parse?
     (Regula.Decides (·.isSome = true) fun text => ∃ x : DecisionKind, text = x.spelling) :=
   ⟨.of_roundtrip roundtrip canonical .«sound» (unwritten := "") rfl⟩
+
+/-- `DecisionResult.parse?` accepts exactly the spellings. -/
+theorem DecisionResult.checked_parse : Regula.ExecutableContract DecisionResult.parse?
+    (Regula.Decides (·.isSome = true) fun text => ∃ x : DecisionResult, text = x.spelling) :=
+  ⟨.of_roundtrip roundtrip canonical .«decidable» (unwritten := "") rfl⟩
 
 /-- `EvaluatorRole.parse?` accepts exactly the spellings. -/
 theorem EvaluatorRole.checked_parse : Regula.ExecutableContract EvaluatorRole.parse?

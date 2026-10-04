@@ -3,6 +3,7 @@ import Lean.Replay
 import Regula.Probe
 import Regula.Checker.SharedName
 import Std.Data.HashMap.Lemmas
+import Regula.Decision
 
 /-!
 # Checked logical admission
@@ -1432,6 +1433,7 @@ theorem checkCopy_ok {checked : Kernel.Environment} {kept : Name → Option Cons
     · simp [hu, hs] at h
 
 /-- Check every copy (`checkCopy`), stopping at the first refusal. -/
+@[regula_decision]
 def checkCopies (checked : Kernel.Environment) (kept : Name → Option ConstantInfo) (fuel : Nat)
     (shared : Copy → Bool) (copies : Array Copy) : Except CopyFailure Unit :=
   forM copies (checkCopy checked kept fuel shared)

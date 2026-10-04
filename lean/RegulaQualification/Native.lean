@@ -1,4 +1,5 @@
 import RegulaQualification.Checks
+import Regula.Decision
 
 /-! # Native diagnostic observation contract
 
@@ -122,6 +123,7 @@ def Matches (expected : Expected) (exitCode : Nat) (stderr : String)
       (fun detail => native.any (fun message => message.data.contains detail)) = true
 
 /-- The actual adapter oracle uses the registered proof-backed evaluator. -/
+@[regula_decision]
 def validate (expected : Expected) (exitCode : Nat) (stderr : String)
     (messages : List Message) : Except String Unit :=
   checked_evaluation.run (checks expected exitCode stderr messages)

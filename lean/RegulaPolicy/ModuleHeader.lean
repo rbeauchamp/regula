@@ -1,6 +1,7 @@
 module
 
 public import Regula.Contract
+meta import Regula.Decision
 
 /-! # Module header decision
 
@@ -72,6 +73,7 @@ def repeated (imports : List ImportSpec) : List ImportSpec :=
 
 /-- Every failure of a module header: first the documentation failure, if any (a missing
 docstring is reported as missing, not also as misplaced), then each repeated import. -/
+@[regula_decision]
 def failures (o : Observation) : List Failure :=
   (if !o.documented then [.missingDocumentation]
     else if !o.documentationFirst then [.misplacedDocumentation] else []) ++

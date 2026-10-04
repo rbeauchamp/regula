@@ -1,6 +1,7 @@
 import Regula.Diagnostic
 import Regula.StructuralName
 import Regula.SourceTexts
+import Regula.Decision
 
 /-! # Registry transport codec
 
@@ -15,6 +16,7 @@ def modeText := EvidenceMode.spelling
 
 /-- The evidence mode a text names; it recovers every mode from its `modeText`
 (`mode_roundtrip`). -/
+@[regula_decision]
 def parseMode : String → Except String EvidenceMode
   | "editorSnapshot" => .ok .editorSnapshot
   | "incrementalProject" => .ok .incrementalProject
@@ -43,6 +45,7 @@ def ruleJson (id : RuleId) : Json := .str id.spelling
 
 /-- The rule a JSON string names; it recovers every rule from its `ruleJson`
 (`rule_roundtrip`). -/
+@[regula_decision]
 def parseRule (j : Json) : Except String RuleId := do
   let s ← j.getStr?
   match RuleId.parse? s with
@@ -54,7 +57,7 @@ theorem rule_roundtrip (id : RuleId) : parseRule (ruleJson id) = .ok id := by
 
 /-- `parseRule` is a complete decision of the written rule IDs (`rule_roundtrip`): it accepts
 the JSON string of every rule, and it refuses `null`. The kind is one-way: that it accepts only
-those strings is not stated for this reader; `checked_ruleIdParse` states it for the parser of
+those strings is not stated for this reader; `RuleId.checked_parse` states it for the parser of
 the spelling. -/
 theorem checked_parseRule : Regula.ExecutableContract parseRule
     (Regula.DecidesCompletely (·.isOk = true) fun json => ∃ id, json = ruleJson id) :=
@@ -62,13 +65,6 @@ theorem checked_parseRule : Regula.ExecutableContract parseRule
        rw [written, rule_roundtrip]
        rfl
      refused := ⟨.null, by decide⟩ }⟩
-
-/-- `RuleId.parse?` accepts exactly the rule spellings (`RuleId.parse_spelling`,
-`RuleId.spelling_of_parse`). -/
-theorem checked_ruleIdParse : Regula.ExecutableContract RuleId.parse?
-    (Regula.Decides (·.isSome = true) fun text => ∃ id : RuleId, text = id.spelling) :=
-  ⟨.of_roundtrip RuleId.parse_spelling (fun _ _ read => RuleId.spelling_of_parse read)
-    .projectAxiom (unwritten := "") rfl⟩
 
 private def categoryText : RuleCategory → String
   | .foundation => "foundation" | .declaration => "declaration"
@@ -189,7 +185,7 @@ def locationJson : Location → Json
 
 private def argumentsJson : (id : RuleId) → Payload id → Json
   | .projectAxiom, a | .proofHole, a | .unknownAxiom, a | .compilerTrusting, a
-  | .profileExceeded, a | .escapeHatch, a | .executableContract, a
+  | .profileExceeded, a | .escapeHatch, a | .executableContract, a | .decisionContract, a
   | .materialDocumentation, a | .materialIntent, a =>
       Json.mkObj [("declaration", printedNameJson a.declaration),
         ("sourceDeclaration", (a.sourceDeclaration.map printedNameJson).getD .null),

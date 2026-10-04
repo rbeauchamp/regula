@@ -5,6 +5,7 @@ import RegulaPolicy.Execution
 import RegulaPolicy.Guards
 import RegulaPolicy.Traversal
 import Regula.Contract
+import Regula.Decision
 
 /-! # Checker policy projections
 
@@ -36,6 +37,7 @@ inductive Profile where
 namespace Profile
 
 /-- The profile a manifest or command-line spelling names; any other text is refused. -/
+@[regula_decision]
 def parse? : String → Option Profile
   | "kernel-only" => some .kernelOnly
   | "choice-free" => some .choiceFree
@@ -112,6 +114,7 @@ def ScopeContract (compiler : RegulaPolicy.Compiler.Capability)
         scope.inventory.compiler = compiler ∧ scope.inventory.declarations = ds ∧
           scope.inventory.transcripts = ts)
 
+@[regula_decision]
 private def admitScopeImpl (compiler : RegulaPolicy.Compiler.Capability)
     (check : CoordinateCheck) (ds : Array Declaration)
     (ts : Array RegulaPolicy.Frontend.Transcript) : Except String PolicyScope := do
@@ -350,7 +353,7 @@ theorem partialParent_rule (decl : Declaration) (claim : Option Profile) (scope 
   have unique := scope.inventory.valid.1
   rw [ruleForMember_eq, Ne, (ruleFor_contract decl claim scope).1,
     RegulaPolicy.policyFor_none_iff]
-  rintro ⟨_, ok⟩
+  rintro ⟨_, ok, _⟩
   have notHelper := scope.roles.partialParent_not_safetyHelper member hp parent
   rcases ok with ⟨_, native, _⟩ | ⟨_, _, _, safety, _⟩
   · rw [scope.roles.native_exact] at native
@@ -385,13 +388,18 @@ theorem editor_request_complete (claim : Option Profile) (h : claim ≠ some .co
   · exact absurd rfl h
 
 /-- For the same member and request, the editor passes a declaration exactly when the
-project rule projection selects no rule. -/
+project rule projection selects no rule or selects only the decision-contract rule, which the
+editor never renders (`editor_decision_ne_decisionContract`): the project projection selects it
+only where the declaration meets every requirement of its own record
+(`RegulaPolicy.policyFor_decisionContract_iff`). -/
 theorem editor_decision_none_iff (scope : PolicyScope) (decl : Declaration)
     (member : decl ∈ scope.inventory.declarations) (claim : Option Profile) :
     Regula.Linter.editorDecision scope.inventory scope.roles decl member (request claim) = none ↔
-      ruleForMember decl claim scope member = none := by
+      ruleForMember decl claim scope member = none ∨
+        ruleForMember decl claim scope member = some .decisionContract := by
   rw [(Regula.Linter.editorDecision_contract _ _ _ member _).1, ruleForMember_eq,
     (ruleFor_contract decl claim scope).1]
+  exact or_congr_right ((ruleFor_contract decl claim scope).2 .decisionContract).symm
 
 /-- A rule the editor renders is the project rule projection's rule for the same member and
 request (`checked_memberRule`). -/
@@ -400,10 +408,22 @@ theorem editor_decision_rule (scope : PolicyScope) (decl : Declaration)
     (h : Regula.Linter.editorDecision scope.inventory scope.roles decl member (request claim) =
       some (.rule id)) :
     ruleForMember decl claim scope member = some id := by
-  obtain ⟨f, hf, _, rfl⟩ :=
+  obtain ⟨f, hf, _, _, rfl⟩ :=
     ((Regula.Linter.editorDecision_contract _ _ _ member _).2.2 id).mp h
   rw [ruleForMember_eq]
   exact ((ruleFor_contract decl claim scope).2 f).mpr hf
+
+/-- The editor never renders the decision-contract rule: whether the inventory holds a decision
+contract for a registered decision is decided by a project, file or documentation audit, which
+sees the whole inventory. -/
+theorem editor_decision_ne_decisionContract (scope : PolicyScope) (decl : Declaration)
+    (member : decl ∈ scope.inventory.declarations) (claim : Option Profile) :
+    Regula.Linter.editorDecision scope.inventory scope.roles decl member (request claim) ≠
+      some (.rule .decisionContract) := by
+  intro h
+  obtain ⟨f, _, differs, _, same⟩ :=
+    ((Regula.Linter.editorDecision_contract _ _ _ member _).2.2 _).mp h
+  exact differs (Regula.ruleForFailure_injective (a₁ := f) (a₂ := .decisionContract) same.symm)
 
 /-- A pending editor decision withholds a rule the project projection selects; the failure
 needs fresh generated-role evidence that only a project or fresh-file audit supplies. -/

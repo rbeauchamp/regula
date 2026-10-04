@@ -2,6 +2,7 @@ module
 
 public import Std
 public import Init.Data.Ord.String
+meta import Regula.Decision
 
 /-! # Structural Lean identities
 
@@ -73,6 +74,7 @@ instance : LawfulEqOrd Identity where
     rfl
 
 /-- Refuse anonymous coverage identities instead of manufacturing a default. -/
+@[regula_decision]
 def admitIdentity (n : Name) : Except String Identity :=
   if h : n ≠ .anonymous then .ok ⟨n, h⟩ else .error "anonymous coverage identity"
 

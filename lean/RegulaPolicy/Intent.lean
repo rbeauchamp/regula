@@ -1,6 +1,7 @@
 module
 
 public import Regula.Contract
+meta import Regula.Decision
 
 /-! # Intent section presence
 
@@ -115,6 +116,7 @@ def hasIntentLines : List (List Char) → Bool
       hasIntentLines rest
 
 /-- The executed decision for one docstring. -/
+@[regula_decision]
 def hasIntentSection (doc : String) : Bool := hasIntentLines (docLines doc)
 
 theorem sectionHasContent_iff (level : Nat) (lines : List (List Char)) :
@@ -281,6 +283,7 @@ def MaterialDocumentationOK (docstring : Option String) : Prop :=
   ∃ doc, docstring = some doc ∧ IntentSection (docLines doc)
 
 /-- The executed classification of one observed docstring. -/
+@[regula_decision]
 def materialDocumentationFailure : Option String → Option MaterialDocumentationFailure
   | none => some .missingDocstring
   | some doc => if hasIntentSection doc then none else some .missingIntent

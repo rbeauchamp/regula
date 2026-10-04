@@ -2,6 +2,7 @@ import RegulaCore.Account
 import RegulaCore.Guide
 import Regula.Contract
 import Std.Data.HashMap
+import Regula.Decision
 
 /-! # Rule-reference site: routes, editions and pure output checks
 
@@ -721,6 +722,7 @@ theorem linkOKIn_pageIndex (pages : List Page) (page : Page) (link : String) :
       · exact ⟨t, Or.inr ⟨ht, hp⟩, by simpa [or_assoc] using hf⟩
 
 /-- Every unresolved link, reported with its page. -/
+@[regula_decision]
 def linkErrors (pages : List Page) : List String :=
   let index := pageIndex pages
   pages.flatMap fun page => page.links.filterMap fun link =>
@@ -827,6 +829,7 @@ def documentAnchors (texts : List String) : List (String × String) :=
   texts.flatMap fun text => (routesAfter standardUrl text).map routeAnchor
 
 /-- The anchors that no page with their path defines. An empty fragment needs only the page. -/
+@[regula_decision]
 def missingAnchors (pages : List Page) (anchors : List (String × String)) : List
     (String × String) :=
   let index := pageIndex pages
@@ -865,6 +868,7 @@ def renderedRows (html : String) : List String :=
 
 /-- How the rendered checklist's rows differ from `checklistRows`, or `none` when they are the
 same list. -/
+@[regula_decision]
 def rowsMismatch (rendered : List String) : Option String :=
   if rendered == checklistRows then none else
     some s!"rendered rows missing from checklistRows: {rendered.filter (· ∉ checklistRows)}; \

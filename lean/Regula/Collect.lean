@@ -32,6 +32,7 @@ public import Lean.ProjFns
 public import Lean.Util.FoldConsts
 public import RegulaPolicy.Domain
 public import Regula.Contract
+public import Regula.Decision
 
 public import Lean.Linter.Util
 public import Lean.Linter.EnvLinter.Frontend
@@ -1690,6 +1691,48 @@ def returnsSort (type : Expr) : MetaM Bool :=
   Meta.withTransparency .all <|
     Meta.forallTelescopeReducing type (fun _ body => pure body.isSort) (whnfType := true)
 
+/-- Whether the result type of `type` is `Decidable _`: `type`, with every leading binder opened
+and the remaining type reduced to weak head normal form at the ambient transparency, is an
+application of `Decidable` to one argument. So a `DecidablePred`, `DecidableRel` or
+`DecidableEq` instance has such a result type, and so does a definition whose result type unfolds
+to one. A result type that the reduction does not unfold to `Decidable _`, such as an irreducible
+alias of it, is not one: the function then needs a decision contract. -/
+def returnsDecidable (type : Expr) : MetaM Bool :=
+  Meta.forallTelescopeReducing type (fun _ body => pure (body.isAppOfArity ``Decidable 1))
+    (whnfType := true)
+
+/-- The decision registration of a constant: `none` unless `@[regula_decision]` registers it
+(`registered`, the environment's `Regula.decisionRegistrations`: the registrations of every
+module it loaded, so of the constant's own module or of one that imports it), and otherwise
+whether its result type is `Decidable _` (`returnsDecidable`). The registrations are environment
+state an audited project writes; a registration only adds the RG1008 requirement, and its absence
+adds none. -/
+def decisionResult? (registered : NameSet) (info : ConstantInfo) :
+    MetaM (Option RegulaPolicy.DecisionResult) := do
+  unless registered.contains info.name do return none
+  return some (if ← returnsDecidable info.type then .decidable else .other)
+
+/-- Refuses the first `@[regula_decision]` registration that one of the loaded `modules` writes
+for a declaration none of them declares, naming the registering module and the declaration. An
+inventory of `modules` records no declaration for it, so its RG1008 requirement would go
+undecided; a caller that builds such an inventory stops on the refusal. A registered name that
+no loaded module declares is refused too. -/
+def ownedDecisionRegistrations (env : Environment) (modules : List Name) : Except String Unit :=
+  let foreign := env.header.moduleNames.zipIdx.findSome? fun (moduleName, index) =>
+    if modules.contains moduleName then
+      (decisionExtension.getModuleEntries env index).findSome? fun declaration =>
+        let owned := (env.getModuleIdxFor? declaration).any fun home =>
+          (env.header.moduleNames[home.toNat]?).any modules.contains
+        if owned then none else some (moduleName, declaration)
+    else none
+  match foreign with
+  | none => .ok ()
+  | some (moduleName, declaration) => .error
+      s!"module {moduleName} registers {declaration} with `@[regula_decision]`, and no module \
+        of this inventory declares {declaration}: a registration is a requirement of the \
+        inventory that owns the function, so register it in a module of the library that \
+        declares it"
+
 /-- For each imported module index: whether the module is `target` or transitively imports it.
 This is the least fixed point of "is `target` or imports a marked module": a pass that marks
 nothing has reached it, and every other pass marks one of the finitely many modules, so at most
@@ -1717,8 +1760,9 @@ private def importersOf (env : Environment) (target : Name) : Array Bool := Id.r
 memo of constants shown not to reach it. No constant of a module that is neither
 `Regula.Contract` nor a transitive importer of it mentions the contract type or a decision kind,
 which `Regula.Contract` also declares, and neither does any constant such a constant mentions
-(`importersOf`). It also memoizes, for the same environment, the toolchain's
-`wf_preprocess` rules that recursion-helper regeneration uses. -/
+(`importersOf`). It also holds, for the same environment, the declarations registered as
+decisions and a memo of the toolchain's `wf_preprocess` rules that recursion-helper regeneration
+uses. -/
 structure ContractScope where
   /-- For each imported module index: `Regula.Contract` or a module that transitively imports it. -/
   aware : Array Bool
@@ -1730,6 +1774,9 @@ structure ContractScope where
   /-- Constants whose closure under `unfoldReferences` was searched without reaching a decision
   kind (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`). -/
   decisionFree : IO.Ref NameSet
+  /-- Every declaration `@[regula_decision]` registers in the environment
+  (`Regula.decisionRegistrations`), computed once for all of its declarations. -/
+  decisions : NameSet
   /-- The toolchain's `wf_preprocess` rules once a recursion helper's regeneration has computed
   them (`Collect.unsafeRecRegeneration`), shared by every helper of the environment. -/
   preprocessRules : IO.Ref (Option Meta.SimpTheorems)
@@ -1741,6 +1788,7 @@ def ContractScope.new (env : Environment) : BaseIO ContractScope := do
              env.mainModule == `Regula.Contract
            free := ← IO.mkRef {}
            decisionFree := ← IO.mkRef {}
+           decisions := decisionRegistrations env
            preprocessRules := ← IO.mkRef none }
 
 /-- Whether `name` belongs to an aware module; a constant whose module index is unknown counts as
@@ -2494,6 +2542,7 @@ def declaration (name : Name) (stage : Stage) (scope? : Option ContractScope := 
     generatedFrom := ← liftTermElabM (generatedFrom? name)
     axioms := RegulaPolicy.canonicalNames axioms
     executableContract := ← executableContract? env scope info
+    decisionResult := ← liftTermElabM (decisionResult? scope.decisions info)
   }
 
 /-- Complete current-module inventory, with no visibility or generated-name filter.

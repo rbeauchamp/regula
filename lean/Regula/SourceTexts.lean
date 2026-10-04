@@ -1,6 +1,7 @@
 import Lean.Data.Json
 import Regula.Contract
 import Std.Data.TreeMap.Raw.AdditionalOperations
+import Regula.Decision
 
 /-! # Source texts of a result document, stored once
 
@@ -147,6 +148,7 @@ def refsValid (table : List String) (value : Json) : Bool :=
 `sourceText` member once, at its first occurrence, and each such member holds the index of its
 text. Refused unless the document is an object with exactly one `sourceTexts` member, whose value
 is `null`, and every `sourceText` member is a string. -/
+@[regula_decision]
 def intern (document : Json) : Except String Json :=
   match slots document with
   | [.null] =>
@@ -161,6 +163,7 @@ def intern (document : Json) : Except String Json :=
 index names and `sourceTexts` is `null`. Refused unless the document is an object with exactly one
 `sourceTexts` member, an array of distinct strings, and every `sourceText` member is an index
 into it. -/
+@[regula_decision]
 def expand (written : Json) : Except String Json :=
   match slots written with
   | [slot] =>

@@ -45,6 +45,23 @@ def ContractOK (d : Declaration) : Prop := ∀ c ∈ d.executableContract, c.fai
 instance (d : Declaration) : Decidable (ContractOK d) := by
   unfold ContractOK; infer_instance
 
+/-- `n` is the implementation a decision contract of the inventory decides: some declaration of
+`ds` records an executable contract that states a decision kind, was not refused, and names `n`
+as its implementation. -/
+def DecisionRegistered (ds : Array Declaration) (n : Name) : Prop :=
+  ∃ r ∈ ds, ∃ c ∈ r.executableContract, c.root = n ∧ c.kind.isSome = true ∧ c.failure = none
+
+/-- A function registered as a decision (`@[regula_decision]`) states the direction it proves: its
+result type is `Decidable _`, or it is among `decided`, the implementations the inventory's
+decision contracts decide. A declaration without the registration has no such requirement; every
+registered declaration has it, whatever else the record says of the declaration, so no other
+observation waives it. The registration and the result type are the collector's observation
+(`Declaration.decisionResult`). -/
+def DecisionOK (d : Declaration) (decided : Array Name) : Prop :=
+  d.decisionResult = some .«other» → d.name ∈ decided
+instance (d : Declaration) (decided : Array Name) : Decidable (DecisionOK d decided) := by
+  unfold DecisionOK; infer_instance
+
 /-- Teaching may retain compiler trust; other inspections cannot. -/
 def CompilerPolicyOK (d : Declaration) (request : InspectionRequest) (native : Array Name) : Prop :=
   request = .teaching ∨ ∀ n ∈ d.axioms, ¬ CompilerAxiom native n
@@ -147,5 +164,38 @@ def declarationRequirements (d : Declaration) (r : InspectionRequest)
     [(.proofHole, `sorryAx ∉ d.axioms), (.unknownAxiom, KnownDependencies d native),
      (.escapeHatch, SafetyOK d helpers), (.compilerTrusting, CompilerPolicyOK d r native),
      (.executableContract, ContractOK d), (.profileExceeded, ProfileOK d r native)]
+
+/-- A requirement appended to an ordered list is decided only where every earlier one is met:
+an earlier failure is the outcome whatever the appended requirement, and otherwise the outcome is
+the appended requirement's own. -/
+theorem orderedDecision_append_singleton (requirements : List (DeclarationFailure × Prop))
+    (reason : DeclarationFailure) (requirement : Prop) (result : Option DeclarationFailure) :
+    OrderedDecision (requirements ++ [(reason, requirement)]) result ↔
+      (∃ earlier, OrderedDecision requirements (some earlier) ∧ result = some earlier) ∨
+      (OrderedDecision requirements none ∧
+        ((¬ requirement ∧ result = some reason) ∨ (requirement ∧ result = none))) := by
+  induction requirements with
+  | nil => simp
+  | cons head rest ih =>
+    obtain ⟨headReason, headRequirement⟩ := head
+    simp only [List.cons_append, orderedDecision_cons, ih]
+    constructor
+    · rintro (⟨unmet, rfl⟩ | ⟨met, ⟨earlier, failed, rfl⟩ | ⟨passed, outcome⟩⟩)
+      · exact Or.inl ⟨headReason, Or.inl ⟨unmet, rfl⟩, rfl⟩
+      · exact Or.inl ⟨earlier, Or.inr ⟨met, failed⟩, rfl⟩
+      · exact Or.inr ⟨Or.inr ⟨met, passed⟩, outcome⟩
+    · rintro (⟨earlier, ⟨unmet, same⟩ | ⟨met, failed⟩, rfl⟩ | ⟨⟨_, impossible⟩ | ⟨met, passed⟩,
+        outcome⟩)
+      · exact Or.inl ⟨unmet, same⟩
+      · exact Or.inr ⟨met, Or.inl ⟨earlier, failed, rfl⟩⟩
+      · cases impossible
+      · exact Or.inr ⟨met, Or.inr ⟨passed, outcome⟩⟩
+
+/-- The inventory-bound diagnostic priority: the declaration's own requirements in their order
+(`declarationRequirements`), then the decision requirement, which reads the implementations the
+inventory's decision contracts decide. -/
+def policyRequirements (d : Declaration) (r : InspectionRequest)
+    (native helpers decided : Array Name) : List (DeclarationFailure × Prop) :=
+  declarationRequirements d r native helpers ++ [(.decisionContract, DecisionOK d decided)]
 
 end RegulaPolicy

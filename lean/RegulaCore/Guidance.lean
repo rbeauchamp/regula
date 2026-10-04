@@ -86,9 +86,9 @@ def examples (id : RuleId) : String :=
       "The checked pair (`" ++ e.noncompliantPath id ++ "`, `" ++ e.compliantPath id ++
       "`) consists of qualification inputs, not project files. " ++ e.caption ++ "\n\n"
 
-/-- The full rule as Markdown. For a rule of registered material declarations, which the
-`@[regula_material]` attribute selects, only source options and flags are said not to change the
-result. -/
+/-- The full rule as Markdown. For a rule whose subjects a registration attribute selects
+(`registrationFor`: `@[regula_material]` or `@[regula_decision]`), only source options and flags
+are said not to change the result. -/
 def explain (id : RuleId) : String :=
   let d := descriptor id
   let g := guide id
@@ -108,7 +108,7 @@ def explain (id : RuleId) : String :=
   "## Examples\n\n" ++ examples id ++
   "## What triggers it\n\n" ++ paragraphs g.trigger ++
   "## Configuration and exceptions\n\n" ++ "No source option" ++
-    (if d.scope == .materialDeclaration then "" else ", attribute") ++ " or command-line flag \
+    (if (registrationFor id).isSome then "" else ", attribute") ++ " or command-line flag \
     makes this rule pass on a claimed surface (" ++ installed.edition.url "enforcement/" ++
     ").\n\n" ++ paragraphs g.configuration ++
   "## Limitations\n\n" ++ paragraphs g.limitations ++
@@ -136,8 +136,9 @@ def writingSections : List (String × String × List RuleId) := [
       "Applies to claimed modules and `@[regula_material]` declarations.",
     [.moduleDocumentation, .materialDocumentation, .materialIntent]),
   ("Executable code",
-      "Applies to `ExecutableContract` registrations and code reached from executable roots.",
-    [.executableContract, .executionBoundary, .executionUnresolved]),
+      "Applies to `ExecutableContract` registrations, `@[regula_decision]` functions and code \
+        reached from executable roots.",
+    [.executableContract, .decisionContract, .executionBoundary, .executionUnresolved]),
   ("Project configuration",
     "Applies to `foundation_manifest.json`, the Lake options of claimed targets and the build \
       environment.",
@@ -205,7 +206,7 @@ def agentGuideIn (e : Edition) : String :=
   "- Check with `lake lint` (`lake lint -- --fresh` for a fresh-source audit). Exit codes: " ++
       exitCodes ++ ".\n" ++
   "- `lake lint -- --json-out tmp/regula.json` also writes every finding with its location, " ++
-  "remedy and rule guidance (result schema 9: names as Lean prints them, and each source text " ++
+  "remedy and rule guidance (result schema 10: names as Lean prints them, and each source text " ++
   "once, in `sourceTexts`, which a `sourceText` member indexes). When a \
     stage did not complete, `complete` is false " ++
   "and `stagesNotRun` names the stages, so fixing these findings can reveal more.\n" ++
@@ -236,7 +237,7 @@ def agentGuideIn (e : Edition) : String :=
 def agentGuide : String := agentGuideIn installed.edition
 
 /-- Byte budget of the agent briefing, so pasting it into an agent's context stays cheap. -/
-def agentGuideBudget : Nat := 17408
+def agentGuideBudget : Nat := 18432
 
 /-- The briefing of a build whose pages are edition `e`, as an Agent Skills `SKILL.md`. -/
 def skillIn (e : Edition) : String :=

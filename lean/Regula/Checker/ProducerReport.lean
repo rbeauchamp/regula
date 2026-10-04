@@ -6,6 +6,7 @@ import RegulaPolicy.Guards
 import Regula.Contract
 import RegulaCore.Assembly
 import Lean.Elab.Command
+import Regula.Decision
 
 /-! # Producer report transport
 
@@ -399,6 +400,7 @@ def Environment.validateRoot (r : Environment) (root : ExecutionRoot) : Except S
 /-- Exact key reconciliation at the producer and transport admission boundaries. This
 checks supplied observations; truthful Lean/Lake extraction remains the trusted boundary.
 The guards run in this order and the first failure is the refusal. -/
+@[regula_decision]
 def Environment.validate (r : Environment) : Except String Unit := do
   unless decide (r.compilerCapability = Compiler.legacyCompilerTrust) do
     throw "compiler capability differs from this Regula build"

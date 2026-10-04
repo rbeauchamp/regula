@@ -1,4 +1,5 @@
 import RegulaCore.Prose
+import Regula.Decision
 
 /-! # Rule IDs in Markdown documents
 
@@ -604,6 +605,7 @@ theorem errors_nil_iff (file source : String) (pieces : List Piece) :
 
 /-- What the document `file` with text `source` is refused for, given the parser's reading of
 it: that the reading cannot be used, or the `errors` of its pieces. -/
+@[regula_decision]
 def documentErrors (file source : String) : Reading → List String
   | .unread reason => [s!"{file}: {reason}"]
   | .read pieces => errors file source pieces

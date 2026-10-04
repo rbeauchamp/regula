@@ -181,7 +181,7 @@ each of them that applies passed.
 Retain their controls and applicable evidence; never relabel an unrun campaign PASS.
 `./scripts/verify.sh diagnostics [partition]` runs a selected existing campaign under
 the same 420-second deadline; `rule-examples 1/2` and `2/2` run the corpus in two shards.
-The full corpus is 47 productions (44 phases plus 3 refusal controls), 3 individual
+The full corpus is 49 productions (46 phases plus 3 refusal controls), 3 individual
 control admissions and one corpus admission of every record; each production runs in its
 own fresh workspace, so no restored rerun repeats it.
 Use `./scripts/verify.sh serialized-graph` for an explicit separate graph-checking claim.

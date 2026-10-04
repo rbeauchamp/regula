@@ -1,4 +1,5 @@
 import RegulaCore.Site
+import Regula.Decision
 
 /-! # Rule IDs in prose
 
@@ -148,6 +149,7 @@ theorem Mention.linked_iff (target : RuleId → String → Bool) (m : Mention) :
       exact (hnot id destination hid hlink).elim
 
 /-- The mentions of `runs` that are not linked, in document order. -/
+@[regula_decision]
 def bareMentions (target : RuleId → String → Bool) (runs : List Run) : List Mention :=
   (runs.flatMap Run.mentions).filter fun m => !m.linked target
 

@@ -1,5 +1,6 @@
 import RegulaCore.Source
 import Regula.Contract
+import Regula.Decision
 
 /-! # Transcript-coordinate admission
 
@@ -12,7 +13,7 @@ acquired them. -/
 
 namespace Regula.Checker.Frontend
 
-open Lean hiding Command
+open Lean hiding Command Declaration
 open RegulaPolicy (Declaration)
 open RegulaPolicy.Frontend (Command Transcript)
 
@@ -162,6 +163,7 @@ def commandInventory (command : Command) : Except String Unit :=
     throw "transcript declaration inventory mismatch"
 
 /-- Recheck source coordinates against exact transcript bytes using Lean's `FileMap`. -/
+@[regula_decision]
 def coordinateCheck (column : Utf16Column) (declarations : Array Declaration)
     (transcript : Transcript) : Except String Unit := do
   transcript.commands.toList.forM commandInventory

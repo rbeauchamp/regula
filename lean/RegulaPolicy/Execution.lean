@@ -1,5 +1,6 @@
 import RegulaPolicy.Admission
 import Regula.Contract
+import Regula.Decision
 
 /-! # Execution decisions
 
@@ -47,6 +48,7 @@ instance (inventory : ExecutionInventory) (claim : ExecutionClaim) : Decidable
   unfold ExecutionOK; infer_instance
 
 /-- One boundary's deterministic diagnostic, retaining unresolved-before-trusted precedence. -/
+@[regula_decision]
 def boundaryFailures (root : ExecutionRoot) (claim : ExecutionClaim)
     (b : ExecutionBoundary) : Array ExecutionFailure :=
   if b.correspondence == .unresolved then
@@ -64,6 +66,7 @@ def rootFailures (root : ExecutionRoot) (claim : ExecutionClaim) : Array Executi
 /-- Every execution failure of the inventory under `claim`: each root's failures
 (`rootFailures`), in root order. It is empty exactly when `ExecutionOK` holds
 (`executionFailureRecords_empty_iff`). -/
+@[regula_decision]
 def executionFailureRecords (inventory : ExecutionInventory)
     (claim : ExecutionClaim) : Array ExecutionFailure :=
   inventory.roots.flatMap (fun root => rootFailures root claim)
@@ -448,6 +451,7 @@ def rootFindings (root : ExecutionRoot) (claim : ExecutionClaim) : Array Executi
 (`executionFailureRecords`) with each folded boundary's record reported in the finding of the
 boundary it is reported with (`failure_reported`). They are empty exactly when `ExecutionOK`
 holds (`executionFindings_empty_iff`). -/
+@[regula_decision]
 def executionFindings (inventory : ExecutionInventory)
     (claim : ExecutionClaim) : Array ExecutionFailure :=
   inventory.roots.flatMap (fun root => rootFindings root claim)

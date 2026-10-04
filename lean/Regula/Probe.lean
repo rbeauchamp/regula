@@ -21,6 +21,7 @@ import Std.Internal.UV.System
 import Regula.Report
 import Regula.Contract
 import Regula.MaterialClaim
+import Regula.Decision
 
 /-!
 # Machine-audit environment probe
@@ -769,6 +770,7 @@ def environmentReport (modules : List Name)
   let moduleOrigins ← if includeExecution || includeModuleOrigins then
       liftIO <| loadedModuleOrigins env
     else pure #[]
+  IO.ofExcept (Regula.Collect.ownedDecisionRegistrations env modules)
   let own ← ownedDecls env modules
   let declarationKeys ← own.mapM fun (name, _) => do
     let some idx := env.getModuleIdxFor? name

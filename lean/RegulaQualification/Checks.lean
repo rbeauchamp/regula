@@ -2,6 +2,7 @@ import Regula.Contract
 import RegulaPolicy.Guards
 import RegulaPolicy.Traversal
 import Lean.Data.Json
+import Regula.Decision
 
 /-! # Qualification assertions
 
@@ -26,6 +27,7 @@ def Satisfied (checks : List Check) : Prop :=
   ∀ check ∈ checks, check.holds = true
 
 /-- Stop at the first false assertion; never turn an unknown observation into success. -/
+@[regula_decision]
 def evaluate : List Check → Except String Unit
   | [] => .ok ()
   | check :: rest => if check.holds then evaluate rest else .error check.label

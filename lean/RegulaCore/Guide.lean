@@ -86,8 +86,8 @@ private def declarationLinkage : String :=
     `Regula.ruleForFailure`. Project, file and documentation audits run it through \
     `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`); the editor runs \
     `Regula.Linter.checked_editorDecision`. For the same member and request, the editor passes \
-    exactly when the project decision selects no rule \
-    (`Regula.Checker.Policy.editor_decision_none_iff`), a rule it renders is the project \
+    exactly when the project decision selects no rule or only RG1008, which the editor does not \
+    render (`Regula.Checker.Policy.editor_decision_none_iff`), a rule it renders is the project \
     decision's rule (`editor_decision_rule`), and a pending result withholds a project rule whose \
     failure needs generated-role evidence (`editor_decision_pending`). The editor's request \
     domain is the project's without teaching (`editor_request_sound`, \
@@ -590,9 +590,10 @@ def guide : RuleId → Guide
         "That `R` expresses the intended behavior (R-INTENT) and that every caller uses the \
           contracted implementation (R-INVARIANT). Every accepted account lists these as open for \
           each reported contract.",
-        "That a function acting as a checker is registered, or registered with a kind: no rule \
-          requires a registration, and which functions are checkers is a project's own \
-          declaration (R-INVARIANT).",
+        "That a function acting as a checker is registered, or registered with a kind: RG1008 \
+          requires a decision contract only of a function the project registers with \
+          `@[regula_decision]`, and which functions are checkers is a project's own declaration \
+          (R-INVARIANT).",
         "For a decision registration: that the specification is the intended one or is \
           independent of the implementation in substance (a copy of the implementation under \
           another name passes), the direction a one-way kind leaves open, and which value an \
@@ -626,6 +627,98 @@ def guide : RuleId → Guide
         is that kind's structure is proved (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`)."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
+              "lean/RegulaCore/Policy.lean"] }
+  | .decisionContract => {
+      problem := "A function registered as a decision with `@[regula_decision]` has no decision \
+        contract in its inventory, and its result type is not `Decidable _`. Nothing then states \
+        whether the function accepts only what its specification allows, everything its \
+        specification allows, or both."
+      trigger := [
+        "The checker reads the `@[regula_decision]` registration of every owned declaration from \
+          the completed Lean environment, and whether the declaration's type, with its arguments \
+          opened and its result type reduced, ends in `Decidable _`. A registration counts \
+          whether the module that declares the function wrote it or another loaded module did.",
+        "A registered declaration whose result type is not `Decidable _` is rejected, with \
+          applicability `decision-contract`, unless a declaration of the same inventory records an \
+          `ExecutableContract` that names it as the implementation, states a decision kind \
+          (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`) and was not \
+          refused under RG1007. The inventory is the declarations of the audited environment that \
+          owns the function: its library, an executable root inspected alone, a file, or a group \
+          of documentation fences.",
+        "Every registered declaration has the requirement, whatever else the checker records of \
+          it: one a project registers explicitly, such as a structure projection, and one named \
+          like a generated declaration. Lean applies the registration after compilation, so it \
+          is not copied to the `_unary` or `_mutual` definition Lean generates for a function \
+          defined by well-founded recursion.",
+        "The rule is decided after the declaration's other requirements (RG1001 to RG1007), so it \
+          is reported for a declaration that meets them. The editor does not render it: a contract \
+          normally follows its function, in a later command or module, so a snapshot of one \
+          command cannot decide whether the inventory has one."]
+      rationaleDetail := [
+        "Standard §7.5 requires that removing evidence while its requirement remains fails the \
+          gate. For a contract no caller consumes through `ExecutableContract.run`, deleting the \
+          theorem would delete the requirement with it. The registration keeps the requirement at \
+          the function: deleting the contract while the registration stays is this rule's finding.",
+        "A `Decidable p` result needs no contract: its accepting value carries a proof of `p` and \
+          its refusing value a proof of `¬p`, so both directions hold by construction (standard \
+          §3.2.4). It carries no witness that both outcomes occur: `Decidable True` qualifies."]
+      proofShape := [
+        "`ExecutableContract f (Regula.Decides accepts spec)`, or `Regula.DecidesSoundly` or \
+          `Regula.DecidesCompletely` for a declared one-way guarantee, in the library that \
+          declares `f`. RG1007 gives the supported shape of the registration.",
+        "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
+      established := [
+        "Every owned declaration registered with `@[regula_decision]` whose result type is not \
+          `Decidable _` is the implementation of an accepted decision contract of its inventory, \
+          whose kind the account reports.",
+        "Removing that contract while the registration stays is rejected."]
+      notEstablished := [
+        "That every function that acts as a checker is registered: the registration is the \
+          project's own declaration, and removing it removes the requirement (R-INVARIANT).",
+        "That the contract's specification is the intended one (R-INTENT), that a one-way kind \
+          should have been two-way, or which value an accepting result carries.",
+        "For a `Decidable` result: that the decided proposition is the intended one, that both \
+          outcomes occur, or that the instance is computable.",
+        "That callers act on the function's verdict (R-INVARIANT)."]
+      configuration := [
+        "`@[regula_decision]` is declared in `Regula.Decision`, a published checker interface a \
+          claimed module may import: `import Regula.Decision`, or `meta import Regula.Decision` \
+          in a file that is a `module`. Write it on the definition (`@[regula_decision] def \
+          f`), or with `attribute [regula_decision] f` in a module of the same library that \
+          imports `f`, for a function whose own module cannot import `Regula.Decision`."]
+      limitations := [
+        "A contract in another library, executable root or file of the project does not count: \
+          the inventory is that of the audited environment that owns the function. Register the \
+          contract in the function's library.",
+        "A registration that an audited module writes for a declaration outside its inventory \
+          stops the audit without a verdict, naming the module and the declaration: that \
+          inventory records no declaration to decide the requirement for. Register a function \
+          in a module of the library that declares it.",
+        "A function whose argument or result type depends on an earlier argument, or that is \
+          polymorphic in a type, has no decision kind (a limitation of RG1007). Decide a named \
+          function over a product, sigma or subtype domain, or leave the function unregistered \
+          and record why.",
+        "A function in `IO`, `MetaM` or another monad comes into scope through the pure decision \
+          it runs: register that decision.",
+        "The registration is environment state an audited project writes. It only adds a \
+          requirement; no registration or option waives one.",
+        "The editor never reports this rule; `lake lint` or a file audit does."]
+      residuals := [.intent, .invariant, .qualify]
+      checklist := ["THEOREM-07", "BUILD-03"]
+      linkage := "`RegulaPolicy.policyFor` decides the rule after the declaration's own \
+        requirements. `policyFor_decisionContract_iff` proves it reports the decision failure \
+        exactly for an inventory member that meets those requirements, is registered with a \
+        result type other than `Decidable _`, and is the implementation of no accepted decision \
+        contract of the inventory (`DecisionRegistered`); `policyFor_ordered` gives its place \
+        after the other failures, and `Roles.decided_iff` ties the decided implementations to \
+        the inventory. Project, file and documentation audits run it through \
+        `Regula.Checker.Policy.checked_memberRule` (`ruleForMember_eq`). The editor's decision \
+        does not run it (`Regula.Checker.Policy.editor_decision_ne_decisionContract`). Reading \
+        the registration and the result type (`Regula.Collect`) is operational, and so is each \
+        recorded contract."
+      sources :=
+          ["lean/Regula/Decision.lean", "lean/RegulaPolicy/Decision.lean",
+              "lean/RegulaPolicy/Specification.lean", "lean/Regula/Collect.lean",
               "lean/RegulaCore/Policy.lean"] }
   | .environment => {
       problem := "The declared Lean environment could not be loaded or identified, so the \

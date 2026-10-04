@@ -419,7 +419,7 @@ noncomputable def classicalDecidable (p : Prop) : Decidable p := Classical.propD
 #print axioms classicalDecidable
 ```
 
-*Rule*: A decision used in erased proof code must respect the claimed foundation profile. A decision used to select runtime data must have a computable producer. A `Decidable` type alone establishes neither executability nor foundation profile.
+*Rule*: A decision used in erased proof code must respect the claimed foundation profile. A decision used to select runtime data must have a computable producer. A `Decidable` type alone establishes neither executability nor foundation profile. A function whose result type is `Decidable p` decides `p` in both directions by construction, so a function registered as a decision with that result type needs no decision contract ({ref "decision-kinds"}[§3.8]).
 
 ## 3.2.5 Proof Economy: Four Cost Domains and One Trust Question
 %%%
@@ -778,7 +778,7 @@ A type invariant describes valid results; a functional contract also relates the
   * State the exact input domain, any precondition, and the input–output relation. A restricted domain MUST appear in the API when promised (§3.2.1).
 *
   * Parser, decoder, admission
-  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed.
+  * Prove accepted-result soundness and input meaning. State and prove rejection behavior and any normalization/default policy. If the API promises success on a class of inputs, prove that completeness; a conditional soundness theorem alone does not deliver it. A registered decision states its direction with a decision kind (§3.8): `Regula.Decides` for both directions, `Regula.DecidesSoundly` or `Regula.DecidesCompletely` for one. A one-way kind is a statement that the other direction is not claimed. A function the project registers with `@[regula_decision]` MUST have such a registration or a `Decidable` result type (§3.8).
 *
   * Update
   * Establish the invariant at the write boundary, the intended change, and frame conditions for components promised unchanged.
@@ -1019,7 +1019,28 @@ theorem positive_sound :
   ⟨{ sound := fun _ accepted => of_decide_eq_true accepted }⟩
 ```
 
-A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions); whether a function that acts as a checker is registered at all; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A function whose argument types depend on earlier arguments is decided through a named function over a product, sigma or subtype domain. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
+A project declares that a function is a decision by registering it with `@[regula_decision]`, which `Regula.Decision` provides. The registration is a requirement: a registered function MUST be the implementation of a decision registration in its inventory, or have a result type of the form `Decidable p`, and the build linter rejects a registered function with neither ({ref "exact-contract-and-coverage-scope"}[§7.11]). Deleting the theorem while the function stays registered therefore fails; for an unregistered function it would delete the requirement together with the evidence.
+
+```lean
+import Regula.Contract
+import Regula.Decision
+
+/-- Whether `n` is positive. -/
+@[regula_decision] def positive (n : Nat) : Bool := decide (0 < n)
+
+/-- `positive` accepts exactly the positive numbers: it accepts `1` and refuses `0`. -/
+theorem positive_decides :
+    Regula.ExecutableContract positive (Regula.Decides (· = true) fun n => 0 < n) :=
+  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted
+     accepted := ⟨1, by decide⟩
+     complete := fun _ holds => decide_eq_true holds
+     refused := ⟨0, by decide⟩ }⟩
+
+/-- A registered decision whose result carries its proof: it needs no contract. -/
+@[regula_decision] def positive? (n : Nat) : Decidable (0 < n) := inferInstance
+```
+
+A kind states which directions hold against the written specification. These remain semantic review: whether `spec` is the intended specification, and whether it is independent of `f` in substance (a copy of the implementation under another name satisfies both directions); whether every function that acts as a checker is registered as a decision; whether a one-way kind should have been two-way; and which value an accepting result carries, which needs a dependent result type or a further requirement. A result of type `Decidable p` already carries both directions by construction (§3.2.4) and needs no kind for that claim. A function whose argument types depend on earlier arguments is decided through a named function over a product, sigma or subtype domain. The build linter reads the kind of each registration and reports it with the direction a one-way kind leaves open ({ref "exact-contract-and-coverage-scope"}[§7.11]).
 
 # 3.9 Stateful Refinement and Finite-Prefix Safety
 %%%

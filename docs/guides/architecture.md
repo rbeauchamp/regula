@@ -13,10 +13,10 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 
 | Library | Role | Claim |
 | --- | --- | --- |
-| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names) and the import-free `Regula.Contract`. | Claimed, Standard-Logical |
-| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the development-compiler qualification decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, and Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`. | Claimed |
+| `RegulaPolicy` | Pure policy: domain types, the one supported compiler identity (`Compiler`), admission, declaration/execution decisions, the acceptance plan and its theorems. Imports only Init, Std, `Lean.PrivateName` (for generated native-axiom names), the import-free `Regula.Contract` and, to register its decisions, `Regula.Decision` ([below](#the-decision-registration-import)). | Claimed, Standard-Logical |
+| `RegulaCore` | The rule registry (`RuleId`, `Rule`, `Guide`), the pure projections the checker executes (`Policy`, `Coordinates`, `Source`, `Assembly`, `EditorPolicy`, `Lint`, `Account`), agent guidance (`Feedback`, `Guidance`), project setup (`Setup`), the development-compiler qualification decisions (`Toolchain`) and the site's pure decisions (`Edition`, `Site*`). Imports the policy library, never the reverse, Lean's `Lean.Data.Position` but not `Lean.Data.Lsp.Utf16`, whose closure contains `Lean.Environment`, and, to register its decisions, `Regula.Decision`, whose closure contains it too ([below](#the-decision-registration-import)). | Claimed |
 | `RegulaQualification` | Pure observation requirements and checked contracts for qualification campaigns, not process launchers; testing requirements are not production policy, so they belong neither in `RegulaPolicy` nor in the mathematical `Audit` examples. | Claimed |
-| `RegulaVerification`, `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` | Toolchain-only acceptance runner, dependency provisioning, exact-compiler installation and compiled source snapshot admission. Pure decision contracts surround trusted build, transport, process and filesystem effects. | Claimed |
+| `RegulaVerification`, `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` | Toolchain-only acceptance runner, dependency provisioning, exact-compiler installation and compiled source snapshot admission. Pure decision contracts surround trusted build, transport, process and filesystem effects. Each library's `Decisions` module, which no program imports, registers those decisions' kinds with the checker's two interfaces. | Claimed |
 | `AuditApp` (with standalone root `Main`) | A complete application whose admission, update and composition contracts are proved about the definitions its executable runs. | Claimed |
 | `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI and project setup, linter hooks, qualification drivers, the site builder and the release steps. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
 | `Fixtures` | Isolated positive controls and intended-failure mutations. | Excluded; never imported by a claimed surface |
@@ -37,7 +37,7 @@ import closure used by source provisioning), `site` (the rule reference) and `au
 ## The rule registry
 
 `RuleId` ([`RegulaCore.RuleId`](../../lean/RegulaCore/RuleId.lean)) is a closed inductive type
-with 22 constructors; `spelling`, `parse?`, `all` and `route` are the executed definitions, and a
+with 23 constructors; `spelling`, `parse?`, `all` and `route` are the executed definitions, and a
 route (`rules/<ID>/`) cannot be set independently. `descriptor : (id : RuleId) → RuleDescriptor id`
 ([`RegulaCore.Rule`](../../lean/RegulaCore/Rule.lean)) is exhaustive, so there is no runtime
 registration table whose missing entries silently disappear. A descriptor carries title,
@@ -109,7 +109,37 @@ execution classification use that same compiled capability.
 The observer imports Lean's environment API in the operational library. It is infrastructure
 only when its artifact is canonical and every incoming import is from authenticated reporter
 infrastructure or an authenticated, force-only collector. A claimed import of the observer or
-collector keeps it in the audit. The pure policy library still imports no environment API.
+collector keeps it in the audit. No definition of the pure policy library uses the environment API.
+
+### The decision registration import
+
+`Regula.Decision` declares the `@[regula_decision]` attribute ([RG1008]) over its own environment
+extension, which keeps each registration with the module that writes it. A decision is
+registered where it is declared, so each claimed module with a registered decision imports
+`Regula.Decision`, and with it Lean's attribute framework, whose import closure contains
+`Lean.Environment`. A `module` imports it with `meta import Regula.Decision`: the
+attribute is then available while the file is elaborated, and Lean refuses a definition of that
+file that would run anything the import brings (`may not access declaration … imported as
+meta`), so those modules still cannot use the environment API. The claimed files that are not
+modules (`RegulaPolicy.Claim`, `Execution`, `Pattern` and `Plan`, the registered files of
+`RegulaCore` other than `RuleId`, those of `RegulaQualification`, `AuditApp.Limiter`, and the
+`Decisions` modules of `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` and
+`RegulaVerification`) import
+it with a plain `import`,
+which brings those declarations into scope; that none of their definitions uses them is by
+inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`. The extension is
+an ordinary definition, not a `meta` one, so the collector reads the registrations through it.
+`RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone before
+the package is built, so its two decisions are registered from `RegulaPolicy.Claim`, a module of
+the same library that imports it (`attribute [regula_decision]`). The four standalone programs
+import only the toolchain for the same reason, since each runs with `lean --run` before the
+package is built, and the `Decisions` module of each one's library registers its decisions the
+same way; no program imports that module. Lean's own tag attribute refuses
+a declaration of an imported module, which is why the registration has its own extension. An
+audit refuses a registration that one of its modules writes for a declaration outside its
+inventory (`Regula.Collect.ownedDecisionRegistrations`), because it records no declaration to
+decide that requirement for
+([proofs and boundaries](proofs-and-boundaries.md#decision-kinds-of-regulas-own-decisions)).
 
 `Diagnostic id` ([`Regula.Diagnostic`](../../lean/Regula/Diagnostic.lean)) carries `Payload id`
 (structural declaration names, execution roots or context arguments), a primary location, related
@@ -124,7 +154,8 @@ execution parsers stay the configuration authority: claim text in a diagnostic d
 context and is not an independent policy decision.
 
 `Roles` recomputes native axioms, recursion helpers and constructor-index wrappers separately
-for each inventory. Declaration safety uses the union of the two helper families;
+for each inventory, and the implementations its decision contracts decide (`decided`,
+`Roles.decided_iff`), which [RG1008] reads. Declaration safety uses the union of the two helper families;
 `Roles.safetyHelpers_iff` states that a name is in it exactly when one of the two full relations
 holds for it, and the separate fields keep the families apart. Finding attribution still uses
 only the recursion-helper relation, while reports expose constructor-index membership separately.
@@ -208,7 +239,7 @@ lake exe axiomGate --with-docs --json-out tmp/result.json
 ```
 
 Each export is versioned on its own: the surface manifest is schema 2, the registry schema 4, the
-result schema 9, the worker packet schema 1, the rule-example corpus export schema 1, the
+result schema 10, the worker packet schema 1, the rule-example corpus export schema 1, the
 acceptance link schema 1 and the site's `build.json` schema 2. Registry and result envelopes carry
 `schemaVersion`, `producerVersion`, `toolchain` and `sourceRevision` from
 `Regula.Checker.Producer.identity`: `producerVersion` is the installed release's spelling
@@ -223,7 +254,7 @@ metadata, not authenticated binary identity.
   re-encoding, refusing unknown or missing fields, changed routes and stale lifecycle data.
   Registry admission rejects duplicate external IDs, missing clauses, pages or examples, unknown
   JSON fields or versions, and invalid lifecycle references.
-- **Result, schema 9:** `scope`, `mode`, `status`, `stages` (the stages
+- **Result, schema 10:** `scope`, `mode`, `status`, `stages` (the stages
   `RegulaPolicy.requiredStages` requires for the mode, plus the documentation stages of a
   `--with-docs` run), `stagesCompleted`, `complete`, `stagesNotRun`, `diagnostics` (each with its
   `remedy`, in run order), `rules` (the guidance of every rule that fired, once each, in registry
@@ -308,6 +339,11 @@ metadata, not authenticated binary identity.
   and worker transport always keep `type`, which the role decisions compare. The producer
   qualification runs its controls with `--kernel-types`, because its oracle compares the kernel
   expression, which two different types that print alike would not show in `prettyType`.
+- **Decision registrations:** since schema 10 a declaration record carries `decisionResult`:
+  `decidable` or `other` for a declaration registered with `@[regula_decision]`, by whether its
+  result type is `Decidable _`, and `null` for any other declaration. [RG1008] is decided from it
+  and from the `executableContract` records of the same inventory
+  (`RegulaPolicy.policyFor_decisionContract_iff`).
 - **Names:** since schema 6 every Lean name of a result, in `diagnostics`, `scope` and
   `acceptance` alike, and of the producer report it renders, is written one way
   (`RegistryCodec.printedNameJson`): the text Lean prints for it, or, only where Lean's parser does
@@ -552,7 +588,7 @@ displayed source is stale or whose required source account was dropped. Three re
 `RG1005/WrongClaim`, authentic Standard-Logical output of [RG1005]'s violation refused against its
 frozen Kernel-only request; and `RG4004/TrustedControl` and `RG4004/NegativeControl`, a
 trusted-teaching fence and a compiler-rejection fence that complete as `classified` and are
-refused as a positive documentation correction. The full corpus is 47 productions (44
+refused as a positive documentation correction. The full corpus is 49 productions (46
 Fixed/Violation phases plus these 3 controls), 3 individual control admissions and one corpus
 admission of every record. These controls qualify the adapters; the universal data predicates
 and their proofs remain distinct from observed process behavior. Version fields alone do not
@@ -639,6 +675,7 @@ defines Lean policy or permits suppressing mandatory requirements.
 [RG1003]: https://rbeauchamp.github.io/regula/dev/rules/RG1003/
 [RG1005]: https://rbeauchamp.github.io/regula/dev/rules/RG1005/
 [RG1007]: https://rbeauchamp.github.io/regula/dev/rules/RG1007/
+[RG1008]: https://rbeauchamp.github.io/regula/dev/rules/RG1008/
 [RG2001]: https://rbeauchamp.github.io/regula/dev/rules/RG2001/
 [RG2002]: https://rbeauchamp.github.io/regula/dev/rules/RG2002/
 [RG2003]: https://rbeauchamp.github.io/regula/dev/rules/RG2003/

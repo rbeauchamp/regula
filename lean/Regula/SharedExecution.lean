@@ -2,6 +2,7 @@ import Regula.SourceTexts
 import Regula.Contract
 import Std.Data.HashMap
 import Std.Data.HashSet
+import Regula.Decision
 
 /-! # Execution accounts of a result document, stored once per environment
 
@@ -51,6 +52,7 @@ order and the same object trees, node for node. Lean's own `Json` equality is `p
 proof unfolds it; this one is a definition, and `same_eq` proves that a `true` answer is an
 equality. Two objects with the same members whose trees are balanced differently are not the
 same value, so the answer may be `false` for values Lean's equality identifies. -/
+@[regula_decision]
 def same (a b : Json) : Bool :=
   match a, b with
   | .null, .null => true
@@ -629,6 +631,7 @@ def write (proposals : List (Json → Json)) (document : Json) : Except String J
 
 /-- The logical result document a result file's value stands for: its source texts put back
 (`SourceTexts.expand`), then its execution accounts restored (`expand`). -/
+@[regula_decision]
 def read (written : Json) : Except String Json := do
   expand (← SourceTexts.expand written)
 

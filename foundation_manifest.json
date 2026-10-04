@@ -11,25 +11,25 @@
       "library": "RegulaVerification",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Cold-start verification driver with exact proof-bearing argument selection. Recipes are interpreted through a trusted process IO boundary under verify.sh's single external deadline; the proof does not authenticate subprocess execution."
+      "rationale": "Cold-start verification driver with exact proof-bearing argument selection, and the module that registers its decisions' kinds; the driver itself imports only the toolchain. Recipes are interpreted through a trusted process IO boundary under verify.sh's single external deadline; the proof does not authenticate subprocess execution."
     },
     {
       "library": "RegulaProvision",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Toolchain-only local provisioning of one shared, read-only Mathlib per pinned revision and toolchain. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, and a shared directory is removed only when it is not the current one and no registered copy still links it. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
+      "rationale": "Toolchain-only local provisioning of one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, and a shared directory is removed only when it is not the current one and no registered copy still links it. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
     },
     {
       "library": "RegulaCompiler",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Standalone exact-compiler installer. The executed specification constructor retains the decoded values with their validity proof, and identity admission requires both supplied compiler reports to equal the expected full commit. Git, Elan, CMake, Make, compiler self-reports, cache storage, locking, filesystem and subprocess effects remain trusted; these value-level contracts do not authenticate compiler binaries."
+      "rationale": "Standalone exact-compiler installer, which imports only the toolchain, and the module that registers its decisions' kinds. The executed specification constructor retains the decoded values with their validity proof, and identity admission requires both supplied compiler reports to equal the expected full commit. Git, Elan, CMake, Make, compiler self-reports, cache storage, locking, filesystem and subprocess effects remain trusted; these value-level contracts do not authenticate compiler binaries."
     },
     {
       "library": "RegulaSnapshot",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Source-built compiler and dependency snapshot preparation and restoration. The executed admission constructor binds the complete decoded input identity, compiler observations, exact package census and completed target plan. The transport predicate admits both closed archive roots and every layer name and digest. The shared acquisition runner executes the chosen build plan; its restoration invocation is proved equal to pure unit. Compiler and package self-reports, native ABI compatibility, Git, ORAS, SHA-256, tar, subprocesses, locking and filesystem effects remain trusted; value-level proofs do not authenticate these observations or establish artifact qualification."
+      "rationale": "Source-built compiler and dependency snapshot preparation and restoration, which imports only the toolchain, and the module that registers its decisions' kinds. The executed admission constructor binds the complete decoded input identity, compiler observations, exact package census and completed target plan. The transport predicate admits both closed archive roots and every layer name and digest. The shared acquisition runner executes the chosen build plan; its restoration invocation is proved equal to pure unit. Compiler and package self-reports, native ABI compatibility, Git, ORAS, SHA-256, tar, subprocesses, locking and filesystem effects remain trusted; value-level proofs do not authenticate these observations or establish artifact qualification."
     },
     {
       "library": "RegulaQualification",

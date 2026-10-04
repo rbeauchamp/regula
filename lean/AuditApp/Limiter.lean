@@ -1,5 +1,6 @@
 import Regula.Contract
 import Regula.MaterialClaim
+import Regula.Decision
 
 /-!
 # Proof-bearing bounded-slot limiter
@@ -16,10 +17,12 @@ The theorems concern these exact computable definitions. The `auditApp`
 executable calls `executeChecked` and the strict interpreter; `run` remains
 the total fold used to specify successful prefixes. No declaration is promoted
 to a native-runtime or external-system claim, and no hypothesis is hidden:
-assumptions appear as binders or proof fields. This module directly imports only the two
+assumptions appear as binders or proof fields. This module directly imports only the three
 published checker interfaces: the proof-requiring executable-contract type and the
-`@[regula_material]` registration attribute, whose import closure brings in Lean's attribute
-framework; no definition or proof here uses it. Its material
+`@[regula_material]` and `@[regula_decision]` registration attributes, whose import closure
+brings in Lean's attribute framework; no definition or proof here uses it. Its decisions `admit`,
+`grant` and `runChecked` are registered with `@[regula_decision]`, so RG1008 requires the decision
+contract each has (`checked_admit`, `checked_grant`, `checked_runChecked`). Its material
 claims `RequiredContracts`, `required_contracts` and `checked_executable` are registered with
 `@[regula_material]`, so RG5002/RG5003 require each to carry a docstring with a nonempty Intent
 section (standard §5.2); whether each Intent states the right requirement remains
@@ -61,6 +64,7 @@ structure Limiter where
 positive. A zero capacity is rejected, so an admitted state satisfies
 `0 < capacity` (proved in `admit_sound`) in addition to the structural
 invariant. -/
+@[regula_decision]
 def admit (capacity : Nat) : Option Limiter :=
   if _h : 0 < capacity then
     some { capacity, inUse := 0, bounded := Nat.zero_le _ }
@@ -101,6 +105,7 @@ theorem checked_admit : Regula.ExecutableContract admit
 /-- Update boundary: grant one slot while one is free. The new proof field is
 exactly the guard `inUse < capacity`, which is `inUse + 1 ≤ capacity` by
 definition of `Nat.lt`; a full limiter grants nothing. -/
+@[regula_decision]
 def grant (l : Limiter) : Option Limiter :=
   if h : l.inUse < l.capacity then
     some { l with inUse := l.inUse + 1, bounded := h }
@@ -262,6 +267,7 @@ def checkedStep (op : Op) : CheckedRun := fun l =>
 
 /-- Execute left-to-right and stop at the first refusal. Earlier successful
 updates remain visible; the unprocessed suffix has no effect. -/
+@[regula_decision]
 def runChecked : List Op → CheckedRun
   | [] => pure ()
   | op :: rest => do

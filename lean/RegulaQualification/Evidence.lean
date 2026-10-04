@@ -1,4 +1,5 @@
 import RegulaQualification.Json
+import Regula.Decision
 
 /-! # Source-bound evidence contracts
 
@@ -79,6 +80,7 @@ def requirements (expected : Expected) (code : Nat) (transcript : String)
   return checks
 
 /-- This is the actual supplied-observation oracle used by the IO adapter. -/
+@[regula_decision]
 def validate (expected : Expected) (code : Nat) (transcript : String) (result : Option Json) :
     Except String Unit :=
   checked_decoded.run (requirements expected code transcript result)
@@ -134,6 +136,7 @@ def documentationChecks (transcript scope reason phase missing directory : Strin
      (if phase == "configuration-unreadable" then "foundation_manifest.json" else "Example.lean")⟩]
 
 /-- Reusable exact contract for the source-mutation transcript predicates. -/
+@[regula_decision]
 def validateDocumentation (transcript scope reason phase missing directory : String) :
     Except String Unit :=
   checked_evaluation.run (documentationChecks transcript scope reason phase missing directory)

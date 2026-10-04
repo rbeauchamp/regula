@@ -75,41 +75,64 @@ inductive EditorDecision where
   deriving DecidableEq, Repr
 
 /-- Required meaning of the per-declaration decision, for every inventory member and request:
-none exactly when `policyFor` passes; pending exactly when its failure needs fresh role
-evidence; otherwise the registry rule of that failure. -/
+none exactly when `policyFor` passes or reports only the decision failure; pending exactly when
+its failure needs fresh role evidence; otherwise the registry rule of that failure. The decision
+failure is never rendered: a decision contract normally follows the function it decides, in a
+later command or module, so a snapshot of one command cannot decide whether the inventory has
+one. `policyFor` selects that failure only where the declaration's own requirements are met
+(`policyFor_decisionContract_iff`), so withholding it hides no other rule. -/
 def EditorDecisionContract
     (decide : (i : Inventory) → Roles i → (d : Declaration) → d ∈ i.declarations →
       InspectionRequest → Option EditorDecision) : Prop :=
   ∀ i roles d (member : d ∈ i.declarations) request,
-    (decide i roles d member request = none ↔ policyFor i roles d request = none) ∧
+    (decide i roles d member request = none ↔
+      policyFor i roles d request = none ∨ policyFor i roles d request = some .decisionContract) ∧
     (decide i roles d member request = some .pending ↔
       ∃ f, policyFor i roles d request = some f ∧ needsRoleEvidence d f = true) ∧
     ∀ id, decide i roles d member request = some (.rule id) ↔
-      ∃ f, policyFor i roles d request = some f ∧ needsRoleEvidence d f = false ∧
-        id = ruleForFailure f
+      ∃ f, policyFor i roles d request = some f ∧ f ≠ .decisionContract ∧
+        needsRoleEvidence d f = false ∧ id = ruleForFailure f
 
-/-- The member's failure under `checked_memberFailure`, mapped to `.pending` when it needs
-fresh role evidence and otherwise to the rule of that failure; `none` when it passes. -/
+/-- The failure of the member's own requirements (`declarationFailure` with the inventory's
+roles), mapped to `.pending` when it needs fresh role evidence and otherwise to the rule of that
+failure; `none` when they pass. The decision requirement (`decisionFailure`) is not run. -/
 def editorDecisionImpl (i : Inventory) (roles : Roles i) (d : Declaration)
-    (member : d ∈ i.declarations) (request : InspectionRequest) : Option EditorDecision :=
-  (checked_memberFailure.run i roles d member request).map fun f =>
+    (_member : d ∈ i.declarations) (request : InspectionRequest) : Option EditorDecision :=
+  (declarationFailure d request roles.native roles.safetyHelpers).map fun f =>
     if needsRoleEvidence d f then .pending else .rule (ruleForFailure f)
 
-/-- Registers `EditorDecisionContract`, reducing it to `MemberFailureContract`. -/
+/-- Registers `EditorDecisionContract` about the executed editor decision. -/
 theorem checked_editorDecision :
     Regula.ExecutableContract editorDecisionImpl EditorDecisionContract :=
   ⟨fun i roles d member request => by
-    simp only [editorDecisionImpl, Regula.ExecutableContract.run_eq,
-      checked_memberFailure.evidence i roles d member request]
-    cases policyFor i roles d request with
-    | none => simp
+    have distinct := declarationFailure_ne_decisionContract d request roles.native
+      roles.safetyHelpers
+    simp only [editorDecisionImpl, policyFor, member, ↓reduceIte]
+    cases own : declarationFailure d request roles.native roles.safetyHelpers with
+    | none =>
+      have only (f : DeclarationFailure) : decisionFailure d roles.decided = some f →
+          f = .decisionContract := fun h =>
+        ((decisionFailure_eq_some_iff d roles.decided f).mp h).1
+      refine ⟨?_, ?_, fun id => ?_⟩
+      · cases decided : decisionFailure d roles.decided with
+        | none => simp
+        | some f => simp [only f decided]
+      · simp only [Option.map_none, Option.none_or, reduceCtorEq, false_iff, not_exists, not_and]
+        intro f found
+        simp [only f found, needsRoleEvidence]
+      · simp only [Option.map_none, Option.none_or, reduceCtorEq, false_iff, not_exists, not_and]
+        intro f found differs
+        exact absurd (only f found) differs
     | some f =>
+      rw [own] at distinct
+      have differs : f ≠ .decisionContract := fun h => distinct (h ▸ rfl)
       cases hf : needsRoleEvidence d f
-      · refine ⟨by simp, by simp [hf], fun id => ?_⟩
-        simp only [hf, Option.map_some, Option.some.injEq, Bool.false_eq_true, ↓reduceIte]
-        exact ⟨fun h => ⟨f, rfl, hf, (EditorDecision.rule.inj h).symm⟩,
-          fun ⟨_, hg, _, h⟩ => by subst hg; rw [h]⟩
-      · refine ⟨by simp, by simp [hf], fun id => ?_⟩
+      · refine ⟨by simp [differs], by simp [hf], fun id => ?_⟩
+        simp only [hf, Option.map_some, Option.some.injEq, Bool.false_eq_true, ↓reduceIte,
+          Option.some_or]
+        exact ⟨fun h => ⟨f, rfl, differs, hf, (EditorDecision.rule.inj h).symm⟩,
+          fun ⟨_, hg, _, _, h⟩ => by subst hg; rw [h]⟩
+      · refine ⟨by simp [differs], by simp [hf], fun id => ?_⟩
         simp [hf]⟩
 
 /-- The decision for an inventory member, through `checked_editorDecision`. -/
