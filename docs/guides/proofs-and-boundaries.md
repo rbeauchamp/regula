@@ -436,8 +436,8 @@ The tables below cover the decisions of both groups.
 The inventory is the pure functions whose result is a verdict of the checker: the decision
 behind a rule, the admission of a decoded record, the reader of a written form, a qualification
 validator, and the decisions of the example application. A helper that only computes part of
-such a verdict (`admits`, `orderedLiterals`, `hasIntentLines` and the like) is covered through
-the proof of the decision that calls it. Functions whose result is a plan, a label or a parsed
+such a verdict (`Community.admits`, `orderedLiterals`, `hasIntentLines` and the like) is covered
+through the proof of the decision that calls it. Functions whose result is a plan, a label or a parsed
 command for Regula's own tooling (`RegulaCore.Setup`, `RegulaCore.Edition`,
 `RegulaCore.Toolchain`, `RegulaCore.Guidance`) are not verdicts about audited code and are not
 in it. That this inventory is every function of Regula that acts as a checker is by inspection:
