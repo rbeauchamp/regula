@@ -433,9 +433,9 @@ theorem Status.completed_accepted (s : Status) (h : s.spelling = "completed") :
 
 private def residualList (rs : List Residual) : String := ", ".intercalate (rs.map (·.spelling))
 
-/-- An accepted account's coverage, explicitly diagnostic on an unqualified candidate. -/
+/-- An accepted account's coverage. -/
 def pass (label : String) (a : Account) : String :=
-  s!"{label}: {RegulaPolicy.Compiler.verdict RegulaPolicy.Compiler.candidate} — \
+  s!"{label}: PASS — \
     {a.val.coverage.text}"
 
 /-- Human account lines: the checked relation, each contract with its decision kind

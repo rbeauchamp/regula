@@ -182,7 +182,6 @@ documentation root and, with `--verso`, every `lean` block of the library, then 
 library and checks its anchors, checklist rows and rule-ID links. With `--acceptance-link`, it first
 requires the inputs to equal the accepted ones. -/
 unsafe def run (args : List String) : IO UInt32 := do
-  CompilerMode.requireAllowed
   let options ← parseArgs args {}
   if options.help then IO.println usage; return 0
   if options.jobs == 0 then throw <| IO.userError "--jobs must be positive"

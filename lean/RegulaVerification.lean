@@ -193,7 +193,7 @@ def commands : Mode → List Command
   | .ordinary => [
       lake
           #["build", "RegulaPolicy", "RegulaCore", "RegulaQualification", "axiomGate",
-              "docFenceAudit", "qualify", "toolchain",
+              "docFenceAudit", "qualify",
         "+Regula.Checker.CheckerSelftest:olean", "+Regula.Checker.FreshChecker:olean",
         "+Regula.RegistryChecks:olean", "+Regula.Linter:olean", "+Regula.Checker.LintMain:olean",
         "+Regula.Checker.RuleExamples:olean", "+Regula.Checker.RuleExampleQualificationMain:olean",
@@ -242,8 +242,7 @@ def commands : Mode → List Command
               #[shardEvidence 1, shardEvidence 2])]
   -- The Mathlib integration check: the integration package's fresh acceptance and lint, as a
   -- Mathlib adopter of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the
-  -- first command refuses a copy the check does not apply to (a compiler snapshot, or another
-  -- toolchain than that package selects) and one whose Mathlib is not provisioned, so an
+  -- first command refuses a copy the check does not apply to (another toolchain than that package selects) and one whose Mathlib is not provisioned, so an
   -- excluded copy fails here and is never reported as passing.
   | .mathlib => [
       { program := "lean",
@@ -263,14 +262,12 @@ def commands : Mode → List Command
 theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
   cases mode <;> simp [commands, ruleExampleShard, selftest]
 
-/-- Interpret sequentially through the provisioning entry point so child processes inherit
-the artifact mode; a nonzero exit raises before any success report. Process execution and
-signal delivery remain trusted. -/
+/-- Interpret commands sequentially; a nonzero exit raises before any success report.
+Process execution and signal delivery remain trusted. -/
 def execute (command : Command) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd := "lean", args := #["--run", "lean/RegulaProvision.lean", "exec",
-      command.dir, command.program] ++ command.args,
-    env := #[("REGULA_COMPILER_QUALIFICATION", none)],
+    cmd := command.program, args := command.args, cwd := some command.dir,
+    env := #[("GHCR_TOKEN", none)],
     stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   if exit != 0 then

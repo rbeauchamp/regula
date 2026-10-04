@@ -1,6 +1,5 @@
 import Regula.Checker.Producer
 import Regula.Checker.PolicyCodec
-import Regula.Checker.CompilerMode
 import Regula.Scratch
 import RegulaPolicy.ResultState
 import Lean
@@ -387,10 +386,16 @@ def copyProject (repo target exclude : FilePath) : IO Unit := do
       throw <| IO.userError s!"could not link pinned Lake packages: {linked.output}"
   relocatePathDependencies repo target
 
-/-- Strict JSON parsing; an explicit candidate diagnostic may unpack its observation envelope. -/
+/-- Refuse historical development observations rather than treating them as audit evidence. -/
+def requireAuditDocument (value : Json) : IO Json := do
+  if (value.getObjValAs? String "purpose").toOption == some "compiler-qualification" then
+    throw <| IO.userError "compiler qualification output is not supported audit evidence"
+  return value
+
+/-- Strict JSON parsing; historical development observations are not audit evidence. -/
 def readJson (path : FilePath) : IO Json := do
   let text ← IO.FS.readFile path
-  CompilerMode.readObservation (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse text)
+  requireAuditDocument (← IO.ofExcept <| Regula.Checker.PolicyCodec.parse text)
 
 /-- Write `value` as compact JSON and a final newline to `path`, creating its parent
 directories, and report how long encoding and writing took when timing output is on. -/

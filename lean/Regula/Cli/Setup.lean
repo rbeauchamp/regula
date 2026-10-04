@@ -678,10 +678,7 @@ def doctor (root : FilePath) : IO UInt32 := do
   for entry in o.unimported do IO.println (unimportedNote project.lakefile entry)
   let count := setup.length + findings.size
   if count == 0 then
-    IO.println <| if RegulaPolicy.Compiler.candidate then
-        "regula doctor: the setup is complete, but this Regula revision declares Lean " ++
-          RegulaPolicy.Compiler.version ++ Regula.Setup.candidateNote
-      else "regula doctor: the setup is complete; run `lake lint`"
+    IO.println "regula doctor: the setup is complete; run `lake lint`"
     return 0
   IO.println s!"regula doctor: {count} problem{if count == 1 then "" else "s"}"
   let edits := plan .agentsMd o

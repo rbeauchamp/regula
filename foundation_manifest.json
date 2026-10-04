@@ -17,19 +17,7 @@
       "library": "RegulaProvision",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Toolchain-only dependency provisioning, which acquires no Mathlib by default and, when asked for the Mathlib integration package, provisions one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, a shared directory is removed only when it is not the current one and no registered copy still links it, and the Mathlib integration check applies exactly to a copy with no snapshot selection whose integration package selects the repository's toolchain. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
-    },
-    {
-      "library": "RegulaCompiler",
-      "claim": "standard-logical",
-      "execution": "report",
-      "rationale": "Standalone exact-compiler installer, which imports only the toolchain, and the module that registers its decisions' kinds. The executed specification constructor retains the decoded values with their validity proof, and identity admission requires both supplied compiler reports to equal the expected full commit. Git, Elan, CMake, Make, compiler self-reports, cache storage, locking, filesystem and subprocess effects remain trusted; these value-level contracts do not authenticate compiler binaries."
-    },
-    {
-      "library": "RegulaSnapshot",
-      "claim": "standard-logical",
-      "execution": "report",
-      "rationale": "Source-built compiler and dependency snapshot preparation and restoration, which imports only the toolchain, and the module that registers its decisions' kinds. The executed admission constructor binds the complete decoded input identity, compiler observations, exact package census and completed target plan. The transport predicate admits both closed archive roots and every layer name and digest. The shared acquisition runner executes the chosen build plan; its restoration invocation is proved equal to pure unit. Compiler and package self-reports, native ABI compatibility, Git, ORAS, SHA-256, tar, subprocesses, locking and filesystem effects remain trusted; value-level proofs do not authenticate these observations or establish artifact qualification."
+      "rationale": "Toolchain-only dependency provisioning, which acquires no Mathlib by default and, when asked for the Mathlib integration package, provisions one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, a shared directory is removed only when it is not the current one and no registered copy still links it, and the Mathlib integration check applies exactly to a copy whose integration package selects the repository's toolchain. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
     },
     {
       "library": "RegulaQualification",
@@ -65,32 +53,24 @@
   ],
   "excluded-executables": [
     {
-      "executable": "dependencyScope",
-      "rationale": "Dependency setup planner in the excluded Regula library. It reads the Lake inventory of the Mathlib integration package and its modules' import headers and emits a module for source provisioning; parsing, package loading, filesystem observations and Lake's transitive native build remain trusted. It does not accept declarations or documentation."
-    },
-    {
-      "executable": "toolchain",
-      "rationale": "Development compiler adaptation driver. RegulaCore.Toolchain proves its identity parsing, installed-toolchain resolution and campaign completion decisions; Git, Elan, compiler self-reports, filesystem and process observations remain trusted. Its receipts grant no compiler support or audit authority."
-    },
-    {
       "executable": "qualify",
       "rationale": "Operational qualification dispatcher and IO adapters in the excluded Regula library. It invokes proved observation oracles from the positive RegulaQualification library; filesystem, process and compiler observations are not authenticated by those proofs."
     },
     {
       "executable": "axiomGate",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "docFenceAudit",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "freshChecker",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "checkerSelftest",
-      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the \u00a77.8 mutation suite, not claimed as a conforming proof surface."
+      "rationale": "Checker tooling executable; its root module belongs to the excluded Regula library and is qualified by the §7.8 mutation suite, not claimed as a conforming proof surface."
     },
     {
       "executable": "ruleExamples",
@@ -106,7 +86,7 @@
     },
     {
       "executable": "lint",
-      "rationale": "Lake lint driver; its root module belongs to the excluded Regula library. It dispatches to the axiomGate project audit and classifies its exit; its exit classification is the claimed RegulaCore.Lint contract; qualified by the \u00a77.8 lint-driver campaign, not claimed as a conforming proof surface."
+      "rationale": "Lake lint driver; its root module belongs to the excluded Regula library. It dispatches to the axiomGate project audit and classifies its exit; its exit classification is the claimed RegulaCore.Lint contract; qualified by the §7.8 lint-driver campaign, not claimed as a conforming proof surface."
     },
     {
       "executable": "regula",

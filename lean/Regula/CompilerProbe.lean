@@ -3,8 +3,7 @@ import RegulaCore.Toolchain
 /-! # Selected compiler identity
 
 Resolve an Elan toolchain selector to its `lean` executable and read its version, commit and
-origin-checked Core capability. The development toolchain driver and `regula doctor` share
-this. A selector is resolved only to a toolchain `elan toolchain list` names, spelled exactly as
+origin-checked Core capability. `regula doctor` uses this observation. A selector is resolved only to a toolchain `elan toolchain list` names, spelled exactly as
 the selector (`installedName?`), and only that listed name is run, without
 Elan's `--install`: a selector naming none is refused, and no channel is resolved and nothing
 is installed. Elan's listing, that it runs a listed toolchain without installing, process

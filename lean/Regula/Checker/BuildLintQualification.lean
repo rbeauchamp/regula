@@ -233,7 +233,7 @@ private def build (adopter : FilePath) : IO ProcessResult :=
   runProcess adopter "lake" #["build"] scrubbedLeanPathEnv
 
 private def positive (name : String) (result : ProcessResult) : Array String :=
-  let label := RegulaPolicy.Compiler.verdict RegulaPolicy.Compiler.candidate
+  let label := "PASS"
   if result.succeeded && result.output.contains s!"build policy linter: {label}" then #[]
   else #[s!"build-lint/{name}: enabled positive failed:\n{result.output}"]
 

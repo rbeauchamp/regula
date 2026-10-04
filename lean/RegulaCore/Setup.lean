@@ -336,8 +336,7 @@ def arguedIssues (o : Observation) : List Issue :=
 
 /-- The toolchain issue, if any: the compiler the project's `lean-toolchain` selects must have the
 identity this Regula revision declares (`RegulaPolicy.Compiler.accepts`), under any selector, and
-a pin that resolves to no compiler is an issue. A candidate revision's declared compiler remains
-unqualified: its ordinary audits refuse whatever this decision. -/
+a pin that resolves to no compiler is an issue. -/
 def toolchainIssues (o : Observation) : List Issue :=
   match o.pin with
   | .compiler selector version commit =>
@@ -1400,23 +1399,6 @@ def moduleLines (modules : List String) : String :=
   "\n".intercalate (((wrapFrom 96 [] 0 shown).map fun line => "    " ++ ", ".intercalate line) ++
     if more == 0 then [] else ["    and " ++ toString more ++ " more"])
 
-/-- How the toolchain messages relate this revision to its declared compiler: it supports that
-compiler, or, as a prepared candidate (`RegulaPolicy.Compiler.candidate`), only declares it. -/
-def declares : String := if RegulaPolicy.Compiler.candidate then "declares" else "supports"
-
-/-- What the toolchain messages add for a candidate revision: its compiler is unqualified, and its
-ordinary audits refuse. -/
-def candidateNote : String :=
-  if RegulaPolicy.Compiler.candidate then
-    "; this revision is an unqualified candidate whose ordinary audits, `lake lint` included, \
-      refuse"
-  else ""
-
-/-- The toolchain fixes' name for the compiler this revision declares. -/
-def declaredCompiler : String :=
-  if RegulaPolicy.Compiler.candidate then "declared, unqualified candidate compiler"
-  else "supported compiler"
-
 /-- The first line of an issue's finding, `setup [FILE]: what is wrong`, followed for a library
 that leaves out modules by the `moduleLines` naming them. -/
 def Issue.message (f : Lakefile) : Issue → String
@@ -1446,16 +1428,15 @@ def Issue.message (f : Lakefile) : Issue → String
       agentsHeading ++ "` section and there is no " ++ s
   | .skillStale p => "setup [" ++ p ++ "]: the skill is not the installed Regula's briefing"
   | .toolchain s v c => "setup [lean-toolchain]: the project's lean-toolchain, " ++ s ++
-      ", selects Lean " ++ v ++ " (" ++ c ++ "), but this Regula revision " ++ declares ++
+      ", selects Lean " ++ v ++ " (" ++ c ++ "), but this Regula revision supports" ++
       " only Lean " ++ RegulaPolicy.Compiler.version ++ " (" ++ RegulaPolicy.Compiler.commit ++
-      ")" ++ candidateNote
+      ")"
   | .toolchainUnresolved s r => "setup [lean-toolchain]: " ++
       (if s.isEmpty then "the project's lean-toolchain names no toolchain"
         else "the project's lean-toolchain, " ++ s ++
           ", selects no installed compiler that reports its identity") ++
       ", so its compiler cannot be compared with the Lean " ++ RegulaPolicy.Compiler.version ++
-      " (" ++ RegulaPolicy.Compiler.commit ++ ") this Regula revision " ++ declares ++ ": " ++ r ++
-      candidateNote
+      " (" ++ RegulaPolicy.Compiler.commit ++ ") this Regula revision supports: " ++ r
   | .uncovered l _ ms => "setup [" ++ f.name ++ "]: lean_lib `" ++ l ++ "` does not include " ++
       moduleCount ms ++ " below its roots, but a claimed module imports " ++ pronoun ms ++
       ", so `lake lint` finds " ++ pronoun ms ++ " outside every library and fails:\n" ++
@@ -1489,11 +1470,11 @@ def Issue.fix (f : Lakefile) : Issue → String
       briefing (for example after `lake update regula`); init owns this file and keeps no local \
       edits"
   | .toolchain _ _ _ => "  fix: move the project, and Mathlib if it uses it, to a toolchain that \
-      selects the " ++ declaredCompiler ++ " (set lean-toolchain and run `lake update`), or \
+      selects the supported compiler (set lean-toolchain and run `lake update`), or \
       require a Regula revision qualified for your exact compiler (the adoption guide's \
-      compatibility table lists each release's toolchain; docs/guides/toolchains.md covers \
-      development compilers); a toolchain override does not change what the project pins"
-  | .toolchainUnresolved _ _ => "  fix: install or link the " ++ declaredCompiler ++ ", then set \
+      compatibility table lists each release's toolchain); unsupported versions require a \
+      deliberate port; a toolchain override does not change what the project pins"
+  | .toolchainUnresolved _ _ => "  fix: install or link the supported compiler, then set \
       lean-toolchain to its exact installed name; `doctor` resolves the pin among the \
       toolchains `elan toolchain list` names and installs nothing"
   | .uncovered l rs ms => "  fix: " ++ f.globs l rs ++ ", or remove the " ++
