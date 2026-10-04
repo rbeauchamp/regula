@@ -2362,35 +2362,37 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see). The controls are two clusters in different shards.
+states what it does not see). The controls are two clusters, both in the first shard, whose
+queue runs them beside one another.
 `structuralSelfHosted` builds the copy and runs the incremental gate on each of the three
-contaminations, restoring each before the next. No fresh gate runs on that mutated and restored
-copy, before the mutations or after their restoration: an accepting gate there is replaced by a
-checked identity of the restored copy's fresh input with that of a copy prepared anew, and by
-the accepting fresh gate of `structuralSelfHostedPositive` on a copy prepared the same way
-(`prepareSelfHosted`), which is in the other shard. `freshInput` takes what the gate's copy
-operation copies from each of the two copies, and any differing path or byte fails the first
-cluster. That the two together stand for a fresh gate on the first cluster's copy rests on two
-facts, neither of them a theorem. First, a fresh gate reads the audited project only through
-`copyProject`, which prunes the project's `.lake`, and builds that copy from empty output;
-without `--with-docs`, as here, it reads no other file of the project, and the packages
-directory it links is the repository's for every copy. So equal fresh input gives the same gate
-run, and the setup build, the incremental gates and the restorations are observed to leave the
-prepared input. Second, the two shards are jobs of one workflow matrix, so whenever the
-diagnostics workflow runs them it starts both on the one commit it checks out. That both pass
-before merging is enforced by the ruleset of `main`, not by the self-test, which observes
-nothing of the other job: the workflow runs the matrix on a pull request exactly when it changes
-one of the paths `Regula.DiagnosticsGate.inputs` lists, and its required `diagnostics` check,
-which reports on every pull request, passes on a run where the matrix applies only when the
-matrix job succeeded in that run ([the diagnostics gate](#the-diagnostics-gate)). That GitHub
-reports a matrix job succeeded only when every job of it did is GitHub's behaviour, trusted.
+contaminations, restoring each before the next. It then checks the restored copy's fresh input
+against that of a copy prepared anew, and runs an accepting fresh gate on the restored copy
+itself, whose `.lake` still holds what the setup build and the incremental gates left.
+`freshInput` takes what the gate's copy operation copies from each of the two copies, and any
+differing path or byte fails the cluster. `structuralSelfHostedPositive` runs the accepting
+fresh gate on another copy prepared the same way (`prepareSelfHosted`), with no setup build and
+no mutation: it is the accepting gate on the unmutated copy, outside the first cluster's serial
+chain. Neither accepting gate depends on the other shard. Nothing compares the positive's copy
+with the first cluster's; that `prepareSelfHosted` gives both the same content is a reading of
+its code, not a theorem. That equal fresh input gives the same gate run, so that the restored
+gate audits what a copy prepared anew gives, rests on a fact that is not a theorem either: a
+fresh gate reads the audited project only through `copyProject`, which prunes the project's
+`.lake`, and builds that copy from empty output; without `--with-docs`, as here, it reads no
+other file of the project, and the packages directory it links is the repository's for every
+copy.
+
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
-the first cluster is a serial chain, so a fresh gate there adds its whole duration to the first
-shard: in one instrumented local run (2026-10-03, 14 cores) with an accepting fresh gate before
-the mutations and another after their restoration, those two gates took 47 s and 43 s of the
-cluster's 117 s and the three contamination gates 23 s, and on the slower hosted runners that
-shard then took 394 to 414 s and once reached its 420-second deadline. These are observations,
-not a bound.
+the first cluster is a serial chain, the first shard's longest item, so each fresh gate in it
+adds its whole duration to that shard. With an accepting fresh gate before the mutations and another after their
+restoration both in that chain, in one instrumented local run (2026-10-03, 14 cores) those two
+gates took 47 s and 43 s of the cluster's 117 s and the three contamination gates 23 s, and on
+the slower hosted runners the cluster took 262 to 266 s beside 100 to 108 s for cluster `a`, so
+that the shard's timed step took 394 to 414 s and once reached its 420-second deadline. The
+gate on the unmutated copy therefore runs as the positive cluster, beside the chain; the gate
+on the restored copy has to follow the contamination gates and stays in it. The target for the
+first shard is a timed step (the `Qualify` step of its `diagnostics structural 1/2` job) of at
+most 294 s on every run, a 30 % margin under the unchanged 420-second deadline. That is a
+target, not a bound, and the timings above are observations: the deadline alone refuses a run.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
@@ -2419,7 +2421,7 @@ shard where the partition lists it, and a shard runs the controls that carry it 
 `inShard_cover` proves that the two selections together are a rearrangement of the whole list,
 so each control runs in exactly one shard. Both shards list the same controls because they run
 the same sources, which no theorem states. The structural shards are the mutation clusters
-`self-hosted`, `a` and `b` with the frozen-artifact controls, and `self-hosted-positive`, `c`
+`self-hosted`, `self-hosted-positive`, `a` and `b` with the frozen-artifact controls, and `c`
 and `d` with the library cycle and manifest controls; the execution shards hold one
 correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
 controls it ran and is not the partition's.

@@ -75,9 +75,10 @@ faster sample.
   selection rather than two lists kept in step. A check whose steps land in different shards
   keeps its meaning only if the later step's input is shown equal to what the earlier steps
   leave: compare, in the earlier shard, exactly what the later step reads. A shard's success
-  names what it ran, never the whole. When a merge joins two versions of such a check, keep
-  one design: the union runs the replaced step beside its replacement and returns the shard to
-  the bound the split removed.
+  names what it ran, never the whole. A serial chain inside a shard holds only the steps that
+  read what its earlier steps leave; a step that reads the prepared input alone runs as its own
+  item beside the chain. Dropping a step because another check is assumed, not proved, to stand
+  for it trims coverage, which is the operator's decision and not a rebalance.
 - Compare configured concurrency with the actual queues and inner caps. Increase useful
   parallelism only where environment/scratch ownership, result association and lifetimes
   permit it; account for simultaneous memory demand. Sharing immutable imported regions

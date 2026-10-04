@@ -1543,42 +1543,34 @@ The copy claims `selfHostedManifestText`, so its gates build `RegulaPolicy` and 
 module scope too.
 
 On its own copy, the cluster runs the incremental gate on each of the three contaminations,
-each restored before the next, and no fresh gate: `gate` passes `--incremental` alone. A fresh
-gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, by far the
-longest step of this serial cluster, so the one accepting fresh gate is in the other shard and
-none repeats it here. An accepting fresh gate on this copy, before the mutations or after their
-restoration, is replaced by two things: a checked identity, here, of the restored copy's fresh
-input (`freshInput`) with that of a copy prepared anew (`prepareSelfHosted`), and the accepting
-fresh gate on a copy prepared anew (`structuralSelfHostedPositive`), which is in the other shard
-and so may be another invocation's. The identity is compared path by path and byte by byte, and
-any difference fails this cluster. That the two together stand for a fresh gate on this copy
-rests on two facts, neither of them a theorem:
+each restored before the next, and then an accepting fresh gate on the restored copy, whose
+`.lake` still holds what the setup build and the incremental gates left. Before that gate, it
+checks the restored copy's fresh input (`freshInput`) path by path and byte by byte against
+that of a copy prepared anew (`prepareSelfHosted`), and any difference fails this cluster.
 
-1. A fresh gate reads the audited project only through its copy operation (`copyProject`,
-   which prunes the project's `.lake`), and builds that copy from empty output; without
-   `--with-docs`, as here, it reads no other file of the project, and the packages directory
-   it links is the repository's for every copy. `freshInput` is that operation's output. So
-   equal fresh input gives the same gate run, and the setup build, the incremental gates and
-   the restorations are observed to leave the prepared input.
-2. The two shards are jobs of one workflow matrix, so whenever the diagnostics workflow runs
-   them it starts both on the one commit it checks out, where `prepareSelfHosted` prepares the
-   same copy for each. That both pass before merging is enforced by the ruleset of `main`, not
-   by this module, which observes nothing of the other job. The workflow runs the matrix on a
-   pull request exactly when the pull request changes one of the paths
-   `Regula.DiagnosticsGate.inputs` lists, and its last job, `diagnostics`, a required check that
-   reports on every pull request, passes on a run where the matrix applies only when the matrix
-   job succeeded in that run (`Regula.DiagnosticsGate.verdict_iff`). That GitHub reports a
-   matrix job succeeded only when every job of it did is GitHub's behaviour, trusted. -/
+No fresh gate precedes the mutations here. The cluster is a serial chain, and a fresh gate on
+a self-hosted copy builds and inspects `RegulaPolicy` from empty output, the chain's longest
+step, so the chain holds only the fresh gate that has to follow the restorations. The accepting
+fresh gate on the copy as prepared is `structuralSelfHostedPositive`, a cluster of its own in
+this shard, which the queue runs beside this one; neither accepting gate depends on the other
+shard. That cluster's copy is another one prepared the same way, not this cluster's: nothing
+compares the two, and that `prepareSelfHosted` gives both the same content is a reading of its
+code, not a theorem. That equal fresh input gives the same gate run, so that the restored gate
+here audits what a copy prepared anew gives, rests on a fact that is not a theorem either: a
+fresh gate reads the audited project only through its copy operation (`copyProject`, which
+prunes the project's `.lake`), and builds that copy from empty output; without `--with-docs`,
+as here, it reads no other file of the project, and the packages directory it links is the
+repository's for every copy. `freshInput` is that operation's output. -/
 private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let failures ← IO.mkRef (#[] : Array String)
-  let gate (name : String) := do
-    Regula.Checker.timedPhase s!"structural/self-hosted/{name}" do
+  let gate (label : String) (args : Array String := #["--incremental"]) := do
+    Regula.Checker.timedPhase s!"structural/self-hosted/{label}" do
       if ← timing.get then
         runProcessShowing copy (← toolPath repo "axiomGate").toString
-          #["--incremental"] #[(timingVariable, some "1")] (·.startsWith "verification phase ")
+          args #[(timingVariable, some "1")] (·.startsWith "verification phase ")
       else
-        runBinaryFrom repo copy "axiomGate" #["--incremental"]
+        runBinaryFrom repo copy "axiomGate" args
   let appRoot := copy / layout.relativeDir / "AuditApp.lean"
   let originalRoot ← IO.FS.readFile appRoot
   for name in #["Regula.Report", "Regula.Collect", "Regula.CompilerObservation"] do
@@ -1597,13 +1589,17 @@ private unsafe def structuralSelfHosted (layout : SourceLayout) (repo copy : Fil
   if let some difference := freshInputDifference before after then
     failures.modify (·.push s!"structural/self-hosted/restored: the restored copy is not the \
       prepared one for a fresh gate; first difference: {difference}")
+  let restored ← gate "restored" #[]
+  if !restored.succeeded then
+    failures.modify (·.push
+      s!"structural/self-hosted/restored: final fresh gate failed:\n{restored.output}")
   failures.get
 
-/-- The positive of `structuralSelfHosted`: the fresh gate accepts the self-hosted copy without
-a mutation. It is not a gate on the mutated and restored copy, which no fresh gate audits. Its
-project is the copy as prepared (`prepareSelfHosted`), whose fresh input `structuralSelfHosted`
-checks equal to that of its own copy once the mutations are restored; the docstring there states
-the substitution and the two facts it rests on. -/
+/-- The positive beside `structuralSelfHosted`, a cluster of its own in the same shard: the
+fresh gate accepts the self-hosted copy as prepared (`prepareSelfHosted`), with no setup build
+and no mutation. It is not a gate on the copy `structuralSelfHosted` mutates and restores;
+that cluster runs its own accepting fresh gate after the restorations, and checks the restored
+copy's fresh input equal to that of a copy prepared this way. -/
 private unsafe def structuralSelfHostedPositive (repo copy : FilePath) : IO (Array String) := do
   prepareSelfHosted repo copy
   let accepted ← runBinaryFrom repo copy "axiomGate" #[]
@@ -2330,15 +2326,15 @@ private def qualifyItems (label : String) (jobs : Nat)
 
 /-- The structural mutation clusters, each in its own isolated project, so no two concurrent
 Lake builds ever write one build directory, and each with its shard. Each cluster's project is
-the structural project; the two self-hosted clusters' are copies of the repository, and they
-are in different shards, each of whose gates builds `RegulaPolicy`: the one fresh gate, which
-also inspects it, is the second shard's, and the first shard's are incremental gates on a
-contamination (`structuralSelfHosted`). The longest observed clusters are first. -/
+the structural project; the two self-hosted clusters' are copies of the repository, each of
+whose gates builds `RegulaPolicy`. Both are in the first shard, so its queue runs the accepting
+fresh gate on the copy as prepared beside the contamination gates, not ahead of them in their
+serial chain (`structuralSelfHosted`). The longest observed clusters are first. -/
 private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : FilePath) :
     List (Shard × String × IO (Array String)) :=
   [(.first, cluster repo scratch "self-hosted" (prepareSelfHosted repo)
       (applicationTargets layout) (structuralSelfHosted layout)),
-    (.second, "self-hosted-positive",
+    (.first, "self-hosted-positive",
       structuralSelfHostedPositive repo (scratch / "copy-self-hosted-positive")),
     (.first, projectCluster layout repo scratch "a" (structuralPartA layout)),
     (.second, projectCluster layout repo scratch "d" (structuralPartD layout)),
