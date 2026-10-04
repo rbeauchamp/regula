@@ -202,12 +202,12 @@ private theorem inShard_cover {α : Type} (items : List (Shard × α)) :
   exact List.filter_append_perm _ _
 
 /-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
-second structural shard holds no cluster that runs `docFenceAudit`. The first keeps the
-partition's baseline, which names `freshChecker` although the clusters that run it are in the
-second. -/
+first structural shard holds the two self-hosted clusters, which run `axiomGate` alone, and the
+frozen-artifact controls, which run no checker executable. The clusters that run `docFenceAudit`
+and `freshChecker` are in the second, which keeps the partition's baseline. -/
 private def baselineOf (partition : Partition) (shard : Option Shard) : Baseline :=
   match partition, shard with
-  | .structural, some .second => ⟨["axiomGate", "freshChecker"], false⟩
+  | .structural, some .first => ⟨["axiomGate"], false⟩
   | _, _ => partition.baseline
 
 /-- Every run's baseline build names `axiomGate` (`Partition.baseline_axiomGate`), a shard's
@@ -2331,14 +2331,16 @@ Lake builds ever write one build directory, and each with its shard. Each cluste
 the structural project; the two self-hosted clusters' are copies of the repository, each of
 whose gates builds `RegulaPolicy`. Both are in the first shard, so its queue runs the accepting
 fresh gate on the copy as prepared beside the contamination gates, not ahead of them in their
-serial chain (`structuralSelfHosted`). The longest observed clusters are first. -/
+serial chain (`structuralSelfHosted`). They are the first shard's only clusters: the four
+clusters in the structural project are the second's, so none of them takes processors from the
+self-hosted chain, the first shard's longest item. The longest observed clusters are first. -/
 private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : FilePath) :
     List (Shard × String × IO (Array String)) :=
   [(.first, cluster repo scratch "self-hosted" (prepareSelfHosted repo)
       (applicationTargets layout) (structuralSelfHosted layout)),
     (.first, "self-hosted-positive",
       structuralSelfHostedPositive repo (scratch / "copy-self-hosted-positive")),
-    (.first, projectCluster layout repo scratch "a" (structuralPartA layout)),
+    (.second, projectCluster layout repo scratch "a" (structuralPartA layout)),
     (.second, projectCluster layout repo scratch "d" (structuralPartD layout)),
     (.second, projectCluster layout repo scratch "c" (structuralPartC layout)),
     (.second, projectCluster layout repo scratch "b" (structuralPartB layout))]

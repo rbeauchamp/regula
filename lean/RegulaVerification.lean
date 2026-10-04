@@ -250,11 +250,11 @@ def commands : Mode → List Command
         args := #["--run", "lean/RegulaProvision.lean", "mathlib-applies", "--require"] },
       lakeIn mathlibPackage #["exe", "axiomGate"], lakeIn mathlibPackage #["lint"]]
   | .structural => selftest #["--partition", "structural"] #["docFenceAudit", "freshChecker"]
-  -- A shard of a partition: the partition's name, then the shard after `--shard`.
-  | .structuralFirst =>
-      selftest #["--partition", "structural", "--shard", "1/2"] #["docFenceAudit", "freshChecker"]
+  -- A shard of a partition: the partition's name, then the shard after `--shard`. The first
+  -- structural shard's controls run `axiomGate` alone; the second's also run the other two.
+  | .structuralFirst => selftest #["--partition", "structural", "--shard", "1/2"]
   | .structuralSecond =>
-      selftest #["--partition", "structural", "--shard", "2/2"] #["freshChecker"]
+      selftest #["--partition", "structural", "--shard", "2/2"] #["docFenceAudit", "freshChecker"]
   | .executionFirst => selftest #["--partition", "execution", "--shard", "1/2"]
   | .executionSecond => selftest #["--partition", "execution", "--shard", "2/2"]
   | mode => selftest (#["--partition"] ++ ((arguments mode).drop 1).toArray)

@@ -2390,8 +2390,12 @@ gates 23 s, and on the slower hosted runners the cluster took 262 to 266 s besid
 for cluster `a`, so that the shard's timed step took 394 to 414 s and once reached its
 420-second deadline. The
 gate on the unmutated copy therefore runs as the positive cluster, beside the chain; the gate
-on the restored copy has to follow the contamination gates and stays in it; and cluster `b`
-runs in the second shard, which no longer holds the positive. The target for each structural
+on the restored copy has to follow the contamination gates and stays in it; and the four
+clusters in the structural project (`a`, `b`, `c` and `d`) run in the second shard, which no
+longer holds the positive. With cluster `a` still in the first shard, beside the chain and the
+positive, that shard's timed step took 354 s and 362 s on the slower hosted runners
+(Diagnostics run 37178141571, attempts 1 and 2): the chain took 205 and 208 s there, beside 162
+and 164 s for the positive and 139 and 142 s for `a`. The target for each structural
 shard is a timed step (the `Qualify` step of its job in the diagnostics workflow) of at most
 360 s on every run, a margin of at least 60 s (14 %) under the unchanged 420-second deadline.
 That step includes the build of the self-test and its checker executables: on the slower
@@ -2403,9 +2407,9 @@ Each partition's baseline build names what its controls read from the repository
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
 projects of their own, where the gate builds that project's targets itself, and the manifest
 controls run `axiomGate` on the repository with a manifest it refuses before any build. So the
-structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its second shard runs
-no `docFenceAudit`; its first keeps `freshChecker` in its baseline although the clusters that
-run it are in the second), the execution baseline is `axiomGate` alone, and neither builds the
+structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
+controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
+the execution baseline is `axiomGate` alone, and neither builds the
 repository's claimed surface; the other partitions keep the complete baseline. That is a
 reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
 `toolPath` refuses an executable that build did not name (for every checker executable the
@@ -2427,7 +2431,7 @@ shard where the partition lists it, and a shard runs the controls that carry it 
 `inShard_cover` proves that the two selections together are a rearrangement of the whole list,
 so each control runs in exactly one shard. Both shards list the same controls because they run
 the same sources, which no theorem states. The structural shards are the mutation clusters
-`self-hosted`, `self-hosted-positive` and `a` with the frozen-artifact controls, and `b`, `c`
+`self-hosted` and `self-hosted-positive` with the frozen-artifact controls, and `a`, `b`, `c`
 and `d` with the library cycle and manifest controls; the execution shards hold one
 correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
 controls it ran and is not the partition's.
