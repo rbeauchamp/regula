@@ -2362,34 +2362,54 @@ resolve to it in a self-hosted copy;
 `Regula.Checker.Environment` does not elaborate unless every module in the probe's import closure
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
-states what it does not see). The controls are two clusters in different shards.
-`structuralSelfHosted` builds the copy and runs an accepting fresh gate on it, then the
-incremental gate on each of the three contaminations, restoring each before the next. It then
-checks the restored copy's fresh input against that of a copy prepared anew, and runs an
-accepting fresh gate on the restored copy itself. Both accepting gates audit that cluster's own
-copy, so neither depends on the other shard. `freshInput` takes what the gate's copy operation
-copies from each of the two copies, and any differing path or byte fails the cluster.
-`structuralSelfHostedPositive`, in the other shard, runs the accepting fresh gate on a copy
-prepared the same way (`prepareSelfHosted`). That equal fresh input gives the same gate run, so
-that the restored gate and that positive audit the same input, rests on a fact that is not a
-theorem: a fresh gate reads the audited project only through `copyProject`, which prunes the
-project's `.lake`, and builds that copy from empty output; without `--with-docs`, as here, it
-reads no other file of the project, and the packages directory it links is the repository's for
-every copy. The two shards are jobs of one workflow matrix, which starts both on the one commit
-it checks out. That both pass before merging is enforced by the ruleset of `main`, not by the
-self-test, which observes nothing of the other job: the workflow runs the matrix on a pull
-request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists, and its
-required `diagnostics` check, which reports on every pull request, passes on a run where the
-matrix applies only when the matrix job succeeded in that run
-([the diagnostics gate](#the-diagnostics-gate)). That GitHub reports a matrix job succeeded
-only when every job of it did is GitHub's behaviour, trusted.
+states what it does not see). The controls are two clusters, both in the first shard, whose
+queue runs them beside one another.
+`structuralSelfHosted` builds the copy and runs the incremental gate on each of the three
+contaminations, restoring each before the next. It then checks the restored copy's fresh input
+against that of a copy prepared anew, and runs an accepting fresh gate on the restored copy
+itself, whose `.lake` still holds what the setup build and the incremental gates left.
+`freshInput` takes what the gate's copy operation copies from each of the two copies, and any
+differing path or byte fails the cluster. `structuralSelfHostedPositive` runs the accepting
+fresh gate on another copy prepared the same way (`prepareSelfHosted`), with no setup build and
+no mutation: it is the accepting gate on the unmutated copy, outside the first cluster's serial
+chain. Neither accepting gate depends on the other shard. Nothing compares the positive's copy
+with the first cluster's; that `prepareSelfHosted` gives both the same content is a reading of
+its code, not a theorem. That equal fresh input gives the same gate run, so that the restored
+gate audits what a copy prepared anew gives, rests on a fact that is not a theorem either: a
+fresh gate reads the audited project only through `copyProject`, which prunes the project's
+`.lake`, and builds that copy from empty output; without `--with-docs`, as here, it reads no
+other file of the project, and the packages directory it links is the repository's for every
+copy.
+
+A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
+the first cluster is a serial chain, the first shard's longest item, so each fresh gate in it
+adds its whole duration to that shard. With an accepting fresh gate before the mutations and
+another after their restoration both in that chain, in one instrumented local run (2026-10-03,
+14 cores) those two gates took 47 s and 43 s of the cluster's 117 s and the three contamination
+gates 23 s, and on the slower hosted runners the cluster took 262 to 266 s beside 100 to 108 s
+for cluster `a`, so that the shard's timed step took 394 to 414 s and once reached its
+420-second deadline. The
+gate on the unmutated copy therefore runs as the positive cluster, beside the chain; the gate
+on the restored copy has to follow the contamination gates and stays in it; and the four
+clusters in the structural project (`a`, `b`, `c` and `d`) run in the second shard, which no
+longer holds the positive. With cluster `a` still in the first shard, beside the chain and the
+positive, that shard's timed step took 354 s and 362 s on the slower hosted runners
+(Diagnostics run 37178141571, attempts 1 and 2): the chain took 205 and 208 s there, beside 162
+and 163 s for the positive and 139 and 142 s for `a`. The target for each structural
+shard is a timed step (the `Qualify` step of its job in the diagnostics workflow) of at most
+360 s on every run, a margin of at least 60 s (14 %) under the unchanged 420-second deadline.
+That step includes the build of the self-test and its checker executables: on the slower
+hosted runners (Diagnostics runs 37170060453 and 37171425583, both shards), 147 to 157 s of it
+had passed when the first control started. That is a target, not a bound, and the timings above
+are observations: the deadline alone refuses a run.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
 projects of their own, where the gate builds that project's targets itself, and the manifest
 controls run `axiomGate` on the repository with a manifest it refuses before any build. So the
-structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its second shard runs
-no `docFenceAudit`), the execution baseline is `axiomGate` alone, and neither builds the
+structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its first shard, whose
+controls run `axiomGate` alone, names only that; its second keeps the partition's baseline),
+the execution baseline is `axiomGate` alone, and neither builds the
 repository's claimed surface; the other partitions keep the complete baseline. That is a
 reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
 `toolPath` refuses an executable that build did not name (for every checker executable the
@@ -2398,7 +2418,8 @@ baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run 
 claimed-surface `.olean` that a control read from the repository's build without the baseline
 naming it would be absent on a clean checkout and fail that control there; on a warm local
 build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate` and, for a
-structural selection, its other checker executables in one Lake invocation
+structural selection, the other checker executables its baseline names (none for the first
+shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, library cycle and manifest
@@ -2411,7 +2432,7 @@ shard where the partition lists it, and a shard runs the controls that carry it 
 `inShard_cover` proves that the two selections together are a rearrangement of the whole list,
 so each control runs in exactly one shard. Both shards list the same controls because they run
 the same sources, which no theorem states. The structural shards are the mutation clusters
-`self-hosted`, `a` and `b` with the frozen-artifact controls, and `self-hosted-positive`, `c`
+`self-hosted` and `self-hosted-positive` with the frozen-artifact controls, and `a`, `b`, `c`
 and `d` with the library cycle and manifest controls; the execution shards hold one
 correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
 controls it ran and is not the partition's.
