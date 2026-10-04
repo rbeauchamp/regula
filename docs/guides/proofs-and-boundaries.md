@@ -2005,7 +2005,14 @@ it holds, that release's listed predecessor is the latest published release
 (`publishedExactly_latest`), and a release whose listed predecessor is unpublished, or is earlier
 than a published release, is refused (`publishedExactly_refuses`), both given the releases before
 it listed in ascending order, which `releases_ascending` checks. So once a release is published,
-no release listed in its place is released. `admits`, which the open step also
+no release listed in its place is released. `branchAction`, the decision of the open step over
+the pull requests GitHub reports open from the branch of the release pull request, pushes exactly
+when there is none (`branchAction_push_iff`) and otherwise refuses, naming the first
+(`branchAction_refuse_iff`). `branchStep`, the program the step runs on that observation, is,
+while a pull request is open, exactly the refusal `refuseOpen` that names one of them, whatever
+the commit (`branchStep_open`), and with none open it is the push (`branchStep_unopened`). That
+`refuseOpen` moves no branch is read from its definition, which writes the job summary and
+fails; it is not a theorem. `admits`, which the open step also
 checks, characterizes a new release exactly (`admits_iff`); an admitted release's tag is new
 (`admits_new`), and once the legacy release `v4.34.0` is listed, Lake's order of the versions
 the releases' lakefiles declare puts an admitted release above every listed one
@@ -2035,7 +2042,8 @@ lifecycle names is in `versions`) and `introduced_startsLine` (the release that 
 has patch `0`, so it is not a patch release). What the steps observe (whether the release is
 published, the versions of the published releases, read from the tags of the releases GitHub
 lists that are not drafts, the head of `main`, the tag, the commits since the previous release,
-a pull request's title and head), GitHub's signature verification, that publishing a release
+the pull requests open from a branch, observed just before the open step pushes and not again
+afterwards, a pull request's title), GitHub's signature verification, that publishing a release
 creates its tag at the given commit, tags, immutable releases, pull requests, squash merges
 taking the pull request's title and description, workflow ordering, and that Lake and Reservoir
 read and order versions as their source shows ([Reservoir](contributing.md#reservoir)) are

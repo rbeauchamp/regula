@@ -5,7 +5,9 @@ name: Release
 # release and from lean-toolchain; its bump input may raise that bump, never lower it. It pushes
 # the branch of the release pull request, which lists the release with its toolchain, sets the
 # lakefile's version, adds it to the adoption guide's compatibility table and stamps it into the
-# rules; a maintainer opens that pull request from the link in the job summary. Once it merges,
+# rules; a maintainer opens that pull request from the link in the job summary. While a pull
+# request from that branch is open, it refuses and pushes nothing: close the pull request, run
+# this workflow again and open a fresh one from the new link. Once the pull request merges,
 # ci.yml on main creates the release commit, runs main's checks on it and, once they pass,
 # publishes the release, which creates its tag. No workflow creates a pull request. Every step is
 # lean/Regula/Release.lean.
@@ -36,12 +38,15 @@ jobs:
   # the release appended to Regula.releases with its toolchain, the lakefile's version, the
   # adoption guide's compatibility table and each .unreleased on a `lifecycle :=` line;
   # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, push it as
-  # release/v<version> and write the link that opens its pull request to the job summary. When
-  # that pull request is already open, dispatch ci.yml, title.yml and diagnostics.yml on the
-  # rebuilt branch, whose push with this job's token starts no checks; hence `actions: write`, on
-  # this job only. A re-run rebuilds the branch on the same commit; a new run rebuilds it on the
-  # current head of main. The derivation reads main's history since the previous release's tag,
-  # hence the full clone.
+  # release/v<version> and write the link that opens its pull request to the job summary. Just
+  # before the push, list the pull requests open from that branch, hence `pull-requests: read`;
+  # while one is open, write the refusal to the job summary, push nothing and fail
+  # (Regula.Release.branchAction): main's rules count a push by this job to the branch of an open
+  # pull request as an unattributed change, and block its merge until a review approves it.
+  # While none is open, a re-run rebuilds the branch on the same commit, and a new run rebuilds
+  # it on the current head of main; either way a maintainer opens a fresh pull request from the
+  # new link. The derivation reads main's history since the previous release's tag, hence the
+  # full clone.
   open:
     needs: compiler
     if: github.ref == 'refs/heads/main'
@@ -50,7 +55,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
-      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
