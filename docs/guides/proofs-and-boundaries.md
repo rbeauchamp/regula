@@ -2418,7 +2418,8 @@ baseline names `axiomGate`, which `CompilerPaths` and `PolicyQualification` run 
 claimed-surface `.olean` that a control read from the repository's build without the baseline
 naming it would be absent on a clean checkout and fail that control there; on a warm local
 build it is not detected. `scripts/verify.sh` builds the self-test, `axiomGate` and, for a
-structural selection, its other checker executables in one Lake invocation
+structural selection, the other checker executables its baseline names (none for the first
+shard) in one Lake invocation
 (`RegulaVerification.commands`), so the gate's own modules compile beside the self-test's last
 ones instead of after its link; that command selects nothing, and the baseline build still
 names and builds its targets. The frozen-artifact, library cycle and manifest
