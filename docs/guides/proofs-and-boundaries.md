@@ -2383,23 +2383,29 @@ copy.
 
 A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
 the first cluster is a serial chain, the first shard's longest item, so each fresh gate in it
-adds its whole duration to that shard. With an accepting fresh gate before the mutations and another after their
-restoration both in that chain, in one instrumented local run (2026-10-03, 14 cores) those two
-gates took 47 s and 43 s of the cluster's 117 s and the three contamination gates 23 s, and on
-the slower hosted runners the cluster took 262 to 266 s beside 100 to 108 s for cluster `a`, so
-that the shard's timed step took 394 to 414 s and once reached its 420-second deadline. The
+adds its whole duration to that shard. With an accepting fresh gate before the mutations and
+another after their restoration both in that chain, in one instrumented local run (2026-10-03,
+14 cores) those two gates took 47 s and 43 s of the cluster's 117 s and the three contamination
+gates 23 s, and on the slower hosted runners the cluster took 262 to 266 s beside 100 to 108 s
+for cluster `a`, so that the shard's timed step took 394 to 414 s and once reached its
+420-second deadline. The
 gate on the unmutated copy therefore runs as the positive cluster, beside the chain; the gate
-on the restored copy has to follow the contamination gates and stays in it. The target for the
-first shard is a timed step (the `Qualify` step of its `diagnostics structural 1/2` job) of at
-most 294 s on every run, a 30 % margin under the unchanged 420-second deadline. That is a
-target, not a bound, and the timings above are observations: the deadline alone refuses a run.
+on the restored copy has to follow the contamination gates and stays in it; and cluster `b`
+runs in the second shard, which no longer holds the positive. The target for each structural
+shard is a timed step (the `Qualify` step of its job in the diagnostics workflow) of at most
+360 s on every run, a margin of at least 60 s (14 %) under the unchanged 420-second deadline.
+That step includes the build of the self-test and its checker executables: on the slower
+hosted runners (Diagnostics runs 37170060453 and 37171425583, both shards), 147 to 157 s of it
+had passed when the first control started. That is a target, not a bound, and the timings above
+are observations: the deadline alone refuses a run.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
 projects of their own, where the gate builds that project's targets itself, and the manifest
 controls run `axiomGate` on the repository with a manifest it refuses before any build. So the
 structural baseline is `axiomGate`, `docFenceAudit` and `freshChecker` (its second shard runs
-no `docFenceAudit`), the execution baseline is `axiomGate` alone, and neither builds the
+no `docFenceAudit`; its first keeps `freshChecker` in its baseline although the clusters that
+run it are in the second), the execution baseline is `axiomGate` alone, and neither builds the
 repository's claimed surface; the other partitions keep the complete baseline. That is a
 reading of the controls' code, not a theorem. Two guards bound it: after the baseline build,
 `toolPath` refuses an executable that build did not name (for every checker executable the
@@ -2421,7 +2427,7 @@ shard where the partition lists it, and a shard runs the controls that carry it 
 `inShard_cover` proves that the two selections together are a rearrangement of the whole list,
 so each control runs in exactly one shard. Both shards list the same controls because they run
 the same sources, which no theorem states. The structural shards are the mutation clusters
-`self-hosted`, `self-hosted-positive`, `a` and `b` with the frozen-artifact controls, and `c`
+`self-hosted`, `self-hosted-positive` and `a` with the frozen-artifact controls, and `b`, `c`
 and `d` with the library cycle and manifest controls; the execution shards hold one
 correspondence cluster each and alternate compiler-path cases. A shard's PASS names the
 controls it ran and is not the partition's.

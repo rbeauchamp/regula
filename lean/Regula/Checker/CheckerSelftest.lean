@@ -202,7 +202,9 @@ private theorem inShard_cover {α : Type} (items : List (Shard × α)) :
   exact List.filter_append_perm _ _
 
 /-- The baseline of a run of `partition`, of one of its shards when `shard` selects one. The
-second structural shard holds no cluster that runs `docFenceAudit`. -/
+second structural shard holds no cluster that runs `docFenceAudit`. The first keeps the
+partition's baseline, which names `freshChecker` although the clusters that run it are in the
+second. -/
 private def baselineOf (partition : Partition) (shard : Option Shard) : Baseline :=
   match partition, shard with
   | .structural, some .second => ⟨["axiomGate", "freshChecker"], false⟩
@@ -2339,7 +2341,7 @@ private unsafe def structuralClusters (layout : SourceLayout) (repo scratch : Fi
     (.first, projectCluster layout repo scratch "a" (structuralPartA layout)),
     (.second, projectCluster layout repo scratch "d" (structuralPartD layout)),
     (.second, projectCluster layout repo scratch "c" (structuralPartC layout)),
-    (.first, projectCluster layout repo scratch "b" (structuralPartB layout))]
+    (.second, projectCluster layout repo scratch "b" (structuralPartB layout))]
 
 /-- Structural qualification: the mutation clusters (`structuralClusters`) on `jobs` workers. -/
 private unsafe def structuralQualification (layout : SourceLayout) (repo scratch : FilePath)
