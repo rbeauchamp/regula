@@ -8,8 +8,8 @@ The decision kind of each pure decision `RegulaProvision` runs, with its `@[regu
 registration. The provisioning program imports only the toolchain, because `scripts/provision.sh`
 runs it with `lean --run` before the package is built. This second module of its library imports
 it together with the two checker interfaces, and nothing the program runs imports this module.
-Each kind restates a theorem of the program about the same definition and adds the witnesses a
-kind requires. -/
+Each kind restates a theorem of the program about the same definition, or for `component?`
+follows from its definition, and adds the witnesses a kind requires. -/
 namespace RegulaProvision
 
 /-- `buildMode?` accepts only the spelling of a build mode (`buildMode?_sound`), and it accepts
@@ -22,6 +22,15 @@ theorem checked_buildMode : Regula.ExecutableContract buildMode?
        | some mode => exact ⟨mode, buildMode?_sound text mode parsed⟩
        | none => rw [parsed] at accepted; exact absurd accepted Bool.false_ne_true
      accepted := ⟨"source", by decide⟩ }⟩
+
+/-- `component?` accepts exactly a text that passes `isComponent`: it accepts `a` and refuses the
+empty text. That the admitted component is that text is in its definition, not in the kind. -/
+theorem checked_component : Regula.ExecutableContract component?
+    (Regula.Decides (·.isSome = true) (fun text => isComponent text = true)) :=
+  have admitted (text : String) : (component? text).isSome = true ↔ isComponent text = true := by
+    by_cases passes : isComponent text = true <;> simp [component?, passes]
+  ⟨.of_iff admitted ⟨"a", (admitted "a").mpr (by simp [isComponent])⟩
+    ⟨"", fun accepted => absurd ((admitted "").mp accepted) (by decide)⟩⟩
 
 /-- `resumes` accepts exactly a source-mode stage whose observed inputs are the expected ones
 (`resumes_iff`): it accepts equal inputs in source mode and refuses them in upstream-cache mode. -/
@@ -113,6 +122,7 @@ theorem checked_prunes : Regula.ExecutableContract prunes (fun removes =>
   ⟨{ sound := fun input removed => prunes_sound input.1.1 input.1.2 input.2 removed
      accepted := ⟨(("current", "other"), #[]), by simp [Function.uncurry, prunes]⟩ }⟩
 
-attribute [regula_decision] buildMode? resumes admits mathlibStep cloneStep found prunes
+attribute [regula_decision]
+  buildMode? component? resumes admits mathlibStep cloneStep found prunes
 
 end RegulaProvision

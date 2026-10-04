@@ -460,7 +460,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
 | `AuditApp.admit`, `AuditApp.grant`, `AuditApp.runChecked` | Positive capacity, a free slot, `Fits` | The example application (standard §3.7). |
 | `RegulaCompiler.admitsIdentity`, `installsSystemPackages` | Both reports equal one full object name; a GitHub Actions job on Linux (`admitsIdentity_iff`, `installsSystemPackages_iff`) | The compiler installer's identity admission and its system-package guard. |
-| `RegulaProvision.resumes`, `mathlibStep` (accepts on `.keep`) | A source-mode stage whose observed inputs are the expected ones; the path already links the shared checkout (`resumes_iff`, `mathlibStep_keep_iff`) | Local provisioning: resuming a staged workspace, and keeping Mathlib's link. |
+| `RegulaProvision.resumes`, `mathlibStep` (accepts on `.keep`), `component?` | A source-mode stage whose observed inputs are the expected ones; the path already links the shared checkout (`resumes_iff`, `mathlibStep_keep_iff`); the text passes `isComponent` | Local provisioning: resuming a staged workspace, keeping Mathlib's link, and admitting the shared directory's key and each package directory's name as one path component. |
 | `RegulaVerification.parseMode` | The argument list of a supported invocation (`parseMode_sound`, `parseMode_roundtrip`) | Argument selection of `scripts/verify.sh`. |
 
 Sound only, each a declared choice:
@@ -495,16 +495,16 @@ Decisions with no kind, and what stands instead:
 | `accept`, `finalize`, `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults`, `policyFor`, `memberFailure`, `admitPlan`, `admitBoundaryEvidence`, the editor decision, `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` | An argument or the result has a type that depends on an earlier argument, or the function is polymorphic in a type. A kind is stated about a function whose argument types are independent, through `Function.uncurry`. | Evidence by construction, where the accepted value carries its proof, and the two-way theorems `accept_iff`, `finalize_iff`, `insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`, `policyFor_none_iff`, `editor_decision_none_iff`, `admitExampleRequest_sound` with `admitExampleRequest_complete`, and the `_sound` and `_complete` or `_exact` pairs of the others. `policyFor` and `memberFailure` run `declarationFailure`, which has a kind. |
 | `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ClassifyContract`). |
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
-| `RegulaVerification.select`, `RegulaProvision.component?` | `select` returns the mode with the proof that the arguments are its own, so its result type depends on its argument; the program states no theorem about `component?`, whose result carries the proof that the text is a component. | Evidence by construction, and `select_exact`, which makes `select` the proof-carrying form of `parseMode`, which has a kind. |
-| The validators `RegulaCompiler.valid`, `component`, `objectName`, `officialSelector`, `releaseVersion`, `decimal` and `RegulaProvision.isObjectName`, `isComponent` | Each is itself the written form of what it admits: the programs state no relation it is checked against, and a kind's specification must not mention its implementation. | `valid` is the specification of the kind of `source?`, and `objectName` part of that of `admitsIdentity`; whether each is the intended form is review. |
+| `RegulaVerification.select` | It returns the mode with the proof that the arguments are its own, so its result type depends on its argument. | Evidence by construction, and `select_exact`, which makes `select` the proof-carrying form of `parseMode`, which has a kind. |
+| The validators `RegulaCompiler.valid`, `component`, `objectName`, `officialSelector`, `releaseVersion`, `decimal` and `RegulaProvision.isObjectName`, `isComponent` | Each is itself the written form of what it admits: the programs state no relation it is checked against, and a kind's specification must not mention its implementation. | `valid` is the specification of the kind of `source?`, `isComponent` that of `component?`, and `objectName` part of that of `admitsIdentity`; whether each is the intended form is review. |
 
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 40 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 7 of `RegulaProvision`, 3 of `RegulaCompiler`, 2 of
+`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 3 of `RegulaCompiler`, 2 of
 `RegulaVerification` and 11 of the excluded `Regula` library, where the `self-audit` diagnostic
-decides the rule. Fourteen of them are registered from another module of their library, with
+decides the rule. Fifteen of them are registered from another module of their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
 
@@ -513,11 +513,12 @@ imports only the toolchain:
   `Compiler.admitCapability`.
 - Each standalone program runs with `lean --run` before the package is built, so its library has
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
-  no program imports: `RegulaProvision.Decisions` registers `buildMode?`, `resumes`, `admits`,
-  `mathlibStep`, `cloneStep`, `found` and `prunes`; `RegulaCompiler.Decisions` registers
-  `source?`, `admitsIdentity` and `installsSystemPackages`; `RegulaVerification.Decisions`
-  registers `parseMode` and `dependencyFree`. Each kind restates a theorem the program proves
-  about the same definition.
+  no program imports: `RegulaProvision.Decisions` registers `buildMode?`, `component?`,
+  `resumes`, `admits`, `mathlibStep`, `cloneStep`, `found` and `prunes`;
+  `RegulaCompiler.Decisions` registers `source?`, `admitsIdentity` and `installsSystemPackages`;
+  `RegulaVerification.Decisions` registers `parseMode` and `dependencyFree`. Each kind restates a
+  theorem the program proves about the same definition, except that of `component?`, which
+  follows from its definition (`checked_component`).
 
 Deleting one of those contracts, such as `checked_compilerAccepts` or `checked_admits`, is then
 rejected under [RG1008] like any other registered decision's contract. The decisions below carry
