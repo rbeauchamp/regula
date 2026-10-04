@@ -2007,10 +2007,21 @@ than a published release, is refused (`publishedExactly_refuses`), both given th
 it listed in ascending order, which `releases_ascending` checks. So once a release is published,
 no release listed in its place is released. `pullBranch`, the name of the branch the open step
 creates for the release pull request, is the same for two builds of a release only when they are
-the same commit (`pullBranch_inj`), so builds with different commits never share one. That the
-open step never moves a branch, and so never changes the branch of a pull request that is open,
-is not a theorem: its only write of a branch is `createBranch`, GitHub's request that creates a
-reference, and that GitHub refuses that request when the reference exists is trusted. `admits`,
+the same commit (`pullBranch_inj`), so builds with different commits never share one.
+`releasePulls` selects, from the pull requests GitHub reports open, exactly those whose head is
+a branch `pullBranch` names for the release's version in the repository (`mem_releasePulls`,
+`isPullHead_iff`). `branchAction`, the decision of the open step over them, creates the branch
+exactly when there is none (`branchAction_create_iff`) and otherwise refuses, naming the first
+(`branchAction_refuse_iff`). `branchStep`, the program the step runs on that observation, is,
+while one is open, exactly the refusal `refuseOpen` that names one of them, whatever the commit
+(`branchStep_open`), and with none it is the creation (`branchStep_unopened`). These hold for
+what the step observed just before it writes: a release pull request opened after the
+observation is not excluded. That `refuseOpen` writes no reference is read from its definition,
+which writes the job summary and fails; it is not a theorem. Separately, that the open step
+never moves a branch that exists, and so never changes the branch of a pull request that is
+open, whatever it observed, is by construction and not a theorem: its only write of a branch is
+`createBranch`, GitHub's request that creates a reference, and that GitHub refuses that request
+when the reference exists is trusted. `admits`,
 which the open step also
 checks, characterizes a new release exactly (`admits_iff`); an admitted release's tag is new
 (`admits_new`), and once the legacy release `v4.34.0` is listed, Lake's order of the versions
@@ -2041,7 +2052,9 @@ lifecycle names is in `versions`) and `introduced_startsLine` (the release that 
 has patch `0`, so it is not a patch release). What the steps observe (whether the release is
 published, the versions of the published releases, read from the tags of the releases GitHub
 lists that are not drafts, the head of `main`, the tag, the commits since the previous release,
-a pull request's title), GitHub's signature verification, that GitHub refuses to create a
+the pull requests open and their heads, observed just before the open step writes its branch and
+not again afterwards, a pull request's title), GitHub's signature verification, that GitHub
+refuses to create a
 reference that exists, that publishing a release
 creates its tag at the given commit, tags, immutable releases, pull requests, squash merges
 taking the pull request's title and description, workflow ordering, and that Lake and Reservoir

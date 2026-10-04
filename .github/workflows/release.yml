@@ -5,12 +5,13 @@ name: Release
 # release and from lean-toolchain; its bump input may raise that bump, never lower it. It creates
 # the branch of the release pull request, which lists the release with its toolchain, sets the
 # lakefile's version, adds it to the adoption guide's compatibility table and stamps it into the
-# rules; a maintainer opens that pull request from the link in the job summary. Every run
-# creates a new branch and moves none, so a run never changes a pull request that is open: after
-# a rebuild, open a fresh pull request from the new link and close the earlier one. Once the pull
-# request merges, ci.yml on main creates the release commit, runs main's checks on it and, once
-# they pass, publishes the release, which creates its tag. No workflow creates a pull request.
-# Every step is lean/Regula/Release.lean.
+# rules; a maintainer opens that pull request from the link in the job summary. While it observes
+# a release pull request for that version open, it refuses and creates no branch: close that pull
+# request first, run this workflow again and open a fresh one from the new link. Separately, a
+# run writes a branch only by creating a new one, so no run moves a branch that exists. Once the
+# pull request merges, ci.yml on main creates the release commit, runs main's checks on it and,
+# once they pass, publishes the release, which creates its tag. No workflow creates a pull
+# request. Every step is lean/Regula/Release.lean.
 on:
   workflow_dispatch:
     inputs:
@@ -39,12 +40,16 @@ jobs:
   # adoption guide's compatibility table and each .unreleased on a `lifecycle :=` line;
   # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, create the
   # branch release/v<version>-<commit>, named after that commit, and write the link that opens
-  # its pull request to the job summary. The job writes a branch only by creating it, with the
-  # request GitHub refuses when the name exists, and never moves one: main's rules count a push
-  # by this job to the branch of an open pull request as an unattributed change, and block its
-  # merge until a review approves it. A re-run builds on the same commit of main, and a new run
-  # on its current head; each creates its own branch. The derivation reads main's history since
-  # the previous release's tag, hence the full clone.
+  # its pull request to the job summary. main's rules count a push by this job to the branch of
+  # an open pull request as an unattributed change, and block its merge until a review approves
+  # it, so the job keeps two guarantees. For what it observed: just before it writes the branch,
+  # it lists the open pull requests, hence `pull-requests: read`, and while one is from a branch
+  # release/v<version>-... of this repository it writes the refusal to the job summary, writes no
+  # reference and fails (Regula.Release.branchAction). By construction, whatever it observed: it
+  # writes a branch only by creating it, with the request GitHub refuses when the name exists,
+  # and never moves one. While it observes no such pull request, a re-run builds on the same
+  # commit of main, and a new run on its current head; each creates its own branch. The
+  # derivation reads main's history since the previous release's tag, hence the full clone.
   open:
     needs: compiler
     if: github.ref == 'refs/heads/main'
@@ -52,6 +57,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
