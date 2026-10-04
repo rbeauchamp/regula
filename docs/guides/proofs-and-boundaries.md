@@ -1123,9 +1123,17 @@ instance_reducible]` and `attribute [local implicit_reducible]`, which need no
 `allowUnsafeReducibility`; a function of an imported module made `reducible` after the definition;
 an `instance_reducible` function made `reducible` after it; a definition that reaches seven
 definitions of its module, of which two change a decision; and one that passes seven parameters
-through seven functions made `reducible` afterwards; a definition by structural recursion over
-an inductive predicate; and a parameter passed through a `match` whose discriminant is made
-`reducible` afterwards, also beside one passed through a function made `reducible` afterwards). The
+through seven functions made `reducible` afterwards; a definition with an `Acc` argument, which
+Lean compiles by well-founded recursion; a parameter passed through a `match` whose discriminant is
+made `reducible` afterwards, also beside one passed through a function made `reducible` afterwards;
+under structural recursion, a parameter passed through a `match` whose discriminant goes through a
+function of another module made `reducible` afterwards, is an `abbrev` that is irreducible only
+where the definition is compiled, or is made `reducible` afterwards beside a parameter passed
+through a function that is `reducible` only where the definition is compiled; a `List.map` behind a
+function, over an argument whose type goes through two more, all three `reducible` only where the
+definition is compiled; and definitions by structural recursion over an inductive predicate that
+pass seven parameters through seven functions, made `reducible` afterwards or `reducible` only
+where the definition is compiled). The
 search this one replaces enumerated the definitions of the helper's
 module that the helper reaches and gave each the statuses a global attribute could have replaced.
 Under it the forms that the second fixture's comment names as such were observed rejections on
@@ -1145,23 +1153,40 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
 
 - Which definitions. `Collect.recordConsults` is installed as `Meta`'s unfolding predicate
   (`Meta.withCanUnfoldPred`) around Lean's own function and records each definition Lean asks about
-  at reducible, instance or implicit transparency, whatever module declares it, and for each
-  whether Lean's own answer (`Meta.canUnfoldDefault`) was, each time, that the definition
-  unfolds. Lean 4.34.0 decides such an unfolding from the status alone
+  at reducible, instance or implicit transparency, whatever module declares it, and for each what
+  the answers came to (`Collect.Consults`): whether the answer was, each time, that the definition
+  unfolds, and how often, at each of the three transparencies, it was that it does not. The answer
+  is Lean's own (`Meta.canUnfoldDefault`), except in the second recording of the preprocessing
+  below. Lean 4.34.0 decides such an unfolding from the status alone
   (`Meta/GetUnfoldableConst.lean:17-31`): `reducible` unfolds
   at all three, `instance_reducible` at instance and implicit, `implicit_reducible` at implicit, and
-  semireducible and irreducible at none. The checker holds no copy of that rule: it gives a
+  semireducible and irreducible at none. To decide what a status changes the checker does not
+  use that rule: it gives a
   definition each of the four statuses of `Collect.triedStatuses` (semireducible,
   `implicit_reducible`, `instance_reducible`, `reducible`, the one that unfolds least first), runs
   Lean's function under each, and keeps one status for each result. Irreducible is left out, since
-  it answers there as semireducible does.
+  it answers there as semireducible does. It restates the rule in one place,
+  `Collect.unfoldsBelowDefault`, for the two uses named below: the answers of the second recording
+  of the preprocessing, and the statuses that answer a question a change newly raises.
+- The discriminant of a `match`. Lean 4.34.0 puts the predicate aside while it reduces the
+  discriminant of a `match` below default transparency (`Meta.whnfMatcher`, through
+  `Meta.withCanUnfoldAtMatcherPred`, which sets the custom predicate to none) and reads the status
+  itself (`Meta.canUnfoldAtMatcher`), so a definition it asks about only there is not recorded
+  where the discriminant reduces. Each decision is therefore recorded a second time in
+  `Collect.withoutReducible`, the environment in which every `reducible`, `instance_reducible` and
+  `implicit_reducible` definition is semireducible: there no discriminant reduces for a status, the
+  `match` is stuck, and a run that goes on to unfold the matcher asks about the discriminant again
+  under the predicate. That run decides nothing; it only adds the definitions it asks about to
+  those the search gives another status.
 - The fixed parameters (`Collect.fixedParameterStatuses`). The group is given to
   `getFixedParamPerms` as each compiler gives it: after `Structural.preprocess` for the structural
   compiler, which replaces each theorem applied to a bare function of the group with the theorem's
   value (`Meta.unfoldIfArgIsAppOf`, `Meta/Transform.lean:266-288` of Lean 4.34.0), and after
   `WF.floatRecApp` for the well-founded one; the one the observed bases show, and both where their
   kind is not read. A first run answers that every definition asked about unfolds, so that every
-  comparison runs to its end and the definitions any comparison unfolds are recorded. Each is then
+  comparison runs to its end and the definitions any comparison unfolds are recorded; the second
+  recording does the same with no definition unfolding for its status, where the comparison
+  unfolds the matcher of a stuck `match` and asks about its discriminant. Each is then
   given each of the four statuses, and its own where that is irreducible, while the others are
   `reducible`, and is a candidate where another status than its own changes which parameters are
   fixed.
@@ -1171,27 +1196,50 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
   answers. Each definition recorded is given each of the four statuses but its own, alone, whether
   the helpers' values mention it or another definition unfolds to it (found in review: a function
   behind a `@[reducible]` one was left out, and its helper rejected, `FixturesWhereTree.hidden`). A
-  change that changes the preprocessed body is a candidate. Where a change leaves the body as it
-  was, it is followed (`Collect.effectiveChange?`): each definition the preprocessing then asks
-  about that it did not ask about before any change, that the change gives no status, and for which
-  Lean answered at least once that it does not unfold is made `reducible` too, and the
-  preprocessing is rerun, until a run changes the body or asks about no such definition. That
-  follows a function through the functions it unfolds to that do not unfold at the end of the
-  audit, however many (found in review: the search stopped after five runs, and left a helper Lean
-  generated undecided, `FixturesWhereTree.chained`). A change that still leaves the body as it was
-  is then paired (`Collect.pairedChanges`) with each definition the preprocessing did ask about
-  before any change and that its last run still asked about without the definition unfolding each
-  time: that definition is made `reducible` beside the change, one at a time, and the pair is
-  followed in the same way. A pair is a candidate, of the definition whose status was changed
-  first, where it gives a body that no change found before it gives; one whose body one of its two
-  changes gives alone says nothing about the other. This covers a function that another one
-  unfolds to and that the definition also calls directly, which the preprocessing asks about before
-  any change (found in review, `FixturesWhereTree.shared`).
+  change that changes the preprocessed body is a candidate. The second recording runs with the
+  answers of the inspected environment and with matchers unfolding (`Reading.discriminants`), and
+  adds the definitions Lean asks about only in a discriminant. Where a change leaves the body as it
+  was, it is followed (`Collect.followChange`): the definitions the preprocessing then asks about,
+  without their unfolding, more often than it does before any change (`Collect.newlyStuck`) are
+  given a status that answers the question, and each extended change is followed in the same way,
+  until a run changes the body or raises no such question. There are three kinds of extension.
+  The first path gives all of those definitions that no toolchain rule's left-hand side mentions
+  (`Collect.patternConstants`, the constants of the keys Lean indexes the rules under) the status
+  `reducible` at once. The second gives those same definitions, at once, the status that unfolds
+  least among those that unfold at the transparency asked (`Collect.unfoldingStatuses`), where
+  that is another assignment. The third gives all of them `reducible`, where a rule's left-hand
+  side mentions one. A rule matches through a function only where the
+  function unfolds, and with it unfolded Lean's matching goes on to the next function that does
+  not, which it asks about once more than before: following those questions reaches a rule that
+  needs several functions together, whether one unfolds to another
+  (`FixturesWhereTree.chained`, six functions; found in review, when the search stopped after five
+  runs and left that helper undecided) or the definition calls each directly
+  (`fixtures_where_typed_size`, three definitions the preprocessing asks about before any change,
+  two of them in a type). A constant a rule's left-hand side mentions has to stay as it is for
+  that rule to match: `List.map` itself is asked about once a function unfolds to it, and
+  unfolding it too keeps the rule from matching, so the first path leaves such a constant alone.
+  What a change is extended with depends on the change alone, not on the changes it was reached
+  through, so a change is run and extended once, whichever change reached it, and every change
+  that extends it is reached from it (found in the second review of this search: the questions
+  were once counted against the run of the change extended, so what a change was extended with
+  depended on the route, while a change was still run once). A change
+  that still leaves the body as it was
+  is then paired with each other definition its own run asked about without that definition
+  unfolding each time: that definition is given each status that answers the question beside the
+  change, one at a time, and the pair is
+  followed in the same way. A change found below the first is a candidate, of the definition whose
+  status was changed first; one found through a pair only where it gives a body that no change
+  found before it gives, since a pair whose body one of its two changes gives alone says nothing
+  about the other; and one that only adds statuses to another change with the same body is
+  dropped.
 - The assignment tried first. `Collect.observedFixedParameters?` reads which parameters each
   observed base keeps outside its recursion, from the shape Lean's compilers give it: the parameters
   passed to the `_unary` or `_mutual` definition a well-founded group is packed into, the ones bound
-  before the fixpoint where the base is that definition itself, or the ones passed to the functional
-  `_f` of a structural definition. Each candidate of the fixed parameters is given the status that
+  before the fixpoint where the base is that definition itself, the ones passed to the functional
+  `_f` of a structural definition, or, where the base applies `brecOn` itself, as Lean writes a
+  definition by structural recursion over an inductive predicate, the ones it does not pass to
+  `brecOn` after the inductive type's own parameters (`Collect.belowRecursionArguments?`). Each
+  candidate of the fixed parameters is given the status that
   unfolds least among those under which the analysis still fixes all of them.
   `Collect.survivingMentions` counts the mentions of a constant that compilation keeps (outside
   proofs, types, and the relation and measure of a fixpoint). Where the preprocessed body keeps
@@ -1220,10 +1268,14 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
   irreducible at the end of the audit is kept irreducible in the environment with no definition
   irreducible. `Collect.candidates` enumerates them under the same limit, and each assignment is
   tried in both environments. The options, the limit and the order are those of the replaced
-  search, so each assignment it tried is tried. This is what reaches a definition Lean asks about
-  only while it reduces the discriminant of a `match`, where that discriminant reduces at the end
-  of the audit (found in review, `fixtures_where_later`; `fixtures_where_both` needs such a status
-  together with one the recorded questions find).
+  search, so each assignment it tried is tried. It once was what reached a definition Lean asks
+  about only while it reduces the discriminant of a `match` that reduces at the end of the audit
+  (found in review, `fixtures_where_later` and `fixtures_where_both`), which the second recording
+  now finds. What it still reaches that nothing records is a status Lean reads without asking its
+  predicate and outside a `match`: Lean 4.34.0 does so where it tests whether a type is a class
+  (`Meta.isClassQuickConst?`, through `getDefInfoTemp`) and where instance resolution meets a
+  `reducible` head it did not unfold in a term with a metavariable (`DiscrTree.getKeyArgs`), read
+  from its source.
 
 One helper's search therefore runs at most 2 + 2 × (1 + 63) + 2 × 63 = 256 regenerations, of at
 most three compiler runs each.
@@ -1275,59 +1327,71 @@ consulted. The rest is argued, with no theorem:
   need of those parameters and no other, wherever more unfolding never makes a comparison fail. For
   the preprocessing, a rule that matches through a function replaces the application it matches, so
   the number of mentions the base keeps tells whether it applied.
-- What that argument leaves out. Lean puts its unfolding predicate aside while it reduces the
-  discriminant of a `match` below default transparency (`Meta.whnfMatcher`, through
-  `Meta.withCanUnfoldAtMatcherPred`, which sets the custom predicate to none), so a definition it
-  asks about only there is not recorded. Where the discriminant does not reduce at the end of the
-  audit, the `match` is stuck; the fixed-parameter analysis, run with every definition unfolding,
-  goes on to unfold the matcher, and Lean asks about the discriminant again, which is recorded:
-  `fixtures_where_discriminant` and `fixtures_where_matched`, whose flag is `reducible` only where
-  the definition is compiled, are admitted, and were rejections under the replaced search
-  (observed). Where the discriminant reduces at the end of the audit, Lean reduces the `match` with
-  the predicate aside, does not unfold the matcher, and nothing is recorded for the discriminant.
-  Only the fallback then finds its status: where it is a definition of the helper's own module
-  that the helper reaches and that is not an `abbrev`, and the status it had is one a global
-  attribute can have replaced. `fixtures_where_later` and `fixtures_where_both`, whose flag is made
-  `reducible` afterwards, are admitted that way; under the recorded questions alone they were
-  rejections (observed). A helper whose
-  base needs another status of such a discriminant (of a definition of another module, of an
-  `abbrev`, or a status no global attribute replaces), or one of those statuses together with a
-  status that only the recorded questions find, since the fallback's assignments are not joined
-  with the others, is rejected; that is traced from Lean 4.34.0's source and was not run.
-  The candidates the enumeration has for the preprocessing are found from one definition at a time:
-  its change is extended only with the definitions the preprocessing newly asks about once the
-  change is made, those it did not ask about before any change, and then with one definition it did
-  ask about before, made `reducible`. So a rule that applies only where three or more definitions
-  the preprocessing asks about before any change have another status, or two of which the second
-  needs another status than `reducible`, is found only through the assignment the observed bases
-  select, where the mentions the bases keep tell those functions apart. `FixturesWhereTree.total`,
-  with two functions that do not unfold to one another, was a rejection before that assignment
-  changed the functions all at once (observed), when no pair was tried either.
-  `FixturesWhereTree.size`, with three such functions and one varying argument, rests on that
-  assignment alone. The constants whose mentions are counted leave out the group's own functions:
+- What was observed for the three forms that remained of
+  [#196](https://github.com/rbeauchamp/regula/issues/196), on Lean 4.34.0 before the second
+  recording, the following of newly raised questions and the fourth shape were added. A status
+  Lean asks about only in a discriminant that reduces at the end of the audit, and that the
+  fallback does not reach: `fixtures_where_elsewhere_match` (a function of another module),
+  `fixtures_where_sealed_match` (an `abbrev`) and `fixtures_where_mixed` (beside a status only the
+  recorded questions find, which the fallback's assignments were not joined with) were rejections,
+  under structural recursion; under well-founded recursion the preprocessing asks about such a
+  discriminant on its own, as a term it simplifies, and the last two shapes were admitted. A rule
+  that needs three definitions the preprocessing asks about before any change, where the mentions
+  the base keeps do not tell them apart: `fixtures_where_typed_size` was a rejection. A definition
+  by structural recursion over an inductive predicate: `fixtures_where_predicate`, whose seven
+  functions are made `reducible` afterwards, was admitted by the regeneration in the inspected
+  environment, and `fixtures_where_predicate_local`, whose seven functions are `reducible` only
+  where it is compiled, was an audit that stopped without a verdict, its 127 assignments being
+  more than the enumeration tries and no assignment being selected for a base of its shape. All
+  five are admitted now, and `Fixtures.Mutations.ReducibleWhereCompiledUnsafeRecForge` holds the
+  controls for the first two paths: a faithful copy of the helper is admitted, and one that calls
+  another function at its non-recursive leaf is a violation. `fixtures_where_accessible`, which
+  takes an `Acc` argument, is no definition of the third kind: its type is no proposition, and
+  Lean compiles it by well-founded recursion (observed).
+- What that argument leaves out. The second recording asks about a discriminant only where a run
+  goes on to unfold the stuck matcher: the fixed-parameter analysis does so with every definition
+  unfolding, and the preprocessing because the recording answers that a matcher unfolds, which
+  Lean's own run does not, so that run can differ from Lean's where a discriminant is stuck at the
+  end of the audit too. Its questions only add definitions to try. A status Lean reads without
+  the predicate and outside a `match` (the two places named at the fallback) is found only by the
+  fallback: a base that depends on such a status of a definition the fallback does not reach
+  would be rejected, which was traced from Lean 4.34.0's source and not observed.
+  The candidates the enumeration has for the preprocessing are found from one definition at a time
+  and followed through the questions a change newly raises. A rule that needs several definitions
+  of which none, unfolded, makes the preprocessing ask about another more often than it does
+  before any change, and
+  that no pair with a definition the run asked about reaches, is found only through the assignment
+  the observed bases select, where the mentions the bases keep tell those functions apart
+  (`FixturesWhereTree.size`, with three functions and one varying argument, is selected that
+  way). The count of questions is of the answers that a definition does not unfold, at each of
+  the three transparencies: a change that raises one such question about a definition and removes
+  another leaves the count as it was, and that definition is not followed. Neither was observed.
+  The constants whose mentions are counted leave out the group's own functions:
   Lean packs nothing for one function with one varying argument (`WF.packMutual`), so the
   preprocessed body keeps its calls to the function itself, which a base, calling itself through
   its fixpoint's argument, never mentions (found in review: with those calls counted no change was
-  selected for that definition, and it was a rejection, observed). A definition by
-  structural recursion over an inductive predicate has none of the
-  shapes `observedFixedParameters?` reads, so no assignment is selected for its fixed parameters and
-  it rests on the enumeration (`fixtures_where_accessible`, one candidate). Neither of these last
-  two limits was observed to reject a definition Lean accepts.
+  selected for that definition, and it was a rejection, observed).
 - Termination and cost. Each question is one run of Lean's own function with the heartbeat budget of
   one declaration, and the counts below are for one environment, of the two searched. The fixed
-  parameters take, for each input (one, or two where the kind of the bases is not read), one run
+  parameters take, for each input (one, or two where the kind of the bases is not read), two runs
   and then four for each definition recorded, five where that definition is irreducible there. The
-  preprocessing takes two runs, and then for each definition recorded three changes, four where it
-  is irreducible there. A change takes one run, and one more for each time it is extended with
-  newly asked definitions. A change that leaves the body as it was takes, beside that, one such
-  followed change for each definition it is paired with, so the runs grow with the square of the
-  number of definitions recorded. The change made for several functions at once is one more
-  change, followed and paired in the same way. `effectiveChange?` recurses on its count of runs,
-  which is the number of constants of the environment: each run after the first gives at least one
-  more definition of the environment a status, and none twice, so no change uses them up; it
-  reports a change that did all the same as undecided (`Collect.ChangeOutcome.exhausted`), not as
-  unchanged. `assignments?` stops as soon as more than 64 assignments exist, deciding list by
-  list, so it never builds more than 64 times one candidate's alternatives plus one.
+  preprocessing takes three runs, and then for each definition recorded three changes, four where
+  it is irreducible there. A change is followed along its first path to that path's end: each run
+  on it gives at least one more definition of the environment a status, so there are fewer of them
+  than the environment has constants. Beside that path it is followed through at most 64 runs
+  (`Collect.followLimit`). A change that leaves the body as it was takes, beside that, one such
+  followed change for each definition it is paired with and each status that answers, so the runs
+  grow with the square of the number of definitions recorded. The change made for several
+  functions at once is one more change, followed and paired in the same way. `followChange`
+  recurses on a depth one above the number of constants, counts the runs beside the first path in
+  its state, and records a change it would have run with none left (`Collect.Followed.unrun`),
+  which the search reports as undecided, not as
+  unchanged; a change so recorded that a later change reaches with runs left is run then, and no
+  longer counts. No fixture reaches that bound: that it ends in an incomplete audit is read from
+  `followChange`, `preprocessingStatuses` and `unsafeRecRegeneration`, which throws before it can
+  answer that the helper is not regenerated, not observed. `assignments?` stops as soon as more
+  than 64 assignments exist, deciding list by list, so it never builds more than 64 times one
+  candidate's alternatives plus one.
   `earlierStatusOptions` takes one step for each constant of the environment at most, and each
   step visits a constant of the helper's module that no earlier step visited, so the visit ends;
   it answers that it did not, and the helper is undecided, if constants were still pending. The 256

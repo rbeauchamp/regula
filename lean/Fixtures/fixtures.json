@@ -456,7 +456,25 @@
    "[OK] fixtures_where_matched._unsafe_rec",
    "[OK] fixtures_where_later._unsafe_rec",
    "[OK] fixtures_where_both._unsafe_rec",
-   "[OK] fixtures_where_accessible._unsafe_rec"
+   "[OK] fixtures_where_accessible._unsafe_rec",
+   "[OK] fixtures_where_elsewhere_match._unsafe_rec",
+   "[OK] fixtures_where_sealed_match._unsafe_rec",
+   "[OK] fixtures_where_mixed._unsafe_rec",
+   "[OK] fixtures_where_typed_size._unsafe_rec",
+   "[OK] fixtures_where_predicate._unsafe_rec",
+   "[OK] fixtures_where_predicate_local._unsafe_rec"
+  ]
+ },
+ "Fixtures.Mutations.ReducibleWhereCompiledUnsafeRecForge": {
+  "expect": "fail",
+  "reason": "escape-hatch",
+  "output": [
+   "[OK] fixtures_forged_match_honest._unsafe_rec",
+   "[OK] fixtures_forged_match_faithful._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_match_divergent._unsafe_rec",
+   "[OK] fixtures_forged_typed_honest._unsafe_rec",
+   "[OK] fixtures_forged_typed_faithful._unsafe_rec",
+   "[VIOLATION[escape-hatch]] fixtures_forged_typed_divergent._unsafe_rec"
   ]
  },
  "Fixtures.Mutations.ReducibleAfterUnsafeRecForge": {
