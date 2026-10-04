@@ -923,7 +923,7 @@ private def localPackages (project dir : FilePath) (ws : _root_.Lake.Workspace) 
 
 /-- Every library module of each package the Verso package requires by local path other than the
 accepted project (`localPackages`), with its source file: for this repository, the modules of the
-Mathlib-dependent package, whose `Audit` library the standard's examples import. The
+`audit/` package, whose `Audit` library the standard's examples import. The
 documentation audit owns them alongside the project's claimed modules when examples elaborate in
 the Verso package's workspace, so an example's owned logical dependencies stay closed under
 import and pass kernel admission with it. -/
@@ -945,7 +945,7 @@ rendered, in path order: its Lake configuration and lock files and, discovered t
 modules reachable by import from the library's modules, from the root of each executable the
 library `needs` and from the root of the render executable. Modules are followed in the Verso
 package itself and in each package it requires by local path other than the accepted project
-`project` (`localPackages`); for this repository that is the Mathlib-dependent package whose
+`project` (`localPackages`); for this repository that is the `audit/` package whose
 `Audit` library the standard's examples import, whose configuration and lock files, and surface
 manifest, are captured too. A target of a Git dependency is pinned and is not read, nor are the
 packages' other targets (the site's generated pages). Each path is anchored at the Verso

@@ -21,18 +21,22 @@ imports no Mathlib. Its libraries (`lakefile.lean`, `foundation_manifest.json`):
 | `Regula` | The operational checker: Lake loading, probes, workers, transport, CLI and project setup, linter hooks, qualification drivers, the site builder and the release steps. | Excluded; self-audited ([contributing](contributing.md#repository-conformance)) |
 | `Fixtures` | Isolated positive controls and intended-failure mutations. | Excluded; never imported by a claimed surface |
 
-The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds everything that
-imports Mathlib (the `Audit` library of the standard's examples) and requires the root package by
-relative path, as a Mathlib adopter does. The Verso package in [`website/`](../../website/)
+The `regula_audit` package in [`audit/`](../../audit/lakefile.lean) holds the `Audit` library of
+the standard's examples, which imports only Lean's core libraries, and requires the root package by
+relative path, as an adopter does. The Verso package in [`website/`](../../website/)
 renders the standard and the rule reference; it requires both packages only so the standard's
-examples can import their modules, each in its own helper process.
+examples can import their modules, each in its own helper process. None of the three requires
+Mathlib. The `regula_mathlib` package in
+[`integration/mathlib/`](../../integration/mathlib/lakefile.lean) holds everything that imports
+Mathlib: a Mathlib adopter of the root package that the separate
+[Mathlib integration check](contributing.md#mathlib-integration-check) accepts and lints.
 
 Executables: `axiomGate` (declaration, execution and documentation audits), `lint` (the
 `lake lint` driver), `regula` (project setup and offline guidance), `docFenceAudit`,
 `freshChecker` (optional serialized-graph check), `checkerSelftest`, `qualify`, `ruleExamples`
 and `ruleExampleQualification` (qualification), `toolchain` (unqualified candidates for other
 compilers, [development toolchains](toolchains.md)), `dependencyScope` (the discovered Mathlib
-import closure used by source provisioning), `site` (the rule reference) and `auditApp`.
+import closure of the integration package, used by its source provisioning), `site` (the rule reference) and `auditApp`.
 
 ## The rule registry
 

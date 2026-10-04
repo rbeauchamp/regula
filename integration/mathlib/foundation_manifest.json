@@ -1,0 +1,12 @@
+{
+  "schema-version": 2,
+  "surfaces": [
+    {
+      "library": "MathlibAudit",
+      "claim": "standard-logical",
+      "rationale": "The Mathlib integration surface: Mathlib-dependent declarations, including Real-based claims, the Mathlib-based refinement of the AuditApp limiter (MathlibAudit.Refinement) and statements about Mathlib's Nat.Perfect, checked with Mathlib's standard linter set. Every declaration is still labeled from its own exact axiom set under standard §4.5."
+    }
+  ],
+  "excluded-libraries": [],
+  "excluded-executables": []
+}

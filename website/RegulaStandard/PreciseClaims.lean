@@ -86,11 +86,9 @@ The non-vacuity requirement is proportional to the intended claim:
 * A deliberately conditional theorem `H → C` claims an implication; it does not claim that `H` holds. A contradiction argument or minimal-counterexample lemma may likewise reason from hypotheses without asserting their satisfiability. Such statements are not rejected merely because no inhabitant of a hypothesis is known. An unconditional existence, admitted-state, or reachability claim still requires its witness or proof. An open question may be stated as a `Prop`-valued definition that nothing claims to prove ({ref "310-research-statements-adequacy-conditional-completeness-and-open-targets"}[module 3 §3.10]).
 
 ```lean
-import Mathlib.Data.Nat.Notation
-
 /-- This witness establishes that the refined type is inhabited.
 It does not establish reachability or a program-behavior property. -/
-example : Nonempty {n : ℕ // n % 2 = 0} := ⟨⟨4, by omega⟩⟩
+example : Nonempty {n : Nat // n % 2 = 0} := ⟨⟨4, by omega⟩⟩
 ```
 
 # Agents First

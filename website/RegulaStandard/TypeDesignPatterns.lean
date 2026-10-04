@@ -40,7 +40,6 @@ number := false
 *Example - Entity Roles*:
 
 ```lean
-import Mathlib.Data.List.Basic
 import Audit.DocPrelude
 open Glossary
 
@@ -74,7 +73,7 @@ def EntityRole.canReview : EntityRole → Bool
 structure Entity where
   /-- The entity's tagged identifier. -/
   id : Glossary.Id Glossary.EntityTag
-  /-- The assigned roles; use `Finset EntityRole` (from `Mathlib.Data.Finset.Basic`,
+  /-- The assigned roles; use a set type (Std's `Std.HashSet`, or Mathlib's `Finset`
   with its richer API) once duplicates matter. -/
   roles : List EntityRole
 
@@ -110,7 +109,7 @@ number := false
 
 *Pattern*: Use dependent types, including `Subtype` (written `{x : T // P x}`), to bundle values with proofs. A subtype adds the predicate `P` to the underlying type `T`. Every value supplies evidence of that predicate, and the interface should state when later use depends on that evidence.
 
-*Rationale*: Every value of `{p : ℝ // 0 ≤ p ∧ p ≤ 1}` supplies a real number and a proof of its bounds. Further properties may follow from those bounds, but reachability through a particular process or consistency with other quantities requires evidence of the corresponding relation. Documentation explains the predicate’s intended meaning and limits; it does not replace the proof ({ref "the-necessary-dual-non-vacuity"}[module 0: non-vacuity]).
+*Rationale*: Every value of `{p : Rat // 0 ≤ p ∧ p ≤ 1}` supplies a rational number and a proof of its bounds. Further properties may follow from those bounds, but reachability through a particular process or consistency with other quantities requires evidence of the corresponding relation. Documentation explains the predicate’s intended meaning and limits; it does not replace the proof ({ref "the-necessary-dual-non-vacuity"}[module 0: non-vacuity]).
 
 *Implementation Strategy*:
 
@@ -123,24 +122,22 @@ number := false
 *Example - Core Refinement Patterns* (shared `Time` type: `import Audit.DocPrelude`, defined in {ref "41-numeric-representations-mathematical-and-machine-arithmetic"}[module 4 §4.1]):
 
 ```lean
-import Mathlib.Topology.UnitInterval
-import Mathlib.Tactic.Linarith          -- `linarith` in `TimeInterval.duration`
 import Audit.DocPrelude
 open Glossary
 
-/-- A probability reuses Mathlib's canonical closed unit interval. -/
-abbrev Probability : Type := unitInterval
+/-- A rational probability reuses Lean's canonical `Subtype`: a rational in `[0, 1]`. -/
+abbrev Probability : Type := {p : Rat // 0 ≤ p ∧ p ≤ 1}
 
 /-- Smart constructor for probabilities. -/
-def mkProbability (p : ℝ) (h : 0 ≤ p ∧ p ≤ 1) : Probability := ⟨p, h⟩
+def mkProbability (p : Rat) (h : 0 ≤ p ∧ p ≤ 1) : Probability := ⟨p, h⟩
 
 /-- Non-vacuity: at least one probability exists. This proves inhabitance,
 nothing stronger. -/
-example : Nonempty Probability := ⟨mkProbability 0 ⟨le_rfl, zero_le_one⟩⟩
+example : Nonempty Probability := ⟨mkProbability 0 (by decide +kernel)⟩
 
-/-- Mathlib's interval symmetry proves complement closure once. -/
+/-- Complement closure is proved once, from the bounds the argument carries. -/
 def Probability.complement (p : Probability) : Probability :=
-  unitInterval.symm p
+  ⟨1 - p.val, by have := p.property; grind⟩
 
 /-- Valid identifier: non-empty, alphanumeric with underscores. -/
 def ValidIdentifier := {s : String // 0 < s.length ∧ s.all (fun c ↦ c.isAlphanum || c = '_')}
@@ -155,23 +152,25 @@ structure TimeInterval where
   valid : start ≤ finish
 
 /-- Duration of an interval is provably non-negative. -/
-def TimeInterval.duration (ti : TimeInterval) : {d : ℝ // 0 ≤ d} :=
+def TimeInterval.duration (ti : TimeInterval) : {d : Rat // 0 ≤ d} :=
   ⟨ti.finish.val - ti.start.val, by
-    have hv : (ti.start.val : ℝ) ≤ ti.finish.val := NNReal.coe_le_coe.mpr ti.valid
-    linarith⟩
+    have hv : ti.start.val ≤ ti.finish.val := ti.valid
+    grind⟩
 
 /-- Bounded collections with size guarantees. -/
-def BoundedList (α : Type) (n : ℕ) := {l : List α // l.length ≤ n}
+def BoundedList (α : Type) (n : Nat) := {l : List α // l.length ≤ n}
 
 /-- Adding requires proof we won't exceed bound. -/
-def BoundedList.cons {α : Type} {n : ℕ} (x : α) (bl : BoundedList α n)
+def BoundedList.cons {α : Type} {n : Nat} (x : α) (bl : BoundedList α n)
     (h : bl.val.length < n) : BoundedList α n :=
   ⟨x :: bl.val, by
     simp only [List.length_cons]
     exact Nat.succ_le_of_lt h⟩
 ```
 
-The shared glossary deliberately makes `Time` nominal while `ResourceAmount` reuses `NNReal`. Although both expose non-negative-real values, direct cross-use is rejected:
+The rational `Probability` above is exact rational arithmetic, not a real interval: a real-valued probability reuses Mathlib's `unitInterval`, whose symmetry supplies the complement, and is checked as `MathlibModels.Probability` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package].
+
+The shared glossary deliberately makes `Time` nominal while `ResourceAmount` reuses the canonical subtype of non-negative rationals. Although both expose non-negative rational values, direct cross-use is rejected:
 
 ```lean (fails := "Type mismatch|is expected to have type")
 import Audit.DocPrelude
@@ -203,8 +202,6 @@ number := false
 *Example - Type-Safe Identifiers*:
 
 ```lean
-import Mathlib.Basic.Real.Basic
-
 namespace PhantomIds
 /-- An identifier tagged with the phantom type `entity`, which it does not store. -/
 structure TaggedId (entity : Type) where
@@ -244,10 +241,10 @@ example (getUser : UserId → Option User) (submitProposal : UserId → Proposal
   let _ := submitProposal uid pid
   ()
 
-/-- A real quantity tagged with its phantom unit of measure. -/
+/-- A rational quantity tagged with its phantom unit of measure. -/
 structure Quantity (unit : Type) where
   /-- The magnitude, in the tagged unit. -/
-  value : ℝ
+  value : Rat
 
 /-- Phantom unit tag: metres. -/
 inductive Meters
@@ -263,28 +260,26 @@ def Duration := Quantity Seconds
 /-- A velocity in metres per second. -/
 def Velocity := Quantity MetersPerSecond
 
-/-- The velocity `d / t`. `noncomputable` because ℝ division is a
-noncomputable field operation — the lesson here is the *type* safety,
-not executable arithmetic. -/
-noncomputable def velocity (d : Distance) (t : Duration) : Velocity :=
+/-- The velocity `d / t`, in exact rational arithmetic. The lesson here is the
+*type* safety of the tagged arguments; rational division is total, so a zero
+duration yields velocity `0`. -/
+def velocity (d : Distance) (t : Duration) : Velocity :=
   ⟨d.value / t.value⟩
 
 -- velocity t d  -- Would be a type error (wrong argument order)
 ```
 
-*Boundary of enforcement*: Phantom tags make swapped types an elaboration error. `Quantity Seconds` and `Quantity Meters` are distinct types. Real division is total: `velocity` of a zero `Duration` produces a well-defined `Velocity` with value `0`. No type error or exception occurs. See {ref "321-totality-termination-and-totalized-operations"}[module 3 §3.2.1] for totalized operations and encoding a nonzero domain when required.
+*Boundary of enforcement*: Phantom tags make swapped types an elaboration error. `Quantity Seconds` and `Quantity Meters` are distinct types. Rational division is total: `velocity` of a zero `Duration` produces a well-defined `Velocity` with value `0`. No type error or exception occurs. See {ref "321-totality-termination-and-totalized-operations"}[module 3 §3.2.1] for totalized operations and encoding a nonzero domain when required.
 
 ```lean (fails := "Application type mismatch|is expected to have type")
-import Mathlib.Basic.Real.Basic
-
 /-- The unit tag for meters. -/
 inductive Meters
 /-- The unit tag for seconds. -/
 inductive Seconds
-/-- A real quantity tagged with its unit. -/
+/-- A rational quantity tagged with its unit. -/
 structure Qty (unit : Type) where
   /-- The quantity's magnitude. -/
-  value : ℝ
+  value : Rat
 
 /-- A distance in meters. -/
 abbrev Distance := Qty Meters
@@ -292,10 +287,10 @@ abbrev Distance := Qty Meters
 abbrev Duration := Qty Seconds
 
 /-- Argument order is enforced by the distinct tags. -/
-noncomputable def ratio (d : Distance) (t : Duration) : ℝ := d.value / t.value
+def ratio (d : Distance) (t : Duration) : Rat := d.value / t.value
 
 /-- Swapped arguments are a type error at elaboration. -/
-def bad : ℝ := ratio (⟨1.0⟩ : Duration) (⟨1.0⟩ : Distance)
+def bad : Rat := ratio (⟨1⟩ : Duration) (⟨1⟩ : Distance)
 ```
 
 # 2.4 Abstract Mathematical Models
@@ -319,17 +314,15 @@ number := false
 *Example - Abstract Content Storage*:
 
 ```lean
-import Mathlib.Data.Set.Basic
-
 /-- Abstract storage, parameterized over the content type. No representation
 chosen, no logical assumption introduced: `Content` is a bound parameter. -/
 structure ContentStore (Content : Type) where
-  /-- The set of stored content. -/
-  contents : Set Content
+  /-- Which content is stored: a membership predicate, not a data structure. -/
+  Stored : Content → Prop
   /-- Retrieval relation (mathematical, not algorithmic). -/
   Retrievable : Content → Prop
   /-- Consistency: can only retrieve what's stored. -/
-  mem_contents_of_retrievable : ∀ c, Retrievable c → c ∈ contents
+  stored_of_retrievable : ∀ c, Retrievable c → Stored c
 
 /-- A verification scheme specified by its relation and the law every
 instance must prove. No commitment to binary trees, hash functions, or
@@ -341,17 +334,15 @@ structure VerificationScheme (Content Id : Type) where
   eq_of_verifies : ∀ c₁ c₂ : Content, ∀ i : Id, Verifies c₁ i → Verifies c₂ i → c₁ = c₂
 ```
 
-The `mem_contents_of_retrievable` field proves that retrieved content belongs to `contents`; it does not require retrieving any content. The `eq_of_verifies` field proves content uniqueness for each verifying identifier; it does not require any identifier to verify anything. An always-false relation satisfies either condition. Existence, retrieval completeness, or a decision procedure requires separate evidence when claimed.
+The `stored_of_retrievable` field proves that retrieved content satisfies `Stored`; it does not require retrieving any content. The `eq_of_verifies` field proves content uniqueness for each verifying identifier; it does not require any identifier to verify anything. An always-false relation satisfies either condition. Existence, retrieval completeness, or a decision procedure requires separate evidence when claimed.
 
 *Example - A Checked Refinement Relation*:
 
 When the claim transfers from a model to a machine implementation, the transfer theorem carries the machine's exact semantics in its statement and its hypotheses:
 
 ```lean
-import Mathlib.Data.Nat.Basic
-
 /-- Model: exact natural-number addition. -/
-def modelAdd (a b : ℕ) : ℕ := a + b
+def modelAdd (a b : Nat) : Nat := a + b
 
 /-- Implementation: 32-bit machine addition, which wraps modulo 2^32. -/
 def implAdd (a b : UInt32) : UInt32 := a + b

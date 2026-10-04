@@ -44,29 +44,26 @@ Use these components as prompts, with detail proportionate to the claim. A short
 *Example - Documentation That Matches the Formal Claim*:
 
 ```lean
-import Mathlib.Topology.UnitInterval
-
-/-- A real value in `[0, 1]`, reusing Mathlib's closed unit interval.
+/-- A rational value in `[0, 1]`: Lean's canonical `Subtype` of core's exact rationals.
 This type represents a scalar probability, not a probability distribution. -/
-abbrev Probability : Type := unitInterval
+abbrev Probability : Type := {p : Rat // 0 ≤ p ∧ p ≤ 1}
 
 /-- Unit-interval complement: the underlying value is `1 - p.val`.
-Mathlib's `unitInterval.symm` constructs the result with its bound proof.
-This wrapper preserves the example's vocabulary for that operation. -/
+The bounds of the result follow from the bounds `p` carries. -/
 def Probability.complement (p : Probability) : Probability :=
-  unitInterval.symm p
+  ⟨1 - p.val, by have := p.property; grind⟩
 
-/-- For every probability, complement has underlying real value `1 - p.val`.
+/-- For every probability, complement has underlying rational value `1 - p.val`.
 
 # Intent
 Complementing a probability must yield the probability of the complementary event:
 its value is one minus the original value. -/
 theorem Probability.complement_val (p : Probability) :
     p.complement.val = 1 - p.val :=
-  unitInterval.coe_symm_eq p
+  rfl
 ```
 
-The result type supplies the bound. `Probability.complement_val` states the defining equation by reusing Mathlib's theorem. Neither the type alias nor the equation asserts a probability distribution or any property of an external random process.
+The result type supplies the bound. `Probability.complement_val` states the defining equation, which holds by definition. A real-valued probability reuses Mathlib's `unitInterval`, and its complement equation reuses Mathlib's `unitInterval.coe_symm_eq`; that form is checked as `MathlibModels.Probability.complement_val` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package]. Neither the type alias nor the equation asserts a probability distribution or any property of an external random process.
 
 # 5.2 Faithful Explanation of Formal Claims
 %%%
@@ -156,34 +153,32 @@ The kernel checks the elaborated proof term, not the explanation of its strategy
 
 *Example - Explaining an Induction Invariant*:
 
-The helper below states that union folding preserves membership in its initial accumulator. Generalizing the accumulator makes the induction hypothesis apply after each update. The second theorem uses that helper when an element comes from the head set and induction when it comes from the tail. The proof illustrates this decomposition. Here `Set α` represents sets by predicates. Union membership is logical disjunction, and the proof needs no equality decision procedure on the element type.
+The helper below states that append folding preserves membership in its initial accumulator. Generalizing the accumulator makes the induction hypothesis apply after each update. The second theorem uses that helper when an element comes from the head list and induction when it comes from the tail. The proof illustrates this decomposition. Membership in an append is logical disjunction (`List.mem_append`), and the proof needs no equality decision procedure on the element type.
 
 ```lean
-import Mathlib.Data.Set.Basic
-
-/-- Union folding preserves every member of the initial accumulator. -/
-theorem mem_foldl_union_of_mem {α : Type} {x : α} (l : List (Set α)) (acc : Set α)
-    (hx : x ∈ acc) : x ∈ l.foldl (· ∪ ·) acc := by
-  -- The next step uses acc ∪ hd, so induction must allow a new accumulator.
+/-- Append folding preserves every member of the initial accumulator. -/
+theorem mem_foldl_append_of_mem {α : Type} {x : α} (l : List (List α)) (acc : List α)
+    (hx : x ∈ acc) : x ∈ l.foldl (· ++ ·) acc := by
+  -- The next step uses acc ++ hd, so induction must allow a new accumulator.
   induction l generalizing acc with
   | nil => exact hx
   | cons hd tl ih =>
     rw [List.foldl_cons]
-    exact ih (acc ∪ hd) (Set.mem_union_left hd hx)
+    exact ih (acc ++ hd) (List.mem_append_left hd hx)
 
-/-- Every member of every input set belongs to the union-fold result,
+/-- Every member of every input list belongs to the append-fold result,
 for any initial accumulator. -/
-theorem mem_foldl_union_of_mem_of_mem {α : Type} {x : α} {s : Set α} {l : List (Set α)}
-    (init : Set α) (hs : s ∈ l) (hx : x ∈ s) : x ∈ l.foldl (· ∪ ·) init := by
+theorem mem_foldl_append_of_mem_of_mem {α : Type} {x : α} {s : List α} {l : List (List α)}
+    (init : List α) (hs : s ∈ l) (hx : x ∈ s) : x ∈ l.foldl (· ++ ·) init := by
   induction l generalizing init with
   | nil => simp at hs
   | cons hd tl ih =>
     rcases List.mem_cons.mp hs with rfl | h_tail
-    · exact mem_foldl_union_of_mem tl _ (Set.mem_union_right init hx)
-    · exact ih (init ∪ hd) h_tail
+    · exact mem_foldl_append_of_mem tl _ (List.mem_append_right init hx)
+    · exact ih (init ++ hd) h_tail
 ```
 
-The theorems establish membership preservation for arbitrary initial sets. Exact contents additionally requires the converse: every result member belongs to the initial accumulator or an input set. Establish that direction from the actual fold definition or a suitable checked theorem.
+The theorems establish membership preservation for arbitrary initial lists. Exact contents additionally requires the converse: every result member belongs to the initial accumulator or an input list. Establish that direction from the actual fold definition or a suitable checked theorem.
 
 *Example - Reusing a Library Result*:
 

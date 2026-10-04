@@ -16,26 +16,29 @@ prescribe a directory layout for other Lean projects. Read the current
 The root `lakefile.lean` sets the package source directory to `lean/`. Module
 names and imports remain independent of that physical prefix: for example,
 `lean/AuditApp/Limiter.lean` is still `AuditApp.Limiter`. That root `regula` package, the one
-adopters require, requires nothing beyond the Lean toolchain. Everything that imports Mathlib is
+adopters require, requires nothing beyond the Lean toolchain. The standard's example library is
 the `regula_audit` package in [`audit/`](../../audit/lakefile.lean) (`audit/Audit/Research.lean`
-is `Audit.Research`), which requires the root package by relative path and Mathlib, as a Mathlib
-adopter would, and names the root `.lake/packages` as its packages directory. Run Lake commands
+is `Audit.Research`), which requires the root package by relative path, as an adopter would, and
+nothing else. Everything that imports Mathlib is the `regula_mathlib` package in
+[`integration/mathlib/`](../../integration/mathlib/lakefile.lean), which only the
+[Mathlib integration check](#mathlib-integration-check) builds. Run Lake commands
 from the repository root, and the `audit/` package's in `audit/` (or with `lake -d audit`).
 Lake's elaborated library and executable inventory owns source discovery; directory names alone
 do not establish audit ownership.
 
 ## Develop and verify
 
-For a copy selecting a compiled snapshot, first follow [compiled source snapshots](#compiled-source-snapshots). For other copies, provision [elan](https://github.com/leanprover/elan), the pinned toolchain,
-the shared Mathlib (`./scripts/provision.sh`) and the website package's pinned Verso
+For a copy selecting a compiled snapshot, first follow [compiled source snapshots](#compiled-source-snapshots). For other copies, provision [elan](https://github.com/leanprover/elan), the pinned toolchain
+and the website package's pinned Verso
 (`lean --run lean/RegulaProvision.lean verso`). Every copy also needs GNU coreutils timeout and ShellCheck
 before verification. On macOS, `brew install coreutils shellcheck` supplies the
-last two tools. Verification runs offline against those pinned dependencies.
+last two tools. Verification runs offline against those pinned dependencies. None of the
+commands below downloads, caches, imports or builds Mathlib; the
+[Mathlib integration check](#mathlib-integration-check) is a separate command with its own setup.
 
 ```sh
-./scripts/provision.sh              # dependency setup, first in a fresh copy
 lake build                         # incremental development check (the regula package)
-lake -d audit build                # the Mathlib-dependent package
+lake -d audit build                # the standard's example library
 ./scripts/verify.sh                 # ordinary acceptance (project surfaces)
 ./scripts/verify.sh docs            # tracked Markdown rule IDs, audit/ package, documentation examples and the Verso standard, linked to that acceptance
 ./scripts/verify.sh diagnostics fixtures # focused diagnostic qualification
@@ -53,9 +56,9 @@ requires both packages), builds and renders the standard fresh, refuses such a r
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
-limit; a timeout is an incomplete run, not acceptance. Provisioning happens before
-that limit, under its own 30-minute limit. CI runs both commands, in that order in one job, after restoring or
-provisioning pinned dependency artifacts.
+limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before
+that limit, under its own 30-minute limit; without a snapshot selection it has nothing to acquire. CI runs both commands, in that order in one job, after restoring or
+provisioning the pinned Verso artifacts.
 
 The applicable command evidence is required but does not complete the standard's checklist:
 theorem, type and prose rows still require semantic review. A conformance record for this
@@ -67,22 +70,64 @@ evidence. A required check that was skipped leaves its affected row or optional 
 interaction, or full repository semantic conformance is implied by local acceptance or scoped
 integration results.
 
+### Mathlib integration check
+
+The `regula` package, the standard's examples and the site use no Mathlib, but Regula supports
+projects that do. The `regula_mathlib` package in
+[`integration/mathlib/`](../../integration/mathlib/lakefile.lean) is a Mathlib adopter of the
+checker, required by relative path exactly as a Mathlib project would, and its `MathlibAudit`
+library is the claimed surface on which that support is checked:
+
+| Mathlib-specific behaviour | Where it is exercised |
+| --- | --- |
+| A surface that imports Mathlib must enable Mathlib's standard linter set with the §6.7 exclusions ([RG2006]) | `mathlibLinters` in the package's `lakefile.lean`, on the `MathlibAudit` target |
+| Warning-free elaboration under that linter set ([RG2003]) | Every `MathlibAudit` module |
+| Exact foundation labels through Mathlib dependencies, including `Classical.choice` reached through `ℝ` | `MathlibAudit.DocPrelude`, `MathlibAudit.DocClaims`, `MathlibAudit.Models` |
+| Mathlib syntax, tactics and canonical structures in claimed declarations (`Type*`, `ring`, `norm_num`, `LinearOrder.lift'`, `unitInterval`, `IsOrderedAddMonoid`, `MetricSpace`) | `MathlibAudit.Refinement`, `MathlibAudit.Economy`, `MathlibAudit.DocClaims`, `MathlibAudit.Models` |
+| Material-claim registration and its docstring rules on a Mathlib surface ([RG5002], [RG5003]) | `MathlibAudit.Refinement` |
+| Statements about Mathlib's own definitions (`Nat.Perfect`, `Relation.ReflTransGen`, `Even`) | `MathlibAudit.Research`, `MathlibAudit.Refinement`, `MathlibAudit.Basic` |
+| `lake lint` through the `regula/lint` driver in a Mathlib project | The package's `lintDriver` |
+
+These modules are the Mathlib forms of lessons whose Lean/Std forms the standard displays; the
+standard links each one where it teaches the lesson. Run the check with its own setup:
+
+```sh
+lean --run lean/RegulaProvision.lean mathlib   # setup: the shared, read-only Mathlib (network on first use)
+./scripts/verify.sh mathlib                    # the check, under its own seven-minute limit
+```
+
+`./scripts/verify.sh mathlib` runs `lake exe axiomGate` in the package, the fresh acceptance of its
+claimed surface against its own `foundation_manifest.json`, and then `lake lint` there. It is never
+part of acceptance and no acceptance step, diagnostic or site build depends on it. In CI the
+`mathlib integration` job of [`ci.yml`](../../.github/workflows/ci.yml) runs it on every pull
+request and on `main`; it is the only job that restores or provisions Mathlib.
+
+Its result is about the Lean toolchain in `integration/mathlib/lean-toolchain` and the Mathlib
+revision pinned in `integration/mathlib/lake-manifest.json`, and about nothing else. Core checker
+support for a compiler is established by acceptance, the rule-example corpus and the site, which
+need no Mathlib, so a compiler can be supported while no Mathlib revision exists for it. For
+such a compiler the integration check has not run, and nothing Mathlib-specific is claimed: a
+check that did not run is `INCOMPLETE`, never a pass. A compiler snapshot holds no Mathlib, and
+a root toolchain other than the one this package pins has no Mathlib built for it: on such a
+commit the setup command refuses and the CI job skips its steps.
+
 ### Share one Mathlib across local copies
 
 Without a snapshot selection, every local copy uses one unpacked Mathlib per pinned revision, compiler and artifact mode instead of
-its own. The pin is the `mathlib` entry of `audit/lake-manifest.json`; the root package pins
-nothing. [`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean) unpacks Mathlib's
+its own. The pin is the `mathlib` entry of `integration/mathlib/lake-manifest.json`; the root,
+`audit/` and `website/` packages pin no Mathlib.
+[`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean), run with the `mathlib` argument, unpacks Mathlib's
 archive cache (`~/.cache/mathlib`) once into
 `~/.cache/mathlib-packages/<mathlib-rev>-lean-<toolchain-commit>/` (under
 `$XDG_CACHE_HOME` instead of `~/.cache` when that is set), compiles every
 module's native object there (executables that import Mathlib link them), makes it
-read-only, and links the copy's `.lake/packages/mathlib` to it. The rest of Mathlib's closure
+read-only, and links the copy's `integration/mathlib/.lake/packages/mathlib` to it. The rest of Mathlib's closure
 (Batteries, Aesop, ...) becomes writable copy-on-write clones, since executables compile
-native objects into them. The `audit/` and `website/` packages name that root `.lake/packages`
-as their packages directory; the example adopters under `examples/` require only `regula` and
-need no packages directory. Run `./scripts/provision.sh` in a fresh copy before the first `lake build`,
-which would otherwise clone and build a per-copy Mathlib; `./scripts/verify.sh` runs it
-before its deadline. The first run for a new pin needs the network; later copies reuse the
+native objects into them. The integration package keeps its own packages directory, so its pins
+are independent of the website's; the example adopters under `examples/` require only `regula` and
+need no packages directory. Run `lean --run lean/RegulaProvision.lean mathlib` in a copy before the first Lake command in
+`integration/mathlib/`, which would otherwise clone and build a per-copy Mathlib. `./scripts/provision.sh`,
+which `./scripts/verify.sh` runs before its deadline, acquires no Mathlib. The first run for a new pin needs the network; later copies reuse the
 sealed artifacts. The receipt `regula-provisioned.json` in the shared directory records its
 revisions, compiler and artifact mode. A clean per-copy Mathlib checkout is replaced by the link; one with local
 changes, stashes or commits that no remote-tracking branch holds is refused.
@@ -100,19 +145,20 @@ dangling link is relinked by its next provisioning, which recreates the director
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
 so copies wait while another copy creates a new pin.
 
-- Do not run Mathlib's `cache get` locally (`lake -d audit exe cache get`): it unpacks a full
+- Do not run Mathlib's `cache get` locally (`lake exe cache get` in `integration/mathlib/`): it unpacks a full
   Mathlib into the copy, and with the link in place it fails on the read-only directory. A Lake write into the shared
   Mathlib fails the same way, which is how an unintended rebuild shows up.
 - Write probes that need Mathlib as single files under `tmp/` and check them with
-  `lake -d audit env lean tmp/Probe.lean`; a separate Lake project there would fetch its own
+  `lake -d integration/mathlib env lean tmp/Probe.lean`; a separate Lake project there would fetch its own
   Mathlib. A probe that needs only the checker uses `lake env lean tmp/Probe.lean`.
 - Scratch directories live in `.lake/regula-scratch/`, each beside an ownership marker
   `<name>.owner`. Those of killed runs (for example at the seven-minute limit) are reclaimed
   by the next run that creates one while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
-- GitHub Actions runs the Mathlib plan defined in the same Lean program. Its upstream-cache
-  route only fetches Mathlib's published artifacts into the job's writable `.lake/packages`,
+- GitHub Actions runs the Mathlib plan defined in the same Lean program, in the Mathlib
+  integration job only. Its upstream-cache
+  route only fetches Mathlib's published artifacts into the job's writable `integration/mathlib/.lake/packages`,
   where later builds compile the native objects they link; only the read-only shared
   directory needs them built in advance. Source mode provisions the shared
   read-only store and caches it alongside the package links. Its cache keys include the exact
@@ -121,12 +167,11 @@ so copies wait while another copy creates a new pin.
 
 `dependency-build-mode` contains `upstream-cache` on the stable branch. Compiler adaptations
 may select `source`, which disables automatic Lake and Mathlib artifact downloads. The planner
-reads the Audit libraries and the standard's Verso library through Lake, and uses the existing
-documentation scanners and Lean header parser to collect their Mathlib imports and those of
-the Markdown examples. Lake builds a generated executable with interpreter support, so it
+reads the libraries of the Mathlib integration package through Lake and uses Lean's header
+parser to collect their Mathlib imports; no other package or document imports Mathlib. Lake builds a generated executable with interpreter support, so it
 builds exported native objects for the complete transitive import closure. The planner itself
-uses a separate workspace with independent configuration and build caches, leaving the root acceptance build cold; its Lake loads of the Audit and standard packages may write those packages' configuration caches. One exclusive lock, `.lake/regula-dependency-planner/planner.lock`, orders the planner runs of one copy: it is held from before that workspace is examined until the planner's result is decoded, and released before `regula-provision.lock` is taken (file locking is a trusted OS effect; it orders only runs of this program, not a child process that outlives a killed run). That workspace is written in a staging directory under `.lake/regula-dependency-planner/` and published complete as `v3-<key>` by one rename (a trusted filesystem effect, not a durability guarantee); an interrupted attempt stays in its staging directory, unused and never removed. A workspace that an earlier version of this program built without the lock is likewise neither used nor removed. This is dependency setup;
-the acceptance commands still check all their sources and documentation.
+uses a separate workspace with independent configuration and build caches, leaving the root acceptance build cold; its Lake load of the Mathlib integration package may write that package's configuration cache. One exclusive lock, `.lake/regula-dependency-planner/planner.lock`, orders the planner runs of one copy: it is held from before that workspace is examined until the planner's result is decoded, and released before `regula-provision.lock` is taken (file locking is a trusted OS effect; it orders only runs of this program, not a child process that outlives a killed run). That workspace is written in a staging directory under `.lake/regula-dependency-planner/` and published complete as `v3-<key>` by one rename (a trusted filesystem effect, not a durability guarantee); an interrupted attempt stays in its staging directory, unused and never removed. A workspace that an earlier version of this program built without the lock is likewise neither used nor removed. This is dependency setup;
+the Mathlib integration check still checks all its sources.
 Source artifacts have a separate key containing their policy version and an import-source
 hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
 another scope. Source admission also requires the current policy version, so a source store
@@ -153,7 +198,7 @@ An adaptation prepares a complete source-built compiler and dependency snapshot 
 
 After qualification, commit `.github/snapshot-compiler.json` with the same decoded compiler record to select restoration. A selected copy requires its qualified immutable native location; an absent native location, invalid reference or mismatched artifact receipt fails setup. Consumer selection and produced locations do not change the preparation identity. Choose a distinct alias for each new input set, including a replacement with the same compiler revision but changed dependencies or preparation. Setup preserves an existing alias linked to another compiler root and refuses that selection; use a fresh Elan store when moving from source validation to snapshot restoration.
 
-The [snapshot workflow](../../.github/workflows/snapshot.yml) prepares the chosen compiler and the complete pinned Mathlib and Verso dependency trees once per input set on Ubuntu 24.04 x86-64 and macOS 15 arm64. Preparation disables upstream compiled dependency downloads and builds the libraries, exported native objects and shared-library import closure. It publishes the compiler prefix, all dependency sources and Git identities, native and generated outputs, and an admission receipt as one OCI artifact in Regula's GHCR Packages. The compiler archive dereferences prefix symlinks, including Lean's link to its source checkout; package archives preserve symlinks. Compressed archives stream into bounded layers; packaging does not make another full payload copy. This publication does not create a GitHub release.
+The [snapshot workflow](../../.github/workflows/snapshot.yml) prepares the chosen compiler and the complete pinned Verso dependency tree, which is all that default verification requires, once per input set on Ubuntu 24.04 x86-64 and macOS 15 arm64. Preparation disables upstream compiled dependency downloads and builds the libraries, exported native objects and shared-library import closure. It publishes the compiler prefix, all dependency sources and Git identities, native and generated outputs, and an admission receipt as one OCI artifact in Regula's GHCR Packages. The compiler archive dereferences prefix symlinks, including Lean's link to its source checkout; package archives preserve symlinks. Compressed archives stream into bounded layers; packaging does not make another full payload copy. This publication does not create a GitHub release.
 
 Preparation requires a fresh compiler store and dependency directory and refuses an already installed selected alias. It observes the factory filesystem before compilation, requires at least 32 GiB initially free, and reports available space after the compiler, dependencies and packaging phases. This is a preparation resource guard, not a proof of peak usage or a capacity guarantee supplied by the runner label. The workflow uses standard public runners; it neither removes unrelated image contents nor selects paid larger runners.
 
@@ -198,7 +243,8 @@ The `environments` clean-checkout `freshChecker` control claims two import-free 
 written into a copy with no build directory. It establishes that `freshChecker` builds its
 claimed targets itself, checks each maximal root, and reports accepted coverage of exactly
 those modules. The control does not run `leanchecker --fresh` over this repository's claimed
-graph. That replay rechecks Init, Lean and Mathlib once per root, and took more than 360 s.
+graph. That replay rechecks Init and Lean once per root; with the earlier Mathlib examples in the
+claimed graph it took more than 360 s.
 It is the optional serialized-graph claim (§7.9), which ordinary acceptance does not include
 and this repository does not make. `./scripts/verify.sh serialized-graph` remains its
 command. Ordinary acceptance's isolated clean build still covers the real claimed surface.
@@ -257,14 +303,17 @@ not claimed as formally verified Lean implementations.
 
 This repository applies the standard to its own code and qualifies the checkers it publishes.
 Its claimed surfaces are classified by the root [`foundation_manifest.json`](../../foundation_manifest.json)
-and [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json). Ordinary acceptance
-audits both freshly, with every target built under the options of
+and [`audit/foundation_manifest.json`](../../audit/foundation_manifest.json); the Mathlib
+integration package has its own
+[`foundation_manifest.json`](../../integration/mathlib/foundation_manifest.json), which only the
+[Mathlib integration check](#mathlib-integration-check) audits. Acceptance
+audits the first two freshly, with every target built under the options of
 [Follow the Lean community's conventions](#follow-the-lean-communitys-conventions).
 
 - `Audit` uses an all-submodules glob, so Lake's elaborated inventory owns its module set. It is
-  the claimed surface of the Mathlib-dependent `audit/` package, which requires the checker by
-  relative path exactly as a Mathlib adopter does and is audited against its own surface
-  manifest, so the checker package requires no Mathlib. `audit/Audit/` is one positive surface
+  the claimed surface of the `audit/` package, which imports only Lean's core libraries, requires
+  the checker by relative path exactly as an adopter does and is audited against its own surface
+  manifest. `audit/Audit/` is one positive surface
   holding mathematical models, proofs and executable examples, not the checker, and contains no
   project axioms, holes, compiler-trusting proofs, authored partial or unsafe declarations,
   runtime replacements or external declarations; generated partial helpers for safe recursion are
@@ -343,8 +392,8 @@ Regula's own code follows the community conventions that
 [standard §6.7](https://rbeauchamp.github.io/regula/dev/standard/6-code-organization/#67-community-conventions-and-linters)
 requires of claimed code:
 
-- **Style and naming.** Regula's libraries build on Lean core (only the `audit/` package's
-  `Audit` imports Mathlib), so they follow Lean core's
+- **Style and naming.** Regula's libraries build on Lean core (only the Mathlib integration
+  package's `MathlibAudit` imports Mathlib), so they follow Lean core's
   [style guide](https://github.com/leanprover/lean4/blob/master/doc/std/style.md), for example
   `fun x =>` rather than Mathlib's preferred `fun x ↦`, and the shared case rules of the
   [naming conventions](https://github.com/leanprover/lean4/blob/master/doc/std/naming.md):
@@ -352,8 +401,8 @@ requires of claimed code:
   types in `UpperCamelCase`; other terms in `lowerCamelCase`.
 - **Options and linters.** Every library and executable builds with `autoImplicit` and
   `relaxedAutoImplicit` off and `linter.missingDocs` on (the package `leanOptions`; only the
-  `Fixtures` controls turn the linter off); `Audit` also enables Mathlib's standard linter set
-  with the §6.7 exclusions (`mathlibLinters` in `audit/lakefile.lean`). [RG2006] checks these options on the claimed targets. Declare universes and
+  `Fixtures` controls turn the linter off); `MathlibAudit` also enables Mathlib's standard linter set
+  with the §6.7 exclusions (`mathlibLinters` in `integration/mathlib/lakefile.lean`). [RG2006] checks these options on the claimed targets. Declare universes and
   implicit binders explicitly, and give every public declaration, constructor and field a
   docstring that states what it is or guarantees, no more than its definition and proofs
   establish (standard §5.1).
@@ -775,4 +824,5 @@ Git requires such as `rev = "v0.2.0"` name the tag directly and involve no versi
 [RG2005]: https://rbeauchamp.github.io/regula/dev/rules/RG2005/
 [RG2006]: https://rbeauchamp.github.io/regula/dev/rules/RG2006/
 [RG5001]: https://rbeauchamp.github.io/regula/dev/rules/RG5001/
+[RG5002]: https://rbeauchamp.github.io/regula/dev/rules/RG5002/
 [RG5003]: https://rbeauchamp.github.io/regula/dev/rules/RG5003/

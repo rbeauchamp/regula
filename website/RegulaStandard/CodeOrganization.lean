@@ -134,8 +134,6 @@ Distinguish three questions: whether a client can resolve a name, unfold a defin
 The examples below use files without the `module` header. In that setting, an ordinary declaration is public by default while `private` hides its source-level name from importing modules. The private declaration remains usable elsewhere in its defining file after its declaration, even outside the namespace block. Its body can still affect reduction via a public definition.
 
 ```lean
-import Mathlib.Data.Rat.Defs
-
 namespace Project.Core
 
 /-- A participant with a reputation, a stake, and an activity flag. -/

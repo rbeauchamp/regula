@@ -4,7 +4,7 @@
     {
       "library": "Audit",
       "claim": "standard-logical",
-      "rationale": "The standard's Mathlib-dependent examples, which its lean blocks import, including Real-based claims, and the Mathlib-based refinement of the AuditApp limiter (Audit.Refinement). Every declaration is still labeled from its own exact axiom set under standard §4.5."
+      "rationale": "The standard's example library, which its lean blocks import, including rational-valued claims whose core order lemmas use Classical.choice, and the refinement of the AuditApp limiter (Audit.Refinement). It imports only Lean's core libraries. Every declaration is still labeled from its own exact axiom set under standard §4.5."
     }
   ],
   "excluded-libraries": [],

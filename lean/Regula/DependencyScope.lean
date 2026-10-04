@@ -2,11 +2,11 @@ import Regula.Checker.Documentation
 
 /-! # Mathlib source dependency roots
 
-Setup reads the Audit and website libraries through Lake and the same Markdown/Verso fence
-scanners as documentation acceptance. Lean parses each header. The emitted module imports
-every observed Mathlib root; Lake builds its transitive exported native closure. This is a
-setup plan, not declaration or documentation acceptance. Lake, parsing and filesystem reads
-remain trusted; later acceptance still reads and checks its own complete inputs.
+Setup reads the libraries of the Mathlib integration package (`integration/mathlib/`) through
+Lake; no other package of this repository imports Mathlib. Lean parses each header. The emitted
+module imports every observed Mathlib root; Lake builds its transitive exported native closure.
+This is a setup plan for the Mathlib integration check, not declaration acceptance. Lake,
+parsing and filesystem reads remain trusted; the later check still reads its own complete inputs.
 -/
 
 namespace Regula.DependencyScope
@@ -69,25 +69,10 @@ private def librarySources (repo : FilePath) (library : Option Name := none)
         if let some dependency := ws.findModule? name then todo := dependency :: todo
     return (sources, imported)) (scrubSearchPath := true) (resolveDependencies := false)
 
-private def fenceImports (scan : Documentation.ScanResult) : IO (Array Name) := do
-  unless scan.problems.isEmpty do
-    throw <| IO.userError s!"dependency scope: {String.intercalate "; " scan.problems.toList}"
-  scan.fences.flatMapM fun fence => imports fence.body s!"{fence.document.uri}:{fence.line}"
-
-/-- Discover package and documentation import roots and emit a parser-checked module.
+/-- Discover the Mathlib integration package's import roots and emit a parser-checked module.
 All required Mathlib roots are kept once in a stable order; Lean validates their printed names. -/
 def source (repo : FilePath) : IO String := do
-  let mut roots := #[]
-  let verso ← IO.ofExcept (Documentation.parseVersoOption "website:RegulaStandard:regula-standard")
-  for (package, library, render) in #[(repo / "audit", none, none),
-      (repo / verso.dir, some verso.library, some verso.render)] do
-    let (documents, imported) ← librarySources package library render
-    roots := roots ++ imported
-    for document in documents do
-      if library.isSome then
-        roots := roots ++ (← fenceImports (Documentation.scanVerso document.source document.uri))
-  for document in ← Documentation.captureMarkdown (repo / "docs") do
-    roots := roots ++ (← fenceImports (Documentation.scan document.source document.uri))
+  let (_, roots) ← librarySources (repo / "integration" / "mathlib")
   let ordered := ((roots.filter ((`Mathlib).isPrefixOf ·)).toList.eraseDups.toArray).qsort
     (fun left right => left.toString < right.toString)
   if ordered.isEmpty then throw <| IO.userError "dependency scope: no Mathlib imports discovered"

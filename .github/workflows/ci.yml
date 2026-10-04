@@ -55,12 +55,40 @@ jobs:
         run: ./scripts/verify.sh
 
       # Second required step with its own 420 seconds: the rule-ID check of every Markdown document
-      # Git tracks (which needs the Git checkout), the fresh acceptance of the Mathlib package in
+      # Git tracks (which needs the Git checkout), the fresh acceptance of the example package in
       # audit/, then every docs/ Lean fence and every `lean` block of the Verso standard (built
       # fresh and rendered), admitted only when its inputs equal the accepted ordinary inputs at
       # this same commit.
       - name: Verify documentation fences (same command and seven-minute limit as local)
         run: ./scripts/verify.sh docs
+
+  # The Mathlib integration check (docs/guides/contributing.md#mathlib-integration-check): the
+  # fresh acceptance and lint of the Mathlib integration package in integration/mathlib/, a
+  # Mathlib adopter of the checker. It is the only job that downloads, caches or builds Mathlib,
+  # and no other job needs its result: acceptance, the corpus, the site and a release require no
+  # Mathlib. Its result is about the toolchain and Mathlib revision that package pins. A compiler
+  # snapshot holds no Mathlib, and a commit whose toolchain is not the one that package pins has
+  # no Mathlib built for it: on either the steps below are skipped and the check is not run.
+  mathlib:
+    needs: compiler
+    if: always()
+    name: mathlib integration
+    runs-on: ubuntu-24.04
+    # Provisioning has its own allowance; the verify.sh step enforces exactly 420 seconds.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/provision
+        if: hashFiles('.github/snapshot-compiler.json') == '' && hashFiles('lean-toolchain') == hashFiles('integration/mathlib/lean-toolchain')
+        with:
+          mathlib: 'true'
+
+      - name: Check the Mathlib integration package (seven-minute limit; not run for a snapshot or another toolchain)
+        if: hashFiles('.github/snapshot-compiler.json') == '' && hashFiles('lean-toolchain') == hashFiles('integration/mathlib/lean-toolchain')
+        run: ./scripts/verify.sh mathlib
 
   # The rule-example corpus: detector qualification (standard §7.8) and the only
   # source of the site's examples. Diagnostics, not a partition of acceptance.
@@ -202,7 +230,7 @@ jobs:
         timeout-minutes: 20
         run: lake build axiomGate ruleExampleQualification site AuditApp
 
-      - name: Build the Mathlib package's library the standard's examples import
+      - name: Build the example library the standard's examples import
         timeout-minutes: 20
         working-directory: audit
         run: lake build Audit
@@ -290,7 +318,7 @@ jobs:
         timeout-minutes: 20
         run: lake build axiomGate ruleExampleQualification site AuditApp
 
-      - name: Build the Mathlib package's library the standard's examples import
+      - name: Build the example library the standard's examples import
         timeout-minutes: 20
         working-directory: audit
         run: lake build Audit

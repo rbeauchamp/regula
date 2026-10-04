@@ -1,10 +1,15 @@
 import Lean.Data.Json
 
-/-! # Shared Mathlib provisioning
+/-! # Dependency provisioning
 
-Without a snapshot selection, dependency provisioning uses one shared, read-only Mathlib
-per pinned revision, exact compiler and artifact mode, reused by local copies. CI runs the
-build plan defined here.
+The root `regula` package, the `audit/` package of the standard's examples and the website
+package require no Mathlib, so default provisioning (`./scripts/provision.sh`, no argument)
+acquires none: without a snapshot selection it has nothing to do. Mathlib is provisioned only
+for the Mathlib integration package in `integration/mathlib/`, and only when asked with the
+`mathlib` argument, before `./scripts/verify.sh mathlib`.
+
+That explicit Mathlib provisioning uses one shared, read-only Mathlib per pinned revision,
+exact compiler and artifact mode, reused by local copies. CI runs the build plan defined here.
 
 Snapshot selections delegate acquisition to `RegulaSnapshot` instead of the sharing and
 build plans below; `docs/guides/contributing.md#compiled-source-snapshots` owns that procedure.
@@ -12,15 +17,15 @@ build plans below; `docs/guides/contributing.md#compiled-source-snapshots` owns 
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache
 (`~/.cache/mathlib`) but unpacks them into every copy's `.lake/packages`. This program
 unpacks them once into `~/.cache/mathlib-packages/<rev>-lean-<githash>/`, keyed by the
-exact Mathlib revision pinned in the lock manifest of the Mathlib-dependent package
-(`audit/lake-manifest.json`; the root `regula` package requires nothing) and the running
-toolchain's commit, builds the modules the upstream cache lacks and every module's exported
+exact Mathlib revision pinned in the lock manifest of the Mathlib integration package
+(`integration/mathlib/lake-manifest.json`; the root `regula` package requires nothing) and the
+running toolchain's commit, builds the modules the upstream cache lacks and every module's exported
 native object (so neither an import nor an executable link has to write there), makes that
 directory read-only, and points each copy at it:
 
-* `.lake/packages/mathlib` becomes a symbolic link to the shared, read-only checkout. The
-  Mathlib-dependent package in `audit/` and the Verso website package name the root
-  `.lake/packages` as their packages directory, and isolated copies link it.
+* `integration/mathlib/.lake/packages/mathlib` becomes a symbolic link to the shared, read-only
+  checkout. The integration package keeps its own packages directory, so no other package of
+  this repository sees Mathlib or shares a pinned revision with it.
 * The other packages of Mathlib's closure (Batteries, Aesop, ...) become writable
   copy-on-write clones of the shared checkouts, because executables that import them
   compile native objects into their build directories.
@@ -41,8 +46,9 @@ only by a source-mode receipt. GitHub Actions invokes the Mathlib and Verso plan
 here: its upstream-cache Mathlib command only fetches the published artifacts into the job's
 writable packages directory, and its source Mathlib command uses the shared directory.
 
-Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
-`scripts/verify.sh` runs it before its deadline. -/
+`scripts/verify.sh` runs `./scripts/provision.sh` before its deadline. Run
+`lean --run lean/RegulaProvision.lean mathlib` once in a copy before the first Lake command in
+`integration/mathlib/`; otherwise Lake clones and builds a per-copy Mathlib there. -/
 namespace RegulaProvision
 open System Lean
 
@@ -490,8 +496,9 @@ def readBuildMode (repo : FilePath) : IO BuildMode := do
     | throw <| IO.userError s!"provisioning: unknown dependency-build-mode '{text}'"
   return mode
 
-/-- Execute the Mathlib plan. `workspaceArgs` selects the Lake workspace, while the process
-directory stays at its package-cache root as required by Mathlib's cache tool. -/
+/-- Execute the Mathlib plan in `cwd`. Mathlib's cache tool unpacks its dependencies' archives
+into `.lake/packages` under the process directory, so `cwd` is the workspace whose packages
+directory that is; `workspaceArgs` selects another Lake workspace from there. -/
 private def buildMathlib (cwd : FilePath) (mode : BuildMode) (readOnly : Bool)
     (workspaceArgs : Array String := #[]) : IO Unit := do
   let env ← freshBuildEnvironment cwd mode
@@ -624,9 +631,9 @@ private def installClone (path source : FilePath) : IO Unit := do
 /-! ## The shared directory -/
 
 /-- The directory, relative to the repository root, of the package whose Lake manifest pins
-Mathlib: the Mathlib-dependent package, which requires the root `regula` package by relative
-path and names the root `.lake/packages` as its packages directory. -/
-def mathlibPackage : FilePath := "audit"
+Mathlib: the Mathlib integration package, which requires the root `regula` package by relative
+path and keeps its own packages directory. -/
+def mathlibPackage : FilePath := "integration/mathlib"
 
 /-- What the Mathlib package pins: the Git entries of its Lake manifest, each with the entry
 object exactly as the manifest records it. -/
@@ -1009,17 +1016,22 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
   unless cloned.isEmpty do
     say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
 
-/-- Refuse a process or Mathlib workspace using a different compiler from this program. -/
+/-- Refuse a process using a different compiler from this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do
   let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
   unless githash == Lean.githash do
     throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
       but this program runs on {Lean.githash}"
-  -- The shared directory is built with the root toolchain, so the Mathlib package must pin it.
+
+/-- Refuse a Mathlib integration package that pins another toolchain than the repository. The
+shared directory is built with the root toolchain, so that package must pin it; where it does
+not, its check is not qualified for this compiler and nothing is provisioned. -/
+def requireMathlibToolchain (repo : FilePath) : IO Unit := do
   unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
       (← IO.FS.readFile (repo / mathlibPackage / "lean-toolchain")) do
     throw <| IO.userError s!"provisioning: {mathlibPackage}/lean-toolchain differs from the \
-      repository's lean-toolchain"
+      repository's lean-toolchain; the Mathlib integration check is qualified only for the \
+      toolchain and Mathlib revision that package pins"
 
 /-- Provision this copy. -/
 def provision (repo : FilePath) : IO Unit := do
@@ -1028,6 +1040,7 @@ def provision (repo : FilePath) : IO Unit := do
     return
   let mode ← readBuildMode repo
   requireCompiler repo
+  requireMathlibToolchain repo
   let some (manifest, pins) ← readPins repo
     | say s!"{mathlibPackage}/lake-manifest.json pins no Mathlib; nothing to share"
   let source ← sourceModule repo mode
@@ -1056,9 +1069,11 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     stream repo "lean" #["--run", "lean/RegulaSnapshot.lean", "restore"]
     return
   requireCompiler repo
-  unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
-      (← IO.FS.readFile (repo / "website" / "lean-toolchain")) do
-    throw <| IO.userError "provisioning: website/lean-toolchain differs from the root"
+  -- The standard's examples import the `audit/` package's modules in the website's workspace.
+  for package in #["audit", "website"] do
+    unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
+        (← IO.FS.readFile (repo / package / "lean-toolchain")) do
+      throw <| IO.userError s!"provisioning: {package}/lean-toolchain differs from the root"
   let mode ← readBuildMode repo
   stream (repo / "website") "lake"
     (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
@@ -1094,8 +1109,11 @@ def execute (repo dir : FilePath) (command : String) (args : Array String) : IO 
 
 end RegulaProvision
 
-/-- Standalone entrypoint for local sharing, CI dependency setup, Verso and commands that
-must inherit the selected artifact mode. Every invocation starts at the repository root. -/
+/-- Standalone entrypoint for default setup, the explicit Mathlib provisioning of the Mathlib
+integration package, CI dependency setup, Verso and commands that must inherit the selected
+artifact mode. Every invocation starts at the repository root. Without an argument and
+without a snapshot selection there is nothing to acquire: no package that default verification
+builds requires Mathlib. -/
 def main (args : List String) : IO Unit := do
   let repo ← IO.FS.realPath (← IO.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
@@ -1104,22 +1122,30 @@ def main (args : List String) : IO Unit := do
   | [] =>
     if ← (repo / ".github/snapshot-compiler.json").pathExists then
       RegulaProvision.provision repo
+    else
+      IO.println s!"provisioning: nothing to provision; the root, audit/ and website/ packages \
+        require no Mathlib (`lean --run lean/RegulaProvision.lean verso` provisions the pinned \
+        Verso, and `lean --run lean/RegulaProvision.lean mathlib` the Mathlib of \
+        {RegulaProvision.mathlibPackage}, which only `./scripts/verify.sh mathlib` needs)"
+  | ["mathlib"] =>
+    if ← (repo / ".github/snapshot-compiler.json").pathExists then
+      throw <| IO.userError s!"provisioning: a compiler snapshot holds no Mathlib; the Mathlib \
+        integration check of {RegulaProvision.mathlibPackage} is qualified only for the released \
+        toolchain and Mathlib revision it pins, not for a snapshot compiler"
     else if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
-      IO.println "provisioning: local sharing skipped on GitHub Actions (CI uses the Mathlib plan)"
+      -- CI keeps a writable packages directory of its own: the upstream route only fetches the
+      -- published artifacts into it, and the source route uses the shared directory.
+      RegulaProvision.requireCompiler repo
+      RegulaProvision.requireMathlibToolchain repo
+      let mode ← RegulaProvision.readBuildMode repo
+      if mode == .source then RegulaProvision.provision repo
+      else RegulaProvision.buildMathlib (repo / RegulaProvision.mathlibPackage) mode false
     else if System.Platform.isWindows then
       if (← RegulaProvision.readBuildMode repo) == .source then
         throw <| IO.userError "provisioning: source dependency mode is not supported on Windows"
-      IO.println "provisioning: not supported on Windows; provision with `lake -d audit exe cache \
-        get`"
+      IO.println s!"provisioning: sharing is not supported on Windows; provision with \
+        `lake exe cache get` in {RegulaProvision.mathlibPackage}"
     else RegulaProvision.provision repo
-  | ["mathlib"] =>
-    if ← (repo / ".github/snapshot-compiler.json").pathExists then
-      RegulaProvision.provision repo
-    else
-      RegulaProvision.requireCompiler repo
-      let mode ← RegulaProvision.readBuildMode repo
-      if mode == .source then RegulaProvision.provision repo
-      else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
   | ["verso"] => RegulaProvision.provisionVerso repo
   | ["identity"] => RegulaProvision.ciIdentity repo
   | "exec" :: dir :: command :: rest =>

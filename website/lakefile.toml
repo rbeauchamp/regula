@@ -1,8 +1,7 @@
 name = "regula_website"
 defaultTargets = ["regula-site"]
-# Share the root `.lake/packages`, where the Mathlib package in `../audit` keeps its dependency
-# checkouts (Mathlib and its artifacts), instead of a second copy; the shared entries of both
-# lock manifests must be equal.
+# Keep the dependency checkouts (Verso and its dependencies) in the root `.lake/packages`.
+# No package required here depends on Mathlib.
 packagesDir = "../.lake/packages"
 
 # Pinned Verso; the exact transitive revisions are locked in lake-manifest.json.
@@ -16,7 +15,8 @@ rev = "cad4b633e75ea769b851f12f9ca3b4f0dfcc625f"
 name = "regula"
 path = ".."
 
-# The Mathlib-dependent package: the standard's examples import its `Audit` modules and Mathlib.
+# The package of the standard's example library: the examples import its `Audit` modules, which
+# import only Lean's core libraries.
 [[require]]
 name = "regula_audit"
 path = "../audit"

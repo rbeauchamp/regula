@@ -134,7 +134,8 @@ violating project pass, privately instead, as the [security policy](SECURITY.md)
 | --- | --- |
 | [docs/](docs/README.md) | The guides, and where the standard's source lives. |
 | [lean/](lean/README.md) | The `regula` package adopters require, with no dependency beyond the Lean toolchain: the linter, its rule registry and proofs, and checked examples. |
-| [audit/](audit/lakefile.lean) | The Mathlib-dependent package: the standard's Mathlib examples (`Audit`), which requires `regula` by relative path as a Mathlib adopter does. |
+| [audit/](audit/lakefile.lean) | The package of the standard's example library (`Audit`), which imports only Lean's core libraries and requires `regula` by relative path as an adopter does. |
+| [integration/mathlib/](integration/mathlib/lakefile.lean) | The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of `regula` that checks the Mathlib-specific behaviour Regula supports. Only `./scripts/verify.sh mathlib` and its CI job use it. |
 | [examples/](examples/README.md) | Adopting projects and the rule-example sources. |
 | [website/](docs/guides/website.md) | The standard's Verso source and the rule-reference site builder. |
 
@@ -143,9 +144,9 @@ violating project pass, privately instead, as the [security policy](SECURITY.md)
 | Component | Authoritative pin |
 | --- | --- |
 | Lean | [lean-toolchain](lean-toolchain) |
-| Mathlib (the `audit/` package and the website only) | The `mathlib` entry in [audit/lake-manifest.json](audit/lake-manifest.json) |
+| Mathlib (the separate Mathlib integration check only) | The `mathlib` entry in [integration/mathlib/lake-manifest.json](integration/mathlib/lake-manifest.json) |
 
-Each release supports only the Lean toolchain pinned in its `lean-toolchain`; the [compatibility table](docs/guides/adoption.md#1-require-regula) lists each release's toolchain, and a move to another toolchain is a minor release. The `regula` package requires no other package and imports no Mathlib modules, so requiring it adds no Mathlib to your project; Mathlib is used only by the standard's mathematical examples in the separate `audit/` package. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
+Each release supports only the Lean toolchain pinned in its `lean-toolchain`; the [compatibility table](docs/guides/adoption.md#1-require-regula) lists each release's toolchain, and a move to another toolchain is a minor release. The `regula` package requires no other package and imports no Mathlib modules, so requiring it adds no Mathlib to your project. The repository's own build, both acceptance steps, the standard's examples and the site use no Mathlib either; Mathlib is used only by the separate [Mathlib integration check](docs/guides/contributing.md#mathlib-integration-check), whose result is about the Mathlib revision it pins. See the [adoption guide](docs/guides/adoption.md) for dependency resolution and the [contributor guide](docs/guides/contributing.md#develop-and-verify) for build commands.
 
 ## License
 

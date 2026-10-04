@@ -149,12 +149,13 @@ inductive BuildStep where
   /-- Build the requested facets in one pinned Lake workspace. -/
   | dependencies (directory : String) (targets : Array String)
 
-/-- Only explicit preparation schedules compiler and dependency compilation. -/
+/-- Only explicit preparation schedules compiler and dependency compilation. The dependencies
+are those of default verification: the website package's pinned Verso. Mathlib is no part of a
+snapshot, because only the separate Mathlib integration check (`integration/mathlib/`) uses
+it, and that check is qualified for the released toolchain and Mathlib revision it pins. -/
 def buildPlan : Acquisition → Array BuildStep
   | .prepare => #[
       .compiler,
-      .dependencies "audit"
-        #["mathlib/Mathlib", "mathlib/Mathlib:static.export", "mathlib/Mathlib:shared"],
       .dependencies "website" #["verso/VersoManual", "verso/VersoManual:static.export",
         "verso/VersoManual:shared"]]
   | .restore => #[]

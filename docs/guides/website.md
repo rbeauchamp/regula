@@ -127,21 +127,21 @@ detector qualification, not a proof that the detectors are correct for all input
 
 ## Build and preview locally
 
-After provisioning the shared Mathlib and the pinned Verso package once:
+After provisioning the pinned Verso package once:
 
 ```sh
-./scripts/provision.sh                                # root setup (shared, read-only Mathlib)
 lean --run lean/RegulaProvision.lean verso          # Verso setup
 ./scripts/verify.sh diagnostics rule-examples 1/2    # corpus shard 1
 ./scripts/verify.sh diagnostics rule-examples 2/2    # corpus shard 2
 ./scripts/verify.sh site                             # build and check _site/
 ```
 
-The website package requires the root `regula` package and the Mathlib-dependent `audit/`
-package by relative path, because the standard's examples import modules of both and Mathlib.
-Like `audit/`, it names the root `.lake/packages` as its packages directory (`packagesDir`), so
-one Mathlib checkout and its artifacts serve every workspace; its Git pins must equal those of
-the packages it requires by path (the documentation check refuses a difference). The website
+The website package requires the root `regula` package and the `audit/` package by relative
+path, because the standard's examples import modules of both. Neither requires Mathlib, and no
+example imports it, so building the standard and the site needs only the pinned Verso. The
+website names the root `.lake/packages` as its packages directory (`packagesDir`); its Git pins
+must equal those of the packages it requires by path (the documentation check refuses a
+difference). The website
 package and the checker and examples use the same supported Lean release. Verso setup is
 also required before `./scripts/verify.sh docs`, which builds the standard and reads the tracked
 Markdown documents with the md4c that Verso brings.

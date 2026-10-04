@@ -17,7 +17,7 @@
       "library": "RegulaProvision",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Toolchain-only local provisioning of one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, and a shared directory is removed only when it is not the current one and no registered copy still links it. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
+      "rationale": "Toolchain-only dependency provisioning, which acquires no Mathlib by default and, when asked for the Mathlib integration package, provisions one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, and a shared directory is removed only when it is not the current one and no registered copy still links it. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
     },
     {
       "library": "RegulaCompiler",
@@ -50,7 +50,7 @@
       ],
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "The complete-application dogfooding surface, imported only from Lean's core libraries and the published checker interfaces: admission, update, and strict state/error composition contracts are proved about the definitions auditApp runs, alongside the retained total fold; its Mathlib-based refinement to an abstract capacity model is claimed in the Audit library of the audit/ package. The limiter state/error operations and their proofs are choice-free; the input parser and dependent required-contract interface transitively use Classical.choice through core String internals, as does the IO root. The surface claim is standard-logical and each declaration retains its exact axiom report. The IO shell is trusted execution substrate, so the execution mode stays report."
+      "rationale": "The complete-application dogfooding surface, imported only from Lean's core libraries and the published checker interfaces: admission, update, and strict state/error composition contracts are proved about the definitions auditApp runs, alongside the retained total fold; its refinement to an abstract capacity model is claimed in the Audit library of the audit/ package. The limiter state/error operations and their proofs are choice-free; the input parser and dependent required-contract interface transitively use Classical.choice through core String internals, as does the IO root. The surface claim is standard-logical and each declaration retains its exact axiom report. The IO shell is trusted execution substrate, so the execution mode stays report."
     }
   ],
   "excluded-libraries": [

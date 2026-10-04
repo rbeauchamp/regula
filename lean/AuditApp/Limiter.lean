@@ -38,8 +38,8 @@ required contract propositions, consumed through `Regula.Contract`);
 the operations and their theorems are this application's own semantics.
 Mathlib is deliberately not imported by this module: its pure limiter operations
 and proofs use the prelude and the contract interface, with arithmetic discharged
-by `omega`. Its refinement to an abstract capacity model, `Audit.Refinement` in the
-Mathlib-dependent package in `audit/`, imports Mathlib for finite-path relations.
+by `omega`. Its refinement to an abstract capacity model is `Audit.Refinement` in the
+`audit/` package, which states finite paths with core's `Relation.TransGen`.
 `Glossary.Server` (in that package) is the corresponding teaching model; this module
 supplies the application definitions the executable runs. Every theorem is stated against
 the exported API; the script-indexed theorems are proved by induction on the script or on
