@@ -1,4 +1,4 @@
-import Regula.Checker.Documentation
+import Regula.Checker.Workspace
 
 /-! # Mathlib source dependency roots
 
@@ -38,23 +38,14 @@ private partial def localNeeds (ws : _root_.Lake.Workspace) (key : _root_.Lake.B
     return #[m]
   | .package _ => throw <| IO.userError "dependency scope: unsupported package need"
 
-private def librarySources (repo : FilePath) (library : Option Name := none)
-    (render : Option String := none) : IO (Array RegulaPolicy.SourceSnapshot × Array Name) :=
+private def libraryImports (repo : FilePath) : IO (Array Name) :=
   Workspace.withRootWorkspace repo (fun ws => do
-    let mut sources := #[]
     let mut pending := #[]
-    let libraries := ws.root.leanLibs.filter fun lib => library.all (· == lib.name)
-    if libraries.isEmpty then throw <| IO.userError s!"dependency scope: no library at {repo}"
-    for lib in libraries do
-      for m in ← lib.getModuleArray do
-        sources := sources.push ⟨m.leanFile.toString, ← IO.FS.readFile m.leanFile⟩
-        pending := pending.push m
+    if ws.root.leanLibs.isEmpty then
+      throw <| IO.userError s!"dependency scope: no library at {repo}"
+    for lib in ws.root.leanLibs do
+      pending := pending ++ (← lib.getModuleArray)
       for need in lib.config.needs do pending := pending ++ (← localNeeds ws need)
-    if let some render := render then
-      let some exe := ws.root.leanExes.find?
-          (·.name == _root_.Lake.stringToLegalOrSimpleName render)
-        | throw <| IO.userError s!"dependency scope: unknown renderer {render}"
-      pending := pending.push exe.root
     let mut seen : NameSet := {}
     let mut imported := #[]
     let mut todo := pending.toList
@@ -67,12 +58,12 @@ private def librarySources (repo : FilePath) (library : Option Name := none)
       imported := imported ++ names
       for name in names do
         if let some dependency := ws.findModule? name then todo := dependency :: todo
-    return (sources, imported)) (scrubSearchPath := true) (resolveDependencies := false)
+    return imported) (scrubSearchPath := true) (resolveDependencies := false)
 
 /-- Discover the Mathlib integration package's import roots and emit a parser-checked module.
 All required Mathlib roots are kept once in a stable order; Lean validates their printed names. -/
 def source (repo : FilePath) : IO String := do
-  let (_, roots) ← librarySources (repo / "integration" / "mathlib")
+  let roots ← libraryImports (repo / "integration" / "mathlib")
   let ordered := ((roots.filter ((`Mathlib).isPrefixOf ·)).toList.eraseDups.toArray).qsort
     (fun left right => left.toString < right.toString)
   if ordered.isEmpty then throw <| IO.userError "dependency scope: no Mathlib imports discovered"

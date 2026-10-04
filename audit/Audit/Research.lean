@@ -146,13 +146,10 @@ differ, and only this one is proved. -/
 theorem exists_odd_reachesOne : ∃ n : Nat, n % 2 = 1 ∧ 1 < n ∧ ReachesOne n :=
   ⟨7, by decide, by decide, reachesOne_seven⟩
 
-/-- Every natural number has a greater one: its successor. -/
-theorem exists_greater_nat : ∀ x : Nat, ∃ y : Nat, x < y := fun x => ⟨x + 1, Nat.lt_succ_self x⟩
-
 /-- Quantifier order is part of the statement. The unswapped `∀ x, ∃ y, x < y`
-is `exists_greater_nat`; the swapped `∃ y, ∀ x, x < y` proved false here is a
-different proposition. A read-back that reorders the quantifiers describes the
-other one. -/
+is true, with witness `x + 1` by core's `Nat.lt_succ_self`; the swapped
+`∃ y, ∀ x, x < y` proved false here is a different proposition. A read-back that
+reorders the quantifiers describes the other one. -/
 theorem no_greatest_nat_swapped : ¬ ∃ y : Nat, ∀ x : Nat, x < y :=
   fun ⟨y, h⟩ => Nat.lt_irrefl y (h y)
 

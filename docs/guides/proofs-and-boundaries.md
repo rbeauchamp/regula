@@ -504,9 +504,9 @@ Decisions with no kind, and what stands instead:
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 40 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 9 of `RegulaProvision`, 4 of `RegulaCompiler`, 3 of
+`RegulaQualification`, 3 of `AuditApp`, 10 of `RegulaProvision`, 4 of `RegulaCompiler`, 3 of
 `RegulaSnapshot`, 2 of `RegulaVerification` and 11 of the excluded `Regula` library, where the
-`self-audit` diagnostic decides the rule. Twenty of them are registered from another module of
+`self-audit` diagnostic decides the rule. Twenty-one of them are registered from another module of
 their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:

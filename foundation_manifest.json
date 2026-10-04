@@ -66,7 +66,7 @@
   "excluded-executables": [
     {
       "executable": "dependencyScope",
-      "rationale": "Dependency setup planner in the excluded Regula library. It reads Lake inventories and documentation import headers and emits a module for source provisioning; parsing, package loading, filesystem observations and Lake's transitive native build remain trusted. It does not accept declarations or documentation."
+      "rationale": "Dependency setup planner in the excluded Regula library. It reads the Lake inventory of the Mathlib integration package and its modules' import headers and emits a module for source provisioning; parsing, package loading, filesystem observations and Lake's transitive native build remain trusted. It does not accept declarations or documentation."
     },
     {
       "executable": "toolchain",

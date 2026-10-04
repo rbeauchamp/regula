@@ -159,9 +159,10 @@ theorem admitted_safe {cap : Nat} {c : Limiter} (admission : admit cap = some c)
 invariant-satisfying abstract witness and respects the original admitted capacity.
 
 # Intent
-However many operations run after admission, the limiter keeps its admitted capacity
-and never has more slots in use than that capacity. Only finite runs are covered;
-progress and liveness are not required. -/
+After one or more operations run from the admitted state, the limiter keeps its admitted
+capacity and never has more slots in use than that capacity. `admitted_safe` covers the
+admitted state before any operation. Only finite runs are covered; progress and liveness
+are not required. -/
 @[regula_material]
 theorem reachable_safe {cap : Nat} {c₀ c : Limiter} (admission : admit cap = some c₀)
     (path : Relation.TransGen StepC c₀ c) :
