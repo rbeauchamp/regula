@@ -7,8 +7,7 @@ name: Diagnostics
 # together are the partition's. They are diagnostics, not a partition of ordinary acceptance.
 #
 # The workflow runs on every pull request, every push to main, nightly and on dispatch. Its first
-# job, `compiler`, prepares the selected compiler. The next, `applies`, needs it and has no `if:`,
-# so it runs only once `compiler` succeeded; it decides which partition jobs apply to the run
+# job, `applies`, provisions the released compiler and decides which partition jobs apply to the run
 # (lean/Regula/DiagnosticsGate.lean): the campaigns on a pull request exactly when it changes one
 # of the paths listed there (`inputs`, the only statement of them: the checker, rules, rule
 # examples, adopter fixtures, the application and fixture sources the structural and execution
@@ -19,7 +18,7 @@ name: Diagnostics
 # and applies, or was skipped and does not apply (`verdict_iff`); a failed, cancelled or timed-out
 # job fails it. The ruleset of main requires that check, so a pull request merges only once every
 # diagnostics job that applies to it has passed on its head commit, and one that changes no input
-# passes it without running a campaign. Every job other than `compiler`, `applies` and
+# passes it without running a campaign. Every job other than `applies` and
 # `diagnostics` is in the `needs` of `diagnostics` and has its `if:` read its own decision; the
 # gate refuses a job it needs that `applies` did not decide, and a decided job it does not need.
 on:
@@ -38,16 +37,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Source compilation is setup; it precedes `applies` and the gate, 15-minute jobs that provision
-  # the selected compiler too, so they reuse its cache.
-  compiler:
-    uses: ./.github/workflows/compiler.yml
-
   # A JSON object from partition job id to whether that job applies. On a pull request the
   # checked-out commit is the merge commit GitHub creates, and the step compares it with its first
   # parent, the head of the base branch: hence the two commits.
   applies:
-    needs: compiler
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -60,8 +53,6 @@ jobs:
 
       # The decision needs the pinned toolchain alone.
       - uses: ./.github/actions/provision
-        with:
-          dependencies: 'false'
 
       - name: Decide which diagnostics apply
         id: decide
@@ -132,8 +123,6 @@ jobs:
 
       # The gate needs the pinned toolchain alone.
       - uses: ./.github/actions/provision
-        with:
-          dependencies: 'false'
 
       - name: Refuse unless every diagnostics job passed exactly when it applies
         env:

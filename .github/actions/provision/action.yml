@@ -5,17 +5,6 @@ description: >-
   validation or test orchestration.
 
 inputs:
-  bootstrap-only:
-    description: Install pinned Elan, stable Lean and system bootstrap tools only.
-    required: false
-    default: 'false'
-  dependencies:
-    description: >-
-      Export the repository's dependency artifact policy for the job's Lake builds. A job that
-      runs only toolchain scripts, such as the title check, turns it off. No dependency is
-      acquired by this input alone: the root and `audit/` packages require none.
-    required: false
-    default: 'true'
   mathlib:
     description: >-
       Also restore or provision the pinned Mathlib of the Mathlib integration package in
@@ -34,14 +23,11 @@ runs:
   using: composite
   steps:
     - name: Restore pinned toolchain
-      if: inputs.bootstrap-only != 'true' && hashFiles('.github/snapshot-compiler.json') == ''
       id: toolchain
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: |
-          ~/.elan/toolchains
-          ~/.cache/regula-compilers
-        key: lean-toolchain-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', '.github/compiler-source.json', 'lean/RegulaCompiler.lean') }}
+        path: ~/.elan/toolchains
+        key: lean-toolchain-v3-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lean/RegulaPolicy/Compiler.lean') }}
 
     - name: Install Elan and pinned Lean
       env:
@@ -78,29 +64,19 @@ runs:
         timeout --version
         shellcheck --version
 
-    - name: Install the declared compiler
-      if: inputs.bootstrap-only != 'true'
-      id: compiler
+    - name: Check released compiler setup
       shell: bash
-      run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaCompiler.lean setup
+      run: lean --run lean/RegulaProvision.lean
 
     - name: Save pinned toolchain
-      if: inputs.bootstrap-only != 'true' && hashFiles('.github/snapshot-compiler.json') == '' && steps.toolchain.outputs.cache-hit != 'true'
+      if: steps.toolchain.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: |
-          ~/.elan/toolchains
-          ~/.cache/regula-compilers
+        path: ~/.elan/toolchains
         key: ${{ steps.toolchain.outputs.cache-primary-key }}
 
-    - name: Read dependency artifact identity
-      if: inputs.bootstrap-only != 'true' && (inputs.dependencies == 'true' || inputs.mathlib == 'true' || inputs.verso == 'true')
-      id: dependency-plan
-      shell: bash
-      run: lean --run lean/RegulaProvision.lean identity
-
     - name: Restore pinned Mathlib
-      if: inputs.bootstrap-only != 'true' && inputs.mathlib == 'true' && steps.compiler.outputs.snapshot != 'true'
+      if: inputs.mathlib == 'true'
       id: dependencies
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -109,31 +85,28 @@ runs:
         # integration package pins every dependency here and keeps its own packages directory.
         path: |
           integration/mathlib/.lake/packages
-          ~/.cache/mathlib-packages
-        key: lean-dependencies-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ steps.dependency-plan.outputs.scope }}-${{ hashFiles('integration/mathlib/lake-manifest.json', 'integration/mathlib/lakefile.lean') }}
+        key: lean-dependencies-v5-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lean/RegulaPolicy/Compiler.lean', 'integration/mathlib/lean-toolchain', 'integration/mathlib/lake-manifest.json', 'integration/mathlib/lakefile.lean') }}
 
     # The plan runs `cache get` in the integration package, whose own `.lake/packages` is where
-    # Mathlib's cache tool unpacks its dependencies' archives. A compiler snapshot holds no
-    # Mathlib, so nothing is provisioned for one.
+    # Mathlib's cache tool unpacks its dependencies' archives.
     - name: Provision or admit Mathlib artifacts
-      if: inputs.bootstrap-only != 'true' && inputs.mathlib == 'true' && steps.compiler.outputs.snapshot != 'true' && (steps.dependencies.outputs.cache-hit != 'true' || steps.dependency-plan.outputs.mode == 'source')
+      if: inputs.mathlib == 'true' && steps.dependencies.outputs.cache-hit != 'true'
       shell: bash
       run: lean --run lean/RegulaProvision.lean mathlib
 
     # Save provisioned dependencies before verification, even if it later fails.
     - name: Save pinned Mathlib
-      if: inputs.bootstrap-only != 'true' && inputs.mathlib == 'true' && steps.compiler.outputs.snapshot != 'true' && steps.dependencies.outputs.cache-hit != 'true'
+      if: inputs.mathlib == 'true' && steps.dependencies.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           integration/mathlib/.lake/packages
-          ~/.cache/mathlib-packages
         key: ${{ steps.dependencies.outputs.cache-primary-key }}
 
     # The website package's dependencies (Verso and its own: SubVerso, MD4Lean, illuminate, Cli,
     # plausible), pinned by its lock manifest in the root `.lake/packages`.
     - name: Restore pinned Verso dependencies
-      if: inputs.bootstrap-only != 'true' && inputs.verso == 'true' && steps.compiler.outputs.snapshot != 'true'
+      if: inputs.verso == 'true'
       id: verso
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -144,15 +117,15 @@ runs:
           .lake/packages/illuminate
           .lake/packages/Cli
           .lake/packages/plausible
-        key: verso-shared-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ hashFiles('website/lake-manifest.json') }}
+        key: verso-shared-v4-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lean/RegulaPolicy/Compiler.lean', 'website/lean-toolchain', 'website/lake-manifest.json') }}
 
     - name: Provision pinned Verso
-      if: inputs.bootstrap-only != 'true' && inputs.verso == 'true'
+      if: inputs.verso == 'true'
       shell: bash
       run: lean --run lean/RegulaProvision.lean verso
 
     - name: Save pinned Verso dependencies
-      if: inputs.bootstrap-only != 'true' && inputs.verso == 'true' && steps.compiler.outputs.snapshot != 'true' && steps.verso.outputs.cache-hit != 'true'
+      if: inputs.verso == 'true' && steps.verso.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |

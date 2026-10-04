@@ -18,14 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  compiler:
-    uses: ./.github/workflows/compiler.yml
-
-  # The required check. It follows `compiler` only to reuse its cache, and runs with its own
-  # provisioning whatever that job's result: `always()`, not `!cancelled()`, since a skipped job
-  # reports success, and on a cancelled run its steps do not pass.
+  # The required check provisions the released compiler itself.
   title:
-    needs: compiler
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -36,8 +30,6 @@ jobs:
 
       # The check needs the pinned toolchain alone.
       - uses: ./.github/actions/provision
-        with:
-          dependencies: 'false'
 
       - name: Refuse a title that is not a Conventional Commits header
         env:
