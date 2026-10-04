@@ -630,7 +630,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         correction := "The correction moves the complete natural-number domain inside the identity \
           contract's predicate, retaining the same pointwise equality." } }
   | .decisionContract => {
-      lifecycle := .active .unreleased
+      lifecycle := .active (.release ⟨0, 7, 0⟩)
       title := "Registered decision functions require a decision contract", category := .execution
       normativeClauses := [.enforcingBuildLinter, .proofCompleteness]
       applicability := "decision-contract"
