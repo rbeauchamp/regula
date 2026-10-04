@@ -1,6 +1,5 @@
 import Regula.Checker.Snapshot
 import Regula.Checker.SourceBinding
-import Regula.Checker.CompilerMode
 import RegulaCore.Account
 
 /-! # Two-step acceptance identity link
@@ -71,8 +70,7 @@ def identity (scratch projectRoot docsRoot : FilePath)
 
 /-- Replace any earlier record before the ordinary audit starts. -/
 def invalidate (path : FilePath) : IO Unit :=
-  writeJson path (CompilerMode.envelope
-    (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete")]))
+  writeJson path (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "incomplete")])
 
 /-- The identity of one accepted run's captured inputs, computed before its success line
 and held, unrecorded, until the run's outer freshness recheck has passed. -/
@@ -86,9 +84,8 @@ structure Pending where
 `Account` is a projection of some `AcceptedRun`; that it is this run's account, and that
 `digest` matches it, is the caller's binding. -/
 def record (path : FilePath) (pending : Pending) : IO Unit :=
-  writeJson path (CompilerMode.envelope
-    (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
-      ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs)]))
+  writeJson path (Json.mkObj [("schemaVersion", toJson (1 : Nat)), ("status", .str "accepted"),
+      ("identity", .str pending.digest), ("acceptedJobs", toJson pending.account.val.jobs)])
 
 /-- Refuse unless ordinary acceptance recorded an accepted success over equal inputs.
 The `status: accepted` record lives in a writable `tmp/` file and is trusted as written

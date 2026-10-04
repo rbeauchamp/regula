@@ -12,17 +12,6 @@ Each kind restates a theorem of the program about the same definition, or for `c
 follows from its definition, and adds the witnesses a kind requires. -/
 namespace RegulaProvision
 
-/-- `buildMode?` accepts only the spelling of a build mode (`buildMode?_sound`), and it accepts
-`source`. That it accepts every spelling is not claimed. -/
-theorem checked_buildMode : Regula.ExecutableContract buildMode?
-    (Regula.DecidesSoundly (·.isSome = true)
-      (fun text => ∃ mode : BuildMode, mode.spelling = text)) :=
-  ⟨{ sound := fun text accepted => by
-       cases parsed : buildMode? text with
-       | some mode => exact ⟨mode, buildMode?_sound text mode parsed⟩
-       | none => rw [parsed] at accepted; exact absurd accepted Bool.false_ne_true
-     accepted := ⟨"source", by decide⟩ }⟩
-
 /-- `component?` accepts exactly a text that passes `isComponent`: it accepts `a` and refuses the
 empty text. That the admitted component is that text is in its definition, not in the kind. -/
 theorem checked_component : Regula.ExecutableContract component?
@@ -32,47 +21,23 @@ theorem checked_component : Regula.ExecutableContract component?
   ⟨.of_iff admitted ⟨"a", (admitted "a").mpr (by simp [isComponent])⟩
     ⟨"", fun accepted => absurd ((admitted "").mp accepted) (by decide)⟩⟩
 
-/-- `resumes` accepts exactly a source-mode stage whose observed inputs are the expected ones
-(`resumes_iff`): it accepts equal inputs in source mode and refuses them in upstream-cache mode. -/
-theorem checked_resumes : Regula.ExecutableContract resumes (fun resume =>
-    Regula.Decides (· = true)
-      (fun input : (BuildMode × StageInputs) × StageInputs =>
-        input.1.1 = .source ∧ input.1.2 = input.2)
-      (Function.uncurry (Function.uncurry resume))) :=
-  let inputs : StageInputs :=
-    { artifactPolicy := 0, configuration := "", manifest := "", toolchain := "", source := "" }
-  ⟨.of_iff (fun input => resumes_iff input.1.1 input.1.2 input.2)
-    ⟨((.source, inputs), inputs), (resumes_iff _ _ _).mpr ⟨rfl, rfl⟩⟩
-    ⟨((.upstreamCache, inputs), inputs), fun accepted =>
-      nomatch ((resumes_iff .upstreamCache inputs inputs).mp accepted).1⟩⟩
-
-/-- What `admits_sound` establishes of an admitted receipt: it records the requested Mathlib
-revision, compiler commit, artifact mode and generated import module, a source-mode receipt
-records the current artifact policy, and it holds no package at another revision than a pin of
-the same name. -/
-def Admitted (receipt : Receipt) (mode : BuildMode) (mathlibRev githash : String)
-    (pins : Array Pin) (source : String) : Prop :=
-  receipt.mathlibRev = mathlibRev ∧ receipt.leanGithash = githash ∧ receipt.mode = mode ∧
-    (mode = .source → receipt.artifactPolicy = sourceArtifactPolicy) ∧
-    receipt.source = source ∧
+/-- What receipt admission establishes about the exact stable store and compatible pins. -/
+def Admitted (receipt : Receipt) (mathlibRev githash : String) (pins : Array Pin) : Prop :=
+  receipt.mathlibRev = mathlibRev ∧ receipt.leanGithash = githash ∧
+    receipt.artifactPolicy = 0 ∧ receipt.source = "" ∧
     ∀ pin ∈ pins, ∀ held ∈ receipt.packages, held.name = pin.name → held.rev = pin.rev
 
-/-- `admits` accepts only a receipt that is `Admitted` for the request (`admits_sound`), and it
-accepts an upstream-cache receipt for the request it records. That it accepts every such receipt
-is not claimed: the receipt's schema version is checked as well. -/
+/-- Admission is sound for its requested revisions and accepts a matching stable receipt. -/
 theorem checked_admits : Regula.ExecutableContract @admits
-    (fun (admission : Receipt → BuildMode → String → String → Array Pin → String → Bool) =>
+    (fun (admission : Receipt → String → String → Array Pin → Bool) =>
     Regula.DecidesSoundly (· = true)
-      (fun input : ((((Receipt × BuildMode) × String) × String) × Array Pin) × String =>
-        Admitted input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2 input.1.1.2 input.1.2 input.2)
-      (Function.uncurry (Function.uncurry (Function.uncurry (Function.uncurry
-        (Function.uncurry admission)))))) :=
+      (fun input : ((Receipt × String) × String) × Array Pin =>
+        Admitted input.1.1.1 input.1.1.2 input.1.2 input.2)
+      (Function.uncurry (Function.uncurry (Function.uncurry admission)))) :=
   ⟨{ sound := fun input accepted =>
-       admits_sound input.1.1.1.1.1 input.1.1.1.1.2 input.1.1.1.2 input.1.1.2 input.1.2 input.2
-         accepted
-     accepted := ⟨((((({ schemaVersion := receiptSchema, mathlibRev := "", leanGithash := "",
-                         leanVersion := "", packages := #[] }, .upstreamCache), ""), ""), #[]),
-                    ""), by simp [Function.uncurry, admits, receiptSchema]⟩ }⟩
+       admits_sound input.1.1.1 input.1.1.2 input.1.2 input.2 accepted
+     accepted := ⟨((({ schemaVersion := receiptSchema, mathlibRev := "", leanGithash := "", leanVersion := "", packages := #[] }, ""), ""), #[]),
+       by simp [Function.uncurry, admits, receiptSchema]⟩ }⟩
 
 /-- `mathlibStep` keeps the path exactly when it already links the shared checkout
 (`mathlibStep_keep_iff`): it keeps a link to the target and does not keep an absent path. -/
@@ -122,17 +87,15 @@ theorem checked_prunes : Regula.ExecutableContract prunes (fun removes =>
   ⟨{ sound := fun input removed => prunes_sound input.1.1 input.1.2 input.2 removed
      accepted := ⟨(("current", "other"), #[]), by simp [Function.uncurry, prunes]⟩ }⟩
 
-/-- `mathlibApplies` accepts exactly a copy with no snapshot selection whose two toolchain
-selectors are equal (`mathlibApplies_iff`): it accepts equal selectors without a snapshot and
-refuses them with one. -/
+/-- The integration preflight accepts equal selectors and refuses different ones. -/
 theorem checked_mathlibApplies : Regula.ExecutableContract mathlibApplies (fun applies =>
-    Regula.Decides (· = true)
-      (fun input : (Bool × String) × String => input.1.1 = false ∧ input.1.2 = input.2)
-      (Function.uncurry (Function.uncurry applies))) :=
-  ⟨.of_iff (fun input => mathlibApplies_iff input.1.1 input.1.2 input.2)
-    ⟨((false, ""), ""), (mathlibApplies_iff _ _ _).mpr ⟨rfl, rfl⟩⟩
-    ⟨((true, ""), ""), fun accepted =>
-      nomatch ((mathlibApplies_iff true "" "").mp accepted).1⟩⟩
+    Regula.Decides (· = true) (fun input : String × String => input.1 = input.2)
+      (Function.uncurry applies)) :=
+  ⟨.of_iff (fun input => mathlibApplies_iff input.1 input.2)
+    ⟨("", ""), (mathlibApplies_iff _ _).mpr rfl⟩
+    ⟨("a", "b"), fun accepted => by
+      have same := (mathlibApplies_iff "a" "b").mp accepted
+      simp at same⟩⟩
 
 /-- `retires` removes exactly a registered link that still links its shared directory, is the
 copy's retired link and is not the link the run provisions (`retires_iff`): it removes such a
@@ -149,6 +112,6 @@ theorem checked_retires : Regula.ExecutableContract retires (fun removes =>
       ((retires_iff "new" "new" "new" true).mp accepted).2.2 rfl⟩⟩
 
 attribute [regula_decision]
-  buildMode? component? resumes admits mathlibStep cloneStep found prunes retires mathlibApplies
+  component? admits mathlibStep cloneStep found prunes retires mathlibApplies
 
 end RegulaProvision

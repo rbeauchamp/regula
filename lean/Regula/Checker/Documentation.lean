@@ -465,16 +465,14 @@ def kindOf (fence : Fence) : Kind :=
 
 /-- The label a status is printed with. -/
 def statusName : Status → String
-  | .pass => RegulaPolicy.Compiler.verdict RegulaPolicy.Compiler.candidate
-  | .passNegative => RegulaPolicy.Compiler.successLabel RegulaPolicy.Compiler.candidate
-      "PASS_NEG" "NEGATIVE"
-  | .passTrusted => RegulaPolicy.Compiler.successLabel RegulaPolicy.Compiler.candidate
-      "PASS_TRUSTED" "TRUSTED"
+  | .pass => "PASS"
+  | .passNegative => "PASS_NEG"
+  | .passTrusted => "PASS_TRUSTED"
   | .fail => "FAIL"
 
-/-- Positive documentation counts distinguish support from candidate observations. -/
+/-- The positive documentation count label. -/
 def positiveSummary : String :=
-  RegulaPolicy.Compiler.positiveSummary RegulaPolicy.Compiler.candidate
+  "conforming-positive-pass"
 
 private def diagnostics (output : String) : String :=
   let lines := errorLines output
@@ -1181,8 +1179,7 @@ unsafe def auditBuiltProject (repo docsRoot : FilePath) (inventory : Lake.Surfac
       let positivePass := (results.filter (·.status == .pass)).size
       let negativePass := (results.filter (·.status == .passNegative)).size
       let trustedPass := (results.filter (·.status == .passTrusted)).size
-      IO.println <| (if RegulaPolicy.Compiler.candidate then
-          "\nsummary (diagnostic observations; unqualified compiler): " else "\nsummary: ") ++
+      IO.println <| "\nsummary: " ++
         s!"{positiveSummary}={positivePass}/{positiveCount} " ++
         s!"negative-pass={negativePass}/{negativeCount} " ++
         s!"trusted-classified={trustedPass}/{trustedCount} fail={failures}"

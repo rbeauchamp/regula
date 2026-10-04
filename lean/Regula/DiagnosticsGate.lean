@@ -3,10 +3,8 @@ import Lean
 /-! # The diagnostics gate
 
 The `Diagnostics` workflow (`.github/workflows/diagnostics.yml`) runs on every pull request, every
-push to `main`, nightly and on dispatch. Its first job, `compiler`, prepares the selected compiler.
-The next, `applies`, needs it and has no `if:`, so it runs only once `compiler` succeeded; it
-decides which of its partition jobs apply to the run, and each partition job runs only when it
-applies. Its last job,
+push to `main`, nightly and on dispatch. Its first job, `applies`, provisions the released compiler
+and decides which partition jobs apply to the run; each partition job runs only when it applies. Its last job,
 `diagnostics`, runs once every other job has finished, whatever their results, and passes exactly
 when `applies` succeeded and each partition job passed and applies, or was skipped and does not
 apply. It is the check that the ruleset of `main` requires, so it reports on every pull request.
@@ -22,10 +20,7 @@ lean --run lean/Regula/DiagnosticsGate.lean gate     # refuse unless each passed
 `inputs` is the one statement of the paths the campaigns depend on: the checker, the rules and
 their examples, the adopter fixtures, the application and fixture sources the structural and
 execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`, the verification,
-provisioning, compiler-installation and snapshot programs with their decision contracts, the
-dependency mode, the declared compiler source and snapshot selections, the workflow, both
-preparation workflows and the
-provisioning action. `decisions` decides each
+provisioning programs with their decision contracts, the workflow and the provisioning action. `decisions` decides each
 partition job by its job id: the campaigns (`campaign`) on every run other than a pull request's
 (`campaign_of_ne`), and on a pull request's exactly when one of its changed paths is an input
 (`campaign_pullRequest_iff`); the nightly rule-example shards (`rule-examples-nightly`) on the
@@ -52,8 +47,7 @@ no step here observes.
 `verdict`, `admits` and `decisions` are the decisions the steps execute; their theorems are checked
 by the kernel each time `lean --run` elaborates this file. GitHub (the event, the merge commit it
 creates for a pull request, the `needs` context, a job's `if:` that reads the decision, the
-implicit `success()` that runs `applies` only once `compiler` succeeded, its results, timeouts and
-cancellation, and the ruleset that requires the check) and `git` (the
+job results, timeouts, cancellation, and the ruleset that requires the check) and `git` (the
 commits it fetched and the paths `diff-tree` lists) are trusted and observed, not proved.
 -/
 
@@ -87,9 +81,7 @@ def Input.covers : Input → List String → Bool
 /-- The paths the campaigns depend on, and the only statement of them: the checker, the rules and
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
 application and fixture sources the structural and execution controls mutate, Lake configuration
-and manifests, `scripts/verify.sh`, the verification, provisioning, compiler-installation and
-snapshot programs with their decision contracts, the dependency mode, the declared compiler source
-and snapshot selections, the workflow, both preparation workflows and the provisioning action.
+and manifests, `scripts/verify.sh`, the verification, provisioning programs with their decision contracts, the workflow and the provisioning action.
 This module is an input,
 below `lean/Regula`. -/
 def inputs : List Input := [
@@ -102,15 +94,6 @@ def inputs : List Input := [
   .tree ["lean", "RegulaVerification"],
   .file ["lean", "RegulaProvision.lean"],
   .tree ["lean", "RegulaProvision"],
-  .file ["lean", "RegulaCompiler.lean"],
-  .tree ["lean", "RegulaCompiler"],
-  .file ["lean", "RegulaSnapshot.lean"],
-  .tree ["lean", "RegulaSnapshot"],
-  .file ["dependency-build-mode"],
-  .file [".github", "compiler-source.json"],
-  .file [".github", "snapshot-preparation.json"],
-  .file [".github", "snapshot-compiler.json"],
-  .file [".github", "compiler-snapshot.json"],
   .tree ["lean", "AuditApp"],
   .file ["lean", "AuditApp.lean"],
   .file ["lean", "Main.lean"],
@@ -127,8 +110,6 @@ def inputs : List Input := [
   .file ["foundation_manifest.json"],
   .file ["scripts", "verify.sh"],
   .file [".github", "workflows", "diagnostics.yml"],
-  .file [".github", "workflows", "compiler.yml"],
-  .file [".github", "workflows", "snapshot.yml"],
   .tree [".github", "actions", "provision"]]
 
 /-- Whether some input covers the changed path `p`. -/

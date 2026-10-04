@@ -412,7 +412,7 @@ specification.
 Which report states a kind depends on the library that holds the registration:
 
 - **Claimed libraries** (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `AuditApp`, and the
-  standalone programs' libraries `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` and
+  standalone programs' libraries `RegulaProvision` and
   `RegulaVerification`). Their
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
@@ -460,9 +460,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Markdown.documentErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. |
 | `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
 | `AuditApp.admit`, `AuditApp.grant`, `AuditApp.runChecked` | Positive capacity, a free slot, `Fits` | The example application (standard §3.7). |
-| `RegulaCompiler.admitsIdentity`, `installsSystemPackages`, `installsMacPackages` | Both reports equal one full object name; a GitHub Actions job on Linux; one on macOS (`admitsIdentity_iff`, `installsSystemPackages_iff`, `installsMacPackages_iff`) | The compiler installer's identity admission and its two system-package guards. |
-| `RegulaSnapshot.admits`, `Archives.valid`, `Location.valid` | A version 1, source-built receipt with the expected identity, compiler, package census and completed targets; a version 1 descriptor of the compiler and package roots in that order, each with a layer, every layer named by a `Component` and carrying an `ObjectDigest`; the requested platform's name and the Regula package prefix followed by an `ObjectDigest` (`admits_iff`, `Archives.valid_iff`, `Location.valid_iff`) | The snapshot controller's receipt, transport and location admission. `Component` and `ObjectDigest` restate the bodies of the controller's private `component` and `objectDigest`, which no other module can name; each contract is proved from the controller's theorem, so it elaborates only while the restated body unfolds to the executed one. |
-| `RegulaProvision.resumes`, `mathlibStep` (accepts on `.keep`), `component?`, `retires`, `mathlibApplies` | A source-mode stage whose observed inputs are the expected ones; the path already links the shared checkout (`resumes_iff`, `mathlibStep_keep_iff`); the text passes `isComponent`; a registered link still links its shared directory, is the copy's retired link and is not the link the run provisions (`retires_iff`); no snapshot is selected and the two toolchain selectors are equal (`mathlibApplies_iff`) | Local provisioning: resuming a staged workspace, keeping Mathlib's link, admitting the shared directory's key and each package directory's name as one path component, removing the Mathlib link a copy no longer uses, and deciding whether the Mathlib integration check applies to a copy. |
+| `RegulaProvision.mathlibStep` (accepts on `.keep`), `component?`, `retires`, `mathlibApplies` | The path already links the shared checkout (`mathlibStep_keep_iff`); the text passes `isComponent`; a registered link still links its shared directory, is the copy's retired link and is not the link the run provisions (`retires_iff`); the root and integration toolchain selectors are equal (`mathlibApplies_iff`) | Local provisioning: keeping Mathlib's link, admitting directory names as single path components, retiring registered links, and the integration preflight. |
 | `RegulaVerification.parseMode` | The argument list of a supported invocation (`parseMode_sound`, `parseMode_roundtrip`) | Argument selection of `scripts/verify.sh`. |
 
 Sound only, each a declared choice:
@@ -472,9 +470,7 @@ Sound only, each a declared choice:
 | `Regula.SharedExecution.same` | The two values are equal (`same_eq`) | That it accepts every pair of equal values is not proved, and nothing depends on it. The equality is `=`: two objects with the same members whose trees are balanced differently are different values, which `same` refuses and Lean's runtime `Json` comparison identifies. |
 | `Regula.Checker.Admission.checkCopies` | Every copy is `CopyAdmitted` (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
-| `RegulaCompiler.source?` | The specification passes `valid` (`source?_sound`) | The installer states no theorem that it accepts every valid specification. Which source it returns is `source?_sound`, not the kind. |
-| `RegulaProvision.buildMode?` | The text is a build mode's spelling (`buildMode?_sound`) | The program states no theorem that it accepts both spellings. |
-| `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision, compiler, mode and import module, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
+| `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision and compiler, zero artifact policy and empty source, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
 | `RegulaProvision.cloneStep` (accepts on `.replace`), `found` (accepts on a result other than `.foreign`), `prunes` | The path is a link or a clean Git checkout (`cloneStep_replace`); the directory's receipt names it (`found_identified`); the directory is not the current one and no registered copy links it (`prunes_sound`) | `cloneStep` keeps a clean checkout at the pinned revision; the program states no converse for the other two. |
 | `RegulaVerification.dependencyFree` | The lock manifest's `packages` array is present and empty (`dependencyFree_packages`) | The driver states no converse. |
 
@@ -497,16 +493,15 @@ Decisions with no kind, and what stands instead:
 | `accept`, `finalize`, `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults`, `policyFor`, `memberFailure`, `admitPlan`, `admitBoundaryEvidence`, the editor decision, `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` | An argument or the result has a type that depends on an earlier argument, or the function is polymorphic in a type. A kind is stated about a function whose argument types are independent, through `Function.uncurry`. | Evidence by construction, where the accepted value carries its proof, and the two-way theorems `accept_iff`, `finalize_iff`, `insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`, `policyFor_none_iff`, `editor_decision_none_iff`, `admitExampleRequest_sound` with `admitExampleRequest_complete`, and the `_sound` and `_complete` or `_exact` pairs of the others. `policyFor` and `memberFailure` run `declarationFailure`, which has a kind. |
 | `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ClassifyContract`). |
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
-| `RegulaVerification.select`, `RegulaSnapshot.admit?` | `select` returns the mode with the proof that the arguments are its own, and `admit?` the receipt with the proof that `admits` accepts it for the expected identity, so each result type depends on an argument. | Evidence by construction; `select_exact`, which makes `select` the proof-carrying form of `parseMode`; and `admit?_sound`, by which an admitted receipt is the given one and `admits` accepts it. `parseMode` and `admits` have a kind. |
-| The validators `RegulaCompiler.valid`, `component`, `objectName`, `officialSelector`, `releaseVersion`, `decimal` and `RegulaProvision.isObjectName`, `isComponent`, and the private `component`, `objectName` and `objectDigest` of `RegulaSnapshot` | Each is itself the written form of what it admits: the programs state no relation it is checked against, and a kind's specification must not mention its implementation. | `valid` is the specification of the kind of `source?`, `isComponent` that of `component?`, `objectName` part of that of `admitsIdentity`, and the bodies of the private `component` and `objectDigest` of `RegulaSnapshot`, restated as `Component` and `ObjectDigest`, part of those of `Archives.valid` and `Location.valid`; whether each is the intended form is review. |
+| `RegulaVerification.select` | Its result carries a proof that the arguments belong to the returned mode, so its result type depends on an argument. | Evidence by construction; `select_exact` makes `select` the proof-carrying form of `parseMode`, which has a kind. |
+| `RegulaProvision.isObjectName`, `isComponent` | Each defines the written form it admits; no separate relation is stated. | `isComponent` is the specification of the kind of `component?`; whether the written forms are intended is review. |
 
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 40 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 10 of `RegulaProvision`, 4 of `RegulaCompiler`, 3 of
-`RegulaSnapshot`, 2 of `RegulaVerification` and 11 of the excluded `Regula` library, where the
-`self-audit` diagnostic decides the rule. Twenty-one of them are registered from another module of
+`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 2 of `RegulaVerification` and 11 of the excluded `Regula` library, where the
+`self-audit` diagnostic decides the rule. Twelve of them are registered from another module of
 their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
@@ -516,12 +511,9 @@ imports only the toolchain:
   `Compiler.admitCapability`.
 - Each standalone program runs with `lean --run` before the package is built, so its library has
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
-  no program imports: `RegulaProvision.Decisions` registers `buildMode?`, `component?`,
-  `resumes`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
+  no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
   `mathlibApplies`;
-  `RegulaCompiler.Decisions` registers `source?`, `admitsIdentity`, `installsSystemPackages` and
-  `installsMacPackages`; `RegulaSnapshot.Decisions` registers `admits`, `Archives.valid` and
-  `Location.valid`; `RegulaVerification.Decisions` registers `parseMode` and `dependencyFree`.
+  `RegulaVerification.Decisions` registers `parseMode` and `dependencyFree`.
   Each kind restates a theorem the program proves about the same definition, except that of
   `component?`, which follows from its definition (`checked_component`).
 
@@ -987,7 +979,7 @@ These are proofs about the observations; native object-tag correspondence remain
 The owned unsafe and runtime-replacement boundaries remain in execution reports.
 The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
 observer's positive path, admission, transport and mutations only on a compiler that has
-`getObjTagNat`, such as the selected release-candidate and source compilers; on Lean 4.34.0,
+`getObjTagNat`; on the supported Lean 4.34.0,
 which generates no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
@@ -1942,15 +1934,9 @@ decision reports no toolchain issue exactly when that resolved identity
 is an issue `init` does not fix. Elan's listing, that it runs a listed toolchain without
 installing, and the report are trusted.
 
-Prepared compatibility revisions have a compiled candidate marker. The ordinary audit
-entrypoints that call `CompilerMode.requireAllowed` refuse them: `axiomGate`, so also the audit
-`lake lint` runs, `docFenceAudit` and `freshChecker`. `regula`, `ruleExamples`, `toolchain` and
-the qualification executables do not call it themselves. An explicit qualification invocation may inspect the same internal accounts, but
-public result files wrap those observations with `status: unsupported`, diagnostic purpose and
-`grantsSupport: false`; accepted text labels them diagnostic rather than PASS. The pure
-`Compiler.mayRun` and `publication` functions decide these boundaries. The diagnostic switch is
-not support authority. See [development toolchains](toolchains.md) for promotion and evidence
-requirements; none of this qualifies every build sharing a development version string.
+Only the exact [supported toolchain](toolchains.md) is admitted. Historical diagnostic
+envelopes with `purpose: compiler-qualification` are refused by ordinary result readers;
+there is no runtime qualification switch or candidate publication mode.
 
 **Trusted:** Lake's loader, its TOML grammar, Lean's import-header parser and Lean's frontend,
 which elaborates a `lakefile.lean` as Lake does to locate the `package`, `lean_lib` and

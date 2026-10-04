@@ -2107,7 +2107,7 @@ private def sourceAttributionControls (dir : FilePath)
         #[s!"cli/source-attribution: {detail}:\n{result.output}"]
       if result.succeeded then return failed "expected RG1005 findings"
       let json ← match Json.parse (← IO.FS.readFile report) with
-        | .ok json => CompilerMode.readObservation json
+        | .ok json => requireAuditDocument json
         | .error error => return failed s!"unreadable report: {error}"
       if let some detail := sourceAttributionFailure json then return failed detail
       unless result.output.contains
@@ -2744,7 +2744,7 @@ private def libraryCycleControl (repo : FilePath) : IO (Array String) :=
     #["--project", project.toString, "--json-out", result.toString] scrubbedLeanPathEnv
   unless gate.succeeded do return #[s!"library-cycle/accepted: expected PASS:\n{gate.output}"]
   let modules := #["Left.Base", "Left.Top", "Right.Base", "Right.Top"]
-  let json ← CompilerMode.readObservation (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
+  let json ← requireAuditDocument (← IO.ofExcept (Json.parse (← IO.FS.readFile result)))
   let surfaces ← IO.ofExcept <|
     (json.getObjVal? "scope").bind (·.getObjValAs? (Array Json) "surfaces")
   let mut found : Array (String × Array String × Array String × Array (String × String)) := #[]

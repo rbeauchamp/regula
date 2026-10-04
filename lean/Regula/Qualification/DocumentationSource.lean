@@ -70,7 +70,7 @@ def check (sourceReadOnly : Bool) : IO Unit := do
         let (process, _) ← observe root project s!"{binary}-{phase}" binary flags {
           failure := bad, status := if bad then "incomplete" else "completed",
           ids := if bad then ["RG2005"] else [], reason,
-          positiveText := s!"{RegulaPolicy.Compiler.positiveSummary RegulaPolicy.Compiler.candidate}=1/1" } timedEnv
+          positiveText := s!"{"conforming-positive-pass"}=1/1" } timedEnv
         if bad then
           let scope := if binary == "docFenceAudit" then project / "docs" else project
           IO.ofExcept

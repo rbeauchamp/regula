@@ -31,10 +31,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  compiler:
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/compiler.yml
-
   # Derive the version, then create the commit of the release pull request (main's commit with
   # the release appended to Regula.releases with its toolchain, the lakefile's version, the
   # adoption guide's compatibility table and each .unreleased on a `lifecycle :=` line;
@@ -51,7 +47,6 @@ jobs:
   # commit of main, and a new run on its current head; each creates its own branch. The
   # derivation reads main's history since the previous release's tag, hence the full clone.
   open:
-    needs: compiler
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30

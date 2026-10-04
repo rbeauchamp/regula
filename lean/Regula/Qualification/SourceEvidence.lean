@@ -189,7 +189,7 @@ def fences : IO Unit := do
           status := if incomplete then "incomplete" else if ids.isEmpty then "completed" else
                                                                               "rejected",
           ids, reason, grouped := phase != "compiler", positiveText :=
-              s!"{RegulaPolicy.Compiler.positiveSummary RegulaPolicy.Compiler.candidate}=1/1",
+              s!"{"conforming-positive-pass"}=1/1",
           impact := some (if incomplete then "incomplete" else "violation"),
           diagnosticMode := some "documentationExample", evidenceSubject := some "control.md:1" }
         if phase == "replay" then

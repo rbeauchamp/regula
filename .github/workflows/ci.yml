@@ -17,14 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  compiler:
-    uses: ./.github/workflows/compiler.yml
-
-  # A required check. It follows `compiler` only to reuse its cache, and runs with its own
-  # provisioning whatever that job's result: `always()`, not `!cancelled()`, since a skipped job
-  # reports success, and on a cancelled run its steps do not pass.
+  # Required acceptance check; setup failures fail this job.
   verify:
-    needs: compiler
     if: always()
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; each verify.sh step enforces exactly 420 seconds.
@@ -66,14 +60,9 @@ jobs:
   # fresh acceptance and lint of the Mathlib integration package in integration/mathlib/, a
   # Mathlib adopter of the checker. It is the only job that downloads, caches or builds Mathlib,
   # and no other job needs its result: acceptance, the corpus, the site and a release require no
-  # Mathlib. Its result is about the toolchain and Mathlib revision that package pins. A compiler
-  # snapshot holds no Mathlib, and a commit whose toolchain is not the one that package pins has
-  # no Mathlib built for it: the `compiler` job decides this first
-  # (RegulaProvision.mathlibApplies), and on such a commit this whole job is skipped, so the
-  # check is shown as not run and never as passed. The check itself refuses such a commit too.
+  # Mathlib. Its result is about the toolchain and Mathlib revision that package pins.
+  # A mismatched pin fails the integration preflight instead of skipping the check.
   mathlib:
-    needs: compiler
-    if: needs.compiler.outputs.mathlib == 'true'
     name: mathlib integration
     runs-on: ubuntu-24.04
     # Provisioning has its own allowance; the verify.sh step enforces exactly 420 seconds.
@@ -93,7 +82,6 @@ jobs:
   # The rule-example corpus: detector qualification (standard §7.8) and the only
   # source of the site's examples. Diagnostics, not a partition of acceptance.
   rule-examples:
-    needs: compiler
     if: always()
     name: diagnostics rule-examples ${{ matrix.shard }}
     runs-on: ubuntu-24.04

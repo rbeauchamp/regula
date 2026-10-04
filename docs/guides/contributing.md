@@ -28,7 +28,7 @@ do not establish audit ownership.
 
 ## Develop and verify
 
-For a copy selecting a compiled snapshot, first follow [compiled source snapshots](#compiled-source-snapshots). For other copies, provision [elan](https://github.com/leanprover/elan), the pinned toolchain
+Provision [elan](https://github.com/leanprover/elan), the pinned toolchain
 and the website package's pinned Verso
 (`lean --run lean/RegulaProvision.lean verso`). Every copy also needs GNU coreutils timeout and ShellCheck
 before verification. On macOS, `brew install coreutils shellcheck` supplies the
@@ -57,7 +57,7 @@ declaration gate performs Lake-semantic discovery and a clean, warning-free buil
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before
-that limit, under its own 30-minute limit; without a snapshot selection it has nothing to acquire. CI runs both commands, in that order in one job, after restoring or
+that limit, under its own 30-minute limit; it validates the released compiler and acquires no dependencies. CI runs both commands, in that order in one job, after restoring or
 provisioning the pinned Verso artifacts.
 
 The applicable command evidence is required but does not complete the standard's checklist:
@@ -105,21 +105,14 @@ part of acceptance and no acceptance step, diagnostic or site build depends on i
 request and on `main`; it is the only job that restores or provisions Mathlib.
 
 Its result is about the Lean toolchain in `integration/mathlib/lean-toolchain` and the Mathlib
-revision pinned in `integration/mathlib/lake-manifest.json`, and about nothing else. Core checker
-support for a compiler is established by acceptance, the rule-example corpus and the site, which
-need no Mathlib, so a compiler can be supported while no Mathlib revision exists for it. For
-such a compiler the integration check has not run, and nothing Mathlib-specific is claimed: a
-check that did not run is `INCOMPLETE`, never a pass. A compiler snapshot holds no Mathlib, and
-a root toolchain other than the one this package selects has no Mathlib built for it. The proved
-decision `RegulaProvision.mathlibApplies` (`mathlibApplies_iff`) states exactly these two
-conditions. On a commit it excludes, the setup command and `./scripts/verify.sh mathlib` both
-refuse, and CI's `compiler` job runs `lean --run lean/RegulaProvision.lean mathlib-applies` before
-the integration job is scheduled: the job is then skipped as a whole, shown as skipped and never
-as passed, and that step's log states the reason and that the check is `INCOMPLETE`.
+revision pinned in `integration/mathlib/lake-manifest.json`, and about nothing else. The proved decision
+`RegulaProvision.mathlibApplies` (`mathlibApplies_iff`) accepts exactly when the root and
+integration toolchain selectors are equal. A mismatch fails setup and the integration job;
+CI always schedules that job on ordinary pull requests and `main`.
 
 ### Share one Mathlib across local copies
 
-Without a snapshot selection, every local copy uses one unpacked Mathlib per pinned revision, compiler and artifact mode instead of
+Every local copy uses one unpacked Mathlib per pinned revision and exact released compiler instead of
 its own. The pin is the `mathlib` entry of `integration/mathlib/lake-manifest.json`; the root,
 `audit/` and `website/` packages pin no Mathlib.
 [`lean/RegulaProvision.lean`](../../lean/RegulaProvision.lean), run with the `mathlib` argument, unpacks Mathlib's
@@ -136,18 +129,22 @@ need no packages directory. Run `lean --run lean/RegulaProvision.lean mathlib` i
 which `./scripts/verify.sh` runs before its deadline, acquires no Mathlib. The first run for a new pin needs the network; later copies reuse the
 sealed artifacts. The receipt `regula-provisioned.json` in the shared directory records its
 revisions, compiler and artifact mode. A clean per-copy Mathlib checkout is replaced by the link; one with local
-changes, stashes or commits that no remote-tracking branch holds is refused.
+changes, stashes or commits that no remote-tracking branch holds is refused. Before acquiring a
+shared store or changing registrations and packages, provisioning requires each existing package
+link to identify a stable store with an admissible receipt. Source-origin, unknown and dangling
+links are preserved and refused; their disposition remains manual.
 
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared
-directories of other pins, toolchains, artifact modes and source artifact policies that no
+directories of other stable pins and toolchains that no
 registered copy still links, and drops the
 registrations of copies that are gone or link elsewhere. Only a directory whose receipt names
-it, under the artifact policy that receipt records, is removed; this retention step leaves
-staging directories and anything else there as they are. A source directory is named
-`…-source-v<policy>-<hash>`; one named in an earlier form is not identified and stays until
-removed by hand. A removal a killed run began is finished by the next run. A copy left with a
-dangling link is relinked by its next provisioning, which recreates the directory. One lock,
+it with a decodable stable receipt is removed; this retention step leaves staging directories,
+source stores and anything else there as they are. Before creating a missing stable store,
+provisioning separately removes abandoned staging directories with that store's exact stable-key
+prefix. A stable-store removal a killed run began is
+finished by the next run. A copy left with a dangling link requires manual disposition before
+provisioning can continue. One lock,
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
 so copies wait while another copy creates a new pin.
 
@@ -180,63 +177,11 @@ rm -rf .lake/packages/{batteries,aesop,Qq,proofwidgets,importGraph,LeanSearchCli
   by the next run that creates one while no other run in the copy holds scratch; only marked
   directories there are removed. Scratch outside `.lake/regula-scratch/` is never reclaimed;
   remove it by hand.
-- GitHub Actions runs the Mathlib plan defined in the same Lean program, in the Mathlib
-  integration job only. Its upstream-cache
-  route only fetches Mathlib's published artifacts into the job's writable `integration/mathlib/.lake/packages`,
-  where later builds compile the native objects they link; only the read-only shared
-  directory needs them built in advance. Source mode provisions the shared
-  read-only store and caches it alongside the package links. Its cache keys include the exact
-  compiler commit, artifact mode, pinned manifests and source-plan inputs. A shared directory
-  is never modified, only removed whole.
+- GitHub Actions fetches Mathlib's published artifacts into the integration job's writable `integration/mathlib/.lake/packages`, where later builds compile the native objects they link. Only a local read-only shared directory needs those objects built in advance. CI cache keys include the platform, exact released compiler identity and pinned manifests. A shared directory is never modified, only removed whole.
 
-`dependency-build-mode` contains `upstream-cache` on the stable branch. Compiler adaptations
-may select `source`, which disables automatic Lake and Mathlib artifact downloads. The planner
-reads the libraries of the Mathlib integration package through Lake and uses Lean's header
-parser to collect their Mathlib imports; no other package or document imports Mathlib. Lake builds a generated executable with interpreter support, so it
-builds exported native objects for the complete transitive import closure. The planner itself
-uses a separate workspace with independent configuration and build caches, leaving the root acceptance build cold; its Lake load of the Mathlib integration package may write that package's configuration cache. One exclusive lock, `.lake/regula-dependency-planner/planner.lock`, orders the planner runs of one copy: it is held from before that workspace is examined until the planner's result is decoded, and released before `regula-provision.lock` is taken (file locking is a trusted OS effect; it orders only runs of this program, not a child process that outlives a killed run). That workspace is written in a staging directory under `.lake/regula-dependency-planner/` and published complete as `v3-<key>` by one rename (a trusted filesystem effect, not a durability guarantee); an interrupted attempt stays in its staging directory, unused and never removed. A workspace that an earlier version of this program built without the lock is likewise neither used nor removed. This is dependency setup;
-the Mathlib integration check still checks all its sources.
-Source artifacts have a separate key containing their policy version and an import-source
-hash. Receipt admission compares the exact generated source, so a hash collision cannot admit
-another scope. Source admission also requires the current policy version, so a source store
-recorded under another policy is never served, only removed once no registered copy links it. CI keys contain this generated-source hash and source cache hits repeat receipt
-admission. Old receipts without a mode describe the upstream-cache route and cannot admit source
-requests. A missing `dependency-build-mode` or an unknown spelling in it is refused.
-Each source invocation also receives a fresh artifact-cache directory under
-`.lake/regula-source-caches/`, disables Lake's separate artifact-cache default, and requests
-restoration of outputs to package build directories. A package's explicit cache setting can
-override those defaults, so the isolated cache is retained with the workspace; it has no
-inherited remote mappings. Package build hooks remain trusted code.
+Existing stable shared-store receipts and keys remain compatible. A receipt whose origin is `source` fails decoding; its store is neither reused nor pruned. Removed source-mode and snapshot configuration files are refused during setup. Provisioning does not migrate or delete source stores.
 
-Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso in either mode.
-For direct development commands on a source adaptation, use
-`lean --run lean/RegulaProvision.lean exec . lake build`; it passes the cache-disabled
-environment to Lake and its descendants. The verification driver uses this entry point for
-all its commands, and CI exports the same environment for the job. The existing setup and
-acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage,
-process execution and filesystem operations remain trusted boundaries.
-
-### Compiled source snapshots
-
-An adaptation prepares a complete source-built compiler and dependency snapshot by committing `.github/snapshot-preparation.json` in the [`RegulaSnapshot.Compiler`](../../lean/RegulaSnapshot.lean) format with its Elan alias, full compiler revision and reported version. Use the same alias in the five `lean-toolchain` files that [development toolchains](toolchains.md#build-dependencies-with-the-selected-compiler) lists, which exclude the Mathlib integration package's, and keep `dependency-build-mode` as `source`. The explicit compiler build recipe remains in `.github/compiler-source.json`. Preparation metadata is part of the snapshot's exact inputs; it leaves ordinary source setup available before publication. The stable branch retains its upstream-cache route.
-
-After qualification, commit `.github/snapshot-compiler.json` with the same decoded compiler record to select restoration. A selected copy requires its qualified immutable native location; an absent native location, invalid reference or mismatched artifact receipt fails setup. Consumer selection and produced locations do not change the preparation identity. Choose a distinct alias for each new input set, including a replacement with the same compiler revision but changed dependencies or preparation. Setup preserves an existing alias linked to another compiler root and refuses that selection; use a fresh Elan store when moving from source validation to snapshot restoration.
-
-The [snapshot workflow](../../.github/workflows/snapshot.yml) prepares the chosen compiler and the complete pinned Verso dependency tree, which is all that default verification requires, once per input set on Ubuntu 24.04 x86-64 and macOS 15 arm64. Preparation disables upstream compiled dependency downloads and builds the libraries, exported native objects and shared-library import closure. It publishes the compiler prefix, all dependency sources and Git identities, native and generated outputs, and an admission receipt as one OCI artifact in Regula's GHCR Packages. The compiler archive dereferences prefix symlinks, including Lean's link to its source checkout; package archives preserve symlinks. Compressed archives stream into bounded layers; packaging does not make another full payload copy. This publication does not create a GitHub release.
-
-Preparation requires a fresh compiler store and dependency directory and refuses an already installed selected alias. It observes the factory filesystem before compilation, requires at least 32 GiB initially free, and reports available space after the compiler, dependencies and packaging phases. This is a preparation resource guard, not a proof of peak usage or a capacity guarantee supplied by the runner label. The workflow uses standard public runners; it neither removes unrelated image contents nor selects paid larger runners.
-
-The receipt binds the full compiler revision, all dependency revisions, exact configuration and preparation-program contents, build plan, target platform and declared runtime libraries. [`RegulaSnapshot.admits_iff`](../../lean/RegulaSnapshot.lean) characterizes the predicate the restoration program actually uses. Restoration also checks the extracted compiler's CLI and library identities, the clean Git package census, every compressed layer's SHA-256 and the declared native runtime. These observations and the OCI, tar, compiler, process and filesystem mechanisms remain trusted effects; the admission theorem does not prove their implementation, compiler or core-source relocation, or native compatibility.
-
-Preparation and restoration invoke the same acquisition runner. `restore_plan` makes its restoration plan empty, and `runBuildPlan_restore` proves that this invocation equals `pure ()` for every root and requested identity. Within snapshot acquisition, compiler and dependency source-build commands occur only in that runner's preparation plan. Restoration checks runtime availability, existing package paths and the selected alias before downloading, repeats admission and activation checks afterward, and removes each compressed layer after extraction. The transport uses ORAS 1.3.0 with platform archive digests pinned from its [release checksums](https://github.com/oras-project/oras/releases/download/v1.3.0/oras_1.3.0_checksums.txt). Every compiler, snapshot and provisioning subprocess explicitly removes `GHCR_TOKEN` from its environment; publication alone supplies it to registry login on standard input. Restoration supplies ORAS with one fresh empty registry configuration, so stored Docker credentials and credential helpers cannot authenticate its pull.
-
-Each preparation's exact manifest digest is restored anonymously on a separate fresh runner of the same platform, so the GHCR package must be public before qualification. Qualification runs both acceptance commands in order, both rule-example shards, the rule-reference site check, all diagnostic-workflow campaigns and both repository-conformance diagnostics. Every `verify.sh` invocation retains its own 420-second deadline. Only the resulting `qualified-snapshot-*` artifact supplies a qualified location; the earlier `compiled-snapshot-*` artifact records preparation and publication alone.
-
-Commit the qualified platform locations as an array of [`RegulaSnapshot.Location`](../../lean/RegulaSnapshot.lean) records in `.github/compiler-snapshot.json`.
-
-In a fresh local copy, make the stable Lean 4.34.0 bootstrap, `pkg-config` and the native prerequisites declared by [`RegulaSnapshot.Platform.runtime`](../../lean/RegulaSnapshot.lean) available first. From the repository root, run `elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaCompiler.lean` before `./scripts/provision.sh` or other development commands, so Elan can resolve the selected snapshot alias.
-
-Ordinary setup restores those immutable digest references and admits the complete receipt before linking the compiler and read-only package trees. A missing or mismatched snapshot refuses setup; it never starts a compiler or dependency source build. Source origin and acquisition remain distinct: preparation compiles the pinned sources, while a consuming copy restores the resulting artifacts. A changed pin, preparation program, configuration or native target requires a matching new preparation and qualification.
+Run `lean --run lean/RegulaProvision.lean verso` to provision the pinned Verso. The default provisioning command validates the released compiler and acquires no dependencies. Verification invokes commands directly with their declared arguments and working directories. The existing setup and acceptance deadlines still apply. Git, package build hooks, compiler binaries, cache storage, process execution and filesystem operations remain trusted boundaries.
 
 [AGENTS.md](../../AGENTS.md#changes-and-verification) owns verification and merge policy.
 The [CI workflow](../../.github/workflows/ci.yml) defines runner and cache configuration.
@@ -288,16 +233,16 @@ coverage already obtained for the same inputs rather than repeating the same roo
 invocation. Diagnostics do not replace a failed acceptance run.
 
 The [diagnostics workflow](../../.github/workflows/diagnostics.yml) runs on every pull request,
-every push to `main`, nightly and on dispatch. Its first job, `compiler`, prepares the selected
-compiler. The next, `applies` (`lean --run lean/Regula/DiagnosticsGate.lean applies`), runs only
-once `compiler` succeeded and decides which of its jobs apply. It runs
+every push to `main`, nightly and on dispatch. Its first job, `applies`
+(`lean --run lean/Regula/DiagnosticsGate.lean applies`), provisions the pinned release and
+decides which jobs apply. It runs
 `producers`, `history`, `lint-driver` and the two shards each of `structural` and `execution` as
 parallel jobs, each with its own hard 420-second limit, on a pull request exactly when it changes
 one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
 fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
-the compiler and dependency setup: the installer, the provisioning program and the snapshot
-controller with their decision contracts, `dependency-build-mode`, `.github/compiler-source.json`, both snapshot selections and the compiler and snapshot workflows),
+the compiler and dependency setup: the provisioning program and its decision contracts, the
+provisioning action and the verification scripts),
 and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
 passes exactly when `applies` succeeded and each partition job passed and applies, or was

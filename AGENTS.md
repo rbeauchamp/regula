@@ -160,7 +160,7 @@ Provision pinned dependency artifacts (including the website package's pinned Ve
 verification; network/toolchain installation is setup, not a verification pass. OS scheduling and
 signal delivery are trusted mechanisms, not a hard real-time theorem.
 Use the Lean provisioning entry points documented in the
-[contributor guide](docs/guides/contributing.md) so their artifact policy also reaches child processes.
+[contributor guide](docs/guides/contributing.md) to acquire the pinned dependency artifacts.
 
 The first builds the acceptance executables and type-checks the diagnostic modules,
 checks every claimed declaration of the root `regula` package with fresh source elaboration and
