@@ -1198,20 +1198,29 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
   answers of the inspected environment and with matchers unfolding (`Reading.discriminants`), and
   adds the definitions Lean asks about only in a discriminant. Where a change leaves the body as it
   was, it is followed (`Collect.followChange`): the definitions the preprocessing then asks about,
-  without their unfolding, more often than the run the change extends did (`Collect.newlyStuck`)
-  are given a status that answers the question, all of them at once, each made `reducible`, where
-  there are several, and then each alone, with each status that unfolds at the transparency asked
-  (`Collect.unfoldingStatuses`); the extended change is followed in the same way, until a run
-  changes the body or raises no such question. A rule matches through a function only where the
+  without their unfolding, more often than it does before any change (`Collect.newlyStuck`) are
+  given a status that answers the question, and each extended change is followed in the same way,
+  until a run changes the body or raises no such question. There are three kinds of extension.
+  The first path gives all of those definitions that no toolchain rule's left-hand side mentions
+  (`Collect.patternConstants`, the constants of the keys Lean indexes the rules under) the status
+  `reducible` at once. The second gives those same definitions, at once, the status that unfolds
+  least among those that unfold at the transparency asked (`Collect.unfoldingStatuses`), where
+  that is another assignment. The third gives all of them `reducible`, where a rule's left-hand
+  side mentions one. A rule matches through a function only where the
   function unfolds, and with it unfolded Lean's matching goes on to the next function that does
   not, which it asks about once more than before: following those questions reaches a rule that
   needs several functions together, whether one unfolds to another
   (`FixturesWhereTree.chained`, six functions; found in review, when the search stopped after five
   runs and left that helper undecided) or the definition calls each directly
   (`fixtures_where_typed_size`, three definitions the preprocessing asks about before any change,
-  two of them in a type). Following each alone leaves as it is a function the change unfolds to
-  and that the rule needs as it is: `List.map` itself is asked about once a function unfolds to
-  it, and unfolding it too, as following all at once does, keeps the rule from matching. A change
+  two of them in a type). A constant a rule's left-hand side mentions has to stay as it is for
+  that rule to match: `List.map` itself is asked about once a function unfolds to it, and
+  unfolding it too keeps the rule from matching, so the first path leaves such a constant alone.
+  What a change is extended with depends on the change alone, not on the changes it was reached
+  through, so a change is run and extended once, whichever change reached it, and every change
+  that extends it is reached from it (found in the second review of this search: the questions
+  were once counted against the run of the change extended, so what a change was extended with
+  depended on the route, while a change was still run once). A change
   that still leaves the body as it was
   is then paired with each other definition its own run asked about without that definition
   unfolding each time: that definition is given each status that answers the question beside the
@@ -1220,7 +1229,7 @@ and `Collect.statusCandidates` proposes what it tries in each of the two environ
   status was changed first; one found through a pair only where it gives a body that no change
   found before it gives, since a pair whose body one of its two changes gives alone says nothing
   about the other; and one that only adds statuses to another change with the same body is
-  dropped. A change is run once, whichever change it was reached from.
+  dropped.
 - The assignment tried first. `Collect.observedFixedParameters?` reads which parameters each
   observed base keeps outside its recursion, from the shape Lean's compilers give it: the parameters
   passed to the `_unary` or `_mutual` definition a well-founded group is packed into, the ones bound
@@ -1347,7 +1356,8 @@ consulted. The rest is argued, with no theorem:
   would be rejected, which was traced from Lean 4.34.0's source and not observed.
   The candidates the enumeration has for the preprocessing are found from one definition at a time
   and followed through the questions a change newly raises. A rule that needs several definitions
-  of which none, unfolded, makes the preprocessing ask about another once more than before, and
+  of which none, unfolded, makes the preprocessing ask about another more often than it does
+  before any change, and
   that no pair with a definition the run asked about reaches, is found only through the assignment
   the observed bases select, where the mentions the bases keep tell those functions apart
   (`FixturesWhereTree.size`, with three functions and one varying argument, is selected that
@@ -1364,15 +1374,20 @@ consulted. The rest is argued, with no theorem:
   parameters take, for each input (one, or two where the kind of the bases is not read), two runs
   and then four for each definition recorded, five where that definition is irreducible there. The
   preprocessing takes three runs, and then for each definition recorded three changes, four where
-  it is irreducible there. A change is followed through at most 64 runs, its own included
+  it is irreducible there. A change is followed along its first path to that path's end: each run
+  on it gives at least one more definition of the environment a status, so there are fewer of them
+  than the environment has constants. Beside that path it is followed through at most 64 runs
   (`Collect.followLimit`). A change that leaves the body as it was takes, beside that, one such
   followed change for each definition it is paired with and each status that answers, so the runs
   grow with the square of the number of definitions recorded. The change made for several
   functions at once is one more change, followed and paired in the same way. `followChange`
-  recurses on a depth one above that count, counts its runs in its state, and records a change it
-  would have run with none left (`Collect.Followed.exhausted`), which the search reports as
-  undecided, not as
-  unchanged. `assignments?` stops as soon as more than 64 assignments exist, deciding list by
+  recurses on a depth one above the number of constants, counts the runs beside the first path in
+  its state, and records a change it would have run with none left (`Collect.Followed.unrun`),
+  which the search reports as undecided, not as
+  unchanged; a change so recorded that a later change reaches with runs left is run then, and no
+  longer counts. No fixture reaches that bound: that it ends in an incomplete audit is read from
+  `followChange`, `preprocessingStatuses` and `unsafeRecRegeneration`, which throws before it can
+  answer that the helper is not regenerated, not observed. `assignments?` stops as soon as more than 64 assignments exist, deciding list by
   list, so it never builds more than 64 times one candidate's alternatives plus one.
   `earlierStatusOptions` takes one step for each constant of the environment at most, and each
   step visits a constant of the helper's module that no earlier step visited, so the visit ends;

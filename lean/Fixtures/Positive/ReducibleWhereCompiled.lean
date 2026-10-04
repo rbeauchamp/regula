@@ -26,8 +26,9 @@ Lean puts its unfolding predicate aside while it reduces the discriminant of a
 second time in an environment where no definition unfolds for its status:
 there such a `match` is stuck, the matcher is unfolded, and the discriminant
 is asked about under the predicate. For the preprocessing it follows a change
-that leaves the body as it was through the definitions the change newly asks
-about, each alone and all at once. The last five items are the forms that
+that leaves the body as it was through the definitions the change makes the
+preprocessing newly ask about, all at once, less the constants a toolchain
+rule's left-hand side mentions. The last five items are the forms that
 remained of the issue: before those two steps and the reading of the fixed
 parameters of a definition by recursion over an inductive predicate,
 `fixtures_where_elsewhere_match`, `fixtures_where_sealed_match`,

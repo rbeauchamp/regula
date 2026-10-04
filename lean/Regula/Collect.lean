@@ -28,6 +28,7 @@ public import Lean.Elab.PreDefinition.PartialFixpoint.Eqns
 public import Lean.Server.Rpc.RequestHandling
 public import RegulaPolicy.GeneratedFamily
 public import Lean.Meta.RecExt
+public import Lean.Meta.DiscrTree.Util
 public import Lean.ProjFns
 public import Lean.Util.FoldConsts
 public import RegulaPolicy.Domain
@@ -1090,8 +1091,10 @@ private def preprocessed (consulted? : Option (IO.Ref (NameMap Consults) × Read
 
 /-- The definitions that `after` records more questions about, answered that they do not unfold,
 than `before` does, and that `change` gives no status: each with the lowest of the three
-transparencies at which that number rose. They are what a run newly asks about without their
-unfolding once `change` is made. -/
+transparencies at which that number rose. With `before` what the preprocessing asks before any
+change and `after` what it asks under `change`, they are what `change` makes it newly ask about
+without their unfolding, and depend on `change` alone, not on the changes it was reached
+through. -/
 private def newlyStuck (before after : NameMap Consults) (change : Statuses) :
     Array (Name × Meta.TransparencyMode) :=
   after.foldl (init := #[]) fun found name asked =>
@@ -1112,6 +1115,17 @@ same statuses have the same one. -/
 private def inNameOrder (change : Statuses) : Statuses :=
   (change.toArray.qsort fun a b => a.1.lt b.1).toList
 
+/-- The constants the left-hand sides of `rules` mention: those among the discrimination-tree
+keys Lean indexes each rule under. A rule matches a term through these constants as they are, so
+a status under which one of them unfolds can only keep that rule from matching. -/
+private def patternConstants (rules : Meta.SimpTheorems) : NameSet :=
+  let mentioned := fun (found : NameSet) (rule : Meta.SimpTheorem) =>
+    rule.keys.foldl (init := found) fun found key =>
+      match key with
+      | .const name _ => found.insert name
+      | _ => found
+  rules.post.foldValues mentioned (rules.pre.foldValues mentioned {})
+
 /-- The state of one helper's search of the preprocessing in one environment (`followChange`). -/
 private structure Followed where
   /-- The changes run so far (`inNameOrder`). -/
@@ -1120,67 +1134,85 @@ private structure Followed where
   changed : Array (Statuses × Expr × Array Nat) := #[]
   /-- The changes that left the result as it was (`inNameOrder`), each with what its run asked. -/
   kept : Array (Statuses × NameMap Consults) := #[]
-  /-- The runs left for the change being followed. -/
+  /-- The runs left off the first path of the change being followed. -/
   runs : Nat := 0
-  /-- Whether a change was not run because the runs were used up. -/
-  exhausted : Bool := false
+  /-- The changes not run because those runs were used up (`inNameOrder`), less those run since. -/
+  unrun : Array Statuses := #[]
+  /-- Whether a change was not run because the depth given was used up. -/
+  deep : Bool := false
 
-/-- The runs one change is followed through at most, its own included (`followChange`). -/
+/-- The runs one change is followed through at most off its first path (`followChange`). -/
 private def followLimit : Nat := 64
 
-/-- Run the preprocessing of `preDefs` in `environment` under `change`, and follow the change
-through the definitions it newly asks about. Where the run changes the result, `unchanged`, the
-change is added to `state` with the result and its counts. Where it leaves the result as it was,
-the definitions the run newly asks about without their unfolding (`newlyStuck`, against `before`,
-what the run this change extends asked) are followed in turn: all of them at once, each made
-`reducible`, where there are several, and then each alone, given each status that answers its
-question (`unfoldingStatuses`). A `wf_preprocess` rule matches through a function only where the
-function unfolds; with it unfolded, Lean's matching goes further and stops at the next function
-that does not unfold, which is asked about once more than before. Following those questions
-reaches a rule that applies only where several functions unfold together, whether the helpers'
-values mention them or one unfolds to another, and leaves aside a function that the change unfolds
-to and that has to stay as it is for the rule to match (`List.map` itself, once a function unfolds
-to it), which following all of them at once would unfold too.
+/-- Run the preprocessing of `preDefs` in `environment` under `change`, once, and follow the change
+through the definitions it makes the preprocessing newly ask about. Where the run changes the
+result, `unchanged`, the change is added to `state` with the result and its counts. Where it
+leaves the result as it was, what it asked is kept in `state`, and the definitions it asks about,
+without their unfolding, more often than `baseline` records (`newlyStuck`; `baseline` is what the
+preprocessing asks before any change) are given a status that answers the question, and each
+extended change is followed in turn:
 
-Returned: what the run asked, where it left the result as it was, for the caller to pair the
-change with the other definitions asked about (`preprocessingStatuses`); `none` where the result
-changed, the run threw, the change was run before (`Followed.tried`), or the runs were used up.
-`state` holds the runs left: a change that is not run for want of one, or of `depth`, is recorded
-as `exhausted`, so that the caller does not take the search for complete. Each level runs once, so
-a `depth` above the runs is never used up first. -/
+- the first path: all of them that no toolchain rule's left-hand side mentions (`patterns`,
+  `patternConstants`) at once, each made `reducible`;
+- those same definitions at once, each given the status that unfolds least among those that
+  answer its question (`unfoldingStatuses`), where that is another assignment; and
+- all of them at once, each made `reducible`, where a rule's left-hand side mentions one.
+
+A `wf_preprocess` rule matches through a function only where the function unfolds; with it
+unfolded, Lean's matching goes further and stops at the next function that does not unfold, which
+is asked about once more than before. Following those questions reaches a rule that applies only
+where several functions unfold together, whether the helpers' values mention them or one unfolds
+to another. A constant a rule's left-hand side mentions (`List.map` itself, once a function
+unfolds to it) has to stay as it is for that rule to match, so the first path leaves it alone.
+
+What a change is extended with depends on the change alone, so a change is run and extended once
+(`Followed.tried`), whichever change it was reached from, and every change that extends it is
+reached from it. `first` says that the run is on the first path of the change being followed: the
+change itself, and from a change on that path the first extension above. Each run on it gives at
+least one more definition a status, so there are fewer of them than `environment` has constants.
+Any other run takes one of the runs `state` holds; with none left the change is not run and is
+recorded (`Followed.unrun`), so that the caller does not take the search for complete. The same
+holds for `depth`, which a caller that gives one above the number of constants never uses up. -/
 private def followChange (environment : Environment) (preDefs : Array PreDefinition)
-    (counted : Array Name) (unchanged : Expr) (state : IO.Ref Followed)
-    (before : NameMap Consults) (change : Statuses) : Nat → TermElabM (Option (NameMap Consults))
-  | 0 => do
-    state.modify ({ · with exhausted := true })
-    return none
+    (counted : Array Name) (unchanged : Expr) (patterns : NameSet) (baseline : NameMap Consults)
+    (state : IO.Ref Followed) (change : Statuses) (first : Bool) : Nat → TermElabM Unit
+  | 0 => state.modify ({ · with deep := true })
   | depth + 1 => do
     let key := inNameOrder change
     let current ← state.get
-    if current.tried.contains key then return none
-    if current.runs == 0 then
-      state.set { current with exhausted := true }
-      return none
-    state.set { current with tried := current.tried.push key, runs := current.runs - 1 }
+    if current.tried.contains key then return
+    if !first && current.runs == 0 then
+      unless current.unrun.contains key do
+        state.set { current with unrun := current.unrun.push key }
+      return
+    state.set { current with
+      tried := current.tried.push key, unrun := current.unrun.erase key
+      runs := if first then current.runs else current.runs - 1 }
     let consulted ← IO.mkRef ({} : NameMap Consults)
     let some (processed, counts) ← decisionIn (withStatuses environment change)
         (preprocessed (some (consulted, .own)) preDefs counted (some unchanged))
-      | return none
+      | return
     if processed != unchanged then
       state.modify fun found =>
         { found with changed := found.changed.push (change, processed, counts) }
-      return none
+      return
     let asked ← consulted.get
     state.modify fun found => { found with kept := found.kept.push (key, asked) }
-    let further := newlyStuck before asked change
-    if further.size > 1 then
-      discard <| followChange environment preDefs counted unchanged state asked
-        (change ++ further.toList.map fun (name, _) => (name, .reducible)) depth
-    for (name, transparency) in further do
-      for status in unfoldingStatuses transparency do
-        discard <| followChange environment preDefs counted unchanged state asked
-          (change ++ [(name, status)]) depth
-    return some asked
+    let further := newlyStuck baseline asked change
+    let through := further.filter (!patterns.contains ·.1)
+    let extended (names : Array (Name × Meta.TransparencyMode))
+        (status : Meta.TransparencyMode → ReducibilityStatus) : Statuses :=
+      change ++ names.toList.map fun (name, transparency) => (name, status transparency)
+    let least (transparency : Meta.TransparencyMode) : ReducibilityStatus :=
+      (unfoldingStatuses transparency).headD .reducible
+    unless through.isEmpty do
+      followChange environment preDefs counted unchanged patterns baseline state
+        (extended through fun _ => .reducible) first depth
+      followChange environment preDefs counted unchanged patterns baseline state
+        (extended through least) false depth
+    if through.size < further.size then
+      followChange environment preDefs counted unchanged patterns baseline state
+        (extended further fun _ => .reducible) false depth
 
 /-- The status changes that change what Lean's well-founded preprocessing makes of `preDefs` in
 `environment`, the change the observed bases select, and whether every change was decided.
@@ -1197,7 +1229,8 @@ leaves the result unchanged is then paired with each other definition its run as
 that definition's unfolding, given each status that answers the question (`unfoldingStatuses`),
 and the pair is followed in the same way; a change found that way is returned, with the
 definition whose status was changed first, where its result is one that no change found before it
-gives: a pair whose result one of its two changes gives alone says nothing about the other. The
+gives: a pair whose result one of its two changes gives alone says nothing about the other. A
+change that only adds statuses to another one with the same result is dropped. The
 observed definitions only order the changes: `wanted` counts the mentions of
 a constant they keep (`survivingMentions`), and the changes after which the result keeps the
 observed number of most of the constants counted come first. The constants counted are the
@@ -1213,9 +1246,9 @@ number of each. Tried first for that is one change for all the functions concern
 `reducible` where the result mentions it more often than the observed definitions do and
 semireducible where it mentions it less often, since a rule can need several functions to unfold
 together, followed and paired in the same way; then the changes returned first, in the order they
-were found. Returned third: `false` if a change was not run because the runs it is followed
-through were used up (`followLimit`, `Followed.exhausted`), so that what was returned is not all
-there is. Everything here only proposes assignments. -/
+were found. Returned third: `false` if a change was not run because the runs a change is followed
+through off its first path were used up (`followLimit`, `Followed.unrun`), so that what was
+returned is not all there is. Everything here only proposes assignments. -/
 private def preprocessingStatuses (environment stripped : Environment)
     (preDefs : Array PreDefinition) (wanted : Name → MetaM Nat) :
     TermElabM (Array (Name × List Statuses) × Statuses × Bool) := do
@@ -1236,20 +1269,28 @@ private def preprocessingStatuses (environment stripped : Environment)
   let observed ← counted.mapM fun name => withCurrHeartbeats <| wanted name
   let distance (counts : Array Nat) : Nat :=
     (Array.range observed.size).countP fun index => counts[index]? != observed[index]?
+  let patterns := patternConstants (WF.wfPreprocessSimpExtension.getState environment)
+  let depth := environment.constants.fold (fun depth _ _ => depth + 1) 1
   let state ← IO.mkRef ({} : Followed)
+  let complete : TermElabM Bool := do
+    let followed ← state.get
+    return followed.unrun.isEmpty && !followed.deep
   -- The changes found by following `change`, and what its own run asked where it left the result
-  -- unchanged. A change run before returns what that run found for it.
-  let follow (before : NameMap Consults) (change : Statuses) :
+  -- unchanged. A change run before returns what was found for every change that extends it:
+  -- those are the changes following it reaches.
+  let follow (change : Statuses) :
       TermElabM (Array (Statuses × Expr × Array Nat) × Option (NameMap Consults)) := do
-    let earlier ← state.get
     let key := inNameOrder change
-    if earlier.tried.contains key then
-      return (earlier.changed.filter (inNameOrder ·.1 == key),
-        (earlier.kept.find? (·.1 == key)).map (·.2))
-    state.set { earlier with runs := followLimit }
-    let unchanged? ← followChange environment preDefs counted unchanged state before change
-      (followLimit + 1)
-    return ((← state.get).changed.extract earlier.changed.size, unchanged?)
+    let earlier ← state.get
+    let found ←
+      if earlier.tried.contains key then
+        pure (earlier.changed.filter fun (other, _, _) => key.all other.contains)
+      else
+        state.set { earlier with runs := followLimit }
+        followChange environment preDefs counted unchanged patterns baseline state change true
+          depth
+        pure ((← state.get).changed.extract earlier.changed.size)
+    return (found, ((← state.get).kept.find? (·.1 == key)).map (·.2))
   let paired (change : Statuses) (run : NameMap Consults) :
       TermElabM (Array (Statuses × Expr × Array Nat)) := do
     let mut found := #[]
@@ -1259,7 +1300,7 @@ private def preprocessingStatuses (environment stripped : Environment)
         if asked.reducible > 0 then .reducible
         else if asked.instances > 0 then .instances else .implicit
       for status in unfoldingStatuses transparency do
-        found := found ++ (← follow run (change ++ [(partner, status)])).1
+        found := found ++ (← follow (change ++ [(partner, status)])).1
     return found
   let mut found : Array (Name × Nat × Statuses × Expr) := #[]
   let mut pending : Array (Name × Statuses × NameMap Consults) := #[]
@@ -1268,7 +1309,7 @@ private def preprocessingStatuses (environment stripped : Environment)
     let current := getReducibilityStatusCore environment name
     for status in triedStatuses do
       if status == current then continue
-      let (changes, unchanged?) ← follow baseline [(name, status)]
+      let (changes, unchanged?) ← follow [(name, status)]
       for (change, processed, counts) in changes do
         unless found.any fun (other, _, _, result) => other == name && result == processed do
           found := found.push (name, distance counts, change, processed)
@@ -1293,16 +1334,16 @@ private def preprocessingStatuses (environment stripped : Environment)
       some (changes.foldl (fun closest (_, far, _, _) => min closest far) (distance #[]), name,
         changes.toList.map (·.2.2.1))
   let ordered := (options.qsort fun a b => a.1 < b.1).map fun (_, name, changes) => (name, changes)
-  if distance counts == 0 then return (ordered, [], !(← state.get).exhausted)
+  if distance counts == 0 then return (ordered, [], ← complete)
   unless together.isEmpty do
-    let (changes, unchanged?) ← follow baseline together
+    let (changes, unchanged?) ← follow together
     let changes ← match unchanged? with
       | some run => pure (changes ++ (← paired together run))
       | none => pure changes
     if let some (change, _, _) := changes.find? fun (_, _, counts) => distance counts == 0 then
-      return (ordered, change, !(← state.get).exhausted)
+      return (ordered, change, ← complete)
   let directed := (found.find? (·.2.1 == 0)).map (·.2.2.1)
-  return (ordered, directed.getD [], !(← state.get).exhausted)
+  return (ordered, directed.getD [], ← complete)
 
 /-- The head of `e` and its arguments, with the projections around the head taken off: the
 arguments under each projection first, then those applied to it. `fuel` bounds the projections
@@ -1379,7 +1420,7 @@ definitions. The fixed parameters are analysed first (`fixedParameterStatuses`),
 preprocessing, where the recursion can be well-founded, under the assignment that analysis
 selects (`preprocessingStatuses`); a change that only restores a status of `environment` is
 dropped. The assignment returned first joins the two selections. Returned last: `false` if
-the preprocessing left a change unfollowed (`Followed.exhausted`), so that the candidates are
+the preprocessing left a change unfollowed (`Followed.unrun`), so that the candidates are
 not all there are. -/
 private def statusCandidates (environment stripped : Environment)
     (preDefs : Array PreDefinition)
@@ -1626,10 +1667,14 @@ in the environment with no definition unfolding for its status (`withoutReducibl
 For
 each such definition it finds the statuses under which a decision comes out differently
 (`statusCandidates`); for the preprocessing, a change that leaves the result as it was is followed
-through the definitions it newly asks about without their unfolding, each alone and all at once
-(`followChange`), and paired with each other definition its run asked about in that way, so that
+through the definitions it makes the preprocessing newly ask about without their unfolding: all
+at once, less the constants a toolchain rule's left-hand side mentions, each made `reducible`,
+which is its first path, then those with the status that unfolds least, and then all with those
+constants (`followChange`). It is then paired with each
+other definition its run asked about in that way, so that
 a rule that matches only where several functions unfold together is reached from the first of
-them. From the observed bases
+them. What a change is extended with depends on the change alone, so each is run once. From the
+observed bases
 it reads which parameters they keep fixed
 (`observedFixedParameters?`) and how many mentions of a function they keep, which select one
 assignment directly. The search runs in the inspected environment and then in the one with no
@@ -1645,7 +1690,7 @@ the first `candidateLimit` single candidate changes are tried (`candidates_lengt
 which can give several definitions a status, and a helper none of them reproduces is undecided:
 the regeneration throws, so the audit is incomplete and the helper is neither admitted nor
 rejected. The same holds where a change of status was followed through `followLimit` runs of the
-preprocessing with a definition it newly asks about still untried (`Followed.exhausted`).
+preprocessing off its first path with a change that extends it still not run (`Followed.unrun`).
 Where none of those assignments reproduces the base, the regeneration tries the assignments of
 the search this one replaces (`earlierStatusOptions`, `candidates`): each gives some of the
 definitions of the helper's module that its group reaches an earlier status (`earlierStatuses`),
@@ -1811,8 +1856,8 @@ private def unsafeRecRegeneration (env : Environment) (name : Name) (info : Cons
         another status, of which only the one its observed base selects and the first \
         {candidateLimit} single candidate changes were tried"]) ++
       (if followed then [] else [m!"a change of status was followed through {followLimit} \
-        runs of Lean's preprocessing, and a definition it newly asks about without that \
-        definition's unfolding was still left untried"]) ++
+        runs of Lean's preprocessing beside those of its first path, and a change that extends \
+        it was still not run"]) ++
       (if reached?.isSome then [] else [m!"the definitions of its module that it reaches were \
         not all visited"]) ++
       (if exhaustive then [] else [m!"the definitions of its module that it reaches allow more \

@@ -498,13 +498,15 @@ def guide : RuleId → Guide
           63 single changes are tried, and a helper none of them reproduces is undecided in the \
           same way (`Fixtures.Mutations.ReducibilityFallbackBoundUnsafeRecForge`).",
         "A change of a function's status that leaves the preprocessed body as it was is \
-          followed through the definitions Lean's preprocessing then asks about, without \
-          their unfolding, more often than before, each alone and all of them at once, and is \
-          then tried together with each other definition it asked about in that way, one at a \
-          time. One change is followed through at most 64 runs of the preprocessing. Where \
-          those are used up with a definition still untried, a helper nothing reproduces is \
-          undecided, the audit incomplete and not a violation, with an error that names which \
-          bound was reached.",
+          followed through the definitions it makes Lean's preprocessing newly ask about, \
+          without their unfolding: all of them at once, less the constants a toolchain rule's \
+          left-hand side mentions, each made `reducible`, then those with the status that \
+          unfolds least, and then all with those constants. It is then tried \
+          together with each other definition its run asked about in that way, one at a time. \
+          The first of those paths is followed to its end; beside it one change is followed \
+          through at most 64 runs of the preprocessing. Where those are used up with a change \
+          still not run, a helper nothing reproduces is undecided, the audit incomplete and \
+          not a violation, with an error that names which bound was reached.",
         "A helper is not admitted where the checker finds no proof of its recursion equation \
           that the kernel accepts. It looks for one only in a constant named `f.eq_def`, which \
           Lean adds with a well-founded definition, in the theorem Lean realizes for a \
