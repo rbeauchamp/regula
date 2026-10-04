@@ -2,15 +2,15 @@ name: Release
 
 # One action starts a release: run this workflow on main (docs/guides/contributing.md#release).
 # It derives the version from the Conventional Commits types of main's commits since the previous
-# release and from lean-toolchain; its bump input may raise that bump, never lower it. It pushes
+# release and from lean-toolchain; its bump input may raise that bump, never lower it. It creates
 # the branch of the release pull request, which lists the release with its toolchain, sets the
 # lakefile's version, adds it to the adoption guide's compatibility table and stamps it into the
-# rules; a maintainer opens that pull request from the link in the job summary. While a pull
-# request from that branch is open, it refuses and pushes nothing: close the pull request, run
-# this workflow again and open a fresh one from the new link. Once the pull request merges,
-# ci.yml on main creates the release commit, runs main's checks on it and, once they pass,
-# publishes the release, which creates its tag. No workflow creates a pull request. Every step is
-# lean/Regula/Release.lean.
+# rules; a maintainer opens that pull request from the link in the job summary. Every run
+# creates a new branch and moves none, so a run never changes a pull request that is open: after
+# a rebuild, open a fresh pull request from the new link and close the earlier one. Once the pull
+# request merges, ci.yml on main creates the release commit, runs main's checks on it and, once
+# they pass, publishes the release, which creates its tag. No workflow creates a pull request.
+# Every step is lean/Regula/Release.lean.
 on:
   workflow_dispatch:
     inputs:
@@ -37,16 +37,14 @@ jobs:
   # Derive the version, then create the commit of the release pull request (main's commit with
   # the release appended to Regula.releases with its toolchain, the lakefile's version, the
   # adoption guide's compatibility table and each .unreleased on a `lifecycle :=` line;
-  # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, push it as
-  # release/v<version> and write the link that opens its pull request to the job summary. Just
-  # before the push, list the pull requests open from that branch, hence `pull-requests: read`;
-  # while one is open, write the refusal to the job summary, push nothing and fail
-  # (Regula.Release.branchAction): main's rules count a push by this job to the branch of an open
-  # pull request as an unattributed change, and block its merge until a review approves it.
-  # While none is open, a re-run rebuilds the branch on the same commit, and a new run rebuilds
-  # it on the current head of main; either way a maintainer opens a fresh pull request from the
-  # new link. The derivation reads main's history since the previous release's tag, hence the
-  # full clone.
+  # Regula.installed stays .unreleased), refuse unless GitHub verified its signature, create the
+  # branch release/v<version>-<commit>, named after that commit, and write the link that opens
+  # its pull request to the job summary. The job writes a branch only by creating it, with the
+  # request GitHub refuses when the name exists, and never moves one: main's rules count a push
+  # by this job to the branch of an open pull request as an unattributed change, and block its
+  # merge until a review approves it. A re-run builds on the same commit of main, and a new run
+  # on its current head; each creates its own branch. The derivation reads main's history since
+  # the previous release's tag, hence the full clone.
   open:
     needs: compiler
     if: github.ref == 'refs/heads/main'
@@ -54,7 +52,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
-      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,7 +60,7 @@ jobs:
 
       - uses: ./.github/actions/provision
 
-      - name: Push the branch of the release pull request
+      - name: Create the branch of the release pull request
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_BUMP: ${{ inputs.bump }}

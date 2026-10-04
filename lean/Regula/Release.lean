@@ -7,7 +7,7 @@ The steps of a Regula release, run with the pinned toolchain alone, so they need
 (`.github/workflows/title.yml`) runs `title`, and `ci.yml` runs the others:
 
 ```text
-lean --run lean/Regula/Release.lean open        # push the branch of the release pull request
+lean --run lean/Regula/Release.lean open        # create the branch of the release pull request
 lean --run lean/Regula/Release.lean unreleased  # refuse a release label on main or a pull request
 lean --run lean/Regula/Release.lean agree       # refuse a lakefile or table the releases contradict
 lean --run lean/Regula/Release.lean title       # refuse a pull request title that is not a header
@@ -60,16 +60,17 @@ place instead, restamping its stamps (`restampRules`). `open` refuses unless the
 reports published are exactly the releases it keeps listed before the one it lists
 (`publishedExactly`), and checks that again just before it pushes, so it never lists a release
 in place of one published by then. GitHub creates and signs the commit, and
-`open` refuses unless GitHub reports its signature verified. It pushes it as the branch
-`release/v<version>` and writes the link that opens its pull request to the job summary; a
-maintainer opens the pull request from that link, which starts its checks, and merges it through
-normal review. `open` pushes that branch only while GitHub reports no pull request from it open
-(`branchAction`): while one is open, what it runs is exactly the refusal (`branchStep_open`,
-`refuseOpen`), which writes the job summary and fails. `main`'s rules count a push by the
-workflow to the branch of an open pull request as an unattributed change, and block its merge
-until a review approves it. To rebuild the branch, close its pull request, run the
-workflow again and open a fresh pull request from the link that run writes, as on a first run.
-No step creates a pull request: the repository does not let GitHub Actions create one.
+`open` refuses unless GitHub reports its signature verified. It creates the branch
+`release/v<version>-<commit>` (`pullBranch`), named after that commit, and writes the link that
+opens its pull request to the job summary; a maintainer opens the pull request from that link,
+which starts its checks, and merges it through normal review. `open` writes a branch only by
+creating it, with GitHub's request that refuses a name that exists (`createBranch`), and each
+build's commit has a name of its own (`pullBranch_inj`). So `open` never moves a branch, and never
+changes the branch of a pull request that is open: `main`'s rules count a push by the workflow
+to the branch of an open pull request as an unattributed change, and block its merge until a
+review approves it. A rebuild is a new branch and a fresh pull request, opened from the link
+that run writes; the earlier pull request is then stale and to be closed. No step creates a pull
+request: the repository does not let GitHub Actions create one.
 
 On `main`, once acceptance and the rule-example shards pass on a commit that lists a release not
 yet published, `candidate` refuses unless the releases GitHub reports published are exactly the
@@ -102,22 +103,21 @@ greater bump than the release's merges to `main` before the release is published
 refuses; if one that adds or retires a rule does, the release commit fails
 `release_attributes_rules`. Either way nothing is published, and running the Release workflow on
 `main` again as a new run lists the release the commits then call for in its place and stamps
-that rule too (a re-run reuses its original commit). While the release pull request is still
-open, a new run whose derived version is unchanged refuses until that pull request is closed, and
-one whose derived version differs pushes the branch of that version instead; the stale pull
-request is then to be closed, and `candidate` refuses its release if it merges. A
+that rule too (a re-run reuses its original commit). Each run creates a branch of its own, so a
+release pull request that is still open stays as it is; it is then stale and to be closed. If it
+merges instead, the same checks apply to it: `candidate` refuses a release that does not cover
+the commits it contains, and a rule it left unstamped fails `release_attributes_rules`. A
 pull request that lists a release in place of one that was published after `open` prepared it
 is refused by `candidate` too (`publishedExactly_refuses`): the published release must be listed
 again, before it, with its stamps.
 
-Every step resumes: `open` rebuilds its branch on the commit its run started from, while no pull
-request from that branch is open, `candidate`
+Every step resumes: `open` creates a fresh commit and branch on the commit its run started from,
+`candidate`
 creates a fresh release commit, and `publish` replaces an unpublished draft and skips a published
 release. They refuse a toolchain that is not a stable release; `open` refuses a derivation that
 releases nothing, published releases other than those it keeps listed (an earlier listed release
-not yet published, or a published release not listed), a `main` with nothing left to
-change, and a branch from which a pull request is open; `candidate` refuses published releases
-other than those listed before its release, a
+not yet published, or a published release not listed), and a `main` with nothing left to
+change; `candidate` refuses published releases other than those listed before its release, a
 release that does not cover the commits it contains and a release commit whose
 `lean-toolchain` is not the toolchain the release records; and `candidate` and
 `publish` refuse, while the release is unpublished, a run
@@ -129,14 +129,13 @@ GitHub (its API through `gh`, signing, tags, releases, pull requests and Actions
 tree it writes, the history and objects it fetches and its resets) are trusted and observed, not
 proved. `tagAction` is the decision the candidate and publish steps execute, `covers` another
 the candidate step executes, `publishedExactly` one the candidate and open steps execute, and
-`nextVersion`, `admits` and `branchAction` the ones `open` executes; their theorems are checked by
-the kernel each time `lean --run` elaborates this file. What the steps observe (whether the
-release is published, the versions of the published releases, which GitHub lists as its releases
-that are not drafts, the head of `main`, the tag, the commits since the previous release, the
-pull requests open from a branch, a pull request's title), that publishing a release creates its
-tag at the given commit, and the order of CI's jobs are GitHub's. `open` observes the open pull
-requests just before it pushes, and GitHub offers no push conditional on that observation, so a
-pull request opened between the two is not excluded. That Lake reads a package's
+`nextVersion` and `admits` the ones `open` executes; their theorems are checked by the kernel
+each time `lean --run` elaborates this file. What the steps observe (whether the release is
+published, the versions of the published releases, which GitHub lists as its releases that are
+not drafts, the head of `main`, the tag, the commits since the previous release, a pull
+request's title), that publishing a release creates its
+tag at the given commit, that GitHub refuses to create a branch whose name exists, on which
+`open` moving no branch rests, and the order of CI's jobs are GitHub's; that Lake reads a package's
 version from its `lakefile.lean` and that Reservoir indexes each version tag with that version,
 ordering them by it, is Lake's and Reservoir's behaviour. The edits of `RegulaCore/Edition.lean`,
 `RegulaCore/Rule.lean`, `lakefile.lean` and the adoption guide are text: `open`, `candidate` and
@@ -1027,33 +1026,18 @@ theorem publishedExactly_refuses {published : List Version} {before : List Relea
       · exact absurd hlt (Version.lt_irrefl _)
       · exact absurd hlt' (Version.lt_asymm hlt)
 
-/-- What the open step does with `release/v<version>`, the branch of the release pull request. -/
-inductive BranchAction where
-  /-- Point the branch at the commit of the release pull request. -/
-  | push
-  /-- Change nothing and fail: the pull request `pull` from the branch is open. -/
-  | refuse (pull : String)
-  deriving DecidableEq, Repr
+/-- The branch of the release pull request whose commit `commit` lists release `v`:
+`release/v<version>-<commit>`, named after the commit it names. The open step creates it and
+never moves it, so each build of a release has a branch of its own. -/
+def pullBranch (v : Version) (commit : String) : String := "release/" ++ v.tag ++ "-" ++ commit
 
-/-- The decision of the open step over `openPulls`, the pull requests from its branch that GitHub
-reports open: push when there is none, and otherwise refuse, naming the first. `main`'s rules
-count a push by the workflow to the branch of an open pull request as an unattributed change,
-and block its merge until a review approves it. -/
-def branchAction (openPulls : List String) : BranchAction :=
-  match openPulls with
-  | [] => .push
-  | pull :: _ => .refuse pull
-
-/-- The open step pushes exactly when GitHub reports no pull request from its branch open. -/
-theorem branchAction_push_iff (openPulls : List String) :
-    branchAction openPulls = .push ↔ openPulls = [] := by
-  cases openPulls <;> simp [branchAction]
-
-/-- The open step refuses, naming `pull`, exactly when `pull` is the first of the pull requests
-GitHub reports open from its branch. -/
-theorem branchAction_refuse_iff (openPulls : List String) (pull : String) :
-    branchAction openPulls = .refuse pull ↔ openPulls.head? = some pull := by
-  cases openPulls <;> simp [branchAction]
+/-- Two builds of a release have the same branch only when they are the same commit, so builds
+with different commits never share a branch. -/
+theorem pullBranch_inj {v : Version} {a b : String} (h : pullBranch v a = pullBranch v b) :
+    a = b := by
+  have := congrArg String.toList h
+  simp only [pullBranch, String.toList_append, List.append_cancel_left_eq] at this
+  exact String.toList_inj.mp this
 
 /-! ## GitHub and `git` -/
 
@@ -1177,14 +1161,6 @@ def editionCommit (repo parent edition message : String) : IO String :=
 private def mainHead (repo : String) : IO String := do
   str (← IO.ofExcept ((← ghGet s!"repos/{repo}/git/ref/heads/main").getObjVal? "object")) "sha"
 
-/-- The pull requests from `branch` that GitHub reports open, each by its URL: the first page of
-them, which is empty exactly when GitHub reports none. -/
-private def openPulls (repo branch : String) : IO (List String) := do
-  let owner := (repo.splitOn "/").head!
-  let pulls ← IO.ofExcept
-    (← ghGet s!"repos/{repo}/pulls?state=open&head={owner}:{branch}").getArr?
-  pulls.toList.mapM (str · "html_url")
-
 /-- `s` percent-encoded for a URL query value: every byte outside RFC 3986's unreserved set. -/
 def percentEncode (s : String) : String :=
   let hex (n : Nat) : Char := "0123456789ABCDEF".toList[n]!
@@ -1212,58 +1188,28 @@ private def summarize (text : String) : IO Unit := do
     let handle ← IO.FS.Handle.mk path .append
     handle.putStr text
 
-/-- The refusal of the open step while the pull request `pull` from `branch` is open: write it to
-the job summary and fail. It moves no branch. -/
-def refuseOpen (branch pull : String) : IO Unit := do
-  summarize s!"### Refused: a pull request from `{branch}` is open\n\nThe Release workflow \
-    pushes `{branch}` only while no pull request from it is open, and {pull} is: `main`'s rules \
-    count a push by the workflow to the branch of an open pull request as an unattributed \
-    change, and block its merge until a review approves it. Nothing was pushed. Close \
-    {pull}, run the Release workflow on `main` again, and open a fresh pull request from the \
-    link that run writes to its job summary.\n"
-  fail s!"the pull request {pull} from {branch} is open, so this run pushes nothing: close it, \
-    run the Release workflow on main again, and open a fresh pull request from the link that \
-    run writes to its job summary"
+/-- Create branch `branch` at `commit`, by GitHub's request that creates a reference, which GitHub
+refuses when a reference of that name exists. So this never moves a branch, and the step fails
+when the branch exists. -/
+private def createBranch (repo branch commit : String) : IO Unit := do
+  discard <| ghPost "POST" s!"repos/{repo}/git/refs"
+    (Json.mkObj [("ref", s!"refs/heads/{branch}"), ("sha", commit)])
 
-/-- Point `branch` at `commit` and write the link that opens its pull request, with `title` and
-`body` filled in, to the job summary and the log; the pull request is a maintainer's to open, and
-opening it starts its checks. The workflow never creates a pull request: the repository does not
-let GitHub Actions create one. -/
-def pushUnopened (repo branch commit title body : String) : IO Unit := do
-  pointBranch repo branch commit
+/-- The last action of the open step, and its only write of a branch: create `branch` at `commit`
+(`createBranch`) and write the link that opens its pull request, with `title` and `body` filled
+in, to the job summary and the log. The pull request is a maintainer's to open, and opening it
+starts its checks. The workflow never creates a pull request: the repository does not let GitHub
+Actions create one. -/
+private def pushBranch (repo branch commit title body : String) : IO Unit := do
+  createBranch repo branch commit
   let link := s!"https://github.com/{repo}/compare/main...{branch}?expand=1&title=\
     {percentEncode title}&body={percentEncode body}"
-  summarize s!"### Open the pull request `{title}`\n\nThe signed branch `{branch}` names \
-    `{commit}`. Open its pull request from [this link]({link}); opening it starts its checks.\n"
-  IO.println s!"branch {branch} names {commit}; open its pull request from {link}"
-
-/-- What the open step does with `branch` once GitHub has reported `openPulls`, the pull requests
-open from it, as `branchAction` decides: `pushUnopened`, or `refuseOpen`. -/
-def branchStep (openPulls : List String) (repo branch commit title body : String) : IO Unit :=
-  match branchAction openPulls with
-  | .push => pushUnopened repo branch commit title body
-  | .refuse pull => refuseOpen branch pull
-
-/-- While GitHub reports a pull request from the branch open, what the open step runs is exactly
-the refusal that names one of the open pull requests, whatever the repository, commit, title and
-body: it does not run `pushUnopened`. -/
-theorem branchStep_open {openPulls : List String} (h : openPulls ≠ [])
-    (repo branch commit title body : String) :
-    ∃ pull ∈ openPulls, branchStep openPulls repo branch commit title body =
-      refuseOpen branch pull := by
-  cases openPulls with
-  | nil => exact absurd rfl h
-  | cons pull rest => exact ⟨pull, List.mem_cons_self, rfl⟩
-
-/-- While GitHub reports no pull request from the branch open, the open step pushes it. -/
-theorem branchStep_unopened (repo branch commit title body : String) :
-    branchStep [] repo branch commit title body = pushUnopened repo branch commit title body :=
-  rfl
-
-/-- The last action of the open step: observe the pull requests open from `branch` and run
-`branchStep` on them, which is the only place the step moves that branch. -/
-private def pushBranch (repo branch commit title body : String) : IO Unit := do
-  branchStep (← openPulls repo branch) repo branch commit title body
+  summarize s!"### Open the pull request `{title}`\n\nThis run created the signed branch \
+    `{branch}`, which names `{commit}`; no run of this workflow moves it. Open its pull \
+    request from [this link]({link}); opening it starts its checks. If an earlier pull request \
+    for this release is still open, close it: this run left it and its branch as they were, \
+    and it is stale.\n"
+  IO.println s!"created branch {branch}, which names {commit}; open its pull request from {link}"
 
 /-- Append `key=value` to the step outputs file `GITHUB_OUTPUT`. -/
 private def output (key value : String) : IO Unit := do
@@ -1322,20 +1268,20 @@ private def derivation (prev : Release) (messages : List String) : String :=
     | some h => s!"- {(h.bump initial).spelling}: {subject}"
     | none => s!"- undecided, not a Conventional Commits header: {subject}"
 
-/-- Push the branch of the release pull request. On the `main` commit the workflow runs on, derive
+/-- Create the branch of the release pull request. On the `main` commit the workflow runs on, derive
 the version of the next release (`nextVersion`) from the commits of `main` since the previous
 published release, `lean-toolchain` and the `RELEASE_BUMP` input (exactly `derived`, `patch`,
 `minor` or `major`; `derived` raises nothing), and commit that release: appended with its
 toolchain to `Regula.releases` in place of a listed release not yet published, if any, whose
 stamps it restamps (`restampRules`); `lakefile.lean`'s `version` set to it; the adoption guide's
 compatibility table regenerated; and the release stamped into each `.unreleased` on a
-`lifecycle :=` line (`stampRules`), leaving `Regula.installed` unreleased. Refuses a derivation
-that releases nothing, a release `admits` refuses, a patch release that introduces a rule
-(`introducesRules`, after stamping and restamping), published releases other than those it keeps
-listed before the release (`publishedExactly`), observed when it starts and again just before it
-pushes, a `main` that already lists the release with nothing left to change, and, by
-`branchAction` over the pull requests GitHub reports open just before it pushes, a branch
-`release/v<version>` from which a pull request is open. -/
+`lifecycle :=` line (`stampRules`), leaving `Regula.installed` unreleased. It then creates the
+branch `pullBranch` names after that commit (`pushBranch`), its only write of a branch. Refuses a
+derivation that releases nothing, a release `admits` refuses, a patch release that introduces a
+rule (`introducesRules`, after stamping and restamping), published releases other than those it
+keeps listed before the release (`publishedExactly`), observed when it starts and again just
+before it creates the branch, and a `main` that already lists the release with nothing left to
+change. -/
 def openRelease : IO Unit := do
   let repo ← repository
   let head ← env "GITHUB_SHA"
@@ -1424,7 +1370,7 @@ def openRelease : IO Unit := do
   unless publishedExactly releasedNow prior do
     fail s!"{unlisted releasedNow prior tag}; a release was published while this run prepared \
       {tag}, so it pushes nothing: run the Release workflow on main again"
-  pushBranch repo s!"release/{tag}" commit title
+  pushBranch repo (pullBranch v commit) commit title
     s!"Prepares Regula {tag} for Lean {toolchain.spelling} (`leanprover/lean4:{toolchain.tag}`)\
       {replaced}: lists it with its toolchain in `Regula.releases`, sets `lakefile.lean`'s \
       `version` to `{v.spelling}`, adds it to the compatibility table of the adoption guide and \
@@ -1449,19 +1395,19 @@ def openRelease : IO Unit := do
       merges to `main` before the release is published, CI refuses the release and nothing \
       is published: run the Release workflow on `main` again as a new run (a re-run \
       reuses its original commit). It derives the version the commits then call for and stamps \
-      that rule too, on the branch of that version, whose pull request is always a fresh one, \
-      opened from the link in that run's job summary. If this pull request is still open, close \
-      it before that run: the workflow refuses to push to the branch of an open pull request, \
-      and a pull request that lists another version than the run derives is stale.\n\n\
+      that rule too, on a new branch, whose pull request is a fresh one, opened from the link \
+      in that run's job summary. If this pull request is still open then, close it: that run \
+      leaves it and its branch as they are, and it is stale.\n\n\
       Every check of this pull request passes before it merges. Until the release is \
       published, its `site` check builds and checks the artifact with a preview at \
       `v/{v.spelling}/`, rendered from this branch, which carries no release label; the \
       release's own edition exists only once CI builds it from the release commit, and no \
       artifact with a preview is deployed. The required checks are `verify`, `title`, \
       `diagnostics` and code scanning's `CodeQL` and `Analyze (actions)`.\n\n\
-      The Release workflow pushed this signed branch, and a maintainer opened this pull request \
-      from the link in the job summary, which started its checks. The workflow never pushes to \
-      this branch while this pull request is open."
+      The Release workflow created this signed branch, which is named after its commit, and a \
+      maintainer opened this pull request from the link in the job summary, which started its \
+      checks. The workflow creates a new branch on each run and moves none, so it never changes \
+      this one."
 
 /-- Refuse unless the checked-out commit is unreleased: no commit of `main` or of a pull request
 carries a release label; only the release commit that `candidate` creates does, and publication
