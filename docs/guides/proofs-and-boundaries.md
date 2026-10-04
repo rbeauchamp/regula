@@ -2363,26 +2363,34 @@ resolve to it in a self-hosted copy;
 outside the toolchain is a `RegulaPolicy` module or one of
 `RegulaPolicy.infrastructureModuleNames` (the command beside `probeModuleNames`, whose docstring
 states what it does not see). The controls are two clusters in different shards.
-`structuralSelfHosted` builds the copy and runs an accepting fresh gate on it, then the
-incremental gate on each of the three contaminations, restoring each before the next. It then
-checks the restored copy's fresh input against that of a copy prepared anew, and runs an
-accepting fresh gate on the restored copy itself. Both accepting gates audit that cluster's own
-copy, so neither depends on the other shard. `freshInput` takes what the gate's copy operation
-copies from each of the two copies, and any differing path or byte fails the cluster.
-`structuralSelfHostedPositive`, in the other shard, runs the accepting fresh gate on a copy
-prepared the same way (`prepareSelfHosted`). That equal fresh input gives the same gate run, so
-that the restored gate and that positive audit the same input, rests on a fact that is not a
-theorem: a fresh gate reads the audited project only through `copyProject`, which prunes the
-project's `.lake`, and builds that copy from empty output; without `--with-docs`, as here, it
-reads no other file of the project, and the packages directory it links is the repository's for
-every copy. The two shards are jobs of one workflow matrix, which starts both on the one commit
-it checks out. That both pass before merging is enforced by the ruleset of `main`, not by the
-self-test, which observes nothing of the other job: the workflow runs the matrix on a pull
-request exactly when it changes one of the paths `Regula.DiagnosticsGate.inputs` lists, and its
-required `diagnostics` check, which reports on every pull request, passes on a run where the
-matrix applies only when the matrix job succeeded in that run
-([the diagnostics gate](#the-diagnostics-gate)). That GitHub reports a matrix job succeeded
-only when every job of it did is GitHub's behaviour, trusted.
+`structuralSelfHosted` builds the copy and runs the incremental gate on each of the three
+contaminations, restoring each before the next. No fresh gate runs on that mutated and restored
+copy, before the mutations or after their restoration: an accepting gate there is replaced by a
+checked identity of the restored copy's fresh input with that of a copy prepared anew, and by
+the accepting fresh gate of `structuralSelfHostedPositive` on a copy prepared the same way
+(`prepareSelfHosted`), which is in the other shard. `freshInput` takes what the gate's copy
+operation copies from each of the two copies, and any differing path or byte fails the first
+cluster. That the two together stand for a fresh gate on the first cluster's copy rests on two
+facts, neither of them a theorem. First, a fresh gate reads the audited project only through
+`copyProject`, which prunes the project's `.lake`, and builds that copy from empty output;
+without `--with-docs`, as here, it reads no other file of the project, and the packages
+directory it links is the repository's for every copy. So equal fresh input gives the same gate
+run, and the setup build, the incremental gates and the restorations are observed to leave the
+prepared input. Second, the two shards are jobs of one workflow matrix, so whenever the
+diagnostics workflow runs them it starts both on the one commit it checks out. That both pass
+before merging is enforced by the ruleset of `main`, not by the self-test, which observes
+nothing of the other job: the workflow runs the matrix on a pull request exactly when it changes
+one of the paths `Regula.DiagnosticsGate.inputs` lists, and its required `diagnostics` check,
+which reports on every pull request, passes on a run where the matrix applies only when the
+matrix job succeeded in that run ([the diagnostics gate](#the-diagnostics-gate)). That GitHub
+reports a matrix job succeeded only when every job of it did is GitHub's behaviour, trusted.
+A fresh gate on a self-hosted copy builds and inspects `RegulaPolicy` from empty output, and
+the first cluster is a serial chain, so a fresh gate there adds its whole duration to the first
+shard: in one instrumented local run (2026-10-03, 14 cores) with an accepting fresh gate before
+the mutations and another after their restoration, those two gates took 47 s and 43 s of the
+cluster's 117 s and the three contamination gates 23 s, and on the slower hosted runners that
+shard then took 394 to 414 s and once reached its 420-second deadline. These are observations,
+not a bound.
 
 Each partition's baseline build names what its controls read from the repository's own build
 (`Partition.baseline`, and `baselineOf` for a shard). The gates of these two partitions run in
