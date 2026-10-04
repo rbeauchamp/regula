@@ -123,14 +123,15 @@ file that would run anything the import brings (`may not access declaration … 
 meta`), so those modules still cannot use the environment API. The claimed files that are not
 modules (`RegulaPolicy.Claim`, `Execution`, `Pattern` and `Plan`, the registered files of
 `RegulaCore` other than `RuleId`, those of `RegulaQualification`, `AuditApp.Limiter`, and the
-`Decisions` modules of `RegulaProvision`, `RegulaCompiler` and `RegulaVerification`) import
+`Decisions` modules of `RegulaProvision`, `RegulaCompiler`, `RegulaSnapshot` and
+`RegulaVerification`) import
 it with a plain `import`,
 which brings those declarations into scope; that none of their definitions uses them is by
 inspection, as it already was for `AuditApp.Limiter` and `Regula.MaterialClaim`. The extension is
 an ordinary definition, not a `meta` one, so the collector reads the registrations through it.
 `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone before
 the package is built, so its two decisions are registered from `RegulaPolicy.Claim`, a module of
-the same library that imports it (`attribute [regula_decision]`). The three standalone programs
+the same library that imports it (`attribute [regula_decision]`). The four standalone programs
 import only the toolchain for the same reason, since each runs with `lean --run` before the
 package is built, and the `Decisions` module of each one's library registers its decisions the
 same way; no program imports that module. Lean's own tag attribute refuses

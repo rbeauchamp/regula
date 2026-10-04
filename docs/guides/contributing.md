@@ -226,8 +226,8 @@ parallel jobs, each with its own hard 420-second limit, on a pull request exactl
 one of the paths `Regula.DiagnosticsGate.inputs` lists (the checker, rules, rule examples, the
 adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the application and
 fixture sources the structural and execution controls mutate, Lake configuration, manifests, or
-the compiler and dependency setup: the installer and the provisioning program with their decision
-contracts, `dependency-build-mode`, `.github/compiler-source.json`, both snapshot selections and the compiler and snapshot workflows),
+the compiler and dependency setup: the installer, the provisioning program and the snapshot
+controller with their decision contracts, `dependency-build-mode`, `.github/compiler-source.json`, both snapshot selections and the compiler and snapshot workflows),
 and on every other run; it also runs both `rule-examples` shards nightly. Its last job,
 `diagnostics`, is a required check of the ruleset of `main`. It reports on every pull request and
 passes exactly when `applies` succeeded and each partition job passed and applies, or was

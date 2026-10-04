@@ -51,6 +51,19 @@ theorem checked_installsSystemPackages :
     ⟨(none, none), fun accepted =>
       nomatch ((installsSystemPackages_iff none none).mp accepted).1⟩⟩
 
-attribute [regula_decision] source? admitsIdentity installsSystemPackages
+/-- `installsMacPackages` accepts exactly a GitHub Actions job on macOS
+(`installsMacPackages_iff`): it accepts those two values and refuses two absent ones. -/
+theorem checked_installsMacPackages :
+    Regula.ExecutableContract installsMacPackages (fun installs =>
+      Regula.Decides (· = true)
+        (fun input : Option String × Option String =>
+          input.1 = some "true" ∧ input.2 = some "macOS")
+        (Function.uncurry installs)) :=
+  ⟨.of_iff (fun input => installsMacPackages_iff input.1 input.2)
+    ⟨(some "true", some "macOS"), (installsMacPackages_iff _ _).mpr ⟨rfl, rfl⟩⟩
+    ⟨(none, none), fun accepted =>
+      nomatch ((installsMacPackages_iff none none).mp accepted).1⟩⟩
+
+attribute [regula_decision] source? admitsIdentity installsSystemPackages installsMacPackages
 
 end RegulaCompiler
