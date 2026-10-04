@@ -58,8 +58,8 @@ and the release stamped into each `.unreleased` on a line that starts `lifecycle
 While the last listed release is not published yet, `open` lists the release it derives in its
 place instead, restamping its stamps (`restampRules`). `open` refuses unless the releases GitHub
 reports published are exactly the releases it keeps listed before the one it lists
-(`publishedExactly`), and checks that again just before it pushes, so it never lists a release
-in place of one published by then. GitHub creates and signs the commit, and
+(`publishedExactly`), and checks that again just before it creates the branch, so it never lists
+a release in place of one published by then. GitHub creates and signs the commit, and
 `open` refuses unless GitHub reports its signature verified. It creates the branch
 `release/v<version>-<commit>` (`pullBranch`), named after that commit, and writes the link that
 opens its pull request to the job summary; a maintainer opens the pull request from that link,
@@ -989,8 +989,8 @@ theorem tagAction_converges (tag : Tag) (h : tag ≠ .other) :
 /-- Whether the releases GitHub reports published, by version, are exactly the releases `before`
 listed before the release a step handles: each of them is published, and each published release
 is one of them. The candidate step checks it before it creates a release commit, and the open
-step before it lists a release and again before it pushes it, so every published release stays
-listed, in order, and no release is listed in place of a published one. -/
+step before it lists a release and again before it creates its branch, so every published release
+stays listed, in order, and no release is listed in place of a published one. -/
 def publishedExactly (published : List Version) (before : List Release) : Bool :=
   before.all (fun r => published.contains r.version) &&
     published.all fun v => before.any (·.version == v)

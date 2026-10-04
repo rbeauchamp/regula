@@ -701,7 +701,8 @@ until the release commit has passed the same checks as `main`:
    `release_attributes_rules` on the release commit (step 2). `Regula.installed` stays
    `.unreleased`. It refuses unless the releases GitHub reports published (its releases that are
    not drafts) are exactly the releases it keeps listed before the one it lists
-   (`Regula.Release.publishedExactly`), and checks that again just before it pushes, so it never
+   (`Regula.Release.publishedExactly`), and checks that again just before it creates the branch,
+   so it never
    lists a release in place of one published by then. GitHub creates and signs the commit, and
    the step refuses unless GitHub verified
    the signature. It creates the branch `release/v<version>-<commit>`, named after that commit

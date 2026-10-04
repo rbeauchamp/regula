@@ -1999,7 +1999,8 @@ from its predecessor (`Version.bumpTo`) is at least each such header's bump, and
 for a toolchain move (`covers_iff`); it holds for the release the open step derived from the same
 commits (`nextVersion_covers`, with `Version.bumpTo_bump`). `publishedExactly`, which the
 candidate step checks before it creates a release commit and the open step when it starts and
-again just before it pushes, holds exactly when every release listed before the one the step
+again just before it creates the branch, holds exactly when every release listed before the one
+the step
 handles is published and every published release is one of them (`publishedExactly_iff`); when
 it holds, that release's listed predecessor is the latest published release
 (`publishedExactly_latest`), and a release whose listed predecessor is unpublished, or is earlier
