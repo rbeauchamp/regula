@@ -2395,7 +2395,7 @@ clusters in the structural project (`a`, `b`, `c` and `d`) run in the second sha
 longer holds the positive. With cluster `a` still in the first shard, beside the chain and the
 positive, that shard's timed step took 354 s and 362 s on the slower hosted runners
 (Diagnostics run 37178141571, attempts 1 and 2): the chain took 205 and 208 s there, beside 162
-and 164 s for the positive and 139 and 142 s for `a`. The target for each structural
+and 163 s for the positive and 139 and 142 s for `a`. The target for each structural
 shard is a timed step (the `Qualify` step of its job in the diagnostics workflow) of at most
 360 s on every run, a margin of at least 60 s (14 %) under the unchanged 420-second deadline.
 That step includes the build of the self-test and its checker executables: on the slower
