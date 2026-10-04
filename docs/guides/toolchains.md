@@ -62,13 +62,23 @@ revision. Preparation does not declare that either revision supports the new com
 
 For an adaptation selecting reusable source artifacts, follow [compiled source snapshots](contributing.md#compiled-source-snapshots). The direct-build procedure below applies to copies without a snapshot selection.
 
-Full repository acceptance also needs coherent Mathlib, Verso and transitive pins in the
-`audit/` and `website/` packages. All five `lean-toolchain` files must name the selected
-compiler: the root, `audit/`, `website/`, `examples/build-lint/` and
+Full repository acceptance also needs coherent Verso and transitive pins in the `website/`
+package; no acceptance step, and neither the standard nor the site, needs Mathlib, so a compiler
+without a matching Mathlib revision can still be adapted and accepted. Five `lean-toolchain`
+files must name the selected compiler: the root, `audit/`, `website/`, `examples/build-lint/` and
 `examples/lake-lint-toml/`. Upstream artifacts are usable only when their compiler matches. For a development
 commit without matching artifacts or a selected snapshot, set `dependency-build-mode` to `source` in the adaptation
-and run `./scripts/provision.sh`, then `lean --run lean/RegulaProvision.lean verso`.
-An interrupted source setup retains its staging directory. A later invocation resumes only
+and run `lean --run lean/RegulaProvision.lean verso`.
+
+The [Mathlib integration check](contributing.md#mathlib-integration-check) is separate. Its
+package in `integration/mathlib/` has a `lean-toolchain` and a Mathlib pin of its own; move them
+together, to a Mathlib revision built for the selected compiler, and its check then qualifies the
+Mathlib-specific behaviour for exactly that pair. Where no such revision exists, leave that
+package as it is: its check is not run for the new compiler, its setup command refuses a
+different compiler or a snapshot, and the adaptation claims nothing Mathlib-specific. With
+`dependency-build-mode` set to `source`, `lean --run lean/RegulaProvision.lean mathlib` builds that
+package's Mathlib from source.
+An interrupted Mathlib source setup retains its staging directory. A later invocation resumes only
 when its compiler/mode/policy key, pre-build artifact-policy marker, Lake configuration,
 manifest, toolchain selector and generated import module match exactly, and its existing
 package checkouts retain their pinned origins and commits, without working-tree edits, stashes
@@ -154,8 +164,8 @@ have an outer `status: unsupported`, `purpose: compiler-qualification`, and
 `grantsSupport: false`, with the detector result under
 `observation`. Their text labels accepted controls as diagnostic observations. Only diagnostic
 readers in that candidate invocation unpack the observation; ordinary readers refuse it.
-These results cannot establish that an unrelated Lean fix conforms. Mathlib, the Verso standard,
-website examples, editor interactions, serialized graphs, and additional adopter paths need
+These results cannot establish that an unrelated Lean fix conforms. The Mathlib integration
+check, the Verso standard, website examples, editor interactions, serialized graphs, and additional adopter paths need
 their own applicable qualification before a revision claims those capabilities.
 
 Review the actual source adaptations and affected standard checklist rows before promoting a

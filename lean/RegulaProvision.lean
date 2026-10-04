@@ -1,10 +1,15 @@
 import Lean.Data.Json
 
-/-! # Shared Mathlib provisioning
+/-! # Dependency provisioning
 
-Without a snapshot selection, dependency provisioning uses one shared, read-only Mathlib
-per pinned revision, exact compiler and artifact mode, reused by local copies. CI runs the
-build plan defined here.
+The root `regula` package, the `audit/` package of the standard's examples and the website
+package require no Mathlib, so default provisioning (`./scripts/provision.sh`, no argument)
+acquires none: without a snapshot selection it has nothing to do. Mathlib is provisioned only
+for the Mathlib integration package in `integration/mathlib/`, and only when asked with the
+`mathlib` argument, before `./scripts/verify.sh mathlib`.
+
+That explicit Mathlib provisioning uses one shared, read-only Mathlib per pinned revision,
+exact compiler and artifact mode, reused by local copies. CI runs the build plan defined here.
 
 Snapshot selections delegate acquisition to `RegulaSnapshot` instead of the sharing and
 build plans below; `docs/guides/contributing.md#compiled-source-snapshots` owns that procedure.
@@ -12,15 +17,15 @@ build plans below; `docs/guides/contributing.md#compiled-source-snapshots` owns 
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache
 (`~/.cache/mathlib`) but unpacks them into every copy's `.lake/packages`. This program
 unpacks them once into `~/.cache/mathlib-packages/<rev>-lean-<githash>/`, keyed by the
-exact Mathlib revision pinned in the lock manifest of the Mathlib-dependent package
-(`audit/lake-manifest.json`; the root `regula` package requires nothing) and the running
-toolchain's commit, builds the modules the upstream cache lacks and every module's exported
+exact Mathlib revision pinned in the lock manifest of the Mathlib integration package
+(`integration/mathlib/lake-manifest.json`; the root `regula` package requires nothing) and the
+running toolchain's commit, builds the modules the upstream cache lacks and every module's exported
 native object (so neither an import nor an executable link has to write there), makes that
 directory read-only, and points each copy at it:
 
-* `.lake/packages/mathlib` becomes a symbolic link to the shared, read-only checkout. The
-  Mathlib-dependent package in `audit/` and the Verso website package name the root
-  `.lake/packages` as their packages directory, and isolated copies link it.
+* `integration/mathlib/.lake/packages/mathlib` becomes a symbolic link to the shared, read-only
+  checkout. The integration package keeps its own packages directory, so no other package of
+  this repository sees Mathlib or shares a pinned revision with it.
 * The other packages of Mathlib's closure (Batteries, Aesop, ...) become writable
   copy-on-write clones of the shared checkouts, because executables that import them
   compile native objects into their build directories.
@@ -41,8 +46,15 @@ only by a source-mode receipt. GitHub Actions invokes the Mathlib and Verso plan
 here: its upstream-cache Mathlib command only fetches the published artifacts into the job's
 writable packages directory, and its source Mathlib command uses the shared directory.
 
-Run `./scripts/provision.sh` once in a fresh copy, before the first `lake build`;
-`scripts/verify.sh` runs it before its deadline. -/
+`scripts/verify.sh` runs `./scripts/provision.sh` before its deadline. Run
+`lean --run lean/RegulaProvision.lean mathlib` once in a copy before the first Lake command in
+`integration/mathlib/`; otherwise Lake clones and builds a per-copy Mathlib there.
+
+The Mathlib integration check applies to a copy exactly when no compiler snapshot is selected
+and that package selects the repository's toolchain (`mathlibApplies`, `mathlibApplies_iff`).
+The `mathlib-applies` argument reports that decision, recording it for CI, which schedules the
+integration job only then; with `--require` it refuses an excluded copy and one whose Mathlib is
+not provisioned, which is the first step of `./scripts/verify.sh mathlib`. -/
 namespace RegulaProvision
 open System Lean
 
@@ -353,7 +365,9 @@ Each shared directory has a registry beside it of the copies provisioned to link
 one provisioning lock, a copy registers before it links, and a run removes a shared directory
 only when it is not the run's own and no registered copy still links it. A removal first
 renames the directory out of use, so a later run finishes one that was interrupted. Only a
-directory whose receipt identifies it is ever removed. -/
+directory whose receipt identifies it is ever removed. A copy provisioned while the root package's
+packages directory held Mathlib still has its registered link there (`retiredLink`); a run removes
+that link while it links a shared directory, so the directory is kept only by links in use. -/
 
 /-- The name of the shared directory `key` while it is being removed, before a unique suffix. -/
 def removingPrefix (key : String) : String := s!"{key}.removing-"
@@ -427,6 +441,35 @@ theorem prunes_sound (current name : String) (copies : Array (String × Bool))
   obtain ⟨i, hi, rfl⟩ := Array.mem_iff_getElem.mp hCopy
   exact h.2 i hi
 
+/-- Where a copy linked Mathlib while the root package's packages directory held it, relative to
+the repository root. No package of this repository pins Mathlib there any more. -/
+def retiredLink : FilePath := ".lake/packages/mathlib"
+
+/-- A registered link is removed from its copy when it still links the shared directory whose
+registry records it and is the copy's retired link, not the link this run provisions. -/
+def retires (link retired copy : String) (linked : Bool) : Bool :=
+  linked && copy == retired && copy != link
+
+/-- Only the retired link is removed, only while it links the shared directory, and never the
+link this run provisions. -/
+theorem retires_iff (link retired copy : String) (linked : Bool) :
+    retires link retired copy linked = true ↔ linked = true ∧ copy = retired ∧ copy ≠ link := by
+  simp [retires, and_assoc]
+
+/-! ### Applicability of the Mathlib integration check -/
+
+/-- Whether the Mathlib integration check applies to a copy: no compiler snapshot is selected,
+and the Mathlib integration package selects the repository's own toolchain. A snapshot holds no
+Mathlib, and a package that selects another toolchain has no Mathlib built for this compiler. -/
+def mathlibApplies (snapshot : Bool) (toolchain integration : String) : Bool :=
+  !snapshot && toolchain == integration
+
+/-- The check applies exactly when no snapshot is selected and the two selectors are equal. -/
+theorem mathlibApplies_iff (snapshot : Bool) (toolchain integration : String) :
+    mathlibApplies snapshot toolchain integration = true ↔
+      snapshot = false ∧ toolchain = integration := by
+  simp [mathlibApplies]
+
 /-! ## Process and filesystem effects -/
 
 /-- Captured result of one argv invocation; there is no shell. -/
@@ -490,8 +533,9 @@ def readBuildMode (repo : FilePath) : IO BuildMode := do
     | throw <| IO.userError s!"provisioning: unknown dependency-build-mode '{text}'"
   return mode
 
-/-- Execute the Mathlib plan. `workspaceArgs` selects the Lake workspace, while the process
-directory stays at its package-cache root as required by Mathlib's cache tool. -/
+/-- Execute the Mathlib plan in `cwd`. Mathlib's cache tool unpacks its dependencies' archives
+into `.lake/packages` under the process directory, so `cwd` is the workspace whose packages
+directory that is; `workspaceArgs` selects another Lake workspace from there. -/
 private def buildMathlib (cwd : FilePath) (mode : BuildMode) (readOnly : Bool)
     (workspaceArgs : Array String := #[]) : IO Unit := do
   let env ← freshBuildEnvironment cwd mode
@@ -624,9 +668,9 @@ private def installClone (path source : FilePath) : IO Unit := do
 /-! ## The shared directory -/
 
 /-- The directory, relative to the repository root, of the package whose Lake manifest pins
-Mathlib: the Mathlib-dependent package, which requires the root `regula` package by relative
-path and names the root `.lake/packages` as its packages directory. -/
-def mathlibPackage : FilePath := "audit"
+Mathlib: the Mathlib integration package, which requires the root `regula` package by relative
+path and keeps its own packages directory. -/
+def mathlibPackage : FilePath := "integration/mathlib"
 
 /-- What the Mathlib package pins: the Git entries of its Lake manifest, each with the entry
 object exactly as the manifest records it. -/
@@ -927,9 +971,12 @@ private def links (copy target : String) : IO Bool := do
 
 /-- Remove every shared directory under `parent`, other than `current`, that no registered
 copy still links, and finish every removal an interrupted run began; drop from each kept
-registry the copies that no longer link its directory. Only directories that their receipt
-identifies are touched, and a failure is reported, not fatal. The caller holds the lock. -/
-private def prune (parent : FilePath) (current : String) : IO Unit := do
+registry the copies that no longer link its directory. First remove this copy's `retired` link
+where a registry records it and it still links that registry's directory (`retires`), so it
+keeps no directory; `link` is the link this run provisions. Only a symbolic link is removed from
+a copy, never a directory. Only directories that their receipt identifies are touched, and a
+failure is reported, not fatal. The caller holds the lock. -/
+private def prune (parent : FilePath) (current link retired : String) : IO Unit := do
   for entry in ← parent.readDir do
     try
       if (← kind? entry.path) == some .dir then
@@ -944,9 +991,13 @@ private def prune (parent : FilePath) (current : String) : IO Unit := do
               pure (some (← IO.FS.realPath (sharedPackages entry.path / "mathlib")).toString)
             catch _ => pure none
           let observed ← copies.mapM fun copy => do
-            return (copy, ← match target with
+            let linked ← match target with
               | some target => links copy target
-              | none => pure false)
+              | none => pure false
+            unless retires link retired copy linked do return (copy, linked)
+            IO.FS.removeFile copy
+            say s!"removed the retired link {copy} to {entry.path}"
+            return (copy, false)
           if prunes current entry.fileName observed then
             if ← registry.pathExists then IO.FS.removeFile registry
             let removing := parent / s!"{removingPrefix entry.fileName}{← nonce}"
@@ -1009,17 +1060,33 @@ private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (
   unless cloned.isEmpty do
     say s!"cloned {", ".intercalate cloned.toList} (writable copy-on-write clones)"
 
-/-- Refuse a process or Mathlib workspace using a different compiler from this program. -/
+/-- Refuse a process using a different compiler from this program. -/
 def requireCompiler (repo : FilePath) : IO Unit := do
   let githash := (← require repo "lean" #["--githash"]).trimAscii.toString
   unless githash == Lean.githash do
     throw <| IO.userError s!"provisioning: this repository's toolchain is {githash}, \
       but this program runs on {Lean.githash}"
-  -- The shared directory is built with the root toolchain, so the Mathlib package must pin it.
-  unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
-      (← IO.FS.readFile (repo / mathlibPackage / "lean-toolchain")) do
-    throw <| IO.userError s!"provisioning: {mathlibPackage}/lean-toolchain differs from the \
-      repository's lean-toolchain"
+
+/-- Observe whether the Mathlib integration check applies to this copy (`mathlibApplies`), with
+the reason it does not. The shared directory is built with the root toolchain, so the Mathlib
+integration package must select it, and a compiler snapshot holds no Mathlib. -/
+def mathlibApplicability (repo : FilePath) : IO (Bool × String) := do
+  let snapshot ← (repo / ".github/snapshot-compiler.json").pathExists
+  let applies := mathlibApplies snapshot (← IO.FS.readFile (repo / "lean-toolchain"))
+    (← IO.FS.readFile (repo / mathlibPackage / "lean-toolchain"))
+  let reason := if snapshot then "a compiler snapshot is selected, and a snapshot holds no Mathlib"
+    else s!"{mathlibPackage}/lean-toolchain differs from the repository's lean-toolchain"
+  return (applies, reason)
+
+/-- Refuse a copy to which the Mathlib integration check does not apply: the check is qualified
+only for the toolchain and Mathlib revision the integration package pins, so nothing is
+provisioned or checked for another compiler. -/
+def requireMathlibApplies (repo : FilePath) : IO Unit := do
+  let (applies, reason) ← mathlibApplicability repo
+  unless applies do
+    throw <| IO.userError s!"provisioning: the Mathlib integration check does not apply to this \
+      copy: {reason}. It is qualified only for the toolchain and Mathlib revision that \
+      {mathlibPackage} pins; not run, so nothing Mathlib-specific is claimed"
 
 /-- Provision this copy. -/
 def provision (repo : FilePath) : IO Unit := do
@@ -1028,6 +1095,7 @@ def provision (repo : FilePath) : IO Unit := do
     return
   let mode ← readBuildMode repo
   requireCompiler repo
+  requireMathlibApplies repo
   let some (manifest, pins) ← readPins repo
     | say s!"{mathlibPackage}/lake-manifest.json pins no Mathlib; nothing to share"
   let source ← sourceModule repo mode
@@ -1042,9 +1110,10 @@ def provision (repo : FilePath) : IO Unit := do
     lock.lock
   let shared ← try
       let (shared, receipt) ← ensureShared repo parent key manifest pins mode source
-      registerCopy parent key.val (packages / "mathlib").toString
+      let link := (packages / "mathlib").toString
+      registerCopy parent key.val link
       provisionPackages packages shared receipt pins
-      prune parent key.val
+      prune parent key.val link (repo / retiredLink).toString
       pure shared
     finally
       lock.unlock
@@ -1056,15 +1125,19 @@ def provisionVerso (repo : FilePath) : IO Unit := do
     stream repo "lean" #["--run", "lean/RegulaSnapshot.lean", "restore"]
     return
   requireCompiler repo
-  unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
-      (← IO.FS.readFile (repo / "website" / "lean-toolchain")) do
-    throw <| IO.userError "provisioning: website/lean-toolchain differs from the root"
+  -- The standard's examples import the `audit/` package's modules in the website's workspace.
+  for package in #["audit", "website"] do
+    unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
+        (← IO.FS.readFile (repo / package / "lean-toolchain")) do
+      throw <| IO.userError s!"provisioning: {package}/lean-toolchain differs from the root"
   let mode ← readBuildMode repo
   stream (repo / "website") "lake"
     (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
 
-/-- Export artifact policy to CI and, without a snapshot selection, compiler and discovered
-source scope for cache keys. Cache hits still run source receipt admission.
+/-- Export artifact policy to CI and, without a snapshot selection, compiler and source scope
+for cache keys. Only the Mathlib cache key reads the scope, so the source scope is discovered
+only for a copy the Mathlib integration check applies to (`mathlibApplies`) and is the constant
+`none` for any other source-mode copy. Cache hits still run source receipt admission.
 GitHub's output and environment protocols are trusted IO. -/
 def ciIdentity (repo : FilePath) : IO Unit := do
   requireCompiler repo
@@ -1073,14 +1146,18 @@ def ciIdentity (repo : FilePath) : IO Unit := do
     throw <| IO.userError "provisioning: the compiler commit is not a full Git object name"
   unless ← (repo / ".github/snapshot-compiler.json").pathExists do
     let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
-    let source ← sourceModule repo mode
+    let scope ←
+      if mode != .source then pure "full"
+      else if (← mathlibApplicability repo).1 then
+        pure (toString (hash (← sourceModule repo mode)))
+      else pure "none"
     let value := s!"{Lean.githash}-{mode.spelling}{policy}"
     say s!"dependency identity {value}"
     if let some path ← IO.getEnv "GITHUB_OUTPUT" then
       let handle ← IO.FS.Handle.mk path .append
       handle.putStr s!"identity={value}\n"
       handle.putStr s!"mode={mode.spelling}\n"
-      handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
+      handle.putStr s!"scope={scope}\n"
   if let some path ← IO.getEnv "GITHUB_ENV" then
     let handle ← IO.FS.Handle.mk path .append
     for (name, value) in ← freshBuildEnvironment repo mode do
@@ -1094,8 +1171,11 @@ def execute (repo dir : FilePath) (command : String) (args : Array String) : IO 
 
 end RegulaProvision
 
-/-- Standalone entrypoint for local sharing, CI dependency setup, Verso and commands that
-must inherit the selected artifact mode. Every invocation starts at the repository root. -/
+/-- Standalone entrypoint for default setup, the explicit Mathlib provisioning of the Mathlib
+integration package, CI dependency setup, Verso and commands that must inherit the selected
+artifact mode. Every invocation starts at the repository root. Without an argument and
+without a snapshot selection there is nothing to acquire: no package that default verification
+builds requires Mathlib. -/
 def main (args : List String) : IO Unit := do
   let repo ← IO.FS.realPath (← IO.currentDir)
   unless ← (repo / "lakefile.lean").pathExists do
@@ -1104,26 +1184,51 @@ def main (args : List String) : IO Unit := do
   | [] =>
     if ← (repo / ".github/snapshot-compiler.json").pathExists then
       RegulaProvision.provision repo
-    else if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
-      IO.println "provisioning: local sharing skipped on GitHub Actions (CI uses the Mathlib plan)"
-    else if System.Platform.isWindows then
-      if (← RegulaProvision.readBuildMode repo) == .source then
-        throw <| IO.userError "provisioning: source dependency mode is not supported on Windows"
-      IO.println "provisioning: not supported on Windows; provision with `lake -d audit exe cache \
-        get`"
-    else RegulaProvision.provision repo
-  | ["mathlib"] =>
-    if ← (repo / ".github/snapshot-compiler.json").pathExists then
-      RegulaProvision.provision repo
     else
+      IO.println s!"provisioning: nothing to provision; the root, audit/ and website/ packages \
+        require no Mathlib (`lean --run lean/RegulaProvision.lean verso` provisions the pinned \
+        Verso, and `lean --run lean/RegulaProvision.lean mathlib` the Mathlib of \
+        {RegulaProvision.mathlibPackage}, which only `./scripts/verify.sh mathlib` needs)"
+  | ["mathlib"] =>
+    RegulaProvision.requireMathlibApplies repo
+    if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
+      -- CI keeps a writable packages directory of its own: the upstream route only fetches the
+      -- published artifacts into it, and the source route uses the shared directory.
       RegulaProvision.requireCompiler repo
       let mode ← RegulaProvision.readBuildMode repo
       if mode == .source then RegulaProvision.provision repo
-      else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
+      else RegulaProvision.buildMathlib (repo / RegulaProvision.mathlibPackage) mode false
+    else if System.Platform.isWindows then
+      if (← RegulaProvision.readBuildMode repo) == .source then
+        throw <| IO.userError "provisioning: source dependency mode is not supported on Windows"
+      IO.println s!"provisioning: sharing is not supported on Windows; provision with \
+        `lake exe cache get` in {RegulaProvision.mathlibPackage}"
+    else RegulaProvision.provision repo
+  -- Whether the Mathlib integration check applies to this copy. CI gates the integration job on
+  -- the recorded output, so an excluded copy shows that job as skipped, never as passed.
+  | ["mathlib-applies"] =>
+    let (applies, reason) ← RegulaProvision.mathlibApplicability repo
+    if applies then
+      IO.println "Mathlib integration check: applies (no compiler snapshot is selected and the \
+        integration package selects this toolchain)"
+    else
+      IO.println s!"Mathlib integration check: NOT RUN, INCOMPLETE ({reason}); nothing \
+        Mathlib-specific is claimed for this copy"
+    if let some path ← IO.getEnv "GITHUB_OUTPUT" then
+      let handle ← IO.FS.Handle.mk path .append
+      handle.putStr s!"mathlib={applies}\n"
+  -- The check itself refuses an excluded copy, and one whose Mathlib is not provisioned, before
+  -- Lake could clone and build a per-copy Mathlib inside the deadline.
+  | ["mathlib-applies", "--require"] =>
+    RegulaProvision.requireMathlibApplies repo
+    let mathlib := repo / RegulaProvision.mathlibPackage / ".lake" / "packages" / "mathlib"
+    unless ← mathlib.pathExists do
+      throw <| IO.userError s!"provisioning: {mathlib} is absent; run \
+        `lean --run lean/RegulaProvision.lean mathlib` before `./scripts/verify.sh mathlib`"
   | ["verso"] => RegulaProvision.provisionVerso repo
   | ["identity"] => RegulaProvision.ciIdentity repo
   | "exec" :: dir :: command :: rest =>
     RegulaProvision.execute repo dir command rest.toArray
   | _ =>
     throw <| IO.userError "usage: lean --run lean/RegulaProvision.lean \
-      [mathlib | verso | identity | exec DIR COMMAND ARGS...]"
+      [mathlib | mathlib-applies [--require] | verso | identity | exec DIR COMMAND ARGS...]"

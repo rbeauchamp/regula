@@ -39,9 +39,10 @@ builtin widget behind named errors, renders the editor's **View explanation** li
 registry URL. The VS Code Lean 4 extension and infoview (leanprover/vscode-lean4) host
 these messages. These are dependencies, not design influences on Regula's policy.
 The `regula` package that projects require imports only Lean's core libraries and requires no
-other package. The repository's Mathlib-dependent `audit/` package (the standard's Mathlib
-examples) and the website depend on Mathlib and, through it, Batteries (both Apache 2.0, pinned
-dependencies).
+other package, and the standard's examples and the website import no Mathlib module. The
+repository's Mathlib integration package (`integration/mathlib/`), which checks the
+Mathlib-specific behaviour Regula supports, depends on Mathlib and, through it, Batteries (both
+Apache 2.0, pinned dependencies).
 
 ## Adapted code and licenses
 

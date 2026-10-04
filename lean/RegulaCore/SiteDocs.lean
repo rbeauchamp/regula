@@ -296,8 +296,9 @@ def creditsPage (ident : Identity) : Except String String := do
       endorsement by Microsoft is implied. Other linters (Clippy, Roslyn, ESLint, Ruff, Pyrefly, \
       HLint) informed the design.\n\n" ++
     "**Mathlib.** The `regula` package that projects require imports only Lean's core libraries and \
-      requires no other package. The checker repository's Mathlib-dependent package (the \
-      standard's Mathlib examples) and this site depend on \
+      requires no other package, and the standard's examples and this site import no Mathlib \
+      module. The checker repository's Mathlib integration package, which checks the \
+      Mathlib-specific behaviour Regula supports, depends on \
       [Mathlib](https://github.com/leanprover-community/mathlib4) (Apache 2.0) and so on \
       [Batteries](https://github.com/leanprover-community/batteries) (Apache 2.0), which Mathlib \
       requires.\n\n" ++

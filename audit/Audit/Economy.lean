@@ -1,6 +1,3 @@
-import Mathlib.Tactic.Ring
-import Mathlib.Basic.Real.Basic
-
 /-!
 # Proof economy and lawful mixins
 
@@ -26,13 +23,13 @@ loop. The analytic theorem `two_mul_sumTo` replaces per-instance replay with
 one induction for every `n`, and kernel reduction of `sumTo` is unchanged by
 the `csimp` attribute.
 
-Retention reason (repository checklist row `DOGFOOD-04`): Mathlib's
-`Finset.sum_range_id_mul_two : (∑ i ∈ range n, i) * 2 = n * (n - 1)` states
-the Gauss identity at a shifted index (`range (n + 1)` corresponds to
-`sumTo n`), but that sum is a `Multiset`-quotient object whose kernel
-reduction is not the recursion scheme under study; `sumTo` and `sumWf` are
-retained because the example is about how the two recursion schemes
-elaborate, replay, and compile, not about the arithmetic identity.
+Retention reason (repository checklist row `DOGFOOD-04`): core's
+`List.sum_range' : (range' start n step).sum = n * start + n * (n - 1) * step / 2`
+states the arithmetic-series identity (`sumTo n` is `(List.range' 0 (n + 1)).sum`),
+but that sum is a list fold whose kernel reduction is not the recursion scheme
+under study; `sumTo` and `sumWf` are retained because the example is about how
+the two recursion schemes elaborate, replay, and compile, not about the
+arithmetic identity.
 
 **Performance interface.** `closedSumWithProof` returns `closedSum n` with the exact
 Gauss relation as an erased proof, reusing `sumTo_eq_closedSum` and
@@ -46,10 +43,12 @@ law requires the mixin directly (`measure_enhance_ge`) or obtains its instance
 from stronger assumptions; a use at a
 concrete type obtains it from a discharged instance; an instance of the
 mixin must discharge every law (standard §3.2.3 negative fences). The class is
-retained rather than replaced by a Mathlib structure because no pinned
-Core/Std/Mathlib class states an inflationary binary operation together with
-a real-valued monotone measure; the ℝ instance reuses `le_max_left` and
-`min_le_left` instead of re-proving them.
+retained rather than replaced by a library structure because no pinned
+Core/Std class states an inflationary binary operation together with a
+natural-number monotone measure; the `Nat` instance reuses core's
+`Nat.le_max_left` and `Nat.min_le_left` instead of re-proving them. The same
+mixin over Mathlib's `Preorder` and a real-valued measure is
+`MathlibAudit.Economy` in the Mathlib integration package (`integration/mathlib/`).
 -/
 
 namespace Economy
@@ -78,7 +77,7 @@ instance. -/
 theorem two_mul_sumTo (n : Nat) : 2 * sumTo n = n * (n + 1) := by
   induction n with
   | zero => rfl
-  | succ k ih => simp only [sumTo, Nat.mul_add, ih]; ring
+  | succ k ih => rw [sumTo, Nat.mul_add, ih, ← Nat.add_mul, Nat.mul_comm]
 
 /-- Pointwise agreement of the reference with the closed form. -/
 theorem sumTo_eq_closedSum (n : Nat) : sumTo n = closedSum n := by
@@ -139,38 +138,39 @@ class Flourishable (α : Type) where
   enhance : α → α → α
   /-- Combines two values into one that the lawful mixin requires to be at most the first. -/
   diminish : α → α → α
-  /-- A real-valued measurement of a value. -/
-  measure : α → ℝ
+  /-- A natural-number measurement of a value. -/
+  measure : α → Nat
 
 /-- Lawful mixin: every law is a proof-requiring field over the operations,
-relative to a separately supplied lawful order (`Preorder α`), as Mathlib's
-`IsOrderedAddMonoid` is relative to `[Preorder α]`. An instance of this
-class is the claim that `α`'s operations are lawful for that order. -/
-class LawfulFlourishable (α : Type) [Preorder α] [Flourishable α] : Prop where
+relative to a separately supplied lawful order (the relation `LE α` with its
+`Std.IsPreorder α` laws), as core's `Std.LawfulOrderMax` is relative to
+`[Max α] [LE α]`. An instance of this class is the claim that `α`'s operations
+are lawful for that order. -/
+class LawfulFlourishable (α : Type) [LE α] [Std.IsPreorder α] [Flourishable α] : Prop where
   /-- `enhance a b` is at least `a` in the supplied order. -/
   enhance_increases : ∀ a b : α, a ≤ Flourishable.enhance a b
   /-- `diminish a b` is at most `a` in the supplied order. -/
   diminish_decreases : ∀ a b : α, Flourishable.diminish a b ≤ a
-  /-- `measure` is monotone from the supplied order to the order of `ℝ`. -/
+  /-- `measure` is monotone from the supplied order to the order of `Nat`. -/
   measure_monotone :
     ∀ a b : α, a ≤ b → Flourishable.measure a ≤ Flourishable.measure b
 
-/-- Operations on ℝ. -/
-instance : Flourishable ℝ where
+/-- Operations on `Nat`. -/
+instance : Flourishable Nat where
   enhance := max
   diminish := min
   measure := id
 
-/-- All laws discharged from Mathlib's lattice lemmas. -/
-instance : LawfulFlourishable ℝ where
-  enhance_increases := fun _ _ => le_max_left _ _
-  diminish_decreases := fun _ _ => min_le_left _ _
+/-- All laws discharged from core's `Nat` order lemmas. -/
+instance : LawfulFlourishable Nat where
+  enhance_increases := Nat.le_max_left
+  diminish_decreases := Nat.min_le_left
   measure_monotone := fun _ _ h => h
 
 /-- A claim that uses a law requires the mixin; without `[LawfulFlourishable α]`
 this statement does not elaborate. -/
-theorem measure_enhance_ge {α : Type} [Preorder α] [Flourishable α] [LawfulFlourishable α]
-    (a b : α) :
+theorem measure_enhance_ge {α : Type} [LE α] [Std.IsPreorder α] [Flourishable α]
+    [LawfulFlourishable α] (a b : α) :
     Flourishable.measure a ≤ Flourishable.measure (Flourishable.enhance a b) :=
   LawfulFlourishable.measure_monotone _ _ (LawfulFlourishable.enhance_increases a b)
 

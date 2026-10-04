@@ -34,22 +34,25 @@ number := false
 
 * Import `Mathlib.Basic.Real.Basic` when the model uses real numbers.
 * Use `ℝ` when the claim treats time, probability, or another quantity as real-valued. Use the corresponding refined type when bounds are required.
+* Use core's `Rat` when the claim is exact rational arithmetic: its order is decidable and its operations execute. It is not a model of the reals; a statement that needs completeness, limits or analysis requires `ℝ`.
 * Use floating-point and fixed-width machine types when the claim is about that arithmetic, and name the semantics the claim relies on: rounding and exceptional values for `Float`; wrapping and bit width for machine words and `BitVec`; serialization when values cross a byte boundary.
 * Specify an executable representation directly when its behavior is the subject of the claim. Transfer an abstract model’s result through checked correspondence to the actual implementation ({ref "13-the-specificationmodel-firewall"}[module 1 §1.3]).
 * Discrete models, such as `ℕ`-based clocks and `Fin n` phases, also conform when they fit the claim. Supply the laws of every claimed mathematical interface.
 
-*Example - Continuous Quantities with a Lawful Order*:
+*Example - Exact Rational Quantities with a Lawful Order*:
 
-The shared `Time` type wraps non-negative real numbers. In {repo "audit/Audit/DocClaims.lean"}[`Audit.DocClaims`], `DecayingValue.valueAt` is `initial * exp (decayRate * (t - startTime))`, using the underlying real values of the times. The theorem below establishes a nonincreasing curve for a negative rate. It does not establish strict decrease because `initial` may be zero. Its quantifiers include all ordered pairs of times, including times before `startTime`. That field shifts the formula rather than restricting its domain.
+The shared `Time` type wraps non-negative rational numbers: exact arithmetic with a decidable order, not the real numbers. In {repo "audit/Audit/DocClaims.lean"}[`Audit.DocClaims`], `DecayingValue.valueAt` is the linear curve `initial * (1 + decayRate * (t - startTime))`, using the underlying rational values of the times. The theorem below establishes a nonincreasing curve for a negative rate. It does not establish strict decrease because `initial` may be zero. Its quantifiers include all ordered pairs of times, including times before `startTime`. That field shifts the formula rather than restricting its domain. The curve is linear, not exponential: a claim about `initial * exp (decayRate * (t - startTime))` over `ℝ` needs Mathlib's real analysis, and the {repo "integration/mathlib/MathlibAudit/DocClaims.lean"}[Mathlib integration package] proves the same antitonicity statement for that real-valued curve.
 
 ```lean
 import Audit.DocClaims
 open Glossary
 
-/- `Time` is a nominal wrapper around `NNReal`; `ResourceAmount` reuses
-`NNReal` directly. The wrapper has the complete lawful order claimed here. -/
-noncomputable example : LinearOrder Time := inferInstance
-example (t : Time) : 0 ≤ t.val := t.val.property
+/- `Time` is a nominal wrapper around a non-negative `Rat`; `ResourceAmount` is the
+canonical subtype directly. The wrapper has the complete lawful order claimed here,
+and its comparison is decidable. -/
+example : Std.IsLinearOrder Time := inferInstance
+example (a b : Time) : Decidable (a ≤ b) := inferInstance
+example (t : Time) : 0 ≤ t.val := t.nonneg
 
 /-- This alias exposes the exact theorem checked in `Audit.DocClaims`: for every
 curve with a negative rate and every ordered pair of nominal times, the
@@ -65,25 +68,23 @@ theorem exists_decayRate_neg_and_le :
   decay_monotone_nonvacuous
 ```
 
-An `LE` instance supplies a relation used by `≤`. It provides no proofs of reflexivity, transitivity, antisymmetry, or totality, and does not provide `min` or `max`. Even when its relation has those properties, the stronger interface requires their evidence. The bare relation below therefore does not synthesize `LinearOrder`:
+An `LE` instance supplies a relation used by `≤`. It provides no proofs of reflexivity, transitivity, antisymmetry, or totality, and does not provide `min` or `max`. Even when its relation has those properties, the stronger interface requires their evidence. The bare relation below therefore does not synthesize core's `Std.IsLinearOrder`:
 
-```lean (fails := "(?s)failed to synthesize.*LinearOrder")
-import Mathlib.Basic.Real.Basic
-
-/-- A non-negative real number. -/
+```lean (fails := "(?s)failed to synthesize.*IsLinearOrder")
+/-- A non-negative rational number. -/
 structure T where
-  /-- The underlying real number. -/
-  val : Real
+  /-- The underlying rational number. -/
+  val : Rat
   /-- The number is non-negative. -/
   nonneg : 0 ≤ val
 
 instance : LE T := ⟨fun x y ↦ x.val ≤ y.val⟩
 
--- A bare relation does not synthesize the lawful bundled structure:
-#synth LinearOrder T
+-- A bare relation does not synthesize the lawful structure:
+#synth Std.IsLinearOrder T
 ```
 
-If the prose claims that time has a linear order, supply the corresponding `LinearOrder` instance as the shared `Glossary.Time` does in {repo "audit/Audit/DocPrelude.lean"}[`Audit.DocPrelude`].
+If the prose claims that time has a linear order, supply the corresponding lawful instance (core's `Std.IsLinearOrder`, or Mathlib's `LinearOrder` in a Mathlib project) as the shared `Glossary.Time` does in {repo "audit/Audit/DocPrelude.lean"}[`Audit.DocPrelude`].
 
 *Example - Machine Arithmetic as the Specification Object*:
 
@@ -125,14 +126,18 @@ number := false
 * Orders: `PartialOrder`, `LinearOrder`, `Lattice`.
 * On the pinned Mathlib, the following ordered-algebra interfaces combine operational classes with proof-valued mixins: `AddCommGroup`, `PartialOrder` (or `LinearOrder`), and `IsOrderedAddMonoid` for ordered additive commutative groups; `Field`, `LinearOrder`, and `IsStrictOrderedRing` for linearly ordered fields. The former bundled names `OrderedAddCommGroup` and `LinearOrderedField` are absent on this pin. This describes those interfaces, not a ban on bundled hierarchies.
 
+*Key Structures from Lean's Core Library*:
+
+* Order laws over the operational class `LE`: `Std.IsPreorder`, `Std.IsPartialOrder` and `Std.IsLinearOrder`, with the `Prop`-valued mixins `Std.LawfulOrderLT`, `Std.LawfulOrderMin` and `Std.LawfulOrderMax` relating `<`, `min` and `max` to `≤`.
+* Laws of a binary operation: `Std.Associative`, `Std.Commutative` and `Std.LawfulIdentity`.
+* `Std.LinearOrderPackage.ofLE` builds the lawful linear-order structure of a type from its `≤`, a decision procedure and the three laws `Std.Total`, `Trans` and `Std.Antisymm`.
+
 *Example - Canonical Orders Without Rebuilding Them*:
 
 ```lean
-import Mathlib.Order.Basic
-import Mathlib.Order.Lattice.Nat
-
-/-- Named levels obtain an order by an injective rank into `ℕ`.
-`LinearOrder.lift'` transports the existing order and its laws. -/
+/-- Named levels obtain an order by an injective rank into `Nat`. Core's
+`Std.LinearOrderPackage.ofLE` builds the lawful structure from the laws of
+the rank order, which are `Nat`'s. -/
 inductive ConsensusLevel
   /-- No consensus. -/
   | none
@@ -144,38 +149,47 @@ inductive ConsensusLevel
   | strong
   /-- Every participant agrees. -/
   | unanimous
-  deriving DecidableEq
 
 /-- Index each level into the canonical natural order. -/
 def ConsensusLevel.rank : ConsensusLevel → Nat
   | .none => 0 | .weak => 1 | .moderate => 2 | .strong => 3 | .unanimous => 4
 
-instance : LinearOrder ConsensusLevel :=
-  LinearOrder.lift' ConsensusLevel.rank (by
-    intro a b h
-    cases a <;> cases b <;> simp_all [ConsensusLevel.rank])
+instance : LE ConsensusLevel := ⟨fun a b ↦ a.rank ≤ b.rank⟩
 
-example : LinearOrder ConsensusLevel := inferInstance
+instance : DecidableLE ConsensusLevel :=
+  fun a b ↦ inferInstanceAs (Decidable (a.rank ≤ b.rank))
+
+instance : Std.Total (α := ConsensusLevel) (· ≤ ·) :=
+  ⟨fun a b ↦ Nat.le_total a.rank b.rank⟩
+
+instance : Trans (α := ConsensusLevel) (· ≤ ·) (· ≤ ·) (· ≤ ·) := ⟨Nat.le_trans⟩
+
+/-- The rank is injective, so levels that compare both ways are equal. -/
+instance : Std.Antisymm (α := ConsensusLevel) (· ≤ ·) where
+  antisymm a b hab hba := by
+    have h : a.rank = b.rank := Nat.le_antisymm hab hba
+    cases a <;> cases b <;> simp_all [ConsensusLevel.rank]
+
+instance : Std.LinearOrderPackage ConsensusLevel := .ofLE ConsensusLevel
+
+example : Std.IsLinearOrder ConsensusLevel := inferInstance
 
 /-- When named constructors aren't needed at all, an abbreviation inherits
 everything outright — no new structure, zero proofs. -/
 abbrev Priority := Fin 5
-example : LinearOrder Priority := inferInstance
+example : Std.IsLinearOrder Priority := inferInstance
 ```
 
-The rank function chooses the intended ordering. The injection proof shows that distinct constructors receive distinct ranks. The imports above do not provide a `deriving LinearOrder` handler:
+The rank function chooses the intended ordering. The injectivity proof shows that distinct constructors receive distinct ranks. In a Mathlib project, `LinearOrder.lift'` transports the order and its laws along the same injective rank in one step; {repo "integration/mathlib/MathlibAudit/DocClaims.lean"}[`Glossary.Tick`] in the Mathlib integration package is built that way. Lean provides no `deriving` handler for the lawful structure:
 
-```lean (fails := "(?s)deriving.*LinearOrder")
-import Mathlib.Order.Basic
-import Mathlib.Order.Lattice.Nat
-
+```lean (fails := "(?s)deriving.*IsLinearOrder")
 /-- Two named levels. -/
 inductive Level
   /-- The lower level. -/
   | low
   /-- The higher level. -/
   | high
-  deriving LinearOrder
+  deriving Std.IsLinearOrder
 ```
 
 # 4.3 Temporal Models
@@ -189,12 +203,11 @@ number := false
 Discrete and continuous models are both conforming, as long as the order (or other) interface is complete and lawful:
 
 ```lean
-import Mathlib.Order.Interval.Set.Basic
 import Audit.DocPrelude
 open Glossary
 
-/- This fence uses the shared `Time` type (§4.1): non-negative reals
-with its lawful `LinearOrder`, shipped by the glossary. -/
+/- This fence uses the shared `Time` type (§4.1): non-negative rationals
+with a lawful, decidable linear order, shipped by the glossary. -/
 
 /-- Events in the system (`Id`: §2.3, `Time`: §4.1, `OpaqueData`: module 6 §6.5.1). -/
 structure Event where
@@ -205,13 +218,16 @@ structure Event where
   /-- The event's payload, which this model does not observe. -/
   content : OpaqueData
 
-/-- Temporal ordering of events, lifted from timestamps.
-(`Preorder.lift` needs a `Preorder` on the target; Time's `LinearOrder`
-supplies that weaker instance.) -/
-noncomputable instance : Preorder Event :=
-  Preorder.lift (fun e : Event ↦ e.timestamp)
+/-- Temporal ordering of events, by their timestamps. -/
+instance : LE Event := ⟨fun e₁ e₂ ↦ e₁.timestamp ≤ e₂.timestamp⟩
 
-noncomputable example : Preorder Event := inferInstance
+/-- The timestamp order is a preorder: its two laws are those of `Time`'s
+linear order, which supplies that weaker structure. -/
+instance : Std.IsPreorder Event where
+  le_refl e := Std.le_refl e.timestamp
+  le_trans _ _ _ h₁ h₂ := Std.le_trans (α := Time) h₁ h₂
+
+example : Std.IsPreorder Event := inferInstance
 
 /-- A time window with validity proof. -/
 structure TimeWindow where
@@ -241,34 +257,44 @@ theorem mem_eventsInWindow (events : List Event) (w : TimeWindow)
     e ∈ eventsInWindow events w ↔ e ∈ events ∧ w.Contains e.timestamp := by
   simp [eventsInWindow]
 
-/-- A strict causal relation on the declared event set. `IsStrictOrder`
-supplies exactly irreflexivity and transitivity; this is not a reflexive
-`PartialOrder`. -/
+/-- A computable producer of the decision: both comparisons of rational times
+are decidable. -/
+instance (w : TimeWindow) (t : Time) : Decidable (w.Contains t) :=
+  inferInstanceAs (Decidable (w.start ≤ t ∧ t ≤ w.finish))
+
+/-- With that producer the filter has an executable caller. -/
+def eventsWithin (events : List Event) (w : TimeWindow) : List Event :=
+  eventsInWindow events w
+
+/-- A strict causal relation on the declared events: exactly irreflexivity
+and transitivity. This is not a reflexive partial order. -/
 structure CausalOrder where
-  /-- The declared event set. -/
-  events : Set Event
+  /-- Which events are declared: a membership predicate. -/
+  Declared : Event → Prop
   /-- The causal relation between declared events. -/
-  precedes : {e : Event // e ∈ events} → {e : Event // e ∈ events} → Prop
-  /-- `precedes` is irreflexive and transitive. -/
-  laws : IsStrictOrder {e : Event // e ∈ events} precedes
+  precedes : {e : Event // Declared e} → {e : Event // Declared e} → Prop
+  /-- `precedes` is irreflexive. -/
+  irrefl : ∀ e, ¬ precedes e e
+  /-- `precedes` is transitive. -/
+  trans : ∀ e₁ e₂ e₃, precedes e₁ e₂ → precedes e₂ e₃ → precedes e₁ e₃
 
 -- A concrete causal relation supplies `precedes` and discharges the two law
--- fields of `IsStrictOrder`.
+-- fields.
 ```
 
-The timestamp order on `Event` is a preorder. Two different events can share a timestamp and be ordered both ways without being equal. A `PartialOrder Event` based only on timestamps would additionally need antisymmetry, which these fields do not establish.
+The timestamp order on `Event` is a preorder. Two different events can share a timestamp and be ordered both ways without being equal. A partial order on `Event` based only on timestamps would additionally need antisymmetry, which these fields do not establish.
 
-`mem_eventsInWindow` states both directions of membership: an event is retained exactly when it belongs to the input list and satisfies the window predicate. The function is executable when its supplied decision procedure is executable. Arbitrary real-time comparison in the shared `Time` order is noncomputable, so that order does not supply an executable caller. A discrete clock or a different decidable input domain can serve a runtime requirement.
+`mem_eventsInWindow` states both directions of membership: an event is retained exactly when it belongs to the input list and satisfies the window predicate. The function is executable when its supplied decision procedure is executable. The shared `Time` order compares rationals and is decidable, so `eventsWithin` is an executable caller. A real-valued time has no executable comparison: over Mathlib's `ℝ` the same function has only noncomputable callers, and a discrete clock or another decidable input domain serves a runtime requirement.
 
-`CausalOrder` requires an irreflexive, transitive relation on the declared event set. Its fields do not connect that relation to timestamps or establish any external causal interpretation. State and prove such a connection separately when claimed.
+`CausalOrder` requires an irreflexive, transitive relation on the declared events. Its fields do not connect that relation to timestamps or establish any external causal interpretation. State and prove such a connection separately when claimed.
 
-For protocol models, a discrete clock can count steps. Here ticks and phase numbers must not be interchanged. {repo "audit/Audit/DocClaims.lean"}[`Glossary.Tick`] is a nominal structure with a public `val : Nat` field. Its `LinearOrder` reuses the natural order and its laws through that injective projection using Mathlib's `LinearOrder.lift'`. Construction and projection are explicit conversions, not an abstraction boundary.
+For protocol models, a discrete clock can count steps. Here ticks and phase numbers must not be interchanged. {repo "audit/Audit/DocClaims.lean"}[`Glossary.Tick`] is a nominal structure with a public `val : Nat` field. Its `Std.IsLinearOrder` instance reuses the natural order and its laws through that injective projection, built by core's `Std.LinearOrderPackage.ofLE`. Construction and projection are explicit conversions, not an abstraction boundary.
 
 ```lean
 import Audit.DocClaims
 open Glossary
 
-example : LinearOrder Tick := inferInstance
+example : Std.IsLinearOrder Tick := inferInstance
 example (a b : Tick) : a ≤ b ↔ a.val ≤ b.val := Tick.le_iff a b
 
 /-- One protocol step: a clock tick and a phase number, kept as distinct types. -/
@@ -291,14 +317,12 @@ def atTick (t : Glossary.Tick) : Nat := t.val
 example (phase : Nat) : Nat := atTick phase
 ```
 
-If a model intentionally needs only another name for natural numbers, `abbrev Tick := Nat` inherits their `LinearOrder` but creates no semantic type distinction. An ordinary `def` is also definitionally equal to its body but is not unfolded by typeclass synthesis at the same transparency. The instance must be supplied explicitly or obtained by another deliberate transparency choice:
+If a model intentionally needs only another name for natural numbers, `abbrev Tick := Nat` inherits their order instances and laws but creates no semantic type distinction. An ordinary `def` is also definitionally equal to its body but is not unfolded by typeclass synthesis at the same transparency. Even the relation `≤` must be supplied explicitly or obtained by another deliberate transparency choice:
 
-```lean (fails := "(?s)failed to synthesize.*LinearOrder")
-import Mathlib.Order.Basic
-
+```lean (fails := "(?s)failed to synthesize.*LE Tick")
 /-- Another name for natural numbers, as an ordinary `def`. -/
 def Tick := Nat
-#synth LinearOrder Tick
+#synth Std.IsLinearOrder Tick
 ```
 
 # 4.4 Spatial Properties
@@ -311,42 +335,45 @@ number := false
 
 *Rationale*: A claim about distance or continuity needs the corresponding laws. Mathlib provides those verified interfaces, while other geometric claims may require different structures. Selecting the matching interface preserves the exact claim boundary from §1.4.
 
-*Example - Geometric Constraints on Network Edges*:
+*Example - Incidence Constraints on Network Edges* (an incidence claim: which cells lie in which coverage zones. It needs no distance, so it uses no metric; a claim about range measures distance through Mathlib's `MetricSpace ℝ`, checked as `MathlibModels.InRange` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package]):
 
 ```lean
-import Mathlib.Topology.Instances.Real.Lemmas
 import Audit.DocPrelude
 open Glossary
 
-/-- One-dimensional locations reuse the real line's canonical Mathlib metric.
-A higher-dimensional model can replace this alias with `EuclideanSpace`; the
-law-reuse point is the same. -/
-abbrev Location := ℝ
+/-- A location is a cell of a floor plan: its row and its column. -/
+abbrev Cell := Nat × Nat
 
-/-- A network node: an identifier and a location. -/
+/-- A network node: an identifier and the cell it is in. -/
 structure NetworkNode where
   /-- The node's identifier, tagged as a network-node identifier. -/
   id : Glossary.Id NetworkNodeTag
-  /-- Where the node is. -/
-  location : Location
+  /-- The cell the node is in. -/
+  cell : Cell
 
-/-- Coordinate distance is Mathlib's lawful real metric, not a hand-written
-distance relation. -/
-noncomputable example : MetricSpace Location := inferInstance
+/-- A coverage zone lists the cells it contains. A cell lies in a zone by
+core's list membership, not by a hand-written incidence relation. -/
+abbrev Zone := List Cell
 
-/-- Nodes within communication range, measured through their locations'
-inherited metric. The identifier field does not itself supply a metric;
-route distance through the location field. -/
-def InRange (n₁ n₂ : NetworkNode) (range : ℝ) : Prop :=
-  dist n₁.location n₂.location ≤ range
+/-- Two nodes share a zone: one listed zone contains both their cells. The
+identifier field does not locate a node; incidence goes through the cell field. -/
+def ShareZone (zones : List Zone) (n₁ n₂ : NetworkNode) : Prop :=
+  ∃ zone ∈ zones, n₁.cell ∈ zone ∧ n₂.cell ∈ zone
 
-/-- Admissible directed edge sets: each edge connects in-range listed nodes. -/
-def NetworkTopology (nodes : Set NetworkNode) (range : ℝ) : Type :=
-  {edges : Set (NetworkNode × NetworkNode) //
-    ∀ e ∈ edges, e.1 ∈ nodes ∧ e.2 ∈ nodes ∧ InRange e.1 e.2 range}
+/-- Listing further zones keeps every shared zone, by the definition of core's
+`List.Subset`. -/
+theorem ShareZone.of_subset {zones zones' : List Zone} (h : zones ⊆ zones')
+    {n₁ n₂ : NetworkNode} : ShareZone zones n₁ n₂ → ShareZone zones' n₁ n₂ :=
+  fun ⟨zone, listed, incident⟩ ↦ ⟨zone, h listed, incident⟩
+
+/-- Admissible directed edge relations: each edge connects listed nodes that
+share a zone. -/
+def NetworkTopology (listed : NetworkNode → Prop) (zones : List Zone) : Type :=
+  {edges : NetworkNode → NetworkNode → Prop //
+    ∀ n₁ n₂, edges n₁ n₂ → listed n₁ ∧ listed n₂ ∧ ShareZone zones n₁ n₂}
 ```
 
-This subtype constrains which edges may be present. It does not require every in-range pair to be an edge. The empty edge set always satisfies it. It also requires neither symmetry nor absence of self-loops. A claim of a complete range graph or a simple undirected graph needs the corresponding definition and laws. Here `NetworkTopology` names a type of constrained edge sets, not a topological-space instance or a verified communication network.
+This subtype constrains which edges may be present. It does not require every pair that shares a zone to be an edge. The empty edge relation always satisfies it. It also requires neither symmetry nor absence of self-loops. A claim of a complete zone graph or a simple undirected graph needs the corresponding definition and laws. Here `NetworkTopology` names a type of constrained edge relations, not a topological-space instance or a verified communication network. `ShareZone` states incidence only: it is not transitive when zones overlap, and it says nothing about how far apart two cells are. `ShareZone.of_subset` is the one law this example proves about it. A claim about distance or range needs a metric and its laws, reused from the matching interface, not defined beside the example.
 
 # 4.5 Foundation Strength: Kernel-Only, Choice-Free, Standard-Logical
 %%%
@@ -405,7 +432,7 @@ A project logical axiom, `sorryAx`, or an unrecognized axiom fails the conformin
 *
   * `Glossary.decay_monotone`
   * `{propext, Classical.choice, Quot.sound}`
-  * Standard-Logical; the conditional real-valued antitonicity theorem in §4.1
+  * Standard-Logical; the conditional rational-valued antitonicity theorem in §4.1, whose proof uses core's order lemmas for `Rat`
 :::
 
 These assertions import the actual declarations from {repo "audit/Audit/Basic.lean"}[Basic] and {repo "audit/Audit/DocClaims.lean"}[DocClaims]; the §3.2.2 example makes the same assertion for `reverse_append_eq` where it is written. `#guard_msgs` compares each `#print axioms` result with its displayed expected output, so a changed set fails fence elaboration. This checks these selected dependency claims; the gate reports the complete declaration inventory with `lake exe axiomGate --json-out tmp/axiom-report.json`.
@@ -427,7 +454,7 @@ import Audit.DocClaims
 #print axioms Glossary.decay_monotone
 ```
 
-The label is computed per declaration, not inferred from an imported module or a type name. Some order and analysis operations over `ℝ` traverse choice-dependent definitions. Other declarations in the same module may remain kernel-only or Choice-Free. The exact transitive set decides. Constructive alternatives can change the interface and proof obligations. They are interface decisions, not automatic conformance upgrades.
+The label is computed per declaration, not inferred from an imported module or a type name. Core's order lemmas for `Rat` traverse choice-dependent definitions, as do many order and analysis operations over Mathlib's `ℝ`. Other declarations in the same module may remain kernel-only or Choice-Free. The exact transitive set decides. Constructive alternatives can change the interface and proof obligations. They are interface decisions, not automatic conformance upgrades.
 
 *Selecting a maximum is an enforceable requirement.* The opt-in build linter ({ref "711-opt-in-enforcing-build-linter"}[§7.11]) reads the surface's `"claim"` from `foundation_manifest.json` on every enabled ordinary build. Selecting `"choice-free"` rejects both direct and imported/transitive `Classical.choice`, even when the modules have cached build artifacts. Switching a surface with a covered declaration that depends on `Classical.choice` from `"standard-logical"` to `"choice-free"` therefore fails without any source edit. The standalone qualification includes this intended `label-exceeds-claim` failure, a fresh restoration, and positive controls for all three profiles. Enabled ordinary-build evidence is incremental elaboration and current policy inspection, not fresh-source conformance evidence.
 

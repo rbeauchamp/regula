@@ -33,8 +33,9 @@ run_cmd do
       ({Lean.githash}): {error}"
 
 -- The package adopters require: the checker, lint driver, `regula` CLI, rule registry and
--- editor linter, with no dependency beyond the Lean toolchain. Everything that imports Mathlib
--- (the standard's Mathlib examples) is the separate `regula_audit` package in `audit/`.
+-- editor linter, with no dependency beyond the Lean toolchain. The standard's example library is
+-- the separate `regula_audit` package in `audit/`, which also imports only Lean's core libraries;
+-- everything that imports Mathlib is the Mathlib integration package in `integration/mathlib/`.
 package «regula» where
   -- Regula's semantic version: the latest release's, which only the release pull request
   -- changes and CI checks against `Regula.releases` (docs/guides/contributing.md#release). Each

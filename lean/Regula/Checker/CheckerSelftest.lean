@@ -2427,8 +2427,8 @@ private unsafe def fenceEnvironmentQualification (layout : SourceLayout) (repo s
   -- The driver's build and root selection depend only on the manifest and Lake's
   -- import graph, never on which declarations a module holds. So this control
   -- claims two import-free `prelude` modules instead of the repository surface:
-  -- `leanchecker --fresh` on the real claimed graph replays Init, Lean and
-  -- Mathlib once per root, which is the separate optional serialized-graph
+  -- `leanchecker --fresh` on the real claimed graph replays Init and Lean
+  -- once per root, which is the separate optional serialized-graph
   -- claim (`scripts/verify.sh serialized-graph`), not a clean-checkout property.
   timedPhase "clean-checkout/fresh-checker" <| unbuilt "fresh-checker" fun dir => do
     let sources := dir / layout.relativeDir

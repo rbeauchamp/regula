@@ -98,8 +98,8 @@
   explicit operator approval. Installation and runtime mechanisms remain trusted,
   not formally verified by the project's Lean contracts.
 - Operator-approved exception: `scripts/provision.sh` may use shell solely to run
-  `lean/RegulaProvision.lean` from the repository root, the local setup linking a copy to
-  the shared, read-only Mathlib. `scripts/verify.sh` runs it before its deadline under its
+  `lean/RegulaProvision.lean` from the repository root, the default dependency setup, which
+  acquires no Mathlib. `scripts/verify.sh` runs it before its deadline under its
   own 1800-second GNU timeout and stops with a message if it fails or times out. It must
   not implement policy decisions, validation logic, or test orchestration.
 - Use Lean/Lake APIs for orchestration where available. Distinguish pure proved
@@ -137,8 +137,10 @@
   applies to the optional serialized-graph claim. A `FAIL`,
   `INCOMPLETE`, unknown, omission, skip, timeout, or unsupported check blocks the affected claim.
 
-In a fresh copy, run `./scripts/provision.sh` before the first `lake build`; otherwise Lake
-clones and builds a per-copy Mathlib. Then use `lake build` for the Lean development loop.
+The root, `audit/` and `website/` packages require no Mathlib; use `lake build` for the Lean
+development loop. Only the Mathlib integration package in `integration/mathlib/` requires
+Mathlib: run `lean --run lean/RegulaProvision.lean mathlib` before the first Lake command there;
+otherwise Lake clones and builds a per-copy Mathlib.
 Complete local acceptance is two commands, run in this order:
 
 ```sh
@@ -166,7 +168,7 @@ kernel admission, and records the content identity of its inputs: the inputs it 
 `docs/` Markdown and the standard's Verso package sources (with the `audit/` sources they import)
 it only brackets, not accepts. The second checks every Markdown document Git tracks for a rule ID
 in prose that is not a link to its rule page (it needs a Git checkout), runs the same fresh check
-over the Mathlib-dependent `audit/` package, then audits every documentation example, builds the
+over the `audit/` package of the standard's example library, then audits every documentation example, builds the
 Verso standard fresh (elaborating each `lean` block where it is written) and renders it, and
 refuses unless its own inputs have that identity. This exact two-step split is the only permitted
 division of acceptance. Diagnostic native binaries are built when those diagnostics are requested.
@@ -190,7 +192,8 @@ claim still needs its actual evidence.
 
 On every PR and `main`, CI runs both acceptance steps in one job, the two rule-example
 shards, and then `./scripts/verify.sh site`, which builds and checks the rule-reference site (its own
-420-second limit; never part of acceptance). The
+420-second limit; never part of acceptance). A separate job runs `./scripts/verify.sh mathlib`,
+the Mathlib integration check, the only one that needs Mathlib (never part of acceptance). The
 [contributor guide](docs/guides/contributing.md#choose-focused-diagnostics) lists which
 workflow runs each diagnostic and when; the
 [website guide](docs/guides/website.md#publication) owns publication. Merge requires passing

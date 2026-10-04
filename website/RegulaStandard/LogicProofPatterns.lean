@@ -39,15 +39,12 @@ number := false
 *Example - An Intrinsic Invariant and Its Consequences*:
 
 ```lean
-import Mathlib.Basic.Real.Basic
-import Mathlib.Data.List.Basic
-
 /-- A system state that must maintain invariants. -/
 structure SystemState where
   /-- The number of participants. -/
-  participants : ℕ
+  participants : Nat
   /-- The number of active proposals. -/
-  activeProposals : ℕ
+  activeProposals : Nat
   /-- Invariant: there are no more active proposals than participants. -/
   inv : activeProposals ≤ participants
 
@@ -114,8 +111,6 @@ number := false
 *Example - Termination Patterns* (the examples use domain-specific types and operations rather than redeclaring matching Core or Mathlib functions such as `List.sum` or `Nat.ack`):
 
 ```lean
-import Mathlib.Data.Nat.Notation
-
 /-- A small review workflow used only to expose its recursive structure. -/
 inductive ReviewPlan where
   /-- No step remains. -/
@@ -126,7 +121,7 @@ inductive ReviewPlan where
   | revise (rest : ReviewPlan)
 
 /-- Structural recursion: Lean accepts the call on the direct subplan. -/
-def ReviewPlan.stepCount : ReviewPlan → ℕ
+def ReviewPlan.stepCount : ReviewPlan → Nat
   | .done => 0
   | .review rest => rest.stepCount + 1
   | .revise rest => rest.stepCount + 1
@@ -134,13 +129,13 @@ def ReviewPlan.stepCount : ReviewPlan → ℕ
 /-- State for a bounded retry model. -/
 structure RetryState where
   /-- Retries still to run. -/
-  remaining : ℕ
+  remaining : Nat
   /-- Retries already completed. -/
-  completed : ℕ
+  completed : Nat
 
 /-- The completed count once every remaining retry has run. Well-founded recursion:
 each call has one fewer remaining retry. -/
-def RetryState.totalCompleted (s : RetryState) : ℕ :=
+def RetryState.totalCompleted (s : RetryState) : Nat :=
   if _h : s.remaining = 0 then s.completed
   else totalCompleted { remaining := s.remaining - 1, completed := s.completed + 1 }
   termination_by s.remaining
@@ -150,26 +145,22 @@ def RetryState.totalCompleted (s : RetryState) : ℕ :=
 This recursive call increases its argument indefinitely, and Lean rejects the ordinary `def`:
 
 ```lean (fails := "fail to show termination|failed to eliminate recursive")
-import Mathlib.Data.Nat.Basic
-
 /-- Unbounded increasing recursion: Lean refuses this ordinary definition. -/
-def loop (n : ℕ) : ℕ := loop (n + 1)
+def loop (n : Nat) : Nat := loop (n + 1)
 ```
 
 *Totalized operations*: Natural-number division in Lean is total; division by zero returns `0`.
 
 ```lean
-import Mathlib.Data.Nat.Basic
-
 /-- `Nat.div` is total: the zero-divisor case is defined, yielding 0. -/
-example : (1 : ℕ) / 0 = 0 := rfl
+example : (1 : Nat) / 0 = 0 := rfl
 
 /-- A restricted domain is expressed by the API when the model wants one:
 the denominator subtype carries the proof obligation. -/
-def safeDiv (a : ℕ) (d : {d : ℕ // 0 < d}) : ℕ := a / d.val
+def safeDiv (a : Nat) (d : {d : Nat // 0 < d}) : Nat := a / d.val
 
 /-- `safeDiv` agrees with the underlying total division. -/
-theorem safeDiv_eq (a : ℕ) (d : {d : ℕ // 0 < d}) : safeDiv a d = a / d.val := rfl
+theorem safeDiv_eq (a : Nat) (d : {d : Nat // 0 < d}) : safeDiv a d = a / d.val := rfl
 
 example : safeDiv 6 ⟨2, by decide⟩ = 3 := rfl
 ```
@@ -177,10 +168,8 @@ example : safeDiv 6 ⟨2, by decide⟩ = 3 := rfl
 The subtype documents the intended domain at the type level. The underlying division is total in both cases; `1 / 0` remains `0`, but a zero denominator cannot be constructed for `safeDiv`. Mathlib names this positive-natural subtype `ℕ+` (`PNat`). This example spells out the subtype pattern for teaching rather than introducing a new mathematical type. The existing name is available for ordinary reuse ({ref "14-principled-mathematical-modeling"}[module 1 §1.4]). The forbidden zero argument is checked separately:
 
 ```lean (fails := "Tactic `decide` proved|proved that the proposition")
-import Mathlib.Data.Nat.Basic
-
 /-- Division by a divisor that carries its proof of positivity. -/
-def safeDiv (a : ℕ) (d : {d : ℕ // 0 < d}) : ℕ := a / d.val
+def safeDiv (a : Nat) (d : {d : Nat // 0 < d}) : Nat := a / d.val
 
 /-- The domain restriction is enforced at elaboration: the zero divisor cannot be
 supplied a proof, so this call does not elaborate. -/
@@ -200,16 +189,14 @@ Kernel-checked exhaustive case analysis over a closed finite domain is a proof, 
 *Example - Refutation, Then a Library Proof*:
 
 ```lean
-import Mathlib.Data.Nat.Notation
-
 /-- The naive claim
-`∀ (l₁ l₂ : List ℕ), (l₁ ++ l₂).reverse = l₁.reverse ++ l₂.reverse`
+`∀ (l₁ l₂ : List Nat), (l₁ ++ l₂).reverse = l₁.reverse ++ l₂.reverse`
 is refuted by the counterexample `l₁ = [1]`, `l₂ = [2]`
 (LHS `[2, 1]` ≠ RHS `[1, 2]`). The corrected statement follows from the
 library theorem, regardless of how the counterexample was found. -/
-theorem reverse_append_eq (l₁ l₂ : List ℕ) :
+theorem reverse_append_eq (l₁ l₂ : List Nat) :
     (l₁ ++ l₂).reverse = l₂.reverse ++ l₁.reverse :=
-  @List.reverse_append ℕ l₁ l₂
+  @List.reverse_append Nat l₁ l₂
 
 /-- info: 'reverse_append_eq' depends on axioms: [propext] -/
 #guard_msgs in
@@ -235,16 +222,13 @@ number := false
 The following class and instance elaborate, but the two advertised laws are false. The checked refutations identify the defect; merely compiling the operations would not.
 
 ```lean
-import Mathlib.Basic.Real.Basic
-import Mathlib.Tactic.NormNum
-
 /-- ❌ CRITICAL VIOLATION: laws only in documentation. The operations below are
 the class's only fields. -/
 class BadFlourishing (α : Type) where
   /-- A binary combining operation. -/
   enhance : α → α → α
-  /-- A real-valued measure. -/
-  measure : α → ℝ
+  /-- An integer-valued measure. -/
+  measure : α → Int
   -- Law: enhance is associative (comment only)
   -- Law: measure is monotone (comment only)
   -- These "laws" are just comments! Any instance can violate them!
@@ -252,24 +236,24 @@ class BadFlourishing (α : Type) where
   -- declaration after it, and dangling ones fail to parse.)
 
 -- This violating instance elaborates — that is exactly the defect:
-instance : BadFlourishing ℝ where
+instance : BadFlourishing Int where
   enhance := (· - ·)  -- Not associative!
   measure := (fun x ↦ -x)  -- Not monotone!
   -- No error because the laws are not fields
 
 /-- Subtraction is not associative. -/
-example : ¬ (∀ a b c : ℝ,
+example : ¬ (∀ a b c : Int,
     BadFlourishing.enhance (BadFlourishing.enhance a b) c =
       BadFlourishing.enhance a (BadFlourishing.enhance b c)) := by
   intro h
   have bad := h 0 0 1
-  norm_num [BadFlourishing.enhance] at bad
+  simp [BadFlourishing.enhance] at bad
 
-/-- Negation does not preserve the ordinary real order. -/
-example : ¬ Monotone (BadFlourishing.measure : ℝ → ℝ) := by
+/-- Negation does not preserve the ordinary integer order. -/
+example : ¬ (∀ a b : Int, a ≤ b → BadFlourishing.measure a ≤ BadFlourishing.measure b) := by
   intro h
-  have bad := h (show (0 : ℝ) ≤ 1 by norm_num)
-  norm_num [BadFlourishing.measure] at bad
+  have bad := h 0 1 (by decide)
+  simp [BadFlourishing.measure] at bad
 ```
 
 *Example - Lawful Abstraction*:
@@ -277,19 +261,16 @@ example : ¬ Monotone (BadFlourishing.measure : ℝ → ℝ) := by
 Failure to prove a law leaves an unresolved obligation. A counterexample may show that the law or operations need correction; difficulty finding a proof does not prove either is wrong. This separate interface illustrates three order laws rather than repairing the associativity contract above.
 
 ```lean
-import Mathlib.Basic.Real.Basic     -- `measure : α → ℝ` and the ℝ instance below
-import Mathlib.Algebra.Order.Group.Defs
-
-/-- The order is a separate lawful parameter (`Preorder`), not an `LE` parent
-the instance could choose for itself. -/
-class Flourishable (α : Type) [Preorder α] where
+/-- The order is a separate lawful parameter (the relation `LE α` with its
+`Std.IsPreorder α` laws), not a relation the instance could choose for itself. -/
+class Flourishable (α : Type) [LE α] [Std.IsPreorder α] where
   -- Operations
   /-- An operation that must not decrease its first argument. -/
   enhance : α → α → α
   /-- An operation that must not increase its first argument. -/
   diminish : α → α → α
-  /-- A real-valued measure that must preserve the order. -/
-  measure : α → ℝ
+  /-- A natural-number measure that must preserve the order. -/
+  measure : α → Nat
 
   -- Laws that MUST be proven for every instance
   /-- `enhance` does not decrease its first argument. -/
@@ -299,58 +280,62 @@ class Flourishable (α : Type) [Preorder α] where
   /-- `measure` preserves the order. -/
   measure_monotone : ∀ a b, a ≤ b → measure a ≤ measure b
 
-/-- Concrete instance with ALL laws proven. Mathlib's order lemmas prove the
+/-- Concrete instance with ALL laws proven. Core's order lemmas prove the
 max/min laws; the identity measure preserves the supplied inequality. -/
-instance : Flourishable ℝ where
+instance : Flourishable Nat where
   enhance := max
   diminish := min
   measure := id
 
-  enhance_increases := fun _ _ ↦ le_max_left _ _
-  diminish_decreases := fun _ _ ↦ min_le_left _ _
+  enhance_increases := Nat.le_max_left
+  diminish_decreases := Nat.min_le_left
   measure_monotone := fun _ _ h ↦ h
 ```
 
 These laws state that `enhance` does not decrease its first argument, `diminish` does not increase it, and `measure` preserves the supplied order. Whether these properties suffice depends on the interface’s intended claim.
 
-*Laws in a lawful mixin*: The laws need not live in the class that holds the operations. The pinned Mathlib keeps ordered-algebra laws in `Prop`-valued mixins (`IsOrderedAddMonoid`, `IsStrictOrderedRing`) over the operational classes, and Core keeps `LawfulFunctor`, `LawfulMonad`, and `LawfulBEq` apart from `Functor`, `Monad`, and `BEq`. Every claimed law must follow from the available law-bearing evidence, directly or by checked derivation. Every instance discharges each required primitive field, and a claimed lawful interface obtains its required mixin. Four consequences follow:
+*Laws in a lawful mixin*: The laws need not live in the class that holds the operations. Core keeps `Std.LawfulOrderMin` and `Std.LawfulOrderMax` apart from `Min` and `Max`, and `LawfulFunctor`, `LawfulMonad`, and `LawfulBEq` apart from `Functor`, `Monad`, and `BEq`; the pinned Mathlib keeps ordered-algebra laws in `Prop`-valued mixins (`IsOrderedAddMonoid`, `IsStrictOrderedRing`) over the operational classes. Every claimed law must follow from the available law-bearing evidence, directly or by checked derivation. Every instance discharges each required primitive field, and a claimed lawful interface obtains its required mixin. Four consequences follow:
 
-1. A declaration using a mixin’s law MUST have its evidence available. A generic declaration may require the mixin directly (`[Flourishable α] [LawfulFlourishable α]`) or obtain it from stronger assumptions that supply the instance. A concrete use obtains it from an established instance (the ℝ examples below). The operations alone do not supply the mixin’s laws; the elaborator refuses the law without the mixin (second negative fence below).
+1. A declaration using a mixin’s law MUST have its evidence available. A generic declaration may require the mixin directly (`[Flourishable α] [LawfulFlourishable α]`) or obtain it from stronger assumptions that supply the instance. A concrete use obtains it from an established instance (the `Nat` examples below). The operations alone do not supply the mixin’s laws; the elaborator refuses the law without the mixin (second negative fence below).
 2. An operational instance alone supplies no evidence of the mixin’s laws. Prose that presents it as lawful is a prose-only law (`THEOREM-02`, `SCOPE-02`), and a claimed-lawful use site that omits the mixin fails `THEOREM-02`.
 3. The mixin instance is admitted only with every field proved; the elaborator rejects an omitted law exactly as it does for a law in the operational class (first negative fence below).
-4. The laws are relative to the order supplied to the mixin (`[Preorder α]`). When the claim concerns an existing order, the interface MUST use that order or provide checked correspondence to it. This example takes the order as a parameter so the operations do not select a different relation. Bundled order hierarchies are also valid. Avoid competing instance paths that silently select a different order.
+4. The laws are relative to the order supplied to the mixin (`[LE α] [Std.IsPreorder α]`). When the claim concerns an existing order, the interface MUST use that order or provide checked correspondence to it. This example takes the order as a parameter so the operations do not select a different relation. Bundled order hierarchies are also valid. Avoid competing instance paths that silently select a different order.
 
 ```lean
 import Audit.Economy
 
-/-- The claim names the mixin; the ℝ instance discharged every law from
-Mathlib's lattice lemmas. -/
-example : Economy.LawfulFlourishable ℝ := inferInstance
+/-- The claim names the mixin; the `Nat` instance discharged every law from
+core's order lemmas. -/
+example : Economy.LawfulFlourishable Nat := inferInstance
 
 /-- Using a law requires the mixin in the binders. -/
-example {α : Type} [Preorder α] [Economy.Flourishable α] [Economy.LawfulFlourishable α]
-    (a b : α) :
+example {α : Type} [LE α] [Std.IsPreorder α] [Economy.Flourishable α]
+    [Economy.LawfulFlourishable α] (a b : α) :
     Economy.Flourishable.measure a ≤
       Economy.Flourishable.measure (Economy.Flourishable.enhance a b) :=
   Economy.measure_enhance_ge a b
 ```
 
-For the order on `Bad` induced by its real field, subtraction violates `enhance_increases` and negation violates `measure_monotone`. The following fence checks that an instance omitting the required laws is rejected. Missing-field rejection alone does not prove that proposed laws are false.
+For the order on `Bad` induced by its integer field, subtraction violates `enhance_increases` and the negated measure violates `measure_monotone`. The following fence checks that an instance omitting the required laws is rejected. Missing-field rejection alone does not prove that proposed laws are false.
 
 ```lean (fails := "Fields missing|fields missing")
 import Audit.Economy
 
-/-- A wrapper around a real number. -/
+/-- A wrapper around an integer. -/
 structure Bad where
-  /-- The wrapped real number. -/
-  x : ℝ
+  /-- The wrapped integer. -/
+  x : Int
 
-instance : Preorder Bad := Preorder.lift Bad.x
+instance : LE Bad := ⟨fun a b ↦ a.x ≤ b.x⟩
+
+instance : Std.IsPreorder Bad where
+  le_refl a := Int.le_refl a.x
+  le_trans _ _ _ := Int.le_trans
 
 instance : Economy.Flourishable Bad where
   enhance := fun a b ↦ ⟨a.x - b.x⟩
   diminish := fun a b ↦ ⟨a.x + b.x⟩
-  measure := fun a ↦ -a.x
+  measure := fun a ↦ (-a.x).toNat
 
 -- The mixin instance is the lawfulness claim; it is refused without its proofs.
 instance : Economy.LawfulFlourishable Bad where
@@ -362,10 +347,12 @@ And a law cannot be used from the operations alone:
 import Audit.Economy
 
 /-- The mixin is not required, so the law is not available. -/
-theorem le_enhance {α : Type} [Preorder α] [Economy.Flourishable α] (a b : α) :
+theorem le_enhance {α : Type} [LE α] [Std.IsPreorder α] [Economy.Flourishable α] (a b : α) :
     a ≤ Economy.Flourishable.enhance a b :=
   Economy.LawfulFlourishable.enhance_increases a b
 ```
+
+The same operational class and mixin over Mathlib's `Preorder`, with a real-valued measure and an `ℝ` instance discharged from Mathlib's lattice lemmas, are checked in the {repo "integration/mathlib/MathlibAudit/Economy.lean"}[Mathlib integration package].
 
 ## 3.2.4 Decidability: Logical vs Executable
 %%%
@@ -375,33 +362,31 @@ number := false
 
 *Rationale*: A proposition `p : Prop` states a property; it is not a proof or a decision procedure. `Decidable p` is data with two constructors: one carries a proof of `p`, the other a proof of `¬p`. A computable producer of that data gives an executable decision procedure. `Classical.propDecidable` supplies such data logically for any proposition, but is noncomputable and depends on `Classical.choice`.
 
-A branch that affects runtime data needs a computable decision procedure. Classical reasoning may be used in erased proofs under an allowed foundation profile or in noncomputable logical definitions. Proof erasure and noncomputability do not prevent all logical reduction; they distinguish what must execute in compiled code. For example, this logical constructor uses noncomputable real order:
+A branch that affects runtime data needs a computable decision procedure. Classical reasoning may be used in erased proofs under an allowed foundation profile or in noncomputable logical definitions. Proof erasure and noncomputability do not prevent all logical reduction; they distinguish what must execute in compiled code. For example, this logical admission decides an existential over every natural number classically:
 
 ```lean
-import Mathlib.Basic.NNReal.Defs
-
-/-- Proof-producing logical admission; arbitrary real comparison is noncomputable. -/
-noncomputable def mkResource? (c : ℝ) : Option NNReal :=
-  if h : 0 ≤ c then some ⟨c, h⟩ else none
+open Classical in
+/-- Proof-producing logical admission: no program decides whether an arbitrary
+sequence has a zero, so the branch is classical and the definition noncomputable. -/
+noncomputable def firstZero? (f : Nat → Nat) : Option {n : Nat // f n = 0} :=
+  if h : ∃ n, f n = 0 then some ⟨Classical.choose h, Classical.choose_spec h⟩ else none
 ```
 
-In contrast, the natural-number validator in {ref "11-the-principle-of-representational-precision"}[module 1 §1.1] is executable and produces a proof-bearing value.
+Mathlib's order on `ℝ` is noncomputable in the same way: an admission that branches on `0 ≤ c` for a real `c` is a logical definition, not an executable validator. In contrast, the natural-number validator in {ref "11-the-principle-of-representational-precision"}[module 1 §1.1] is executable and produces a proof-bearing value.
 
 *Example - A Predicate with an Executable Decision Procedure*:
 
 ```lean
-import Mathlib.Data.List.Basic
-
 /-- A proposition over natural-number arithmetic. -/
-def HasQuorum (n : ℕ) (total : ℕ) : Prop :=
+def HasQuorum (n : Nat) (total : Nat) : Prop :=
   2 * total < 3 * n
 
 /-- A *computable* decision procedure for the predicate. -/
-instance (n total : ℕ) : Decidable (HasQuorum n total) :=
+instance (n total : Nat) : Decidable (HasQuorum n total) :=
   inferInstanceAs (Decidable (2 * total < 3 * n))
 
 /-- The decision message; it branches on the predicate in computable code. -/
-def quorumDecision (votes total : ℕ) : String :=
+def quorumDecision (votes total : Nat) : String :=
   if HasQuorum votes total then
     "Proceed with proposal"
   else
@@ -546,11 +531,8 @@ number := false
 *Example - Proof-Requiring Interfaces* (these definitions use computable operations):
 
 ```lean
-import Mathlib.Data.Fin.Basic
-import Mathlib.Data.Vector.Basic
-
 /-- Return a value with its proof of property. -/
-def findPositive (l : List ℕ) : Option {x : ℕ // 0 < x ∧ x ∈ l} :=
+def findPositive (l : List Nat) : Option {x : Nat // 0 < x ∧ x ∈ l} :=
   match hx : l.find? (0 < ·) with
   | none => none
   | some x =>
@@ -558,12 +540,12 @@ def findPositive (l : List ℕ) : Option {x : ℕ // 0 < x ∧ x ∈ l} :=
     some ⟨x, of_decide_eq_true hp, List.mem_of_find?_eq_some hx⟩
 
 /-- Access requires an index whose bound has been established. -/
-def safeGet {α : Type} {n : ℕ} (v : Vector α n) (i : Fin n) : α :=
+def safeGet {α : Type} {n : Nat} (v : Vector α n) (i : Fin n) : α :=
   -- The index carries the proof `i.val < n`; this is an API claim, not a runtime-cost claim.
   v.get i
 
 /-- Witness-bearing comparison. -/
-inductive CompareResult (a b : ℕ) : Type
+inductive CompareResult (a b : Nat) : Type
   /-- `a` is less than `b`. -/
   | lt (h : a < b) : CompareResult a b
   /-- `a` equals `b`. -/
@@ -572,7 +554,7 @@ inductive CompareResult (a b : ℕ) : Type
   | gt (h : b < a) : CompareResult a b
 
 /-- The comparison of `a` and `b`, with the proof of the relation that holds. -/
-def compare (a b : ℕ) : CompareResult a b :=
+def compare (a b : Nat) : CompareResult a b :=
   if h : a < b then .lt h
   else if h : a = b then .eq h
   else .gt (by omega)
@@ -615,14 +597,13 @@ number := false
 What a theorem _does_ transitively use of Lean's standard logical axioms is not hidden: it is reported, exactly, per declaration. The report is a dependency statement, not a quality ranking ({ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[module 4 §4.5]).
 
 ```lean
-import Mathlib.Tactic.NormNum
-
-/-- A small arithmetic fact, proved by `norm_num`. -/
-theorem Nat.one_add_one_eq_two : (1 : ℕ) + 1 = 2 := by norm_num
+/-- A small arithmetic fact, proved by `omega`. -/
+theorem two_mul_succ (n : Nat) : 2 * (n + 1) = 2 * n + 2 := by omega
 
 -- The output is exactly this theorem's slice of the trusted base:
-#print axioms Nat.one_add_one_eq_two
--- 'Nat.one_add_one_eq_two' depends on axioms: [propext]
+/-- info: 'two_mul_succ' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms two_mul_succ
 ```
 
 * *Foundation profiles* — kernel-only, choice-free, standard-logical — are defined precisely in {ref "45-foundation-strength-kernel-only-choice-free-standard-logical"}[module 4 §4.5]. The shipped gate ({ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]) computes each declaration's exact transitive axiom set and its profile mechanically, including through Mathlib dependencies.
@@ -693,10 +674,8 @@ This theorem proves function equality for every `Nat`, using `funext` and `Nat.a
 *Example - Pure Monadic Code Reasons by Ordinary Reduction*:
 
 ```lean
-import Mathlib.Data.Nat.Basic
-
 /-- Increment-and-report over pure state. -/
-def tick : StateM ℕ ℕ := do
+def tick : StateM Nat Nat := do
   let s ← get
   set (s + 1)
   pure s
@@ -1052,7 +1031,7 @@ A stateful safety transfer MUST identify the concrete and abstract semantics, th
 
 For this method, prove initialization, abstract invariant preservation, and that the invariant together with `R` implies the concrete property. Its simulation hypothesis covers *every* related pair and *every* concrete successor: `R c a → StepC c c' → ∃ a', StepA* a a' ∧ R c' a'`. The abstract successor is existential, even when the abstract system is nondeterministic; this is neither reverse simulation nor equivalence of behaviors.
 
-Define `StepA*` explicitly. Here it is Mathlib's `Relation.ReflTransGen StepA`: zero steps (`refl`), or a finite path extended by one edge (`tail`). Zero steps permit stuttering. {repo "audit/Audit/Refinement.lean"}[`AuditApp.Refinement.finite_transfer`] proves the reusable transfer by induction over `ReflTransGen StepC`: given a related initial pair and the initial abstract invariant, each finite concrete path ends at a state with a reachable abstract witness, the relation, the abstract invariant, and the concrete safety property. Its types and relations are parameters; it assumes neither deterministic transitions nor an executable procedure that selects matching abstract paths. The caller supplies initialization; it is not silently assumed to exist.
+Define `StepA*` explicitly. Here `StepA*` is core's transitive closure `Relation.TransGen StepA`: one edge (`single`), or a finite path extended by one edge (`tail`). Every match therefore has at least one abstract edge, and stuttering is a property of the abstract relation, not of the closure: an abstract relation with an idle edge matches a concrete edge that changes nothing. Mathlib's `Relation.ReflTransGen StepA` puts the zero-step case in the closure instead, and the {repo "integration/mathlib/MathlibAudit/Refinement.lean"}[Mathlib integration package] states this refinement with it over an abstract relation that has no idle edge. {repo "audit/Audit/Refinement.lean"}[`AuditApp.Refinement.finite_transfer`] proves the reusable transfer by induction over `Relation.TransGen StepC`: given a related initial pair and the initial abstract invariant, each concrete path of one or more edges ends at a state with a reachable abstract witness, the relation, the abstract invariant, and the concrete safety property. Before any concrete edge the claim is the soundness hypothesis applied to the initial pair, which needs no closure. Its types and relations are parameters; it assumes neither deterministic transitions nor an executable procedure that selects matching abstract paths. The caller supplies initialization; it is not silently assumed to exist.
 
 The concrete step MUST be the actual executable definition or have exact checked correspondence to it. If you claim observable agreement, state the observations and prove that agreement at the promised granularity. Matching endpoints after several abstract steps does not establish equality of intermediate observations or labeled traces.
 
@@ -1073,7 +1052,7 @@ The concrete step MUST be the actual executable definition or have exact checked
   * `c.capacity = cap ∧ c.inUse + a = cap`. It fixes capacity and relates occupied to free slots.
 *
   * `StepA cap a a'`
-  * Either `0 < a ∧ a' = a - 1`, or `a < cap ∧ a' = a + 1`. Both choices may be enabled.
+  * One of `a' = a` (idle), `0 < a ∧ a' = a - 1`, or `a < cap ∧ a' = a + 1`. Several choices may be enabled.
 *
   * `StepC c c'`
   * `∃ op, c' = AuditApp.step c op`, using the existing executable dispatcher.
@@ -1082,7 +1061,7 @@ The concrete step MUST be the actual executable definition or have exact checked
   * `initial_related` proves `R cap c cap ∧ Inv cap cap` whenever actual `admit cap = some c`. `admit_exact` establishes that this occurs for every positive capacity.
 *
   * Preservation and simulation
-  * `preserve` covers both abstract edges; `simulation` covers every related pair and concrete edge. Grants consume one free slot; releases return one; refused grants and idle releases stutter; reset uses `free_to_capacity`, a finite sequence of releases.
+  * `preserve` covers all three abstract edges; `simulation` covers every related pair and concrete edge. Grants consume one free slot; releases return one; refused grants and idle releases stutter, matching the idle edge; reset uses `free_to_capacity`, an idle edge followed by a finite sequence of releases.
 *
   * Transfer and observations
   * `sound` gives `c.capacity = cap ∧ c.inUse ≤ cap`; `observations` gives `(c.capacity, c.inUse) = (cap, cap - a)` at related endpoints.
@@ -1101,19 +1080,20 @@ example (cap : Nat) (h : 0 < cap) :
 
 /-- Universal simulation, with an existential finite abstract match. -/
 example (cap a : Nat) (c c' : Limiter) (hr : R cap c a) (hs : StepC c c') :
-    ∃ a', Relation.ReflTransGen (StepA cap) a a' ∧ R cap c' a' :=
+    ∃ a', Relation.TransGen (StepA cap) a a' ∧ R cap c' a' :=
   simulation hr hs
 
-/-- Every finite prefix, including refusal, has an abstract witness and is safe. -/
+/-- Every finite prefix, including refusal and the empty prefix, has an abstract
+witness and is safe. -/
 example (cap : Nat) (c : Limiter) (h : admit cap = some c) (ops : List Op) (n : Nat) :
-    ∃ a, Relation.ReflTransGen (StepA cap) cap a ∧
+    ∃ a, Relation.TransGen (StepA cap) cap a ∧
       R cap (runChecked (ops.take n) c).2 a ∧ Inv cap a ∧
       ((runChecked (ops.take n) c).2.capacity = cap ∧
         (runChecked (ops.take n) c).2.inUse ≤ cap) :=
   prefix_safe h ops n
 ```
 
-`reachable_safe` covers every finite concrete path, not a selected set of scripts or a bounded search. `run_path` links the total fold to those paths; `runChecked_path` uses the strict runner's exact state/error equation, including retained state on refusal. `prefix_safe` specializes transfer to every `ops : List Op` and `n : Nat`; taking beyond the list length selects the whole list. The existing `executeChecked_exact` connects positive admission to that same strict runner used by `Main`. This refinement observes only the returned capacity and occupancy; the runner's success/error contract remains §3.7, and terminal effects remain trusted.
+`reachable_safe` covers every concrete path of one or more edges, not a selected set of scripts or a bounded search; `admitted_safe` covers the admitted state before any edge. `run_path` links the total fold of every nonempty script to those paths; `runChecked_path` uses the strict runner's exact state/error equation, including retained state on refusal, which `refused_edge` shows is a concrete edge that changes nothing. `prefix_safe` combines both cases for every `ops : List Op` and `n : Nat`, the empty prefix included; taking beyond the list length selects the whole list. The existing `executeChecked_exact` connects positive admission to that same strict runner used by `Main`. This refinement observes only the returned capacity and occupancy; the runner's success/error contract remains §3.7, and terminal effects remain trusted.
 
 A safety transfer MUST NOT be read as progress, fairness, productivity, termination of a continuing process, or liveness. Unlimited stuttering or starvation can preserve safety; any such additional claim needs its own explicit hypotheses and proof. Totality of each finite Lean runner does not establish a matching infinite abstract execution with progress. Theorems about these Lean definitions also do not verify their compiled natural arithmetic, code generation, runtime, external adapters, or scheduling (§3.6).
 
@@ -1151,7 +1131,7 @@ A kernel-checked proof establishes its elaborated proposition under its explicit
 
 *External platforms.* A proof platform's open cards, sketches, and accepted results are distinct from conformance under this standard. An intentionally incomplete sketch or adapter MUST stay outside every positive surface and outside the dependency closure of any declaration presented as closed ({ref "72-define-surfaces-through-lake-semantics"}[module 7 §7.2]). Before reusing a platform-accepted result, state the exact elaborated type, toolchain, and foundation under which it was accepted; a result about another elaboration environment is a result about that environment (§7.1).
 
-*Worked example.* {repo "audit/Audit/Research.lean"}[`audit/Audit/Research.lean`] states the existence of an odd perfect number as `Research.OddPerfectExists : Prop` and proves nothing about it unconditionally. Read-back of that definition: one existential over `ℕ`; `Odd n` is Mathlib's `∃ m, n = 2 * m + 1`; `Nat.Perfect n` is the proper-divisor sum equation _and_ `0 < n`. Positivity excludes `0` from `Nat.Perfect`, because the bare sum equation holds at `0` (`zero_sum_properDivisors`). For this odd-perfect target, however, `Odd.pos` already supplies positivity: `oddPerfectExists_iff_sum` proves that omitting that conjunct gives an equivalent target. The canonical `Nat.Perfect` definition is retained; the equivalence proves neither version of the target. `oddPerfect_nine_le` is a conditional restriction, `every odd perfect number is at least 9`, proved by a closed finite case analysis over `1`, `3`, `5`, `7` and Mathlib's `Nat.Prime.not_perfect`; it needs no witness. `not_oddPerfectExists_of_bound` is a complete reduction: an explicit upper bound plus a finite search below it refutes the target. `search_below_nine` discharges the search half at `9`; the bound half remains an open binder, so the goal remains open. `exists_even_perfect` shows the contrasting claim kind: an unconditional existence theorem, delivered with its witness `6`.
+*Worked example.* {repo "audit/Audit/Research.lean"}[`audit/Audit/Research.lean`] states the existence of a counterexample to the Collatz conjecture as `Research.CounterexampleExists : Prop` and proves nothing about it unconditionally. Read-back of that definition: one existential over `Nat`; the number is positive _and_ no step count takes it to `1`, where `ReachesOne n` is `∃ k, Nat.repeat collatzStep k n = 1` and `collatzStep` halves an even number and sends an odd `n` to `3 * n + 1`. The positivity conjunct is part of the target: `0` is a fixed point of `collatzStep` and never reaches `1` (`not_reachesOne_zero`), so the statement without it, `exists_not_reachesOne`, is true and is a different proposition that settles nothing. The conjecture, `∀ n, 0 < n → ReachesOne n`, implies `¬ CounterexampleExists` constructively and is classically equivalent to it, since the converse eliminates a double negation of `ReachesOne n`; no declaration proves either. `counterexample_nine_le` is a conditional restriction, `every counterexample is at least 9`, proved from the closed finite case analysis `search_below_nine`, whose eight cases the kernel evaluates; it needs no witness. `Counterexample.ne_two_pow` is another, proved for every exponent by induction through `repeat_collatzStep_two_pow_mul`. `not_counterexampleExists_of_bound` is a complete reduction: an explicit upper bound plus a finite search below it refutes the target. `search_below_nine` discharges the search half at `9`; the bound half remains an open binder, so the goal remains open. `exists_odd_reachesOne` shows the contrasting claim kind: an unconditional existence theorem, delivered with its witness `7`.
 
 ```lean
 import Audit.Research
@@ -1159,19 +1139,22 @@ open Research
 
 /-- Conditional completeness: the implication is proved for every `n`, with no
 inhabitant of the antecedent required or supplied. -/
-example (n : ℕ) (hodd : Odd n) (hperf : n.Perfect) : 9 ≤ n ∧ ¬ IsPrimePow n :=
-  ⟨oddPerfect_nine_le hodd hperf, Perfect.not_isPrimePow hperf⟩
+example (n : Nat) (hpos : 0 < n) (h : ¬ ReachesOne n) : 9 ≤ n ∧ ∀ k, n ≠ 2 ^ k :=
+  ⟨counterexample_nine_le hpos h, Counterexample.ne_two_pow h⟩
 
 /-- The reduction instantiated at `9`: the only remaining obligation is the
 explicit bound hypothesis, which this example does not pretend to have. -/
-example (hbound : ∀ n, Odd n → n.Perfect → n < 9) : ¬ OddPerfectExists :=
-  not_oddPerfectExists_of_bound 9 hbound search_below_nine
+example (hbound : ∀ n, 0 < n → ¬ ReachesOne n → n < 9) : ¬ CounterexampleExists :=
+  not_counterexampleExists_of_bound 9 hbound search_below_nine
 
 /-- Unconditional existence still requires its witness. -/
-example : ∃ n : ℕ, Even n ∧ n.Perfect := exists_even_perfect
+example : ∃ n : Nat, n % 2 = 1 ∧ 1 < n ∧ ReachesOne n := exists_odd_reachesOne
+
+/-- Dropping the positivity conjunct gives a different, provable statement. -/
+example : ∃ n : Nat, ¬ ReachesOne n := exists_not_reachesOne
 
 /-- Quantifier order is part of the statement: the swapped form is false. -/
-example : ¬ ∃ y : ℕ, ∀ x : ℕ, x < y := no_greatest_nat_swapped
+example : ¬ ∃ y : Nat, ∀ x : Nat, x < y := no_greatest_nat_swapped
 ```
 
 A `Prop` target is not its own proof. Presenting the definition where a proof is required fails at the type level:
@@ -1179,7 +1162,9 @@ A `Prop` target is not its own proof. Presenting the definition where a proof is
 ```lean (fails := "Type mismatch")
 import Audit.Research
 
-theorem claimed : Research.OddPerfectExists := Research.OddPerfectExists
+theorem claimed : Research.CounterexampleExists := Research.CounterexampleExists
 ```
 
 Using `sorry` as the proof, or replacing the theorem with a project `axiom` declaration, elaborates but is rejected by the declaration gate and fence audit on a positive surface (§3.4, {ref "75-proof-completeness-and-foundation-strength"}[module 7 §7.5]). The declaration gate reports each `Audit.Research` declaration's exact axiom set within the surface's Standard-Logical claim; none includes `sorryAx` or a project axiom.
+
+The same four claim kinds stated about Mathlib's `Nat.Perfect`, where the read-back finds a positivity conjunct that an odd number already supplies, are checked in the {repo "integration/mathlib/MathlibAudit/Research.lean"}[Mathlib integration package].

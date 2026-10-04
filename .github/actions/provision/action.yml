@@ -1,7 +1,7 @@
 name: Provision pinned Lean and dependencies
 description: >-
-  Restore or install the pinned Elan/Lean toolchain and required system tools, then
-  restore or provision pinned Lake dependency artifacts. Provisioning only: no policy,
+  Restore or install the pinned Elan/Lean toolchain and required system tools, then, when
+  asked, restore or provision pinned Lake dependency artifacts. Provisioning only: no policy,
   validation or test orchestration.
 
 inputs:
@@ -11,15 +11,22 @@ inputs:
     default: 'false'
   dependencies:
     description: >-
-      Restore or provision the pinned Lake dependency artifacts (Mathlib and its dependencies).
-      A job that runs only toolchain scripts, such as the title check, turns it off.
+      Export the repository's dependency artifact policy for the job's Lake builds. A job that
+      runs only toolchain scripts, such as the title check, turns it off. No dependency is
+      acquired by this input alone: the root and `audit/` packages require none.
     required: false
     default: 'true'
+  mathlib:
+    description: >-
+      Also restore or provision the pinned Mathlib of the Mathlib integration package in
+      `integration/mathlib/`. Only the Mathlib integration job turns it on; no other job
+      downloads, caches or builds Mathlib.
+    required: false
+    default: 'false'
   verso:
     description: >-
-      Also restore or provision the website package's pinned Verso dependencies, which share
-      the root `.lake/packages` with the Mathlib package in `audit/` (the standard's check and
-      the site need them).
+      Also restore or provision the website package's pinned Verso dependencies in the root
+      `.lake/packages` (the standard's check and the site need them).
     required: false
     default: 'false'
 
@@ -87,46 +94,44 @@ runs:
         key: ${{ steps.toolchain.outputs.cache-primary-key }}
 
     - name: Read dependency artifact identity
-      if: inputs.bootstrap-only != 'true' && (inputs.dependencies == 'true' || inputs.verso == 'true')
+      if: inputs.bootstrap-only != 'true' && (inputs.dependencies == 'true' || inputs.mathlib == 'true' || inputs.verso == 'true')
       id: dependency-plan
       shell: bash
       run: lean --run lean/RegulaProvision.lean identity
 
-    - name: Restore pinned dependencies
-      if: inputs.bootstrap-only != 'true' && inputs.dependencies == 'true' && steps.compiler.outputs.snapshot != 'true'
+    - name: Restore pinned Mathlib
+      if: inputs.bootstrap-only != 'true' && inputs.mathlib == 'true' && steps.compiler.outputs.snapshot != 'true'
       id: dependencies
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         # Cache dependency checkouts and unpacked artifacts, never root builds
-        # or duplicate Mathlib download archives. No cross-pin restore fallback. The root
-        # `regula` package requires nothing; the Mathlib package in `audit/` pins every
-        # dependency here and names the root `.lake/packages` as its packages directory.
+        # or duplicate Mathlib download archives. No cross-pin restore fallback. The Mathlib
+        # integration package pins every dependency here and keeps its own packages directory.
         path: |
-          .lake/packages
+          integration/mathlib/.lake/packages
           ~/.cache/mathlib-packages
-        key: lean-dependencies-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ steps.dependency-plan.outputs.scope }}-${{ hashFiles('audit/lake-manifest.json', 'audit/lakefile.lean') }}
+        key: lean-dependencies-v4-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ steps.dependency-plan.outputs.scope }}-${{ hashFiles('integration/mathlib/lake-manifest.json', 'integration/mathlib/lakefile.lean') }}
 
-    # Run from the repository root: `cache get` unpacks Mathlib's dependencies' archives
-    # relative to its working directory (`.lake/packages/<name>`), not the `audit/`
-    # workspace's packages directory, so this lands them in the shared root one.
+    # The plan runs `cache get` in the integration package, whose own `.lake/packages` is where
+    # Mathlib's cache tool unpacks its dependencies' archives. A compiler snapshot holds no
+    # Mathlib, so nothing is provisioned for one.
     - name: Provision or admit Mathlib artifacts
-      if: inputs.bootstrap-only != 'true' && inputs.dependencies == 'true' && (steps.compiler.outputs.snapshot == 'true' || steps.dependencies.outputs.cache-hit != 'true' || steps.dependency-plan.outputs.mode == 'source')
+      if: inputs.bootstrap-only != 'true' && inputs.mathlib == 'true' && steps.compiler.outputs.snapshot != 'true' && (steps.dependencies.outputs.cache-hit != 'true' || steps.dependency-plan.outputs.mode == 'source')
       shell: bash
       run: lean --run lean/RegulaProvision.lean mathlib
 
     # Save provisioned dependencies before verification, even if it later fails.
-    - name: Save pinned dependencies
-      if: inputs.bootstrap-only != 'true' && inputs.dependencies == 'true' && steps.compiler.outputs.snapshot != 'true' && steps.dependencies.outputs.cache-hit != 'true'
+    - name: Save pinned Mathlib
+      if: inputs.bootstrap-only != 'true' && inputs.mathlib == 'true' && steps.compiler.outputs.snapshot != 'true' && steps.dependencies.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
-          .lake/packages
+          integration/mathlib/.lake/packages
           ~/.cache/mathlib-packages
         key: ${{ steps.dependencies.outputs.cache-primary-key }}
 
-    # The website package's own dependencies (Verso, SubVerso, MD4Lean, illuminate), pinned by
-    # its lock manifest in the shared `.lake/packages`; its other entries are the Mathlib
-    # package's.
+    # The website package's dependencies (Verso and its own: SubVerso, MD4Lean, illuminate, Cli,
+    # plausible), pinned by its lock manifest in the root `.lake/packages`.
     - name: Restore pinned Verso dependencies
       if: inputs.bootstrap-only != 'true' && inputs.verso == 'true' && steps.compiler.outputs.snapshot != 'true'
       id: verso
@@ -137,7 +142,9 @@ runs:
           .lake/packages/subverso
           .lake/packages/MD4Lean
           .lake/packages/illuminate
-        key: verso-shared-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ hashFiles('website/lake-manifest.json') }}
+          .lake/packages/Cli
+          .lake/packages/plausible
+        key: verso-shared-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ hashFiles('website/lake-manifest.json') }}
 
     - name: Provision pinned Verso
       if: inputs.bootstrap-only != 'true' && inputs.verso == 'true'
@@ -153,4 +160,6 @@ runs:
           .lake/packages/subverso
           .lake/packages/MD4Lean
           .lake/packages/illuminate
+          .lake/packages/Cli
+          .lake/packages/plausible
         key: ${{ steps.verso.outputs.cache-primary-key }}

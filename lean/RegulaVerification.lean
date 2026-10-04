@@ -15,7 +15,7 @@ inductive Mode where
   registry checks and combined qualification, and audits the root package's claimed surfaces. -/
   | ordinary
   /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document,
-  the fresh acceptance of the Mathlib package whose modules the standard's examples import, then
+  the fresh acceptance of the `audit/` package whose modules the standard's examples import, then
   the documentation audit and the Verso standard's build and render, refused unless its inputs
   have the content identity the first step recorded. -/
   | docs
@@ -61,6 +61,11 @@ inductive Mode where
   | ruleExamplesSecond
   /-- `site`: build and check the rule-reference site artifact from the shards' evidence. -/
   | site
+  /-- `mathlib`: the separate Mathlib integration check, never part of acceptance: the fresh
+  acceptance and the lint of the Mathlib integration package, whose pinned Mathlib
+  `lean --run lean/RegulaProvision.lean mathlib` provisions beforehand. It refuses a copy the
+  check does not apply to (`RegulaProvision.mathlibApplies`) instead of reporting a pass. -/
+  | mathlib
   deriving DecidableEq
 
 /-- Exactly the documented arguments for each mode, with no ignored trailing arguments. -/
@@ -88,12 +93,13 @@ def arguments : Mode → List String
   | .ruleExamplesFirst => ["diagnostics", "rule-examples", "1/2"]
   | .ruleExamplesSecond => ["diagnostics", "rule-examples", "2/2"]
   | .site => ["site"]
+  | .mathlib => ["mathlib"]
 
 /-- Every supported mode occurs once; the parser searches only this closed vocabulary. -/
 def modes : List Mode := [.ordinary, .docs, .graph, .diagnostics, .fixtures, .structural,
   .execution, .structuralFirst, .structuralSecond, .executionFirst, .executionSecond, .cli,
   .environments, .buildPolicy, .lintDriver, .producers, .history, .selfLint,
-  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site]
+  .selfAudit, .ruleExamples, .ruleExamplesFirst, .ruleExamplesSecond, .site, .mathlib]
 
 /-- Argument parsing never accepts a prefix of a supported invocation. -/
 def parseMode (args : List String) : Option Mode :=
@@ -131,10 +137,16 @@ structure Command where
 
 private def lake (args : Array String) : Command := ⟨"lake", args, "."⟩
 
-/-- The Mathlib-dependent package: the standard's Mathlib examples (`Audit`), which adopts the
-root `regula` package by relative path, as a Mathlib project would. Lake commands for it run in
-its own directory, where its workspace is the one Lake loads. -/
+/-- The package of the standard's example library (`Audit`), which imports only Lean's core
+libraries and adopts the root `regula` package by relative path, as an adopting project would.
+Lake commands for it run in its own directory, where its workspace is the one Lake loads. -/
 def auditPackage : String := "audit"
+
+/-- The Mathlib integration package (`MathlibAudit`): a Mathlib adopter of the root `regula`
+package by relative path, holding the Mathlib-specific behaviour Regula supports. Only the
+`mathlib` mode runs Lake in it; no other mode loads its workspace, so no other mode needs
+Mathlib. -/
+def mathlibPackage : String := "integration/mathlib"
 
 private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", args, dir⟩
 
@@ -144,7 +156,7 @@ def linkPath : String := "tmp/acceptance-link.json"
 
 /-- The standard's Verso source: package directory, library and its render-only executable.
 Both acceptance steps capture its sources and the package inputs its check reads, including the
-sources of the Mathlib package that its library needs, in the linked identity; the documentation step also builds (elaborating every `lean` block where it is
+sources of the `audit/` package that its library needs, in the linked identity; the documentation step also builds (elaborating every `lean` block where it is
 written) and renders it, requires every anchor the rule registry and the documentation link, and
 requires the checklist's rows to be exactly `Regula.checklistRows`. -/
 def versoStandard : String := "website:RegulaStandard:regula-standard"
@@ -195,9 +207,9 @@ def commands : Mode → List Command
       -- to its rule page is refused (`website/MarkdownMain.lean`). The argument is the repository
       -- root, relative to the website package.
       lakeIn websitePackage #["exe", "regula-markdown", ".."],
-      -- The Mathlib package's own fresh acceptance, as a Mathlib adopter of `regula` runs it:
-      -- the standard's `lean` blocks import its modules, and the linked identity below brackets
-      -- the sources they need.
+      -- The `audit/` package's own fresh acceptance, as an adopter of `regula` runs it: the
+      -- standard's `lean` blocks import its modules, and the linked identity below brackets the
+      -- sources they need.
       lakeIn auditPackage #["exe", "axiomGate"],
       lake
           #["exe", "docFenceAudit", "--acceptance-link", linkPath, "--verso", versoStandard]]
@@ -228,6 +240,15 @@ def commands : Mode → List Command
       lake
           (#["exe", "site", "build", "--out", siteOutput, "--evidence"] ++
               #[shardEvidence 1, shardEvidence 2])]
+  -- The Mathlib integration check: the integration package's fresh acceptance and lint, as a
+  -- Mathlib adopter of `regula` runs them. Its Mathlib is provisioned beforehand, as setup; the
+  -- first command refuses a copy the check does not apply to (a compiler snapshot, or another
+  -- toolchain than that package selects) and one whose Mathlib is not provisioned, so an
+  -- excluded copy fails here and is never reported as passing.
+  | .mathlib => [
+      { program := "lean",
+        args := #["--run", "lean/RegulaProvision.lean", "mathlib-applies", "--require"] },
+      lakeIn mathlibPackage #["exe", "axiomGate"], lakeIn mathlibPackage #["lint"]]
   | .structural => selftest #["--partition", "structural"] #["docFenceAudit", "freshChecker"]
   -- A shard of a partition: the partition's name, then the shard after `--shard`.
   | .structuralFirst =>
@@ -256,7 +277,7 @@ def execute (command : Command) : IO Unit := do
     throw <| IO.userError s!"{command.program} {command.args} in {command.dir} failed ({exit})"
 
 private def usage : String :=
-  "usage: scripts/verify.sh [docs | serialized-graph | site | diagnostics \
+  "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
     [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
     lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
 
@@ -275,8 +296,8 @@ def invalidated : Mode → Option (String × String)
 /-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
 refuses to load a workspace whose configuration requires a package that the lock manifest does not
 record, so an accepted build of the root package with such a manifest requires nothing, and
-requiring `regula` adds only `regula` to an adopter's `lake-manifest.json`. The Mathlib-dependent
-package in `audit/` records its own pins. -/
+requiring `regula` adds only `regula` to an adopter's `lake-manifest.json`. The Mathlib
+integration package in `integration/mathlib/` records its own pins. -/
 def dependencyFree (manifest : Lean.Json) : Bool :=
   match manifest.getObjValAs? (Array Lean.Json) "packages" with
   | .ok packages => packages.isEmpty
@@ -309,7 +330,8 @@ def run (args : List String) : IO Unit := do
     let manifest ← IO.ofExcept (Lean.Json.parse (← IO.FS.readFile "lake-manifest.json"))
     unless dependencyFree manifest do
       throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
-        require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in audit/)"
+        require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in \
+        integration/mathlib/)"
   for command in [({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
       { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }] ++
@@ -319,13 +341,15 @@ def run (args : List String) : IO Unit := do
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
     | .docs => "documentation verification: PASS (every rule ID in the prose md4c reads in each \
-      tracked Markdown document links to its rule page; the Mathlib example package accepted \
+      tracked Markdown document links to its rule page; the example package in audit/ accepted \
       fresh; every docs/ Lean fence and every lean block of the Verso standard, which built \
       fresh and rendered; every rule ID in the prose `Regula.Prose` reads in the rendered \
       standard links to its rule page; inputs equal the accepted ordinary inputs)"
     | .graph => "serialized-graph diagnostic: PASS (not ordinary verification)"
     | .site => "site build and check: PASS (rule-reference artifact in _site; separate from \
       acceptance; publication is verified after deployment)"
+    | .mathlib => "Mathlib integration check: PASS (the Mathlib integration package accepted fresh \
+      and linted on its pinned Mathlib; separate from acceptance, which needs no Mathlib)"
     | _ => "diagnostic qualification: PASS (selected scope only; not ordinary verification)")
 
 end RegulaVerification

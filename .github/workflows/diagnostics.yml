@@ -97,7 +97,7 @@ jobs:
 
   # CI runs the two rule-example shards on every change. Like the campaigns above, they also
   # run nightly on an unchanged main, where a failure shows drift in the runner image or the
-  # restored dependency caches rather than in the pinned sources.
+  # restored toolchain cache rather than in the pinned sources.
   rule-examples-nightly:
     name: nightly diagnostics rule-examples ${{ matrix.shard }}
     needs: applies

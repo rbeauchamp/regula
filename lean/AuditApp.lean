@@ -14,6 +14,6 @@ not a module is imported here; the imports make that inventory the transitive
 surface of the claimed `auditApp` executable, whose root module `Main` is
 claimed alongside this library in `foundation_manifest.json`. The surface imports
 only Lean's core libraries and the published checker interfaces; the limiter's
-refinement to an abstract capacity model, which uses Mathlib's finite-path
-relations, is `Audit.Refinement` in the Mathlib-dependent package in `audit/`.
+refinement to an abstract capacity model is `Audit.Refinement` in the `audit/`
+package, which requires this package by relative path.
 -/

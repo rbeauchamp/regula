@@ -17,7 +17,7 @@
       "library": "RegulaProvision",
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "Toolchain-only local provisioning of one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, and a shared directory is removed only when it is not the current one and no registered copy still links it. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
+      "rationale": "Toolchain-only dependency provisioning, which acquires no Mathlib by default and, when asked for the Mathlib integration package, provisions one shared, read-only Mathlib per pinned revision and toolchain, and the module that registers its decisions' kinds. The proofs concern the pure decisions it executes: receipt admission is sound, only a link to the shared checkout is kept for Mathlib, removal from a copy is confined to links and clean Git checkouts, only a receipt that names a shared directory identifies it for removal, registering drops no copy, a shared directory is removed only when it is not the current one and no registered copy still links it, and the Mathlib integration check applies exactly to a copy with no snapshot selection whose integration package selects the repository's toolchain. Git, Lake, cp, chmod, ln, rename, file locking and Mathlib's cache tool are trusted process and filesystem effects that the proofs do not authenticate."
     },
     {
       "library": "RegulaCompiler",
@@ -50,7 +50,7 @@
       ],
       "claim": "standard-logical",
       "execution": "report",
-      "rationale": "The complete-application dogfooding surface, imported only from Lean's core libraries and the published checker interfaces: admission, update, and strict state/error composition contracts are proved about the definitions auditApp runs, alongside the retained total fold; its Mathlib-based refinement to an abstract capacity model is claimed in the Audit library of the audit/ package. The limiter state/error operations and their proofs are choice-free; the input parser and dependent required-contract interface transitively use Classical.choice through core String internals, as does the IO root. The surface claim is standard-logical and each declaration retains its exact axiom report. The IO shell is trusted execution substrate, so the execution mode stays report."
+      "rationale": "The complete-application dogfooding surface, imported only from Lean's core libraries and the published checker interfaces: admission, update, and strict state/error composition contracts are proved about the definitions auditApp runs, alongside the retained total fold; its refinement to an abstract capacity model is claimed in the Audit library of the audit/ package. The limiter state/error operations and their proofs are choice-free; the input parser and dependent required-contract interface transitively use Classical.choice through core String internals, as does the IO root. The surface claim is standard-logical and each declaration retains its exact axiom report. The IO shell is trusted execution substrate, so the execution mode stays report."
     }
   ],
   "excluded-libraries": [
@@ -66,7 +66,7 @@
   "excluded-executables": [
     {
       "executable": "dependencyScope",
-      "rationale": "Dependency setup planner in the excluded Regula library. It reads Lake inventories and documentation import headers and emits a module for source provisioning; parsing, package loading, filesystem observations and Lake's transitive native build remain trusted. It does not accept declarations or documentation."
+      "rationale": "Dependency setup planner in the excluded Regula library. It reads the Lake inventory of the Mathlib integration package and its modules' import headers and emits a module for source provisioning; parsing, package loading, filesystem observations and Lake's transitive native build remain trusted. It does not accept declarations or documentation."
     },
     {
       "executable": "toolchain",

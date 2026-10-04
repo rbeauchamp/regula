@@ -47,34 +47,30 @@ Prefer raw boundary data, then proof-producing admission, then immutable domain 
 *Example - Smart Constructor Pattern*:
 
 ```lean
-import Mathlib.Basic.NNReal.Defs
-
-/-- A resource whose capacity is non-negative. The proof of the invariant is
-carried by Mathlib's canonical `NNReal` subtype. The outer structure keeps
+/-- A resource whose rational capacity is non-negative. The proof of the
+invariant is carried by Lean's canonical `Subtype`. The outer structure keeps
 the domain concept nominally distinct. -/
 structure Resource where
   /-- The non-negative capacity. -/
-  capacity : NNReal
+  capacity : {c : Rat // 0 ≤ c}
 
 /-- Smart constructor: callers cannot build a `Resource` without the proof. -/
-def mkResource (c : ℝ) (h : 0 ≤ c) : Resource := ⟨NNReal.mk c h⟩
+def mkResource (c : Rat) (h : 0 ≤ c) : Resource := ⟨⟨c, h⟩⟩
 
 /-- Accessor returning the canonical value-and-proof subtype. -/
-def Resource.capacityWithProof (r : Resource) : NNReal := r.capacity
+def Resource.capacityWithProof (r : Resource) : {c : Rat // 0 ≤ c} := r.capacity
 ```
 
 A direct construction cannot bypass the obligation. The anonymous-constructor form fails when the proof field is missing:
 
 ```lean (fails := "Insufficient number of fields|failed to synthesize")
-import Mathlib.Basic.NNReal.Defs
-
 /-- A resource with a non-negative capacity. -/
 structure Resource where
   /-- The resource's capacity. -/
-  capacity : NNReal
+  capacity : {c : Rat // 0 ≤ c}
 
-/-- Attempt to build a resource from a negative real capacity. -/
-def bad : Resource := ⟨⟨(-1 : ℝ)⟩⟩
+/-- Attempt to build a resource from a negative rational capacity. -/
+def bad : Resource := ⟨⟨(-1 : Rat)⟩⟩
 ```
 
 *Boundary decoding* can establish a statically usable invariant. The computable {repo "audit/Audit/Server.lean"}[`Glossary.Server.validate`] checks raw natural counts and returns `Option Server`; every returned state carries `served ≤ cap`. This is dynamic admission, not a claim that the input-dependent decision happened at compile time.
@@ -98,7 +94,7 @@ example (served cap : Nat) (s : Server) (h : Server.validate served cap = some s
     s.served = served ∧ s.cap = cap := Server.validate_some h
 ```
 
-Internally, pass the admitted value itself. Use `Option` when a new operation can fail and failure needs no diagnostic information; carrying `Server` avoids repeating validation of an already-proved bound. A constructor may accept a proof of a predicate even when no executable decision procedure for that predicate is available. For example, constructing an `NNReal` from a real number and a supplied non-negativity proof does not require deciding real non-negativity ({ref "324-decidability-logical-vs-executable"}[module 3 §3.2.4]).
+Internally, pass the admitted value itself. Use `Option` when a new operation can fail and failure needs no diagnostic information; carrying `Server` avoids repeating validation of an already-proved bound. A constructor may accept a proof of a predicate even when no executable decision procedure for that predicate is available. For example, a proof field `bounded : ∀ n, f n ≤ cap` over a function `f : Nat → Nat` accepts a supplied proof although no procedure decides that property of an arbitrary function, and constructing Mathlib's `NNReal` from a real number and a supplied non-negativity proof does not require deciding real non-negativity ({ref "324-decidability-logical-vs-executable"}[module 3 §3.2.4]).
 
 # 1.2 Theorem-Backed Claims
 %%%
@@ -121,33 +117,26 @@ number := false
 *Example - A Theorem-Backed Definition*:
 
 ```lean
-import Mathlib.Analysis.SpecialFunctions.Exp  -- `Real.exp`
-import Mathlib.Order.Monotone.Basic
-
-/-- Specification: a function that is monotone and non-negative. -/
+/-- Specification: a function of the step count that is monotone and positive. -/
 structure GrowthFunction where
-  /-- The underlying real function. -/
-  func : ℝ → ℝ
-  /-- The function is monotone and non-negative. -/
-  property : Monotone func ∧ ∀ t, 0 ≤ func t
+  /-- The underlying function of the step count. -/
+  func : Nat → Nat
+  /-- The function is monotone and positive. -/
+  property : (∀ s t, s ≤ t → func s ≤ func t) ∧ ∀ t, 0 < func t
 
 /-- State the theorem that the intended implementation has the property.
 This can be a private lemma used to construct the final object. -/
-private theorem exp_mul_monotone_and_nonneg (rate : ℝ) (h : 0 < rate) :
-    Monotone (fun t ↦ Real.exp (rate * t)) ∧ ∀ t, 0 ≤ Real.exp (rate * t) := by
-  constructor
-  · intro t₁ t₂ ht
-    exact Real.exp_le_exp.mpr (mul_le_mul_of_nonneg_left ht (le_of_lt h))
-  · intro t
-    exact le_of_lt (Real.exp_pos _)
+private theorem pow_monotone_and_pos (base : Nat) (h : 0 < base) :
+    (∀ s t, s ≤ t → base ^ s ≤ base ^ t) ∧ ∀ t, 0 < base ^ t :=
+  ⟨fun _ _ hst ↦ Nat.pow_le_pow_right h hst, fun _ ↦ Nat.pow_pos h⟩
 
 /-- A function that RETURNS the function AND its proof, bundled.
 The return type `GrowthFunction` guarantees the properties. -/
-noncomputable def exponentialGrowth (rate : ℝ) (h : 0 < rate) : GrowthFunction :=
-  ⟨fun t ↦ Real.exp (rate * t), exp_mul_monotone_and_nonneg rate h⟩
+def geometricGrowth (base : Nat) (h : 0 < base) : GrowthFunction :=
+  ⟨fun t ↦ base ^ t, pow_monotone_and_pos base h⟩
 ```
 
-If this definition claims to return a monotone, non-negative function, omitting the proof-bearing field or an equivalent theorem leaves the claim unverified. The bundled form encodes monotonicity and non-negativity in the return type.
+If this definition claims to return a monotone, positive function, omitting the proof-bearing field or an equivalent theorem leaves the claim unverified. The bundled form encodes monotonicity and positivity in the return type. This example is discrete: its domain is a natural step count and its laws are core's `Nat.pow` lemmas. The real-valued form, `Real.exp (rate * t)` with Mathlib's `Monotone`, needs real analysis and is checked as `MathlibModels.exponentialGrowth` in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package].
 
 # 1.3 The Specification/Model Firewall
 %%%
@@ -180,8 +169,6 @@ number := false
 The following theorem relates Lean’s `UInt32` addition to natural-number addition. The no-overflow hypothesis is required for this equality:
 
 ```lean
-import Mathlib.Data.Nat.Basic
-
 example (a b : UInt32) (h : a.toNat + b.toNat < 2 ^ 32) :
     (a + b).toNat = a.toNat + b.toNat := by
   rw [UInt32.toNat_add, Nat.mod_eq_of_lt h]
@@ -214,7 +201,7 @@ number := false
 
 *Principle*: Mathematical concepts MUST use or extend Mathlib's canonical definitions where they fit the intended concept. Custom definitions require documented justification.
 
-*Rationale*: Mathlib provides mathematical structures with an extensive library of theorems. Reusing its definitions allows direct application of those theorems. A separate definition may require additional proofs connecting it to Mathlib's definitions.
+*Rationale*: Mathlib provides mathematical structures with an extensive library of theorems. Reusing its definitions allows direct application of those theorems. A separate definition may require additional proofs connecting it to Mathlib's definitions. The same holds for the canonical definitions of Lean's core library and Std, which a project that does not depend on Mathlib reuses in the same way.
 
 *Requirements*:
 
@@ -225,37 +212,44 @@ number := false
   * Measure theory from `Mathlib.MeasureTheory`
 * Every law or property claimed for an instance MUST be supported by a proof. Generic declarations MAY require these proofs as explicit hypotheses or proof-bearing fields.
 * The choice of mathematical structure MUST be justified. State why the abstraction fits the intended claim, which theorems it makes available, and which constraints it enforces.
-* Model time with the structure your claim needs. Continuous ℝ-based time and discrete `ℕ`-based clocks are both conforming choices when they are lawful Mathlib structures; what is not conforming is an order instance that does not supply the laws the prose claims ({ref "41-numeric-representations-mathematical-and-machine-arithmetic"}[module 4 §4.1]).
+* Model time with the structure your claim needs. Continuous ℝ-based time and discrete `ℕ`-based clocks are both conforming choices when they carry their lawful order structures (core's `Std.IsLinearOrder`, or Mathlib's `LinearOrder`); what is not conforming is an order instance that does not supply the laws the prose claims ({ref "41-numeric-representations-mathematical-and-machine-arithmetic"}[module 4 §4.1]).
 * Laws may be supplied by a `Prop`-valued lawful mixin over an operational class, as Mathlib and Core do; a generic lawful claim then requires the mixin directly or obtains its instance from stronger assumptions, and every mixin instance discharges every law ({ref "323-typeclasses-for-lawful-abstractions"}[module 3 §3.2.3]).
 * A custom mathematical definition is permissible when no Mathlib equivalent exists. The module introducing it MUST state the definition precisely and explain why no existing one fits. Most domain definitions do not belong in Mathlib. The defect to avoid is accidental re-derivation of an existing definition, not ownership of a domain concept.
 
-*Example - Leveraging Mathlib* (the ordered-additive interface used here separates `AddCommMonoid` and `Preorder` from the `Prop`-valued `IsOrderedAddMonoid` mixin):
+*Example - Reusing Canonical Library Interfaces* (Lean's core library separates the operational classes `LE` and `Max` from the `Prop`-valued `Std.IsPreorder` and `Std.LawfulOrderMax` mixins, and states the laws of a binary operation as `Std.Associative` and `Std.LawfulIdentity`):
 
 ```lean
-import Mathlib.Algebra.Order.Monoid.Defs
-import Mathlib.Basic.NNReal.Defs
+/-- Pure composition reuses core's lawful-operation classes `Std.Associative` and
+`Std.LawfulIdentity` with `List.foldl`; there is no duplicate hand-written
+associativity/identity structure. -/
+def totalResources {R : Type} (op : R → R → R) (unit : R) [Std.Associative op]
+    [Std.LawfulIdentity op unit] (resources : List R) : R :=
+  resources.foldl op unit
 
-/-- Pure composition reuses Mathlib's lawful `Monoid` interface and `List.prod`;
-there is no duplicate hand-written associativity/identity structure. -/
-def totalResources {R : Type*} [Monoid R] (resources : List R) : R :=
-  resources.prod
+/-- The point of reuse: core's theorems apply to the wrapped concept. Folding from
+`op a unit` equals combining `a` with the total, by `List.foldl_assoc`. -/
+theorem totalResources_op {R : Type} (op : R → R → R) (unit : R) [Std.Associative op]
+    [Std.LawfulIdentity op unit] (a : R) (resources : List R) :
+    resources.foldl op (op a unit) = op a (totalResources op unit resources) :=
+  List.foldl_assoc
 
-/-- A domain operation over Mathlib's lawful additive interface; no one-field
-wrapper class duplicates the hierarchy. -/
-def combineResources {R : Type*} [AddCommMonoid R] (a b : R) : R := a + b
+/-- A domain operation over core's operational `Max` class; no one-field
+wrapper class duplicates it. -/
+def combineResources {R : Type} [Max R] (a b : R) : R := max a b
 
-/-- Its order law requires Mathlib's `IsOrderedAddMonoid` mixin directly. -/
-theorem combineResources_le_combineResources {R : Type*} [AddCommMonoid R] [Preorder R]
-    [IsOrderedAddMonoid R] {a b : R} (h : a ≤ b) (c : R) :
-    combineResources a c ≤ combineResources b c :=
-  add_le_add_left h c
+/-- Its order law requires core's `Std.LawfulOrderMax` mixin directly. -/
+theorem le_combineResources {R : Type} [LE R] [Max R] [Std.IsPreorder R]
+    [Std.LawfulOrderMax R] (a b : R) : a ≤ combineResources a b :=
+  Std.left_le_max
 
-/-- Mathlib already supplies the ordered-additive laws for NNReal. -/
-example : IsOrderedAddMonoid NNReal := inferInstance
+/-- Core already supplies the `max` laws for `Nat`. -/
+example : Std.LawfulOrderMax Nat := inferInstance
 
-/-- The point of reuse: Mathlib's theorems apply to the wrapped concept. -/
-example (a b c : NNReal) (h : a ≤ b) : a + c ≤ b + c := add_le_add_left h c
+/-- The generic law applies at `Nat` with no further proof. -/
+example (a b : Nat) : a ≤ combineResources a b := le_combineResources a b
 ```
+
+The Mathlib form of this example, over `Monoid`, `AddCommMonoid` and the `Prop`-valued `IsOrderedAddMonoid` mixin, is checked in the {repo "integration/mathlib/MathlibAudit/Models.lean"}[Mathlib integration package].
 
 *Anti-Pattern - An Inadequate Group Interface*: This structure declares a binary operation and an identity candidate, but no inverse operation or group laws. It does not specify a group. Use Mathlib’s `Group` interface when a group is intended; even a complete custom group definition would require justification for duplicating that interface.
 
@@ -284,21 +278,20 @@ number := false
 *Requirements*:
 
 * Normative parameters MUST be exposed as named definitions or proof-bearing fields with documentation stating what the value means, its encoded constraints, and any exact Lean theorem hypotheses or conclusions that depend on that value. Broader operational or organizational change-impact analysis is outside this standard.
-* Parameter constraints MUST be proof-carrying: encode `{q : ℚ // 0 < q ∧ q < 1}`, not "q is a ratio between 0 and 1" in prose.
+* Parameter constraints MUST be proof-carrying: encode `{q : Rat // 0 < q ∧ q < 1}`, not "q is a ratio between 0 and 1" in prose.
 * Every unit or parameter-role distinction claimed to prevent cross-use MUST be enforced by the interface's distinct types, indices, or refinements ({ref "23-phantom-types-for-disambiguation"}[module 2 §2.3]).
 
 *Example - Proof-Carrying Parameters*:
 
 ```lean
-import Mathlib.Tactic.NormNum
-
 /-- A quorum ratio: the type excludes 0, 1, and every value outside the unit
 interval, by proof. Changing the value is a one-line change; silently
-changing it to an invalid one is an elaboration error. -/
-def minimumQuorum : {q : ℚ // 0 < q ∧ q < 1} := ⟨2/3, by norm_num⟩
+changing it to an invalid one is an elaboration error. The kernel decides the
+two closed comparisons of core's exact rationals. -/
+def minimumQuorum : {q : Rat // 0 < q ∧ q < 1} := ⟨2/3, by decide +kernel⟩
 
 /-- The parameter is usable as an ordinary rational everywhere. -/
-example : (minimumQuorum : ℚ) = 2/3 := rfl
+example : (minimumQuorum : Rat) = 2/3 := rfl
 ```
 
 # 1.6 Claim Boundaries and Automated Checking
