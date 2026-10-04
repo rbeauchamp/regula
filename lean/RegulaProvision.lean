@@ -2,8 +2,12 @@ import Lean.Data.Json
 
 /-! # Shared Mathlib provisioning
 
-Dependency provisioning: one shared, read-only Mathlib per pinned revision, exact
-compiler and artifact mode, reused by local copies. CI runs the build plan defined here.
+Without a snapshot selection, dependency provisioning uses one shared, read-only Mathlib
+per pinned revision, exact compiler and artifact mode, reused by local copies. CI runs the
+build plan defined here.
+
+Snapshot selections delegate acquisition to `RegulaSnapshot` instead of the sharing and
+build plans below; `docs/guides/contributing.md#compiled-source-snapshots` owns that procedure.
 
 Mathlib's `lake exe cache get` downloads its archives once into the shared archive cache
 (`~/.cache/mathlib`) but unpacks them into every copy's `.lake/packages`. This program
@@ -44,7 +48,7 @@ open System Lean
 
 /-! ## Pure decisions -/
 
-/-- Where dependency artifacts come from. `source` builds with the running compiler. -/
+/-- Artifact origin for the direct provisioning plans; snapshot acquisition is separate. -/
 inductive BuildMode where
   /-- Use the dependencies' published artifacts and build only what they lack. -/
   | upstreamCache
@@ -435,7 +439,8 @@ structure Ran where
   stderr : String
 
 private def run (cwd : FilePath) (cmd : String) (args : Array String) : IO Ran := do
-  let out ← IO.Process.output { cmd, args, cwd := some cwd, stdin := .null }
+  let out ← IO.Process.output {
+    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
   return ⟨out.exitCode, out.stdout, out.stderr⟩
 
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
@@ -449,7 +454,8 @@ private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO S
 private def stream (cwd : FilePath) (cmd : String) (args : Array String)
     (env : Array (String × Option String) := #[]) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd, args, env, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
+    cmd, args, env := env.push ("GHCR_TOKEN", none), cwd := some cwd,
+    stdin := .null, stdout := .inherit, stderr := .inherit }
   let exit ← child.wait
   unless exit == 0 do
     throw <|
@@ -1017,6 +1023,9 @@ def requireCompiler (repo : FilePath) : IO Unit := do
 
 /-- Provision this copy. -/
 def provision (repo : FilePath) : IO Unit := do
+  if ← (repo / ".github/snapshot-compiler.json").pathExists then
+    stream repo "lean" #["--run", "lean/RegulaSnapshot.lean", "restore"]
+    return
   let mode ← readBuildMode repo
   requireCompiler repo
   let some (manifest, pins) ← readPins repo
@@ -1043,6 +1052,9 @@ def provision (repo : FilePath) : IO Unit := do
 
 /-- Provision the website's pinned Verso with the same artifact mode as Mathlib. -/
 def provisionVerso (repo : FilePath) : IO Unit := do
+  if ← (repo / ".github/snapshot-compiler.json").pathExists then
+    stream repo "lean" #["--run", "lean/RegulaSnapshot.lean", "restore"]
+    return
   requireCompiler repo
   unless (← IO.FS.readFile (repo / "lean-toolchain")) ==
       (← IO.FS.readFile (repo / "website" / "lean-toolchain")) do
@@ -1051,22 +1063,24 @@ def provisionVerso (repo : FilePath) : IO Unit := do
   stream (repo / "website") "lake"
     (lakeOptions mode ++ #["build", "verso/VersoManual"]) (← freshBuildEnvironment repo mode)
 
-/-- Emit compiler, artifact policy and discovered source scope for CI cache keys. Cache hits
-still run source receipt admission. GitHub's output and environment protocols are trusted IO. -/
+/-- Export artifact policy to CI and, without a snapshot selection, compiler and discovered
+source scope for cache keys. Cache hits still run source receipt admission.
+GitHub's output and environment protocols are trusted IO. -/
 def ciIdentity (repo : FilePath) : IO Unit := do
   requireCompiler repo
   let mode ← readBuildMode repo
   unless isObjectName Lean.githash do
     throw <| IO.userError "provisioning: the compiler commit is not a full Git object name"
-  let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
-  let source ← sourceModule repo mode
-  let value := s!"{Lean.githash}-{mode.spelling}{policy}"
-  say s!"dependency identity {value}"
-  if let some path ← IO.getEnv "GITHUB_OUTPUT" then
-    let handle ← IO.FS.Handle.mk path .append
-    handle.putStr s!"identity={value}\n"
-    handle.putStr s!"mode={mode.spelling}\n"
-    handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
+  unless ← (repo / ".github/snapshot-compiler.json").pathExists do
+    let policy := if mode == .source then s!"-v{sourceArtifactPolicy}" else ""
+    let source ← sourceModule repo mode
+    let value := s!"{Lean.githash}-{mode.spelling}{policy}"
+    say s!"dependency identity {value}"
+    if let some path ← IO.getEnv "GITHUB_OUTPUT" then
+      let handle ← IO.FS.Handle.mk path .append
+      handle.putStr s!"identity={value}\n"
+      handle.putStr s!"mode={mode.spelling}\n"
+      handle.putStr s!"scope={if mode == .source then toString (hash source) else "full"}\n"
   if let some path ← IO.getEnv "GITHUB_ENV" then
     let handle ← IO.FS.Handle.mk path .append
     for (name, value) in ← freshBuildEnvironment repo mode do
@@ -1088,7 +1102,9 @@ def main (args : List String) : IO Unit := do
     throw <| IO.userError "provisioning: run from the repository root"
   match args with
   | [] =>
-    if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
+    if ← (repo / ".github/snapshot-compiler.json").pathExists then
+      RegulaProvision.provision repo
+    else if (← IO.getEnv "GITHUB_ACTIONS") == some "true" then
       IO.println "provisioning: local sharing skipped on GitHub Actions (CI uses the Mathlib plan)"
     else if System.Platform.isWindows then
       if (← RegulaProvision.readBuildMode repo) == .source then
@@ -1097,10 +1113,13 @@ def main (args : List String) : IO Unit := do
         get`"
     else RegulaProvision.provision repo
   | ["mathlib"] =>
-    RegulaProvision.requireCompiler repo
-    let mode ← RegulaProvision.readBuildMode repo
-    if mode == .source then RegulaProvision.provision repo
-    else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
+    if ← (repo / ".github/snapshot-compiler.json").pathExists then
+      RegulaProvision.provision repo
+    else
+      RegulaProvision.requireCompiler repo
+      let mode ← RegulaProvision.readBuildMode repo
+      if mode == .source then RegulaProvision.provision repo
+      else RegulaProvision.buildMathlib repo mode false #["-d", "audit"]
   | ["verso"] => RegulaProvision.provisionVerso repo
   | ["identity"] => RegulaProvision.ciIdentity repo
   | "exec" :: dir :: command :: rest =>

@@ -5,6 +5,10 @@ description: >-
   validation or test orchestration.
 
 inputs:
+  bootstrap-only:
+    description: Install pinned Elan, stable Lean and system bootstrap tools only.
+    required: false
+    default: 'false'
   dependencies:
     description: >-
       Restore or provision the pinned Lake dependency artifacts (Mathlib and its dependencies).
@@ -23,6 +27,7 @@ runs:
   using: composite
   steps:
     - name: Restore pinned toolchain
+      if: inputs.bootstrap-only != 'true' && hashFiles('.github/snapshot-compiler.json') == ''
       id: toolchain
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -32,28 +37,48 @@ runs:
         key: lean-toolchain-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', '.github/compiler-source.json', 'lean/RegulaCompiler.lean') }}
 
     - name: Install Elan and pinned Lean
+      env:
+        ELAN_TARGET: ${{ runner.os == 'Linux' && runner.arch == 'X64' && 'x86_64-unknown-linux-gnu' || runner.os == 'macOS' && runner.arch == 'ARM64' && 'aarch64-apple-darwin' || '' }}
       shell: bash
       run: |
         curl --fail --location --retry 3 \
-          https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz \
+          "https://github.com/leanprover/elan/releases/download/v4.2.4/elan-$ELAN_TARGET.tar.gz" \
           -o "$RUNNER_TEMP/elan.tar.gz"
         tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
         "$RUNNER_TEMP/elan-init" -y --default-toolchain none
         echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
         "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.34.0
+
+    - name: Install Linux bootstrap tools
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
         if ! command -v timeout >/dev/null || ! command -v shellcheck >/dev/null; then
           sudo apt-get update
           sudo apt-get install --yes coreutils shellcheck
         fi
+
+    - name: Install macOS bootstrap tools
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        brew install coreutils shellcheck
+        echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+
+    - name: Check bootstrap tools
+      shell: bash
+      run: |
         timeout --version
         shellcheck --version
 
     - name: Install the declared compiler
+      if: inputs.bootstrap-only != 'true'
+      id: compiler
       shell: bash
-      run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaCompiler.lean
+      run: elan run leanprover/lean4:v4.34.0 lean --run lean/RegulaCompiler.lean setup
 
     - name: Save pinned toolchain
-      if: steps.toolchain.outputs.cache-hit != 'true'
+      if: inputs.bootstrap-only != 'true' && hashFiles('.github/snapshot-compiler.json') == '' && steps.toolchain.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -62,13 +87,13 @@ runs:
         key: ${{ steps.toolchain.outputs.cache-primary-key }}
 
     - name: Read dependency artifact identity
-      if: inputs.dependencies == 'true' || inputs.verso == 'true'
+      if: inputs.bootstrap-only != 'true' && (inputs.dependencies == 'true' || inputs.verso == 'true')
       id: dependency-plan
       shell: bash
       run: lean --run lean/RegulaProvision.lean identity
 
     - name: Restore pinned dependencies
-      if: inputs.dependencies == 'true'
+      if: inputs.bootstrap-only != 'true' && inputs.dependencies == 'true' && steps.compiler.outputs.snapshot != 'true'
       id: dependencies
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -85,13 +110,13 @@ runs:
     # relative to its working directory (`.lake/packages/<name>`), not the `audit/`
     # workspace's packages directory, so this lands them in the shared root one.
     - name: Provision or admit Mathlib artifacts
-      if: inputs.dependencies == 'true' && (steps.dependencies.outputs.cache-hit != 'true' || steps.dependency-plan.outputs.mode == 'source')
+      if: inputs.bootstrap-only != 'true' && inputs.dependencies == 'true' && (steps.compiler.outputs.snapshot == 'true' || steps.dependencies.outputs.cache-hit != 'true' || steps.dependency-plan.outputs.mode == 'source')
       shell: bash
       run: lean --run lean/RegulaProvision.lean mathlib
 
     # Save provisioned dependencies before verification, even if it later fails.
     - name: Save pinned dependencies
-      if: inputs.dependencies == 'true' && steps.dependencies.outputs.cache-hit != 'true'
+      if: inputs.bootstrap-only != 'true' && inputs.dependencies == 'true' && steps.compiler.outputs.snapshot != 'true' && steps.dependencies.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -103,7 +128,7 @@ runs:
     # its lock manifest in the shared `.lake/packages`; its other entries are the Mathlib
     # package's.
     - name: Restore pinned Verso dependencies
-      if: inputs.verso == 'true'
+      if: inputs.bootstrap-only != 'true' && inputs.verso == 'true' && steps.compiler.outputs.snapshot != 'true'
       id: verso
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -115,12 +140,12 @@ runs:
         key: verso-shared-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.dependency-plan.outputs.identity }}-${{ hashFiles('website/lake-manifest.json') }}
 
     - name: Provision pinned Verso
-      if: inputs.verso == 'true'
+      if: inputs.bootstrap-only != 'true' && inputs.verso == 'true'
       shell: bash
       run: lean --run lean/RegulaProvision.lean verso
 
     - name: Save pinned Verso dependencies
-      if: inputs.verso == 'true' && steps.verso.outputs.cache-hit != 'true'
+      if: inputs.bootstrap-only != 'true' && inputs.verso == 'true' && steps.compiler.outputs.snapshot != 'true' && steps.verso.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |

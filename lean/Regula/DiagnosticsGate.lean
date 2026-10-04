@@ -22,8 +22,9 @@ lean --run lean/Regula/DiagnosticsGate.lean gate     # refuse unless each passed
 `inputs` is the one statement of the paths the campaigns depend on: the checker, the rules and
 their examples, the adopter fixtures, the application and fixture sources the structural and
 execution controls mutate, Lake configuration and manifests, `scripts/verify.sh`, the provisioning
-and compiler-installation programs, the dependency mode, the declared compiler source, the
-workflow, the compiler-preparation workflow and the provisioning action. `decisions` decides each
+and compiler-installation programs, the snapshot controller, the dependency mode, the declared
+compiler source and snapshot selections, the workflow, both preparation workflows and the
+provisioning action. `decisions` decides each
 partition job by its job id: the campaigns (`campaign`) on every run other than a pull request's
 (`campaign_of_ne`), and on a pull request's exactly when one of its changed paths is an input
 (`campaign_pullRequest_iff`); the nightly rule-example shards (`rule-examples-nightly`) on the
@@ -86,8 +87,9 @@ def Input.covers : Input → List String → Bool
 their examples, the adopter fixtures in `examples/lake-lint-toml` and `examples/build-lint`, the
 application and fixture sources the structural and execution controls mutate, Lake configuration
 and manifests, `scripts/verify.sh`, the provisioning and compiler-installation programs, the
-dependency mode, the declared compiler source, the workflow, the compiler-preparation workflow
-and the provisioning action. This module is an input, below `lean/Regula`. -/
+snapshot controller, the dependency mode, the declared compiler source and snapshot selections,
+the workflow, both preparation workflows and the provisioning action. This module is an input,
+below `lean/Regula`. -/
 def inputs : List Input := [
   .tree ["lean", "Regula"],
   .tree ["lean", "RegulaPolicy"],
@@ -97,8 +99,12 @@ def inputs : List Input := [
   .file ["lean", "RegulaVerification.lean"],
   .file ["lean", "RegulaProvision.lean"],
   .file ["lean", "RegulaCompiler.lean"],
+  .file ["lean", "RegulaSnapshot.lean"],
   .file ["dependency-build-mode"],
   .file [".github", "compiler-source.json"],
+  .file [".github", "snapshot-preparation.json"],
+  .file [".github", "snapshot-compiler.json"],
+  .file [".github", "compiler-snapshot.json"],
   .tree ["lean", "AuditApp"],
   .file ["lean", "AuditApp.lean"],
   .file ["lean", "Main.lean"],
@@ -116,6 +122,7 @@ def inputs : List Input := [
   .file ["scripts", "verify.sh"],
   .file [".github", "workflows", "diagnostics.yml"],
   .file [".github", "workflows", "compiler.yml"],
+  .file [".github", "workflows", "snapshot.yml"],
   .tree [".github", "actions", "provision"]]
 
 /-- Whether some input covers the changed path `p`. -/
@@ -181,17 +188,23 @@ theorem Input.covers_head {i : Input} {p : List String} (hi : i.path ≠ [])
     | nil => simp [path] at hi
     | cons a dir => simp [path]
 
+/-- Every configured input has a nonempty path outside the documentation-only roots. -/
+private theorem input_heads {i : Input} (hi : i ∈ inputs) :
+    i.path ≠ [] ∧ i.path.head? ≠ some "docs" ∧ i.path.head? ≠ some "website" ∧
+      i.path.head? ≠ some "README.md" ∧ i.path.head? ≠ some "AGENTS.md" := by
+  have all : ∀ i ∈ inputs,
+      i.path ≠ [] ∧ i.path.head? ≠ some "docs" ∧ i.path.head? ≠ some "website" ∧
+        i.path.head? ≠ some "README.md" ∧ i.path.head? ≠ some "AGENTS.md" := by
+    simp [inputs, Input.path]
+  exact all i hi
+
 /-- On a pull request, the campaigns apply only when a changed path starts with the first component
 of an input. -/
 theorem campaign_head {changed : List (List String)}
     (h : campaignApplies .pullRequest changed = true) :
     ∃ p ∈ changed, ∃ i ∈ inputs, p.head? = i.path.head? := by
   obtain ⟨p, hp, i, hi, hc⟩ := (campaign_pullRequest_iff changed).mp h
-  have hne : i.path ≠ [] := by
-    simp only [inputs, List.mem_cons, List.not_mem_nil] at hi
-    rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-      h <;> simp_all [Input.path]
+  have hne := (input_heads hi).1
   exact ⟨p, hp, i, hi, Input.covers_head hne hc⟩
 
 /-- A pull request whose every changed path lies in `docs/` (the guides) or `website/` (the
@@ -204,11 +217,12 @@ theorem campaign_documentation (changed : List (List String))
   | false => rfl
   | true =>
     obtain ⟨p, hp, i, hi, hh⟩ := campaign_head hc
-    simp only [inputs, List.mem_cons, List.not_mem_nil] at hi
-    rcases h p hp with h | h | rfl | rfl <;>
-      rcases hi with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-        rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-        hi <;> simp_all [Input.path]
+    have heads := (input_heads hi).2
+    rcases h p hp with hd | hw | rfl | rfl
+    · exact False.elim <| heads.1 (hh.symm.trans hd)
+    · exact False.elim <| heads.2.1 (hh.symm.trans hw)
+    · exact False.elim <| heads.2.2.1 hh.symm
+    · exact False.elim <| heads.2.2.2 hh.symm
 
 /-! ## The gate -/
 

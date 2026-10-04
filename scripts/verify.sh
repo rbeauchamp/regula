@@ -26,9 +26,8 @@ if [[ $("$timeout_command" --version) != *"GNU coreutils"* ]]; then
   echo "verification requires GNU coreutils timeout" >&2
   exit 127
 fi
-# Setup, not verification: point this copy at the shared, read-only Mathlib
-# (scripts/provision.sh; a no-op on GitHub Actions) under its own limit, before the
-# acceptance deadline starts.
+# Dependency setup runs under its own limit before the acceptance deadline starts.
+# Acquisition routes and prerequisites belong to docs/guides/contributing.md.
 "$timeout_command" --signal=KILL 1800s scripts/provision.sh || {
   echo "verification did not start: scripts/provision.sh failed or exceeded its 1800-second limit (exit $?)" >&2
   exit 1

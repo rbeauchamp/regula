@@ -21,9 +21,8 @@ Three kinds of evidence are kept apart:
 None of these proofs verifies the Lean compiler, the source collectors, the filesystem, the JSON
 parser, the registry adapter or a user's intended specification.
 
-The policy and toolchain libraries (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`,
-`RegulaVerification`, `RegulaProvision`, `RegulaCompiler`) are claimed Standard-Logical surfaces, so acceptance reports every
-declaration's exact axiom set; that profile is an upper bound, not a claim that every proof uses
+The root [foundation manifest](../../foundation_manifest.json) owns the policy and toolchain libraries' foundation claims. Acceptance reports every claimed
+declaration's exact axiom set; Standard-Logical is an upper bound, not a claim that every proof uses
 choice. Theorems in the excluded operational `Regula` library are kernel-checked by its
 warning-free build (`warningAsError` also rejects `sorry`); `Checker.Manifest`,
 `Checker.ProducerReport` and `Checker.RuleExampleQualification` bound their theorems' axioms to
@@ -480,7 +479,7 @@ Decisions with no kind, and what stands instead:
 | `accept`, `finalize`, `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults`, `policyFor`, `memberFailure`, `admitPlan`, `admitBoundaryEvidence`, the editor decision, `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` | An argument or the result has a type that depends on an earlier argument, or the function is polymorphic in a type. A kind is stated about a function whose argument types are independent, through `Function.uncurry`. | Evidence by construction, where the accepted value carries its proof, and the two-way theorems `accept_iff`, `finalize_iff`, `insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`, `policyFor_none_iff`, `editor_decision_none_iff`, `admitExampleRequest_sound` with `admitExampleRequest_complete`, and the `_sound` and `_complete` or `_exact` pairs of the others. `policyFor` and `memberFailure` run `declarationFailure`, which has a kind. |
 | `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ClassifyContract`). |
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
-| The standalone programs `RegulaProvision`, `RegulaCompiler` and `RegulaVerification` | Each runs with `lean --run` before the package is built, so it imports only the toolchain and cannot import `Regula.Contract`. | Their own theorems, which this guide names with each program. `RegulaPolicy.Compiler` has the same restriction; its decisions are registered from `RegulaPolicy.Claim`. |
+| The standalone toolchain programs in the [package map](architecture.md#packages-and-libraries) | Each runs with `lean --run` before the package is built, so it imports only the toolchain and cannot import `Regula.Contract`. | Their own documented theorems. `RegulaPolicy.Compiler` has the same restriction; its decisions are registered from `RegulaPolicy.Claim`. |
 
 The producers that run in `MetaM` or `IO` (the recursion-helper comparison, native replay,
 contract recognition and reach, receipt validation, root and closure discovery and the fence

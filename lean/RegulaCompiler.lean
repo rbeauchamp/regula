@@ -2,11 +2,13 @@ import Lean.Data.Json
 
 /-! # Install an exact compiler
 
-CI runs this standalone program with the fixed stable bootstrap. Without a source
-specification, Elan installs the repository's pin. A source specification builds the
-named Git commit with a pinned official bootstrap, retains the checkout and build,
-and links an alias only after both compiler identity observations match. A pin or
-bootstrap that Elan already lists is reused, not installed again; its checks still run.
+CI runs this standalone program with the fixed stable bootstrap. A snapshot selection
+restores and admits the immutable source-built compiler and dependencies. With neither a
+snapshot selection nor a source specification, Elan installs the repository's pin. A source
+specification without a snapshot selection, or explicit preparation of that specification, builds the
+named Git commit through its committed stage0, retains the checkout and build,
+and links an alias only after both compiler identity observations match. An installed
+selector is reused, not installed again; source aliases still undergo both identity checks.
 
 The contracts cover decoded values and the admission decision. Git, Elan, CMake,
 Make, compiler self-reports, filesystem locking and subprocesses remain trusted.
@@ -16,10 +18,10 @@ open Lean System
 
 /-- A single non-hidden component for aliases, repository owners and repositories. -/
 def component (value : String) : Bool :=
-  !value.isEmpty && !value.startsWith "." &&
+  !value.isEmpty && !value.startsWith "." && !value.startsWith "-" &&
     value.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.'
 
-/-- The full lowercase Git object names used by the source and bootstrap pins. -/
+/-- The full lowercase Git object names used by source pins. -/
 def objectName (value : String) : Bool :=
   value.length == 40 && value.all fun c => c.isDigit || ('a' ≤ c && c ≤ 'f')
 
@@ -60,17 +62,12 @@ structure Spec where
   revision : String
   /-- Local Elan alias, also recorded in `lean-toolchain`. -/
   selector : String
-  /-- Official compiler used as the preceding build stage. -/
-  bootstrap : String
-  /-- Full compiler commit expected from that bootstrap. -/
-  bootstrapRevision : String
   deriving FromJson, ToJson, Repr
 
-/-- Every path, compiler identity and bootstrap selector is checked before installation. -/
+/-- Every path component and compiler identity is checked before installation. -/
 def valid (spec : Spec) : Bool :=
   component spec.owner && component spec.repository && component spec.selector &&
-    objectName spec.revision && objectName spec.bootstrapRevision &&
-    officialSelector spec.bootstrap
+    objectName spec.revision
 
 /-- An admitted source specification carries the predicate the installer requires. -/
 abbrev Source := { spec : Spec // valid spec = true }
@@ -99,27 +96,48 @@ theorem admitsIdentity_iff (expected cli library : String) :
       objectName expected = true ∧ cli = expected ∧ library = expected := by
   simp [admitsIdentity, and_assoc]
 
-/-- System package installation is confined to the declared Linux CI environment. -/
+/-- Whether the supplied flags request Linux system package installation. -/
 def installsSystemPackages (githubActions runnerOS : Option String) : Bool :=
   githubActions == some "true" && runnerOS == some "Linux"
 
-/-- The installer admits system package changes exactly in Linux GitHub Actions jobs. -/
+/-- The Linux decision requires exactly the Actions and Linux runner flags. -/
 theorem installsSystemPackages_iff (githubActions runnerOS : Option String) :
     installsSystemPackages githubActions runnerOS = true ↔
       githubActions = some "true" ∧ runnerOS = some "Linux" := by
   simp [installsSystemPackages]
 
+/-- Whether the supplied flags request macOS system package installation. -/
+def installsMacPackages (githubActions runnerOS : Option String) : Bool :=
+  githubActions == some "true" && runnerOS == some "macOS"
+
+/-- The macOS decision requires exactly the Actions and macOS runner flags. -/
+theorem installsMacPackages_iff (githubActions runnerOS : Option String) :
+    installsMacPackages githubActions runnerOS = true ↔
+      githubActions = some "true" ∧ runnerOS = some "macOS" := by
+  simp [installsMacPackages]
+
 private def require (cwd : FilePath) (cmd : String) (args : Array String) : IO String := do
-  let result ← IO.Process.output { cmd, args, cwd := some cwd, stdin := .null }
+  let result ← IO.Process.output {
+    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)], stdin := .null }
   unless result.exitCode == 0 do
     throw <| IO.userError s!"compiler setup: {cmd} failed ({result.exitCode}): {result.stderr}"
   return result.stdout.trimAscii.toString
 
 private def stream (cwd : FilePath) (cmd : String) (args : Array String) : IO Unit := do
   let child ← IO.Process.spawn {
-    cmd, args, cwd := some cwd, stdin := .null, stdout := .inherit, stderr := .inherit }
+    cmd, args, cwd := some cwd, env := #[("GHCR_TOKEN", none)],
+    stdin := .null, stdout := .inherit, stderr := .inherit }
   let code ← child.wait
   unless code == 0 do throw <| IO.userError s!"compiler setup: {cmd} failed ({code})"
+
+/-- Install native runtime and build tools when the corresponding Actions/OS flags match. -/
+private def installSystemPackages (root : FilePath) : IO Unit := do
+  if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
+    stream root "sudo" #["apt-get", "update"]
+    stream root "sudo" #["apt-get", "install", "--yes", "build-essential", "cmake",
+      "pkg-config", "libgmp-dev", "libuv1-dev", "libssl-dev"]
+  if installsMacPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
+    stream root "brew" #["install", "cmake", "pkg-config", "gmp", "libuv", "openssl"]
 
 /-- Read the selected compiler's CLI and library reports through the actual executable. -/
 private def checkIdentity (root : FilePath) (cmd : String) (argv : Array String)
@@ -164,7 +182,7 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
     if ← installed root spec.selector then
       checkIdentity root "elan" #["run", spec.selector, "lean"] spec.revision
       return
-    let path := parent / s!"{spec.revision}-{spec.bootstrapRevision}"
+    let path := parent / spec.revision
     unless ← path.pathExists do
       let random ← IO.getRandomBytes 8
       let token := random.foldl (fun n byte => n * 256 + byte.toNat) 0
@@ -183,31 +201,27 @@ private def installSource (root : FilePath) (source : Source) : IO Unit := do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has another commit"
     unless (← require path "git" #["status", "--porcelain"]).isEmpty do
       throw <| IO.userError s!"compiler setup: retained checkout {path} has local changes"
-    unless ← installed root spec.bootstrap do
-      stream root "elan" #["toolchain", "install", spec.bootstrap]
-    checkIdentity root "elan" #["run", spec.bootstrap, "lean"] spec.bootstrapRevision
-    let previous ← require root "elan" #["run", spec.bootstrap, "lean", "--print-prefix"]
-    if installsSystemPackages (← IO.getEnv "GITHUB_ACTIONS") (← IO.getEnv "RUNNER_OS") then
-      stream root "sudo" #["apt-get", "update"]
-      stream root "sudo" #["apt-get", "install", "--yes", "build-essential", "cmake",
-        "pkg-config", "libgmp-dev", "libuv1-dev", "libssl-dev"]
-    stream path "cmake" #["--preset", "release", s!"-DSTAGE1_PREV_STAGE={previous}",
-      "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON"]
+    installSystemPackages root
+    let configuration := #["--preset", "release",
+      "-DUSE_LAKE_CACHE=OFF", "-DUSE_GITHASH=ON", "-DLEANC_CC=cc"]
+    let configuration := if System.Platform.isOSX then configuration ++
+      #["-DCMAKE_OSX_SYSROOT=", "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0"] else configuration
+    stream path "cmake" configuration
     let jobs ← if System.Platform.isOSX then require root "sysctl" #["-n", "hw.logicalcpu"]
       else require root "getconf" #["_NPROCESSORS_ONLN"]
     let some jobs := jobs.toNat? | throw <| IO.userError "compiler setup: invalid CPU count"
     if jobs == 0 then throw <| IO.userError "compiler setup: empty CPU count"
     stream path "make" #[s!"-j{jobs}", "-C", "build/release"]
     let stage := path / "build" / "release" / "stage1"
+    for notice in #["LICENSE", "LICENSES"] do
+      IO.FS.writeBinFile (stage / notice) (← IO.FS.readBinFile (path / notice))
     checkIdentity root (stage / "bin" / "lean").toString #[] spec.revision
     stream root "elan" #["toolchain", "link", spec.selector, stage.toString]
     checkIdentity root "elan" #["run", spec.selector, "lean"] spec.revision
   finally
     lock.unlock
 
-/-- Install the committed compiler pin unless Elan already lists it; source aliases are
-never silently rebound. -/
-def install (root : FilePath) : IO Unit := do
+private def installDeclared (root : FilePath) : IO Unit := do
   let selector := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
   match ← sourceSpec root with
   | some source => installSource root source
@@ -218,11 +232,35 @@ def install (root : FilePath) : IO Unit := do
       stream root "elan" #["toolchain", "install", selector]
   stream root "elan" #["run", selector, "lean", "--version"]
 
+/--
+Install the declared ordinary compiler, or restore the complete selected snapshot.
+
+## Intent
+Snapshot selection never reaches the source compiler builder. The restore program
+admits the committed digest and receipt before activating compiler and packages.
+-/
+def install (root : FilePath) : IO Unit := do
+  if ← (root / ".github/snapshot-compiler.json").pathExists then
+    installSystemPackages root
+    stream root "elan" #["run", "leanprover/lean4:v4.34.0", "lean", "--run",
+      "lean/RegulaSnapshot.lean", "restore"]
+  else installDeclared root
+
+/-- Build the selected compiler only for the explicit preparation entrypoint. -/
+def prepare (root : FilePath) : IO Unit := installDeclared root
+
 end RegulaCompiler
 
 /-- Standalone setup and the selected compiler's compiled library identity observation. -/
 def main (args : List String) : IO Unit := do
   match args with
   | [] => RegulaCompiler.install (← IO.FS.realPath (← IO.currentDir))
+  | ["setup"] =>
+    let root ← IO.FS.realPath (← IO.currentDir)
+    RegulaCompiler.install root
+    if let some output ← IO.getEnv "GITHUB_OUTPUT" then
+      let handle ← IO.FS.Handle.mk output .append
+      handle.putStr s!"snapshot={(← (root / ".github/snapshot-compiler.json").pathExists)}\n"
+  | ["prepare"] => RegulaCompiler.prepare (← IO.FS.realPath (← IO.currentDir))
   | ["identity"] => IO.println Lean.githash
-  | _ => throw <| IO.userError "usage: lean --run lean/RegulaCompiler.lean [identity]"
+  | _ => throw <| IO.userError "usage: lean --run lean/RegulaCompiler.lean [identity|prepare|setup]"

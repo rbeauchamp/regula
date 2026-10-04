@@ -12,7 +12,7 @@ run_cmd do
     let lean := ((← Lean.findSysroot) / "bin" / "lean").toString
     let child ← IO.Process.output {
       cmd := lean, args := #[(__dir__ / "lean/RegulaPolicy/Compiler.lean").toString]
-      env := #[("REGULA_COMPILER_GUARD", some "1")] }
+      env := #[("REGULA_COMPILER_GUARD", some "1"), ("GHCR_TOKEN", none)] }
     if child.exitCode != 0 then
       return some s!"Regula's compiler guard stopped: Lake is running Lean \
         {Lean.versionString} ({Lean.githash}), and `{lean}`, which LEAN_SYSROOT or PATH selects, \
@@ -81,7 +81,7 @@ lean_lib «RegulaPolicy» where
 @[default_target]
 lean_lib «RegulaVerification»
 
--- Toolchain-only local provisioning of the shared, read-only Mathlib; `scripts/provision.sh`
+-- Toolchain-only dependency setup; `scripts/provision.sh`
 -- runs it with `lean --run` (`scripts/verify.sh` before its deadline), so it imports no
 -- root-package module.
 @[default_target]
@@ -89,6 +89,9 @@ lean_lib «RegulaProvision»
 
 @[default_target]
 lean_lib «RegulaCompiler»
+
+@[default_target]
+lean_lib «RegulaSnapshot»
 
 @[default_target]
 lean_lib «RegulaQualification» where
