@@ -2124,8 +2124,59 @@ private def sourceAttributionControls (dir : FilePath)
     finally
       if ← report.pathExists then IO.FS.removeFile report
 
+/-- Controls for a decision registered from another module of its inventory (standard §7.11).
+`AuditApp.DownstreamDecision` declares `downstreamCheck` without importing `Regula.Decision`, and
+`AuditApp.DownstreamRegistration` imports it and writes `attribute [regula_decision]
+downstreamCheck`. While no contract decides `downstreamCheck`, the project audit must report it
+under RG1008; once the registering module holds its contract, the audit must accept it and record
+it as registered. Both are run for two plain files and for two `module`s. The registering
+`module` imports the declaring one privately, so Lean saves the registration with that module's
+private data only, which the audit loads. -/
+private def downstreamRegistrationControls (sources : FilePath)
+    (gate : Array String → IO ProcessResult) : IO (Array String) := do
+  let declaring (asModule : Bool) : String :=
+    (if asModule then "module\n\n" else "") ++
+      "/-! A decision declared without the registration interface. -/\n\n" ++
+      (if asModule then "@[expose] public section\n\n" else "") ++
+      "/-- Whether `n` is positive. -/\ndef downstreamCheck (n : Nat) : Bool := decide (0 < n)\n"
+  let contract :=
+    "\n/-- `downstreamCheck` accepts exactly the positive numbers. -/\n" ++
+      "theorem downstreamCheck_decides :\n" ++
+      "    Regula.ExecutableContract downstreamCheck\n" ++
+      "      (Regula.Decides (· = true) fun n => 0 < n) :=\n" ++
+      "  ⟨{ sound := fun _ accepted => of_decide_eq_true accepted\n" ++
+      "     accepted := ⟨1, by decide⟩\n" ++
+      "     complete := fun _ holds => decide_eq_true holds\n" ++
+      "     refused := ⟨0, by decide⟩ }⟩\n"
+  let registering (asModule decided : Bool) : String :=
+    (if asModule then "module\n\n" else "") ++ "import AuditApp.DownstreamDecision\n" ++
+      (if decided then "import Regula.Contract\n" else "") ++
+      (if asModule then "meta import Regula.Decision\n" else "import Regula.Decision\n") ++
+      "\n/-! Registers the decision the imported module declares. -/\n" ++
+      (if decided then contract else "") ++ "\nattribute [regula_decision] downstreamCheck\n"
+  let registration := sources / "AuditApp" / "DownstreamRegistration.lean"
+  let arguments := #["--incremental", "--verbose"]
+  let mut failures := #[]
+  for (form, asModule) in #[("files", false), ("modules", true)] do
+    let found ← withNewFile (sources / "AuditApp" / "DownstreamDecision.lean")
+        (declaring asModule) do
+      let unmet ← withNewFile registration (registering asModule false) do
+        return expectedFailure s!"downstream-registration-{form}" (← gate arguments)
+          #["RG1008", "downstreamCheck (def)"]
+      let met ← withNewFile registration (registering asModule true) do
+        let result ← gate arguments
+        if result.succeeded && result.output.contains
+            "downstreamCheck (def) type=Nat → Bool axioms=[] -> kernel-only decision-result=other"
+        then pure none
+        else pure <| some s!"structural/downstream-contract-{form}: expected the registered \
+          decision accepted and recorded:\n{result.output}"
+      return #[unmet, met].filterMap id
+    failures := failures ++ found
+  return failures
+
 /-- Structural mutation cluster: fresh-checker coverage of an added module, controls for several
-copies of one name, and the final restored-state control. -/
+copies of one name, controls for a decision registered from another module, and the final
+restored-state control. -/
 private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath) : IO
     (Array String) := do
   let sources := copy / layout.relativeDir
@@ -2133,6 +2184,8 @@ private unsafe def structuralPartD (layout : SourceLayout) (repo copy : FilePath
   let gate (args : Array String := #["--incremental"]) :=
     runBinaryFrom repo copy "axiomGate" args
   for failure in ← duplicateAdmissionControls sources copy (fun args => gate args) do
+    failures.modify (·.push failure)
+  for failure in ← downstreamRegistrationControls sources (fun args => gate args) do
     failures.modify (·.push failure)
   withNewFile (sources / "AuditApp" / "UnimportedSafe.lean")
       "namespace AuditApp.UnimportedSafe\ndef value : Nat := 1\nend AuditApp.UnimportedSafe\n" do

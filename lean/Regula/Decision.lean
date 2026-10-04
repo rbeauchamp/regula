@@ -72,14 +72,16 @@ initialize
         decisionExtension.addEntry (asyncDecl := declaration) env declaration
   }
 
-/-- Whether `@[regula_decision]` registers `declaration` in `env`: the current module registers
-it, or a loaded module does, which is the module that declares it or one that imports that
-module. A registration only adds the RG1008 requirement, so every loaded registration counts,
-whichever module wrote it. -/
-def decisionRegistered (env : Lean.Environment) (declaration : Lean.Name) : Bool :=
-  (decisionExtension.getState (asyncDecl := declaration) env).contains declaration ||
-    Nat.any env.header.moduleNames.size fun index _ =>
-      (decisionExtension.getModuleEntries env index).binSearchContains declaration
-        Lean.Name.quickLt
+/-- Every declaration `@[regula_decision]` registers in `env`: those the current module
+registers and those every loaded module does, each of which is the module that declares the
+function or one that imports it. A registration only adds the RG1008 requirement, so every loaded
+registration counts, whichever module wrote it. One pass over the loaded modules computes the
+set; a caller that asks about many declarations of one environment computes it once
+(`Regula.Collect.ContractScope`). -/
+def decisionRegistrations (env : Lean.Environment) : Lean.NameSet :=
+  (Array.range env.header.moduleNames.size).foldl (init := decisionExtension.getState env)
+    fun registered index =>
+      (decisionExtension.getModuleEntries env index).foldl (init := registered)
+        fun registered declaration => registered.insert declaration
 
 end Regula

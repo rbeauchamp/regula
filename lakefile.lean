@@ -78,17 +78,23 @@ lean_lib «Fixtures» where
 lean_lib «RegulaPolicy» where
   globs := #[.andSubmodules `RegulaPolicy]
 
+-- The three standalone programs run with `lean --run` before the package is built
+-- (`scripts/verify.sh`, `scripts/provision.sh`, the CI provisioning action), so each root
+-- module imports only the toolchain. Each library has a second module, `Decisions`, which
+-- imports its program with `Regula.Contract` and `Regula.Decision` and registers the program's
+-- decisions (RG1008); no program imports it.
 @[default_target]
-lean_lib «RegulaVerification»
+lean_lib «RegulaVerification» where
+  globs := #[.andSubmodules `RegulaVerification]
 
--- Toolchain-only dependency setup; `scripts/provision.sh`
--- runs it with `lean --run` (`scripts/verify.sh` before its deadline), so it imports no
--- root-package module.
+-- Dependency setup.
 @[default_target]
-lean_lib «RegulaProvision»
+lean_lib «RegulaProvision» where
+  globs := #[.andSubmodules `RegulaProvision]
 
 @[default_target]
-lean_lib «RegulaCompiler»
+lean_lib «RegulaCompiler» where
+  globs := #[.andSubmodules `RegulaCompiler]
 
 @[default_target]
 lean_lib «RegulaSnapshot»

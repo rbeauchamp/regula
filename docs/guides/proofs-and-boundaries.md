@@ -347,7 +347,7 @@ the call through each success owner.
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
 | [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure) | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the search that finds a mention of the implementation in a decision's acceptance predicate or specification, proof admission and adequacy are not proved by this relation. |
-| [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistered`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
+| [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
 | [RG3001], [RG3002] | `executionFailureRecords_empty_iff`, `boundaryFailures_empty_iff`, `boundaryFailures_toolchain`, `project_boundary_reported`, `executionFindings_empty_iff`, `failure_reported`, `executionFindings_sound`, `checked_toolchainBase` | The theorems cover the supplied unresolved paths and boundaries and their supplied origins, not complete root and closure discovery, the truth of the origin observation, the collector's record of which constant is compiled to which `partial` definition, or the correctness of the toolchain's or external runtime code. |
 | [RG4003] | `matchesPattern_iff`, `orderedLiterals_iff` | One effective error under the restricted grammar; producer completion and effective-error extraction are operational. Policy-negative source fixtures keep their separate registry-bound expectation qualifier, and a rejection is not positive conformance. |
@@ -411,7 +411,8 @@ specification.
 
 Which report states a kind depends on the library that holds the registration:
 
-- **Claimed libraries** (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `AuditApp`). Their
+- **Claimed libraries** (`RegulaPolicy`, `RegulaCore`, `RegulaQualification`, `AuditApp`, and the
+  standalone programs' libraries `RegulaProvision`, `RegulaCompiler` and `RegulaVerification`). Their
   registrations are contracts of the accepted inventory, so an accepted account of Regula states
   the kind of each and, for a one-way kind, the direction it leaves open.
 - **The excluded `Regula` library.** Acceptance does not report its declarations, so no report
@@ -458,6 +459,9 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Markdown.documentErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. |
 | `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
 | `AuditApp.admit`, `AuditApp.grant`, `AuditApp.runChecked` | Positive capacity, a free slot, `Fits` | The example application (standard §3.7). |
+| `RegulaCompiler.admitsIdentity`, `installsSystemPackages` | Both reports equal one full object name; a GitHub Actions job on Linux (`admitsIdentity_iff`, `installsSystemPackages_iff`) | The compiler installer's identity admission and its system-package guard. |
+| `RegulaProvision.resumes`, `mathlibStep` (accepts on `.keep`) | A source-mode stage whose observed inputs are the expected ones; the path already links the shared checkout (`resumes_iff`, `mathlibStep_keep_iff`) | Local provisioning: resuming a staged workspace, and keeping Mathlib's link. |
+| `RegulaVerification.parseMode` | The argument list of a supported invocation (`parseMode_sound`, `parseMode_roundtrip`) | Argument selection of `scripts/verify.sh`. |
 
 Sound only, each a declared choice:
 
@@ -466,6 +470,11 @@ Sound only, each a declared choice:
 | `Regula.SharedExecution.same` | The two values are equal (`same_eq`) | That it accepts every pair of equal values is not proved, and nothing depends on it. The equality is `=`: two objects with the same members whose trees are balanced differently are different values, which `same` refuses and Lean's runtime `Json` comparison identifies. |
 | `Regula.Checker.Admission.checkCopies` | Every copy is `CopyAdmitted` (`checkCopies_sound`) | It may refuse admissible copies: the search for a proof's axioms is bounded by fuel, and a refusal fails closed ([RG2005]). |
 | `Regula.Checker.ProducerReport.Environment.validate` | `Admissible` (`validate_sound`) | It may refuse an admissible report; `validate_eq_ok` is two-way against the guard Booleans, not against `Admissible`. |
+| `RegulaCompiler.source?` | The specification passes `valid` (`source?_sound`) | The installer states no theorem that it accepts every valid specification. Which source it returns is `source?_sound`, not the kind. |
+| `RegulaProvision.buildMode?` | The text is a build mode's spelling (`buildMode?_sound`) | The program states no theorem that it accepts both spellings. |
+| `RegulaProvision.admits` | `Admitted`: the receipt records the requested revision, compiler, mode and import module, and holds no package at another revision than a pin (`admits_sound`) | It refuses an `Admitted` receipt of another schema version. |
+| `RegulaProvision.cloneStep` (accepts on `.replace`), `found` (accepts on a result other than `.foreign`), `prunes` | The path is a link or a clean Git checkout (`cloneStep_replace`); the directory's receipt names it (`found_identified`); the directory is not the current one and no registered copy links it (`prunes_sound`) | `cloneStep` keeps a clean checkout at the pinned revision; the program states no converse for the other two. |
+| `RegulaVerification.dependencyFree` | The lock manifest's `packages` array is present and empty (`dependencyFree_packages`) | The driver states no converse. |
 
 Complete only. A sound kind requires an input the function accepts, with a proof:
 
@@ -486,26 +495,38 @@ Decisions with no kind, and what stands instead:
 | `accept`, `finalize`, `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults`, `policyFor`, `memberFailure`, `admitPlan`, `admitBoundaryEvidence`, the editor decision, `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` | An argument or the result has a type that depends on an earlier argument, or the function is polymorphic in a type. A kind is stated about a function whose argument types are independent, through `Function.uncurry`. | Evidence by construction, where the accepted value carries its proof, and the two-way theorems `accept_iff`, `finalize_iff`, `insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`, `policyFor_none_iff`, `editor_decision_none_iff`, `admitExampleRequest_sound` with `admitExampleRequest_complete`, and the `_sound` and `_complete` or `_exact` pairs of the others. `policyFor` and `memberFailure` run `declarationFailure`, which has a kind. |
 | `labelOf`, `foundationFor`, `authorizedNativeAxioms`, `authorizedUnsafeRecHelpers`, `DefeqComparison.classify`, `Regula.Checker.Lint.classify` | These classify into several classes or select a set; they do not accept or refuse an input. | Their exact-value theorems (`labelOf_iff`, `foundationFor_iff`, the `authorized…_iff` theorems, `classify_checked_iff` and its companions, `ClassifyContract`). |
 | The other registered contracts (`checked_request`, `checked_rule`, `checked_subject`, `checked_account`, `checked_summary`, `checked_executionFailures` and the census assembly contracts) | Each fixes a computed value, such as a rendered line or an assembled record, not a verdict. `checked_executionFailures` renders `executionFindings`, which has a kind. | The registered requirement, reported with no kind. |
-| The standalone toolchain programs in the [package map](architecture.md#packages-and-libraries) | Each runs with `lean --run` before the package is built, so it imports only the toolchain and cannot import `Regula.Contract`. | Their own documented theorems. `RegulaPolicy.Compiler` has the same restriction; its decisions are registered from `RegulaPolicy.Claim`. |
+| `RegulaVerification.select`, `RegulaProvision.component?` | `select` returns the mode with the proof that the arguments are its own, so its result type depends on its argument; the program states no theorem about `component?`, whose result carries the proof that the text is a component. | Evidence by construction, and `select_exact`, which makes `select` the proof-carrying form of `parseMode`, which has a kind. |
+| The validators `RegulaCompiler.valid`, `component`, `objectName`, `officialSelector`, `releaseVersion`, `decimal` and `RegulaProvision.isObjectName`, `isComponent` | Each is itself the written form of what it admits: the programs state no relation it is checked against, and a kind's specification must not mention its implementation. | `valid` is the specification of the kind of `source?`, and `objectName` part of that of `admitsIdentity`; whether each is the intended form is review. |
 
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 40 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp` and 11 of the excluded `Regula` library, where the
-`self-audit` diagnostic decides the rule. Two of the 40 are registered from another module of
-their library: `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates
-it alone before the package is built, so `RegulaPolicy.Claim` registers `Compiler.accepts` and
-`Compiler.admitCapability` beside their contracts (`attribute [regula_decision]`). Deleting
-`checked_compilerAccepts` or `checked_admitCapability` is then rejected under [RG1008] like any
-other registered decision's contract. The decisions below carry no registration. A
-registration is a requirement that the function has a decision contract or a `Decidable` result,
-so registering a function that can have neither would only make the rule fail.
+`RegulaQualification`, 3 of `AuditApp`, 7 of `RegulaProvision`, 3 of `RegulaCompiler`, 2 of
+`RegulaVerification` and 11 of the excluded `Regula` library, where the `self-audit` diagnostic
+decides the rule. Fourteen of them are registered from another module of their library, with
+`attribute [regula_decision]` beside their contracts, because the module that declares them
+imports only the toolchain:
+
+- `RegulaPolicy.Compiler` imports only `Init`, because the compiler guard elaborates it alone
+  before the package is built, so `RegulaPolicy.Claim` registers `Compiler.accepts` and
+  `Compiler.admitCapability`.
+- Each standalone program runs with `lean --run` before the package is built, so its library has
+  a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
+  no program imports: `RegulaProvision.Decisions` registers `buildMode?`, `resumes`, `admits`,
+  `mathlibStep`, `cloneStep`, `found` and `prunes`; `RegulaCompiler.Decisions` registers
+  `source?`, `admitsIdentity` and `installsSystemPackages`; `RegulaVerification.Decisions`
+  registers `parseMode` and `dependencyFree`. Each kind restates a theorem the program proves
+  about the same definition.
+
+Deleting one of those contracts, such as `checked_compilerAccepts` or `checked_admits`, is then
+rejected under [RG1008] like any other registered decision's contract. The decisions below carry
+no registration. A registration is a requirement that the function has a decision contract or a
+`Decidable` result, so registering a function that can have neither would only make the rule fail.
 
 | Decision | Why it is not registered | What stands instead |
 | --- | --- | --- |
 | Every decision of the table "Decisions with no kind" above | None has a decision kind, for the reason that table gives for each, and none returns `Decidable _`. | The evidence that table names for each. A kind for the functions with dependent or polymorphic types is a later stage of [#199](https://github.com/rbeauchamp/regula/issues/199); each can be registered once it has one. |
-| The standalone programs `RegulaProvision`, `RegulaCompiler` and `RegulaVerification` | Each is a claimed library of one module, which runs with `lean --run` before the package is built and so imports only the toolchain: it can import neither `Regula.Contract` nor `Regula.Decision`. Its decisions therefore have no kind, and its inventory has no second module that could register one, as `RegulaPolicy.Claim` does for `RegulaPolicy.Compiler`. No module of another library imports these programs, and a registration written there would name a declaration outside that library's inventory, which the audit refuses. | Their own theorems, which this guide names with each program. A further module in each program's library, importing the program and the two interfaces, could register a kind and the decision for each; none exists. |
 
 Two registrations moved so that each registered function has its contract in its own library, the
 inventory [RG1008] reads: the contract of `RuleId.parse?` from `Regula.RegistryCodec` to
@@ -514,16 +535,21 @@ inventory [RG1008] reads: the contract of `RuleId.parse?` from `Regula.RegistryC
 witnesses reduce. Their requirements and proofs are unchanged.
 
 A registration is kept by the module that writes it (`Regula.decisionExtension`), and the
-collector reads the registrations of every module the audited environment loaded
-(`Regula.decisionRegistered`), so a function registered from another module of its inventory has
-the same requirement as one registered where it is declared. Lean's own tag attribute refuses a
+collector reads the registrations of every module the audited environment loaded, once for the
+environment (`Regula.decisionRegistrations`), so a function registered from another module of its
+inventory has the same requirement as one registered where it is declared. Lean's own tag attribute refuses a
 declaration of an imported module, so the registration has its own extension, and nothing in it
 knows which declarations an audit owns. That is decided where the inventory is built: an audit
 stops without a verdict on a registration that one of its modules writes for a declaration outside
 its inventory (`Regula.Collect.ownedDecisionRegistrations`,
 `Fixtures.Mutations.DecisionForeignRegistration`), since it records no declaration to decide the
 requirement for. Reading the registrations and that check are operational, not proved; the
-decision over the recorded declarations is (`policyFor_decisionContract_iff`).
+decision over the recorded declarations is (`policyFor_decisionContract_iff`). The self-test's
+structural partition observes the reading in a project of two modules, one declaring a function
+and the other registering it: the audit reports the function under [RG1008] while no contract
+decides it and accepts it, recorded as registered, with the contract. It runs both for plain
+files and for `module`s, where the registering module imports the declaring one privately, so
+Lean saves the registration with that module's private data.
 
 `@[regula_decision]` is applied after compilation. Lean applies an
 attribute of the earlier application time to the `_unary` or `_mutual` definition it generates
@@ -2067,6 +2093,7 @@ not yet proved, and are labelled so at their definition; they are not correctnes
 | checkerSelftest structural | in-process manifest cases | `Manifest.parse` acceptance, decoding and the classified refusal classes | Proved in part | `Manifest.parse_sound`, `parse_input`, `parse_emptyExclusions`, refusal-class theorems; other refusals (a missing required field, an unknown exclusion key) are unclassified |
 | checkerSelftest structural | real manifests, missing file, unlisted modules, fresh-checker coverage, CLI refusal rendering, Lake discovery, executable classification | file IO, CLI rendering, Lake inventory | External | observed |
 | checkerSelftest structural | a lemma realized in a claimed module and the toolchain, in both import orders; unchecked, circular, `sorry` and kept-cycle copies of one name | Lean's realization, import, kept copy and kernel check of several copies of one name | External | observed; the admission decision is `Admission.replayMap_sound`, `replayMap_complete` and `checkCopies_sound` |
+| checkerSelftest structural | a function declared in one claimed module and registered with `attribute [regula_decision]` in another, without and with its decision contract, as plain files and as `module`s | Lean's saving and loading of the registration, and the collector's reading of it | External | observed; the decision over the recorded declaration is `policyFor_decisionContract_iff` |
 | checkerSelftest execution | each compiler-path mutation and correspondence control, with its positive and fresh restoration | compiler-derived execution coverage and correspondence evidence through the public gate; the emitted-C check of reachable code on the pin | External | observed |
 | checkerSelftest cli, environments, build-policy, lint-driver | CLI sweep, adopters, clean checkout, ordinary build, `lake lint` exit classes, cold compiler guard refusal of a failing and of a successful unidentified child process with its restored load | packaging, Lake and build integration | External | observed |
 | ordinary | `qualify registry`, `qualify native` | CLI output invalidation, registry and site validators; compiler messages and ranges | External | observed |
@@ -2381,7 +2408,8 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   binding and acceptance of every documented invocation; the caller consumes the proof-bearing
   selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
   empty selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
-  accepts has an empty `packages` array. Process execution remains IO.
+  accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
+  `parseMode` and `dependencyFree`. Process execution remains IO.
 
 ## Operational assumptions
 
