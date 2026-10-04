@@ -143,8 +143,9 @@ def enforcementPage (ident : Identity) : Except String String := do
       accepted. Hiding a diagnostic does not establish the property it checks. " ++
       Prose.relativeCitation .materialDocumentation ++ " and " ++
       Prose.relativeCitation .materialIntent ++ " check the declarations registered with \
-      `@[regula_material]`; removing a registration changes the reviewed claim, not only their \
-      result.\n\n" ++
+      `@[regula_material]`, and " ++ Prose.relativeCitation .decisionContract ++ " the functions \
+      registered with `@[regula_decision]`; removing a registration changes the reviewed claim, \
+      not only their result.\n\n" ++
     subsection "enforcement-commands" "Where rules run" ++
     "Project enforcement runs through `lake lint` (incremental), `lake lint -- --fresh` and \
       `lake exe axiomGate` (fresh whole-project audits from empty build output), and the \

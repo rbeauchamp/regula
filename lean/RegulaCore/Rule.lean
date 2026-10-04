@@ -161,6 +161,19 @@ def scopeFor : RuleId → RuleScope
   | .moduleDocumentation => .module
   | .materialDocumentation | .materialIntent => .materialDeclaration
 
+/-- The attribute whose registrations select the declarations a rule checks, for a rule whose
+subjects the project selects; `none` for a rule that checks every member of its scope. Removing
+such a registration removes the rule's requirement from that declaration, so the rule's text does
+not say that no attribute changes its result (`Guidance.explain`). -/
+def registrationFor : RuleId → Option String
+  | .materialDocumentation | .materialIntent => some "regula_material"
+  | .decisionContract => some "regula_decision"
+  | .projectAxiom | .proofHole | .unknownAxiom | .compilerTrusting | .profileExceeded
+  | .escapeHatch | .executableContract | .environment | .configuration | .sourceBuild | .coverage
+  | .admission | .communityConfiguration | .executionUnresolved | .executionBoundary
+  | .fenceStructure | .positiveExample | .negativeExample | .trustedExample
+  | .moduleDocumentation => none
+
 /-- The evidence each rule's decision reads; `RuleDescriptor.evidenceKind` defaults to it. -/
 def evidenceFor : RuleId → EvidenceKind
   | .projectAxiom | .proofHole | .unknownAxiom | .profileExceeded => .kernelAxioms
