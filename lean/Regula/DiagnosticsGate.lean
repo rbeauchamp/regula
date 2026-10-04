@@ -142,7 +142,7 @@ inductive Event where
   | push
   /-- The nightly schedule. -/
   | schedule
-  /-- A dispatch, such as the Release workflow's on the branch of its pull request. -/
+  /-- A dispatch of the workflow on a branch. -/
   | workflowDispatch
   deriving DecidableEq, Repr
 

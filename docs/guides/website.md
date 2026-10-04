@@ -278,7 +278,7 @@ releases, a repository setting that is on, forbid changing a published release's
 
 A release takes these steps, in order ([release procedure](contributing.md#release)):
 
-1. The Release workflow pushes the branch of the release pull request, which a maintainer opens
+1. The Release workflow creates the branch of the release pull request, which a maintainer opens
    from the link in the job summary. Its commit appends the release, with the version the
    workflow derives and its toolchain, to `Regula.releases`
    ([`RegulaCore.Edition`](../../lean/RegulaCore/Edition.lean)), sets `lakefile.lean`'s

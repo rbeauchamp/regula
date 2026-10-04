@@ -4,22 +4,17 @@ name: Title
 # Release workflow derives the next version from those subjects' Conventional Commits types
 # (docs/guides/contributing.md#pull-request-titles). This required check refuses a title that is
 # not a Conventional Commits header. It runs again when the title is edited and on every push, so
-# it always reports on the head commit. A push with a workflow's token starts no workflow, so the
-# Release workflow dispatches this one on the branch of an open pull request it rebuilds; the
-# dispatched check reads that pull request's title through GitHub's API and refuses unless the
-# pull request's head is the checked-out commit. The check is lean/Regula/Release.lean's `title`
-# step.
+# it always reports on the head commit. The check is lean/Regula/Release.lean's `title` step, and
+# reads the title the pull_request event carries.
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-  workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: title-${{ github.event.pull_request.number || github.ref }}
+  group: title-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -44,9 +39,7 @@ jobs:
         with:
           dependencies: 'false'
 
-      # A pull_request event carries its title; a dispatched run reads it through the API.
       - name: Refuse a title that is not a Conventional Commits header
         env:
           TITLE: ${{ github.event.pull_request.title }}
-          GH_TOKEN: ${{ github.token }}
         run: lean --run lean/Regula/Release.lean title

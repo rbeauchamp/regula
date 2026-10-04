@@ -701,13 +701,19 @@ until the release commit has passed the same checks as `main`:
    `release_attributes_rules` on the release commit (step 2). `Regula.installed` stays
    `.unreleased`. It refuses unless the releases GitHub reports published (its releases that are
    not drafts) are exactly the releases it keeps listed before the one it lists
-   (`Regula.Release.publishedExactly`), and checks that again just before it pushes, so it never
+   (`Regula.Release.publishedExactly`), and checks that again just before it creates the branch,
+   so it never
    lists a release in place of one published by then. GitHub creates and signs the commit, and
    the step refuses unless GitHub verified
-   the signature. It pushes the commit as `release/v<version>` and writes to its job summary the
+   the signature. It creates the branch `release/v<version>-<commit>`, named after that commit
+   (`Regula.Release.pullBranch`), and writes to its job summary the
    link that opens the pull request `chore(release): Regula v<version> for Lean <toolchain>`,
    title and description filled in. A maintainer opens the pull request from that link, which
-   starts its checks, and merging it through normal review is the decision to release. Every
+   starts its checks, and merging it through normal review is the decision to release. While it
+   observes a release pull request for that version open, it
+   [refuses and creates no branch](#rebuilding-the-release-pull-request)
+   (`Regula.Release.branchAction`); a run that creates a branch creates one of its own and moves
+   none. Every
    check of this pull request passes before it merges. Until the release is published, its
    `site` check, like the site build of every unreleased commit that lists the release, builds
    and checks the artifact with a preview of the release's edition, rendered from that commit
@@ -779,16 +785,21 @@ published, **candidate** refuses the release; if one that adds or retires a rule
 on `main` again as a new run, whose **open** derives the version the commits then call for and
 stamps that rule too. While the listed release is unpublished, that run lists that version in
 its place (a `feat` turns a pending patch release into a minor one) and restamps its lifecycle
-positions, in a new pull request. While the release pull request is still open, the run rebuilds
-its branch when the version is unchanged, and otherwise pushes the branch of the new version,
-whose pull request replaces it: close the stale one, whose release **candidate** refuses if it
-merges. A pull request that **open** prepared to list a release in place of a pending one is
+positions, in a new pull request. While the release pull request is still open, the run refuses
+when the version is unchanged, until that pull request is
+[closed](#rebuilding-the-release-pull-request), and otherwise creates the branch of the new
+version and leaves the open pull request as it is: close it, since it is stale. If it merges
+instead, the same checks apply to it: **candidate** refuses a release that does not cover the
+commits it contains, and a rule it left unstamped fails `release_attributes_rules`. A pull
+request that **open** prepared
+to list a release in place of a pending one is
 refused by **candidate** if the pending release was published before it merged: list the
 published release again, before the new one, with its stamps. A re-run of the Release workflow
 reuses its original commit, so it stamps nothing new.
 
-Each step resumes when its job is re-run: **open** rebuilds its branch on the commit its run
-started from; **candidate** creates a fresh release commit and refuses published releases other
+Each step resumes when its job is re-run: **open** creates a fresh commit and branch on the
+commit its run started from, while it observes no release pull request for its version open;
+**candidate** creates a fresh release commit and refuses published releases other
 than those listed before the release, a release that does not cover the commits it contains and
 a `lean-toolchain` other than the toolchain the release records; and **publish** replaces an
 unpublished draft and skips a published release. While the release is unpublished,
@@ -796,22 +807,66 @@ unpublished draft and skips a published release. While the release is unpublishe
 and a tag that names another commit. **open** refuses a derivation that releases nothing, a
 patch release that introduces a rule (a new rule, or one a pending release it replaces
 introduced), published releases other than those it keeps listed (an earlier listed release not
-yet published, or a published release not listed), and a `main` that already lists the release
-with nothing left to change.
+yet published, or a published release not listed), a `main` that already lists the release
+with nothing left to change, and a release pull request for its version that it observes open.
 
 Who opens the pull request, and when its checks start: a maintainer opens it from the link in the
 job summary of **open**, and opening it starts its checks. No workflow creates a pull request,
-because the repository does not let GitHub Actions create one. When **open** rebuilds the branch
-of a pull request that is already open, its push with the workflow's token starts no checks, so
-it dispatches `ci.yml`, [`title.yml`](../../.github/workflows/title.yml) and
-[`diagnostics.yml`](../../.github/workflows/diagnostics.yml) on the branch, which run them on its
-new head; the dispatched `title` check reads the pull request's title through
-GitHub's API and refuses unless the pull request's head is the commit it checked out. Only the
-`open` job has `actions: write` for that dispatch.
+because the repository does not let GitHub Actions create one.
 
 Adopters update by changing the tag, and `lean-toolchain` when the release supports another
 toolchain, then running `lake update regula` and `lake exe regula init`
 ([adoption guide](adoption.md#update-regula)).
+
+### Rebuilding the release pull request
+
+To rebuild the release pull request, on the same commit of `main` by a re-run or on its head by
+a new run:
+
+1. Close the release pull request.
+2. Run the Release workflow.
+3. Open a fresh pull request from the link in that run's job summary, which starts its checks, as
+   on a first run.
+
+**open** keeps two guarantees, of different strength.
+
+The refusal holds for what **open** observed. Just before it writes the branch, it lists the
+pull requests GitHub reports open. While one of them is from a branch `release/v<version>-…` of
+this repository, for the version it derived, it writes the refusal to its job summary, which
+says to close that pull request first and then run the workflow again, writes no reference and
+fails. `Regula.Release.releasePulls` selects those pull requests: exactly the ones whose head is
+a branch `pullBranch` names for that version (`mem_releasePulls`, `isPullHead_iff`), so every
+branch **open** creates for it is among them. `branchAction` is the decision over them: it
+creates the branch exactly when there is none (`branchAction_create_iff`) and otherwise refuses,
+naming the first (`branchAction_refuse_iff`). `branchStep`, the program the step runs on what it
+observed, is then exactly the refusal that names one of them (`branchStep_open`); with none it
+is the creation (`branchStep_unopened`). The observation is GitHub's, and GitHub offers no
+creation conditional on it, so the refusal does not exclude a release pull request opened
+between the observation and the creation: two release pull requests for the version are then
+open, and the earlier build's is to be closed.
+
+That no run moves a branch that exists holds by construction, whatever was observed and
+whenever a pull request was opened. A run that does not refuse creates the branch
+`release/v<version>-<commit>`, named after the commit it names (`Regula.Release.pullBranch`),
+with GitHub's request that creates a reference, which GitHub refuses when a reference of that
+name exists. That request is the step's only write of a branch (`createUnopened`,
+`createBranch`): the step has no request that updates one. Two builds of a release have the same
+branch only when they are the same commit (`pullBranch_inj`), and then the request is refused.
+That GitHub refuses to create a reference that exists is GitHub's behaviour: trusted, not
+proved.
+
+The repository deletes the branch of a pull request that merges (a setting that is on). A
+branch whose pull request is never opened, or is closed without merging, stays until a
+maintainer deletes it.
+
+The reason is the rules of `main`, which set `require_extra_approval_for_unattributed_changes`:
+a push by the workflow to the branch of an open pull request left that pull request blocked
+pending an approving review, although every required check had passed on its new head, and the
+`pull_request` runs that push started waited for approval
+([#234](https://github.com/rbeauchamp/regula/issues/234)). A pull request opened after its
+branch was written, as on a first run, was not blocked, and its checks started when it was
+opened. The `open` job has `contents: write`, and `pull-requests: read` for the listing; it has
+no `actions` permission.
 
 ### Reservoir
 
