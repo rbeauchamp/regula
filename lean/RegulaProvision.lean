@@ -704,9 +704,33 @@ private def packagesPath (repo : FilePath) (pins : Pins) : IO FilePath := do
       is outside the repository {repo}"
   return resolved
 
+/-- Refuse a package link unless its actual target belongs to an identified stable store.
+Source receipts cannot decode as `Receipt`; `admits_sound` also excludes source markers in a
+stable receipt. Unknown or dangling links are preserved. Filesystem observations are trusted. -/
+private def requireStablePackageLink (path : FilePath) : IO Unit := do
+  unless (← kind? path) == some .symlink do return
+  let refusal := IO.userError s!"provisioning: preserving {path}: its link does not identify a \
+    stable shared store; source-origin and unknown package links require manual disposition"
+  let target ← try IO.FS.realPath path catch _ => throw refusal
+  let store := target.parent.bind (·.parent) |>.bind (·.parent)
+  let some store := store | throw refusal
+  let some name := store.fileName | throw refusal
+  let some package := target.fileName | throw refusal
+  unless target == sharedPackages store / package do throw refusal
+  let receipt ← readReceipt store
+  unless found name receipt == .shared do throw refusal
+  let some receipt := receipt | throw refusal
+  unless admits receipt receipt.mathlibRev receipt.leanGithash #[] do throw refusal
+
+/-- Check every pinned link before acquiring a store or changing registrations and packages. -/
+private def requireStablePackageLinks (packages : FilePath) (pins : Pins) : IO Unit := do
+  for (_, pin) in pins.git do
+    requireStablePackageLink (packages / pin.name)
+
 /-- Link or clone every pinned package of the shared closure into the packages directory. -/
 private def provisionPackages (packages shared : FilePath) (receipt : Receipt) (pins : Pins) :
     IO Unit := do
+  requireStablePackageLinks packages pins
   let source := sharedPackages shared
   let target := (← IO.FS.realPath (source / "mathlib")).toString
   let mathlibPath := packages / "mathlib"
@@ -776,6 +800,7 @@ def provision (repo : FilePath) : IO Unit := do
     say s!"waiting for another copy that is provisioning from {parent}"
     lock.lock
   let shared ← try
+      requireStablePackageLinks packages pins
       let (shared, receipt) ← ensureShared repo parent key manifest pins
       let link := (packages / "mathlib").toString
       registerCopy parent key.val link

@@ -129,7 +129,10 @@ need no packages directory. Run `lean --run lean/RegulaProvision.lean mathlib` i
 which `./scripts/verify.sh` runs before its deadline, acquires no Mathlib. The first run for a new pin needs the network; later copies reuse the
 sealed artifacts. The receipt `regula-provisioned.json` in the shared directory records its
 revisions, compiler and artifact mode. A clean per-copy Mathlib checkout is replaced by the link; one with local
-changes, stashes or commits that no remote-tracking branch holds is refused.
+changes, stashes or commits that no remote-tracking branch holds is refused. Before acquiring a
+shared store or changing registrations and packages, provisioning requires each existing package
+link to identify a stable store with an admissible receipt. Source-origin, unknown and dangling
+links are preserved and refused; their disposition remains manual.
 
 Each shared directory's registry `<dir>.copies.json` beside it records the copies provisioned
 to link it; a copy is registered before it links. Every provisioning run removes the shared
