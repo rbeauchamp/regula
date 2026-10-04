@@ -141,8 +141,8 @@ registered copy still links, and drops the
 registrations of copies that are gone or link elsewhere. Only a directory whose receipt names
 it with a decodable stable receipt is removed; this retention step leaves staging directories,
 source stores and anything else there as they are. A stable-store removal a killed run began is
-finished by the next run. A copy left with a
-dangling link is relinked by its next provisioning, which recreates the directory. One lock,
+finished by the next run. A copy left with a dangling link requires manual disposition before
+provisioning can continue. One lock,
 `~/.cache/mathlib-packages/regula-provision.lock`, orders creation, registration and removal,
 so copies wait while another copy creates a new pin.
 

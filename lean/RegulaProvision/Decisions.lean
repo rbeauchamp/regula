@@ -36,8 +36,7 @@ theorem checked_admits : Regula.ExecutableContract @admits
       (Function.uncurry (Function.uncurry (Function.uncurry admission)))) :=
   ⟨{ sound := fun input accepted =>
        admits_sound input.1.1.1 input.1.1.2 input.1.2 input.2 accepted
-     accepted := ⟨((({ schemaVersion := receiptSchema, mathlibRev := "", leanGithash := "",
-                      leanVersion := "", packages := #[] }, ""), ""), #[]),
+     accepted := ⟨((({ schemaVersion := receiptSchema, mathlibRev := "", leanGithash := "", leanVersion := "", packages := #[] }, ""), ""), #[]),
        by simp [Function.uncurry, admits, receiptSchema]⟩ }⟩
 
 /-- `mathlibStep` keeps the path exactly when it already links the shared checkout
