@@ -8,14 +8,14 @@ meta import Regula.Decision
 
 /-! # Generated native-proof axiom names
 
-On the pinned Lean 4.34.0, every proof by native evaluation goes through
+In the Lean 4.34.0 sources cited below, every proof by native evaluation goes through
 `Lean.Meta.nativeEqTrue tacticName e` (`Lean/Meta/Native.lean`). After compiling and running `e`,
 it adds an axiom `e = true` named `mkAuxDeclName (`_native ++ tacticName ++ `ax)`, and
 `DeclNameGenerator.mkUniqueName` (`Lean/CoreM.lean`) turns that infix into
 `namePrefix ++ infix` with each generator index appended by `Name.appendIndexAfter`, made private
 to the module (`mkPrivateName`) while a `module` file elaborates without exporting.
 
-The pinned sources (`src/lean`: `Init`, `Std`, `Lean` and `Lake`) call `nativeEqTrue` at exactly
+Those sources (`src/lean`: `Init`, `Std`, `Lean` and `Lake`) call `nativeEqTrue` at exactly
 two sites, which pass exactly three tactic names (`NativeTactic`); every caller chain ends in one of
 eight tactic elaborators:
 * `elabNativeDecideCore` (`Lean/Elab/Tactic/Decide.lean:59`), called only by `evalDecideCore`

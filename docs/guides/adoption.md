@@ -82,20 +82,18 @@ error: …/regula/lakefile.lean:…: this Regula release supports only Lean lean
 ```
 
 This source revision guards the exact compiler instead: it declares one exact compiler version and
-commit in `RegulaPolicy.Compiler`.
+commit in [`RegulaPolicy.Compiler`](../../lean/RegulaPolicy/Compiler.lean).
 A fresh configuration invokes that identity guard before building the checker; inventory, plan,
 and probe admission retain it. Elan aliases may differ when they resolve to the same compiler. A
-mismatch stops Regula's `lakefile.lean` with the remedy and both identities:
+mismatch stops Regula's `lakefile.lean` with `Regula's compiler guard stopped`, naming the Lean
+running Lake and the selected executable. The policy's `refusal` supplies the expected and
+observed version and full commit, the migration remedy, and a link to the
+[supported-toolchain policy](toolchains.md).
 
-```text
-error: …/regula/lakefile.lean:…: Regula's compiler guard stopped: Lake is running Lean 4.33.0 (…), and `…/bin/lean`, which LEAN_SYSROOT or PATH selects, refused Regula's compiler policy or could not compile it. Use a Lean release this Regula revision supports, or a Regula revision qualified for this exact compiler: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md#when-your-lean-release-has-no-regula-release
-…/regula/lean/RegulaPolicy/Compiler.lean:…: error: unsupported Regula compiler: expected Lean 4.34.0 (293d5d0c0c3f3dded4688b3ccd6a33939ac5102b), observed Lean 4.33.0 (…). Move the project, and Mathlib if it uses it, to the supported Lean release (its lean-toolchain, then `lake update`), or require a Regula revision qualified for this exact compiler: …
-```
-
-A Lean too old to compile the policy prints its own errors in place of the second line. The
+A Lean too old to compile the policy prints its own errors in place of that refusal. The
 guard runs the `lean` that `LEAN_SYSROOT` or `PATH` selects and requires it to be the Lean
 running Lake. When another toolchain's variables are inherited, a `lean` the policy refuses
-stops with the message above, whichever Lean runs Lake, and a `lean` the policy accepts while
+stops with that diagnostic, whichever Lean runs Lake, and a `lean` the policy accepts while
 Lake runs another Lean stops with `… is not the Lean running Lake …` instead. Running Lake
 without those variables is the remedy in both cases.
 `lake exe regula doctor` reports the same mismatch for the compiler your own `lean-toolchain`
@@ -145,10 +143,11 @@ setup, and that runtime check confirms the files as written match it. `init` end
 `lake exe regula doctor` changes nothing. It prints each missing or wrong piece in the linter's
 finding form, with the exact fix: setup findings for the lint driver, options, manifest, agent
 guidance, the compiler your `lean-toolchain` selects (resolved only to a toolchain Elan lists as
-installed under exactly that name, so write the name as `elan toolchain list` prints it, such as
-`leanprover/lean4:v4.34.0`, rather than a shorter spelling or a
-channel such as `stable`; `doctor` resolves no channel and installs nothing) and any module below a
-library root that no library includes but a claimed module imports (which `lake lint` rejects), and,
+installed under exactly that name, so use the fully qualified selector from the supported
+revision's [`lean-toolchain`](../../lean-toolchain), as `elan toolchain list` prints it, rather than
+a shorter spelling or a channel such as `stable`; `doctor` resolves no channel and installs
+nothing) and any module below a library root that no library includes but a claimed module imports
+(which `lake lint` rejects), and,
 once a manifest exists, the linter's own manifest validation ([RG2002]) and option decision ([RG2006])
 for every claimed target, one [RG2006]
 finding naming every target with the same claim and failures, where `lake lint` prints one per

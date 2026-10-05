@@ -59,10 +59,10 @@ theorem admitCapability_iff (observed : LegacyCompilerTrust) :
   split <;> simp_all
 
 /-- The one compiler release supported by this source revision. -/
-def version : String := "4.34.0"
+def version : String := "4.34.1"
 
 /-- The full compiler commit declared by this source revision. -/
-def commit : String := "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b"
+def commit : String := "5045d0056413266e57c625dcd7c365b10e377c52"
 
 /-- The exact identity relation used by inventory and plan admission. -/
 def Supports (observedVersion observedCommit : String) : Prop :=

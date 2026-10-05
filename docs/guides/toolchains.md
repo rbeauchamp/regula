@@ -1,9 +1,16 @@
 # Supported toolchain
 
-This Regula revision supports Lean **4.34.0**, commit
-`293d5d0c0c3f3dded4688b3ccd6a33939ac5102b`. Both the version and the full commit must match.
-`RegulaPolicy.Compiler` supplies the identity checked by Lake configuration, collection,
+This Regula revision supports the exact Lean version and full commit declared by
+[`RegulaPolicy.Compiler`](../../lean/RegulaPolicy/Compiler.lean), with the Elan selector in
+[`lean-toolchain`](../../lean-toolchain). Both the version and the full commit must match.
+That policy supplies the identity checked by Lake configuration, collection,
 admission and `regula doctor`. The observed Core capability must also agree with that policy.
+
+The [supported-toolchain pins](../../README.md#supported-toolchain) identify the separate
+Mathlib integration dependency. See the contributor guide for
+[dependency artifact reuse](contributing.md#share-one-mathlib-across-local-copies) and the
+[release policy](contributing.md#release), and the adoption guide's
+[compatibility table](adoption.md#1-require-regula) for published releases' toolchains.
 
 Install the pinned release through Elan. `doctor` resolves a project's selector only among the
 exact names Elan lists as installed, then compares that compiler's reported identity. It installs

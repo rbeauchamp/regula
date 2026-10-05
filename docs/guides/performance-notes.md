@@ -16,8 +16,8 @@ simplest implementation that has the right semantics and a reasonable cost model
 representation-specific tuning, forced inlining and parallel execution for a meaningful cost.
 
 The examples use Core, Std or Lean itself, target the
-[supported toolchain](../../README.md#supported-toolchain) (Lean `v4.34.0`) and are checked by
-the documentation audit. The [references](#references) cite that release's sources; the
+[supported toolchain](toolchains.md) and are checked by
+the documentation audit. The [references](#references) retain the Lean 4.34.0 source citations; the
 unversioned reference-manual pages and the tutorial are explanatory supplements.
 
 ## Where to start
@@ -53,7 +53,7 @@ Lake's `LeanConfig` defaults to `release`, which on the C backend supplies `-O3 
 defaults, and the TOML loader recognizes these build-type names.[^lake-config][^lake-toml]
 There is normally no missing optimization switch in a release-configured project. Build an
 executable target before measuring and run it with representative runtime input. A standalone
-`lakefile.toml`, with `leanprover/lean4:v4.34.0` in `lean-toolchain`:
+`lakefile.toml`, using the selector from this revision's [`lean-toolchain`](../../lean-toolchain):
 
 ```toml
 name = "perf_examples"
