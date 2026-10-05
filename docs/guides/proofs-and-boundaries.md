@@ -979,7 +979,7 @@ These are proofs about the observations; native object-tag correspondence remain
 The owned unsafe and runtime-replacement boundaries remain in execution reports.
 The native qualification control `examples/qualification/ConstructorIndex.lean` exercises the
 observer's positive path, admission, transport and mutations only on a compiler that has
-`getObjTagNat`; on the supported Lean 4.34.0,
+`getObjTagNat`; on Lean 4.34.0,
 which generates no wrapper, it checks only that the observer finds none.
 
 `Collect.declaration` reduces a declared type only when the reduction could produce
@@ -1590,9 +1590,9 @@ the report worker's error names the module, the declaration (for an execution wa
 the failing stage: `declaration record` (any observation of `Collect.declaration`),
 `executable-root classification`, `proposition test` or `execution walk`. When the failure is one
 of those limits, or a kernel limit (deterministic timeout, deep recursion or excessive memory,
-recognized by its pinned Lean v4.34.0 message), it says the limit is the checker's own, that
-options set in the source, such as `maxRecDepth`, do not apply to the checker, and to report it
-as a Regula issue; the audit is still incomplete. The recursion helper's regeneration and native
+recognized by the renderings in [`Collect.kernelLimits`](../../lean/Regula/Collect.lean)), it says
+the limit is the checker's own, that options set in the source, such as `maxRecDepth`, do not apply
+to the checker, and to report it as a Regula issue; the audit is still incomplete. The recursion helper's regeneration and native
 replay, which otherwise record their own failure as missing evidence, rethrow such a limit
 instead. A replacement's correspondence search rethrows an elaborator limit, but its kernel check
 runs under its own budget and records exhaustion as an unresolved correspondence (standard §7.6).
