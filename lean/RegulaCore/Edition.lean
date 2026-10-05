@@ -205,7 +205,7 @@ names its commit, and only before the release asset exists; an unreleased build,
 release pull request's, previews the latest listed release's edition while neither its asset nor
 its tag exists, and every other build takes the frozen asset (`releaseSource`); and only an
 artifact whose every release edition is its asset is deployed (`publishable`). -/
-def installed : Build := .unreleased
+def installed : Build := .release ⟨0, 9, 0⟩
 
 /-- Every release with the one Lean toolchain it supports, oldest first. The release pull request
 appends it; CI on `main` then publishes it. -/
