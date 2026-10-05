@@ -1,9 +1,18 @@
 # Supported toolchain
 
-This Regula revision supports Lean **4.34.0**, commit
-`293d5d0c0c3f3dded4688b3ccd6a33939ac5102b`. Both the version and the full commit must match.
+This Regula revision supports Lean **4.34.1**, commit
+`5045d0056413266e57c625dcd7c365b10e377c52`. Both the version and the full commit must match.
 `RegulaPolicy.Compiler` supplies the identity checked by Lake configuration, collection,
 admission and `regula doctor`. The observed Core capability must also agree with that policy.
+
+The Mathlib integration package pins Mathlib `v4.34.1`
+(`d13f23b723b8a846827a245b89c10fc7d3f11612`); its [only source change from `v4.34.0`](https://github.com/leanprover-community/mathlib4/compare/v4.34.0...v4.34.1)
+is the matching `lean-toolchain`. Verso and the other dependency revisions are unchanged.
+Dependency artifacts remain keyed by the compiler identity and package pins; artifacts built
+with Lean 4.34.0 are not reused for this compiler. The ordinary verification deadlines remain
+unchanged. Published Regula releases keep their original toolchains in the
+[compatibility table](adoption.md#1-require-regula); changing compiler support calls for a new
+minor release, not relabelling an existing release.
 
 Install the pinned release through Elan. `doctor` resolves a project's selector only among the
 exact names Elan lists as installed, then compares that compiler's reported identity. It installs

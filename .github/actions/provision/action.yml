@@ -40,7 +40,7 @@ runs:
         tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
         "$RUNNER_TEMP/elan-init" -y --default-toolchain none
         echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-        "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.34.0
+        "$HOME/.elan/bin/elan" toolchain install leanprover/lean4:v4.34.1
 
     - name: Install Linux bootstrap tools
       if: runner.os == 'Linux'

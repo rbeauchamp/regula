@@ -89,7 +89,7 @@ mismatch stops Regula's `lakefile.lean` with the remedy and both identities:
 
 ```text
 error: …/regula/lakefile.lean:…: Regula's compiler guard stopped: Lake is running Lean 4.33.0 (…), and `…/bin/lean`, which LEAN_SYSROOT or PATH selects, refused Regula's compiler policy or could not compile it. Use a Lean release this Regula revision supports, or a Regula revision qualified for this exact compiler: https://github.com/rbeauchamp/regula/blob/main/docs/guides/adoption.md#when-your-lean-release-has-no-regula-release
-…/regula/lean/RegulaPolicy/Compiler.lean:…: error: unsupported Regula compiler: expected Lean 4.34.0 (293d5d0c0c3f3dded4688b3ccd6a33939ac5102b), observed Lean 4.33.0 (…). Move the project, and Mathlib if it uses it, to the supported Lean release (its lean-toolchain, then `lake update`), or require a Regula revision qualified for this exact compiler: …
+…/regula/lean/RegulaPolicy/Compiler.lean:…: error: unsupported Regula compiler: expected Lean 4.34.1 (5045d0056413266e57c625dcd7c365b10e377c52), observed Lean 4.33.0 (…). Move the project, and Mathlib if it uses it, to the supported Lean release (its lean-toolchain, then `lake update`), or require a Regula revision qualified for this exact compiler: …
 ```
 
 A Lean too old to compile the policy prints its own errors in place of the second line. The
