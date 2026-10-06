@@ -574,8 +574,12 @@ check B2 does not accept the baseline.
 
 The controls of the base revision are repositories that the executable makes with Git in a
 temporary directory. Each control gives the option `--target` and the variable in a form that a
-start gives. A control must not pass if the check uses an incorrect base. No control has the
-values that GitHub gives for an event.
+start gives. No control has the values that GitHub gives for an event.
+
+A control that expects a refusal does not pass if the check uses a base that accepts. A control
+that expects no refusal does not pass if the check uses a base that refuses. The comment of each
+control gives the bases that the control tells apart from the correct base. No control that
+expects no refusal tells the correct base apart from the examined commit.
 
 The controls of these checks are in the same directory as the controls of the vocabulary. A
 control of C1 to C8 is a document with the extension `text`. A control of B1 or B2 is a baseline

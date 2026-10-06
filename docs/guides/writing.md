@@ -167,20 +167,20 @@ A document with no entry must have no finding (check B1). Check B2 compares the 
 | CI, a manual start of the workflow | The first parent of the commit. |
 | CI, the release commit | The release commit. |
 
-Only a developer uses a merge base. CI gives a commit in the variable `REGULA_PROSE_START`, and B2 uses that commit and no merge base. The variable has `before:` and a commit, or `pull:` and the head of a pull request. Thus B2 compares a push that moves a branch back to an older commit with the commit before the push.
+Only a developer uses a merge base. CI gives the start in the variable `REGULA_PROSE_START`. With `before:` and a commit, B2 uses that commit. With `pull:` and the head of a pull request, B2 uses the first parent of the merge commit. For these two forms, the check does not ask Git for a merge base. Thus B2 compares a push that moves a branch back to an older commit with the commit before the push.
 
 These cases have a result that is not a comparison with an older commit:
 
 - If `HEAD` is `origin/main`, the merge base is `HEAD`. B2 compares the baseline with itself and accepts it.
-- The release commit has the documents of its parent. That parent is a commit of `main` that the same run of CI examined with the commit before its push.
+- The release commit has the documents of its parent. That parent is a commit of `main` that the same run of CI examined with the base revision of its start.
 
 If Git does not give the base revision, B2 does not accept the baseline, and no other revision replaces the base revision. These starts give that result:
 
-- A variable that is empty, or that does not have one of the two forms.
+- A variable that is empty, that does not have one of the two forms, or that gives an empty commit.
 - The variable and the option `--target` together.
 - A commit that Git does not have. Examples are the 40 zeros of the first push of a branch, and the first parent of a commit with no parent.
 - A pull request where the commit that CI examines is not a merge commit with the head of the pull request as its second parent.
-- A checkout with no history, when the base revision is not the commit of that checkout. Thus the documentation step of a pull request and of a push gets the full history.
+- A checkout where Git does not have the commit or the parents that the start uses. For example, in a checkout with no history, Git gives no parent of the commit and no merge base. Thus the `verify` job of CI gets the full history.
 
 If the base revision has a baseline, B2 compares the two baselines:
 

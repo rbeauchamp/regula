@@ -61,7 +61,8 @@ jobs:
       # first parent of the checked-out merge commit, whose second parent must be that head. For
       # a push it is `before:` and the commit before the push, and for a manual start `before:`
       # and the first parent of the checked-out commit: the base revision is that commit, and
-      # no merge base. Each other event gives an empty value, which the check refuses.
+      # the check asks Git for no merge base. Each other event gives an empty value, which the
+      # check refuses.
       - name: Verify documentation fences (same command and seven-minute limit as local)
         env:
           REGULA_PROSE_START: ${{ github.event_name == 'pull_request' && format('pull:{0}', github.event.pull_request.head.sha) || github.event_name == 'push' && format('before:{0}', github.event.before) || github.event_name == 'workflow_dispatch' && format('before:{0}^', github.sha) || '' }}
@@ -191,9 +192,9 @@ jobs:
 
       # The release commit is this commit of main with the one edit that `adopt` derived and
       # checked. Thus its Markdown documents and its `prose-baseline.json` are those of this
-      # commit, which `verify` checked in this run with the commit before its push, and check
-      # B2 compares the release commit with itself. This checkout has no history, so Git does
-      # not give the parent of the release commit.
+      # commit, which `verify` checked in this run with the base revision of its start, and
+      # check B2 compares the release commit with itself. This checkout has no history, so Git
+      # does not give the parent of the release commit.
       - name: Verify documentation fences (same command and seven-minute limit as local)
         env:
           REGULA_PROSE_START: before:HEAD

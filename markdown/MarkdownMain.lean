@@ -288,27 +288,29 @@ def loadBaseline (root : System.FilePath) (tracked : List String) :
   unless tracked.contains baselineFile do return .ok none
   return (baselineOf baselineFile (← IO.FS.readFile (root / baselineFile))).map some
 
-/-- What Git gives for the checked commit `HEAD` and for the revision of `start`: the parents of
-`HEAD`, the commit that the revision names, and the merge base of `HEAD` and the revision. A
-value that Git does not give is absent. Git is not asked about a revision that is empty or that
-starts with `-`. -/
+/-- What Git gives for `start`, of the checked commit `HEAD`. Git is asked only for the value
+that `baseOf` reads for that start: the merge base of `HEAD` and the revision for the run of a
+developer, the commit that the start names for a commit before the change, and the parents of
+`HEAD` for a pull request. Each other value is absent, and so is a value that Git does not give.
+Thus a start that gives a commit makes no call of `git merge-base`. Git is not asked about a
+revision that is empty or that starts with `-`. -/
 def historyOf (root : System.FilePath) (start : Start) : IO History := do
   let given (out : IO.Process.Output) : Option String :=
     let text := out.stdout.trimAscii.toString
     if out.exitCode == 0 && !text.isEmpty then some text else none
-  let listed ← git root #["rev-list", "--parents", "--max-count=1", "HEAD"]
-  let parents := ((given listed).map fun line => (line.splitOn " ").drop 1).getD []
-  let revision : Option String :=
-    match start with
-    | .target revision | .before revision => some revision
-    | .pull _ | .unknown _ => none
-  match revision with
-  | some revision =>
-    if revision.isEmpty || revision.startsWith "-" then return ⟨parents, none, none⟩
-    let named ← git root #["rev-parse", "--verify", "--quiet", revision ++ "^{commit}"]
-    let merged ← git root #["merge-base", "HEAD", revision]
-    return ⟨parents, given named, given merged⟩
-  | none => return ⟨parents, none, none⟩
+  let asked (revision : String) : Bool := !revision.isEmpty && !revision.startsWith "-"
+  match start with
+  | .target revision =>
+    if !asked revision then return ⟨[], none, none⟩
+    return ⟨[], none, given (← git root #["merge-base", "HEAD", revision])⟩
+  | .before commit =>
+    if !asked commit then return ⟨[], none, none⟩
+    let named ← git root #["rev-parse", "--verify", "--quiet", commit ++ "^{commit}"]
+    return ⟨[], given named, none⟩
+  | .pull _ =>
+    let listed ← git root #["rev-list", "--parents", "--max-count=1", "HEAD"]
+    return ⟨((given listed).map fun line => (line.splitOn " ").drop 1).getD [], none, none⟩
+  | .unknown _ => return ⟨[], none, none⟩
 
 /-- Why `start` has no base revision, with what Git gives. -/
 def unavailable (start : Start) (history : History) : String :=
@@ -686,12 +688,15 @@ directory, a commit that the check reads, and the option `--target` and the vari
 repository (`examine`), as the documentation step does it. The values that GitHub gives for an
 event are not a part of a control: no local run has them.
 
-Each control must fail when the check takes an incorrect base. Thus `origin/main` names the
-checked commit itself in each control that does not give it a different commit: a check that
-takes `origin/main` in place of a base that is not available compares the commit with itself and
-accepts, which a control that expects a refusal does not accept. The repositories are made so
-that the commit itself, its first parent, the commit that the start names and the merge base
-with that commit give different results where a control tells them apart. -/
+What a control tells apart. A control that expects a refusal fails when the check takes a base
+that accepts. `origin/main` names the checked commit itself in each such control that does not
+give it a different commit, thus a check that takes `origin/main`, or the checked commit, in
+place of the correct base accepts, and the control fails. A control that expects no refusal can
+tell the correct base apart only from a base that refuses. The comparison of a commit with
+itself accepts each baseline that check B1 accepts, thus no control that expects no refusal
+tells the correct base apart from the checked commit. The comment of each control gives the
+bases that it tells apart from the correct one, and the comment of a control that expects no
+refusal also gives each base that it does not tell apart. -/
 
 /-- One commit of the repository of a control. -/
 structure Commit where
@@ -745,9 +750,11 @@ def semicolons (count : Nat) : List (String × Option String) :=
 
 /-- The repositories of the controls of the base revision, each with its name. -/
 def repositories : List (String × List Commit) := [
-  -- One line of commits. `a` permits two findings, and `b` permits one. `c` adds a document
-  -- with a semicolon and an entry that agrees with it. `d` adds a document with no finding.
-  -- `other` has no parent and permits one finding.
+  -- Commits for a push. `a` permits two findings, and its child `b` permits one. `c`, from `b`,
+  -- adds a document with a semicolon and an entry that agrees with it, and `d`, from `c`, adds
+  -- a document with no finding. `x`, from `b`, has no finding and no entry, and `y`, from `x`,
+  -- has the finding and the entry of `b` again. `removed`, from `b`, has no finding and no
+  -- baseline. `other` has no parent and permits one finding.
   ("line", [
     ⟨"a", none, (vocabularyFile, some controlVocabulary) :: semicolons 2, none⟩,
     ⟨"b", some "a", semicolons 1, none⟩,
@@ -755,25 +762,34 @@ def repositories : List (String × List Commit) := [
       (baselineFile, some (controlBaseline [semicolonEntry "a.md" 1,
         semicolonEntry "new.md" 1]))], none⟩,
     ⟨"d", some "c", [("clean.md", some "# C\n\nA clean text.\n")], none⟩,
+    ⟨"x", some "b", semicolons 0, none⟩,
+    ⟨"y", some "x", semicolons 1, none⟩,
     ⟨"removed", some "b", [("a.md", some "# A\n\nOne two three.\n"), (baselineFile, none)],
       none⟩,
     ⟨"other", none, semicolons 1, none⟩]),
-  -- A pull request. `target` permits one finding less than `main`. `change`, from `target`, has
-  -- the two findings of `main` again, and `merge` is the merge of `change` into `target`. `good`,
-  -- from `target`, adds a document with no finding, and `fine` is its merge into `target`.
+  -- Commits for a pull request. `target` permits one finding less than `main`. `change`, from
+  -- `target`, has the two findings of `main` again, and `merge` is the merge of `change` into
+  -- `target`. `good`, from `target`, adds a document with no finding. `later`, from `target`,
+  -- adds a document with a semicolon and its entry, and `fine` is the merge of `good` into
+  -- `later`.
   ("pulls", [
     ⟨"main", none, (vocabularyFile, some controlVocabulary) :: semicolons 2, none⟩,
     ⟨"target", some "main", semicolons 1, none⟩,
     ⟨"change", some "target", semicolons 2, none⟩,
     ⟨"good", some "target", [("clean.md", some "# C\n\nA clean text.\n")], none⟩,
+    ⟨"later", some "target", [("late.md", some "# L\n\nLate text; more text.\n"),
+      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 1,
+        semicolonEntry "late.md" 1]))], none⟩,
     ⟨"merge", some "target", [], some "change"⟩,
-    ⟨"fine", some "target", [], some "good"⟩]),
-  -- The run of a developer. `work`, from the first commit of `main`, adds a document with no
-  -- finding, and `worse`, from the same commit, has one finding more. A later commit of `main`
-  -- has no finding and no entry.
+    ⟨"fine", some "later", [], some "good"⟩]),
+  -- Commits for the run of a developer. The first commit of `main` permits one finding. `work`
+  -- has two commits from it: the first has no finding and no entry, and the second has the
+  -- finding and the entry again. `worse`, from the first commit of `main`, has one finding
+  -- more. A later commit of `main` has no finding and no entry.
   ("local", [
     ⟨"main", none, (vocabularyFile, some controlVocabulary) :: semicolons 1, none⟩,
-    ⟨"work", some "main", [("clean.md", some "# C\n\nA clean text.\n")], none⟩,
+    ⟨"work", some "main", semicolons 0, none⟩,
+    ⟨"work", some "work", semicolons 1, none⟩,
     ⟨"worse", some "main", semicolons 2, none⟩,
     ⟨"main", some "main", semicolons 0, none⟩]),
   -- The first commit has a frozen document. The branch `side` changes the document and removes
@@ -789,53 +805,64 @@ def repositories : List (String × List Commit) := [
       none⟩])]
 
 /-- The controls of the base revision. The comment of each control gives the base that the
-check must take, and a base that the check must not take with the result that it would give. -/
+check must take. For a control that expects a refusal, it gives a base that accepts, which the
+control thus tells apart. For a control that expects no refusal, it gives the bases that refuse,
+which the control tells apart, and the bases that it does not tell apart. -/
 def repositoryControls : List RepositoryControl := [
-  -- A push. The base is the commit before the push itself.
-  -- `c` after `b`: the new entry is refused. The commit itself would accept.
+  -- A push. The base is the commit before the push itself, and no merge base.
+  -- `c` after `b`: the new entry is refused. The checked commit accepts.
   { repository := "line", head := "c", start := some "before:{b}",
     expect := .refused baselineFile 6 ratchetCheck },
   -- Two commits in one push, `c` and `d` after `b`: the new entry is refused. The first parent
-  -- `c` would accept.
+  -- `c` accepts.
   { repository := "line", head := "d", start := some "before:{b}",
     expect := .refused baselineFile 6 ratchetCheck },
-  -- `d` after `c`: a document with no finding is accepted. `origin/main` is `b` here, which
-  -- would refuse.
-  { repository := "line", head := "d", start := some "before:{c}", origin := some "b",
-    expect := .accepted },
   -- A push that moves the branch back from `b` to its parent `a`: the larger number of `a` is
-  -- refused. The merge base of the two is `a` itself, which would accept.
+  -- refused. The merge base of the two is `a` itself, which accepts.
   { repository := "line", head := "a", start := some "before:{b}",
     expect := .refused baselineFile 5 ratchetCheck },
-  -- A push that moves the branch back from `c` to `b` permits nothing more: accepted.
-  -- `origin/main` is `removed` here, which has no baseline and no finding, and would refuse.
-  { repository := "line", head := "b", start := some "before:{c}", origin := some "removed",
-    expect := .accepted },
   -- A push to a history with no relation, from `other` to `a`: the larger number of `a` is
-  -- refused at its entry. A merge base, which Git does not give, would refuse at line 1.
+  -- refused at its entry. A merge base, which Git does not give, refuses at line 1.
   { repository := "line", head := "a", start := some "before:{other}",
     expect := .refused baselineFile 5 ratchetCheck },
-  -- A push that removes the baseline is refused at line 1 of the baseline of `b`. The commit
-  -- itself would accept.
+  -- A push that removes the baseline is refused at line 1 of the baseline of `b`. The checked
+  -- commit accepts.
   { repository := "line", head := "removed", start := some "before:{b}",
     expect := .refused baselineFile 1 ratchetCheck },
   -- The first push of a branch, where the commit before the push is 40 zeros: no commit has
-  -- that name, and the check refuses. `origin/main`, the commit itself, would accept.
+  -- that name, and the check refuses. `origin/main`, the checked commit, accepts.
   { repository := "line", head := "c",
     start := some "before:0000000000000000000000000000000000000000",
     expect := .refused baselineFile 1 ratchetCheck },
+  -- Accepted: two commits in one push, `x` and `y` after `b`, with the numbers of `b`. Told
+  -- apart: the first parent `x` and `origin/main`, which is `x` here, refuse the entry. Not
+  -- told apart: the merge base, which is `b`, and the checked commit.
+  { repository := "line", head := "y", start := some "before:{b}", origin := some "x",
+    expect := .accepted },
+  -- Accepted: a push from `a` to `other`, which has no relation to `a` and permits less. Told
+  -- apart: a merge base and the first parent, which Git does not give, refuse at line 1, and
+  -- `origin/main`, which is `removed` here, refuses the entry. Not told apart: the checked
+  -- commit.
+  { repository := "line", head := "other", start := some "before:{a}", origin := some "removed",
+    expect := .accepted },
+  -- Accepted: a push from `c` to `y`, which permits nothing more than `c`. Told apart: the
+  -- first parent `x` and `origin/main`, which is `x` here, refuse the entry. Not told apart:
+  -- the merge base, which is `b`, and the checked commit.
+  { repository := "line", head := "y", start := some "before:{c}", origin := some "x",
+    expect := .accepted },
   -- A manual start. The base is the first parent of the commit, as `<commit>^`.
-  -- `c`: the new entry is refused. The commit itself would accept.
+  -- `c`: the new entry is refused. The checked commit accepts.
   { repository := "line", head := "c", start := some "before:{c}^",
     expect := .refused baselineFile 6 ratchetCheck },
-  -- `a` has no parent: the check refuses. `origin/main`, the commit itself, would accept.
+  -- `a` has no parent: the check refuses. `origin/main`, the checked commit, accepts.
   { repository := "line", head := "a", start := some "before:{a}^",
     expect := .refused baselineFile 1 ratchetCheck },
-  -- The release commit is compared with itself: accepted. `origin/main` is `b` here, which
-  -- would refuse the new entry of `c`.
+  -- Accepted: the release commit, compared with itself. Told apart: the first parent `b` and
+  -- `origin/main`, which is `b` here, refuse the new entry of `c`. The merge base of a commit
+  -- and itself is that commit.
   { repository := "line", head := "c", start := some "before:HEAD", origin := some "b",
     expect := .accepted },
-  -- A variable that gives no base is refused, and `origin/main`, the commit itself, does not
+  -- A variable that gives no base is refused, and `origin/main`, the checked commit, does not
   -- replace it: the empty variable, `before:` with no commit, and a text of no known form.
   { repository := "line", head := "c", start := some "",
     expect := .refused baselineFile 1 ratchetCheck },
@@ -843,50 +870,56 @@ def repositoryControls : List RepositoryControl := [
     expect := .refused baselineFile 1 ratchetCheck },
   { repository := "line", head := "c", start := some "{b}",
     expect := .refused baselineFile 1 ratchetCheck },
-  -- The variable and `--target` together are refused at line 1. The variable alone would
-  -- refuse at line 6, and the target alone would accept.
+  -- The variable and `--target` together are refused at line 1. The variable alone refuses at
+  -- line 6, and the target alone accepts.
   { repository := "line", head := "c", target := some "{c}", start := some "before:{b}",
     expect := .refused baselineFile 1 ratchetCheck },
   -- A pull request. The base is the first parent of the checked merge commit, when its second
   -- parent is the head that the start gives.
   -- The merge of `change` into `target` has the larger number of `main` again: refused. The
-  -- commit itself, the head and `main` would accept.
-  { repository := "pulls", head := "merge", start := some "pull:{change}",
+  -- second parent `change`, the checked commit, and the older commit `main`, which
+  -- `origin/main` names here, accept.
+  { repository := "pulls", head := "merge", start := some "pull:{change}", origin := some "main",
     expect := .refused baselineFile 5 ratchetCheck },
-  -- The merge of `good` into `target` is accepted: the control of a pull request that adds no
-  -- finding. The three controls after it tell the first parent apart from each other base.
-  { repository := "pulls", head := "fine", start := some "pull:{good}", expect := .accepted },
+  -- Accepted: the merge of `good` into `later`. Told apart: the second parent `good`, which is
+  -- also the merge base with the head, refuses the entry of `late.md`, and so does
+  -- `origin/main`, which is `target` here. Not told apart: the checked commit.
+  { repository := "pulls", head := "fine", start := some "pull:{good}", origin := some "target",
+    expect := .accepted },
   -- The second parent of `merge` is not the head `good` that the start gives: refused at line
-  -- 1. The first parent with no comparison of the head would refuse at line 5.
+  -- 1. The first parent with no comparison of the head refuses at line 5.
   { repository := "pulls", head := "merge", start := some "pull:{good}",
     expect := .refused baselineFile 1 ratchetCheck },
   -- A checkout of the head of the pull request is no merge commit: refused at line 1. Its
-  -- first parent would refuse at line 5.
+  -- first parent refuses at line 5.
   { repository := "pulls", head := "change", start := some "pull:{change}",
     expect := .refused baselineFile 1 ratchetCheck },
   -- A checkout of the merge commit with no history has no parent: refused. `origin/main`, the
-  -- commit itself, would accept.
+  -- checked commit, accepts.
   { repository := "pulls", head := "merge", start := some "pull:{change}", shallow := true,
     expect := .refused baselineFile 1 ratchetCheck },
   -- The run of a developer. The base is the merge base of the commit and the target.
-  -- `work` with `origin/main` at the later commit of `main`: accepted in relation to the first
-  -- commit of `main`. The later commit itself has no entry for `a.md` and would refuse.
+  -- Accepted: `work`, with `origin/main` at the later commit of `main`. Told apart: that later
+  -- commit and the first parent of `work` have no entry for `a.md` and refuse. Not told apart:
+  -- the checked commit.
   { repository := "local", head := "work", origin := some "main", expect := .accepted },
-  -- `worse` has one finding more than the merge base: refused. The commit itself would accept.
+  -- `worse` has one finding more than the merge base: refused. The checked commit accepts.
   { repository := "local", head := "worse", origin := some "main",
     expect := .refused baselineFile 5 ratchetCheck },
-  -- On `main` with no change, the merge base is the commit itself: accepted.
-  { repository := "local", head := "main", origin := some "main", expect := .accepted },
+  -- Accepted: a commit that `origin/main` names, with no change. The merge base is the commit
+  -- itself. Told apart: its first parent `target` permits less and refuses.
+  { repository := "pulls", head := "change", origin := some "change", expect := .accepted },
   -- `--target` gives the branch `work`, whose merge base with `worse` is the first commit of
-  -- `main`: refused. `origin/main` is the commit itself here, which would accept.
+  -- `main`: refused. `origin/main`, the checked commit, accepts.
   { repository := "local", head := "worse", target := some "work",
     expect := .refused baselineFile 5 ratchetCheck },
   -- With the full history, the merge base of `side` and `main` has the frozen entry, and the
-  -- change of the frozen document is refused.
+  -- change of the frozen document is refused. The later commit of `main` and the checked
+  -- commit accept.
   { repository := "diverged", head := "side", origin := some "main",
     expect := .refused baselineFile 5 ratchetCheck },
   -- With no history, Git gives no merge base: refused at line 1. The later commit of `main`
-  -- has no frozen entry and would accept.
+  -- has no frozen entry and accepts.
   { repository := "diverged", head := "side", origin := some "main", shallow := true,
     expect := .refused baselineFile 1 ratchetCheck }]
 
