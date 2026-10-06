@@ -12,21 +12,21 @@ step of acceptance runs it (`lean/RegulaVerification.lean`).
 
 This program uses these registered decisions of `RegulaCore`: `documentErrors` for the rule IDs;
 `parse`, `adopt` and `untracked` for the vocabulary; the eight checks of a document through
-`tally` and `report`; `Baseline.parse`, `gate` and `ratchet` for the baseline. `vocabularyOf`
+`tally` and `report`; `Baseline.parse`, `gate` and `ratchet` for the baseline; `baseOf` for the
+base revision, with the start that `Start.read` reads. `vocabularyOf`
 puts the three decisions of the vocabulary together, and `explain`, `clashes` and
 `Baseline.explain` give the lines of a refusal (`explain_nil_iff`, `clashes_nil_iff`,
 `Baseline.explain_nil_iff`). The other refusals of a repository have no registered decision and
 no theorem: `vocabularyOf` refuses a vocabulary that names a shared vocabulary when it is given
 none; `loadVocabulary` refuses when Git does not track `CONTEXT.md`, and when Git does not list
-the files of the repository of the shared vocabulary; `baseRevision` refuses when Git gives no
-merge base of `HEAD` and the revision that the run was given, and no other revision replaces it;
-`baseReference` refuses when Git does not give the baseline or the documents of the base
-revision; and `examine` refuses when Git does not list the files of the repository, and when it
-lists no Markdown document. The rest is not proved: the list of tracked files, the merge base,
-the baseline and the documents of the base revision are Git's, the revision that a workflow
-gives for its event is GitHub's, the content of a file is the file system's, a digest is
-`shasum`'s, and md4c's reading of a document is `Regula.Markdown.read`'s
-(`RegulaMarkdown.lean`). -/
+the files of the repository of the shared vocabulary; `baseReference` refuses when Git does not
+give the baseline or the documents of the base revision; and `examine` refuses when Git does
+not list the files of the repository, and when it lists no Markdown document. The rest is not
+proved: the list of tracked files, the parents of the checked commit, the commit that a revision
+names, the merge base, and the baseline and the documents of the base revision are Git's
+(`historyOf`), the value that a workflow gives for its event is GitHub's, the content of a file
+is the file system's, a digest is `shasum`'s, and md4c's reading of a document is
+`Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
 
 open Regula.Markdown Regula.Controlled
 
@@ -52,13 +52,11 @@ def ratchetCheck : String := "B2"
 def refusal (file : String) (line : Nat) (check reason : String) : String :=
   s!"{file}:{line}: {check}: {reason}"
 
-/-- The environment variable that gives the revision of `--base` when the option is absent. The
-workflow of CI sets it from the event that started the run (`.github/workflows/ci.yml`). -/
-def baseVariable : String := "REGULA_PROSE_BASE"
-
-/-- The revision of `--base` when neither the option nor the variable gives one: the run of a
-developer. -/
-def defaultBase : String := "origin/main"
+/-- The environment variable that gives the start of the check to check B2
+(`Regula.Controlled.Start.read`): `before:` and the commit before the change, or `pull:` and the
+head of a pull request. The workflow of CI sets it from the event that started the run
+(`.github/workflows/ci.yml`). -/
+def startVariable : String := "REGULA_PROSE_START"
 
 /-- What the program was asked to do. -/
 structure Options where
@@ -66,38 +64,40 @@ structure Options where
   root : System.FilePath
   /-- The `CONTEXT.md` of the package that the vocabulary names as shared. -/
   shared : Option System.FilePath := none
-  /-- The revision whose merge base with `HEAD` is the base revision of check B2: the option
-  `--base`, or the variable `REGULA_PROSE_BASE` when the option is absent, or `origin/main` when
-  the two are absent. A value that is given is used as it is: no other revision replaces an
-  empty value or a revision that Git does not have. -/
-  base : String := defaultBase
+  /-- How the check was started, for the base revision of check B2: what the option `--target`
+  and the variable `REGULA_PROSE_START` give (`Start.read`). -/
+  start : Start := .target defaultTarget
   /-- Write the baseline of the documents as they are instead of checking them. -/
   write : Bool := false
   /-- Print every finding of this document instead of checking the repository. -/
   list : Option String := none
 
 /-- The options of the arguments `args`, if they are a root and known options. `environment` is
-the value of the environment variable `REGULA_PROSE_BASE`, if it is set: the option `--base`
-comes before it, and it comes before `origin/main`. -/
+the value of the environment variable `REGULA_PROSE_START`, if it is set. The start of the
+check is what the option `--target` and that value give together (`Start.read`). -/
 def Options.parse (environment : Option String) : List String → Option Options
   | root :: rest =>
-    let rec go (options : Options) : List String → Option Options
-      | [] => some options
-      | "--shared" :: path :: rest => go { options with shared := some path } rest
-      | "--base" :: revision :: rest => go { options with base := revision } rest
-      | "--write-baseline" :: rest => go { options with write := true } rest
-      | "--list" :: path :: rest => go { options with list := some path } rest
+    let rec go (options : Options) (target : Option String) : List String → Option Options
+      | [] => some { options with start := Start.read target environment }
+      | "--shared" :: path :: rest => go { options with shared := some path } target rest
+      | "--target" :: revision :: rest => go options (some revision) rest
+      | "--write-baseline" :: rest => go { options with write := true } target rest
+      | "--list" :: path :: rest => go { options with list := some path } target rest
       | _ => none
-    if root.startsWith "--" then none else go { root, base := environment.getD defaultBase } rest
+    if root.startsWith "--" then none else go { root } none rest
   | [] => none
 
--- The option `--base` comes before the variable, and the variable comes before `origin/main`.
--- A variable that is set and empty stays empty: `origin/main` does not replace it.
+-- The arguments and the variable give the start through `Start.read`: a developer's run for
+-- `origin/main` or for the revision of `--target`, the commit before the change, or the head of
+-- a pull request. An empty variable, and the variable together with `--target`, give no base.
 -- Compiled-evaluation observations at build time, not kernel-checked proofs.
-#guard (Options.parse (some "v") ["r", "--base", "o"]).map (·.base) == some "o"
-#guard (Options.parse (some "v") ["r"]).map (·.base) == some "v"
-#guard (Options.parse (some "") ["r"]).map (·.base) == some ""
-#guard (Options.parse none ["r"]).map (·.base) == some defaultBase
+#guard (Options.parse none ["r"]).map (·.start) == some (.target "origin/main")
+#guard (Options.parse none ["r", "--target", "t"]).map (·.start) == some (.target "t")
+#guard (Options.parse (some "before:c") ["r"]).map (·.start) == some (.before "c")
+#guard (Options.parse (some "pull:h") ["r"]).map (·.start) == some (.pull "h")
+#guard (Options.parse (some "") ["r"]).map (·.start) == some (.unknown "")
+#guard (Options.parse (some "before:c") ["r", "--target", "t"]).map (·.start) ==
+  some (.unknown "--target t together with `before:c`")
 
 /-- Run `git` with `args` in `directory`. -/
 def git (directory : System.FilePath) (args : Array String) : IO IO.Process.Output :=
@@ -288,23 +288,53 @@ def loadBaseline (root : System.FilePath) (tracked : List String) :
   unless tracked.contains baselineFile do return .ok none
   return (baselineOf baselineFile (← IO.FS.readFile (root / baselineFile))).map some
 
-/-- The base revision: the merge base of `HEAD` and the revision `options.base`, as Git gives
-it. When Git gives none, the base revision is not available, and no other revision replaces it:
-the revision is empty, Git does not have it, or the history between it and `HEAD` is not there
-(a shallow clone). -/
+/-- What Git gives for the checked commit `HEAD` and for the revision of `start`: the parents of
+`HEAD`, the commit that the revision names, and the merge base of `HEAD` and the revision. A
+value that Git does not give is absent. Git is not asked about a revision that is empty or that
+starts with `-`. -/
+def historyOf (root : System.FilePath) (start : Start) : IO History := do
+  let given (out : IO.Process.Output) : Option String :=
+    let text := out.stdout.trimAscii.toString
+    if out.exitCode == 0 && !text.isEmpty then some text else none
+  let listed ← git root #["rev-list", "--parents", "--max-count=1", "HEAD"]
+  let parents := ((given listed).map fun line => (line.splitOn " ").drop 1).getD []
+  let revision : Option String :=
+    match start with
+    | .target revision | .before revision => some revision
+    | .pull _ | .unknown _ => none
+  match revision with
+  | some revision =>
+    if revision.isEmpty || revision.startsWith "-" then return ⟨parents, none, none⟩
+    let named ← git root #["rev-parse", "--verify", "--quiet", revision ++ "^{commit}"]
+    let merged ← git root #["merge-base", "HEAD", revision]
+    return ⟨parents, given named, given merged⟩
+  | none => return ⟨parents, none, none⟩
+
+/-- Why `start` has no base revision, with what Git gives. -/
+def unavailable (start : Start) (history : History) : String :=
+  "the base revision is not available: " ++
+    match start with
+    | .target revision =>
+      s!"Git gives no merge base of `HEAD` and `{revision}`; get the full history of the \
+        repository, or give the branch that the change is for with --target"
+    | .before commit =>
+      s!"the start of the check gave `{commit}` as the commit before the change, and Git has \
+        no such commit; get the full history of the repository"
+    | .pull head =>
+      s!"the checked commit is not the merge of the head `{head}` of the pull request into its \
+        target: its parents are {history.parents}, not a first parent and then that head"
+    | .unknown text =>
+      s!"the start of the check gave no base revision ({text}); give `before:` and the commit \
+        before the change, or `pull:` and the head of a pull request, in the variable \
+        {startVariable}, or no variable for the run of a developer"
+
+/-- The base revision of check B2 for the start of the check (`baseOf`), with what Git gives
+(`historyOf`). When there is none, the check refuses, and no other revision replaces it. -/
 def baseRevision (options : Options) : IO (Except String String) := do
-  let unavailable (cause : String) : Except String String :=
-    .error s!"the base revision is not available: {cause}; get the full history of the \
-      repository, or give the revision that the change starts from with --base or with the \
-      variable {baseVariable}"
-  if options.base.isEmpty then
-    return unavailable "the start of the check gave an empty revision"
-  if options.base.startsWith "-" then
-    return unavailable s!"`{options.base}` is not a revision"
-  let merged ← git options.root #["merge-base", "HEAD", options.base]
-  let commit := merged.stdout.trimAscii.toString
-  if merged.exitCode == 0 && !commit.isEmpty then return .ok commit
-  return unavailable s!"Git gives no merge base of `HEAD` and `{options.base}`"
+  let history ← historyOf options.root options.start
+  match baseOf options.start history with
+  | some commit => return .ok commit
+  | none => return .error (unavailable options.start history)
 
 /-- What the checks observe of each Markdown document of the commit `commit`, as Git gives it:
 the documents of a base revision that has no baseline (`measureOne`). -/
@@ -651,42 +681,45 @@ def controls : List Control := [
 /-! ## Controls of the base revision
 
 A control of the base revision is a repository that the run makes with Git in a temporary
-directory, a branch that the check reads, and a revision that the control gives as `--base`, in
-a form that the workflow of CI gives it: the commit of the base of a pull request, the commit
-before a push, or the first parent of the checked commit. The control is the check of that
+directory, a commit that the check reads, and the option `--target` and the variable
+`REGULA_PROSE_START` as a start of the check gives them. The control is the check of that
 repository (`examine`), as the documentation step does it. The values that GitHub gives for an
-event are not a part of a control: no local run has them. -/
+event are not a part of a control: no local run has them.
+
+Each control must fail when the check takes an incorrect base. Thus `origin/main` names the
+checked commit itself in each control that does not give it a different commit: a check that
+takes `origin/main` in place of a base that is not available compares the commit with itself and
+accepts, which a control that expects a refusal does not accept. The repositories are made so
+that the commit itself, its first parent, the commit that the start names and the merge base
+with that commit give different results where a control tells them apart. -/
 
 /-- One commit of the repository of a control. -/
 structure Commit where
   /-- The branch that gets the commit. -/
   branch : String
-  /-- The branch whose commit is the parent, or `none` for the first commit. -/
+  /-- The branch whose commit is the parent, or `none` for a commit with no parent. -/
   parent : Option String
   /-- The files that the commit changes: the text of each one, or `none` to remove the file. -/
   files : List (String × Option String)
-
-/-- The revision that a control gives as `--base`. -/
-inductive Given where
-  /-- The full name of the commit of a branch: the base of a pull request, or the revision
-  before a push. -/
-  | commit (branch : String)
-  /-- The first parent of the commit of a branch, as `<commit>^`: a manual start. -/
-  | parent (branch : String)
-  /-- A text as it is: the default of a developer's run, or a value that gives no revision. -/
-  | text (revision : String)
+  /-- A branch that the commit merges into its parent, as the second parent. -/
+  merges : Option String := none
 
 /-- A control of the base revision of check B2. -/
 structure RepositoryControl where
   /-- The name of the repository of the control (`repositories`). -/
   repository : String
-  /-- The branch that the check reads. -/
+  /-- The branch whose commit the check reads. -/
   head : String
-  /-- Read a clone that has only the commit of `head` and the commit of `main`, with no
-  history, as a checkout of depth 1 has. -/
-  shallow : Bool
-  /-- The revision given as `--base`. -/
-  base : Given
+  /-- The option `--target`, if the start gives it. A branch name in braces is the full name of
+  the commit of that branch. -/
+  target : Option String := none
+  /-- The variable `REGULA_PROSE_START`, if the start sets it, with the same braces. -/
+  start : Option String := none
+  /-- The branch whose commit `origin/main` names. The checked commit itself, when `none`. -/
+  origin : Option String := none
+  /-- Read a clone that has only the checked commit and the commit of `origin/main`, each with
+  no history, as a checkout of depth 1 has. -/
+  shallow : Bool := false
   /-- The result that the control must give. -/
   expect : Expect
 
@@ -700,62 +733,162 @@ def controlBaseline (entries : List Entry) : String := String.ofList (ledgerOf e
 def semicolonEntry (path : String) (count : Nat) : Entry :=
   ⟨path.toList, .counts (((List.replicate 8 0).set 3 count).map fun n => (Nat.repr n).toList)⟩
 
+/-- The files of a commit whose document `a.md` has `count` semicolons, of two or less, and
+whose baseline permits them. -/
+def semicolons (count : Nat) : List (String × Option String) :=
+  [("a.md", some (match count with
+      | 0 => "# A\n\nOne two three.\n"
+      | 1 => "# A\n\nOne; two three.\n"
+      | _ => "# A\n\nOne; two; three.\n")),
+    (baselineFile,
+      some (controlBaseline (if count == 0 then [] else [semicolonEntry "a.md" count])))]
+
 /-- The repositories of the controls of the base revision, each with its name. -/
 def repositories : List (String × List Commit) := [
-  -- The branch `target` permits one finding less than `main`. The branch `change`, from
-  -- `target`, has the two findings of `main` again.
-  ("narrowed", [
-    ⟨"main", none, [(vocabularyFile, some controlVocabulary),
-      ("a.md", some "# A\n\nOne; two; three.\n"),
-      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 2]))]⟩,
-    ⟨"target", some "main", [("a.md", some "# A\n\nOne; two three.\n"),
-      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 1]))]⟩,
-    ⟨"change", some "target", [("a.md", some "# A\n\nOne; two; three.\n"),
-      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 2]))]⟩]),
-  -- The branch `next`, from `main`, adds a document with a semicolon and an entry that agrees
-  -- with it. The branch `removed`, from `main`, removes the baseline.
-  ("pushed", [
-    ⟨"main", none, [(vocabularyFile, some controlVocabulary),
-      ("a.md", some "# A\n\nOne two three.\n"), (baselineFile, some (controlBaseline []))]⟩,
-    ⟨"next", some "main", [("new.md", some "# N\n\nNew text; more text.\n"),
-      (baselineFile, some (controlBaseline [semicolonEntry "new.md" 1]))]⟩,
-    ⟨"removed", some "main", [(baselineFile, none)]⟩]),
+  -- One line of commits. `a` permits two findings, and `b` permits one. `c` adds a document
+  -- with a semicolon and an entry that agrees with it. `d` adds a document with no finding.
+  -- `other` has no parent and permits one finding.
+  ("line", [
+    ⟨"a", none, (vocabularyFile, some controlVocabulary) :: semicolons 2, none⟩,
+    ⟨"b", some "a", semicolons 1, none⟩,
+    ⟨"c", some "b", [("new.md", some "# N\n\nNew text; more text.\n"),
+      (baselineFile, some (controlBaseline [semicolonEntry "a.md" 1,
+        semicolonEntry "new.md" 1]))], none⟩,
+    ⟨"d", some "c", [("clean.md", some "# C\n\nA clean text.\n")], none⟩,
+    ⟨"removed", some "b", [("a.md", some "# A\n\nOne two three.\n"), (baselineFile, none)],
+      none⟩,
+    ⟨"other", none, semicolons 1, none⟩]),
+  -- A pull request. `target` permits one finding less than `main`. `change`, from `target`, has
+  -- the two findings of `main` again, and `merge` is the merge of `change` into `target`. `good`,
+  -- from `target`, adds a document with no finding, and `fine` is its merge into `target`.
+  ("pulls", [
+    ⟨"main", none, (vocabularyFile, some controlVocabulary) :: semicolons 2, none⟩,
+    ⟨"target", some "main", semicolons 1, none⟩,
+    ⟨"change", some "target", semicolons 2, none⟩,
+    ⟨"good", some "target", [("clean.md", some "# C\n\nA clean text.\n")], none⟩,
+    ⟨"merge", some "target", [], some "change"⟩,
+    ⟨"fine", some "target", [], some "good"⟩]),
+  -- The run of a developer. `work`, from the first commit of `main`, adds a document with no
+  -- finding, and `worse`, from the same commit, has one finding more. A later commit of `main`
+  -- has no finding and no entry.
+  ("local", [
+    ⟨"main", none, (vocabularyFile, some controlVocabulary) :: semicolons 1, none⟩,
+    ⟨"work", some "main", [("clean.md", some "# C\n\nA clean text.\n")], none⟩,
+    ⟨"worse", some "main", semicolons 2, none⟩,
+    ⟨"main", some "main", semicolons 0, none⟩]),
   -- The first commit has a frozen document. The branch `side` changes the document and removes
   -- its entry. A later commit of `main` removes the document and its entry.
   ("diverged", [
     ⟨"main", none, [(vocabularyFile, some controlVocabulary),
       ("record.md", some "# Record\n\nThe first text.\n"),
       (baselineFile, some (controlBaseline [⟨"record.md".toList, .frozen
-        "f181adc34424559724d267a81d4090eedd38a8864b55641b801d6b20a593551b".toList⟩]))]⟩,
+        "f181adc34424559724d267a81d4090eedd38a8864b55641b801d6b20a593551b".toList⟩]))], none⟩,
     ⟨"side", some "main", [("record.md", some "# Record\n\nA changed text.\n"),
-      (baselineFile, some (controlBaseline []))]⟩,
-    ⟨"main", some "main", [("record.md", none), (baselineFile, some (controlBaseline []))]⟩])]
+      (baselineFile, some (controlBaseline []))], none⟩,
+    ⟨"main", some "main", [("record.md", none), (baselineFile, some (controlBaseline []))],
+      none⟩])]
 
-/-- The controls of the base revision. -/
+/-- The controls of the base revision. The comment of each control gives the base that the
+check must take, and a base that the check must not take with the result that it would give. -/
 def repositoryControls : List RepositoryControl := [
-  -- A pull request whose target is not `main`: in relation to `main` the change has no larger
-  -- number, and in relation to its target, which the workflow gives, it has one.
-  ⟨"narrowed", "change", false, .commit "main", .accepted⟩,
-  ⟨"narrowed", "change", false, .commit "target", .refused baselineFile 5 ratchetCheck⟩,
-  -- A push: a comparison of the pushed commit with itself accepts a new document with an entry
-  -- that agrees with it. The comparison with the commit before the push, which the workflow
-  -- gives, refuses that entry, and so does the comparison with the first parent, which the
-  -- workflow gives for a manual start.
-  ⟨"pushed", "next", false, .commit "next", .accepted⟩,
-  ⟨"pushed", "next", false, .commit "main", .refused baselineFile 5 ratchetCheck⟩,
-  ⟨"pushed", "next", false, .parent "next", .refused baselineFile 5 ratchetCheck⟩,
-  -- A push that removes the baseline is refused in relation to the commit before the push.
-  ⟨"pushed", "removed", false, .commit "main", .refused baselineFile 1 ratchetCheck⟩,
+  -- A push. The base is the commit before the push itself.
+  -- `c` after `b`: the new entry is refused. The commit itself would accept.
+  { repository := "line", head := "c", start := some "before:{b}",
+    expect := .refused baselineFile 6 ratchetCheck },
+  -- Two commits in one push, `c` and `d` after `b`: the new entry is refused. The first parent
+  -- `c` would accept.
+  { repository := "line", head := "d", start := some "before:{b}",
+    expect := .refused baselineFile 6 ratchetCheck },
+  -- `d` after `c`: a document with no finding is accepted. `origin/main` is `b` here, which
+  -- would refuse.
+  { repository := "line", head := "d", start := some "before:{c}", origin := some "b",
+    expect := .accepted },
+  -- A push that moves the branch back from `b` to its parent `a`: the larger number of `a` is
+  -- refused. The merge base of the two is `a` itself, which would accept.
+  { repository := "line", head := "a", start := some "before:{b}",
+    expect := .refused baselineFile 5 ratchetCheck },
+  -- A push that moves the branch back from `c` to `b` permits nothing more: accepted.
+  -- `origin/main` is `removed` here, which has no baseline and no finding, and would refuse.
+  { repository := "line", head := "b", start := some "before:{c}", origin := some "removed",
+    expect := .accepted },
+  -- A push to a history with no relation, from `other` to `a`: the larger number of `a` is
+  -- refused at its entry. A merge base, which Git does not give, would refuse at line 1.
+  { repository := "line", head := "a", start := some "before:{other}",
+    expect := .refused baselineFile 5 ratchetCheck },
+  -- A push that removes the baseline is refused at line 1 of the baseline of `b`. The commit
+  -- itself would accept.
+  { repository := "line", head := "removed", start := some "before:{b}",
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- The first push of a branch, where the commit before the push is 40 zeros: no commit has
+  -- that name, and the check refuses. `origin/main`, the commit itself, would accept.
+  { repository := "line", head := "c",
+    start := some "before:0000000000000000000000000000000000000000",
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- A manual start. The base is the first parent of the commit, as `<commit>^`.
+  -- `c`: the new entry is refused. The commit itself would accept.
+  { repository := "line", head := "c", start := some "before:{c}^",
+    expect := .refused baselineFile 6 ratchetCheck },
+  -- `a` has no parent: the check refuses. `origin/main`, the commit itself, would accept.
+  { repository := "line", head := "a", start := some "before:{a}^",
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- The release commit is compared with itself: accepted. `origin/main` is `b` here, which
+  -- would refuse the new entry of `c`.
+  { repository := "line", head := "c", start := some "before:HEAD", origin := some "b",
+    expect := .accepted },
+  -- A variable that gives no base is refused, and `origin/main`, the commit itself, does not
+  -- replace it: the empty variable, `before:` with no commit, and a text of no known form.
+  { repository := "line", head := "c", start := some "",
+    expect := .refused baselineFile 1 ratchetCheck },
+  { repository := "line", head := "c", start := some "before:",
+    expect := .refused baselineFile 1 ratchetCheck },
+  { repository := "line", head := "c", start := some "{b}",
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- The variable and `--target` together are refused at line 1. The variable alone would
+  -- refuse at line 6, and the target alone would accept.
+  { repository := "line", head := "c", target := some "{c}", start := some "before:{b}",
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- A pull request. The base is the first parent of the checked merge commit, when its second
+  -- parent is the head that the start gives.
+  -- The merge of `change` into `target` has the larger number of `main` again: refused. The
+  -- commit itself, the head and `main` would accept.
+  { repository := "pulls", head := "merge", start := some "pull:{change}",
+    expect := .refused baselineFile 5 ratchetCheck },
+  -- The merge of `good` into `target` is accepted: the control of a pull request that adds no
+  -- finding. The three controls after it tell the first parent apart from each other base.
+  { repository := "pulls", head := "fine", start := some "pull:{good}", expect := .accepted },
+  -- The second parent of `merge` is not the head `good` that the start gives: refused at line
+  -- 1. The first parent with no comparison of the head would refuse at line 5.
+  { repository := "pulls", head := "merge", start := some "pull:{good}",
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- A checkout of the head of the pull request is no merge commit: refused at line 1. Its
+  -- first parent would refuse at line 5.
+  { repository := "pulls", head := "change", start := some "pull:{change}",
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- A checkout of the merge commit with no history has no parent: refused. `origin/main`, the
+  -- commit itself, would accept.
+  { repository := "pulls", head := "merge", start := some "pull:{change}", shallow := true,
+    expect := .refused baselineFile 1 ratchetCheck },
+  -- The run of a developer. The base is the merge base of the commit and the target.
+  -- `work` with `origin/main` at the later commit of `main`: accepted in relation to the first
+  -- commit of `main`. The later commit itself has no entry for `a.md` and would refuse.
+  { repository := "local", head := "work", origin := some "main", expect := .accepted },
+  -- `worse` has one finding more than the merge base: refused. The commit itself would accept.
+  { repository := "local", head := "worse", origin := some "main",
+    expect := .refused baselineFile 5 ratchetCheck },
+  -- On `main` with no change, the merge base is the commit itself: accepted.
+  { repository := "local", head := "main", origin := some "main", expect := .accepted },
+  -- `--target` gives the branch `work`, whose merge base with `worse` is the first commit of
+  -- `main`: refused. `origin/main` is the commit itself here, which would accept.
+  { repository := "local", head := "worse", target := some "work",
+    expect := .refused baselineFile 5 ratchetCheck },
   -- With the full history, the merge base of `side` and `main` has the frozen entry, and the
-  -- change of the frozen document is refused. With no history, Git gives no merge base: the
-  -- check refuses, and the later commit of `main` does not replace the merge base.
-  ⟨"diverged", "side", false, .commit "main", .refused baselineFile 5 ratchetCheck⟩,
-  ⟨"diverged", "side", true, .text defaultBase, .refused baselineFile 1 ratchetCheck⟩,
-  -- A start that gives an empty revision, or the name of no commit, is refused: `origin/main`
-  -- does not replace the value.
-  ⟨"pushed", "next", false, .text "", .refused baselineFile 1 ratchetCheck⟩,
-  ⟨"pushed", "next", false, .text "0000000000000000000000000000000000000000",
-    .refused baselineFile 1 ratchetCheck⟩]
+  -- change of the frozen document is refused.
+  { repository := "diverged", head := "side", origin := some "main",
+    expect := .refused baselineFile 5 ratchetCheck },
+  -- With no history, Git gives no merge base: refused at line 1. The later commit of `main`
+  -- has no frozen entry and would accept.
+  { repository := "diverged", head := "side", origin := some "main", shallow := true,
+    expect := .refused baselineFile 1 ratchetCheck }]
 
 /-- Run `git` with `args` in `directory` for a control, with no configuration of the user or of
 the system and with one author, and give its output. -/
@@ -770,19 +903,44 @@ def gitControl (directory : System.FilePath) (args : Array String) : IO String :
     throw <| IO.userError s!"git {args} failed in {directory}: {out.stderr}"
   return out.stdout.trimAscii.toString
 
-/-- Make the repository of `commits` in `directory`. -/
+/-- Make the repository of `commits` in `directory`. A commit with no parent keeps the files of
+the commit before it in the list, with its own changes. -/
 def makeRepository (directory : System.FilePath) (commits : List Commit) : IO Unit := do
   IO.FS.createDirAll directory
-  discard <| gitControl directory #["init", "--quiet", "--initial-branch", "main"]
+  discard <| gitControl directory #["init", "--quiet", "--initial-branch", "start"]
   for commit in commits do
-    if let some parent := commit.parent then
+    match commit.parent with
+    | some parent =>
       discard <| gitControl directory #["checkout", "--quiet", "-B", commit.branch, parent]
+    | none => discard <| gitControl directory #["checkout", "--quiet", "--orphan", commit.branch]
     for (path, text) in commit.files do
       match text with
       | some text => IO.FS.writeFile (directory / path) text
       | none => IO.FS.removeFile (directory / path)
-    discard <| gitControl directory #["add", "--all"]
-    discard <| gitControl directory #["commit", "--quiet", "--message", commit.branch]
+    match commit.merges with
+    | some branch =>
+      discard <| gitControl directory #["merge", "--quiet", "--no-ff", "--message",
+        commit.branch, branch]
+    | none =>
+      discard <| gitControl directory #["add", "--all"]
+      discard <| gitControl directory #["commit", "--quiet", "--message", commit.branch]
+
+/-- `text` with each branch name in braces replaced by the full name of the commit of that
+branch in the repository at `directory`. -/
+def expand (directory : System.FilePath) (text : String) : IO String := do
+  let mut result := ""
+  let mut first := true
+  for part in text.splitOn "{" do
+    if first then
+      result := part
+      first := false
+    else
+      match part.splitOn "}" with
+      | branch :: rest =>
+        result := result ++ (← gitControl directory #["rev-parse", branch]) ++
+          "}".intercalate rest
+      | [] => pure ()
+  return result
 
 /-- The result of the controls of the base revision: what each control that does not give its
 expected result gave. -/
@@ -795,27 +953,28 @@ def runRepositoryControls (judge : String → Expect → List String → List St
     let mut index := 0
     for control in repositoryControls do
       index := index + 1
-      let origin := root / control.repository
-      discard <| gitControl origin #["checkout", "--quiet", control.head]
+      let made := root / control.repository
+      discard <| gitControl made #["checkout", "--quiet", "--detach", control.head]
+      let origin ← gitControl made #["rev-parse", control.origin.getD control.head]
       let directory ←
         if control.shallow then do
           let clone := root / s!"shallow-{index}"
           discard <| gitControl root #["clone", "--quiet", "--depth", "1", "--branch",
-            control.head, s!"file://{origin}", clone.toString]
+            control.head, s!"file://{made}", clone.toString]
           discard <| gitControl clone #["fetch", "--quiet", "--depth", "1", "origin",
-            "main:refs/remotes/origin/main"]
+            s!"{origin}:refs/remotes/origin/main"]
           pure clone
-        else pure origin
-      let (form, base) ← match control.base with
-        | .commit branch =>
-          pure (s!"the commit of `{branch}`", ← gitControl origin #["rev-parse", branch])
-        | .parent branch =>
-          pure (s!"the first parent of `{branch}`",
-            (← gitControl origin #["rev-parse", branch]) ++ "^")
-        | .text revision => pure (s!"`{revision}`", revision)
-      let subject := s!"repository `{control.repository}`, branch `{control.head}`\
-        {if control.shallow then " with no history" else ""}, base {form}"
-      let result ← match ← examine { root := directory, base } with
+        else do
+          discard <| gitControl made #["update-ref", "refs/remotes/origin/main", origin]
+          pure made
+      let target ← control.target.mapM (expand made)
+      let start ← control.start.mapM (expand made)
+      let subject := s!"repository `{control.repository}`, commit `{control.head}`\
+        {if control.shallow then " with no history" else ""}\
+        {(control.target.map fun text => s!", --target {text}").getD ""}\
+        {(control.start.map fun text => s!", {startVariable}={text}").getD ""}\
+        {(control.origin.map fun branch => s!", origin/main at `{branch}`").getD ""}"
+      let result ← match ← examine { root := directory, start := Start.read target start } with
         | .ok outcome => pure (outcome.ruleIds ++ outcome.prose)
         | .error reason => pure [reason]
       failures := failures ++ judge subject control.expect result
@@ -913,8 +1072,8 @@ def main (args : List String) : IO UInt32 := do
   match args with
   | ["--controls", directory] => runControls directory
   | _ =>
-    let some options := Options.parse (← IO.getEnv baseVariable) args
-      | IO.eprintln "usage: lake exe regula-markdown REPOSITORY [--shared CONTEXT.md] [--base \
+    let some options := Options.parse (← IO.getEnv startVariable) args
+      | IO.eprintln "usage: lake exe regula-markdown REPOSITORY [--shared CONTEXT.md] [--target \
           REVISION] [--write-baseline | --list DOCUMENT]\n       lake exe regula-markdown \
           --controls DIRECTORY"
         return 1

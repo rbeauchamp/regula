@@ -140,7 +140,8 @@ The contracts are about the data that the functions get. Lean does not prove the
 - That the text of a file is the text that a function gets. The file system gives the text.
 - That the lists of tracked files are correct. Git gives them.
 - That the baseline and the documents of the base revision are correct. Git gives them.
-- That the revision which CI gives is the state of the target branch before the change. GitHub gives that revision for the event, and no local run has it.
+- That the parents of a commit, the commit of a name and the merge base are correct. Git gives them.
+- That the value which CI gives is correct: the commit before a push, and the head of a pull request. GitHub gives that value for the event, and no local run has it.
 - That a digest is the SHA-256 digest of a file. The `shasum` program gives it.
 - That md4c and GitHub read a document with the same result.
 - That the code which makes pieces from the result of md4c is correct. That code is in [`markdown/RegulaMarkdown.lean`](../../markdown/RegulaMarkdown.lean). It has controls, but no theorem.
@@ -155,14 +156,31 @@ The file [`prose-baseline.json`](../../prose-baseline.json) is the baseline. It 
 - `frozen` and a SHA-256 digest: the document is a record that must not change. The checks do not read it, and B1 does not accept a change to its text.
 - `generated` and a source: a program writes the document from sources that the checks do not read. The checks do not read the document.
 
-A document with no entry must have no finding (check B1). Check B2 compares the baseline with the base revision. The base revision is the merge base of `HEAD` and a revision that the start of the check gives:
+A document with no entry must have no finding (check B1). Check B2 compares the baseline with the base revision. The base revision is a commit, and the start of the check gives it:
 
-- A developer gives the revision with the option `--base` of the executable. Without that option, the revision is `origin/main`. If `HEAD` is `origin/main`, B2 compares the baseline with itself and accepts it.
-- CI gives the revision in the variable `REGULA_PROSE_BASE`. For a pull request, it is the base of the pull request. For a push, it is the commit before the push.
-- For a manual start of the workflow, CI gives the first parent of the commit. Thus B2 does not compare that commit with itself.
-- For the release commit, CI gives `HEAD`. The documents of the release commit are the documents of its parent, a commit of `main` that CI examined with the base of its event.
+| Start of the check | Base revision |
+| --- | --- |
+| A developer, with no option | The merge base of `HEAD` and `origin/main`. |
+| A developer, with the option `--target` | The merge base of `HEAD` and the revision of the option. |
+| CI, a pull request | The first parent of the merge commit that CI examines. The second parent must be the head of the pull request. |
+| CI, a push | The commit before the push. |
+| CI, a manual start of the workflow | The first parent of the commit. |
+| CI, the release commit | The release commit. |
 
-If Git gives no merge base, B2 does not accept the baseline, and no other revision replaces the base revision. An empty revision and a revision that Git does not have give that result. A checkout with no history gives it also, thus the documentation step gets the full history.
+Only a developer uses a merge base. CI gives a commit in the variable `REGULA_PROSE_START`, and B2 uses that commit and no merge base. The variable has `before:` and a commit, or `pull:` and the head of a pull request. Thus B2 compares a push that moves a branch back to an older commit with the commit before the push.
+
+These cases have a result that is not a comparison with an older commit:
+
+- If `HEAD` is `origin/main`, the merge base is `HEAD`. B2 compares the baseline with itself and accepts it.
+- The release commit has the documents of its parent. That parent is a commit of `main` that the same run of CI examined with the commit before its push.
+
+If Git does not give the base revision, B2 does not accept the baseline, and no other revision replaces the base revision. These starts give that result:
+
+- A variable that is empty, or that does not have one of the two forms.
+- The variable and the option `--target` together.
+- A commit that Git does not have. Examples are the 40 zeros of the first push of a branch, and the first parent of a commit with no parent.
+- A pull request where the commit that CI examines is not a merge commit with the head of the pull request as its second parent.
+- A checkout with no history, when the base revision is not the commit of that checkout. Thus the documentation step of a pull request and of a push gets the full history.
 
 If the base revision has a baseline, B2 compares the two baselines:
 
@@ -180,11 +198,12 @@ Thus no entry has a new path (the theorem `Shrinks.paths`), and the baseline can
 
 These checks are not a check of each changed line. A change can add one finding and remove one finding in the same document, and the checks accept that change.
 
-The decisions of the baseline are three Lean functions in [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean), each with a decision contract:
+The decisions of the baseline are four Lean functions in [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean), each with a decision contract:
 
 - `Baseline.parse` accepts a text if, and only if, the text is the text that `Baseline.write` gives for a baseline (`checked_baselineParse`).
 - `gate` (check B1) gives no document if, and only if, each document agrees with the baseline (`checked_gate`). The statement is `Observed.Admitted`.
 - `ratchet` (check B2) gives no message if, and only if, the statement `Shrinks` is correct for the base revision, the baseline and the tracked paths (`checked_ratchet`).
+- `baseOf` gives a base revision if, and only if, the statement `Start.Base` gives one for the start and for the data that Git gives (`checked_baseOf`). The theorem `baseOf_eq_some_iff` shows that the two give the same commit.
 
 A number of the baseline is a text of decimal digits. B2 compares two numbers as such texts. A number with a smaller number of digits is the smaller number. B2 compares two numbers with the same number of digits digit by digit.
 

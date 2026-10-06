@@ -27,6 +27,10 @@ and the two decisions about it.
   reference does not have, a removed baseline is refused, and the two decisions together keep
   the digest of each frozen document.
 - `lineOf`, `lineOf_spec`: the line of the entry of a path in the print.
+- `Start`, `History`, `Start.Base`, `baseOf`, `checked_baseOf`: the base revision of check B2
+  for the start of a check, with what Git gives. Only the run of a developer takes a merge base
+  (`baseOf_before`). `Start.read` reads the start from the option and the environment variable
+  of the executable.
 
 ## Specifications
 
@@ -1017,5 +1021,155 @@ theorem frozen_unchanged {base head : Baseline} {documents : List Observed}
   have hpermits := hadmitted.1 e he (hepath.trans hpath)
   rw [heallowance] at hpermits
   exact hpermits.symm
+
+/-! ## The base revision of check B2
+
+Check B2 compares the baseline with the state of a base revision. Which commit that is depends on
+how the check was started (`Start`) and on what Git gives for the checked commit (`History`).
+`Start.Base` states it, and `baseOf` decides it. Only the run of a developer takes a merge base.
+A start that gives the commit before the change takes that commit itself, and a pull request
+takes the first parent of the checked merge commit. No start replaces a base that Git does not
+give. -/
+
+/-- How a check of a repository was started, as far as the base revision reads it. -/
+inductive Start where
+  /-- The run of a developer, for a change to the branch that `revision` names: the base
+  revision is the merge base of the checked commit and `revision`. -/
+  | target (revision : String)
+  /-- A start that gives the commit before the change, `commit`: the base revision is that
+  commit itself, and no merge base is taken. -/
+  | before (commit : String)
+  /-- A pull request whose head is the commit `head`: the checked commit is the merge of `head`
+  into the target branch, and the base revision is its first parent. -/
+  | pull (head : String)
+  /-- A start that gives no base revision, with the text that it gave. -/
+  | unknown (text : String)
+  deriving DecidableEq, Repr
+
+/-- What Git gives for the checked commit and for the revision of a start. -/
+structure History where
+  /-- The full names of the parents of the checked commit, in order. -/
+  parents : List String
+  /-- The full name of the commit that the revision of the start names, if it names a commit. -/
+  named : Option String
+  /-- The merge base of the checked commit and that revision, if Git gives one. -/
+  merged : Option String
+  deriving DecidableEq, Repr
+
+/-- `base` is the base revision of check B2 for `start`, with what Git gives.
+
+* For the run of a developer, it is the merge base that Git gives.
+* For a start that gives the commit before the change, it is the commit that the start names.
+  What Git gives as a merge base has no effect.
+* For a pull request, the checked commit has exactly two parents, the second parent is the head
+  of the pull request, and `base` is the first parent.
+* A start that gives no base revision has none. -/
+def Start.Base (start : Start) (history : History) (base : String) : Prop :=
+  match start with
+  | .target _ => history.merged = some base
+  | .before _ => history.named = some base
+  | .pull head => history.parents = [base, head]
+  | .unknown _ => False
+
+/-- The base revision of check B2 for `start`, with what Git gives, if there is one. -/
+@[regula_decision]
+def baseOf (start : Start) (history : History) : Option String :=
+  match start, history.parents with
+  | .target _, _ => history.merged
+  | .before _, _ => history.named
+  | .pull head, [first, second] => if second = head then some first else none
+  | _, _ => none
+
+/-- `baseOf` gives exactly the base revision that `Start.Base` states. -/
+theorem baseOf_eq_some_iff (start : Start) (history : History) (base : String) :
+    baseOf start history = some base ↔ start.Base history base := by
+  obtain ⟨parents, named, merged⟩ := history
+  cases start with
+  | target revision => exact Iff.rfl
+  | before commit => exact Iff.rfl
+  | unknown text => simp [baseOf, Start.Base]
+  | pull head =>
+    match parents with
+    | [] => simp [baseOf, Start.Base]
+    | [_] => simp [baseOf, Start.Base]
+    | _ :: _ :: _ :: _ => simp [baseOf, Start.Base]
+    | [first, second] =>
+      by_cases h : second = head
+      · simp [baseOf, Start.Base, h, eq_comm]
+      · simp [baseOf, Start.Base, h]
+
+/-- Registered contract of the base revision of check B2, as a two-way decision over the start
+and what Git gives: `baseOf` gives a base revision exactly when `Start.Base` states one
+(`baseOf_eq_some_iff` says which). It gives one for a start with the commit before the change
+that Git has, and none for a start that gives no base revision. -/
+theorem checked_baseOf : Regula.ExecutableContract baseOf (fun run =>
+    Regula.Decides (·.isSome = true)
+      (fun input : Start × History => ∃ base, input.1.Base input.2 base)
+      (Function.uncurry run)) :=
+  ⟨.of_iff
+    (fun input => by
+      simp only [Function.uncurry, Option.isSome_iff_exists, baseOf_eq_some_iff])
+    ⟨(.before "a", ⟨[], some "a", none⟩), by decide⟩
+    ⟨(.unknown "", ⟨[], none, none⟩), by decide⟩⟩
+
+/-- A start that gives the commit before the change takes no merge base: its base revision is
+the commit that it names, for each merge base and each list of parents that Git gives. Thus a
+push that moves a branch back to an ancestor is compared with the commit before the push, not
+with that ancestor. -/
+theorem baseOf_before (commit : String) (history : History) :
+    baseOf (.before commit) history = history.named := rfl
+
+/-- The revision that a developer's run takes the merge base with, when the run names none. -/
+def defaultTarget : String := "origin/main"
+
+/-- The start that the option `--target` and the environment variable of the check give.
+
+* Neither is given: the run of a developer for `origin/main`.
+* Only the option is given: the run of a developer for its revision.
+* Only the variable is given: `before:` and a commit, or `pull:` and the head of a pull
+  request. Each other text, also the empty text, gives no base revision.
+* The two are given: no base revision. -/
+def Start.read (target environment : Option String) : Start :=
+  match target, environment with
+  | none, none => .target defaultTarget
+  | some revision, none => .target revision
+  | none, some text =>
+    match dropPrefix "before:".toList text.toList with
+    | some commit => .before (String.ofList commit)
+    | none =>
+      match dropPrefix "pull:".toList text.toList with
+      | some head => .pull (String.ofList head)
+      | none => .unknown text
+  | some revision, some text => .unknown s!"--target {revision} together with `{text}`"
+
+theorem Start.read_default : Start.read none none = .target defaultTarget := rfl
+
+theorem Start.read_target (revision : String) :
+    Start.read (some revision) none = .target revision := rfl
+
+/-- The variable `before:` with a commit gives that commit as the commit before the change. -/
+theorem Start.read_before (commit : String) :
+    Start.read none (some ("before:" ++ commit)) = .before commit := by
+  have hbefore : dropPrefix "before:".toList ("before:" ++ commit).toList = some commit.toList := by
+    rw [String.toList_append]
+    exact dropPrefix_append _ _
+  simp only [Start.read, hbefore, String.ofList_toList]
+
+/-- The variable `pull:` with a commit gives that commit as the head of a pull request. -/
+theorem Start.read_pull (head : String) :
+    Start.read none (some ("pull:" ++ head)) = .pull head := by
+  have hbefore : dropPrefix "before:".toList ("pull:" ++ head).toList = none := by
+    simp [dropPrefix]
+  have hpull : dropPrefix "pull:".toList ("pull:" ++ head).toList = some head.toList := by
+    rw [String.toList_append]
+    exact dropPrefix_append _ _
+  simp only [Start.read, hbefore, hpull, String.ofList_toList]
+
+/-- The empty variable gives no base revision: `origin/main` does not replace it. -/
+theorem Start.read_empty : Start.read none (some "") = .unknown "" := by decide
+
+/-- The option and the variable together give no base revision. -/
+theorem Start.read_both (revision text : String) :
+    ∃ reason, Start.read (some revision) (some text) = .unknown reason := ⟨_, rfl⟩
 
 end Regula.Controlled
