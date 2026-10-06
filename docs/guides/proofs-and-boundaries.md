@@ -184,6 +184,12 @@ the last action of the driver before the success line. The command `./scripts/ve
 operates `docFenceAudit --acceptance-link tmp/acceptance-link.json` with the same `--verso`
 argument for each `docs/` fence and each `lean` block of the standard.
 
+The driver starts the gate at its own priority. It starts the complete build and the other
+required checks at low priority (`RegulaVerification.Priority`). For such a command, the driver
+starts `nice -n 19` with the program and the arguments of the command (`Command.launch`). Thus
+each command has the same program and the same arguments as before. The behavior of `nice` and
+the scheduler of the operating system are trusted.
+
 Thus an accepted record at `tmp/acceptance-link.json` shows that the gate accepted. It also shows
 that each other command of the first step ended with exit status 0. If an attempt fails or is
 killed before the move, the record at that path stays incomplete. It is the incomplete record
@@ -244,23 +250,45 @@ starts such a command only after each early build ended with exit status 0, whic
 the function `run`. No theorem shows that the Lake process of that command then builds nothing.
 The behavior of Lake with two processes in one build directory is trusted.
 
-The explanation of the gain of the schedule is an estimate, not a measurement of processor work.
-Lake logs the elapsed time of each job. The next three facts are from the logged durations of
-one hosted run (CI run 37513374192, four processors). Approximately four jobs of the complete
-build were in progress from its start to its end. The isolated build of the gate ended with one
-or two jobs in progress. The modules that the gate executable imports are 414 s of the 640 s
-that the jobs of the build logged.
+After the early build, the first step has two chains of commands. The first chain is the gate.
+The second chain is the complete build, the registry checks and the qualification controls. The
+step ends when the two chains are complete. The schedule removes no work. Thus it decreases the
+time of the step only if a processor was idle in the sequential schedule.
 
-The estimate uses two assumptions. The first assumption is that each job uses approximately one
-processor for its logged duration. The second assumption is that this duration does not change
-when other work operates at the same time. If the two assumptions are correct, the remaining
-part of the build can use the processors that the gate does not use. No measurement shows that
-the two assumptions are correct. Thus the gain is a prediction until hosted runs of the new
-schedule show it.
+With equal priority, the operating system divides the processors between the two chains. Four
+pairs of local runs showed the result of that division
+([evidence notes](../../.agents/skills/lean-ci/references/evidence.md)). The gate started 32 s to
+37 s earlier, and it took 32 s to 39 s longer. Thus the time of the step did not decrease on that
+machine.
+
+The low priority of the second chain has this purpose: the gate must not become slower. The
+statement that follows is an argument and not a measurement. It uses two assumptions. The first
+assumption is that the operating system gives the gate each processor that the gate can use.
+The second assumption is that memory is not the limit. If the two assumptions are correct, the
+gate takes the time that it takes alone.
+
+The second chain then uses only the processors that the gate leaves idle. Thus the time of the
+step is not more than the time of the same commands in sequence, plus the time to start the
+processes. That sequence is the early build, the gate and then the second chain. The time of the
+step is less than that sum if, and only if, the gate leaves a processor idle for the second
+chain. Equal priority gives no such limit, because the second chain can then make the gate
+slower.
+
+Three limits apply to that argument. No measurement shows the two assumptions on the hosted
+runner. The sequence of the argument has two builds, but the earlier schedule had one complete
+build. The time that this division of the build adds is not measured.
+
+The facts that follow are about one hosted run of the sequential schedule (CI run 37513374192,
+four processors). Lake logs the elapsed time of each job and not its processor time. By those
+logged durations, the isolated build of the gate ended with one or two jobs in progress. The
+declaration inspection of the gate has three worker slots, which is read from the code. Thus it
+is possible that the gate leaves processors idle on that runner. The gain is a prediction until
+hosted runs of the schedule show it.
 
 The driver writes each line that starts with `verification:`. It writes such a line at the start
-of each command. It writes a second line when the command ends or, for the gate, after it waited
-for the gate. The output lines of commands that operate at the same time are mixed. The other
+of each command. For a command that starts at low priority, that line has the words `at low
+priority`. It writes a second line when the command ends or, for the gate, after it waited for
+the gate. The output lines of commands that operate at the same time are mixed. The other
 `verification:` lines are for these events:
 
 - The driver could not start a command.

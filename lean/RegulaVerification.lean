@@ -9,7 +9,8 @@ selection. Recipes name Lake targets, not a source-file census. The interpreter 
 command of the selected recipe (`inOrder_append_beside`), starts a command only while every end
 known so far passed, waits for each command it started, and reports success only when `passed`
 accepts how each scheduled command ended (`passed_covers`); it starts the gate of ordinary
-acceptance beside the others once that gate is built (`prebuild`, `beside`, `beside_prebuilt`).
+acceptance beside the others once that gate is built (`prebuild`, `beside`, `beside_prebuilt`),
+and starts those others at low scheduling priority while it does (`Priority`).
 Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
@@ -441,14 +442,41 @@ def describe : Option UInt32 → String
 /-- The standard streams of every command: no input, and the driver's own output. -/
 def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stderr := .inherit }
 
-/-- Start `command` without waiting for it; `none`, with a report, when it could not be started.
-It cannot raise. The child stays in the driver's process group, so the outer deadline's kill
-reaches it. Process execution and signal delivery remain trusted. -/
-def start (command : Command) : BaseIO (Option (IO.Process.Child stdio)) := do
-  announce s!"start {command.display}"
+/-- The scheduling priority the driver asks of the operating system for a command. It changes
+when a command gets a processor, never which command runs or what the driver does with its
+end. -/
+inductive Priority where
+  /-- The driver's own priority. -/
+  | normal
+  /-- The lowest priority, for a command that runs while a command of `beside` runs: the
+  scheduler is asked to prefer the command of `beside` whenever both ask for a processor. -/
+  | low
+
+/-- How the progress line of a start names a priority: nothing for the driver's own. -/
+def Priority.display : Priority → String
+  | .normal => ""
+  | .low => "at low priority: "
+
+/-- The program and the arguments that start `command` at `priority`. At low priority the program
+is the POSIX utility `nice`, which is given the command's own program and arguments, unchanged
+and in their order, after `-n 19`. That `nice` then runs exactly that program with those
+arguments at that priority, and ends with the status the program ends with, is the utility's
+behaviour and is trusted, as is the scheduler's use of the priority. POSIX gives `nice` a status
+other than 0 when it could not run the program. -/
+def Command.launch (command : Command) : Priority → String × Array String
+  | .normal => (command.program, command.args)
+  | .low => ("nice", #["-n", "19", command.program] ++ command.args)
+
+/-- Start `command` at `priority` without waiting for it; `none`, with a report, when it could not
+be started. It cannot raise. The child stays in the driver's process group, so the outer
+deadline's kill reaches it. Process execution and signal delivery remain trusted. -/
+def start (priority : Priority) (command : Command) :
+    BaseIO (Option (IO.Process.Child stdio)) := do
+  announce s!"start {priority.display}{command.display}"
+  let (program, args) := command.launch priority
   let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
     stdio with
-    cmd := command.program, args := command.args, cwd := some command.dir,
+    cmd := program, args := args, cwd := some command.dir,
     env := #[("GHCR_TOKEN", none)] }
   match ← spawn.toBaseIO with
   | .ok child => return some child
@@ -465,25 +493,25 @@ def await (command : Command) (child : IO.Process.Child stdio) : BaseIO (Option 
       announce s!"could not wait for {command.display}: {error}"
       return none
 
-/-- Run one command to its end and return how it ended. It cannot raise. -/
-def execute (command : Command) : BaseIO (Option UInt32) := do
+/-- Run one command at `priority` to its end and return how it ended. It cannot raise. -/
+def execute (priority : Priority) (command : Command) : BaseIO (Option UInt32) := do
   let started ← IO.monoMsNow
-  let some child ← start command | return none
+  let some child ← start priority command | return none
   let ended ← await command child
   let seconds := ((← IO.monoMsNow) - started) / 1000
   if passed [ended] [] then announce s!"done in {seconds} s: {command.display}"
   else announce s!"failed in {seconds} s ({describe ended}): {command.display}"
   return ended
 
-/-- Run `commands` one after another and return how each ended. A command runs only while
-everything that has ended so far passed: `known` holds the ends known before it, of either side.
-A command after a failure is not run and has no end. It cannot raise. -/
-def executeInOrder : (known : List (Option UInt32)) → (commands : List Command) →
-    BaseIO (Ends commands)
+/-- Run `commands` one after another, each at `priority`, and return how each ended. A command
+runs only while everything that has ended so far passed: `known` holds the ends known before it,
+of either side. A command after a failure is not run and has no end. It cannot raise. -/
+def executeInOrder (priority : Priority) : (known : List (Option UInt32)) →
+    (commands : List Command) → BaseIO (Ends commands)
   | _, [] => return ⟨[], rfl⟩
   | known, command :: rest => do
-      let ended ← if passed known [] then execute command else pure none
-      let later ← executeInOrder (ended :: known) rest
+      let ended ← if passed known [] then execute priority command else pure none
+      let later ← executeInOrder priority (ended :: known) rest
       return ⟨(command, ended) :: later.ends, by simp [later.complete]⟩
 
 /-- Start each of `beside` as a process of its own, run `inOrder` one after another meanwhile,
@@ -491,14 +519,18 @@ then wait for each started command, and return how the commands of each side end
 started once something has failed (`known`). This is a `BaseIO` action, which has no exception,
 so nothing can leave between a start and the wait for it: every started command is joined, also
 when another command failed. The driver never kills a child, because that would not stop the
-child's own descendants. -/
-def executeBeside : (known : List (Option UInt32)) → (beside inOrder : List Command) →
-    BaseIO (Ends inOrder × Ends beside)
-  | known, [], inOrder => return (← executeInOrder known inOrder, ⟨[], rfl⟩)
+child's own descendants.
+
+`priority` is the priority of the commands of `inOrder`. Each command of `beside` starts at the
+driver's own priority, and the commands of `inOrder` then run at low priority, because they run
+while it does. With no command in `beside`, they run at the priority the caller gives. -/
+def executeBeside (priority : Priority) : (known : List (Option UInt32)) →
+    (beside inOrder : List Command) → BaseIO (Ends inOrder × Ends beside)
+  | known, [], inOrder => return (← executeInOrder priority known inOrder, ⟨[], rfl⟩)
   | known, command :: rest, inOrder => do
-      let child ← if passed known [] then start command else pure none
+      let child ← if passed known [] then start .normal command else pure none
       let (others, later) ←
-        executeBeside (if child.isSome then known else none :: known) rest inOrder
+        executeBeside .low (if child.isSome then known else none :: known) rest inOrder
       let ended ← match child with
         | none => pure none
         | some child => do
@@ -583,13 +615,13 @@ def run (args : List String) : IO Unit := do
       throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
         require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in \
         integration/mathlib/)"
-  let early ← executeInOrder []
+  let early ← executeInOrder .normal []
     ([({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
       { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }] ++
           prebuild selection.val)
   let (others, gates) ←
-    executeBeside early.statuses (beside selection.val) (inOrder selection.val)
+    executeBeside .normal early.statuses (beside selection.val) (inOrder selection.val)
   let ordered := early.append others
   unless passed ordered.statuses gates.statuses do
     throw <| IO.userError (report (ordered.ends ++ gates.ends))
