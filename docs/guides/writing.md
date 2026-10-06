@@ -147,17 +147,17 @@ The file [`prose-baseline.json`](../../prose-baseline.json) is the baseline. It 
 
 A document with no entry must have no finding (check B1). Check B2 compares the baseline with the baseline of the base revision. The base revision is the merge base of `HEAD` and `origin/main`. B2 does not accept a new path, a larger number or a different class. Thus the baseline can only become smaller.
 
-B2 also does not accept the removal of a `frozen` entry while its document is a tracked file. Thus the removal of an entry does not let a frozen document change (the theorem `frozen_unchanged`).
+B2 also does not accept a baseline without a `frozen` entry of the base revision, if the document of that entry is a tracked file. Thus a change that removes such an entry does not let the document change (the theorem `frozen_unchanged`).
 
 These checks are not a check of each changed line. A change can add one finding and remove one finding in the same document, and the checks accept that change.
 
 The decisions of the baseline are three Lean functions in [`RegulaCore/ProseBaseline.lean`](../../lean/RegulaCore/ProseBaseline.lean), each with a decision contract:
 
 - `Baseline.parse` accepts a text if, and only if, the text is the text that `Baseline.write` gives for a baseline (`checked_baselineParse`).
-- `gate` (check B1) gives no document if, and only if, the baseline admits each document (`checked_gate`). The statement is `Observed.Admitted`.
-- `ratchet` (check B2) gives no entry if, and only if, the baseline shrinks in relation to the baseline of the base revision (`checked_ratchet`). The statement is `Shrinks`.
+- `gate` (check B1) gives no document if, and only if, each document agrees with the baseline (`checked_gate`). The statement is `Observed.Admitted`.
+- `ratchet` (check B2) gives no entry if, and only if, the baseline agrees with the baseline of the base revision (`checked_ratchet`). The statement is `Shrinks`.
 
-A number of the baseline is a text of decimal digits. B2 compares two numbers as such texts. A number with fewer digits is the smaller number, and two numbers with the same number of digits are compared digit by digit.
+A number of the baseline is a text of decimal digits. B2 compares two numbers as such texts. A number with a smaller number of digits is the smaller number. B2 compares two numbers with the same number of digits digit by digit.
 
 Each message of B1 and B2 starts with `prose-baseline.json`, the line of an entry and the check. For a document or a frozen entry that is not in the baseline, the line is the line where its entry would be.
 
