@@ -368,7 +368,7 @@ A branch that affects runtime data needs a computable decision procedure. Classi
 open Classical in
 /-- Proof-producing logical admission: no program decides whether an arbitrary
 sequence has a zero, so the branch is classical and the definition noncomputable. -/
-noncomputable def firstZero? (f : Nat → Nat) : Option {n : Nat // f n = 0} :=
+noncomputable def someZero? (f : Nat → Nat) : Option {n : Nat // f n = 0} :=
   if h : ∃ n, f n = 0 then some ⟨Classical.choose h, Classical.choose_spec h⟩ else none
 ```
 
