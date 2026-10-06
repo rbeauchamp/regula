@@ -762,9 +762,13 @@ A term can be applied only when its type reduces to a function type, so a result
 leading binder is the type of a result that takes no argument. The implementation then has no
 argument after those that its constant, the field application and the surrounding
 `Function.uncurry` applications supply, and a result that `Regula.Dependent.val` returns is not
-itself a function. With an argument left, an acceptance predicate reads the function-valued
-result at the values it selects, and the kind is the kind of one slice of the implementation
-(`Regula.Decides.iff_slice`). -/
+itself a function.
+
+The condition on the result is structural and conservative. With an argument left, an
+acceptance predicate that reads the function-valued result at one fixed value of that argument
+gives the kind of one slice of the implementation (`Regula.Decides.iff_slice`). One that
+quantifies over the argument can constrain every value, and this decision, which does not read
+the acceptance predicate, refuses it too. The remedy for both is to supply the argument. -/
 def DecidedFunction.Covers (decided : DecidedFunction) : Prop :=
   (∀ packing, decided.packing = some packing → packing.Covers) ∧ decided.unsupplied = 0
 

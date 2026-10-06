@@ -2288,15 +2288,17 @@ private def decisionRequirement? (env : Environment) (scope : ContractScope) (re
 /-- Why a decision registration of `implementation` is refused: the kind is stated about a
 function that is not one of the forms that are read (`decidedReading?`), or that is not the
 implementation on every argument (`RegulaPolicy.DecidedFunction.covers`, proved exact in
-`DecidedFunction.covers_iff`), so it says nothing of the registered constant, or nothing of a
+`DecidedFunction.covers_iff`), so it can say nothing of the registered constant, or nothing of a
 part of its domain; it is stated about the implementation at universe levels other than
 its own parameters (`ownParameters`), so it says nothing of the other universe instances; or the
 acceptance predicate or the specification mentions the implementation (`mentionChain?`), as the
 tautology `spec := fun x => f x = true` does. `none` when none of these holds. `result` is the
 result type of the kind: a function that is the implementation with an argument left, or
 `Regula.Dependent.val` of a function-valued subtype, has a result that is itself a function
-(`unsuppliedArguments`), and a kind about it is the kind of one slice of the implementation.
-This establishes only that the two are stated without the implementation's constant; whether the
+(`unsuppliedArguments`). Every such kind is refused, without a reading of its acceptance
+predicate: one that reads the result at one fixed value of the argument is the kind of one slice
+of the implementation (`Regula.Decides.iff_slice`), and one that quantifies over the argument is
+refused too, which is conservative. This establishes only that the two are stated without the implementation's constant; whether the
 specification is the intended one remains review. -/
 private def decisionFailure? (env : Environment) (implementation : Name)
     (result accepts spec decided : Expr) : MetaM (Option String) := do
@@ -2319,9 +2321,10 @@ private def decisionFailure? (env : Environment) (implementation : Name)
     -- The decision is `reading.covers`; this only selects which of its two conditions to name.
     unless packing.all RegulaPolicy.FieldPacking.covers do return some other
     return some s!"decision contract decides `{shown}`, whose result is a function of \
-      {reading.unsupplied} more argument(s), so the kind is about a part of its implementation \
-      `{implementation}`; state the kind about the implementation applied to every argument, \
-      with one more `Function.uncurry` or one more field of the structure for each of them"
+      {reading.unsupplied} more argument(s); a kind is read only about a result that is not a \
+      function, so state it about the implementation `{implementation}` applied to every \
+      argument, with one more `Function.uncurry` or one more field of the structure for each \
+      of them"
   unless ownParameters levels do
     return some s!"decision contract decides its implementation `{implementation}` at the \
       universe levels {levels}, not at its own universe parameters; state the kind for every \

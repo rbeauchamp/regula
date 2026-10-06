@@ -581,11 +581,14 @@ def guide : RuleId → Guide
           function: `f` with an argument left, through `f` itself, `Function.uncurry` or a field \
           application, or `Regula.Dependent.val` of a function-valued subtype. The result type \
           of the kind, with every definition unfolded, then has a leading binder, and the \
-          finding gives the number of them. An acceptance predicate reads such a result at the \
-          values it selects, so the kind is the kind of one slice of `f` \
-          (`Regula.Decides.iff_slice`) and says nothing of `f` at another value of the argument. \
-          The decision on the packing and on that number is one pure function \
-          (`RegulaPolicy.DecidedFunction.covers`).",
+          finding gives the number of them. The decision on the packing and on that number is \
+          one pure function (`RegulaPolicy.DecidedFunction.covers`).",
+        "That refusal is a conservative structural restriction. A kind whose acceptance predicate \
+          reads a function-valued result at one fixed value of the argument is the kind of one \
+          slice of `f` (`Regula.Decides.iff_slice`) and says nothing of `f` at another value. A \
+          kind whose acceptance predicate quantifies over the argument can constrain every \
+          value, and the checker, which does not read the acceptance predicate, refuses it too. \
+          The remedy for both is to supply the argument.",
         "It rejects a decision registration that states its kind about `f` at universe levels \
           other than the universe parameters of `f`, each once: such a kind holds of some \
           universe instances of `f` and not of the others. The finding names the levels.",

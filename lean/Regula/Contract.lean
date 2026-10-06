@@ -66,12 +66,17 @@ type that depends on its arguments. They can be used separately:
   of a proof-carrying payload, whatever the function returns.
 
 A kind is stated about the function applied to every one of its arguments: the result type of
-the function that is decided is not a function type. With an argument left, an acceptance
-predicate reads the function-valued result at the values it selects, and the kind is the kind of
-one slice of the function (`Decides.iff_slice`). The linter refuses such a kind, in each form:
-the function itself, `Function.uncurry` of it, a field application, and `Dependent.val`. Supply a
-remaining argument with one more `Function.uncurry` (`packing_uncurry_covers`) or as a field of
-the structure.
+the function that is decided is not a function type. This restriction is structural, and it is
+conservative. With an argument left, the result is a function, and how much of it the kind
+constrains depends on the acceptance predicate. One that reads the result at one fixed value `b`
+of that argument gives exactly the kind of the slice of the function at `b`
+(`Decides.iff_slice`), which says nothing of the function at another value. One that quantifies
+over that argument can constrain every value. The linter does not read the acceptance predicate:
+it refuses every kind whose result type is a function type, a kind of the second form included,
+in each form of the decided function (the function itself, `Function.uncurry` of it, a field
+application, and `Dependent.val`). The remedy is the same for both: supply the remaining
+argument, with one more `Function.uncurry` (`packing_uncurry_covers`) or as a field of the
+structure.
 
 A kind about a function with universe parameters is stated at those parameters, so that it
 holds of every instance; the linter refuses a kind stated at other universe levels. A result
@@ -274,8 +279,9 @@ constructor makes every tuple of fields the fields of a value.
 
 The domain `α` is the type of the complete argument tuples of the function that is decided, and
 `f` is that function applied to all of them. No hypothesis can say so: that a result type is not
-a function type is not a proposition of Lean's logic. A kind about a function with an argument
-left is the kind of one slice of it (`Decides.iff_slice`), and the linter refuses it. -/
+a function type is not a proposition of Lean's logic. The linter refuses a kind about a function
+with an argument left; when its acceptance predicate reads the result at one fixed value of that
+argument, such a kind is the kind of one slice of the function (`Decides.iff_slice`). -/
 theorem Decides.of_packing (covers : ∀ x, ∃ s, fields s = x)
     (decides : Decides accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
     Decides accepts spec f :=
@@ -323,8 +329,11 @@ theorem DecidesCompletely.iff_slice (b : β) :
 /-- A two-way kind about a function with an argument left, whose acceptance predicate reads the
 function-valued result at one value `b` of that argument, is the two-way kind of the slice of
 the function at `b`. It holds of every function with that slice, so it says nothing of `g` at
-another value of the argument. This is why a kind is stated about a function applied to every
-argument, and why the linter refuses a kind whose result type is a function type. -/
+another value of the argument. The hypothesis is on the acceptance predicate: one that
+quantifies over the argument, such as `fun h => ∀ b, accepts (h b)`, is not of this form and can
+constrain `g` at every value. The linter does not read the acceptance predicate and refuses
+every kind whose result type is a function type, which is a conservative restriction; the
+remedy is to state the kind about the function applied to every argument. -/
 theorem Decides.iff_slice (b : β) :
     Decides (fun h : β → ρ => accepts (h b)) spec g ↔ Decides accepts spec (fun x => g x b) :=
   ⟨fun decides =>

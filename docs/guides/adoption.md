@@ -706,10 +706,13 @@ true) Spec)`, with `fun g => Regula.Decides accepts Spec (Function.uncurry g)` f
 two arguments, and state `Spec` without `check`. The accepted account then reports the kind
 and, for a one-way kind, the direction it leaves open.
 
-State the kind about the function applied to every one of its arguments. [RG1007] refuses a kind
-whose result is still a function: such a kind is about one slice of the function and says nothing
-of it at another value of the argument that is left. Add one more `Function.uncurry` for each
-further argument, or use a structure of all the arguments.
+State the kind about the function applied to every one of its arguments. [RG1007] refuses every
+kind whose result is still a function. The restriction is structural and conservative: a kind
+whose acceptance predicate reads that result at one fixed value of the remaining argument is
+about one slice of the function and says nothing of it at another value, and a kind whose
+acceptance predicate quantifies over that argument is refused too, because the rule does not
+read the acceptance predicate. For both, supply the argument: add one more `Function.uncurry`
+for each further argument, or use a structure of all the arguments.
 
 Two forms cover the functions that this form does not reach (standard §3.8):
 
