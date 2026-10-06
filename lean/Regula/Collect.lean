@@ -2318,17 +2318,17 @@ private def decisionRequirement? (env : Environment) (scope : ContractScope) (re
 function that is not one of the forms that are read (`decidedReading?`), or that is not the
 implementation on every argument (`RegulaPolicy.DecidedFunction.covers`, proved exact in
 `DecidedFunction.covers_iff`), so it can say nothing of the registered constant, or nothing of a
-part of its domain; it is stated about the implementation at universe levels other than
-its own parameters (`ownParameters`), so it says nothing of the other universe instances; or the
+part of its domain; it is stated about the implementation at universe levels other than its own
+parameters (`ownParameters`), so it says nothing of the other universe instances; or the
 acceptance predicate or the specification mentions the implementation (`mentionChain?`), as the
 tautology `spec := fun x => f x = true` does. `none` when none of these holds. `result` is the
 result type of the kind: a function that is the implementation with an argument left has a
 result that is itself a function (`unsuppliedArguments`). Every such kind is refused, without a
-reading of its acceptance
-predicate: one that reads the result at one fixed value of the argument is the kind of one slice
-of the implementation (`Regula.Decides.iff_slice`), and one that quantifies over the argument is
-refused too, which is conservative. This establishes only that the two are stated without the implementation's constant; whether the
-specification is the intended one remains review. -/
+reading of its acceptance predicate: one that reads the result at one fixed value of the
+argument is the kind of one slice of the implementation (`Regula.Decides.iff_slice`), and one
+that quantifies over the argument is refused too, which is conservative. The search for a
+mention establishes only that the acceptance predicate and the specification are stated without
+the implementation's constant; whether the specification is the intended one remains review. -/
 private def decisionFailure? (env : Environment) (implementation : Name)
     (result accepts spec decided : Expr) : MetaM (Option String) := do
   let mention (part : String) (chain : Array Name) : String :=
