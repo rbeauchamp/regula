@@ -176,8 +176,9 @@ enter its warning check.
 `./scripts/verify.sh` first builds `axiomGate` alone, then runs `axiomGate --acceptance-link
 tmp/acceptance-link.pending.json --verso website:RegulaStandard:regula-standard` beside its
 complete build and its other required checks (`RegulaVerification.prebuild`, `beside` and
-`inOrder`). It joins every one of those commands and, only when each exited 0, moves the pending
-record to `tmp/acceptance-link.json` as its last action before the success line (`promoted`).
+`inOrder`). It joins every one of those commands and, only when `RegulaVerification.passed`
+accepts how each of them ended, moves the pending record to `tmp/acceptance-link.json` as its
+last action before the success line (`promoted`).
 `./scripts/verify.sh docs` runs `docFenceAudit --acceptance-link tmp/acceptance-link.json` with
 the same `--verso` argument over every `docs/` fence and every `lean` block of the standard. So
 an accepted record at that path means that the gate accepted and that every other command of the
@@ -185,25 +186,43 @@ first step exited 0. A run that fails or is killed before the move leaves the re
 as the step's begin-attempt wrote it. The shell's zero exit records completed execution of those
 commands, not a separate Lean proof.
 
-That schedule decides the first step's cost, never its results. The step's complete build keeps
-every processor busy, and the gate, which used to follow it, leaves processors idle: the build of
-its isolated copy ends in one chain of imports. Only the modules the gate executable imports have
-to be built before the gate starts, so the driver builds those first and runs the rest of the
-build, the registry checks and `qualify combined` while the gate runs. `inOrder_append_beside`
-proves that the two groups the driver runs are the step's commands, each once and in their
-order; `prebuild_named` proves that the early build names only a target the complete build
-names again. That the complete build then builds whatever is missing is Lake's behaviour, not a
-theorem. Two more things are read from the code and not proved. First, the gate reads nothing that the commands beside it write: it audits an
-isolated copy whose build output is its own, and the complete build writes only modules outside
-the gate executable's import closure, which the early build left current. The gate's rechecks of
-its sources, configuration and frozen artifacts stay in force, so an interference they can see
-is a refusal, not an acceptance. Second, two Lake processes then use the repository's build
-directory at once, and the one that starts the gate builds nothing; Lake's behaviour there is
-trusted. The driver never kills a command it started, because that would not stop the command's
-own descendants: it joins every one, so a failed command beside a running gate is reported once
-the gate has ended, and the outer deadline's kill still reaches every process. Each command's
-start is a `verification:` line of the driver, and so is its end or, for the gate, the moment
-the driver joined it; the lines of commands that run at once are interleaved.
+The driver's result is one decision. Every command it runs, the preliminary checks and the early
+build included, is recorded with how it ended: its exit status, or no end when it was not run,
+could not be started or could not be awaited. `passed` accepts exactly the records in which
+every command of each side ended with exit status 0 (`passed_iff`, registered as
+`checked_passed`), and the driver asks it before it runs a further command, before the success
+line and before the move. A record of a group of commands has an entry for each command by its
+type (`Ends`), so `passed_covers` proves that an accepted result records exit status 0 for every
+command of both sides, and `inOrder_append_beside` proves that the two sides are the step's
+commands, each once and in their order. That a recorded status is the one the process ended
+with is the trusted process runtime. Between the start of a command and the wait for it the
+driver runs only a `BaseIO` action, which has no exception: no failure, of another command or of
+a progress line that could not be written, can leave before the wait. The driver never kills a
+command it started, because that would not stop the command's own descendants; it joins every
+one, so a failed command beside a running gate is reported once the gate has ended, and the
+outer deadline's kill still reaches every process.
+
+That schedule decides the first step's cost, never its results. `prebuild_named` proves that
+the early build names only a target the complete build names again; that the complete build
+then builds whatever is missing is Lake's behaviour, not a theorem. Two more things are read
+from the code and not proved. First, the gate reads nothing that the commands beside it write:
+it audits an isolated copy whose build output is its own, and the complete build writes only
+modules outside the gate executable's import closure, which the early build left current. The
+gate's rechecks of its sources, configuration and frozen artifacts stay in force, so an
+interference they can see is a refusal, not an acceptance. Second, two Lake processes then use
+the repository's build directory at once, and the one that starts the gate builds nothing;
+Lake's behaviour there is trusted.
+
+Why the schedule saves time is an estimate, not a measurement of processor work. Lake logs the
+elapsed time of each job. By those durations, in one hosted run (CI run 37513374192, four
+processors) about four jobs of the complete build were in progress from its start to its end,
+the gate's isolated build ended with one or two in progress, and the modules the gate executable
+imports account for 414 s of the 640 s the build's jobs logged. If each job needs about one
+processor for its logged duration and that duration does not change with what runs beside it,
+the rest of the build can use processors the gate leaves idle. Neither assumption is measured,
+so the gain is a prediction until hosted runs of the new schedule show it. Each command's start
+is a `verification:` line of the driver, and so is its end or, for the gate, the moment the
+driver joined it; the lines of commands that run at once are interleaved.
 
 Source capture keeps each prefix for failure reporting; a prefix is not a completed inventory. A
 qualification receipt starts as a new incomplete attempt before timeout selection, spawn and setup reads, keeps
@@ -605,6 +624,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `FieldPacking.covers` | `FieldPacking.Covers`: one constructor, no index, and the arguments are the fields, each once and in order (`FieldPacking.covers_iff`) | Whether a decision registration's statement applies its implementation to every argument ([RG1007]). It accepts a type with one constructor, no index and two fields given in order, and refuses a type with one constructor, one index and its one field given. The collector's reading of those numbers from Lean's declarations is not part of this kind. |
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
+| `RegulaVerification.passed` | Every command of each of the two sides of a step, those run one after another and those run beside them, ended with exit status 0 (`passed_iff`) | The driver of `scripts/verify.sh`: before it runs a further command, before its success line and before it moves the acceptance record. |
 
 Sound only, each a declared choice:
 
@@ -641,8 +661,8 @@ Decisions with no kind, and what stands instead:
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
 [RG1008] requires its contract: 52 functions of `RegulaPolicy`, 26 of `RegulaCore`, 9 of
-`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 3 of `RegulaVerification` and 14 of the excluded `Regula` library, where the
-`self-audit` diagnostic decides the rule. Thirteen of them are registered from another module of
+`RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 4 of `RegulaVerification` and 14 of the excluded `Regula` library, where the
+`self-audit` diagnostic decides the rule. Fourteen of them are registered from another module of
 their library, with
 `attribute [regula_decision]` beside their contracts, because the module that declares them
 imports only the toolchain:
@@ -654,7 +674,7 @@ imports only the toolchain:
   a second module that imports the program with `Regula.Contract` and `Regula.Decision`, and that
   no program imports: `RegulaProvision.Decisions` registers `component?`, `admits`, `mathlibStep`, `cloneStep`, `found`, `prunes`, `retires` and
   `mathlibApplies`;
-  `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree` and `select`.
+  `RegulaVerification.Decisions` registers `parseMode`, `dependencyFree`, `select` and `passed`.
   Each kind restates a theorem the program proves about the same definition, except that of
   `component?` (`checked_component`).
 
@@ -2813,7 +2833,10 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   empty selected campaign; `inOrder_append_beside`: the commands the driver runs one after
   another and those it runs beside them are together the selected recipe, each command once;
   `prebuild_named`: a build the driver runs before a recipe names only targets a build of that
-  recipe names; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
+  recipe names; `passed_iff` and `passed_covers`: when `passed` accepts the recorded ends of two
+  groups of commands, every command of each group is recorded with exit status 0, and the driver
+  reports success only after `passed` accepts (that caller is read, not proved);
+  `dependencyFree_packages`: a root lock manifest that `dependencyFree`
   accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
   the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.

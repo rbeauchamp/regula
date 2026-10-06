@@ -69,18 +69,26 @@ faster sample.
   output the selected build did not name, since a stale file can stand in for it locally.
 - Tasks started beside a bounded worker queue run outside its bound. Put them in the queue,
   behind the items that decide its end, so they take workers that would otherwise idle.
-- A processor-bound build followed by a consumer of one of its outputs wastes the processors
-  that consumer leaves idle. From one hosted log, sum the job seconds of the whole build and of
-  the modules the consumer's executable imports. The difference is work that can run beside the
-  consumer. The closure's job seconds over the processor count, and its longest import chain,
-  are each a lower bound of the time before the consumer can start. Build that closure first,
-  start the consumer, and run the complete build, which still names every target, beside it. Show what the consumer reads and what the build
-  then writes, and keep the consumer's own freshness checks, so interference is a refusal. If
-  the consumer wrote a receipt as the last command of the sequence, its success no longer ends
-  the sequence: let the driver promote the receipt after it has joined every command, or a
-  failed or killed run leaves an accepted one. Keep every child in the deadline's process group
-  and join instead of killing. The gain is the idle processor time actually filled, which a
-  machine with more processors than the runner overstates; confirm it on the hosted runner.
+- A build that runs as many jobs as the runner has processors, followed by a consumer of one of
+  its outputs that runs fewer, may leave processors idle while the consumer runs. To estimate
+  what can move, sum from one hosted log the logged job durations of the whole build and of the
+  modules the consumer's executable imports. Lake logs elapsed time, not processor time, so
+  those sums are work only on two assumptions the log does not test: each job needs about one
+  processor for its logged duration, and that duration does not change with what runs beside
+  it. On those assumptions the difference is the work that can run beside the consumer, and the
+  closure's sum over the processor count, with its longest import chain, estimates the time
+  before the consumer can start. That is a prediction, not a bound: a bound needs
+  processor-time evidence. Build that closure first, start the consumer, and run the complete
+  build, which still names every target, beside it. Show what the consumer reads and what the
+  build then writes, and keep the consumer's own freshness checks, so interference is a
+  refusal. If the consumer wrote a receipt as the last command of the sequence, its success no
+  longer ends the sequence: let the driver promote the receipt after it has joined every
+  command, or a failed or killed run leaves an accepted one. Keep every child in the deadline's
+  process group and join instead of killing. Make the join unconditional by construction:
+  between a start and its wait, run only actions that cannot raise (in Lean, a `BaseIO`
+  action), because a progress line that fails to print raises too. Decide the pass in one pure
+  function over how every command ended, with its contract, and not in the control flow.
+  Confirm the gain on the hosted runner; a machine with more processors overstates it.
 - When the bound still exceeds the target, divide the checks into shards under an approved
   budget each, and size them on the slowest observed run. Let every check carry its one shard
   where it is listed and select by that tag, so cover and disjointness are a theorem about the

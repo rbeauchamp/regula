@@ -6,9 +6,10 @@ Cold-start verification plan and operational interpreter. This module imports on
 the pinned toolchain, so it can run before any root-package artifacts exist. Argument
 selection has soundness and round-trip proofs; the interpreter consumes its proof-bearing
 selection. Recipes name Lake targets, not a source-file census. The interpreter runs every
-command of the selected recipe (`inOrder_append_beside`); it starts the gate of ordinary
-acceptance beside the others once that gate is built (`prebuild`, `beside`). Process effects
-remain trusted IO under the shell's single 420-second process-group deadline. -/
+command of the selected recipe (`inOrder_append_beside`) and reports success only when `passed`
+accepts how each one ended (`passed_covers`); it starts the gate of ordinary acceptance beside
+the others once that gate is built (`prebuild`, `beside`). Process effects remain trusted IO
+under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
 /-- Closed vocabulary of supported verification invocations. -/
@@ -296,10 +297,10 @@ theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
 
 /-- Builds the driver runs before a mode's `commands`. They decide cost, never results: every
 target one names is named again by a build among those commands (`prebuild_named`), which still
-builds whatever is missing. Ordinary acceptance builds `axiomGate` alone first: the step's whole
-build keeps every processor busy, while the gate, which follows it, leaves processors idle. With
-the gate built first, the rest of the build and the other checks run beside the gate
-(`beside`). -/
+builds whatever is missing. Ordinary acceptance builds `axiomGate` alone first, so that the gate
+can start before the rest of the step's build has ended: that rest and the other checks then run
+beside the gate (`beside`). How much time that saves is an estimate, not a property of this
+definition. -/
 def prebuild : Mode → List Command
   | .ordinary => [lake #["build", "axiomGate"]]
   | _ => []
@@ -342,57 +343,150 @@ def beside (mode : Mode) : List Command :=
 theorem inOrder_append_beside (mode : Mode) : inOrder mode ++ beside mode = commands mode :=
   List.take_append_drop _ _
 
+/-- Whether a step passed, from how its commands ended: `inOrder` for those that run one after
+another and `beside` for those that run beside them. An end is `some status` for a command that
+ran to its end with that exit status, and `none` for one that was not run, could not be started,
+or whose end could not be observed. A step passes exactly when every command of each side ended
+with exit status 0 (`passed_iff`). It is the driver's one decision about an exit status: the
+driver asks it before it runs a further command, before it reports, and before it moves an
+acceptance record. -/
+def passed (inOrder beside : List (Option UInt32)) : Bool :=
+  (inOrder ++ beside).all (· == some 0)
+
+/-- `passed` accepts exactly the ends in which each command of each side has exit status 0. -/
+theorem passed_iff (inOrder beside : List (Option UInt32)) :
+    passed inOrder beside = true ↔
+      (∀ ended ∈ inOrder, ended = some 0) ∧ (∀ ended ∈ beside, ended = some 0) := by
+  simp [passed]
+
+/-- The commands of one side with how each ended. It has an entry for each of `commands`, in
+their order, so no value of this type leaves a command out. -/
+structure Ends (commands : List Command) where
+  /-- Each command with how it ended (`passed`). -/
+  ends : List (Command × Option UInt32)
+  /-- One entry for each command, in the commands' order. -/
+  complete : ends.map (·.1) = commands
+
+/-- How the commands of a side ended, without the commands: what `passed` reads. -/
+def Ends.statuses {commands : List Command} (side : Ends commands) : List (Option UInt32) :=
+  side.ends.map (·.2)
+
+/-- The ends of two groups of commands that ran one after the other, as the ends of both. -/
+def Ends.append {first second : List Command} (early : Ends first) (late : Ends second) :
+    Ends (first ++ second) :=
+  ⟨early.ends ++ late.ends, by simp [early.complete, late.complete]⟩
+
+/-- When `passed` accepts the ends of two sides, every command of each side is recorded with exit
+status 0. None is left out, because an `Ends` has an entry for each of its commands. That each
+recorded status is the one the command's process ended with is the trusted process runtime. -/
+theorem passed_covers {inOrder beside : List Command} (first : Ends inOrder)
+    (second : Ends beside) (accepted : passed first.statuses second.statuses = true) :
+    ∀ command ∈ inOrder ++ beside, (command, some 0) ∈ first.ends ++ second.ends := by
+  intro command member
+  have ⟨inFirst, inSecond⟩ := (passed_iff _ _).mp accepted
+  rw [← first.complete, ← second.complete] at member
+  rcases List.mem_append.mp member with here | here
+  · obtain ⟨⟨recorded, ended⟩, entry, rfl⟩ := List.mem_map.mp here
+    have zero := inFirst ended (List.mem_map.mpr ⟨_, entry, rfl⟩)
+    exact List.mem_append_left _ (zero ▸ entry)
+  · obtain ⟨⟨recorded, ended⟩, entry, rfl⟩ := List.mem_map.mp here
+    have zero := inSecond ended (List.mem_map.mpr ⟨_, entry, rfl⟩)
+    exact List.mem_append_right _ (zero ▸ entry)
+
 /-- Print one line of the driver's own progress at once, so that it stands in the output where it
-happened among the lines its child processes write. -/
-def announce (line : String) : IO Unit := do
-  IO.println s!"verification: {line}"
-  (← IO.getStdout).flush
+happened among the lines its child processes write. It cannot raise: a progress line that could
+not be written changes no result. -/
+def announce (line : String) : BaseIO Unit := do
+  let write : IO Unit := do
+    IO.println s!"verification: {line}"
+    (← IO.getStdout).flush
+  discard write.toBaseIO
 
 /-- A command as the progress lines show it. -/
 def Command.display (command : Command) : String :=
   " ".intercalate (command.program :: command.args.toList) ++
     (if command.dir = "." then "" else s!" (in {command.dir})")
 
+/-- An end as the progress lines and the failure report show it. -/
+def describe : Option UInt32 → String
+  | some status => s!"exit status {status}"
+  | none => "no end observed"
+
 /-- The standard streams of every command: no input, and the driver's own output. -/
 def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stderr := .inherit }
 
-/-- Start `command` without waiting for it. The child stays in the driver's process group, so
-the outer deadline's kill reaches it. Process execution and signal delivery remain trusted. -/
-def start (command : Command) : IO (IO.Process.Child stdio) := do
+/-- Start `command` without waiting for it; `none`, with a report, when it could not be started.
+It cannot raise. The child stays in the driver's process group, so the outer deadline's kill
+reaches it. Process execution and signal delivery remain trusted. -/
+def start (command : Command) : BaseIO (Option (IO.Process.Child stdio)) := do
   announce s!"start {command.display}"
-  IO.Process.spawn {
+  let spawn : IO (IO.Process.Child stdio) := IO.Process.spawn {
     stdio with
     cmd := command.program, args := command.args, cwd := some command.dir,
     env := #[("GHCR_TOKEN", none)] }
+  match ← spawn.toBaseIO with
+  | .ok child => return some child
+  | .error error =>
+      announce s!"could not start {command.display}: {error}"
+      return none
 
-/-- Wait for a started command; a nonzero exit raises. -/
-def finish (command : Command) (child : IO.Process.Child stdio) : IO Unit := do
-  let exit ← child.wait
-  if exit != 0 then
-    throw <| IO.userError s!"{command.program} {command.args} in {command.dir} failed ({exit})"
+/-- Wait for a started command and return how it ended. It cannot raise: a wait that fails is
+reported and gives no observed end. -/
+def await (command : Command) (child : IO.Process.Child stdio) : BaseIO (Option UInt32) := do
+  match ← child.wait.toBaseIO with
+  | .ok status => return some status
+  | .error error =>
+      announce s!"could not wait for {command.display}: {error}"
+      return none
 
-/-- Interpret one command to its end; a nonzero exit raises before any success report. -/
-def execute (command : Command) : IO Unit := do
+/-- Run one command to its end and return how it ended. It cannot raise. -/
+def execute (command : Command) : BaseIO (Option UInt32) := do
   let started ← IO.monoMsNow
-  finish command (← start command)
-  announce s!"done in {((← IO.monoMsNow) - started) / 1000} s: {command.display}"
+  let some child ← start command | return none
+  let ended ← await command child
+  let seconds := ((← IO.monoMsNow) - started) / 1000
+  if passed [ended] [] then announce s!"done in {seconds} s: {command.display}"
+  else announce s!"failed in {seconds} s ({describe ended}): {command.display}"
+  return ended
 
-/-- Start each of `beside`, run `inOrder` one after another meanwhile, then wait for `beside`.
-A started process is joined on every path before an error leaves, so a failed run leaves no
-command of its own running: the driver never kills a child, because that would not stop the
-child's own descendants. The error raised is the first in this order: a failed start, then
-`inOrder`, which stops at its first failure, then `beside` from its last command to its first. -/
-def executeBeside : (beside inOrder : List Command) → IO Unit
-  | [], inOrder => inOrder.forM execute
-  | command :: rest, inOrder => do
-      let child ← start command
-      let others ← (executeBeside rest inOrder).toBaseIO
-      if let .error error := others then
-        announce s!"failed: {error}; waiting for {command.display}"
-      let joined ← (finish command child).toBaseIO
-      IO.ofExcept others
-      IO.ofExcept joined
-      announce s!"joined: {command.display}"
+/-- Run `commands` one after another and return how each ended. A command runs only while
+everything that has ended so far passed: `known` holds the ends known before it, of either side.
+A command after a failure is not run and has no end. It cannot raise. -/
+def executeInOrder : (known : List (Option UInt32)) → (commands : List Command) →
+    BaseIO (Ends commands)
+  | _, [] => return ⟨[], rfl⟩
+  | known, command :: rest => do
+      let ended ← if passed known [] then execute command else pure none
+      let later ← executeInOrder (ended :: known) rest
+      return ⟨(command, ended) :: later.ends, by simp [later.complete]⟩
+
+/-- Start each of `beside` as a process of its own, run `inOrder` one after another meanwhile,
+then wait for each started command, and return how the commands of each side ended. Nothing is
+started once something has failed (`known`). This is a `BaseIO` action, which has no exception,
+so nothing can leave between a start and the wait for it: every started command is joined, also
+when another command failed. The driver never kills a child, because that would not stop the
+child's own descendants. -/
+def executeBeside : (known : List (Option UInt32)) → (beside inOrder : List Command) →
+    BaseIO (Ends inOrder × Ends beside)
+  | known, [], inOrder => return (← executeInOrder known inOrder, ⟨[], rfl⟩)
+  | known, command :: rest, inOrder => do
+      let child ← if passed known [] then start command else pure none
+      let (others, later) ←
+        executeBeside (if child.isSome then known else none :: known) rest inOrder
+      let ended ← match child with
+        | none => pure none
+        | some child => do
+            unless passed others.statuses later.statuses do
+              announce s!"a command failed; waiting for {command.display}"
+            let ended ← await command child
+            announce s!"joined ({describe ended}): {command.display}"
+            pure ended
+      return (others, ⟨(command, ended) :: later.ends, by simp [later.complete]⟩)
+
+/-- The failure report: each command that did not end with exit status 0, with how it ended. -/
+def report (ends : List (Command × Option UInt32)) : String :=
+  "\n".intercalate ("verification failed:" :: ends.filterMap fun (command, ended) =>
+    if passed [ended] [] then none else some s!"  {command.display}: {describe ended}")
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
@@ -451,8 +545,9 @@ def beginAttempt (args : List String) : IO Unit := do
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
 preliminary checks and the mode's `prebuild`, it runs every command of the mode
-(`inOrder_append_beside`) and joins each one before it reports; a record the mode promotes
-(`promoted`) is moved last, only when every command exited 0. -/
+(`inOrder_append_beside`) and joins each one before it reports. It reports success, and first
+moves a record the mode promotes (`promoted`), only when `passed` accepts how every one of those
+commands ended (`passed_covers`). -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -461,12 +556,16 @@ def run (args : List String) : IO Unit := do
       throw <| IO.userError "lake-manifest.json records a dependency: the regula package must \
         require nothing beyond the Lean toolchain (a Mathlib-dependent module belongs in \
         integration/mathlib/)"
-  for command in [({ program := "git", args := #["diff", "--check"] } : Command),
+  let early ← executeInOrder []
+    ([({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
       { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }] ++
-          prebuild selection.val do
-    execute command
-  executeBeside (beside selection.val) (inOrder selection.val)
+          prebuild selection.val)
+  let (others, gates) ←
+    executeBeside early.statuses (beside selection.val) (inOrder selection.val)
+  let ordered := early.append others
+  unless passed ordered.statuses gates.statuses do
+    throw <| IO.userError (report (ordered.ends ++ gates.ends))
   if let some (pending, accepted) := promoted selection.val then
     IO.FS.rename pending accepted
     announce s!"every command exited 0: moved {pending} to {accepted}"

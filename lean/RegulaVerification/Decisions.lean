@@ -43,6 +43,20 @@ theorem checked_select : Regula.ExecutableContract select (fun selected =>
   ⟨.of_iff (fun args => by rw [isSome]; exact checked_parseMode.evidence.iff args)
     ⟨[], by rw [isSome]; decide⟩ ⟨["unsupported"], by rw [isSome]; decide⟩⟩
 
-attribute [regula_decision] parseMode dependencyFree select
+/-- `passed` accepts exactly the ends in which every command of each side ran to its end with exit
+status 0 (`passed_iff`): the gate, which runs beside the others, and each of the others. It
+accepts a step whose one command of each side so ended, and refuses one whose gate ended with
+another status. The specification is stated with membership and equality alone; it uses nothing
+`passed` is defined with. -/
+theorem checked_passed : Regula.ExecutableContract passed (fun decide =>
+    Regula.Decides (· = true)
+      (fun input : List (Option UInt32) × List (Option UInt32) =>
+        (∀ ended ∈ input.1, ended = some 0) ∧ (∀ ended ∈ input.2, ended = some 0))
+      (Function.uncurry decide)) :=
+  ⟨.of_iff (fun input => passed_iff input.1 input.2)
+    ⟨([some 0], [some 0]), by decide⟩
+    ⟨([some 0], [some 1]), by decide⟩⟩
+
+attribute [regula_decision] parseMode dependencyFree select passed
 
 end RegulaVerification
