@@ -49,7 +49,7 @@ Each check is a Lean function in [`RegulaCore/ControlledProse.lean`](../../lean/
 
 - C1 and C2 add one to the count for each word of a title or of a proper noun. ASD-STE100 gives one word to such a group (rule 8.6). Thus the count of the check is not smaller than the count of ASD-STE100, if the sentences are correct. The check gives two words to a number with its unit.
 - The sentences of the check are the sentences of a reader only if no abbreviation with a period is before an uppercase word. C8 does not accept five such abbreviations, and the reviewer examines the others. An incorrect sentence end can make the count of C1 and C2 too small.
-- C3 gives the number of the sentences of the check that are not in parentheses.
+- C3 is for each paragraph, and a paragraph of a list item is also a paragraph. C3 gives the number of the sentences of that paragraph that are not in parentheses.
 - C4 finds each semicolon in the text that the parser gives as prose. It does not find a semicolon in code.
 - C5 finds only the contractions of its definition. It does not find `'s` with the meaning "is" after a noun, and it accepts the possessive `'s`.
 - C6 and C7 compare words in lowercase. They find only the same letters, thus they do not find the plural of a replaced word. They accept a replaced name or a replaced word that is a part of a longer term of `CONTEXT.md`.
