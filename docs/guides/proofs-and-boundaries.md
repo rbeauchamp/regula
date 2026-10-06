@@ -173,56 +173,100 @@ refused. The claimed targets are built with the audit-build marker `weak.regula.
 modules last built with ordinary options are rebuilt for the audit and their replayed logs never
 enter its warning check.
 
-`./scripts/verify.sh` first builds `axiomGate` alone, then runs `axiomGate --acceptance-link
-tmp/acceptance-link.pending.json --verso website:RegulaStandard:regula-standard` beside its
-complete build and its other required checks (`RegulaVerification.prebuild`, `beside` and
-`inOrder`). It joins every one of those commands and, only when `RegulaVerification.passed`
-accepts how each of them ended, moves the pending record to `tmp/acceptance-link.json` as its
-last action before the success line (`promoted`).
-`./scripts/verify.sh docs` runs `docFenceAudit --acceptance-link tmp/acceptance-link.json` with
-the same `--verso` argument over every `docs/` fence and every `lean` block of the standard. So
-an accepted record at that path means that the gate accepted and that every other command of the
-first step exited 0. A run that fails or is killed before the move leaves the record incomplete,
-as the step's begin-attempt wrote it. The shell's zero exit records completed execution of those
-commands, not a separate Lean proof.
+The command `./scripts/verify.sh` first builds `axiomGate` alone (`RegulaVerification.prebuild`).
+Then it operates `axiomGate --acceptance-link tmp/acceptance-link.pending.json --verso
+website:RegulaStandard:regula-standard` at the same time as its complete build and its other
+required checks (`beside` and `inOrder`). The driver of that command
+(`lean/RegulaVerification.lean`) waits for each command that it started before it gives its
+result. The driver moves the pending record to `tmp/acceptance-link.json` only if
+`RegulaVerification.passed` accepts the exit status of each command (`promoted`). That move is
+the last action of the driver before the success line. The command `./scripts/verify.sh docs`
+operates `docFenceAudit --acceptance-link tmp/acceptance-link.json` with the same `--verso`
+argument for each `docs/` fence and each `lean` block of the standard.
 
-The driver's result is one decision. Every command it runs, the preliminary checks and the early
-build included, is recorded with how it ended: its exit status, or no end when it was not run,
-could not be started or could not be awaited. `passed` accepts exactly the records in which
-every command of each side ended with exit status 0 (`passed_iff`, registered as
-`checked_passed`), and the driver asks it before it runs a further command, before the success
-line and before the move. A record of a group of commands has an entry for each command by its
-type (`Ends`), so `passed_covers` proves that an accepted result records exit status 0 for every
-command of both sides, and `inOrder_append_beside` proves that the two sides are the step's
-commands, each once and in their order. That a recorded status is the one the process ended
-with is the trusted process runtime. Between the start of a command and the wait for it the
-driver runs only a `BaseIO` action, which has no exception: no failure, of another command or of
-a progress line that could not be written, can leave before the wait. The driver never kills a
-command it started, because that would not stop the command's own descendants; it joins every
-one, so a failed command beside a running gate is reported once the gate has ended, and the
-outer deadline's kill still reaches every process.
+Thus an accepted record at `tmp/acceptance-link.json` shows that the gate accepted. It also shows
+that each other command of the first step ended with exit status 0. If an attempt fails or is
+killed before the move, the record at that path stays incomplete. It is the incomplete record
+that the begin-attempt of the step wrote. The shell's zero exit records completed execution of
+those commands, not a separate Lean proof.
 
-That schedule decides the first step's cost, never its results. `prebuild_named` proves that
-the early build names only a target the complete build names again; that the complete build
-then builds whatever is missing is Lake's behaviour, not a theorem. Two more things are read
-from the code and not proved. First, the gate reads nothing that the commands beside it write:
-it audits an isolated copy whose build output is its own, and the complete build writes only
-modules outside the gate executable's import closure, which the early build left current. The
-gate's rechecks of its sources, configuration and frozen artifacts stay in force, so an
-interference they can see is a refusal, not an acceptance. Second, two Lake processes then use
-the repository's build directory at once, and the one that starts the gate builds nothing;
-Lake's behaviour there is trusted.
+The result of the driver is one decision. The driver keeps an entry for each command, and the
+preliminary checks and the early build are included. An entry has the exit status of its
+command, if the driver got one. The driver gets no exit status for a command that it did not
+operate, could not start or could not wait for.
 
-Why the schedule saves time is an estimate, not a measurement of processor work. Lake logs the
-elapsed time of each job. By those durations, in one hosted run (CI run 37513374192, four
-processors) about four jobs of the complete build were in progress from its start to its end,
-the gate's isolated build ended with one or two in progress, and the modules the gate executable
-imports account for 414 s of the 640 s the build's jobs logged. If each job needs about one
-processor for its logged duration and that duration does not change with what runs beside it,
-the rest of the build can use processors the gate leaves idle. Neither assumption is measured,
-so the gain is a prediction until hosted runs of the new schedule show it. Each command's start
-is a `verification:` line of the driver, and so is its end or, for the gate, the moment the
-driver joined it; the lines of commands that run at once are interleaved.
+The entries of the commands that operate in sequence are one side. The entries of the commands
+that operate at the same time as them are the second side (`beside`). The function `passed`
+accepts the entries of the two sides if, and only if, each entry has exit status 0
+(`passed_iff`). The theorem `checked_passed` is the decision contract of that function. The
+driver uses that function before it operates one more command, before the success line and
+before the move.
+
+By its type (`Ends`), a side has one entry for each of its commands. Thus the theorem
+`passed_covers` proves that an accepted result has an entry with exit status 0 for each command
+of the two sides. The theorem `inOrder_append_beside` proves that `inOrder` and `beside` together
+are the commands of the step, each one time and in the same sequence. Lean does not prove that
+the exit status of an entry is the exit status of the process. The process runtime is trusted
+for that relation.
+
+From the start of a command until the driver waits for it, the driver operates only `BaseIO`
+actions. A `BaseIO` action has no exception. Thus no failure can stop the driver before it waits
+for that command. This includes the failure of a different command and the failure to write a
+progress line.
+
+The driver does not kill a command that it started, because that does not stop the processes
+that the command started. The driver waits for each command that it started. Thus, if a command
+fails while the gate operates, the driver gives its failure report only after the gate stops.
+The kill signal of the outer deadline still goes to each process.
+
+That schedule changes the cost of the first step, but not its results. The theorem
+`prebuild_builds` proves that the function `buildTargets` gives a minimum of one target for each
+early build. That function gives targets only for a `lake build` command in the root of the
+repository. The theorem `prebuild_named` proves that each target of an early build is also a
+target of a build among the commands of the step. The complete build then builds each target
+that is missing. That is the behavior of Lake, and no theorem shows it.
+
+Lean does not prove the next relation, which is read from the code. While the gate operates, it
+reads nothing that the other commands of the step write:
+
+- The gate audits an isolated copy that has its own build output.
+- The complete build writes only modules that are not in the import closure of the gate
+  executable.
+- The early build made the modules of that import closure current.
+
+The gate keeps its repeated checks of its sources, its configuration and its frozen artifacts.
+Thus interference that those checks can find causes a refusal and not an acceptance.
+
+Two Lake processes then use the build directory of the repository at the same time. The theorem
+`beside_prebuilt` proves that each command of `beside` is a `lake exe` command in the root of the
+repository. It also proves that an early build names the executable of that command. The driver
+starts such a command only after each early build ended with exit status 0, which is read from
+the function `run`. No theorem shows that the Lake process of that command then builds nothing.
+The behavior of Lake with two processes in one build directory is trusted.
+
+The explanation of the gain of the schedule is an estimate, not a measurement of processor work.
+Lake logs the elapsed time of each job. The next three facts are from the logged durations of
+one hosted run (CI run 37513374192, four processors). Approximately four jobs of the complete
+build were in progress from its start to its end. The isolated build of the gate ended with one
+or two jobs in progress. The modules that the gate executable imports are 414 s of the 640 s
+that the jobs of the build logged.
+
+The estimate uses two assumptions. The first assumption is that each job uses approximately one
+processor for its logged duration. The second assumption is that this duration does not change
+when other work operates at the same time. If the two assumptions are correct, the remaining
+part of the build can use the processors that the gate does not use. No measurement shows that
+the two assumptions are correct. Thus the gain is a prediction until hosted runs of the new
+schedule show it.
+
+The driver writes each line that starts with `verification:`. It writes such a line at the start
+of each command. It writes a second line when the command ends or, for the gate, after it waited
+for the gate. The output lines of commands that operate at the same time are mixed. The other
+`verification:` lines are for these events:
+
+- The driver could not start a command.
+- The driver could not wait for a command.
+- A command failed, and the driver waits for the gate.
+- The driver moved the pending record.
 
 Source capture keeps each prefix for failure reporting; a prefix is not a completed inventory. A
 qualification receipt starts as a new incomplete attempt before timeout selection, spawn and setup reads, keeps
@@ -624,7 +668,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `FieldPacking.covers` | `FieldPacking.Covers`: one constructor, no index, and the arguments are the fields, each once and in order (`FieldPacking.covers_iff`) | Whether a decision registration's statement applies its implementation to every argument ([RG1007]). It accepts a type with one constructor, no index and two fields given in order, and refuses a type with one constructor, one index and its one field given. The collector's reading of those numbers from Lean's declarations is not part of this kind. |
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
-| `RegulaVerification.passed` | Every command of each of the two sides of a step, those run one after another and those run beside them, ended with exit status 0 (`passed_iff`) | The driver of `scripts/verify.sh`: before it runs a further command, before its success line and before it moves the acceptance record. |
+| `RegulaVerification.passed` | Each command of the two sides of a step ended with exit status 0 (`passed_iff`). One side has the commands that operate in sequence, and the second side has the commands that operate at the same time as them. | The driver of `scripts/verify.sh` uses it before it operates one more command, before its success line and before it moves the acceptance record. |
 
 Sound only, each a declared choice:
 
@@ -2830,16 +2874,22 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - `RegulaVerification.parseMode_sound`, `parseMode_roundtrip` and `select_exact`: exact argument
   binding and acceptance of every documented invocation; the caller consumes the proof-bearing
   selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
-  empty selected campaign; `inOrder_append_beside`: the commands the driver runs one after
-  another and those it runs beside them are together the selected recipe, each command once;
-  `prebuild_named`: a build the driver runs before a recipe names only targets a build of that
-  recipe names; `passed_iff` and `passed_covers`: when `passed` accepts the recorded ends of two
-  groups of commands, every command of each group is recorded with exit status 0, and the driver
-  reports success only after `passed` accepts (that caller is read, not proved);
-  `dependencyFree_packages`: a root lock manifest that `dependencyFree`
+  empty selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
   accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
   the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.
+- The theorem `RegulaVerification.inOrder_append_beside` proves that `inOrder` and `beside`
+  together are the selected recipe, each command one time.
+- The theorem `RegulaVerification.prebuild_builds` proves that `buildTargets` gives a minimum of
+  one target for each command of `prebuild`. The theorem `prebuild_named` proves that each of
+  those targets is also a target of a build of the selected recipe.
+- The theorem `RegulaVerification.beside_prebuilt` proves that each command of `beside` is a
+  `lake exe` command in the root of the repository. It also proves that a command of `prebuild`
+  names the executable of that command.
+- The theorems `RegulaVerification.passed_iff` and `passed_covers` are about the function
+  `passed`. If `passed` accepts the entries of two groups of commands, each command of each group
+  has an entry with exit status 0. The driver reports success only after `passed` accepts. That
+  caller is read from the code and is not proved.
 
 ## Operational assumptions
 

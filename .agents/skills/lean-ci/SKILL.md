@@ -69,26 +69,36 @@ faster sample.
   output the selected build did not name, since a stale file can stand in for it locally.
 - Tasks started beside a bounded worker queue run outside its bound. Put them in the queue,
   behind the items that decide its end, so they take workers that would otherwise idle.
-- A build that runs as many jobs as the runner has processors, followed by a consumer of one of
-  its outputs that runs fewer, may leave processors idle while the consumer runs. To estimate
-  what can move, sum from one hosted log the logged job durations of the whole build and of the
-  modules the consumer's executable imports. Lake logs elapsed time, not processor time, so
-  those sums are work only on two assumptions the log does not test: each job needs about one
-  processor for its logged duration, and that duration does not change with what runs beside
-  it. On those assumptions the difference is the work that can run beside the consumer, and the
-  closure's sum over the processor count, with its longest import chain, estimates the time
-  before the consumer can start. That is a prediction, not a bound: a bound needs
-  processor-time evidence. Build that closure first, start the consumer, and run the complete
-  build, which still names every target, beside it. Show what the consumer reads and what the
-  build then writes, and keep the consumer's own freshness checks, so interference is a
-  refusal. If the consumer wrote a receipt as the last command of the sequence, its success no
-  longer ends the sequence: let the driver promote the receipt after it has joined every
-  command, or a failed or killed run leaves an accepted one. Keep every child in the deadline's
-  process group and join instead of killing. Make the join unconditional by construction:
-  between a start and its wait, run only actions that cannot raise (in Lean, a `BaseIO`
-  action), because a progress line that fails to print raises too. Decide the pass in one pure
-  function over how every command ended, with its contract, and not in the control flow.
-  Confirm the gain on the hosted runner; a machine with more processors overstates it.
+- A build can use as many jobs as the runner has processors. If a consumer of one output of that
+  build then uses fewer jobs, some processors can be idle while the consumer operates. To make an
+  estimate of the work that can move, use one hosted log. Add the logged durations of the jobs of
+  the complete build. Then add the logged durations of the modules that the executable of the
+  consumer imports (its import closure).
+- Lake logs elapsed time, not processor time. Thus those two sums are work only if two
+  assumptions are correct, and the log does not show that they are correct. The first assumption
+  is that each job uses approximately one processor for its logged duration. The second
+  assumption is that this duration does not change when other work operates at the same time.
+- With those assumptions, the difference of the two sums is the work that can operate at the
+  same time as the consumer. Two values give an estimate of the time before the consumer can
+  start. The first value is the sum of the import closure divided by the number of processors.
+  The second value is the longest import chain of that closure. The result is a prediction and
+  not a bound. For a bound, evidence of processor time is necessary.
+- Build that import closure first. Then start the consumer. Operate the complete build at the
+  same time as the consumer. Make sure that the complete build continues to name each target.
+  Show the files that the consumer reads and the files that the build then writes. Keep the
+  freshness checks of the consumer, so that interference causes a refusal.
+- If the consumer wrote a receipt as the last command of the sequence, its success does not end
+  the sequence after the change. Thus make the driver promote the receipt only after it waited
+  for each command. If the driver does not do that, an attempt that failed or was killed can have
+  an accepted receipt. Keep each child process in the process group of the deadline.
+- Do not kill a child process. Make the driver wait for each child process. From the start of a
+  process until the driver waits for it, use only actions that raise no exception. In Lean, such
+  an action is a `BaseIO` action. In an `IO` action, a progress line that the driver cannot print
+  also raises an exception. Thus this construction makes sure that the driver waits for each
+  started process.
+- Make the pass decision in one pure function of the end of each command, with a decision
+  contract. Do not make that decision in the control flow. Do a measurement of the gain on the
+  hosted runner. A machine with more processors shows a gain that is too large.
 - When the bound still exceeds the target, divide the checks into shards under an approved
   budget each, and size them on the slowest observed run. Let every check carry its one shard
   where it is listed and select by that tag, so cover and disjointness are a theorem about the

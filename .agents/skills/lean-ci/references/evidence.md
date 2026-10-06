@@ -80,39 +80,53 @@ SIGKILL cannot execute user-space cleanup. The OS remains a trusted boundary.
 
 ## Regula: the gate beside the rest of ordinary acceptance (2026-10-06)
 
-Observed on hosted `ubuntu-24.04` runners with four processors; these are not bounds.
-Over 18 CI runs the first acceptance step took 226 to 414 s under its 420-second deadline. In
-five of them read phase by phase, every phase was 1.6 to 1.8 times longer in the slowest run
-(405 s) than in the fastest (236 s), so the spread was runner speed. In [run 37513374192](https://github.com/rbeauchamp/regula/actions/runs/37513374192)
-the step took 364 s: the build 173 s, `qualify combined` 25 s, and the gate 157 s, of which its
-isolated build took about 66 s.
+These values are observations on hosted `ubuntu-24.04` runners with four processors, and they
+are not bounds. In 18 CI runs, the time of the first acceptance step was 226 s to 414 s with its
+420-second deadline. An examination of five of those runs gave the time of each phase. Each
+phase was 1.6 to 1.8 times longer in the slowest of those five runs (405 s) than in the fastest
+(236 s). Thus the cause of the difference was the speed of the runner.
 
-What follows is an estimate from the durations Lake logs for each job. Lake measures them with
-`IO.monoMsNow` around the job, so they are elapsed time: a job that waits for a processor, or
-that uses several threads, logs the same way, and their sum is not processor work. The build
-logged 273 jobs whose durations sum to 640 s, and by those durations about four jobs were in
-progress from its start to its end. The gate's isolated build logged 163 s, with one or two jobs
-in progress during its last 40 s. The modules the gate executable imports logged 414 of the
-640 s, and their longest import chain with the gate's own C file logged 96 s. If each job needs
-about one processor for its logged duration, and that duration does not change with what runs
-beside it, then about 225 s of the build's work did not have to precede the gate, and the step
-would take about 300 s on that runner. Neither assumption was measured, so that figure is a
-prediction.
+In [run 37513374192](https://github.com/rbeauchamp/regula/actions/runs/37513374192), the time of
+the step was 364 s. The build was 173 s, `qualify combined` was 25 s and the gate was 157 s. The
+isolated build of the gate was approximately 66 s of those 157 s.
 
-The driver now builds the gate first and runs it beside the complete build and the other checks
+The next values are an estimate from the durations that Lake logs for each job. Lake measures
+each duration with `IO.monoMsNow` before and after the job, and thus a duration is elapsed time.
+A job that is idle until it gets a processor, or that uses more than one thread, logs its
+duration in the same way. Thus the sum of the durations is not processor work. The build logged
+273 jobs, and the sum of their durations is 640 s. By those durations, approximately four jobs
+were in progress from the start of the build to its end.
+
+The isolated build of the gate logged 163 s, with one or two jobs in progress during its last
+40 s. The modules that the gate executable imports logged 414 s of the 640 s. The longest import
+chain of those modules, with the C file of the gate, logged 96 s.
+
+The estimate uses two assumptions. The first assumption is that each job uses approximately one
+processor for its logged duration. The second assumption is that this duration does not change
+when other work operates at the same time. If the two assumptions are correct, approximately
+225 s of the work of the build was not necessary before the gate. The time of the step on that
+runner is then approximately 300 s. No measurement shows that the two assumptions are correct,
+and thus that value is a prediction.
+
+At this time, the driver builds the gate first. Then it operates the gate at the same time as
+the complete build and the other checks
 ([proofs and boundaries](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)).
-In one local probe (14 processors, two threads for each side) the second build compiled 106
-jobs, none of them a module the gate imports, and the gate recorded the same input identity as
-the sequential run. That probe shows the arrangement works; it does not show the hosted gain,
-because the local machine has processors to spare. The hosted times of the new schedule are in
-the pull request that closed [issue 246](https://github.com/rbeauchamp/regula/issues/246).
-Not established: that two Lake processes in one build directory never interfere (one of them
-builds nothing here), and any upper bound on the step's time.
+In one local probe (14 processors, two threads for each side), the second build compiled 106
+jobs. None of those jobs was a module that the gate imports. The gate recorded the same input
+identity as the sequential run.
 
-An independent review of the first version found one path on which the gate was not joined: the
-line that announced another command's failure could itself raise before the wait. The driver's
-orchestration is now a `BaseIO` action, and one pure decision with a registered contract
-(`RegulaVerification.passed`) decides the result from how every command ended.
+That probe shows that the arrangement operates. It does not show the hosted gain, because the
+local machine has processors that the work does not use. The hosted times of the new schedule
+are in the pull request that closed [issue 246](https://github.com/rbeauchamp/regula/issues/246).
+Two items are not established. The first item is that two Lake processes in one build directory
+do not interfere (one of them builds nothing here). The second item is an upper bound of the
+time of the step.
+
+An independent review of the first version found one path on which the driver did not wait for
+the gate. On that path, the line that reported the failure of a different command could raise an
+exception before the driver waited for the gate. At this time, the orchestration of the driver
+is a `BaseIO` action. One pure decision with a registered decision contract
+(`RegulaVerification.passed`) gives the result from the end of each command.
 
 ## Regula: Veil scout for the corpus harness (2026-09-23)
 

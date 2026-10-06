@@ -52,11 +52,7 @@ modules and audits the root package's claimed Lean surfaces from fresh output. I
 registry and native qualification controls (`qualify combined`, which runs those of
 `qualify registry` and then `qualify native`). It refuses a root
 lock manifest that records any dependency. It records the content
-identity of the inputs it accepted in `tmp/acceptance-link.json`, and only once every one of its
-commands has passed. It builds `axiomGate` first and runs that gate beside the rest of its build
-and the qualification controls, so their output lines are interleaved; each `verification:` line
-marks the start or the end of one command
-([proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)). `./scripts/verify.sh docs`
+identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), refuses a link of the root `README.md` to the rule-reference site that is not a stable address ([links of the root README](#links-of-the-root-readme)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
 requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [checks of the prose](#the-prose-of-markdown-documents) and of the [check of the vocabulary](#the-vocabulary-of-the-project), and then does those checks. `DOC-*` rows need both commands. The
@@ -66,6 +62,14 @@ development command. Each command has its own hard seven-minute
 limit; a timeout is an incomplete run, not acceptance. `./scripts/provision.sh` runs before
 that limit, under its own 30-minute limit; it validates the released compiler and acquires no dependencies. CI runs both commands, in that order in one job, after restoring or
 provisioning the pinned Verso artifacts.
+
+Ordinary acceptance puts the accepted record at `tmp/acceptance-link.json` only after each of
+its commands ended with exit status 0. It builds `axiomGate` first. Then it operates that gate at
+the same time as the remaining part of its build and the qualification controls. Thus the output
+lines of those commands are mixed. Each line that starts with `verification:` is a progress line
+of the driver of `./scripts/verify.sh`. Such a line gives the start of a command, the end of a
+command, or a different event of the driver
+([proofs and boundaries](proofs-and-boundaries.md#the-acceptance-boundary)).
 
 The applicable command evidence is required but does not complete the standard's checklist:
 theorem, type and prose rows still require semantic review. A conformance record for this

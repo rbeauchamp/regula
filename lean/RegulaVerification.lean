@@ -8,8 +8,8 @@ selection has soundness and round-trip proofs; the interpreter consumes its proo
 selection. Recipes name Lake targets, not a source-file census. The interpreter runs every
 command of the selected recipe (`inOrder_append_beside`) and reports success only when `passed`
 accepts how each one ended (`passed_covers`); it starts the gate of ordinary acceptance beside
-the others once that gate is built (`prebuild`, `beside`). Process effects remain trusted IO
-under the shell's single 420-second process-group deadline. -/
+the others once that gate is built (`prebuild`, `beside`, `beside_prebuilt`). Process effects
+remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
 /-- Closed vocabulary of supported verification invocations. -/
@@ -295,9 +295,10 @@ def commands : Mode → List Command
 theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
   cases mode <;> simp [commands, ruleExampleShard, selftest]
 
-/-- Builds the driver runs before a mode's `commands`. They decide cost, never results: every
-target one names is named again by a build among those commands (`prebuild_named`), which still
-builds whatever is missing. Ordinary acceptance builds `axiomGate` alone first, so that the gate
+/-- Builds the driver runs before a mode's `commands`. They decide cost, never results: each is a
+`lake build` in the repository root that names a target (`prebuild_builds`), and every target one
+names is named again by a build among those commands (`prebuild_named`), which still builds
+whatever is missing. Ordinary acceptance builds `axiomGate` alone first, so that the gate
 can start before the rest of the step's build has ended: that rest and the other checks then run
 beside the gate (`beside`). How much time that saves is an estimate, not a property of this
 definition. -/
@@ -312,8 +313,17 @@ def buildTargets (command : Command) : List String :=
     command.args.toList.drop 1
   else []
 
-/-- A prebuild selects nothing: each target it names is a target of a build among the mode's own
-commands, which runs to completion before any success report. -/
+/-- A prebuild only builds: it has a target, which `buildTargets` gives to nothing but a
+`lake build` in the repository root. So `prebuild_named` speaks about every prebuild. -/
+theorem prebuild_builds (mode : Mode) (command : Command) (h : command ∈ prebuild mode) :
+    buildTargets command ≠ [] := by
+  cases mode <;> simp [prebuild] at h
+  subst h
+  simp [buildTargets, lake]
+
+/-- A prebuild selects nothing: it is a build (`prebuild_builds`), and each target it names is a
+target of a build among the mode's own commands, which runs to completion before any success
+report. -/
 theorem prebuild_named (mode : Mode) (command : Command) (target : String)
     (h : command ∈ prebuild mode) (named : target ∈ buildTargets command) :
     ∃ later ∈ commands mode, target ∈ buildTargets later := by
@@ -334,7 +344,8 @@ def inOrder (mode : Mode) : List Command :=
   (commands mode).take ((commands mode).length - besideCount mode)
 
 /-- The commands of `mode` that each run as a process of their own, started before `inOrder` and
-joined after it: its last `besideCount`. -/
+joined after it: its last `besideCount`. Each runs an executable that a prebuild names
+(`beside_prebuilt`). -/
 def beside (mode : Mode) : List Command :=
   (commands mode).drop ((commands mode).length - besideCount mode)
 
@@ -342,6 +353,18 @@ def beside (mode : Mode) : List Command :=
 `besideCount` is: the schedule drops no command and adds none. -/
 theorem inOrder_append_beside (mode : Mode) : inOrder mode ++ beside mode = commands mode :=
   List.take_append_drop _ _
+
+/-- A command that runs beside the others is a `lake exe` in the repository root, and a prebuild
+of its mode names its executable as a target. That the prebuild has ended before the command
+starts is the driver's order (`run`), and that Lake then builds nothing for the command is Lake's
+behaviour; neither is this theorem. -/
+theorem beside_prebuilt (mode : Mode) (command : Command) (h : command ∈ beside mode) :
+    command.program = "lake" ∧ command.dir = "." ∧ command.args[0]? = some "exe" ∧
+      ∃ target, command.args[1]? = some target ∧
+        ∃ early ∈ prebuild mode, target ∈ buildTargets early := by
+  cases mode <;> simp [beside, besideCount, commands] at h
+  subst h
+  simp [lake, prebuild, buildTargets]
 
 /-- Whether a step passed, from how its commands ended: `inOrder` for those that run one after
 another and `beside` for those that run beside them. An end is `some status` for a command that
@@ -407,10 +430,12 @@ def Command.display (command : Command) : String :=
   " ".intercalate (command.program :: command.args.toList) ++
     (if command.dir = "." then "" else s!" (in {command.dir})")
 
-/-- An end as the progress lines and the failure report show it. -/
+/-- An end as the progress lines and the failure report show it. No end has one label for its
+three causes: the command was not run after an earlier failure, could not be started, or its end
+could not be observed. A `could not start` or `could not wait` line names the last two. -/
 def describe : Option UInt32 → String
   | some status => s!"exit status {status}"
-  | none => "no end observed"
+  | none => "not run, or no end observed"
 
 /-- The standard streams of every command: no input, and the driver's own output. -/
 def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stderr := .inherit }
