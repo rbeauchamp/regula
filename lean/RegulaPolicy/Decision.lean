@@ -473,7 +473,7 @@ theorem policyFor_none_iff (i : Inventory) (roles : Roles i) (d : Declaration)
 
 /-- The record of the axiom-free declaration `subject` of module `Module` with the given kind,
 which is registered as no decision: the declaration of the witnesses of `checked_policyFor`,
-`checked_memberFailure` and the editor decision's contract. -/
+`checked_memberFailure_decides` and the editor decision's contract. -/
 def witnessDeclaration (kind : DeclarationKind) : Declaration :=
   { name := `subject, «module» := `Module, kind, «type» := "", prettyType := "", isProp := false
     isUnsafe := false, isPartial := false, safety := none, «instance» := false
