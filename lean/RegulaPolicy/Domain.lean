@@ -10,7 +10,7 @@ meta import Regula.Decision
 
 Closed policy vocabulary and observation data. No operational Lean imports: `Regula.Decision`
 is imported for elaboration only (`meta import`), for the `@[regula_decision]` registration of the
-parsers and admissions below, so no definition here can run what it brings.
+decisions below, so no definition here can run what it brings.
 Canonical representation is informed by con-leche PropWhen; these are original domain
 definitions, not imported con-leche proofs. Source observation authenticity remains
 with the operational collector. -/

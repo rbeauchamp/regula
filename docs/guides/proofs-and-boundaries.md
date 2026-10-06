@@ -573,7 +573,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `ResultState.insertResult`, `ResultState.collect`, `admitIndexedResults` (accept on `.ok`) | `InsertOK`, `BatchOK`, `IndexedResultsOK` (`insertResult_success_iff`, `collect_success_iff`, `admitIndexedResults_ok_iff`) | Result admission, for every key type, payload type, order, required set and binding relation: the types and instances are fields of the structure of the arguments (`InsertInput`, `CollectInput`, `IndexedResultsInput`). The first two are stated at their own universe parameters, with witnesses over the one-point type `PUnit`; the third takes a payload type of `Type`, with witnesses over `Unit`. |
 | `policyFor`, `memberFailure`, `Regula.Linter.editorDecisionImpl` (accept on `none`) | `DeclarationOK` and `DecisionOK` under the inventory's own roles, together with membership in the inventory for `policyFor` (`policyFor_none_iff`); the other two take the membership proof as an argument, and the specification of the editor decision is `DeclarationOK` alone, since the editor does not decide the decision requirement | The public declaration decision of [RG1001]–[RG1008] for an inventory, its member-indexed form, and the editor's. The type of the roles depends on the inventory, and the membership proof of the last two on both, so each is decided on a structure of its arguments (`PolicyInput`, `MemberInput`). The witnesses are over `witnessInventory`, the inventory of one recorded declaration: an axiom-free definition passes under Kernel-only, and an authored axiom, or a declaration of another inventory, does not. |
 | `admitBoundaryEvidence` (accepts on `.ok`) | `BoundaryFieldsOK`: the fields are those of some evidence of the kind (`boundaryEvidence_admission_preserves`, `boundaryEvidence_roundtrip`) | Admission of a boundary's correspondence fields ([RG3001], [RG3002]), on the structure of the four arguments (`BoundaryFields`). The result type depends on the boundary kind. |
-| `FieldPacking.covers` | `FieldPacking.Covers`: one constructor, no index, and the arguments are the fields, each once and in order (`FieldPacking.covers_iff`) | Whether a decision registration's statement applies its implementation to every argument ([RG1007]). It accepts a type with one constructor, no index and two fields given in order, and refuses the same shape with one index. The collector's reading of those numbers from Lean's declarations is not part of this kind. |
+| `FieldPacking.covers` | `FieldPacking.Covers`: one constructor, no index, and the arguments are the fields, each once and in order (`FieldPacking.covers_iff`) | Whether a decision registration's statement applies its implementation to every argument ([RG1007]). It accepts a type with one constructor, no index and two fields given in order, and refuses a type with one constructor, one index and its one field given. The collector's reading of those numbers from Lean's declarations is not part of this kind. |
 | `DecidedFunction.covers` | `DecidedFunction.Covers`: a field application covers (`FieldPacking.Covers`), and the number of arguments that a result takes is zero (`DecidedFunction.covers_iff`) | Whether a decision registration's statement is about its implementation on every argument ([RG1007]). It accepts the function itself when no result takes an argument, and refuses it when a result takes one more, which is a kind about a partially applied function. The collector's reading of that number from the kind's result type is not part of this kind. |
 | `Regula.Website.admitExampleRequest`, `admitExampleSources`, `admitDemonstration` (accept on `.ok`) | The observed request is the frozen one; `ExampleSourcesOK`; `DemonstrationOK` | Admission of a rule-example producer's request, sources and diagnostic demonstration. Each returns the admitted value with its proof, so each result type depends on the arguments. The first and the third are decided on the pair of their two arguments, and the second on the structure of its three (`ExampleSourcesInput`). |
 
@@ -611,7 +611,7 @@ Decisions with no kind, and what stands instead:
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 52 functions of `RegulaPolicy`, 10 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 52 functions of `RegulaPolicy`, 13 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 3 of `RegulaVerification` and 14 of the excluded `Regula` library, where the
 `self-audit` diagnostic decides the rule. Thirteen of them are registered from another module of
 their library, with
@@ -2779,7 +2779,8 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
   selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
   empty selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
   accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
-  `parseMode` and `dependencyFree`. Process execution remains IO.
+  the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
+  execution remains IO.
 
 ## Operational assumptions
 
