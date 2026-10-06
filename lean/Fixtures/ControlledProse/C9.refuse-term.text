@@ -1,0 +1,16 @@
+# CONTEXT
+
+Vocabulary version: 1
+Standard: ASD-STE100 Issue 9
+
+## Shared technical nouns
+
+| Term | Category | Definition | Replaces | Source |
+| --- | --- | --- | --- | --- |
+| module | 19 | One source file of a program. | - | `C9.accept.text` |
+
+## Project technical verbs
+
+| Term | Category | Definition | Replaces | Source |
+| --- | --- | --- | --- | --- |
+| module | 2c | To put code in source files. | - | `C9.accept.text` |

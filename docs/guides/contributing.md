@@ -21,7 +21,10 @@ the `regula_audit` package in [`audit/`](../../audit/lakefile.lean) (`audit/Audi
 is `Audit.Research`), which requires the root package by relative path, as an adopter would, and
 nothing else. Everything that imports Mathlib is the `regula_mathlib` package in
 [`integration/mathlib/`](../../integration/mathlib/lakefile.lean), which only the
-[Mathlib integration check](#mathlib-integration-check) builds. Run Lake commands
+[Mathlib integration check](#mathlib-integration-check) builds. The `regula_markdown` package
+in [`markdown/`](../../markdown/lakefile.toml) has the md4c reader and the executable of the
+[checks of Markdown documents](#markdown-documents). It requires the root package and MD4Lean
+only. Run Lake commands
 from the repository root, and the `audit/` package's in `audit/` (or with `lake -d audit`).
 Lake's elaborated library and executable inventory owns source discovery; directory names alone
 do not establish audit ownership.
@@ -40,7 +43,7 @@ commands below downloads, caches, imports or builds Mathlib; the
 lake build                         # incremental development check (the regula package)
 lake -d audit build                # the standard's example library
 ./scripts/verify.sh                 # ordinary acceptance (project surfaces)
-./scripts/verify.sh docs            # tracked Markdown rule IDs, audit/ package, documentation examples and the Verso standard, linked to that acceptance
+./scripts/verify.sh docs            # checks of tracked Markdown documents, audit/ package, documentation examples and the Verso standard, linked to that acceptance
 ./scripts/verify.sh diagnostics fixtures # focused diagnostic qualification
 ```
 
@@ -52,7 +55,7 @@ lock manifest that records any dependency. It records the content
 identity of the inputs it accepted in `tmp/acceptance-link.json`. `./scripts/verify.sh docs`
 then refuses a rule ID in the prose of a tracked Markdown document that is not a link to its rule page ([rule IDs in documentation](#rule-ids-in-documentation)), audits the `audit/` package's claimed surface from fresh output, checks every Lean example
 under `docs/` and in the Verso standard (each elaborated in the Verso package's workspace, which
-requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. `DOC-*` rows need both commands. The
+requires both packages), builds and renders the standard fresh, refuses such a rule ID in the prose of the rendered standard, and refuses unless its own freshly captured inputs have the same identity. That command also operates the controls of the [check of the vocabulary](#the-vocabulary-of-the-project) and then does that check. `DOC-*` rows need both commands. The
 declaration gate performs Lake-semantic discovery and a clean, warning-free build before
 inspection, so a redundant preliminary clean build is unnecessary; `lake build` remains the
 development command. Each command has its own hard seven-minute
@@ -399,6 +402,9 @@ follows the [checked example convention](https://rbeauchamp.github.io/regula/dev
 Link to the actual Lean module for larger definitions and proofs; do not copy an
 implementation merely to mirror the chapter structure.
 
+For a new or changed Markdown document, obey the [writing rules](writing.md). The documentation
+step does the [check of the vocabulary](#the-vocabulary-of-the-project).
+
 For review, use the repository-local
 [review toolkit](../../.agents/skills/pr-review-toolkit/SKILL.md) and the applicable
 [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/), with the repository rows above. Scope verification to
@@ -438,10 +444,10 @@ release editions already published are frozen copies and are not rewritten.
 
 `./scripts/verify.sh docs` checks every Markdown document Git tracks: each file `git ls-files`
 lists with the extension `md` or `markdown`, read from the working tree
-(`lake exe regula-markdown ..` in `website/`). This check reads no Markdown syntax of its own.
-md4c, a CommonMark parser that the pinned Verso brings as MD4Lean, parses each document in its
-GitHub dialect (tables, strikethrough, task lists and autolinks), and
-[`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) translates its parse into
+(`lake exe regula-markdown ..` in `markdown/`). This check reads no Markdown syntax of its own.
+md4c, a CommonMark parser that the `markdown/` package requires as MD4Lean, parses each document
+in its GitHub dialect (tables, strikethrough, task lists and autolinks), and
+[`markdown/RegulaMarkdown.lean`](../../markdown/RegulaMarkdown.lean) translates its parse into
 pieces (prose, code, the edges of links, refusals, and the boundaries between runs and lines)
 for `Regula.Markdown`, which decides on the pieces (`documentErrors_nil_iff`). The theorem is
 about the pieces it is given; the translation has no theorem. Hand-written readers of
@@ -488,7 +494,7 @@ The check trusts, and does not verify:
   with it as text then describes the rendering GitHub's dialect gives.
 - That md4c reads a document as GitHub's renderer does (cmark-gfm and GitHub's later passes).
 - The translation of MD4Lean's document into the pieces the proved check decides on (`read`
-  and every definition it calls in `website/RegulaMarkdown.lean`: `block`, `inline`, `flat`,
+  and every definition it calls in `markdown/RegulaMarkdown.lean`: `block`, `inline`, `flat`,
   `link` and the rest). It is project-owned Lean with no theorem: it decides which
   piece each element md4c reports becomes, and only the evaluated controls of that module
   observe it.
@@ -510,6 +516,39 @@ what md4c's parse shows of the difference. The rest is not seen:
 
 Link destinations and titles, code block info strings, and link reference definitions are not
 prose and are not checked.
+
+### The vocabulary of the project
+
+The same executable does a check of [`CONTEXT.md`](../../CONTEXT.md), the vocabulary of the
+project. This check is check C9 of the [writing rules](writing.md), and the writing rules give
+its definition.
+
+The decisions are in [`RegulaCore/Vocabulary.lean`](../../lean/RegulaCore/Vocabulary.lean). Each
+decision has a decision contract and the attribute `regula_decision`. The definitions of a word
+and of a sentence are in
+[`RegulaCore/ControlledText.lean`](../../lean/RegulaCore/ControlledText.lean). The function
+`vocabularyOf` in [`markdown/MarkdownMain.lean`](../../markdown/MarkdownMain.lean) uses these
+decisions.
+
+The executable also does not accept the file in each of these conditions, and it has no decision
+contract for them:
+
+- The file has the line `Shared vocabulary:`, and the command does not have the option
+  `--shared`.
+- Git does not track the file.
+- Git gives no list of tracked files for the repository, or for the directory of the file of the
+  option `--shared`.
+
+The controls of the check are the files in
+[`lean/Fixtures/ControlledProse/`](../../lean/Fixtures/ControlledProse/). The documentation step
+operates them first: `lake exe regula-markdown --controls ../lean/Fixtures/ControlledProse` in
+`markdown/`. The check accepts two controls and does not accept the others. For a control that
+it does not accept, each message must start with the file, the line and the check of the
+control. A control has the extension `text`. Thus the check of the tracked Markdown documents
+does not read the controls.
+
+This check is not a rule of the checker and not a requirement of the standard. It has no rule
+ID.
 
 ## Change an acceptance boundary
 

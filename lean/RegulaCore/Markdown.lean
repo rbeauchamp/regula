@@ -5,7 +5,7 @@ import Regula.Decision
 
 Every rule ID that a tracked Markdown document mentions in prose is a link to that rule's page.
 This module decides that from what a CommonMark parser reports of the document. It reads no
-Markdown itself: `Regula.Markdown.read` (`website/RegulaMarkdown.lean`) runs md4c and turns its
+Markdown itself: `Regula.Markdown.read` (`markdown/RegulaMarkdown.lean`) runs md4c and turns its
 parse into the `Piece`s below, so what is a paragraph, a code span or a link in the source is
 md4c's decision, and which piece each becomes is that module's (see Boundaries).
 
@@ -47,7 +47,7 @@ are not prose.
 `rejected_nil_iff` and `documentErrors_nil_iff` are about the pieces they are given. That the
 pieces are the document's is not proved, and has two parts: the parser's reading of the
 document, which is trusted, and the translation of that reading into pieces (`read` and every
-definition it calls in `website/RegulaMarkdown.lean`: `block`, `inline`, `flat`, `link` and the
+definition it calls in `markdown/RegulaMarkdown.lean`: `block`, `inline`, `flat`, `link` and the
 rest), which is project-owned Lean with no theorem. That translation
 decides which piece each element the parser reports becomes, and is observed only by that
 module's evaluated controls. Both parts are stated there and in the contributor guide.
@@ -209,7 +209,7 @@ def Scan.past (s : Scan) (slice : String) : Scan :=
 /-- Where prose read now stands: in the text of the link entered last and not yet left, if
 any. This is how the pieces are read, not a claim about how a link inside a link's text is
 rendered: where the pieces are made from md4c's parse, such a link is refused
-(`Regula.Markdown.nested` in `website/RegulaMarkdown.lean`). -/
+(`Regula.Markdown.nested` in `markdown/RegulaMarkdown.lean`). -/
 def Scan.place (s : Scan) : Place :=
   match s.entered with
   | (index, destination) :: _ => .link index destination
@@ -636,7 +636,7 @@ theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun r
       simpa using (documentErrors_nil_iff "" "" (.unread "")).mp accepted⟩⟩
 
 /-! Evaluated controls (observations of the compiled definitions, not proofs), on pieces written
-out by hand; the controls on Markdown text, read by md4c, are in `website/RegulaMarkdown.lean`. -/
+out by hand; the controls on Markdown text, read by md4c, are in `markdown/RegulaMarkdown.lean`. -/
 
 private def page : String := Edition.dev.url RuleId.sourceBuild.route
 

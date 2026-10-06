@@ -3,11 +3,11 @@ import RegulaCore.Markdown
 
 /-! # Markdown documents, read by md4c
 
-`read` parses a Markdown document with md4c (through `MD4Lean`, which the pinned Verso brings)
-and reports its parse as the pieces `Regula.Markdown.documentErrors` (`RegulaCore/Markdown.lean`)
-decides on. Nothing here reads Markdown syntax: what is a paragraph, a code span, a table cell
-or a link, which link reference definition a reference uses, and what a character reference
-stands for, is md4c's.
+`read` parses a Markdown document with md4c (through `MD4Lean`, at the revision the website
+package's pinned Verso resolves to) and reports its parse as the pieces
+`Regula.Markdown.documentErrors` (`RegulaCore/Markdown.lean`) decides on. Nothing here reads
+Markdown syntax: what is a paragraph, a code span, a table cell or a link, which link reference
+definition a reference uses, and what a character reference stands for, is md4c's.
 
 ## The parse
 

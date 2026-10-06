@@ -14,8 +14,9 @@ inductive Mode where
   /-- No argument: the first acceptance step, which builds the acceptance executables, runs the
   registry checks and combined qualification, and audits the root package's claimed surfaces. -/
   | ordinary
-  /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document,
-  the fresh acceptance of the `audit/` package whose modules the standard's examples import, then
+  /-- `docs`: the second acceptance step: the rule-ID check of every tracked Markdown document
+  and the check of the vocabulary `CONTEXT.md` with its controls, the fresh acceptance of the
+  `audit/` package whose modules the standard's examples import, then
   the documentation audit and the Verso standard's build and render, refused unless its inputs
   have the content identity the first step recorded. -/
   | docs
@@ -164,8 +165,12 @@ def versoStandard : String := "website:RegulaStandard:regula-standard"
 /-- Evidence receipt of one rule-example shard. -/
 def shardEvidence (index : Nat) : String := s!"tmp/rule-examples-{index}of2.json"
 
-/-- The website package, which holds the Verso standard and, through its pinned Verso, md4c. -/
-def websitePackage : String := "website"
+/-- The package of the Markdown checks: md4c's reader and the `regula-markdown` executable. It
+requires only the md4c binding and the root package. -/
+def markdownPackage : String := "markdown"
+
+/-- The controls of the check of the vocabulary, relative to the Markdown package. -/
+def proseControls : String := "../lean/Fixtures/ControlledProse"
 
 /-- Rule-reference site artifact directory (the GitHub Pages upload). -/
 def siteOutput : String := "_site"
@@ -203,10 +208,15 @@ def commands : Mode → List Command
       lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]
   | .docs => [
       lake #["build", "docFenceAudit"],
+      -- The controls of the check of the vocabulary: the check accepts its positive controls
+      -- and refuses the others, with the exact file, line and check at the start of each
+      -- refusal (`markdown/MarkdownMain.lean`).
+      lakeIn markdownPackage #["exe", "regula-markdown", "--controls", proseControls],
       -- Every Markdown document Git tracks, read by md4c: a rule ID in prose that is not a link
-      -- to its rule page is refused (`website/MarkdownMain.lean`). The argument is the repository
-      -- root, relative to the website package.
-      lakeIn websitePackage #["exe", "regula-markdown", ".."],
+      -- to its rule page is refused, and so is a `CONTEXT.md` that is not the print of a
+      -- vocabulary or that has a source path Git does not track (check C9). The argument is the
+      -- repository root, relative to the Markdown package.
+      lakeIn markdownPackage #["exe", "regula-markdown", ".."],
       -- The `audit/` package's own fresh acceptance, as an adopter of `regula` runs it: the
       -- standard's `lean` blocks import its modules, and the linked identity below brackets the
       -- sources they need.
@@ -338,7 +348,9 @@ def run (args : List String) : IO Unit := do
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"
     | .docs => "documentation verification: PASS (every rule ID in the prose md4c reads in each \
-      tracked Markdown document links to its rule page; the example package in audit/ accepted \
+      tracked Markdown document links to its rule page; CONTEXT.md is the print of a vocabulary \
+      whose source paths are tracked files, and the controls of that check gave the expected \
+      results; the example package in audit/ accepted \
       fresh; every docs/ Lean fence and every lean block of the Verso standard, which built \
       fresh and rendered; every rule ID in the prose `Regula.Prose` reads in the rendered \
       standard links to its rule page; inputs equal the accepted ordinary inputs)"
