@@ -18,12 +18,12 @@ puts the three decisions of the vocabulary together, and `explain`, `clashes` an
 `Baseline.explain_nil_iff`). The other refusals of a repository have no registered decision and
 no theorem: `vocabularyOf` refuses a vocabulary that names a shared vocabulary when it is given
 none; `loadVocabulary` refuses when Git does not track `CONTEXT.md`, and when Git does not list
-the files of the repository of the shared vocabulary; `baseBaseline` refuses when Git has no
-base revision or does not give its baseline; and `check` refuses when Git does not list the
-files of the repository, and when it lists no Markdown document. The rest is not proved: the
-list of tracked files and the baseline of the base revision are Git's, the content of a file is
-the file system's, a digest is `shasum`'s, and md4c's reading of a document is
-`Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
+the files of the repository of the shared vocabulary; `baseReference` refuses when Git has no
+base revision or does not give its baseline or its documents; and `check` refuses when Git does
+not list the files of the repository, and when it lists no Markdown document. The rest is not
+proved: the list of tracked files, the baseline and the documents of the base revision are
+Git's, the content of a file is the file system's, a digest is `shasum`'s, and md4c's reading of
+a document is `Regula.Markdown.read`'s (`RegulaMarkdown.lean`). -/
 
 open Regula.Markdown Regula.Controlled
 
@@ -201,6 +201,14 @@ def digestOf (path : System.FilePath) : IO String := do
     throw <| IO.userError s!"shasum -a 256 {path} failed: {out.stderr}"
   return ((out.stdout.splitOn " ").headD "")
 
+/-- The SHA-256 digest of `text`, in lowercase hexadecimal digits, as the external `shasum` tool
+computes it from its standard input. -/
+def digestOfText (text : String) : IO String := do
+  let out ← IO.Process.output { cmd := "shasum", args := #["-a", "256"] } (some text)
+  unless out.exitCode == 0 do
+    throw <| IO.userError s!"shasum -a 256 failed: {out.stderr}"
+  return ((out.stdout.splitOn " ").headD "")
+
 /-- The entry of `baseline` for the document at `path`, if it has one. -/
 def entryOf (baseline : Baseline) (path : String) : Option Entry :=
   baseline.entries.find? fun entry => entry.path == path.toList
@@ -226,10 +234,21 @@ def documentRefusals (file : String) (baseline : Baseline) (vocabulary : Vocabul
     else []) ++
   (gate baseline observed).map fun (line, reason) => refusal file line gateCheck reason
 
-/-- The refusals of check B2 for the baseline `head` of `file` in relation to `base`. -/
-def ratchetRefusals (file : String) (base : Option Baseline) (head : Baseline)
+/-- The refusals of check B2 for the baseline `head` of `file`, if the revision has one, in
+relation to the reference of the base revision. -/
+def ratchetRefusals (file : String) (reference : Reference) (head : Option Baseline)
     (tracked : List String) : List String :=
-  (ratchet base head tracked).map fun (line, reason) => refusal file line ratchetCheck reason
+  (ratchet reference head tracked).map fun (line, reason) =>
+    refusal file line ratchetCheck reason
+
+/-- What the checks observe of one document of a base revision that has no baseline, with the
+text `source`: its tally, and its digest when `head` has a frozen entry for its path. -/
+def measureOne (head : Baseline) (vocabulary : Vocabulary) (path source : String) :
+    IO Observed := do
+  let digest ← match (entryOf head path).map Entry.allowance with
+    | some (.frozen _) => digestOfText source
+    | _ => pure ""
+  return ⟨path, digest, tally (lexicon vocabulary path) (read source)⟩
 
 /-- The baseline with the text `text` of `file`, or the refusals of its form. -/
 def baselineOf (file text : String) : Except (List String) Baseline :=
@@ -238,12 +257,12 @@ def baselineOf (file text : String) : Except (List String) Baseline :=
   | none =>
     .error ((Baseline.explain text).map fun (line, reason) => refusal file line gateCheck reason)
 
-/-- The baseline of the repository: its `prose-baseline.json`, or the baseline with no entry
-when Git tracks no such file. -/
+/-- The baseline of the repository: its `prose-baseline.json`, or `none` when Git tracks no such
+file. -/
 def loadBaseline (root : System.FilePath) (tracked : List String) :
-    IO (Except (List String) Baseline) := do
-  unless tracked.contains baselineFile do return .ok Baseline.empty
-  return baselineOf baselineFile (← IO.FS.readFile (root / baselineFile))
+    IO (Except (List String) (Option Baseline)) := do
+  unless tracked.contains baselineFile do return .ok none
+  return (baselineOf baselineFile (← IO.FS.readFile (root / baselineFile))).map some
 
 /-- The base revision: the merge base of `HEAD` and the revision `options.base`, or that
 revision itself when Git finds no merge base (in a shallow clone, where the history between the
@@ -256,21 +275,40 @@ def baseRevision (options : Options) : IO (Except String String) := do
   return .error s!"the base revision is not available: Git has no revision {options.base}; \
     fetch it, or give the revision that the change starts from with --base"
 
-/-- The baseline of the base revision (`baseRevision`): its `prose-baseline.json`, `none` when
-that commit has no such file. -/
-def baseBaseline (options : Options) : IO (Except String (Option Baseline)) := do
+/-- What the checks observe of each Markdown document of the commit `commit`, as Git gives it:
+the documents of a base revision that has no baseline (`measureOne`). -/
+def measure (options : Options) (commit : String) (vocabulary : Vocabulary) (head : Baseline) :
+    IO (Except String (List Observed)) := do
+  let listed ← git options.root #["ls-tree", "-r", "--name-only", "-z", commit]
+  unless listed.exitCode == 0 do
+    return .error s!"`git ls-tree -r {commit}` failed ({listed.stderr.trimAscii})"
+  let paths := ((listed.stdout.splitOn "\x00").filter (!·.isEmpty)).filter isMarkdown
+  let mut observed : List Observed := []
+  for path in paths do
+    let shown ← git options.root #["show", s!"{commit}:./{path}"]
+    unless shown.exitCode == 0 do
+      return .error s!"`git show {commit}:./{path}` failed ({shown.stderr.trimAscii})"
+    observed := observed ++ [← measureOne head vocabulary path shown.stdout]
+  return .ok observed
+
+/-- The reference of the base revision (`baseRevision`) for check B2: its `prose-baseline.json`,
+or, when that commit has no such file, what the checks observe of its Markdown documents with
+the vocabulary `vocabulary` (`measure`). -/
+def baseReference (options : Options) (vocabulary : Vocabulary) (head : Baseline) :
+    IO (Except String Reference) := do
   let commit ← match ← baseRevision options with
     | .ok commit => pure commit
     | .error reason => return .error reason
   let listed ← git options.root #["ls-tree", "--name-only", commit, "--", baselineFile]
   unless listed.exitCode == 0 do
     return .error s!"`git ls-tree {commit}` failed ({listed.stderr.trimAscii})"
-  if listed.stdout.trimAscii.toString.isEmpty then return .ok none
+  if listed.stdout.trimAscii.toString.isEmpty then
+    return (← measure options commit vocabulary head).map .measured
   let shown ← git options.root #["show", s!"{commit}:./{baselineFile}"]
   unless shown.exitCode == 0 do
     return .error s!"`git show {commit}:./{baselineFile}` failed ({shown.stderr.trimAscii})"
   match Baseline.parse shown.stdout with
-  | some baseline => return .ok (some baseline)
+  | some baseline => return .ok (.baseline baseline)
   | none =>
     return .error s!"the {baselineFile} of the base revision {commit} is not the print of a \
       baseline"
@@ -301,10 +339,12 @@ def check (options : Options) : IO UInt32 := do
   let mut prose : List String := []
   let mut summary := ""
   match vocabulary, baseline with
-  | .ok vocabulary, .ok baseline =>
+  | .ok vocabulary, .ok head =>
+    let baseline := head.getD Baseline.empty
     let observed ← documents.mapM (observe options.root baseline vocabulary)
-    let growth ← match ← baseBaseline options with
-      | .ok base => pure (ratchetRefusals baselineFile base baseline (documents.map (·.path)))
+    let growth ← match ← baseReference options vocabulary baseline with
+      | .ok reference =>
+        pure (ratchetRefusals baselineFile reference head (documents.map (·.path)))
       | .error reason => pure [refusal baselineFile 1 ratchetCheck reason]
     prose := documentRefusals baselineFile baseline vocabulary documents observed ++ growth
     summary := s!"{vocabularyFile} is the print of a vocabulary with {rows vocabulary}, and each \
@@ -360,7 +400,7 @@ def writeBaseline (options : Options) : IO UInt32 := do
       IO.eprintln ("\n".intercalate refusals)
       return 1
   let baseline ← match ← loadBaseline options.root tracked with
-    | .ok baseline => pure baseline
+    | .ok baseline => pure (baseline.getD Baseline.empty)
     | .error refusals =>
       IO.eprintln ("\n".intercalate refusals)
       return 1
@@ -393,8 +433,10 @@ The files of `lean/Fixtures/ControlledProse` are controls of the decisions: for 
 text that the check accepts and one or more texts that it refuses. A control of C9 is read as
 `CONTEXT.md` is, by `vocabularyOf`. A control of C1 to C8 is a document, read by md4c as a
 tracked document is, with the vocabulary of `C9.accept.text`. A control of B1 is a baseline for
-the document controls, and a control of B2 is a baseline in relation to `B2.base.json`. The
-names of the files of the directory are the tracked files. The run below refuses unless each
+the document controls. A control of B2 is a baseline in relation to `B2.base.json`, or a first
+baseline in relation to document controls that are the documents of a base revision with no
+baseline, or the removal of the baseline. The names of the files of the directory are the
+tracked files. The run below refuses unless each
 control has the result that `controls` gives, with the exact file, line and check at the start
 of each refusal, and unless the directory holds these files and no other. A control is a text
 of a grammar or a document, which has no place for a comment, so the comment of each control is
@@ -419,12 +461,20 @@ inductive Subject where
   /-- The file read as the baseline of a head revision in relation to the baseline `base` of the
   base revision (check B2). -/
   | ratchet (base file : String)
+  /-- The file read as the first baseline of a repository: the base revision has no baseline,
+  and its documents are the document controls `documents` (check B2). -/
+  | first (documents : List String) (file : String)
+  /-- A head revision with no baseline, in relation to the baseline `base` of the base revision
+  (check B2). -/
+  | removed (base : String)
 
 /-- The files of a subject. -/
 def Subject.files : Subject → List String
   | .vocabulary own shared => own :: shared.toList
   | .document file | .gate file => [file]
   | .ratchet base file => [base, file]
+  | .first documents file => file :: documents
+  | .removed base => [base]
 
 /-- One control: what is read, and the result it must give. -/
 structure Control where
@@ -448,6 +498,9 @@ def controls : List Control := [
   ⟨.vocabulary "C9.refuse-no-word.text", .refused "C9.refuse-no-word.text" 10 "C9"⟩,
   -- `untracked` refuses a source path that is no tracked file.
   ⟨.vocabulary "C9.refuse-source.text", .refused "C9.refuse-source.text" 10 "C9"⟩,
+  -- `parse` refuses a replaced word with an apostrophe at its start and at its end: the form of
+  -- a word of the vocabulary for a comparison is its lowercase.
+  ⟨.vocabulary "C9.refuse-apostrophes.text", .refused "C9.refuse-apostrophes.text" 10 "C9"⟩,
   -- The branch of `vocabularyOf` that refuses a vocabulary that names a shared vocabulary when
   -- it is given none. This refusal is of no registered decision.
   ⟨.vocabulary "C9.project.accept.text", .refused "C9.project.accept.text" 5 "C9"⟩,
@@ -471,6 +524,12 @@ def controls : List Control := [
   -- `WARNING:`, and refuses a sentence of 21 words in an item of an ordered list.
   ⟨.document "C2.accept.text", .accepted⟩,
   ⟨.document "C2.refuse.text", .refused "C2.refuse.text" 3 "C2"⟩,
+  -- `longSteps` refuses a sentence of 21 words in a block quote, in an item of an unordered
+  -- list and in a table cell, each in an item of an ordered list: the reader keeps the lists
+  -- around a block.
+  ⟨.document "C2.refuse-quote.text", .refused "C2.refuse-quote.text" 3 "C2"⟩,
+  ⟨.document "C2.refuse-bullet.text", .refused "C2.refuse-bullet.text" 4 "C2"⟩,
+  ⟨.document "C2.refuse-cell.text", .refused "C2.refuse-cell.text" 7 "C2"⟩,
   -- `longParagraphs` accepts a paragraph of six sentences and refuses one of seven.
   ⟨.document "C3.accept.text", .accepted⟩,
   ⟨.document "C3.refuse.text", .refused "C3.refuse.text" 3 "C3"⟩,
@@ -491,16 +550,21 @@ def controls : List Control := [
   -- `replacedWords` accepts a replaced word in code font and refuses it in prose.
   ⟨.document "C7.accept.text", .accepted⟩,
   ⟨.document "C7.refuse.text", .refused "C7.refuse.text" 3 "C7"⟩,
+  -- `replacedWords` refuses a replaced word in apostrophes: the form of a word of prose for a
+  -- comparison has no apostrophe at its start or at its end.
+  ⟨.document "C7.refuse-apostrophes.text", .refused "C7.refuse-apostrophes.text" 3 "C7"⟩,
   -- `abbreviations` accepts an abbreviation in code font and refuses it in prose.
   ⟨.document "C8.accept.text", .accepted⟩,
   ⟨.document "C8.refuse.text", .refused "C8.refuse.text" 3 "C8"⟩,
+  -- `abbreviations` refuses an abbreviation in apostrophes, by the same form of a word.
+  ⟨.document "C8.refuse-apostrophes.text", .refused "C8.refuse-apostrophes.text" 3 "C8"⟩,
   -- `gate` accepts a baseline with the numbers of each document control that has findings, and
   -- with the digest of a frozen document.
   ⟨.gate "B1.accept.json", .accepted⟩,
   -- `gate` refuses an entry with another number than the document has.
   ⟨.gate "B1.refuse-number.json", .refused "B1.refuse-number.json" 7 "B1"⟩,
   -- `gate` refuses a document with findings and no entry, at the line where its entry would be.
-  ⟨.gate "B1.refuse-entry.json", .refused "B1.refuse-entry.json" 15 "B1"⟩,
+  ⟨.gate "B1.refuse-entry.json", .refused "B1.refuse-entry.json" 20 "B1"⟩,
   -- `gate` refuses a frozen entry whose digest is not the digest of its document.
   ⟨.gate "B1.refuse-frozen.json", .refused "B1.refuse-frozen.json" 5 "B1"⟩,
   -- `Baseline.parse` refuses entries that are not in the sequence of their paths.
@@ -514,7 +578,24 @@ def controls : List Control := [
   ⟨.ratchet "B2.base.json" "B2.refuse-number.json", .refused "B2.refuse-number.json" 6 "B2"⟩,
   -- `ratchet` refuses a baseline without the frozen entry of the base revision, when the
   -- document of that entry is a tracked file.
-  ⟨.ratchet "B2.base.json" "B2.refuse-frozen.json", .refused "B2.refuse-frozen.json" 5 "B2"⟩]
+  ⟨.ratchet "B2.base.json" "B2.refuse-frozen.json", .refused "B2.refuse-frozen.json" 5 "B2"⟩,
+  -- `ratchet` refuses the removal of the baseline, when the base revision has one.
+  ⟨.removed "B2.base.json", .refused "B2.base.json" 1 "B2"⟩,
+  -- `ratchet` accepts a first baseline whose entry has the numbers of a document of the base
+  -- revision, which has no baseline.
+  ⟨.first ["C4.refuse.text"] "B2.first.json", .accepted⟩,
+  -- `ratchet` refuses the same first baseline when the base revision does not have the
+  -- document: a new document with a semicolon cannot come in with an entry that agrees with it.
+  ⟨.first ["C4.accept.text"] "B2.first.json", .refused "B2.first.json" 5 "B2"⟩,
+  -- `ratchet` refuses a first baseline with a larger number than the document of the base
+  -- revision has.
+  ⟨.first ["C4.refuse.text"] "B2.first.refuse-number.json",
+    .refused "B2.first.refuse-number.json" 5 "B2"⟩,
+  -- `ratchet` accepts a first baseline with a frozen entry that has the digest of the document
+  -- of the base revision, and refuses one with a different digest.
+  ⟨.first ["C1.accept.text"] "B2.first.frozen.json", .accepted⟩,
+  ⟨.first ["C1.accept.text"] "B2.first.refuse-frozen.json",
+    .refused "B2.first.refuse-frozen.json" 5 "B2"⟩]
 
 /-- Run the controls of `directory`. Exit code 0 when each control gives what `controls` expects
 and the directory holds exactly the files of the controls, and 1 otherwise. -/
@@ -552,11 +633,26 @@ def runControls (directory : System.FilePath) : IO UInt32 := do
       | .ratchet base file =>
         match baselineOf base (← text base), baselineOf file (← text file) with
         | .ok before, .ok head =>
-          pure (s!"{file} in relation to {base}", ratchetRefusals file (some before) head names)
+          pure (s!"{file} in relation to {base}",
+            ratchetRefusals file (.baseline before) (some head) names)
         | before, head =>
           pure (s!"{file} in relation to {base}",
             (match before with | .error refusals => refusals | .ok _ => []) ++
               (match head with | .error refusals => refusals | .ok _ => []))
+      | .first base file =>
+        match baselineOf file (← text file) with
+        | .error refusals => pure (s!"{file} as a first baseline", refusals)
+        | .ok head =>
+          let measured ← (documents.filter fun d => base.contains d.path).mapM fun d =>
+            measureOne head vocabulary d.path d.source
+          pure (s!"{file} as a first baseline for the documents {base}",
+            ratchetRefusals file (.measured measured) (some head) names)
+      | .removed base =>
+        match baselineOf base (← text base) with
+        | .error refusals => pure (s!"no baseline in relation to {base}", refusals)
+        | .ok before =>
+          pure (s!"no baseline in relation to {base}",
+            ratchetRefusals base (.baseline before) none names)
     match control.expect, result with
     | .accepted, [] => pure ()
     | .accepted, refusals =>

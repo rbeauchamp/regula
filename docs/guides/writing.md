@@ -24,11 +24,13 @@ The command `./scripts/verify.sh docs` does the checks of the tracked Markdown d
 | C8 | A rule of the project | One of the abbreviations `e.g.`, `i.e.`, `etc.`, `vs.` and `cf.`. |
 | C9 | The format | A `CONTEXT.md` that is not the text of a vocabulary, or a source path that is not a tracked file. |
 | B1 | The baseline | A document with findings that the baseline does not give. |
-| B2 | The baseline | A baseline that gives more findings than the baseline of the base revision. |
+| B2 | The baseline | A baseline with a new path, a larger number or a different class, when the check compares it with the base revision. Also a change that removes the baseline, if the base revision has one. |
 
 ### How the checks read a document
 
 The checks C1 to C8 do not read Markdown syntax. The md4c parser reads each document in the GitHub dialect, and the checks read the blocks that the parser gives. A block is a heading, a paragraph, a paragraph of a list item or a table cell. A code block has no text for the checks. The description of an image is text of its block.
+
+A block is in an item of an ordered list if such an item contains it. The block can also be in an unordered list, in a block quote or in a table in that item.
 
 The checks do not read code. Put each identifier, path, command and program output in code font.
 
@@ -39,6 +41,7 @@ The checks do not read code. Put each identifier, path, command and program outp
 C9 also does not accept a file with one of these defects:
 
 - A term that is not one, two or three words.
+- A word of the vocabulary with a hyphen or an apostrophe at its start or at its end.
 - A category of a noun that is not one of the 22 categories of rule 1.5.
 - A category of a verb that is not one of the 16 categories of rule 1.12.
 - A definition that is not one sentence of 25 words or less with a period at its end.
@@ -49,7 +52,7 @@ C9 also does not accept a file with one of these defects:
 - A replaced name that is also a replaced word.
 - A cell with a `|` character.
 
-The check compares terms, names and words in lowercase. The statement `Draft.WellFormed` gives each defect of this list. It also gives defects of the form of a cell, for example a version that is not a number.
+The check compares terms, names and words in lowercase. A word of the vocabulary has no hyphen and no apostrophe at its start or at its end. Thus the lowercase of such a word is also the form that the checks C5 to C8 compare (see "Words and sentences"). The statement `Draft.WellFormed` gives each defect of this list. It also gives defects of the form of a cell, for example a version that is not a number.
 
 C9 also does not accept a row with a source path that is not a tracked file of the repository.
 
@@ -60,6 +63,7 @@ A second project can use the `Shared` tables of this `CONTEXT.md`. The `CONTEXT.
 The checks C1 to C8 and the check of a definition use these definitions of a word and of a sentence. The definitions are in [`RegulaCore/ControlledText.lean`](../../lean/RegulaCore/ControlledText.lean).
 
 - A word is a sequence of ASCII letters, digits, hyphens and apostrophes that has a letter or a digit (rule 8.7). No such character is immediately before the word or immediately after it.
+- To compare a word, the checks use the form of the word. The form is the word in lowercase, without the hyphens and the apostrophes at its start and at its end. The relation `Normal` gives this form. C5 to C8 and the vocabulary use this one form.
 - A code span is one word. Two code spans with no character between them are also one word.
 - A character that is not ASCII is one word. But the check reads some of these characters as punctuation or as a space. They are two apostrophes, the quotation marks, two dashes, the ellipsis and the usual spaces.
 - Text from a double quotation mark to the next double quotation mark is one word. The check does not read the words in it.
@@ -101,14 +105,17 @@ The check of a definition reads the characters of the cell. It does not use md4c
 
 Each check from C1 to C8 is a Lean function in [`RegulaCore/ControlledProse.lean`](../../lean/RegulaCore/ControlledProse.lean). Each function has a decision contract, and the checker examines that contract. The contract tells that the function gives no finding for a document if, and only if, the document agrees with a statement. The statement is about the blocks of the document and about the sentences of each block.
 
-The relations `Blocks` and `Divided` give the blocks and the sentences. The theorem `tally_zero_iff` puts the eight contracts together.
+The relations `Blocks` and `Divided` give the blocks and the sentences. The relations `Marks` and `Slot.Signed` give the words that C6 to C8 compare, and the relation `Normal` gives the form of each word. The theorem `tally_zero_iff` puts the eight contracts together.
 
-- C1 is for a paragraph, an item of an unordered list and a table cell. C2 is for an item of an ordered list, and for each such block that starts with `WARNING:` or `CAUTION:`.
+- C2 is for each paragraph and each table cell in an item of an ordered list. C2 is also for a paragraph, an item of an unordered list and a table cell that starts with `WARNING:` or `CAUTION:`.
+- C1 is for each other paragraph, each other item of an unordered list and each other table cell.
+- An item of an ordered list can contain an unordered list, a block quote or a table. The blocks in them are blocks of that item for C2.
 - C3 is for each paragraph, and a paragraph of a list item is also a paragraph. C3 counts each sentence of the paragraph, and a sentence in parentheses is one of them.
 - C4 finds each semicolon in the text that the parser gives as prose. It does not find a semicolon in code.
 - C5 finds only the contractions of its definition. It does not find `'s` after a noun as a short form of a verb, and it accepts the possessive `'s`.
 - C5 to C8 do not read quoted text and code.
-- C6 and C7 compare words in lowercase, without the hyphens and the apostrophes at the start and at the end of a word. They find only the same letters, thus they do not find the plural of a replaced word.
+- C5 to C8 compare the form of each word (see "Words and sentences"). Thus C7 finds a replaced word in apostrophes, and C8 finds `etc.` in apostrophes.
+- C6 and C7 find only the same letters, thus they do not find the plural of a replaced word.
 - C6 and C7 accept a replaced name or a replaced word that is a part of a longer term of `CONTEXT.md`.
 - C6 and C7 are about `CONTEXT.md`, not about the dictionary of ASD-STE100. The executable does not use C6 and C7 for `CONTEXT.md`, because that file must contain the replaced names and words.
 - In a document, the checks read the apostrophe `’` as the apostrophe `'`.
@@ -130,7 +137,7 @@ The contracts are about the data that the functions get. Lean does not prove the
 
 - That the text of a file is the text that a function gets. The file system gives the text.
 - That the lists of tracked files are correct. Git gives them.
-- That the baseline of the base revision is correct. Git gives it.
+- That the baseline and the documents of the base revision are correct. Git gives them.
 - That a digest is the SHA-256 digest of a file. The `shasum` program gives it.
 - That md4c and GitHub read a document with the same result.
 - That the code which makes pieces from the result of md4c is correct. That code is in [`markdown/RegulaMarkdown.lean`](../../markdown/RegulaMarkdown.lean). It has controls, but no theorem.
@@ -145,9 +152,21 @@ The file [`prose-baseline.json`](../../prose-baseline.json) is the baseline. It 
 - `frozen` and a SHA-256 digest: the document is a record that must not change. The checks do not read it, and B1 does not accept a change to its text.
 - `generated` and a source: a program writes the document from sources that the checks do not read. The checks do not read the document.
 
-A document with no entry must have no finding (check B1). Check B2 compares the baseline with the baseline of the base revision. The base revision is the merge base of `HEAD` and `origin/main`. B2 does not accept a new path, a larger number or a different class. Thus the baseline can only become smaller.
+A document with no entry must have no finding (check B1). Check B2 compares the baseline with the base revision. The base revision is the merge base of `HEAD` and `origin/main`.
 
-B2 also does not accept a baseline without a `frozen` entry of the base revision, if the document of that entry is a tracked file. Thus a change that removes such an entry does not let the document change (the theorem `frozen_unchanged`).
+If the base revision has a baseline, B2 compares the two baselines:
+
+- B2 does not accept an entry with a new path, a larger number or a different class.
+- B2 does not accept a baseline without a `frozen` entry of the base revision, if the document of that entry is a tracked file. Thus a change that removes such an entry does not let the document change (the theorem `frozen_unchanged`).
+- B2 does not accept a change that removes the file `prose-baseline.json` (the theorem `ratchet_removed`). A baseline with no entry is that file with no line of an entry.
+
+If the base revision has no baseline, B2 compares the baseline with the Markdown documents of the base revision. The checks count the findings of each of those documents, with the vocabulary of the change:
+
+- B2 does not accept an entry with a path that is not the path of a document of the base revision.
+- B2 does not accept a number that is larger than the number of findings of that document.
+- B2 does not accept a `frozen` entry with a digest that is not the digest of that document.
+
+Thus no entry has a new path (the theorem `Shrinks.paths`), and the baseline can only become smaller. A new document gets no entry, and it must have no finding. The first baseline of a repository can give the class `frozen` or `generated` to a document of the base revision. A reviewer examines each such entry.
 
 These checks are not a check of each changed line. A change can add one finding and remove one finding in the same document, and the checks accept that change.
 
@@ -155,11 +174,11 @@ The decisions of the baseline are three Lean functions in [`RegulaCore/ProseBase
 
 - `Baseline.parse` accepts a text if, and only if, the text is the text that `Baseline.write` gives for a baseline (`checked_baselineParse`).
 - `gate` (check B1) gives no document if, and only if, each document agrees with the baseline (`checked_gate`). The statement is `Observed.Admitted`.
-- `ratchet` (check B2) gives no entry if, and only if, the baseline agrees with the baseline of the base revision (`checked_ratchet`). The statement is `Shrinks`.
+- `ratchet` (check B2) gives no message if, and only if, the statement `Shrinks` is correct for the base revision, the baseline and the tracked paths (`checked_ratchet`).
 
 A number of the baseline is a text of decimal digits. B2 compares two numbers as such texts. A number with a smaller number of digits is the smaller number. B2 compares two numbers with the same number of digits digit by digit.
 
-Each message of B1 and B2 starts with `prose-baseline.json`, the line of an entry and the check. For a document or a frozen entry that is not in the baseline, the line is the line where its entry would be.
+Each message of B1 and B2 starts with `prose-baseline.json`, the line of an entry and the check. For a document or a frozen entry that is not in the baseline, the line is the line where its entry would be. For a baseline that a change removed, the line is 1.
 
 Do these steps after you correct findings in a document that has an entry:
 
@@ -173,13 +192,15 @@ To see each finding of one document, use the command `lake exe regula-markdown .
 
 Each check is a Lean function with a decision contract. The contract compares the function with a specification. These rules are for the specification of each check of these writing rules, and for each new check:
 
-- A specification is a statement about the data that the function reads. It uses logic, the core library of Lean and the data types of the check.
-- A specification can use a definition of the project only if that definition is not recursive. Such a definition only gives a name to a statement or to data.
-- A specification does not call a recursive function of the project. Such a function has a theorem that connects its result with a specification.
-- If Lean can make the decision from the form of a specification, the function uses the specification itself. Then the function and the specification cannot become different.
-- The function `write` is the definition of the grammar of a file. The function `parse` accepts only a text that `write` gives, and a theorem shows that.
+- A specification is a statement about the data that the function reads. It uses logic, the core library of Lean, the data types of the check and definitions of the project.
+- The function of a check uses no definition that its specification uses. The data types are the only declarations that the two use: each type, its constructors and the parts that Lean makes for it.
+- A step that changes the data before the decision is a relation in the specification. A theorem connects the function of that step with the relation. Examples are `Blocks`, `Divided`, `Marks` and `Normal`.
+- If the function must have a definition of the specification, it has a second definition in the namespace `Exec`. A theorem shows that the two definitions are equal. Thus after a change to one of the two definitions, Lean does not accept that theorem.
+- The function `write` is the definition of the grammar of a file. The function `parse` compares a text with a second definition of that grammar. A theorem shows that `parse` accepts only a text that `write` gives.
 
 For example, the specification of a term does not call the function `split`. It tells that the term is words with one space between two words. The theorem `separated_iff` connects `split` with that specification.
+
+A second definition in `Exec` has the same text as the definition of the specification. It is not a second statement of the meaning. The theorem shows only that the two definitions are equal.
 
 The types of characters are a part of each specification, for example the list of the space characters. No theorem shows that they are correct. A change to them is a change to the specification.
 
@@ -231,4 +252,10 @@ The writing rules do not change these types of text:
 - A record that must not change, for example a registered protocol and its results.
 - The uppercase requirement keywords of the Regula standard.
 
-The checks read a block quote and a paragraph with the same procedure. If the text of a different source has a finding, put it in quotation marks or in a code block.
+The checks read a block quote and a paragraph with the same procedure. Double quotation marks change the result of some checks only:
+
+- C1 to C3 count the text between two double quotation marks as one word.
+- C5 to C8 do not read that text.
+- C4 finds a semicolon in that text also.
+
+If the text of a different source has a semicolon, put that text in code font or in a code block. An apostrophe is not a quotation mark for the checks.

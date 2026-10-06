@@ -558,7 +558,8 @@ The same executable does the checks C1 to C8 of the [writing rules](writing.md) 
 Markdown document. The baseline [`prose-baseline.json`](../../prose-baseline.json) gives the
 findings of each document that does not obey the writing rules at this time. Check B1 compares
 each document with its entry. Check B2 compares the baseline with the baseline of the base
-revision.
+revision. If the base revision has no baseline, B2 compares the baseline with the Markdown
+documents of the base revision.
 
 The decisions are in
 [`RegulaCore/ControlledProse.lean`](../../lean/RegulaCore/ControlledProse.lean) and

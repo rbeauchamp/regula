@@ -13,11 +13,19 @@ reference uses, and what a character reference stands for, is md4c's.
 ## Blocks
 
 Each leaf block starts with its kind (`Regula.Markdown.Kind`): a heading, a paragraph, a table
-cell, or a code block or raw HTML block. A paragraph of a list item has the kind of the
-innermost list around it, ordered (`step`) or unordered (`bullet`); a paragraph of a block quote
-is a paragraph whatever is around the quote. In a tight list md4c reports the text of an item
-with no paragraph, and MD4Lean's wrapper supplies one, so an item's text is a paragraph in both
-kinds of list.
+cell, or a code block or raw HTML block. A paragraph in an item of an ordered list is a `step`
+and a table cell there is a `stepCell`, at each depth: also when an unordered list, a block
+quote or a table in that item holds them. A paragraph in items of unordered lists only is a
+`bullet`, also in a block quote there. A block quote and a table thus keep the lists around
+them. In a tight list md4c
+reports the text of an item with no paragraph, and MD4Lean's wrapper supplies one, so an item's
+text is a paragraph in both kinds of list.
+
+The type `MD4Lean.Block` has nine constructors. Four of them hold blocks or cells: an unordered
+list, an ordered list, a block quote and a table. `block` gives each of the four the lists
+around it. md4c has no footnote and no definition list in this dialect: it reads their text as
+paragraphs, or as a link reference definition ("What is refused" and "What is not seen" below).
+A raw HTML block is refused.
 
 ## The parse
 
@@ -298,20 +306,28 @@ def verbatim (slices : Array String) : List Piece :=
   slices.toList.map fun slice => if slice == "\n" then .line else .code slice
 
 /-- The pieces of the cells of one table row, which lie on one source line. Each cell is a
-block. -/
-def row (cells : Array (Array Text)) : List Piece :=
-  cells.toList.flatMap fun cell => .start .cell :: .gap :: inlines true cell
+block of the kind `kind`. -/
+def row (kind : Kind) (cells : Array (Array Text)) : List Piece :=
+  cells.toList.flatMap fun cell => .start kind :: .gap :: inlines true cell
 
-/-- The kind of a paragraph inside the innermost list `list`: `some true` for an ordered list,
-`some false` for an unordered one, and `none` outside every list. -/
+/-- The kind of a paragraph for the lists `list` around it: `some true` in an item of an ordered
+list, at each depth, `some false` in items of unordered lists only, and `none` outside every
+list. -/
 def paragraphKind : Option Bool → Kind
   | none => .paragraph
   | some true => .step
   | some false => .bullet
 
-/-- The pieces of one block; `list` is the innermost list around it (`paragraphKind`). Each leaf
+/-- The kind of a table cell for the lists `list` around it: a cell of a step in an item of an
+ordered list, at each depth, and otherwise a cell. -/
+def cellKind : Option Bool → Kind
+  | some true => .stepCell
+  | _ => .cell
+
+/-- The pieces of one block; `list` says which lists are around it (`paragraphKind`). Each leaf
 block starts with its kind, on a later source line than the text before it, as does each row of
-a table. A block quote's blocks are read as outside every list. A raw HTML block is refused
+a table. A block in an item of an ordered list stays in it at each depth: an unordered list, a
+block quote and a table there give their blocks the same `list`. A raw HTML block is refused
 unless it is a fence marker of the documentation audit (`auditMarker`). -/
 def block (list : Option Bool) (b : Block) : List Piece :=
   match b with
@@ -319,7 +335,8 @@ def block (list : Option Bool) (b : Block) : List Piece :=
   | .header _ texts => .start .heading :: .line :: inlines false texts
   | .ul _ _ items =>
     items.attach.toList.flatMap fun ⟨item, _⟩ =>
-      item.contents.attach.toList.flatMap fun ⟨inner, _⟩ => block (some false) inner
+      item.contents.attach.toList.flatMap fun ⟨inner, _⟩ =>
+        block (some (list == some true)) inner
   | .ol _ _ _ items =>
     items.attach.toList.flatMap fun ⟨item, _⟩ =>
       item.contents.attach.toList.flatMap fun ⟨inner, _⟩ => block (some true) inner
@@ -331,8 +348,10 @@ def block (list : Option Bool) (b : Block) : List Piece :=
       .start .code :: .line ::
         .refused "raw HTML block, which the check does not read; write it in Markdown" ::
         verbatim slices
-  | .blockquote blocks => blocks.attach.toList.flatMap fun ⟨inner, _⟩ => block none inner
-  | .table head body => .line :: row head ++ body.toList.flatMap fun cells => .line :: row cells
+  | .blockquote blocks => blocks.attach.toList.flatMap fun ⟨inner, _⟩ => block list inner
+  | .table head body =>
+    .line :: row (cellKind list) head ++
+      body.toList.flatMap fun cells => .line :: row (cellKind list) cells
 termination_by b
 decreasing_by
   all_goals simp_wf
@@ -592,10 +611,23 @@ private def kinds (source : String) : List Kind :=
 #guard kinds ("# T\n\nP one.\n\n- a\n- b\n\n1. c\n2. d\n\n> q\n\n| h |\n| --- |\n| x |\n\n" ++
   "```\ncode\n```\n") ==
   [.heading, .paragraph, .bullet, .bullet, .step, .step, .paragraph, .cell, .cell, .code]
--- A loose list with a list inside an item: a paragraph has the kind of the innermost list
--- around it, and a paragraph of a block quote inside an item is a paragraph.
+-- A block in an item of an ordered list is a step at each depth: a paragraph of an unordered
+-- list there, a paragraph of a block quote there and the cells of a table there.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
-#guard kinds "1. a\n\n   - b\n\n   > q\n\n2. c\n" == [.step, .bullet, .paragraph, .step]
+#guard kinds "1. a\n\n   - b\n\n   > q\n\n2. c\n" == [.step, .step, .step, .step]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "1. > q\n" == [.step]
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "1. a\n\n   | h |\n   | --- |\n   | x |\n" == [.step, .stepCell, .stepCell]
+-- An ordered list in an item of an unordered list, with an unordered list in its item.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "- a\n  1. b\n     - c\n" == [.bullet, .step, .step]
+-- A block quote and a table in items of unordered lists only keep those lists.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "- a\n\n  > q\n\n  | h |\n  | --- |\n  | x |\n" == [.bullet, .bullet, .cell, .cell]
+-- md4c has no definition list and no footnote in this dialect: their text is a paragraph.
+-- Compiled-evaluation observation at build time, not a kernel-checked proof.
+#guard kinds "Term\n: text\n\n[^n]: A note.\n" == [.paragraph, .paragraph]
 -- A raw HTML block has no prose, also when it is refused.
 -- Compiled-evaluation observation at build time, not a kernel-checked proof.
 #guard kinds "<p>x</p>\n\n<!-- lean-trusted-compiler -->\n" == [.code, .code]

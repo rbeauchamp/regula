@@ -11,8 +11,11 @@ check of `RegulaCore.Markdown` is. It is not a rule of Regula's standard and has
 
 ## Main declarations
 
-- `Anchored`, `Blocks`, `blocks`, `blocks_iff`: the blocks of a document and the atoms of each
-  one. A block is a maximal run of pieces with no start of a block after its first piece.
+- `Anchored`, `Atoms`, `Block.Of`, `Blocks`, `blocks`, `blocks_iff`: the blocks of a document and
+  the atoms of each one. A block is a maximal run of pieces with no start of a block after its
+  first piece.
+- `Slot.Marked`, `Marks`, `Slot.Signed`: what a word of a sentence is for a comparison with the
+  vocabulary and with the abbreviations, by the one form of a word (`Normal`).
 - `EachBlock`, `perBlock`, `perBlock_nil_iff`: a statement about each block of a document with
   the runs of its sentences (`Regula.Controlled.Divided`), and the findings of a function that
   decides that statement block by block.
@@ -27,7 +30,7 @@ check of `RegulaCore.Markdown` is. It is not a rule of Regula's standard and has
 
 A block is a heading, a paragraph, a paragraph of a list item, or a table cell, as the parser
 reports it (`Regula.Markdown.Kind`). A code block is a block with no prose. The atoms of a block
-are those of its pieces (`atomsOf`): the rendered characters of its prose, one atom for each
+are those of its pieces (`Atoms`): the rendered characters of its prose, one atom for each
 code piece, and one space for each line boundary and each edge of a table cell or of an image's
 description. The description of an image is thus prose of its block.
 
@@ -37,10 +40,13 @@ apart.
 
 ## Specifications
 
-Each specification is stated with the relations `Blocks` and `Divided` and with statements that
-call no recursive function of the project. A statement that is decidable by its form is
-evaluated as it is. `blocks_iff`, `divided_iff`, `words_iff` and `positions_nil_iff` connect the
-functions that a check runs with the statements.
+Each specification is stated with relations: `Blocks` and `Divided` for the blocks and the
+sentences, `Marks` and `Slot.Signed` for the words that a check compares, and `Normal` for the
+form of a word. A function of a check uses no definition of a specification: where it needs
+one, it has a second definition in the namespace `Exec`, with a theorem that the two are equal.
+The data types are the only declarations that a specification and its function share.
+`blocks_iff`, `divided_iff`, `marks_iff`, `signed_iff`, `normal_iff`, `words_iff` and
+`positions_nil_iff` connect the functions that a check runs with the statements.
 
 ## Boundaries
 
@@ -63,11 +69,34 @@ def Anchored (pieces : List Piece) (marked : List (Nat × Piece)) : Prop :=
     ∀ before entry after, marked = before ++ entry :: after →
       entry.1 = before.countP fun other => other.2.located?.isSome
 
+namespace Exec
+
+/-- Whether `text` has no character other than whitespace, for the functions (`blank_eq`). -/
+def blank (text : String) : Bool := text.toList.all Char.isWhitespace
+
+/-- The source text that locates a piece, for the functions (`located?_eq`). -/
+def located? : Piece → Option String
+  | .text slice _ | .code slice => if blank slice then none else some slice
+  | .enter _ | .leave | .refused _ | .gap | .line | .start _ => none
+
+theorem blank_eq : @blank = @Markdown.blank := rfl
+theorem located?_eq : @located? = @Piece.located? := rfl
+
+end Exec
+
 /-- `pieces`, each with its place, where `anchor` located pieces are before the first one. -/
 def anchorsFrom (anchor : Nat) : List Piece → List (Nat × Piece)
   | [] => []
   | piece :: rest =>
-    (anchor, piece) :: anchorsFrom (if piece.located?.isSome then anchor + 1 else anchor) rest
+    (anchor, piece) ::
+      anchorsFrom (if (Exec.located? piece).isSome then anchor + 1 else anchor) rest
+
+theorem anchorsFrom_nil (anchor : Nat) : anchorsFrom anchor [] = [] := rfl
+
+theorem anchorsFrom_cons (anchor : Nat) (piece : Piece) (rest : List Piece) :
+    anchorsFrom anchor (piece :: rest) =
+      (anchor, piece) :: anchorsFrom (if piece.located?.isSome then anchor + 1 else anchor) rest :=
+  rfl
 
 theorem anchorsFrom_spec (pieces : List Piece) :
     ∀ (anchor : Nat) (marked : List (Nat × Piece)),
@@ -80,9 +109,9 @@ theorem anchorsFrom_spec (pieces : List Piece) :
     intro anchor marked
     constructor
     · rintro ⟨hmap, -⟩
-      simpa [anchorsFrom] using hmap
+      simpa [anchorsFrom_nil] using hmap
     · rintro rfl
-      exact ⟨rfl, fun before entry after hsplit => by simp [anchorsFrom] at hsplit⟩
+      exact ⟨rfl, fun before entry after hsplit => by simp [anchorsFrom_nil] at hsplit⟩
   | cons piece rest ih =>
     intro anchor marked
     constructor
@@ -101,17 +130,17 @@ theorem anchorsFrom_spec (pieces : List Piece) :
             have := hplace ((anchor, piece) :: before) entry after (by rw [hsplit]; rfl)
             rw [this, List.countP_cons]
             split <;> simp_all <;> omega⟩
-        simp [anchorsFrom, hmore]
+        simp [anchorsFrom_cons, hmore]
     · rintro rfl
       obtain ⟨hmap, hplace⟩ :=
         (ih (if piece.located?.isSome then anchor + 1 else anchor) _).mpr rfl
-      refine ⟨by simp [anchorsFrom, hmap], fun before entry after hsplit => ?_⟩
+      refine ⟨by simp [anchorsFrom_cons, hmap], fun before entry after hsplit => ?_⟩
       cases before with
       | nil =>
-        simp only [anchorsFrom, List.nil_append, List.cons.injEq] at hsplit
+        simp only [anchorsFrom_cons, List.nil_append, List.cons.injEq] at hsplit
         simp [← hsplit.1]
       | cons first before =>
-        simp only [anchorsFrom, List.cons_append, List.cons.injEq] at hsplit
+        simp only [anchorsFrom_cons, List.cons_append, List.cons.injEq] at hsplit
         obtain ⟨rfl, hrest⟩ := hsplit
         rw [hplace before entry after hrest, List.countP_cons]
         split <;> simp_all <;> omega
@@ -122,20 +151,27 @@ theorem anchored_iff (pieces : List Piece) (marked : List (Nat × Piece)) :
   rw [← anchorsFrom_spec pieces 0 marked]
   simp [Anchored]
 
-/-- The kind of the block that a piece starts, if it starts one. -/
-def kindOf? : Piece → Option Kind
-  | .start kind => some kind
-  | _ => none
-
-/-- The atoms of one piece at the place `anchor`: the rendered characters of prose, where `’`
-(U+2019) is read as an apostrophe, one atom of code, one space for a line boundary and for an
-edge of a table cell or of an image's description, and nothing for the edges of links, the
-refused constructs and the starts of blocks. -/
-def atomsOf (anchor : Nat) : Piece → List Atom
-  | .text _ rendered => rendered.toList.map fun c => ⟨anchor, some (if c = '’' then '\'' else c)⟩
-  | .code _ => [⟨anchor, none⟩]
-  | .gap | .line => [⟨anchor, some ' '⟩]
-  | .enter _ | .leave | .refused _ | .start _ => []
+/-- `atoms` are the atoms of one piece at the place `anchor`. -/
+inductive Atoms (anchor : Nat) : Piece → List Atom → Prop
+  /-- Prose gives one atom for each rendered character, where `’` (U+2019) is read as an
+  apostrophe. -/
+  | text (slice rendered : String) :
+    Atoms anchor (.text slice rendered)
+      (rendered.toList.map fun c => ⟨anchor, some (if c = '’' then '\'' else c)⟩)
+  /-- A piece of code gives one atom of code. -/
+  | code (slice : String) : Atoms anchor (.code slice) [⟨anchor, none⟩]
+  /-- An edge of a table cell or of an image's description gives one space. -/
+  | gap : Atoms anchor .gap [⟨anchor, some ' '⟩]
+  /-- A line boundary gives one space. -/
+  | line : Atoms anchor .line [⟨anchor, some ' '⟩]
+  /-- The start of a link's text gives no atom. -/
+  | enter (destination : String) : Atoms anchor (.enter destination) []
+  /-- The end of a link's text gives no atom. -/
+  | leave : Atoms anchor .leave []
+  /-- A refused construct gives no atom. -/
+  | refused (reason : String) : Atoms anchor (.refused reason) []
+  /-- The start of a block gives no atom. -/
+  | start (kind : Kind) : Atoms anchor (.start kind) []
 
 /-- One block of a document: its kind and its atoms, in order. -/
 structure Block where
@@ -145,36 +181,118 @@ structure Block where
   atoms : List Atom
   deriving DecidableEq, Repr
 
+/-- `block` is the block of the run `part` of pieces with their places. Its kind is the kind
+that the first piece starts, or a paragraph when the first piece starts no block. Its atoms are
+those of the pieces, in order. -/
+structure Block.Of (part : List (Nat × Piece)) (block : Block) : Prop where
+  /-- The kind is the one that the first piece starts, or a paragraph. -/
+  kind : (∃ anchor rest, part = (anchor, .start block.kind) :: rest) ∨
+    (block.kind = .paragraph ∧ ∀ anchor kind rest, part ≠ (anchor, .start kind) :: rest)
+  /-- The atoms are those of each piece at its place, in order. -/
+  atoms : ∃ lists, Paired (fun entry atoms => Atoms entry.1 entry.2 atoms) part lists ∧
+    block.atoms = lists.flatten
+
 /-- Two pieces next to each other are in one block: the second starts no block. -/
-abbrev Continues (_ next : Nat × Piece) : Prop := kindOf? next.2 = none
+def Continues (_ next : Nat × Piece) : Prop := ∀ kind, next.2 ≠ .start kind
 
-instance : DecidableRel Continues := fun _ _ => inferInstance
+/-- `blocks` are the blocks of `pieces`: the pieces with their places, divided into maximal runs
+in which no piece after the first starts a block, and the block of each run. -/
+def Blocks (pieces : List Piece) (blocks : List Block) : Prop :=
+  ∃ marked parts, Anchored pieces marked ∧ Runs Continues marked parts ∧
+    Paired Block.Of parts blocks
 
-/-- The block of a run of pieces: the kind that its first piece starts, or a paragraph when its
-first piece starts no block, and the atoms of its pieces. -/
+/-- The kind of the block that a piece starts, if it starts one. -/
+def kindOf? : Piece → Option Kind
+  | .start kind => some kind
+  | _ => none
+
+/-- The atoms of one piece at the place `anchor`. -/
+def atomsOf (anchor : Nat) : Piece → List Atom
+  | .text _ rendered => rendered.toList.map fun c => ⟨anchor, some (if c = '’' then '\'' else c)⟩
+  | .code _ => [⟨anchor, none⟩]
+  | .gap | .line => [⟨anchor, some ' '⟩]
+  | .enter _ | .leave | .refused _ | .start _ => []
+
+/-- The atoms of a piece are one list only: the computed one. -/
+theorem atoms_iff (anchor : Nat) (piece : Piece) (atoms : List Atom) :
+    Atoms anchor piece atoms ↔ atoms = atomsOf anchor piece := by
+  constructor
+  · intro h
+    cases h <;> rfl
+  · rintro rfl
+    cases piece <;> constructor
+
+/-- The block of a run of pieces. -/
 def blockOf (part : List (Nat × Piece)) : Block :=
   ⟨(part.head?.bind fun entry => kindOf? entry.2).getD .paragraph,
     part.flatMap fun entry => atomsOf entry.1 entry.2⟩
 
-/-- `blocks` are the blocks of `pieces`: the pieces with their places, divided into maximal runs
-in which no piece after the first starts a block. -/
-def Blocks (pieces : List Piece) (blocks : List Block) : Prop :=
-  ∃ marked parts, Anchored pieces marked ∧ Runs Continues marked parts ∧ blocks = parts.map blockOf
+/-- The block of a run of pieces is one block only: the computed one. -/
+theorem blockOf_iff (part : List (Nat × Piece)) (block : Block) :
+    Block.Of part block ↔ block = blockOf part := by
+  have hatoms := paired_iff (R := fun (entry : Nat × Piece) atoms => Atoms entry.1 entry.2 atoms)
+    (f := fun entry => atomsOf entry.1 entry.2) (fun entry atoms => atoms_iff entry.1 entry.2 atoms)
+    part
+  constructor
+  · rintro ⟨hkind, lists, hpaired, hflat⟩
+    obtain ⟨kind, atoms⟩ := block
+    rw [hatoms] at hpaired
+    subst hpaired
+    simp only [blockOf, Block.mk.injEq]
+    refine ⟨?_, by simpa [List.flatMap_def] using hflat⟩
+    rcases hkind with ⟨anchor, rest, rfl⟩ | ⟨hkind, hnone⟩
+    · rfl
+    · simp only at hkind
+      subst hkind
+      cases part with
+      | nil => rfl
+      | cons entry rest =>
+        obtain ⟨anchor, piece⟩ := entry
+        cases piece with
+        | start kind => exact absurd rfl (hnone anchor kind rest)
+        | _ => rfl
+  · rintro rfl
+    refine ⟨?_, _, (hatoms _).mpr rfl, by simp [blockOf, List.flatMap_def]⟩
+    cases part with
+    | nil => exact .inr ⟨rfl, fun _ _ _ h => by cases h⟩
+    | cons entry rest =>
+      obtain ⟨anchor, piece⟩ := entry
+      cases piece with
+      | start kind => exact .inl ⟨anchor, rest, rfl⟩
+      | _ => exact .inr ⟨rfl, fun _ _ _ h => by cases h⟩
+
+namespace Exec
+
+/-- Two pieces next to each other are in one block, for the functions (`continues_iff`). -/
+abbrev Continues (_ next : Nat × Piece) : Prop := kindOf? next.2 = none
+
+instance : DecidableRel Continues := fun _ _ => inferInstance
+
+theorem continues_iff (previous next : Nat × Piece) :
+    Continues previous next ↔ Controlled.Continues previous next := by
+  obtain ⟨anchor, piece⟩ := next
+  cases piece <;> simp [Continues, Controlled.Continues, kindOf?]
+
+end Exec
 
 /-- The blocks of a document, in order. -/
 def blocks (pieces : List Piece) : List Block :=
-  (runs Continues (anchorsFrom 0 pieces)).map blockOf
+  (runs Exec.Continues (anchorsFrom 0 pieces)).map blockOf
 
 /-- The blocks of a document are one result only: the computed one. -/
 theorem blocks_iff (pieces : List Piece) (result : List Block) :
     Blocks pieces result ↔ result = blocks pieces := by
+  have hrel : Continues = Exec.Continues :=
+    funext fun previous => funext fun next => propext (Exec.continues_iff previous next).symm
   constructor
-  · rintro ⟨marked, parts, hmarked, hparts, rfl⟩
+  · rintro ⟨marked, parts, hmarked, hparts, hblocks⟩
     rw [anchored_iff] at hmarked
-    rw [runs_iff] at hparts
-    rw [hparts, hmarked, blocks]
+    rw [hrel, runs_iff] at hparts
+    rw [paired_iff blockOf_iff] at hblocks
+    rw [hblocks, hparts, hmarked, blocks]
   · rintro rfl
-    exact ⟨_, _, (anchored_iff _ _).mpr rfl, runs_spec _, rfl⟩
+    exact ⟨_, _, (anchored_iff _ _).mpr rfl, by rw [hrel]; exact runs_spec _,
+      (paired_iff blockOf_iff _ _).mpr rfl⟩
 
 /-- The block starts with `WARNING:` or `CAUTION:`, in uppercase, after the space characters at
 its start. -/
@@ -182,21 +300,72 @@ abbrev Block.Signal (b : Block) : Prop :=
   ∃ word ∈ ["WARNING:", "CAUTION:"],
     word.toList.map some <+: (b.atoms.map (·.char)).dropWhile fun c => c.any spacing
 
-/-- The block is a paragraph, a paragraph of an unordered list item or a table cell. -/
+/-- The block is in no item of an ordered list: it is a paragraph in no list item, a paragraph
+in items of unordered lists only, or a table cell. -/
 abbrev Block.Plain (b : Block) : Prop := b.kind = .paragraph ∨ b.kind = .bullet ∨ b.kind = .cell
 
-/-- The block is a procedure block: a paragraph of an ordered list item, or a paragraph, a
-paragraph of an unordered list item or a table cell that starts with `WARNING:` or
-`CAUTION:`. -/
-abbrev Block.Procedure (b : Block) : Prop := b.kind = .step ∨ (b.Plain ∧ b.Signal)
+/-- The block is a procedure block: a paragraph or a table cell in an item of an ordered list,
+or a paragraph, a paragraph of an unordered list item or a table cell that starts with
+`WARNING:` or `CAUTION:`. -/
+abbrev Block.Procedure (b : Block) : Prop :=
+  b.kind = .step ∨ b.kind = .stepCell ∨ (b.Plain ∧ b.Signal)
 
 /-- The block is a description block: a paragraph, a paragraph of an unordered list item or a
-table cell that does not start with `WARNING:` or `CAUTION:`. -/
+table cell that is in no item of an ordered list and does not start with `WARNING:` or
+`CAUTION:`. -/
 abbrev Block.Description (b : Block) : Prop := b.Plain ∧ ¬b.Signal
 
 /-- The parser reports the block as a paragraph, in a list item or not. -/
 abbrev Block.Paragraph (b : Block) : Prop :=
   b.kind = .paragraph ∨ b.kind = .step ∨ b.kind = .bullet
+
+namespace Exec
+
+/-- The block starts with `WARNING:` or `CAUTION:`, for the functions (`Signal_eq`). -/
+def Signal (b : Block) : Prop :=
+  ∃ word ∈ ["WARNING:", "CAUTION:"],
+    word.toList.map some <+: (b.atoms.map (·.char)).dropWhile fun c => c.any spacing
+
+instance : DecidablePred Signal := fun b => by
+  unfold Signal
+  infer_instance
+
+/-- The block is a paragraph, a paragraph of an unordered list item or a table cell, for the
+functions (`Plain_eq`). -/
+def Plain (b : Block) : Prop := b.kind = .paragraph ∨ b.kind = .bullet ∨ b.kind = .cell
+
+instance : DecidablePred Plain := fun b => by
+  unfold Plain
+  infer_instance
+
+/-- The block is a procedure block, for the functions (`Procedure_eq`). -/
+def Procedure (b : Block) : Prop := b.kind = .step ∨ b.kind = .stepCell ∨ (Plain b ∧ Signal b)
+
+instance : DecidablePred Procedure := fun b => by
+  unfold Procedure
+  infer_instance
+
+/-- The block is a description block, for the functions (`Description_eq`). -/
+def Description (b : Block) : Prop := Plain b ∧ ¬Signal b
+
+instance : DecidablePred Description := fun b => by
+  unfold Description
+  infer_instance
+
+/-- The parser reports the block as a paragraph, for the functions (`Paragraph_eq`). -/
+def Paragraph (b : Block) : Prop := b.kind = .paragraph ∨ b.kind = .step ∨ b.kind = .bullet
+
+instance : DecidablePred Paragraph := fun b => by
+  unfold Paragraph
+  infer_instance
+
+theorem Signal_eq : @Signal = @Block.Signal := rfl
+theorem Plain_eq : @Plain = @Block.Plain := rfl
+theorem Procedure_eq : @Procedure = @Block.Procedure := rfl
+theorem Description_eq : @Description = @Block.Description := rfl
+theorem Paragraph_eq : @Paragraph = @Block.Paragraph := rfl
+
+end Exec
 
 /-! ## Findings -/
 
@@ -236,6 +405,15 @@ theorem perBlock_nil_iff {find : Block → Cut → List Found} {P : Block → Cu
 /-- The token of a slot that is no quotation, no group and no boundary of a group. -/
 def Slot.token? (slot : Option Part) : Option Token := slot.bind Part.token?
 
+namespace Exec
+
+/-- The token of a slot, for the functions (`slotToken?_eq`). -/
+def slotToken? (slot : Option Part) : Option Token := slot.bind partToken?
+
+theorem slotToken?_eq : @slotToken? = @Slot.token? := rfl
+
+end Exec
+
 /-- The place of the first atom of a token. -/
 def Token.anchor (token : Token) : Nat := (token.head?.map (·.anchor)).getD 0
 
@@ -252,23 +430,24 @@ def Slot.anchor : Option Part → Nat
 
 /-- The place of the first word of a run. -/
 def runAnchor (run : List (Option Part)) : Nat :=
-  ((run.find? fun slot => decide (Slot.Word slot)).map Slot.anchor).getD 0
+  ((run.find? fun slot => decide (Exec.SlotWord slot)).map Slot.anchor).getD 0
 
 /-! ### C1 and C2: the length of a sentence -/
 
 /-- The runs of `cut` with more than `limit` words. -/
 def long (limit : Nat) (cut : Cut) : List Found :=
-  (cut.filter fun run => limit < wordCount run).map fun run =>
-    ⟨runAnchor run, s!"a sentence of {wordCount run} words; the maximum is {limit}"⟩
+  (cut.filter fun run => limit < Exec.wordCount run).map fun run =>
+    ⟨runAnchor run, s!"a sentence of {Exec.wordCount run} words; the maximum is {limit}"⟩
 
 theorem long_nil_iff (limit : Nat) (cut : Cut) :
     long limit cut = [] ↔ ∀ run ∈ cut, wordCount run ≤ limit := by
-  simp [long, List.filter_eq_nil_iff, Nat.not_lt]
+  simp only [long, List.map_eq_nil_iff, List.filter_eq_nil_iff, decide_eq_true_eq, Nat.not_lt]
+  exact Iff.rfl
 
 /-- Check C1 (rule 6.3): the sentences of description blocks with more than 25 words. -/
 @[regula_decision]
 def longSentences : Reading → List Found :=
-  perBlock fun b cut => if b.Description then long 25 cut else []
+  perBlock fun b cut => if Exec.Description b then long 25 cut else []
 
 /-- A document conforms to C1 when it was read and each sentence of each description block has
 25 words or less. -/
@@ -277,12 +456,17 @@ def ShortSentences : Reading → Prop :=
 
 theorem longSentences_nil_iff (reading : Reading) :
     longSentences reading = [] ↔ ShortSentences reading :=
-  perBlock_nil_iff (fun b cut => by by_cases h : b.Description <;> simp [h, long_nil_iff]) reading
+  perBlock_nil_iff (fun b cut => by
+    by_cases h : Exec.Description b
+    · have h' : b.Description := h
+      simp [h, h', long_nil_iff]
+    · have h' : ¬b.Description := h
+      simp [h, h']) reading
 
 /-- Check C2 (rule 5.1): the sentences of procedure blocks with more than 20 words. -/
 @[regula_decision]
 def longSteps : Reading → List Found :=
-  perBlock fun b cut => if b.Procedure then long 20 cut else []
+  perBlock fun b cut => if Exec.Procedure b then long 20 cut else []
 
 /-- A document conforms to C2 when it was read and each sentence of each procedure block has
 20 words or less. -/
@@ -290,22 +474,27 @@ def ShortSteps : Reading → Prop :=
   EachBlock fun b cut => b.Procedure → ∀ run ∈ cut, wordCount run ≤ 20
 
 theorem longSteps_nil_iff (reading : Reading) : longSteps reading = [] ↔ ShortSteps reading :=
-  perBlock_nil_iff (fun b cut => by by_cases h : b.Procedure <;> simp [h, long_nil_iff]) reading
+  perBlock_nil_iff (fun b cut => by
+    by_cases h : Exec.Procedure b
+    · have h' : b.Procedure := h
+      simp [h, h', long_nil_iff]
+    · have h' : ¬b.Procedure := h
+      simp [h, h']) reading
 
 /-! ### C3: the length of a paragraph -/
 
 /-- The number of sentences of a block: its runs that have a word, in parentheses or not. -/
-def sentenceCount (cut : Cut) : Nat := cut.countP fun run => decide (Worded run)
+def sentenceCount (cut : Cut) : Nat := cut.countP fun run => decide (Exec.Worded run)
 
 /-- The place of the first sentence of a block. -/
 def cutAnchor (cut : Cut) : Nat :=
-  ((cut.find? fun run => decide (Worded run)).map runAnchor).getD 0
+  ((cut.find? fun run => decide (Exec.Worded run)).map runAnchor).getD 0
 
 /-- Check C3 (rule 6.6): the paragraphs with more than six sentences. -/
 @[regula_decision]
 def longParagraphs : Reading → List Found :=
   perBlock fun b cut =>
-    if b.Paragraph ∧ 6 < sentenceCount cut then
+    if Exec.Paragraph b ∧ 6 < sentenceCount cut then
       [⟨cutAnchor cut, s!"a paragraph of {sentenceCount cut} sentences; the maximum is 6"⟩]
     else []
 
@@ -317,8 +506,14 @@ def ShortParagraphs : Reading → Prop :=
 theorem longParagraphs_nil_iff (reading : Reading) :
     longParagraphs reading = [] ↔ ShortParagraphs reading :=
   perBlock_nil_iff (fun b cut => by
-    by_cases h : b.Paragraph <;> by_cases hcount : 6 < sentenceCount cut <;>
-      simp [h, hcount] <;> simp only [sentenceCount] at hcount <;> omega) reading
+    show _ ↔ (b.Paragraph → sentenceCount cut ≤ 6)
+    by_cases h : Exec.Paragraph b
+    · have h' : b.Paragraph := h
+      by_cases hcount : 6 < sentenceCount cut
+      · simp [h, h', hcount]
+      · simp [h, h', hcount, Nat.le_of_not_lt hcount]
+    · have h' : ¬b.Paragraph := h
+      simp [h, h']) reading
 
 /-! ### C4: semicolons -/
 
@@ -372,15 +567,16 @@ theorem semicolons_nil_iff (reading : Reading) : semicolons reading = [] ↔ NoS
 
 /-! ### C5: contractions -/
 
-/-- The letters of a token for a comparison: its characters in lowercase, without the hyphens
-and the apostrophes at its start and at its end. -/
-def Token.letters (token : Token) : List Char :=
-  let joiner (c : Char) : Bool := c = '-' ∨ c = '\''
-  ((((token.filterMap (·.char)).map Char.toLower).dropWhile joiner).reverse.dropWhile
-    joiner).reverse
+/-- The form of a word for a comparison is a contraction: it ends with `n't`, `'re`, `'ve`,
+`'ll`, `'d` or `'m`, or it is one of 11 words that end with `'s`. A possessive form is none. -/
+def Contracted (word : List Char) : Prop :=
+  (∃ ending ∈ ["n't", "'re", "'ve", "'ll", "'d", "'m"], ending.toList <:+ word) ∨
+    ∃ fixed ∈ ["it's", "that's", "there's", "here's", "what's", "who's", "where's", "how's",
+      "he's", "she's", "let's"], fixed.toList = word
 
-/-- The lowercase word is a contraction: it ends with `n't`, `'re`, `'ve`, `'ll`, `'d` or `'m`,
-or it is one of 11 words that end with `'s`. A possessive form is none. -/
+namespace Exec
+
+/-- The form of a word is a contraction, for the functions (`Contracted_eq`). -/
 def Contracted (word : List Char) : Prop :=
   (∃ ending ∈ ["n't", "'re", "'ve", "'ll", "'d", "'m"], ending.toList <:+ word) ∨
     ∃ fixed ∈ ["it's", "that's", "there's", "here's", "what's", "who's", "where's", "how's",
@@ -390,31 +586,44 @@ instance : DecidablePred Contracted := fun word => by
   unfold Contracted
   infer_instance
 
+theorem Contracted_eq : @Contracted = @Controlled.Contracted := rfl
+
+end Exec
+
+
 /-- Check C5 (rule 4.2): the contractions of a document, outside quotations. -/
 @[regula_decision]
 def contractions : Reading → List Found :=
   perBlock fun _ cut => cut.flatMap fun run => run.filterMap fun slot =>
-    match Slot.token? slot with
+    match Exec.slotToken? slot with
     | some token =>
-      if Contracted token.letters then
-        some ⟨Slot.anchor slot, s!"the contraction `{String.ofList token.letters}`"⟩
+      if Exec.Contracted (normalize (token.filterMap (·.char))) then
+        some ⟨Slot.anchor slot,
+          s!"the contraction `{String.ofList (normalize (token.filterMap (·.char)))}`"⟩
       else none
     | none => none
 
-/-- A document conforms to C5 when it was read and no token of a sentence is a contraction. A
-quotation has no token: its text is not read. -/
+/-- A document conforms to C5 when it was read and no token of a sentence has a form for a
+comparison (`Normal`) that is a contraction. A quotation has no token: its text is not read. -/
 def NoContraction : Reading → Prop :=
-  EachBlock fun _ cut => ∀ run ∈ cut, ∀ slot ∈ run, ∀ token ∈ Slot.token? slot,
-    ¬Contracted token.letters
+  EachBlock fun _ cut => ∀ run ∈ cut, ∀ slot ∈ run, ∀ token ∈ Slot.token? slot, ∀ letters,
+    Normal (token.filterMap (·.char)) letters → ¬Contracted letters
 
 theorem contractions_nil_iff (reading : Reading) :
     contractions reading = [] ↔ NoContraction reading :=
   perBlock_nil_iff (fun _ cut => by
-    simp only [List.flatMap_eq_nil_iff, List.filterMap_eq_nil_iff]
+    simp only [List.flatMap_eq_nil_iff, List.filterMap_eq_nil_iff, normal_iff, forall_eq]
     refine forall₂_congr fun run _ => forall₂_congr fun slot _ => ?_
-    cases htoken : Slot.token? slot with
+    have htoken : Exec.slotToken? slot = Slot.token? slot := rfl
+    rw [htoken]
+    cases Slot.token? slot with
     | none => simp
-    | some token => by_cases h : Contracted token.letters <;> simp [h]) reading
+    | some token =>
+      by_cases h : Exec.Contracted (normalize (token.filterMap (·.char)))
+      · have h' : Contracted (normalize (token.filterMap (·.char))) := h
+        simp [h, h']
+      · have h' : ¬Contracted (normalize (token.filterMap (·.char))) := h
+        simp [h, h']) reading
 
 /-! ### Phrases at positions -/
 
@@ -432,6 +641,21 @@ theorem positions_nil_iff {α : Type} (list : List α) (P : Nat → Prop) [Decid
     positions list P = [] ↔ ∀ index, ¬P index := by
   simp only [positions, List.filter_eq_nil_iff, List.mem_range, decide_eq_true_eq]
   exact ⟨fun hnone index hP => hnone index (h index hP) hP, fun hnone index _ => hnone index⟩
+
+namespace Exec
+
+/-- `phrase` is at the position `index` of `list`, for the functions (`At_eq`). -/
+def At {α : Type} [DecidableEq α] (phrase list : List α) (index : Nat) : Prop :=
+  (list.drop index).take phrase.length = phrase
+
+instance {α : Type} [DecidableEq α] (phrase list : List α) : DecidablePred (At phrase list) :=
+  fun index => by
+    unfold At
+    infer_instance
+
+theorem At_eq {α : Type} [DecidableEq α] : @At α _ = @Controlled.At α _ := rfl
+
+end Exec
 
 /-- A phrase that is not empty is only at a position of the list. -/
 theorem At.lt {α : Type} [DecidableEq α] {phrase list : List α} {index : Nat}
@@ -460,22 +684,25 @@ theorem words_iff (text : List Char) (words : List (List Char)) :
     obtain ⟨first, rest, hsplit, htext⟩ := joined_split ' ' text
     exact ⟨first, rest, hsplit, htext, not_mem_of_mem_split ' ' text⟩
 
-/-- What a slot is for the comparison with the vocabulary: the letters of a token that is a
-word, and `none` for each other token, each quotation, each group and each boundary of a
-group. A token of space characters only is nothing: it is `skipped`. -/
-def Slot.mark (slot : Option Part) : Option (List Char) :=
-  match Slot.token? slot with
-  | some token => if ∃ atom ∈ token, atom.role.Counted then some token.letters else none
-  | none => none
+/-- `mark` is what `slot` is for the comparison with the vocabulary. A token that has a letter,
+a digit, code or a counted character outside ASCII gives the form of its characters for a
+comparison (`Normal`). Each other token, each quotation, each group and each boundary of a group
+gives `none`. -/
+def Slot.Marked (slot : Option Part) (mark : Option (List Char)) : Prop :=
+  (∃ token, Slot.token? slot = some token ∧ (∃ atom ∈ token, atom.role.Counted) ∧
+      ∃ letters, Normal (token.filterMap (·.char)) letters ∧ mark = some letters) ∨
+    ((∀ token, Slot.token? slot = some token → ¬∃ atom ∈ token, atom.role.Counted) ∧
+      mark = none)
 
 /-- The slot is a token of space characters only. -/
 abbrev Slot.Blank (slot : Option Part) : Prop :=
   ∃ token ∈ Slot.token? slot, ∀ atom ∈ token, atom.role = .space
 
-/-- The marks of a run: `Slot.mark` of each slot that is not a token of space characters only.
-Thus two words are next to each other exactly when only space characters are between them. -/
-def marks (run : List (Option Part)) : List (Option (List Char)) :=
-  (run.filter fun slot => !decide (Slot.Blank slot)).map Slot.mark
+/-- `marks` are the marks of a run: what each slot that is not a token of space characters only
+is for the comparison with the vocabulary (`Slot.Marked`), in order. Thus two words are next to
+each other exactly when only space characters are between them. -/
+def Marks (run : List (Option Part)) (marks : List (Option (List Char))) : Prop :=
+  Paired Slot.Marked (run.filter fun slot => !decide (Slot.Blank slot)) marks
 
 /-- The phrase of `length` words at `index` is a part of the longer `term`, which is at a
 position where it has all the words of the phrase. -/
@@ -485,27 +712,111 @@ abbrev PartOf (term : List (List Char)) (length : Nat) (marks : List (Option (Li
     ∃ offset ∈ List.range (term.length - length + 1), offset ≤ index ∧
       At (term.map some) marks (index - offset)
 
+/-- A run has no place where `phrase` is outside each longer term of `v`. -/
+def Avoids (v : Vocabulary) (phrase : List (List Char)) (run : List (Option Part)) : Prop :=
+  ∀ marks, Marks run marks → ∀ index, At (phrase.map some) marks index →
+    ∃ t ∈ v.draft.rows, ∃ term, Words t.key term ∧ PartOf term phrase.length marks index
+
+namespace Exec
+
+/-- The slot is a token of space characters only, for the functions (`SlotBlank_eq`). -/
+def SlotBlank (slot : Option Part) : Prop :=
+  ∃ token ∈ slotToken? slot, ∀ atom ∈ token, role atom = .space
+
+instance : DecidablePred SlotBlank := fun slot => by
+  unfold SlotBlank
+  infer_instance
+
+/-- The phrase at `index` is a part of the longer `term`, for the functions (`PartOf_eq`). -/
+def PartOf (term : List (List Char)) (length : Nat) (marks : List (Option (List Char)))
+    (index : Nat) : Prop :=
+  length < term.length ∧
+    ∃ offset ∈ List.range (term.length - length + 1), offset ≤ index ∧
+      At (term.map some) marks (index - offset)
+
+instance (term : List (List Char)) (length : Nat) (marks : List (Option (List Char))) :
+    DecidablePred (PartOf term length marks) := fun index => by
+  unfold PartOf
+  infer_instance
+
+theorem SlotBlank_eq : @SlotBlank = @Slot.Blank := rfl
+theorem PartOf_eq : @PartOf = @Controlled.PartOf := rfl
+
+end Exec
+
+/-- What a slot is for the comparison with the vocabulary. -/
+def markOf (slot : Option Part) : Option (List Char) :=
+  match Exec.slotToken? slot with
+  | some token =>
+    if ∃ atom ∈ token, Exec.Counted (Exec.role atom) then
+      some (normalize (token.filterMap (·.char)))
+    else none
+  | none => none
+
+/-- What a slot is for the comparison with the vocabulary is one result only: the computed
+one. -/
+theorem marked_iff (slot : Option Part) (mark : Option (List Char)) :
+    Slot.Marked slot mark ↔ mark = markOf slot := by
+  have hmark : markOf slot =
+      match Slot.token? slot with
+      | some token =>
+        if ∃ atom ∈ token, atom.role.Counted then some (normalize (token.filterMap (·.char)))
+        else none
+      | none => none := rfl
+  rw [hmark, Slot.Marked]
+  cases Slot.token? slot with
+  | none => simp
+  | some token =>
+    dsimp only
+    split
+    · rename_i h
+      constructor
+      · rintro (⟨other, hother, -, letters, hletters, rfl⟩ | ⟨hnone, -⟩)
+        · cases hother
+          rw [(normal_iff _ _).mp hletters]
+        · exact absurd h (hnone token rfl)
+      · rintro rfl
+        exact .inl ⟨token, rfl, h, _, (normal_iff _ _).mpr rfl, rfl⟩
+    · rename_i h
+      constructor
+      · rintro (⟨other, hother, hcounted, -⟩ | ⟨-, rfl⟩)
+        · cases hother
+          exact absurd hcounted h
+        · rfl
+      · rintro rfl
+        exact .inr ⟨fun other hother => by cases hother; exact h, rfl⟩
+
+/-- The marks of a run. -/
+def marks (run : List (Option Part)) : List (Option (List Char)) :=
+  (run.filter fun slot => !decide (Exec.SlotBlank slot)).map markOf
+
+/-- The marks of a run are one list only: the computed one. -/
+theorem marks_iff (run : List (Option Part)) (result : List (Option (List Char))) :
+    Marks run result ↔ result = marks run :=
+  paired_iff marked_iff _ _
+
 /-- The positions of `marks` where `phrase` is and is not a part of a longer one of `terms`. -/
 def offences (terms : List (List (List Char))) (phrase : List (List Char))
     (marks : List (Option (List Char))) : List Nat :=
   positions marks fun index =>
-    At (phrase.map some) marks index ∧ ¬∃ term ∈ terms, PartOf term phrase.length marks index
+    Exec.At (phrase.map some) marks index ∧
+      ¬∃ term ∈ terms, Exec.PartOf term phrase.length marks index
 
 /-- The terms of a vocabulary, each as its words in lowercase. -/
 def Vocabulary.terms (v : Vocabulary) : List (List (List Char)) :=
-  v.draft.rows.map fun t => split ' ' t.key
-
-/-- A run has no place where `phrase` is outside each longer term of `v`. -/
-abbrev Avoids (v : Vocabulary) (phrase : List (List Char)) (run : List (Option Part)) : Prop :=
-  ∀ index, At (phrase.map some) (marks run) index →
-    ∃ t ∈ v.draft.rows, ∃ term, Words t.key term ∧ PartOf term phrase.length (marks run) index
+  (Exec.rows v.draft).map fun t => split ' ' (Exec.termKey t)
 
 theorem offences_nil_iff (v : Vocabulary) {phrase : List (List Char)} (hne : phrase ≠ [])
     (run : List (Option Part)) :
     offences v.terms phrase (marks run) = [] ↔ Avoids v phrase run := by
-  rw [offences, positions_nil_iff _ _ fun index h => At.lt (by simpa using hne) h.1]
+  rw [offences, positions_nil_iff _ _ fun index h =>
+    At.lt (by simpa using hne) (show At (phrase.map some) (marks run) index from h.1)]
+  show (∀ index, ¬(At (phrase.map some) (marks run) index ∧
+    ¬∃ term ∈ (v.draft.rows.map fun t => split ' ' t.key),
+      PartOf term phrase.length (marks run) index)) ↔ _
+  simp only [Avoids, marks_iff, forall_eq]
   refine forall_congr' fun index => ?_
-  simp only [not_and, Classical.not_not, Vocabulary.terms, List.mem_map, words_iff]
+  simp only [not_and, Classical.not_not, List.mem_map, words_iff]
   constructor
   · rintro h hat
     obtain ⟨term, ⟨t, ht, rfl⟩, hcovers⟩ := h hat
@@ -518,7 +829,7 @@ theorem offences_nil_iff (v : Vocabulary) {phrase : List (List Char)} (hne : phr
 def phraseFindings (v : Vocabulary) (phrase : List (List Char)) (detail : String) (cut : Cut) :
     List Found :=
   cut.flatMap fun run => (offences v.terms phrase (marks run)).map fun index =>
-    ⟨((((run.filter fun slot => !decide (Slot.Blank slot))[index]?).map Slot.anchor).getD 0),
+    ⟨((((run.filter fun slot => !decide (Exec.SlotBlank slot))[index]?).map Slot.anchor).getD 0),
       detail⟩
 
 theorem phraseFindings_nil_iff (v : Vocabulary) {phrase : List (List Char)} (hne : phrase ≠ [])
@@ -531,8 +842,8 @@ theorem phraseFindings_nil_iff (v : Vocabulary) {phrase : List (List Char)} (hne
 quotations and outside each longer term of the vocabulary. -/
 @[regula_decision]
 def replacedNames (v : Vocabulary) : Reading → List Found :=
-  perBlock fun _ cut => v.draft.rows.flatMap fun t => t.replaces.flatMap fun name =>
-    phraseFindings v (split ' ' (lower name))
+  perBlock fun _ cut => (Exec.rows v.draft).flatMap fun t => t.replaces.flatMap fun name =>
+    phraseFindings v (split ' ' (Exec.lower name))
       s!"`{String.ofList name}` is a replaced name; write: {String.ofList t.term}" cut
 
 /-- A document conforms to C6 when it was read and no words of a sentence are a replaced name
@@ -545,7 +856,7 @@ def NoReplacedName (v : Vocabulary) : Reading → Prop :=
 theorem replacedNames_nil_iff (v : Vocabulary) (reading : Reading) :
     replacedNames v reading = [] ↔ NoReplacedName v reading :=
   perBlock_nil_iff (fun _ cut => by
-    simp only [List.flatMap_eq_nil_iff, words_iff, forall_eq]
+    simp only [Exec.rows_eq, Exec.lower_eq, List.flatMap_eq_nil_iff, words_iff, forall_eq]
     refine forall₂_congr fun t _ => forall₂_congr fun name _ => ?_
     exact phraseFindings_nil_iff v (split_ne_nil ' ' _) _ cut) reading
 
@@ -554,7 +865,7 @@ in a document, outside quotations and outside each term of the vocabulary. -/
 @[regula_decision]
 def replacedWords (v : Vocabulary) : Reading → List Found :=
   perBlock fun _ cut => v.draft.replaced.flatMap fun r =>
-    phraseFindings v [r.key]
+    phraseFindings v [Exec.replacedKey r]
       s!"`{String.ofList r.word}` is a replaced word; write: {String.ofList r.write}" cut
 
 /-- A document conforms to C7 when it was read and no word of a sentence is a replaced word of
@@ -565,16 +876,20 @@ def NoReplacedWord (v : Vocabulary) : Reading → Prop :=
 theorem replacedWords_nil_iff (v : Vocabulary) (reading : Reading) :
     replacedWords v reading = [] ↔ NoReplacedWord v reading :=
   perBlock_nil_iff (fun _ cut => by
-    simp only [List.flatMap_eq_nil_iff]
+    simp only [Exec.replacedKey_eq, List.flatMap_eq_nil_iff]
     exact forall₂_congr fun r _ => phraseFindings_nil_iff v (by simp) _ cut) reading
 
 /-! ### C8: abbreviations that end with a period -/
 
-/-- What a slot is for check C8: the characters of its token in lowercase, without the space
-characters, and `none` for a quotation, a group and a boundary of a group. -/
-def Slot.sign (slot : Option Part) : Option (List Char) :=
-  (Slot.token? slot).map fun token =>
-    ((token.filterMap (·.char)).filter fun c => !spacing c).map Char.toLower
+/-- `sign` is what `slot` is for check C8. A token gives the form for a comparison (`Normal`) of
+its characters that are not space characters: thus a period and the space after it give a
+period, and a word in apostrophes gives the word. A quotation, a group and a boundary of a group
+give `none`. -/
+def Slot.Signed (slot : Option Part) (sign : Option (List Char)) : Prop :=
+  (∃ token, Slot.token? slot = some token ∧ ∃ letters,
+      Normal ((token.filterMap (·.char)).filter fun c => !spacing c) letters ∧
+        sign = some letters) ∨
+    (Slot.token? slot = none ∧ sign = none)
 
 /-- The abbreviations that check C8 refuses, each as the signs of its tokens: `e.g.`, `i.e.`,
 `etc.`, `vs.` and `cf.`. -/
@@ -583,20 +898,47 @@ def abbreviationSigns : List (String × List (Option (List Char))) :=
     ("vs.", ["vs", "."]), ("cf.", ["cf", "."])].map fun (name, signs) =>
     (name, signs.map fun sign => some sign.toList)
 
+namespace Exec
+
+/-- The abbreviations that check C8 refuses, for the functions (`abbreviationSigns_eq`). -/
+def abbreviationSigns : List (String × List (Option (List Char))) :=
+  [("e.g.", ["e", ".", "g", "."]), ("i.e.", ["i", ".", "e", "."]), ("etc.", ["etc", "."]),
+    ("vs.", ["vs", "."]), ("cf.", ["cf", "."])].map fun (name, signs) =>
+    (name, signs.map fun sign => some sign.toList)
+
+theorem abbreviationSigns_eq : @abbreviationSigns = @Controlled.abbreviationSigns := rfl
+
+end Exec
+
+/-- What a slot is for check C8. -/
+def signOf (slot : Option Part) : Option (List Char) :=
+  (Exec.slotToken? slot).map fun token =>
+    normalize ((token.filterMap (·.char)).filter fun c => !Exec.spacing c)
+
+/-- What a slot is for check C8 is one result only: the computed one. -/
+theorem signed_iff (slot : Option Part) (sign : Option (List Char)) :
+    Slot.Signed slot sign ↔ sign = signOf slot := by
+  have hsign : signOf slot = (Slot.token? slot).map fun token =>
+      normalize ((token.filterMap (·.char)).filter fun c => !spacing c) := rfl
+  rw [hsign, Slot.Signed]
+  cases Slot.token? slot with
+  | none => simp
+  | some token => simp [normal_iff]
+
 /-- Check C8 (a rule of the project): the abbreviations `e.g.`, `i.e.`, `etc.`, `vs.` and `cf.`
 of a document, outside quotations. -/
 @[regula_decision]
 def abbreviations : Reading → List Found :=
-  perBlock fun _ cut => cut.flatMap fun run => abbreviationSigns.flatMap fun abbreviation =>
-    (positions (run.map Slot.sign) fun index =>
-      At abbreviation.2 (run.map Slot.sign) index).map fun index =>
+  perBlock fun _ cut => cut.flatMap fun run => Exec.abbreviationSigns.flatMap fun abbreviation =>
+    (positions (run.map signOf) fun index =>
+      Exec.At abbreviation.2 (run.map signOf) index).map fun index =>
       ⟨((run[index]?).map Slot.anchor).getD 0, s!"the abbreviation `{abbreviation.1}`"⟩
 
 /-- A document conforms to C8 when it was read and the tokens of no sentence are one of the five
-abbreviations at a position. -/
+abbreviations at a position, by what each slot is for the check (`Slot.Signed`). -/
 def NoAbbreviation : Reading → Prop :=
-  EachBlock fun _ cut => ∀ run ∈ cut, ∀ abbreviation ∈ abbreviationSigns, ∀ index,
-    ¬At abbreviation.2 (run.map Slot.sign) index
+  EachBlock fun _ cut => ∀ run ∈ cut, ∀ signs, Paired Slot.Signed run signs →
+    ∀ abbreviation ∈ abbreviationSigns, ∀ index, ¬At abbreviation.2 signs index
 
 theorem abbreviationSigns_ne_nil : ∀ abbreviation ∈ abbreviationSigns, abbreviation.2 ≠ [] := by
   decide
@@ -604,10 +946,12 @@ theorem abbreviationSigns_ne_nil : ∀ abbreviation ∈ abbreviationSigns, abbre
 theorem abbreviations_nil_iff (reading : Reading) :
     abbreviations reading = [] ↔ NoAbbreviation reading :=
   perBlock_nil_iff (fun _ cut => by
-    simp only [List.flatMap_eq_nil_iff, List.map_eq_nil_iff]
+    simp only [Exec.abbreviationSigns_eq, List.flatMap_eq_nil_iff, List.map_eq_nil_iff,
+      paired_iff signed_iff, forall_eq]
     refine forall₂_congr fun run _ => forall₂_congr fun abbreviation habbreviation => ?_
     exact positions_nil_iff _ _ fun index h =>
-      At.lt (abbreviationSigns_ne_nil abbreviation habbreviation) h) reading
+      At.lt (abbreviationSigns_ne_nil abbreviation habbreviation)
+        (show At abbreviation.2 (run.map signOf) index from h)) reading
 
 /-! ## The registered contracts of C1 to C8 -/
 

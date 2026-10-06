@@ -69,14 +69,17 @@ open Regula.Prose
 inductive Kind where
   /-- A heading. -/
   | heading
-  /-- A paragraph that is not in a list item: also a paragraph of a block quote. -/
+  /-- A paragraph that is in no list item: also such a paragraph of a block quote. -/
   | paragraph
-  /-- A paragraph of an item of an ordered list. -/
+  /-- A paragraph in an item of an ordered list, at each depth: also in an unordered list or a
+  block quote in that item. -/
   | step
-  /-- A paragraph of an item of an unordered list. -/
+  /-- A paragraph in items of unordered lists only: also in a block quote there. -/
   | bullet
-  /-- A table cell. -/
+  /-- A table cell that is in no item of an ordered list. -/
   | cell
+  /-- A table cell in an item of an ordered list, at each depth. -/
+  | stepCell
   /-- A code block or a raw HTML block, which has no prose. -/
   | code
   deriving DecidableEq, Repr
