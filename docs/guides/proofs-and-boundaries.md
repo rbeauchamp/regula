@@ -173,11 +173,37 @@ refused. The claimed targets are built with the audit-build marker `weak.regula.
 modules last built with ordinary options are rebuilt for the audit and their replayed logs never
 enter its warning check.
 
-`./scripts/verify.sh` runs `axiomGate --acceptance-link tmp/acceptance-link.json --verso
-website:RegulaStandard:regula-standard` after its builds and other required checks, and
-`./scripts/verify.sh docs` runs `docFenceAudit` with the same arguments over
-every `docs/` fence and every `lean` block of the standard. The shell's zero exit records completed execution of those
+`./scripts/verify.sh` first builds `axiomGate` alone, then runs `axiomGate --acceptance-link
+tmp/acceptance-link.pending.json --verso website:RegulaStandard:regula-standard` beside its
+complete build and its other required checks (`RegulaVerification.prebuild`, `beside` and
+`inOrder`). It joins every one of those commands and, only when each exited 0, moves the pending
+record to `tmp/acceptance-link.json` as its last action before the success line (`promoted`).
+`./scripts/verify.sh docs` runs `docFenceAudit --acceptance-link tmp/acceptance-link.json` with
+the same `--verso` argument over every `docs/` fence and every `lean` block of the standard. So
+an accepted record at that path means that the gate accepted and that every other command of the
+first step exited 0. A run that fails or is killed before the move leaves the record incomplete,
+as the step's begin-attempt wrote it. The shell's zero exit records completed execution of those
 commands, not a separate Lean proof.
+
+That schedule decides the first step's cost, never its results. The step's complete build keeps
+every processor busy, and the gate, which used to follow it, leaves processors idle: the build of
+its isolated copy ends in one chain of imports. Only the modules the gate executable imports have
+to be built before the gate starts, so the driver builds those first and runs the rest of the
+build, the registry checks and `qualify combined` while the gate runs. `inOrder_append_beside`
+proves that the two groups the driver runs are the step's commands, each once and in their
+order; `prebuild_named` proves that the early build names only a target the complete build
+names again. That the complete build then builds whatever is missing is Lake's behaviour, not a
+theorem. Two more things are read from the code and not proved. First, the gate reads nothing that the commands beside it write: it audits an
+isolated copy whose build output is its own, and the complete build writes only modules outside
+the gate executable's import closure, which the early build left current. The gate's rechecks of
+its sources, configuration and frozen artifacts stay in force, so an interference they can see
+is a refusal, not an acceptance. Second, two Lake processes then use the repository's build
+directory at once, and the one that starts the gate builds nothing; Lake's behaviour there is
+trusted. The driver never kills a command it started, because that would not stop the command's
+own descendants: it joins every one, so a failed command beside a running gate is reported once
+the gate has ended, and the outer deadline's kill still reaches every process. Each command's
+start is a `verification:` line of the driver, and so is its end or, for the gate, the moment
+the driver joined it; the lines of commands that run at once are interleaved.
 
 Source capture keeps each prefix for failure reporting; a prefix is not a completed inventory. A
 qualification receipt starts as a new incomplete attempt before timeout selection, spawn and setup reads, keeps
@@ -2784,7 +2810,10 @@ execution, and calling a proved oracle does not prove the driver or its IO effec
 - `RegulaVerification.parseMode_sound`, `parseMode_roundtrip` and `select_exact`: exact argument
   binding and acceptance of every documented invocation; the caller consumes the proof-bearing
   selection, and recipes name the intended commands explicitly; `commands_nonempty` rules out an
-  empty selected campaign; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
+  empty selected campaign; `inOrder_append_beside`: the commands the driver runs one after
+  another and those it runs beside them are together the selected recipe, each command once;
+  `prebuild_named`: a build the driver runs before a recipe names only targets a build of that
+  recipe names; `dependencyFree_packages`: a root lock manifest that `dependencyFree`
   accepts has an empty `packages` array. `RegulaVerification.Decisions` registers the kinds of
   the driver's decisions ([above](#decisions-not-registered-with-regula_decision)). Process
   execution remains IO.

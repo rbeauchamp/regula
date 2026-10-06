@@ -5,8 +5,10 @@ import Lean
 Cold-start verification plan and operational interpreter. This module imports only
 the pinned toolchain, so it can run before any root-package artifacts exist. Argument
 selection has soundness and round-trip proofs; the interpreter consumes its proof-bearing
-selection. Recipes name Lake targets, not a source-file census. Process effects remain
-trusted IO under the shell's single 420-second process-group deadline. -/
+selection. Recipes name Lake targets, not a source-file census. The interpreter runs every
+command of the selected recipe (`inOrder_append_beside`); it starts the gate of ordinary
+acceptance beside the others once that gate is built (`prebuild`, `beside`). Process effects
+remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
 /-- Closed vocabulary of supported verification invocations. -/
@@ -154,8 +156,16 @@ def mathlibPackage : String := "integration/mathlib"
 private def lakeIn (dir : String) (args : Array String) : Command := ⟨"lake", args, dir⟩
 
 /-- Ordinary acceptance records its accepted input identity here; the separately timed
-documentation step refuses unless its own identity is equal. -/
+documentation step refuses unless its own identity is equal. The driver puts the record here as
+its last action before the success line (`promoted`), so an accepted record here means that every
+command of the step exited 0. -/
 def linkPath : String := "tmp/acceptance-link.json"
+
+/-- Where the gate of ordinary acceptance records that identity. The gate runs beside the step's
+other commands (`beside`), so its own success does not end the step: this record becomes
+`linkPath` only once every command has exited 0 (`promoted`), and a run that fails or is killed
+before then leaves `linkPath` incomplete. -/
+def pendingLinkPath : String := "tmp/acceptance-link.pending.json"
 
 /-- The standard's Verso source: package directory, library and its render-only executable.
 Both acceptance steps capture its sources and the package inputs its check reads, including the
@@ -208,7 +218,7 @@ def commands : Mode → List Command
         "+Regula.Cli.Main:olean", "+Regula.Release:olean", "+Regula.DiagnosticsGate:olean"],
       lake #["env", "lean", "--run", "lean/Regula/RegistryChecks.lean"],
       lake #["exe", "qualify", "--under-deadline", "combined"],
-      lake #["exe", "axiomGate", "--acceptance-link", linkPath, "--verso", versoStandard]]
+      lake #["exe", "axiomGate", "--acceptance-link", pendingLinkPath, "--verso", versoStandard]]
   | .docs => [
       lake #["build", "docFenceAudit"],
       -- The controls of the checks C1 to C9, B1 and B2: each check accepts its positive controls
@@ -284,32 +294,129 @@ def commands : Mode → List Command
 theorem commands_nonempty (mode : Mode) : commands mode ≠ [] := by
   cases mode <;> simp [commands, ruleExampleShard, selftest]
 
-/-- Interpret commands sequentially; a nonzero exit raises before any success report.
-Process execution and signal delivery remain trusted. -/
-def execute (command : Command) : IO Unit := do
-  let child ← IO.Process.spawn {
+/-- Builds the driver runs before a mode's `commands`. They decide cost, never results: every
+target one names is named again by a build among those commands (`prebuild_named`), which still
+builds whatever is missing. Ordinary acceptance builds `axiomGate` alone first: the step's whole
+build keeps every processor busy, while the gate, which follows it, leaves processors idle. With
+the gate built first, the rest of the build and the other checks run beside the gate
+(`beside`). -/
+def prebuild : Mode → List Command
+  | .ordinary => [lake #["build", "axiomGate"]]
+  | _ => []
+
+/-- The Lake targets a command builds: the arguments after `build` of a `lake build` in the
+repository root, and none for any other command. -/
+def buildTargets (command : Command) : List String :=
+  if command.program = "lake" ∧ command.dir = "." ∧ command.args[0]? = some "build" then
+    command.args.toList.drop 1
+  else []
+
+/-- A prebuild selects nothing: each target it names is a target of a build among the mode's own
+commands, which runs to completion before any success report. -/
+theorem prebuild_named (mode : Mode) (command : Command) (target : String)
+    (h : command ∈ prebuild mode) (named : target ∈ buildTargets command) :
+    ∃ later ∈ commands mode, target ∈ buildTargets later := by
+  cases mode <;> simp [prebuild] at h
+  subst h
+  refine ⟨_, List.mem_cons_self, ?_⟩
+  simp [buildTargets, lake] at named ⊢
+  simp [named]
+
+/-- How many of a mode's last `commands` run beside the others (`beside`). Ordinary acceptance
+runs its gate so; every other mode runs its commands one after another. -/
+def besideCount : Mode → Nat
+  | .ordinary => 1
+  | _ => 0
+
+/-- The commands of `mode` that run one after another: all but its last `besideCount`. -/
+def inOrder (mode : Mode) : List Command :=
+  (commands mode).take ((commands mode).length - besideCount mode)
+
+/-- The commands of `mode` that each run as a process of their own, started before `inOrder` and
+joined after it: its last `besideCount`. -/
+def beside (mode : Mode) : List Command :=
+  (commands mode).drop ((commands mode).length - besideCount mode)
+
+/-- The two groups are the mode's commands, each once and in their order, whatever
+`besideCount` is: the schedule drops no command and adds none. -/
+theorem inOrder_append_beside (mode : Mode) : inOrder mode ++ beside mode = commands mode :=
+  List.take_append_drop _ _
+
+/-- Print one line of the driver's own progress at once, so that it stands in the output where it
+happened among the lines its child processes write. -/
+def announce (line : String) : IO Unit := do
+  IO.println s!"verification: {line}"
+  (← IO.getStdout).flush
+
+/-- A command as the progress lines show it. -/
+def Command.display (command : Command) : String :=
+  " ".intercalate (command.program :: command.args.toList) ++
+    (if command.dir = "." then "" else s!" (in {command.dir})")
+
+/-- The standard streams of every command: no input, and the driver's own output. -/
+def stdio : IO.Process.StdioConfig := { stdin := .null, stdout := .inherit, stderr := .inherit }
+
+/-- Start `command` without waiting for it. The child stays in the driver's process group, so
+the outer deadline's kill reaches it. Process execution and signal delivery remain trusted. -/
+def start (command : Command) : IO (IO.Process.Child stdio) := do
+  announce s!"start {command.display}"
+  IO.Process.spawn {
+    stdio with
     cmd := command.program, args := command.args, cwd := some command.dir,
-    env := #[("GHCR_TOKEN", none)],
-    stdin := .null, stdout := .inherit, stderr := .inherit }
+    env := #[("GHCR_TOKEN", none)] }
+
+/-- Wait for a started command; a nonzero exit raises. -/
+def finish (command : Command) (child : IO.Process.Child stdio) : IO Unit := do
   let exit ← child.wait
   if exit != 0 then
     throw <| IO.userError s!"{command.program} {command.args} in {command.dir} failed ({exit})"
+
+/-- Interpret one command to its end; a nonzero exit raises before any success report. -/
+def execute (command : Command) : IO Unit := do
+  let started ← IO.monoMsNow
+  finish command (← start command)
+  announce s!"done in {((← IO.monoMsNow) - started) / 1000} s: {command.display}"
+
+/-- Start each of `beside`, run `inOrder` one after another meanwhile, then wait for `beside`.
+A started process is joined on every path before an error leaves, so a failed run leaves no
+command of its own running: the driver never kills a child, because that would not stop the
+child's own descendants. The error raised is the first in this order: a failed start, then
+`inOrder`, which stops at its first failure, then `beside` from its last command to its first. -/
+def executeBeside : (beside inOrder : List Command) → IO Unit
+  | [], inOrder => inOrder.forM execute
+  | command :: rest, inOrder => do
+      let child ← start command
+      let others ← (executeBeside rest inOrder).toBaseIO
+      if let .error error := others then
+        announce s!"failed: {error}; waiting for {command.display}"
+      let joined ← (finish command child).toBaseIO
+      IO.ofExcept others
+      IO.ofExcept joined
+      announce s!"joined: {command.display}"
 
 private def usage : String :=
   "usage: scripts/verify.sh [docs | serialized-graph | site | mathlib | diagnostics \
     [fixtures|structural [1/2|2/2]|execution [1/2|2/2]|cli|environments|build-policy|\
     lint-driver|producers|history|self-lint|self-audit|rule-examples [1/2|2/2]]]"
 
-/-- The earlier verdict an attempt of `mode` invalidates, with the constant text recording it
-as incomplete. -/
-def invalidated : Mode → Option (String × String)
-  | .ordinary => some (linkPath, "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n")
+/-- The earlier verdicts an attempt of `mode` invalidates, each with the constant text recording
+it as incomplete. Ordinary acceptance invalidates the accepted link and the gate's pending record
+of it, so neither is accepted from then on unless this attempt wrote it. -/
+def invalidated : Mode → List (String × String)
+  | .ordinary => [linkPath, pendingLinkPath].map
+      (·, "{\"schemaVersion\":1,\"status\":\"incomplete\"}\n")
   | .ruleExamples =>
-      some ("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+      [("tmp/rule-examples.json", "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
   | .ruleExamplesFirst =>
-      some (shardEvidence 1, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+      [(shardEvidence 1, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
   | .ruleExamplesSecond =>
-      some (shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")
+      [(shardEvidence 2, "{\"outcome\":\"INCOMPLETE\",\"phase\":\"setup\"}\n")]
+  | _ => []
+
+/-- The record a mode's gate writes and the place the driver moves it to once every command of
+the mode has exited 0, as the driver's last action before the success line. -/
+def promoted : Mode → Option (String × String)
+  | .ordinary => some (pendingLinkPath, linkPath)
   | _ => none
 
 /-- The package adopters require stays dependency-free: its lock manifest records no package. Lake
@@ -336,13 +443,16 @@ an earlier site artifact. `scripts/verify.sh` runs this toolchain-only step befo
 and before any checker is built, so a failed setup or build cannot leave either in place. -/
 def beginAttempt (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
-  if let some (path, text) := invalidated selection.val then
+  for (path, text) in invalidated selection.val do
     IO.FS.createDirAll "tmp"
     IO.FS.writeFile path text
   if selection.val == .site then
     if ← System.FilePath.pathExists siteOutput then IO.FS.removeDirAll siteOutput
 
-/-- Cold-start driver; all builds and checks stay within the inherited outer deadline. -/
+/-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
+preliminary checks and the mode's `prebuild`, it runs every command of the mode
+(`inOrder_append_beside`) and joins each one before it reports; a record the mode promotes
+(`promoted`) is moved last, only when every command exited 0. -/
 def run (args : List String) : IO Unit := do
   let some selection := select args | throw <| IO.userError usage
   if selection.val == .ordinary then
@@ -354,8 +464,12 @@ def run (args : List String) : IO Unit := do
   for command in [({ program := "git", args := #["diff", "--check"] } : Command),
       { program := "git", args := #["diff", "--cached", "--check"] },
       { program := "shellcheck", args := #["scripts/verify.sh", "scripts/provision.sh"] }] ++
-          commands selection.val do
+          prebuild selection.val do
     execute command
+  executeBeside (beside selection.val) (inOrder selection.val)
+  if let some (pending, accepted) := promoted selection.val then
+    IO.FS.rename pending accepted
+    announce s!"every command exited 0: moved {pending} to {accepted}"
   IO.println (match selection.val with
     | .ordinary => "local verification: PASS (ordinary mechanical acceptance commands completed; \
       semantic review is separate; run `scripts/verify.sh docs` for documentation)"

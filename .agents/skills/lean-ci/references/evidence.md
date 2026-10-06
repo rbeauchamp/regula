@@ -78,6 +78,29 @@ A Python timeout that kills/waits its direct checker child alone does not establ
 that nested Lake/compiler descendants have stopped before scratch cleanup; an outer
 SIGKILL cannot execute user-space cleanup. The OS remains a trusted boundary.
 
+## Regula: the gate beside the rest of ordinary acceptance (2026-10-06)
+
+Observed on hosted `ubuntu-24.04` runners with four processors; these are not bounds.
+Over 18 CI runs the first acceptance step took 226 to 414 s under its 420-second deadline. In
+five of them read phase by phase, every phase was 1.6 to 1.8 times longer in the slowest run
+(405 s) than in the fastest (236 s), so the spread was runner speed. In [run 37513374192](https://github.com/rbeauchamp/regula/actions/runs/37513374192)
+the step took 364 s: the build 173 s (273 jobs, 640 job-seconds, every processor busy from start
+to end), `qualify combined` 25 s, and the gate 157 s, of which its isolated build took about 66 s
+for 163 job-seconds, the last 40 s with one or two jobs at a time. The modules the gate
+executable imports took 414 of the 640 job-seconds, and their longest import chain with the
+gate's own C file took 96 s. So about 225 job-seconds of the build did not have to precede the
+gate.
+
+The driver now builds the gate first and runs it beside the complete build and the other checks
+([proofs and boundaries](../../../../docs/guides/proofs-and-boundaries.md#the-acceptance-boundary)).
+In one local probe (14 processors, two threads for each side) the second build compiled 106
+jobs, none of them a module the gate imports, and the gate recorded the same input identity as
+the sequential run. That probe shows the arrangement works; it does not show the hosted gain,
+because the local machine has processors to spare. The hosted times of the new schedule are in
+the pull request that closed [issue 246](https://github.com/rbeauchamp/regula/issues/246).
+Not established: that two Lake processes in one build directory never interfere (one of them
+builds nothing here), and any upper bound on the step's time.
+
 ## Regula: Veil scout for the corpus harness (2026-09-23)
 
 On 2026-09-23, Veil ([verse-lab/veil](https://github.com/verse-lab/veil), main `517f2ba`)

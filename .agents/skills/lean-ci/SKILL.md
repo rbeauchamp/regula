@@ -69,6 +69,18 @@ faster sample.
   output the selected build did not name, since a stale file can stand in for it locally.
 - Tasks started beside a bounded worker queue run outside its bound. Put them in the queue,
   behind the items that decide its end, so they take workers that would otherwise idle.
+- A processor-bound build followed by a consumer of one of its outputs wastes the processors
+  that consumer leaves idle. From one hosted log, sum the job seconds of the whole build and of
+  the modules the consumer's executable imports. The difference is work that can run beside the
+  consumer. The closure's job seconds over the processor count, and its longest import chain,
+  are each a lower bound of the time before the consumer can start. Build that closure first,
+  start the consumer, and run the complete build, which still names every target, beside it. Show what the consumer reads and what the build
+  then writes, and keep the consumer's own freshness checks, so interference is a refusal. If
+  the consumer wrote a receipt as the last command of the sequence, its success no longer ends
+  the sequence: let the driver promote the receipt after it has joined every command, or a
+  failed or killed run leaves an accepted one. Keep every child in the deadline's process group
+  and join instead of killing. The gain is the idle processor time actually filled, which a
+  machine with more processors than the runner overstates; confirm it on the hosted runner.
 - When the bound still exceeds the target, divide the checks into shards under an approved
   budget each, and size them on the slowest observed run. Let every check carry its one shard
   where it is listed and select by that tag, so cover and disjointness are a theorem about the
