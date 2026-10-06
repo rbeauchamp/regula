@@ -1367,17 +1367,18 @@ paths. The vocabulary with no row is accepted for no path, and a vocabulary with
 refused for no path. -/
 theorem checked_untracked : Regula.ExecutableContract untracked (fun run =>
     Regula.Decides (· = [])
-      (fun input : List String × List String × Vocabulary =>
-        (∀ t ∈ input.2.2.draft.sharedNouns ++ input.2.2.draft.sharedVerbs,
-          String.ofList t.path ∈ input.1) ∧
-        ∀ t ∈ input.2.2.draft.projectNouns ++ input.2.2.draft.projectVerbs,
-          String.ofList t.path ∈ input.2.1)
-      (fun input => run input.1 input.2.1 input.2.2)) :=
+      (fun input : (List String × List String) × Vocabulary =>
+        (∀ t ∈ input.2.draft.sharedNouns ++ input.2.draft.sharedVerbs,
+          String.ofList t.path ∈ input.1.1) ∧
+        ∀ t ∈ input.2.draft.projectNouns ++ input.2.draft.projectVerbs,
+          String.ofList t.path ∈ input.1.2)
+      (Function.uncurry (Function.uncurry run))) :=
   ⟨.of_iff
     (fun input => by
-      simp [untracked, List.filterMap_eq_nil_iff, or_imp, forall_and, and_assoc])
-    ⟨([], [], Vocabulary.empty), by decide⟩
-    ⟨([], [], Vocabulary.sample), by decide⟩⟩
+      simp [Function.uncurry, untracked, List.filterMap_eq_nil_iff, or_imp, forall_and,
+        and_assoc])
+    ⟨(([], []), Vocabulary.empty), by decide⟩
+    ⟨(([], []), Vocabulary.sample), by decide⟩⟩
 
 /-- The draft of `project` with the `Shared` tables of `shared` and no shared package. -/
 def Draft.adopt (shared project : Draft) : Draft :=
