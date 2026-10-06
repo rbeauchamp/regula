@@ -795,10 +795,13 @@ structure Declaration.KernelChecked where
   deriving Repr, DecidableEq
 
 /-- The part of a declaration's record that is a toolchain observation: the answer of Lean's
-elaborator, compiler or kernel, or of the checker's own observing code, run at inspection. No
-field here is read directly from state an audited project writes. An observation can still depend
-on such state where the toolchain's own answer does, and each field says where: that is the truth
-of the observation, which no policy theorem proves. -/
+elaborator, compiler or kernel, or of the checker's own observing code, run at inspection. Each
+field is an answer computed at inspection, not a copy of an extension's entry. An observation can
+depend on state an audited project writes in two ways: where the toolchain's own answer does, and
+where the checker's observer reads a mark directly (`unsafeRecRegenerated` reads what selects a
+regeneration; `constructorIndex` reads the replacement, `extern` and range marks;
+`executableContract` reads Lean's `noncomputable` mark for one refusal). Each such field says what
+it reads. No policy theorem proves an observation truthful. -/
 structure Declaration.ToolchainObserved where
   /-- The module that declares the constant, as Lean's import record of the inspected
   environment gives it. Structural original Name for new diagnostic transport; absent legacy
@@ -826,9 +829,12 @@ structure Declaration.ToolchainObserved where
   /-- For a replay candidate matching the pinned constructor-index generator: its inductive
   parent and safe base. The observer checks the kernel-generated eliminator, the base's exact
   alternatives, and the closed `getObjTagNat` wrapper without compiling any declaration.
-  This records a structural observation, not native execution correspondence. The observer also
-  requires that neither declaration has a replacement, an `extern` implementation or a recorded
-  range, which are state a project writes. -/
+  This records a structural observation, not native execution correspondence. The observer
+  (`Collect.constructorIndexObservation`) also reads marks a project writes, directly. It requires
+  that the base's replacement (`@[implemented_by]`) is the helper, that the helper has no
+  replacement and no recorded declaration range, that neither has an `extern` implementation, that
+  the eliminator has no replacement and no `extern` implementation, and that `getObjTagNat` has no
+  replacement. -/
   constructorIndex : Option (Lean.Name × Lean.Name)
   /-- For a replay candidate with a statement: whether an independent native evaluation of
   `e` returned `true` (`false` also when the replay failed). The evaluation runs the compiled
@@ -880,10 +886,12 @@ structure Declaration.ProjectWritten where
   decisionResult : Option DecisionResult := none
   deriving Repr, DecidableEq
 
-/-- The part of a declaration's record that reads no project-writable state directly: its
+/-- The part of a declaration's record that holds no field of `Declaration.ProjectWritten`: its
 kernel-checked data and the toolchain's observations. A decision that takes this, and not the
 whole `Declaration`, cannot name a field of `Declaration.ProjectWritten`: to read one it has to
-change its signature. -/
+change its signature. The decision can still depend on project-written state through an
+observation, as the fields of `Declaration.ToolchainObserved` say: `declarationFailure`, for
+example, reads `executableContract.failure`. -/
 structure Declaration.Inspected extends Declaration.KernelChecked, Declaration.ToolchainObserved
   deriving Repr, DecidableEq
 
@@ -895,8 +903,8 @@ is of the source of each value. No theorem of this library proves an observation
 structure Declaration extends Declaration.Inspected, Declaration.ProjectWritten
   deriving Repr, DecidableEq
 
-/-- A declaration's record is read as its part without project-written state wherever a decision
-takes only that part. Nothing is computed: the other part is dropped. -/
+/-- A declaration's record is read as its part without the project-written fields wherever a
+decision takes only that part. Nothing is computed: the other part is dropped. -/
 instance : Coe Declaration Declaration.Inspected := ⟨Declaration.toInspected⟩
 
 /-- The declaration's admitted ranges: the pair Lean recorded (`recordedRanges`) when its

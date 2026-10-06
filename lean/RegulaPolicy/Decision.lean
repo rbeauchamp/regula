@@ -181,8 +181,10 @@ def labelOf (axioms : Array Name) (native : Array Name := #[]) : FoundationClass
 /-- Raw computational kernel over supplied role sets; callers can supply arbitrary
 sets here. This is not an admission or authorization API. Production decisions
 use `policyFor`, whose inventory and Roles arguments enforce the receipt boundary. It takes
-`Declaration.Inspected`, the record without its project-written part, so it reads no field an
-audited project writes; the role sets are the caller's. -/
+`Declaration.Inspected`, the record without its project-written part, so it cannot name a field
+an audited project writes; the role sets are the caller's. It can still depend on project-written
+state through an observation, as the fields of `Declaration.ToolchainObserved` say: it reads
+`executableContract.failure`. -/
 @[regula_decision]
 def declarationFailure (decl : Declaration.Inspected) (claim : InspectionRequest)
     (native : Array Name := #[]) (unsafeHelpers : Array Name := #[]) :

@@ -84,7 +84,10 @@ def Threading.sameLevels (shape : Threading) (us vs : List Level) : Bool :=
 
 /-- What the observing pass shows of the terms of one side. Each field answers for a term as it
 stands under the variables the pass bound, and `none` says that the pass was not asked about it.
-All three are toolchain observations: none is read from state the audited project writes.
+All three are toolchain observations: what Lean answers, or what its kernel checked, at
+inspection. Two depend on state the audited project writes. Lean's answer for `erased` reads
+reducibility statuses. For `threading` the pass reads what Lean records about the applied
+constant, which only proposes the decomposition the kernel then checks.
 
 A regenerated or observed value is closed, and the comparison reads a body only with the variable
 `bound` gives its binder, so a term with a free variable names the binders it is under. -/
@@ -395,9 +398,14 @@ variable.
 Every rule but `closed` and `erased` compares two terms by their structure, and applies only where
 compilation keeps both of them (`Kept`). So the two terms are the same once every proof and every
 type of each, decided in its own context, is erased: an erased term is related to an erased term
-(`erased`) and to no kept one. The equalities of names, universe levels, literals and
-variables are stated as the Boolean tests the comparison runs, because Lean's equality of
-universe levels and of expressions has no specification to state them by. -/
+(`erased`), and no rule but `closed` relates it to a kept one. `closed` is the exception because
+it reads no observation. It relates only two terms that Lean's expression equality identifies and
+that have no free variable, and for two such terms the erasure of one is the erasure of the other
+when the observations are truthful. That is argued, not proved: `equalWithin_iff` holds for every
+pair of observations, also for a pair that answers differently for such a term. The equalities of
+names, universe levels, literals and variables are stated as the Boolean tests the comparison
+runs, because Lean's equality of universe levels and of expressions has no specification to state
+them by. -/
 inductive EqualWithin (left right : Observations) : Nat → Pairs → Expr → Expr → Prop where
   /-- Two terms that Lean's expression equality identifies, neither with a free variable. -/
   | closed {depth : Nat} {pairs : Pairs} {a b : Expr} :

@@ -10,8 +10,10 @@ and the truth of the observed contract/replay fields remain operational boundari
 
 The requirements of a declaration's own record (`DeclarationOK` and its conjuncts,
 `FoundationOK`, `declarationRequirements`) take `Declaration.Inspected`, the part of the record
-without project-written state, so none of them can name a field an audited project writes. The
-decision requirement (`DecisionOK`) reads the project's own registration and takes the whole
+that holds no field of `Declaration.ProjectWritten`, so none of them can name a field an audited
+project writes. One can still depend on project-written state through an observation, as the
+fields of `Declaration.ToolchainObserved` say: `ContractOK` reads `executableContract.failure`.
+The decision requirement (`DecisionOK`) reads the project's own registration and takes the whole
 record. -/
 
 @[expose] public section
