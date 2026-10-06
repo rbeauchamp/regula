@@ -43,10 +43,11 @@ C9 also does not accept a file with one of these defects:
 - A name that two rows replace.
 - A term that is also a replaced name or a replaced word.
 - A replaced name that is also a replaced word.
-- A source path that is not a tracked file of the repository.
 - A cell with a `|` character.
 
-The check compares terms, names and words in lowercase.
+The check compares terms, names and words in lowercase. The statement `Draft.WellFormed` gives each defect of this list. It also gives defects of the form of a cell, for example a version that is not a number.
+
+C9 also does not accept a row with a source path that is not a tracked file of the repository.
 
 A second project can use the `Shared` tables of this `CONTEXT.md`. The `CONTEXT.md` of that project has the line `Shared vocabulary:` with the name of the package, and it has no `Shared` table. The option `--shared` gives the `CONTEXT.md` of the package to the check. The check then reads the rows of the two files together. Thus a `Project` row cannot have the term of a `Shared` row. The source path of a `Shared` row must be a tracked file of the repository of the package.
 
@@ -84,7 +85,7 @@ Lean proves these facts about the definitions:
 
 - Each definition gives only one result for a text, and the function of the check gives that result (the theorems `runs_iff`, `folded_iff` and `divided_iff`).
 - Before the check reads quotation marks and parentheses, each letter and each digit of a text is in a word (the theorem `Runs.counted`).
-- A word that has a letter or a digit has only letters, digits, hyphens and apostrophes (the theorem `Runs.wordy`).
+- The next fact is also about the text before the check reads quotation marks and parentheses. There, a word with a letter or a digit has only letters, digits, hyphens and apostrophes (the theorem `Runs.wordy`).
 
 The check of a definition reads the characters of the cell. It does not use md4c. For example, it reads the two backticks of a code span as punctuation, and it reads the text between them as words.
 
@@ -92,8 +93,8 @@ The check of a definition reads the characters of the cell. It does not use md4c
 
 The decisions of C9 are three Lean functions in `RegulaCore/Vocabulary.lean`. Each function has a decision contract, and the checker examines that contract.
 
-- `parse` accepts a text if, and only if, the text is the text that `write` gives for a vocabulary (`checked_parse`). A vocabulary is a value with none of the defects of the list (`Draft.WellFormed`).
-- `adopt` accepts two vocabularies if, and only if, their rows together have none of the defects (`checked_adopt`). The rows are the rows of the project and the `Shared` tables of the package.
+- `parse` accepts a text if, and only if, the text is the text that `write` gives for a vocabulary (`checked_parse`). A vocabulary is a value with the statement `Draft.WellFormed`.
+- `adopt` accepts two vocabularies if, and only if, three conditions are correct (`checked_adopt`). The vocabulary of the project has the line `Shared vocabulary:`. The vocabulary of the package does not have that line. The rows of the project and the `Shared` tables of the package together have `Draft.WellFormed`.
 - `untracked` gives no row if, and only if, the source path of each row is in the list of tracked files of its repository (`checked_untracked`).
 
 Each message of C9 starts with the file, the line and the check. The function `explain` gives the messages of `parse`. It gives no message if, and only if, `parse` accepts the text (the theorem `explain_nil_iff`). The theorem `clashes_nil_iff` shows the same for `clashes` and `adopt`. The controls in `lean/Fixtures/ControlledProse` examine the start of each message.

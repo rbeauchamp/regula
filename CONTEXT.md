@@ -21,7 +21,7 @@ Standard: ASD-STE100 Issue 9
 | Term | Category | Definition | Replaces | Source |
 | --- | --- | --- | --- | --- |
 | build | 2c | To make the output files of a project with Lake. | - | `lakefile.lean` |
-| compile | 2c | To change source text into output that Lean or a computer can use. | - | `website/RegulaStandard/PreciseClaims.lean` |
+| compile | 2c | To change source text into a program that a computer can operate. | - | `website/RegulaStandard/PreciseClaims.lean` |
 | import | 2c | To make the items of a different module available in a module. | - | `website/RegulaStandard/CodeOrganization.lean` |
 | prove | 3a | To show, with a proof that Lean accepts, that a statement is correct. | - | `website/RegulaStandard/PreciseClaims.lean` |
 
@@ -31,7 +31,7 @@ Standard: ASD-STE100 Issue 9
 | --- | --- | --- | --- | --- |
 | checker | 19 | The Regula program that reads a Lake project and gives findings. | - | `docs/guides/architecture.md` |
 | control | 7 | An input for a check, with the result that the check must give for it. | - | `docs/guides/contributing.md` |
-| decision contract | 7 | A theorem that tells which inputs a decision function accepts, in relation to a specification. | - | `lean/Regula/Contract.lean` (`Regula.Decides`) |
+| decision contract | 7 | A theorem that tells which inputs a decision function accepts, in relation to a specification. | - | `lean/Regula/Contract.lean` |
 | finding | 19 | One report of a check that a rule is not obeyed or that the check did not complete. | - | `lean/RegulaCore/Rule.lean` (`Regula.Impact`) |
 | requirement | 15 | A part of the standard that a project must obey. | - | `website/RegulaStandard.lean` |
 | rule-reference site | 15 | The site that has the standard and one page for each rule. | rule-reference website | `docs/guides/website.md` |

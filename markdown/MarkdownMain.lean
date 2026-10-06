@@ -202,7 +202,8 @@ structure Control where
 
 /-- The controls. -/
 def controls : List Control := [
-  -- `parse` accepts a vocabulary with each table, and `untracked` accepts its sources.
+  -- `parse` accepts a vocabulary with each of the five tables, and `untracked` accepts its
+  -- sources.
   { own := "C9.accept.text", expect := .accepted },
   -- `parse` refuses rows that are not in the sequence of their terms.
   { own := "C9.refuse-order.text", expect := .refused "C9.refuse-order.text" 11 },

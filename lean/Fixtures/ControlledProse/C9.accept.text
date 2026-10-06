@@ -9,6 +9,12 @@ Standard: ASD-STE100 Issue 9
 | --- | --- | --- | --- | --- |
 | module | 19 | One source file of a program. | unit | `C9.accept.text` |
 
+## Shared technical verbs
+
+| Term | Category | Definition | Replaces | Source |
+| --- | --- | --- | --- | --- |
+| build | 2c | To make the output files of a project. | - | `C9.accept.text` |
+
 ## Project technical nouns
 
 | Term | Category | Definition | Replaces | Source |
