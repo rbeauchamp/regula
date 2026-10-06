@@ -180,7 +180,7 @@ If Git does not give the base revision, B2 does not accept the baseline, and no 
 - The variable and the option `--target` together.
 - A commit that Git does not have. Examples are the 40 zeros of the first push of a branch, and the first parent of a commit with no parent.
 - A pull request where the commit that CI examines is not a merge commit with the head of the pull request as its second parent.
-- A checkout where Git does not have the commit or the parents that the start uses. For example, in a checkout with no history, Git gives no parent of the commit and no merge base. Thus the `verify` job of CI gets the full history.
+- A checkout where Git does not have the commit or the parents that the start uses. For example, in a checkout with no history, Git gives no parent of the commit. There, Git gives a merge base only if the two revisions are the same commit. Thus the `verify` job of CI gets the full history.
 
 If the base revision has a baseline, B2 compares the two baselines:
 

@@ -695,8 +695,10 @@ place of the correct base accepts, and the control fails. A control that expects
 tell the correct base apart only from a base that refuses. The comparison of a commit with
 itself accepts each baseline that check B1 accepts, thus no control that expects no refusal
 tells the correct base apart from the checked commit. The comment of each control gives the
-bases that it tells apart from the correct one, and the comment of a control that expects no
-refusal also gives each base that it does not tell apart. -/
+bases that it tells apart from the correct one. The comment of a control that expects no
+refusal also says which of these bases it does not tell apart: the checked commit, its parents,
+the commit that the start names, the merge base with that commit, and `origin/main`. No comment
+is about each other commit of the repository. -/
 
 /-- One commit of the repository of a control. -/
 structure Commit where
