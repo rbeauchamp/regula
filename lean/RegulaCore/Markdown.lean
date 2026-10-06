@@ -5,15 +5,15 @@ import Regula.Decision
 
 Every rule ID that a tracked Markdown document mentions in prose is a link to that rule's page.
 This module decides that from what a CommonMark parser reports of the document. It reads no
-Markdown itself: `Regula.Markdown.read` (`website/RegulaMarkdown.lean`) runs md4c and turns its
+Markdown itself: `Regula.Markdown.read` (`markdown/RegulaMarkdown.lean`) runs md4c and turns its
 parse into the `Piece`s below, so what is a paragraph, a code span or a link in the source is
 md4c's decision, and which piece each becomes is that module's (see Boundaries).
 
 ## Main declarations
 
-- `Piece`, `Reading`: what the parser reports of a document, in document order: prose, code, the
-  edges of each link's text, the constructs the check refuses, and the boundaries between runs
-  and between source lines.
+- `Kind`, `Piece`, `Reading`: what the parser reports of a document, in document order: prose,
+  code, the edges of each link's text, the constructs the check refuses, the boundaries between
+  runs and between source lines, and the start of each block with its kind.
 - `Place`, `Standing`, `Found`, `findings`: the rule-ID tokens (`Regula.Prose.tokenAt`) of the
   rendered text, each with how it stands, and the refused constructs. A token is read over the
   whole text of a run, so one that a link's edge or a code span's edge divides is found too.
@@ -47,7 +47,7 @@ are not prose.
 `rejected_nil_iff` and `documentErrors_nil_iff` are about the pieces they are given. That the
 pieces are the document's is not proved, and has two parts: the parser's reading of the
 document, which is trusted, and the translation of that reading into pieces (`read` and every
-definition it calls in `website/RegulaMarkdown.lean`: `block`, `inline`, `flat`, `link` and the
+definition it calls in `markdown/RegulaMarkdown.lean`: `block`, `inline`, `flat`, `link` and the
 rest), which is project-owned Lean with no theorem. That translation
 decides which piece each element the parser reports becomes, and is observed only by that
 module's evaluated controls. Both parts are stated there and in the contributor guide.
@@ -63,6 +63,23 @@ namespace Regula.Markdown
 open Regula.Prose
 
 /-! ## What the parser reports -/
+
+/-- The kind of a block of a document, as far as the checks of its prose tell blocks apart
+(`RegulaCore/ControlledProse.lean`). The rule-ID check does not read it. -/
+inductive Kind where
+  /-- A heading. -/
+  | heading
+  /-- A paragraph that is not in a list item: also a paragraph of a block quote. -/
+  | paragraph
+  /-- A paragraph of an item of an ordered list. -/
+  | step
+  /-- A paragraph of an item of an unordered list. -/
+  | bullet
+  /-- A table cell. -/
+  | cell
+  /-- A code block or a raw HTML block, which has no prose. -/
+  | code
+  deriving DecidableEq, Repr
 
 /-- One piece of a Markdown document as its parser reports it, in document order. -/
 inductive Piece where
@@ -85,6 +102,8 @@ inductive Piece where
   /-- A line boundary: the pieces after it lie on a later source line than the pieces before
   it. -/
   | line
+  /-- The start of a block of `kind`: the pieces from here to the next start are the block's. -/
+  | start (kind : Kind)
   deriving DecidableEq, Repr
 
 /-- What the parser reports of one document. -/
@@ -105,7 +124,7 @@ def blank (text : String) : Bool := text.toList.all Char.isWhitespace
 `blank`. -/
 def Piece.located? : Piece → Option String
   | .text slice _ | .code slice => if blank slice then none else some slice
-  | .enter _ | .leave | .refused _ | .gap | .line => none
+  | .enter _ | .leave | .refused _ | .gap | .line | .start _ => none
 
 /-- Where one character of a run stands. -/
 inductive Place where
@@ -209,15 +228,16 @@ def Scan.past (s : Scan) (slice : String) : Scan :=
 /-- Where prose read now stands: in the text of the link entered last and not yet left, if
 any. This is how the pieces are read, not a claim about how a link inside a link's text is
 rendered: where the pieces are made from md4c's parse, such a link is refused
-(`Regula.Markdown.nested` in `website/RegulaMarkdown.lean`). -/
+(`Regula.Markdown.nested` in `markdown/RegulaMarkdown.lean`). -/
 def Scan.place (s : Scan) : Place :=
   match s.entered with
   | (index, destination) :: _ => .link index destination
   | [] => .prose
 
 /-- Read one piece. Prose and code continue the run in progress, each character with its place;
-the edge of a table cell or of an image's description and a line boundary end it, so a token is
-read across the edges of links and code spans and across nothing else. A link's text may hold
+the edge of a table cell or of an image's description, a line boundary and the start of a block
+end it, so a token is read across the edges of links and code spans and across nothing else. A
+link's text may hold
 another link: leaving the inner link returns to the outer link's text. md4c reports an autolink
 inside a link's text so, a bare URL and `<URL>` alike, and its reading of such a link is
 refused where the pieces are made, since GitHub renders neither form that way. -/
@@ -229,7 +249,7 @@ def Scan.step (s : Scan) : Piece → Scan
     { s with entered := (s.links, destination) :: s.entered, links := s.links + 1 }
   | .leave => { s with entered := s.entered.tail }
   | .refused reason => { s with found := ⟨.refused reason, s.anchor⟩ :: s.found }
-  | .gap | .line => s.flush
+  | .gap | .line | .start _ => s.flush
 
 /-- The findings of a document: the mentions of its runs and its refused constructs, run by run
 in document order. Within one run the constructs refused in it come first, then its mentions. -/
@@ -636,7 +656,7 @@ theorem checked_documentErrors : Regula.ExecutableContract documentErrors (fun r
       simpa using (documentErrors_nil_iff "" "" (.unread "")).mp accepted⟩⟩
 
 /-! Evaluated controls (observations of the compiled definitions, not proofs), on pieces written
-out by hand; the controls on Markdown text, read by md4c, are in `website/RegulaMarkdown.lean`. -/
+out by hand; the controls on Markdown text, read by md4c, are in `markdown/RegulaMarkdown.lean`. -/
 
 private def page : String := Edition.dev.url RuleId.sourceBuild.route
 

@@ -21,7 +21,10 @@ the `regula_audit` package in [`audit/`](../../audit/lakefile.lean) (`audit/Audi
 is `Audit.Research`), which requires the root package by relative path, as an adopter would, and
 nothing else. Everything that imports Mathlib is the `regula_mathlib` package in
 [`integration/mathlib/`](../../integration/mathlib/lakefile.lean), which only the
-[Mathlib integration check](#mathlib-integration-check) builds. Run Lake commands
+[Mathlib integration check](#mathlib-integration-check) builds. The `regula_markdown` package
+in [`markdown/`](../../markdown/lakefile.toml) has the md4c reader and the executable of the
+[checks of Markdown documents](#markdown-documents). It requires the root package and MD4Lean
+only. Run Lake commands
 from the repository root, and the `audit/` package's in `audit/` (or with `lake -d audit`).
 Lake's elaborated library and executable inventory owns source discovery; directory names alone
 do not establish audit ownership.
@@ -399,6 +402,9 @@ follows the [checked example convention](https://rbeauchamp.github.io/regula/dev
 Link to the actual Lean module for larger definitions and proofs; do not copy an
 implementation merely to mirror the chapter structure.
 
+For a new or changed Markdown document, obey the [writing rules](writing.md). The documentation
+step does the [check of the prose](#the-prose-of-markdown-documents).
+
 For review, use the repository-local
 [review toolkit](../../.agents/skills/pr-review-toolkit/SKILL.md) and the applicable
 [compliance checklist](https://rbeauchamp.github.io/regula/dev/standard/8-compliance-audit/), with the repository rows above. Scope verification to
@@ -438,10 +444,10 @@ release editions already published are frozen copies and are not rewritten.
 
 `./scripts/verify.sh docs` checks every Markdown document Git tracks: each file `git ls-files`
 lists with the extension `md` or `markdown`, read from the working tree
-(`lake exe regula-markdown ..` in `website/`). This check reads no Markdown syntax of its own.
-md4c, a CommonMark parser that the pinned Verso brings as MD4Lean, parses each document in its
-GitHub dialect (tables, strikethrough, task lists and autolinks), and
-[`website/RegulaMarkdown.lean`](../../website/RegulaMarkdown.lean) translates its parse into
+(`lake exe regula-markdown ..` in `markdown/`). This check reads no Markdown syntax of its own.
+md4c, a CommonMark parser that the `markdown/` package requires as MD4Lean, parses each document
+in its GitHub dialect (tables, strikethrough, task lists and autolinks), and
+[`markdown/RegulaMarkdown.lean`](../../markdown/RegulaMarkdown.lean) translates its parse into
 pieces (prose, code, the edges of links, refusals, and the boundaries between runs and lines)
 for `Regula.Markdown`, which decides on the pieces (`documentErrors_nil_iff`). The theorem is
 about the pieces it is given; the translation has no theorem. Hand-written readers of
@@ -488,7 +494,7 @@ The check trusts, and does not verify:
   with it as text then describes the rendering GitHub's dialect gives.
 - That md4c reads a document as GitHub's renderer does (cmark-gfm and GitHub's later passes).
 - The translation of MD4Lean's document into the pieces the proved check decides on (`read`
-  and every definition it calls in `website/RegulaMarkdown.lean`: `block`, `inline`, `flat`,
+  and every definition it calls in `markdown/RegulaMarkdown.lean`: `block`, `inline`, `flat`,
   `link` and the rest). It is project-owned Lean with no theorem: it decides which
   piece each element md4c reports becomes, and only the evaluated controls of that module
   observe it.
@@ -510,6 +516,33 @@ what md4c's parse shows of the difference. The rest is not seen:
 
 Link destinations and titles, code block info strings, and link reference definitions are not
 prose and are not checked.
+
+### The prose of Markdown documents
+
+The same executable does a second check of each tracked Markdown document. This check is for the
+[writing rules](writing.md) of the repository. It has nine parts, C1 to C9, and the writing
+rules give the definition of each part.
+
+The decisions are in [`RegulaCore/Vocabulary.lean`](../../lean/RegulaCore/Vocabulary.lean) and
+[`RegulaCore/ControlledProse.lean`](../../lean/RegulaCore/ControlledProse.lean). Each decision
+has a decision contract and the attribute `regula_decision`. The executable in
+[`markdown/MarkdownMain.lean`](../../markdown/MarkdownMain.lean) uses these decisions and no
+other code to accept a document.
+
+The vocabulary is [`CONTEXT.md`](../../CONTEXT.md), and the baseline is
+[`prose-baseline.json`](../../prose-baseline.json). The check compares the baseline with the
+baseline of the base revision. Thus the `verify` job of CI gets the full history, which has
+`origin/main`.
+
+The controls of the check are the files in
+[`lean/Fixtures/ControlledProse/`](../../lean/Fixtures/ControlledProse/). The documentation step
+operates them first: `lake exe regula-markdown --controls ../lean/Fixtures/ControlledProse` in
+`markdown/`. Each check and each decision about the baseline accepts one control and does not
+accept one or more controls. A control has the extension `text` or `json`. Thus the check of
+the tracked Markdown documents does not read the controls.
+
+This check is not a rule of the checker and not a requirement of the standard. It has no rule
+ID.
 
 ## Change an acceptance boundary
 

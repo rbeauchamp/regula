@@ -1,0 +1,17 @@
+# A control that check C1 accepts
+
+One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four twenty-five.
+
+A sentence can continue on the next line,
+and a line end is one space. Text in parentheses is one word (this group has more words than one, and each of them is in the count of the group and not of the sentence) for the count. A quotation is one word: "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four twenty-five twenty-six" is one. A `code span of many words is one word in the count of a sentence` too.
+
+- A list item is a block.
+- A second item (with a group) is one more.
+
+| Name | Meaning |
+| --- | --- |
+| cell | A table cell is a block. |
+
+```text
+A code block is not prose; it's not read, and a line of it can have many, many, many, many, many, many, many, many, many, many, many, many, many, many, many words, e.g. here.
+```

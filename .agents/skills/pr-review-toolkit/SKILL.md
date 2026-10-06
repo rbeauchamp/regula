@@ -17,6 +17,8 @@ of the last deployed `main`).
   defects that contradict the claimed result. Use [review and closure](references/review-workflow.md).
 - **Conceptual documentation review:** use the relevant [semantic-fidelity lenses](references/lean-lens-contracts.md),
   especially D; distinguish changed requirements from teaching improvements.
+- **Prose of a Markdown document:** for a pull request that adds or changes prose, do the
+  [controlled-language review](references/controlled-language-lens.md).
 - **Full conformance:** reconcile every applicable checklist row over every claimed surface,
   using the workflow and relevant lenses. A scoped clean review is not full conformance.
 - **Assigned reviewer:** inspect only the assigned frozen subject with the relevant lenses;

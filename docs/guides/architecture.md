@@ -26,7 +26,9 @@ the standard's examples, which imports only Lean's core libraries, and requires 
 relative path, as an adopter does. The Verso package in [`website/`](../../website/)
 renders the standard and the rule reference; it requires both packages only so the standard's
 examples can import their modules, each in its own helper process. None of the three requires
-Mathlib. The `regula_mathlib` package in
+Mathlib. The `regula_markdown` package in [`markdown/`](../../markdown/lakefile.toml) reads the
+tracked Markdown documents with md4c for the checks of the documentation step. It requires the
+root package and MD4Lean only. The `regula_mathlib` package in
 [`integration/mathlib/`](../../integration/mathlib/lakefile.lean) holds everything that imports
 Mathlib: a Mathlib adopter of the root package that the separate
 [Mathlib integration check](contributing.md#mathlib-integration-check) accepts and lints.

@@ -1,0 +1,28 @@
+name = "regula_markdown"
+defaultTargets = ["regula-markdown"]
+# Keep the dependency checkout (MD4Lean) in the root `.lake/packages`, where the website package
+# keeps the same checkout. This package requires no Mathlib and no Verso.
+packagesDir = "../.lake/packages"
+
+# The md4c binding, at the revision that the website package's pinned Verso resolves to
+# (`website/lake-manifest.json`). It requires no package.
+[[require]]
+name = "MD4Lean"
+git = "https://github.com/acmepjz/md4lean"
+rev = "31907cc18f48a95384f99cee5582c00fb39e0f67"
+
+# The root package: `RegulaCore.Markdown`, `RegulaCore.Vocabulary` and
+# `RegulaCore.ControlledProse` hold the decisions that this package's reader gives its parse to.
+[[require]]
+name = "regula"
+path = ".."
+
+# md4c's reading of a Markdown document, for the checks of a repository's tracked Markdown
+# documents.
+[[lean_lib]]
+name = "RegulaMarkdown"
+
+# Checks every tracked Markdown document; the documentation step of acceptance runs it.
+[[lean_exe]]
+name = "regula-markdown"
+root = "MarkdownMain"

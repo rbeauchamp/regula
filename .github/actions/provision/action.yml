@@ -117,7 +117,7 @@ runs:
           .lake/packages/illuminate
           .lake/packages/Cli
           .lake/packages/plausible
-        key: verso-shared-v4-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lean/RegulaPolicy/Compiler.lean', 'website/lean-toolchain', 'website/lake-manifest.json') }}
+        key: verso-shared-v4-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lean-toolchain', 'lean/RegulaPolicy/Compiler.lean', 'website/lean-toolchain', 'website/lake-manifest.json', 'markdown/lake-manifest.json') }}
 
     - name: Provision pinned Verso
       if: inputs.verso == 'true'

@@ -122,6 +122,7 @@
   stronger than the exact Lean property established. Before review, check each new sentence that
   cites a theorem or check against its actual statement, hypotheses, and caller; name what it
   leaves uncovered.
+- For a new or changed Markdown document, obey the [writing rules](docs/guides/writing.md).
 - Respect the assurance boundary stated in standard module 7: a recursion helper is admitted only
   when Lean's own recursion compiler regenerates its base from it, up to compilation erasure,
   whatever evaluator produced it, a
