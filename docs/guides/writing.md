@@ -100,7 +100,7 @@ A check cannot make a decision about the other writing rules, because they are a
 - Punctuation: rules 8.2 and 8.3.
 - Style: rule 9.4.
 
-Use a word that the dictionary of ASD-STE100 gives as approved, with its approved part of speech and its approved meaning. A different word is permitted only as a technical noun or as a technical verb (rules 1.5 and 1.12). For an item that `CONTEXT.md` names, use the name that `CONTEXT.md` gives.
+Use a word that the dictionary of ASD-STE100 gives as approved, with its approved part of speech and its approved meaning. A different word is permitted only as a technical noun or as a technical verb (rules 1.5 and 1.12). For an item that has a name in `CONTEXT.md`, use that name.
 
 The procedure of the review is in the [controlled-language review](../../.agents/skills/pr-review-toolkit/references/controlled-language-lens.md) of the review skill.
 
