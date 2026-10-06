@@ -617,11 +617,14 @@ def descriptor : (id : RuleId) → RuleDescriptor id
         "Name the computable, safe, non-partial definition that callers use; route callers through \
           `c.run`.",
         "Universe-polymorphic implementations are supported; explicit universe instantiation is \
-          recorded.",
+          recorded. State a decision kind about such an implementation at its own universe \
+          parameters.",
         "For a checker, state the direction with a kind: `ExecutableContract check (Decides (· = \
-          true) Spec)`, or `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee. \
-          Decide several arguments through `fun g => Decides accepts Spec (Function.uncurry g)`, \
-          and state `Spec` without `check`."]
+          true) Spec)`, or `DecidesSoundly` or `DecidesCompletely` for a one-way guarantee, with \
+          `Spec` stated without `check`. Decide several arguments through `Function.uncurry`, or \
+          on a structure whose fields are the arguments: `fun g => Decides accepts Spec (fun x : \
+          Input => g x.a x.b)`. For a result type that depends on the arguments, use the kind of \
+          the same name in `Regula.Dependent`."]
       examples := {
         language := .lean
         audience := .adopter
@@ -650,8 +653,10 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           true) Spec)`, from an existing equivalence by `Decides.of_iff`.",
         "State a deliberate one-way guarantee with `DecidesSoundly` (may refuse inputs that \
           satisfy `Spec`) or `DecidesCompletely` (may accept inputs that do not).",
-        "Decide several arguments on their product: `ExecutableContract f (fun g => Decides \
-          accepts Spec (Function.uncurry g))`.",
+        "Decide several arguments on their product, `ExecutableContract f (fun g => Decides \
+          accepts Spec (Function.uncurry g))`, or on a structure whose fields are the arguments; \
+          decide a result type that depends on the arguments with the kinds of \
+          `Regula.Dependent` (RG1007).",
         "Return the proof with the verdict: `def f (x : α) : Decidable (Spec x)`. Each result \
           then carries a proof of `Spec x` or of its negation, and no contract is needed."]
       examples := {

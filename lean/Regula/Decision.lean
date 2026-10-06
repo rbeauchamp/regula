@@ -8,7 +8,8 @@ Explicit selection of the functions a project declares to be decisions: a parser
 validator or admission function whose result accepts or refuses its input.
 Registration identifies the RG1008 obligation: the function is the implementation of a decision
 contract of its inventory (an `ExecutableContract` whose requirement is a `Regula.DecidesSoundly`,
-`Regula.DecidesCompletely` or `Regula.Decides`), or its result type is `Decidable _`.
+`Regula.DecidesCompletely` or `Regula.Decides`, or the structure of the same name in
+`Regula.Dependent`), or its result type is `Decidable _`.
 A registration adds that requirement and waives nothing. It does not certify that every function
 that acts as a checker is registered, or that a registered contract's specification is the
 intended one.

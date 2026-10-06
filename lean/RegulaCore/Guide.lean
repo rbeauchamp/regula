@@ -556,15 +556,29 @@ def guide : RuleId → Guide
           implementation that is missing, noncomputable, unsafe, partial, proposition-valued, \
           type-producing or not an executable definition.",
         "A registration whose requirement `R f` reduces to an application of \
-          `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides` is a decision \
-          registration. The checker reads the kind from the head constant of that elaborated \
-          requirement, so an alias of a kind is recognized and no theorem text or name is matched, \
-          and it reports the kind with the direction a one-way kind leaves open.",
+          `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`, or of the \
+          structure of the same name in `Regula.Dependent`, is a decision registration. The \
+          checker reads the kind from the head constant of that elaborated requirement, so an \
+          alias of a kind is recognized and no theorem text or name is matched, and it reports \
+          the kind with the direction a one-way kind leaves open. A structure of \
+          `Regula.Dependent` is reported as the kind of the same direction.",
         "It rejects a decision registration whose kind is stated about a function other than `f` \
-          or `Function.uncurry` applied to `f` one or more times, or whose acceptance predicate \
-          or specification mentions `f`: `f` is among the constants the term mentions, closed \
-          under the types and unfoldable values of those constants and the constructors of their \
-          inductive types. The finding names the constants through which `f` is reached.",
+          on its arguments or on a packing of them. The packings are `f` applied to every field \
+          of the variable of one function, each field once and in the order of the fields, with \
+          no field left; and `Function.uncurry` applied one or more times to `f` or to that \
+          function. No other way of supplying the arguments is read as a packing: a function \
+          that fixes an argument or gives a field twice decides `f` on part of its domain, and a \
+          structure with a field that `f` does not take, such as a proof about the other \
+          fields, can restrict the domain. Whether an argument is a field is read from the \
+          kernel-checked definition of the projection, not from Lean's record of projections, \
+          which a project can write.",
+        "It rejects a decision registration that states its kind about `f` at universe levels \
+          other than the universe parameters of `f`, each once: such a kind holds of some \
+          universe instances of `f` and not of the others. The finding names the levels.",
+        "It rejects a decision registration whose acceptance predicate or specification mentions \
+          `f`: `f` is among the constants the term mentions, closed under the types and \
+          unfoldable values of those constants and the constructors of their inductive types. \
+          The finding names the constants through which `f` is reached.",
         "Lean's type checker separately checks the supplied proof of `R f`."]
       rationaleDetail := [
         "A checker with only a soundness theorem can refuse every input, and one with only a \
@@ -585,7 +599,20 @@ def guide : RuleId → Guide
           `Regula.DecidesSoundly accepts spec` when a refusal may be wrong, \
           `Regula.DecidesCompletely accepts spec` when an acceptance may be. A function of several \
           arguments is decided on their product: `fun g => Regula.Decides accepts spec \
-          (Function.uncurry g)`, with `spec` over the pairs."]
+          (Function.uncurry g)`, with `spec` over the pairs.",
+        "Where the type of an argument depends on an earlier argument, or an argument is a type, \
+          an instance or a proof, the kind is stated about `f` applied to every field of one \
+          structure, in the order of the fields: `fun g => Regula.Decides accepts spec (fun \
+          input : Input => g input.a input.b input.c)`, with `spec` over `Input`, a structure \
+          whose fields are the arguments. For two arguments the structure can be a pair \
+          (`Prod`, `Sigma`, `PSigma` or `Subtype`). A kind about a function with universe \
+          parameters is stated at those parameters, as `@f.{u}` in a registration with the \
+          universe parameter `u`.",
+        "Where the result type depends on the arguments, `R` is the kind of the same name in \
+          `Regula.Dependent`, for a result type that is one type former applied to a payload type \
+          that depends on the input, as `Except ε (Admitted x)` is: `Regula.Dependent.Decides \
+          (·.isOk = true) spec`. Its acceptance predicate is stated for every payload type, so it \
+          reads the result and the payload type and not the input the result was computed from."]
       established := [
         "The registration is closed, names an eligible executable constant, and Lean checked a \
           proof of the stated predicate about it.",
@@ -611,10 +638,19 @@ def guide : RuleId → Guide
       limitations := [
         "Term-parameterized and partial-application registrations are unsupported shapes, not \
           proofs of incorrectness; restate them as closed full-domain contracts.",
-        "A decision kind covers a function whose argument types do not depend on earlier \
-          arguments, through `Function.uncurry`. A function with a dependent or implicit argument \
-          is decided through a named function over a product, sigma or subtype domain, or \
-          registered with an ordinary requirement, which is reported with no kind.",
+        "A kind of `Regula.Dependent` covers a result type that is one type former applied to a \
+          payload type that depends on the input. A result type that depends on the input in \
+          another way, such as an inductive family indexed by the input or a subtype of `Bool`, \
+          has no kind: return `Decidable _`, or register an ordinary requirement, which is \
+          reported with no kind.",
+        "The fields are those of one structure: a field of a field, as in a nested pair, is not \
+          read as a field. Nested dependent pairs are also costly: each projection of a pair \
+          carries the pair's type, so the elaborated statement grows by a large factor with each \
+          argument. Declare one structure for three or more arguments whose types depend on \
+          each other.",
+        "A kind requires an input with a proof: an accepted input for a sound kind and a refused \
+          input for a complete kind. For a function with universe parameters the witness is at \
+          every universe level, so its types are universe-polymorphic, such as `PUnit`.",
         "A requirement that contains a kind inside a larger proposition, such as a conjunction, \
           is reported with no kind: the kind is read from the head constant only. Register the \
           further clauses separately.",
@@ -629,9 +665,11 @@ def guide : RuleId → Guide
           ["BUILD-03", "THEOREM-07", "SCOPE-02", "SCOPE-03", "TYPE-01", "THEOREM-01",
               "THEOREM-03", "COMP-01", "BUILD-01", "BUILD-02"]
       linkage := declarationLinkage ++ " Extracting the contract observation (`Regula.Collect`), \
-        including the reduction that reads a decision kind and the search for a mention of the \
-        implementation, is operational; that a head constant is read as a kind exactly when it \
-        is that kind's structure is proved (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`)."
+        including the reduction that reads a decision kind, the reading of the decided function \
+        as the implementation on a packing of its arguments and of its universe levels, and the \
+        search for a mention of the implementation, is operational; \
+        that a head constant is read as a kind exactly when it is one of that kind's two \
+        structures is proved (`RegulaPolicy.DecisionKind.ofStructureName?_eq_some_iff`)."
       sources :=
           ["lean/Regula/Contract.lean", "lean/Regula/Collect.lean", "lean/Regula/Probe.lean",
               "lean/RegulaCore/Policy.lean"] }
@@ -648,7 +686,8 @@ def guide : RuleId → Guide
         "A registered declaration whose result type is not `Decidable _` is rejected, with \
           applicability `decision-contract`, unless a declaration of the same inventory records an \
           `ExecutableContract` that names it as the implementation, states a decision kind \
-          (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`) and was not \
+          (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`, or the \
+          structure of the same name in `Regula.Dependent`) and was not \
           refused under RG1007. The inventory is the declarations of the audited environment that \
           owns the function: its library, an executable root inspected alone, a file, or a group \
           of documentation fences.",
@@ -672,7 +711,9 @@ def guide : RuleId → Guide
       proofShape := [
         "`ExecutableContract f (Regula.Decides accepts spec)`, or `Regula.DecidesSoundly` or \
           `Regula.DecidesCompletely` for a declared one-way guarantee, in the library that \
-          declares `f`. RG1007 gives the supported shape of the registration.",
+          declares `f`. RG1007 gives the supported shape of the registration, with a structure \
+          of the arguments for a function with a dependent argument type or a type argument, \
+          and the kinds of `Regula.Dependent` for one with a dependent result type.",
         "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
       established := [
         "Every owned declaration registered with `@[regula_decision]` whose result type is not \
@@ -701,10 +742,10 @@ def guide : RuleId → Guide
           stops the audit without a verdict, naming the module and the declaration: that \
           inventory records no declaration to decide the requirement for. Register a function \
           in a module of the library that declares it.",
-        "A function whose argument or result type depends on an earlier argument, or that is \
-          polymorphic in a type, has no decision kind (a limitation of RG1007). Decide a named \
-          function over a product, sigma or subtype domain, or leave the function unregistered \
-          and record why.",
+        "A function whose result type depends on its arguments in a way no kind of \
+          `Regula.Dependent` covers, or for which no accepted or refused input can be given with \
+          a proof, has no decision kind (limitations of RG1007). Return `Decidable _`, or leave \
+          the function unregistered and record why.",
         "A function in `IO`, `MetaM` or another monad comes into scope through the pure decision \
           it runs: register that decision.",
         "The registration is environment state an audited project writes. It only adds a \

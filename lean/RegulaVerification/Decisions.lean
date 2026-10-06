@@ -30,6 +30,17 @@ theorem checked_dependencyFree : Regula.ExecutableContract dependencyFree
   ⟨{ sound := dependencyFree_packages
      accepted := ⟨Lean.Json.mkObj [("packages", Lean.Json.arr #[])], by decide +kernel⟩ }⟩
 
-attribute [regula_decision] parseMode dependencyFree
+/-- `select` accepts exactly the argument lists of the supported invocations, as `parseMode`
+does (`select_exact`): it accepts the empty list and refuses an unsupported argument. Its result
+type depends on the arguments, since the selected mode carries the proof that the arguments are
+that mode's, so the kind is one of `Regula.Dependent`. -/
+theorem checked_select : Regula.ExecutableContract select
+    (Regula.Dependent.Decides (·.isSome = true) (fun args => ∃ mode, args = arguments mode)) :=
+  have isSome (args : List String) : (select args).isSome = (parseMode args).isSome := by
+    rw [← select_exact, Option.isSome_map]
+  ⟨.of_iff (fun args => by rw [isSome]; exact checked_parseMode.evidence.iff args)
+    ⟨[], by rw [isSome]; decide⟩ ⟨["unsupported"], by rw [isSome]; decide⟩⟩
+
+attribute [regula_decision] parseMode dependencyFree select
 
 end RegulaVerification

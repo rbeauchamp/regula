@@ -448,7 +448,8 @@ metadata, not authenticated binary identity.
   `RegulaPolicy.accept_iff` and the job count), `contracts` (each [RG1007] registration with its
   implementation, rendered requirement and `unresolvedReview` of `R-INTENT` and `R-INVARIANT`;
   since schema 9 also `decisionKind`, which is `sound`, `complete` or `sound-and-complete` for a
-  requirement that is a `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`
+  requirement that is a `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`,
+  or the structure of the same name in `Regula.Dependent`,
   and `null` for any other, and `notEstablished`, the direction a one-way kind leaves open and
   `null` otherwise; a declaration's `executableContract` carries the same kind as `kind`),
   per-environment `executionSummary` counts (named `execution` before schema 8, when the writer

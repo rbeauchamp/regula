@@ -1,11 +1,17 @@
 import Regula.DiagnosticCodec
 import RegulaPolicy.Observation
+import Regula.Contract
+import Regula.Decision
 
 /-! # Website metadata and example interfaces
 
 Shared website metadata and checked-example interfaces. The registry metadata's
 design credit is in RuleId; presentation credits Verso and Microsoft CA1416, neither of
-which supplies rule semantics. Collector completion remains an explicit trusted boundary. -/
+which supplies rule semantics. Collector completion remains an explicit trusted boundary.
+
+The three admissions below (`admitExampleRequest`, `admitExampleSources`,
+`admitDemonstration`) return the admitted value with its proof, so each result type depends on
+the arguments, and each is registered as a decision with a kind of `Regula.Dependent`. -/
 namespace Regula.Website
 open Lean RegistryCodec
 
@@ -75,6 +81,7 @@ structure ExampleRequest where
 
 /-- Admit `observed` only when it equals the frozen `expected` request; the admitted value
 carries both equalities. -/
+@[regula_decision]
 def admitExampleRequest (expected observed : ExampleRequest) :
     Except String { request : ExampleRequest // request = observed ∧ request = expected } :=
   if h : observed = expected then .ok ⟨observed, rfl, h⟩
@@ -86,14 +93,35 @@ theorem admitExampleRequest_sound (expected observed : ExampleRequest)
     observed = expected := request.property.1.symm.trans request.property.2
 
 /-- Every request equal to the frozen one is admitted, as itself. With
-`admitExampleRequest_sound`, admission succeeds exactly for the frozen request. The result type
-depends on both requests, which a decision kind does not cover (`Regula.Contract`), so this
-admission has the two theorems and no kind; its accepted value carries both equalities by
-construction. -/
+`admitExampleRequest_sound`, admission succeeds exactly for the frozen request
+(`checked_admitExampleRequest`); its accepted value carries both equalities by construction. -/
 theorem admitExampleRequest_complete (expected observed : ExampleRequest)
     (h : observed = expected) :
     admitExampleRequest expected observed = .ok ⟨observed, rfl, h⟩ := by
   simp [admitExampleRequest, h]
+
+/-- Request admission succeeds exactly for an observed request equal to the frozen one. -/
+theorem admitExampleRequest_isOk_iff (expected observed : ExampleRequest) :
+    (admitExampleRequest expected observed).isOk = true ↔ observed = expected := by
+  unfold admitExampleRequest
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitExampleRequest` accepts exactly an observed request equal to the frozen one
+(`admitExampleRequest_isOk_iff`): it accepts a request against itself and refuses a request of
+another kind. The result type depends on both requests, so the kind is one of
+`Regula.Dependent`, on the pair of the two arguments. -/
+theorem checked_admitExampleRequest :
+    Regula.ExecutableContract admitExampleRequest (fun admit =>
+      Regula.Dependent.Decides (·.isOk = true) (fun input => input.2 = input.1)
+        (fun input : ExampleRequest × ExampleRequest => admit input.1 input.2)) :=
+  let request (kind : String) : ExampleRequest := ⟨kind, "", "", none, none, #[]⟩
+  ⟨.of_iff (fun input => admitExampleRequest_isOk_iff input.1 input.2)
+    ⟨⟨request "file", request "file"⟩,
+      (admitExampleRequest_isOk_iff (request "file") (request "file")).mpr rfl⟩
+    ⟨⟨request "file", request "project"⟩, fun accepted => absurd
+      (congrArg ExampleRequest.kind
+        ((admitExampleRequest_isOk_iff (request "file") (request "project")).mp accepted))
+      (by decide)⟩⟩
 
 /-- Exact observation identity. Dependency state and source bytes are retained rather than
 replaced by a nominal revision or digest. Acquiring these values remains an IO obligation. -/
@@ -120,6 +148,7 @@ instance (expected observed : Array RegulaPolicy.SourceSnapshot) (displayed : St
 
 /-- Admit the observed sources exactly when `ExampleSourcesOK` holds, carrying that proof
 (`admitExampleSources_sound`, `admitExampleSources_complete`). -/
+@[regula_decision]
 def admitExampleSources (expected observed : Array RegulaPolicy.SourceSnapshot)
     (displayed : String) :
     Except String { actual : Array RegulaPolicy.SourceSnapshot //
@@ -138,6 +167,43 @@ theorem admitExampleSources_complete (expected observed : Array RegulaPolicy.Sou
     (displayed : String) (h : ExampleSourcesOK expected observed displayed) :
     admitExampleSources expected observed displayed = .ok ⟨observed, rfl, h⟩ := by
   simp [admitExampleSources, h]
+
+/-- Source admission succeeds exactly for sources `ExampleSourcesOK` admits. -/
+theorem admitExampleSources_isOk_iff (expected observed : Array RegulaPolicy.SourceSnapshot)
+    (displayed : String) :
+    (admitExampleSources expected observed displayed).isOk = true ↔
+      ExampleSourcesOK expected observed displayed := by
+  unfold admitExampleSources
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- The arguments of `admitExampleSources`, as the fields of one structure, in the order of the
+arguments. -/
+structure ExampleSourcesInput where
+  /-- The expected sources. -/
+  expected : Array RegulaPolicy.SourceSnapshot
+  /-- The sources the producer observed. -/
+  observed : Array RegulaPolicy.SourceSnapshot
+  /-- The text the example displays. -/
+  displayed : String
+
+/-- `admitExampleSources` accepts exactly the sources `ExampleSourcesOK` admits
+(`admitExampleSources_isOk_iff`): it accepts one expected source whose text is the displayed
+text, and refuses no observed source. The result type depends on the three arguments, so the
+kind is one of `Regula.Dependent`, on the structure of those arguments. -/
+theorem checked_admitExampleSources :
+    Regula.ExecutableContract admitExampleSources (fun admit =>
+      Regula.Dependent.Decides (·.isOk = true)
+        (fun input : ExampleSourcesInput =>
+          ExampleSourcesOK input.expected input.observed input.displayed)
+        (fun input => admit input.expected input.observed input.displayed)) :=
+  ⟨.of_iff (fun input =>
+      admitExampleSources_isOk_iff input.expected input.observed input.displayed)
+    ⟨⟨#[⟨"Example.lean", "text"⟩], #[⟨"Example.lean", "text"⟩], "text"⟩,
+      (admitExampleSources_isOk_iff #[⟨"Example.lean", "text"⟩] #[⟨"Example.lean", "text"⟩]
+        "text").mpr ⟨fun _ member => member, _, Array.mem_singleton.mpr rfl, rfl⟩⟩
+    ⟨⟨#[], #[], ""⟩, fun accepted => by
+      obtain ⟨_, _, member, _⟩ := (admitExampleSources_isOk_iff #[] #[] "").mp accepted
+      simp at member⟩⟩
 
 /-- Canonical diagnostic encoding retains the indexed payload, full/selection ranges,
 related locations, mode, claim, impact and severity. The codec validates actual findings. -/
@@ -223,6 +289,7 @@ instance (request : DemonstrationRequest) (observed : BoundObservation) :
 
 /-- Admission returns the supplied observation unchanged with its exact relation. No
 conversion to Accepted or accepted example expectations is provided. -/
+@[regula_decision]
 def admitDemonstration (request : DemonstrationRequest) (observed : BoundObservation) :
     Except String { o : BoundObservation // o = observed ∧ DemonstrationOK request o } :=
   if h : DemonstrationOK request observed then .ok ⟨observed, rfl, h⟩
@@ -242,6 +309,46 @@ theorem admitDemonstration_sound (request : DemonstrationRequest) (observed : Bo
 of whether analysis was available. -/
 theorem demonstration_completed (request : DemonstrationRequest) (observed : BoundObservation)
     (h : DemonstrationOK request observed) : observed.completion = .completed := h.1.2
+
+/-- Demonstration admission succeeds exactly for an observation `DemonstrationOK` admits. -/
+theorem admitDemonstration_isOk_iff (request : DemonstrationRequest)
+    (observed : BoundObservation) :
+    (admitDemonstration request observed).isOk = true ↔ DemonstrationOK request observed := by
+  unfold admitDemonstration
+  split <;> simp_all [Except.isOk, Except.toBool]
+
+/-- `admitDemonstration` accepts exactly the observations `DemonstrationOK` admits
+(`admitDemonstration_isOk_iff`): for a request of one incomplete finding of its rule, it accepts
+the completed observation of that finding under the same binding and refuses the same
+observation of a crashed production. The result type depends on both arguments, so the kind is
+one of `Regula.Dependent`, on the pair of the two arguments. -/
+theorem checked_admitDemonstration :
+    Regula.ExecutableContract admitDemonstration (fun admit =>
+      Regula.Dependent.Decides (·.isOk = true) (fun input => DemonstrationOK input.1 input.2)
+        (fun input : DemonstrationRequest × BoundObservation => admit input.1 input.2)) :=
+  let binding : ExampleBinding :=
+    ⟨⟨⟨#[], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, by decide⟩, .freshFile,
+      ⟨"file", "", "", none, none, #[]⟩⟩
+  let finding : Finding :=
+    ⟨.environment, { arguments := ⟨"project", "analysis unavailable"⟩, location := .module `Module
+                     mode := .freshFile, claim := none, impact := .incomplete
+                     supportedMode := by decide }⟩
+  let request : DemonstrationRequest := ⟨binding, .environment, #[finding]⟩
+  let observed (completion : RegulaPolicy.Completion) : BoundObservation :=
+    ⟨binding, completion, .checked #[finding] false⟩
+  have member : finding ∈ #[finding] := Array.mem_singleton.mpr rfl
+  have bound : ∀ f ∈ #[finding], FindingBound binding f := fun f found => by
+    rw [Array.mem_singleton.mp found]
+    exact ⟨rfl, nofun⟩
+  ⟨.of_iff (fun input => admitDemonstration_isOk_iff input.1 input.2)
+    ⟨⟨request, observed .completed⟩,
+      (admitDemonstration_isOk_iff request (observed .completed)).mpr
+        ⟨⟨rfl, rfl⟩, by simp [request], bound, ⟨finding, member, rfl, rfl⟩,
+          ⟨finding, member, rfl, rfl⟩, bound, rfl⟩⟩
+    ⟨⟨request, observed .crashed⟩, fun accepted => absurd
+      (demonstration_completed request (observed .crashed)
+        ((admitDemonstration_isOk_iff request (observed .crashed)).mp accepted))
+      (by decide)⟩⟩
 
 /-- The incomplete finding is required in the observed list itself, independently of
 any injectivity assumption about canonical JSON or its string renderer. -/

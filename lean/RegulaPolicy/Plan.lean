@@ -682,6 +682,7 @@ structure Plan (c : Claim) (i : Census) where
   exactClaim : ∀ k ∈ jobs, k.claim = c
 
 /-- Validate the proposed keyed realization without dropping any record. -/
+@[regula_decision]
 def admitPlan (c : Claim) (i : Census) (jobs : Array JobKey) : Except String (Plan c i) :=
   if hp : PlanOK c i then
     if hj : jobs.map (fun k => (k.stage, k.subject)) = requiredJobs c i then
@@ -723,5 +724,104 @@ unsupported subject. The existing plan admission checks the complete resulting a
 def buildPlan (c : Claim) (i : Census) : Except String (Plan c i) := do
   let jobs ← (requiredJobs c i).mapM fun (stage, subject) => admitJobKey c stage subject
   admitPlan c i jobs
+
+/-- The jobs `admitPlan` admits for a claim and census: the census and its derived plan are
+valid, and the jobs are exactly the required jobs, in order, each for this claim. These are the
+proof fields of `Plan`, stated without `admitPlan`. -/
+def PlanJobsOK (c : Claim) (i : Census) (jobs : Array JobKey) : Prop :=
+  PlanOK c i ∧ jobs.map (fun k => (k.stage, k.subject)) = requiredJobs c i ∧
+    ∀ k ∈ jobs, k.claim = c
+
+/-- Plan admission succeeds exactly for the jobs `PlanJobsOK` admits. -/
+theorem admitPlan_isOk_iff (c : Claim) (i : Census) (jobs : Array JobKey) :
+    (admitPlan c i jobs).isOk = true ↔ PlanJobsOK c i jobs := by
+  constructor
+  · intro accepted
+    cases admitted : admitPlan c i jobs with
+    | ok p =>
+      have same : p.jobs = jobs := by
+        unfold admitPlan at admitted
+        split at admitted
+        · split at admitted
+          · split at admitted
+            · cases admitted; rfl
+            · cases admitted
+          · cases admitted
+        · cases admitted
+      exact same ▸ ⟨p.valid, p.exactJobs, p.exactClaim⟩
+    | error _ => rw [admitted] at accepted; cases accepted
+  · rintro ⟨valid, exact, claim⟩
+    show (admitPlan c i (⟨jobs, valid, exact, claim⟩ : Plan c i).jobs).isOk = true
+    rw [admitPlan_exact]
+    rfl
+
+/-- A documentation claim over one document of its snapshot, with the compiler identity of this
+compiled policy: the claim of the witnesses of `checked_admitPlan`, `checked_accept` and
+`checked_finalize`. -/
+def witnessClaim : Claim :=
+  ⟨⟨.documentation #[⟨"README.md", ""⟩], .documentationExample,
+      ⟨#[⟨"README.md", ""⟩], ⟨"lakefile", ""⟩, ⟨Compiler.version, Compiler.commit, "revision"⟩,
+        #[]⟩, #[]⟩,
+    by decide +kernel⟩
+
+/-- The census of no environment and no fence, whose plan for `witnessClaim` is valid
+(`witness_planOK`). -/
+def witnessCensus : Census :=
+  { requests := #[], environments := #[], modules := #[], moduleSources := #[],
+    configuredTargets := #[], discoveredTargets := #[] }
+
+/-- The required jobs of the witness claim and census: discovery, build and document scan, each
+of the whole scope. -/
+theorem witness_requiredJobs :
+    requiredJobs witnessClaim witnessCensus =
+      #[(.discovery, .scope), (.build, .scope), (.documentScan, .scope)] := by
+  simp [requiredJobs, requiredStages, stageSubjects, witnessClaim, witnessCensus]
+
+/-- The plan of the witness claim and census is valid. -/
+theorem witness_planOK : PlanOK witnessClaim witnessCensus := by
+  refine ⟨rfl, rfl, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · simp [CensusOK, witnessCensus, witnessClaim, GraphPlanOK, UniqueNames, moduleNames]
+    exact fun slot => slot.elim0
+  · rw [witness_requiredJobs]; decide
+  · rw [witness_requiredJobs]; decide
+  · simp [witnessCensus]
+  · simp [witnessCensus]
+  · simp [witnessCensus]
+
+/-- The plan of the witness claim and census: its three required jobs. -/
+def witnessPlan : Plan witnessClaim witnessCensus :=
+  { jobs := #[⟨witnessClaim, .discovery, .scope, by decide, rfl, trivial⟩,
+      ⟨witnessClaim, .build, .scope, by decide, rfl, trivial⟩,
+      ⟨witnessClaim, .documentScan, .scope, by decide, rfl, trivial⟩]
+    valid := witness_planOK
+    exactJobs := by rw [witness_requiredJobs]; simp
+    exactClaim := by simp }
+
+/-- The arguments of `admitPlan`, as the fields of one structure, in the order of the
+arguments. -/
+structure PlanInput where
+  /-- The claim the plan serves. -/
+  claim : Claim
+  /-- The census the plan is derived from. -/
+  census : Census
+  /-- The proposed job keys. -/
+  jobs : Array JobKey
+
+/-- `admitPlan` accepts exactly the jobs `PlanJobsOK` admits (`admitPlan_isOk_iff`): for the
+witness claim and census it accepts the three required jobs and refuses no jobs. The result type
+depends on the claim and the census, so the kind is one of `Regula.Dependent`, on the structure
+of the three arguments; that the admitted plan has the supplied jobs is `admitPlan_exact`. -/
+theorem checked_admitPlan : Regula.ExecutableContract admitPlan (fun admit =>
+    Regula.Dependent.Decides (·.isOk = true)
+      (fun input : PlanInput => PlanJobsOK input.claim input.census input.jobs)
+      (fun input => admit input.claim input.census input.jobs)) :=
+  ⟨.of_iff (fun input => admitPlan_isOk_iff input.claim input.census input.jobs)
+    ⟨⟨witnessClaim, witnessCensus, witnessPlan.jobs⟩,
+      (admitPlan_isOk_iff witnessClaim witnessCensus witnessPlan.jobs).mpr
+        ⟨witness_planOK, witnessPlan.exactJobs, witnessPlan.exactClaim⟩⟩
+    ⟨⟨witnessClaim, witnessCensus, #[]⟩, fun accepted => by
+      have exact := ((admitPlan_isOk_iff witnessClaim witnessCensus #[]).mp accepted).2.1
+      rw [witness_requiredJobs] at exact
+      simp at exact⟩⟩
 
 end RegulaPolicy

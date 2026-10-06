@@ -706,6 +706,29 @@ true) Spec)`, with `fun g => Regula.Decides accepts Spec (Function.uncurry g)` f
 several arguments, and state `Spec` without `check`. The accepted account then reports the kind
 and, for a one-way kind, the direction it leaves open.
 
+Two forms cover the functions that this form does not reach (standard §3.8):
+
+- **A dependent argument type, or a type, instance or proof argument.** Declare a structure
+  whose fields are the arguments, and state the kind about the function applied to every field,
+  in the order of the fields: `fun g => Regula.Decides accepts Spec (fun input : Input => g
+  input.a input.b input.c)`, with `Spec` over `Input`. For two arguments a pair is enough
+  (`Prod`, `Sigma`, `PSigma` or `Subtype`). Give each field once and leave none out: [RG1007]
+  refuses a function that fixes an argument or repeats a field, because it decides the function
+  on part of its domain, and a structure with a field the function does not take, because such
+  a field can restrict the domain. Do not nest dependent pairs for three or more arguments:
+  each projection of a pair carries the pair's type, and the statement grows by a large factor
+  with each argument. State a kind about a function with universe parameters at those
+  parameters (`@check.{u}` in a theorem with the universe parameter `u`), with witnesses at
+  every universe level, such as a list of `PUnit`; [RG1007] refuses a kind stated at other
+  levels.
+- **A result type that depends on the arguments**, such as `Except String (Admitted x)`. Use the
+  kind of the same name in `Regula.Dependent`: `Regula.Dependent.Decides (·.isOk = true) Spec`.
+  Its acceptance predicate is stated for every payload type, so it cannot name the input: write
+  it as a predicate of the result (`(·.isOk = true)`, `(·.isSome = true)`). If Lean cannot infer
+  the result former, name it: `Regula.Dependent.Decides (Result := Except String) ...`.
+
+The account reports a kind of `Regula.Dependent` as the kind of the same direction.
+
 To make that registration a requirement, mark the function with `@[regula_decision]` (`import
 Regula.Decision`, or `meta import Regula.Decision` in a file that is a `module`). A function whose
 own module cannot import `Regula.Decision` is marked from another module of the same library, with

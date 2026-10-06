@@ -219,7 +219,8 @@ structure ContractAccount where
   requirement : String
   /-- The decision kind the collector read from the requirement's head constant: which
   directions Lean checked about the implementation. `none` for a requirement that is not a
-  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`. -/
+  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`, or the structure of
+  the same name in `Regula.Dependent`. -/
   kind : Option DecisionKind := none
   deriving Repr, DecidableEq
 

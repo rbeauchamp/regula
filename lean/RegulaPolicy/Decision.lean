@@ -313,6 +313,7 @@ theorem Roles.eq_authorize {i : Inventory} (roles : Roles i) : roles = authorize
 /-- Public policy checks exact inventory membership before using role evidence, then decides the
 declaration's own requirements (`declarationFailure`) and, where they are met, the decision
 requirement against the inventory's decision contracts (`decisionFailure`). -/
+@[regula_decision]
 def policyFor (i : Inventory) (roles : Roles i) (d : Declaration)
     (request : InspectionRequest) : Option DeclarationFailure :=
   if d ∈ i.declarations then
@@ -337,6 +338,7 @@ def MemberFailureContract
 
 /-- The membership proof, typically supplied by iterating `i.declarations`, replaces
 `policyFor`'s linear scan; it is never inspected. Callers use `checked_memberFailure.run`. -/
+@[regula_decision]
 def memberFailure (i : Inventory) (roles : Roles i) (d : Declaration)
     (_member : d ∈ i.declarations) (request : InspectionRequest) : Option DeclarationFailure :=
   (declarationFailure d request roles.native roles.safetyHelpers).or
@@ -401,8 +403,7 @@ theorem declarationFailure_none_iff (d : Declaration) (r : InspectionRequest)
 nothing for an axiom-free definition under Kernel-only, and a failure for an authored axiom. The
 decision is over the recorded declaration and the supplied role sets. That the record is what
 Lean holds is the collector's, and that the role sets are the inventory's is `policyFor`'s
-`Roles` argument, whose type depends on the inventory and so has theorems
-(`policyFor_none_iff`) and no kind. -/
+`Roles` argument, whose type depends on the inventory (`checked_policyFor`). -/
 theorem checked_declarationFailure : Regula.ExecutableContract @declarationFailure
     (fun (failure : Declaration → InspectionRequest → Array Name → Array Name →
         Option DeclarationFailure) =>
@@ -469,6 +470,136 @@ theorem policyFor_none_iff (i : Inventory) (roles : Roles i) (d : Declaration)
   by_cases hd : d ∈ i.declarations
   · simp [policyFor, hd, declarationFailure_none_iff, decisionFailure_none_iff]
   · simp [policyFor, hd]
+
+/-- The record of the axiom-free declaration `subject` of module `Module` with the given kind,
+which is registered as no decision: the declaration of the witnesses of `checked_policyFor`,
+`checked_memberFailure` and the editor decision's contract. -/
+def witnessDeclaration (kind : DeclarationKind) : Declaration :=
+  { name := `subject, «module» := `Module, kind, «type» := "", prettyType := "", isProp := false
+    isUnsafe := false, isPartial := false, safety := none, «instance» := false
+    «noncomputable» := false, implementedBy := none, «extern» := false, internal := false
+    «private» := false, projection := false, matcher := false, recursive := false
+    unsafeRecBase := none, levelParams := #[], all := #[], hints := none, valueConstants := #[]
+    unsafeRecRegenerated := none, constructorIndex := none, nativeStatement := none
+    nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[] }
+
+/-- The inventory of `witnessDeclaration kind` alone, with no transcript. -/
+def witnessInventory (kind : DeclarationKind) : Inventory :=
+  { compiler := ⟨Compiler.legacyCompilerTrust, rfl⟩
+    declarations := #[witnessDeclaration kind]
+    transcripts := #[]
+    valid := by
+      simp [InventoryValid, UniqueNames, Declaration.Valid, witnessDeclaration, Named,
+        canonicalNames, CanonicalSet.normalize] }
+
+/-- `witnessDeclaration kind` is the member of `witnessInventory kind`. -/
+theorem witnessDeclaration_mem (kind : DeclarationKind) :
+    witnessDeclaration kind ∈ (witnessInventory kind).declarations :=
+  Array.mem_singleton.mpr rfl
+
+/-- The definition `witnessDeclaration .definition` meets its own requirements under Kernel-only,
+for every supplied role set, and the decision requirement for every supplied set: it rests on no
+axiom and is registered as no decision. -/
+theorem witnessDeclaration_definition_ok (native helpers decided : Array Name) :
+    DeclarationOK (witnessDeclaration .«definition») (.conforming .«kernelOnly») native helpers ∧
+      DecisionOK (witnessDeclaration .«definition») decided :=
+  ⟨(declarationFailure_none_iff _ _ _ _).mp (by simp [declarationFailure, witnessDeclaration]),
+    (decisionFailure_none_iff _ _).mp (by simp [decisionFailure, witnessDeclaration])⟩
+
+/-- The axiom `witnessDeclaration .axiom` fails its own requirements under Kernel-only, for
+every supplied role set: an authored axiom is a project axiom, and a native-proof axiom is
+compiler-trusting. -/
+theorem witnessDeclaration_axiom_not_ok (native helpers : Array Name) :
+    ¬ DeclarationOK (witnessDeclaration .«axiom») (.conforming .«kernelOnly») native helpers :=
+  fun ok => by
+    have none := (declarationFailure_none_iff _ _ _ _).mpr ok
+    simp [declarationFailure, witnessDeclaration] at none
+    split at none <;> cases none
+
+/-- The arguments of `policyFor`, as the fields of one structure, in the order of the
+arguments. -/
+structure PolicyInput where
+  /-- The admitted inventory. -/
+  inventory : Inventory
+  /-- The role receipt of that inventory. -/
+  roles : Roles inventory
+  /-- The declaration to decide. -/
+  declaration : Declaration
+  /-- The inspection request. -/
+  request : InspectionRequest
+
+/-- The arguments of `memberFailure`, and of the editor decision, as the fields of one structure,
+in the order of the arguments. -/
+structure MemberInput where
+  /-- The admitted inventory. -/
+  inventory : Inventory
+  /-- The role receipt of that inventory. -/
+  roles : Roles inventory
+  /-- The declaration to decide. -/
+  declaration : Declaration
+  /-- The declaration is a member of the inventory. -/
+  member : declaration ∈ inventory.declarations
+  /-- The inspection request. -/
+  request : InspectionRequest
+
+/-- The member input of `witnessDeclaration kind` in `witnessInventory kind`, under the
+inventory's recomputed roles and Kernel-only: the witness of `checked_memberFailure_decides` and
+of the editor decision's contract. -/
+def witnessMember (kind : DeclarationKind) : MemberInput :=
+  ⟨witnessInventory kind, authorize _, witnessDeclaration kind, witnessDeclaration_mem kind,
+    .conforming .«kernelOnly»⟩
+
+/-- `policyFor` reports nothing exactly for a member of the inventory that meets its own
+requirements and the decision requirement, under the inventory's own roles
+(`policyFor_none_iff`): nothing for an axiom-free definition of its inventory under Kernel-only,
+and a failure for a declaration of another inventory. The type of the roles depends on the
+inventory, so the kind is stated on the structure of the four arguments. -/
+theorem checked_policyFor : Regula.ExecutableContract policyFor (fun decide =>
+    Regula.Decides (· = none)
+      (fun input : PolicyInput => input.declaration ∈ input.inventory.declarations ∧
+        DeclarationOK input.declaration input.request input.roles.native
+          input.roles.safetyHelpers ∧
+        DecisionOK input.declaration input.roles.decided)
+      (fun input => decide input.inventory input.roles input.declaration input.request)) :=
+  ⟨.of_iff (fun input =>
+      policyFor_none_iff input.inventory input.roles input.declaration input.request)
+    ⟨⟨witnessInventory .«definition», authorize _, witnessDeclaration .«definition»,
+        .conforming .«kernelOnly»⟩,
+      (policyFor_none_iff (witnessInventory .«definition») (authorize _)
+          (witnessDeclaration .«definition») (.conforming .«kernelOnly»)).mpr
+        ⟨witnessDeclaration_mem _, witnessDeclaration_definition_ok _ _ _⟩⟩
+    ⟨⟨witnessInventory .«definition», authorize _, witnessDeclaration .«axiom»,
+        .conforming .«kernelOnly»⟩,
+      fun accepted => witnessDeclaration_axiom_not_ok _ _
+        ((policyFor_none_iff (witnessInventory .«definition») (authorize _)
+          (witnessDeclaration .«axiom») (.conforming .«kernelOnly»)).mp accepted).2.1⟩⟩
+
+/-- `memberFailure` reports nothing exactly for a member that meets its own requirements and the
+decision requirement, under the inventory's own roles (`checked_memberFailure`,
+`policyFor_none_iff`): nothing for the axiom-free definition of its inventory under Kernel-only,
+and a failure for the authored axiom of its inventory. The membership proof is one of the five
+arguments, each a field of `MemberInput`. -/
+theorem checked_memberFailure_decides : Regula.ExecutableContract memberFailure (fun decide =>
+    Regula.Decides (· = none)
+      (fun input : MemberInput =>
+        DeclarationOK input.declaration input.request input.roles.native
+          input.roles.safetyHelpers ∧
+        DecisionOK input.declaration input.roles.decided)
+      (fun input =>
+        decide input.inventory input.roles input.declaration input.member input.request)) :=
+  have none_iff (input : MemberInput) :
+      memberFailure input.inventory input.roles input.declaration input.member input.request =
+          none ↔
+        DeclarationOK input.declaration input.request input.roles.native
+          input.roles.safetyHelpers ∧
+        DecisionOK input.declaration input.roles.decided := by
+    rw [checked_memberFailure.evidence, policyFor_none_iff]
+    exact and_iff_right input.member
+  ⟨.of_iff none_iff
+    ⟨witnessMember .«definition»,
+      (none_iff (witnessMember .«definition»)).mpr (witnessDeclaration_definition_ok _ _ _)⟩
+    ⟨witnessMember .«axiom», fun accepted =>
+      witnessDeclaration_axiom_not_ok _ _ ((none_iff (witnessMember .«axiom»)).mp accepted).1⟩⟩
 
 /-- The public decision reports the decision failure exactly for an inventory member that meets
 every requirement of its own record, is registered as a decision with a result type other than

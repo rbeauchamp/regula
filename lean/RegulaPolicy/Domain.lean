@@ -607,15 +607,17 @@ def Ranges.admitted (r : Ranges) : Ranges :=
 
 /-- Which directions of a decision a registered contract's requirement states, one value for
 each of the structures `Regula.DecidesSoundly`, `Regula.DecidesCompletely` and `Regula.Decides`
-(`DecisionKind.structureName`); parsing cannot manufacture an unknown constructor. -/
+(`DecisionKind.structureName`), which is also the value of that structure's form for a result
+type that depends on the input (`DecisionKind.dependentStructureName`); parsing cannot
+manufacture an unknown constructor. -/
 inductive DecisionKind where
-  /-- `Regula.DecidesSoundly`: the function accepts only inputs that satisfy the
-  specification. -/
+  /-- `Regula.DecidesSoundly` or `Regula.Dependent.DecidesSoundly`: the function accepts only
+  inputs that satisfy the specification. -/
   | «sound»
-  /-- `Regula.DecidesCompletely`: the function accepts every input that satisfies the
-  specification. -/
+  /-- `Regula.DecidesCompletely` or `Regula.Dependent.DecidesCompletely`: the function accepts
+  every input that satisfies the specification. -/
   | «complete»
-  /-- `Regula.Decides`: both directions. -/
+  /-- `Regula.Decides` or `Regula.Dependent.Decides`: both directions. -/
   | «soundAndComplete»
   deriving Repr, DecidableEq, Inhabited
 
@@ -653,7 +655,14 @@ def DecisionKind.structureName : DecisionKind → Lean.Name
   | .«complete» => ``Regula.DecidesCompletely
   | .«soundAndComplete» => ``Regula.Decides
 
-/-- The kind whose structure `name` is; `none` for every other name
+/-- The structure of `Regula.Contract` that states each kind about a function whose result type
+depends on its input. -/
+def DecisionKind.dependentStructureName : DecisionKind → Lean.Name
+  | .«sound» => ``Regula.Dependent.DecidesSoundly
+  | .«complete» => ``Regula.Dependent.DecidesCompletely
+  | .«soundAndComplete» => ``Regula.Dependent.Decides
+
+/-- The kind one of whose two structures `name` is; `none` for every other name
 (`DecisionKind.ofStructureName?_eq_some_iff`). The collector applies it to the head constant of
 a registration's reduced requirement. -/
 @[regula_decision]
@@ -661,17 +670,27 @@ def DecisionKind.ofStructureName? : Lean.Name → Option DecisionKind
   | .str (.str .anonymous "Regula") "DecidesSoundly" => some .«sound»
   | .str (.str .anonymous "Regula") "DecidesCompletely" => some .«complete»
   | .str (.str .anonymous "Regula") "Decides" => some .«soundAndComplete»
+  | .str (.str (.str .anonymous "Regula") "Dependent") "DecidesSoundly" => some .«sound»
+  | .str (.str (.str .anonymous "Regula") "Dependent") "DecidesCompletely" => some .«complete»
+  | .str (.str (.str .anonymous "Regula") "Dependent") "Decides" => some .«soundAndComplete»
   | _ => none
 
-/-- A name is read as a kind exactly when it is that kind's structure. -/
+/-- A name is read as a kind exactly when it is one of that kind's two structures. -/
 theorem DecisionKind.ofStructureName?_eq_some_iff (name : Lean.Name) (kind : DecisionKind) :
-    ofStructureName? name = some kind ↔ name = kind.structureName := by
+    ofStructureName? name = some kind ↔
+      name = kind.structureName ∨ name = kind.dependentStructureName := by
   constructor
   · intro h
     unfold ofStructureName? at h
-    split at h <;> cases h <;> rfl
-  · rintro rfl
-    cases kind <;> rfl
+    split at h <;> cases h <;> first | (left; rfl) | (right; rfl)
+  · rintro (rfl | rfl) <;> cases kind <;> rfl
+
+/-- No structure of `Regula` is a structure of `Regula.Dependent`. So a name `ofStructureName?`
+reads as `kind` is `kind.structureName` or `kind.dependentStructureName` and not both, and the
+collector takes the structure's implicit arguments from which of the two it is. -/
+theorem DecisionKind.structureName_ne_dependentStructureName (a b : DecisionKind) :
+    a.structureName ≠ b.dependentStructureName := by
+  cases a <;> cases b <;> intro h <;> cases h
 
 /-- What a registration of the kind establishes about the implementation, as the account
 states it. -/
@@ -746,8 +765,8 @@ structure ExecutableContract where
   the collector found no problem. -/
   failure : Option String
   /-- The decision kind, when the requirement reduces to an application of
-  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`; `none` for every
-  other requirement. -/
+  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`, or of the structure
+  of the same name in `Regula.Dependent`; `none` for every other requirement. -/
   kind : Option DecisionKind := none
   deriving Repr, DecidableEq
 
@@ -1088,6 +1107,7 @@ def boundaryEvidenceCandidate (kind : BoundaryKind) (state : Correspondence)
     | _, _ => .error "invalid checked boundary evidence"
 
 /-- Admission retains every supplied evidence field or refuses the observation. -/
+@[regula_decision]
 def admitBoundaryEvidence (kind : BoundaryKind) (state : Correspondence)
     (detail : Option String) (origin : Option ToolchainOrigin) : Except String
     (BoundaryEvidence kind) :=
@@ -1124,6 +1144,59 @@ theorem boundaryEvidence_roundtrip {kind : BoundaryKind} (e : BoundaryEvidence k
   unfold admitBoundaryEvidence
   rw [boundaryEvidenceCandidate_roundtrip]
   simp
+
+/-- The raw fields `admitBoundaryEvidence` admits for a kind: they are the correspondence, detail
+and toolchain origin of some evidence of that kind. It is stated without
+`admitBoundaryEvidence`. -/
+def BoundaryFieldsOK (kind : BoundaryKind) (state : Correspondence) (detail : Option String)
+    (origin : Option ToolchainOrigin) : Prop :=
+  ∃ e : BoundaryEvidence kind,
+    e.correspondence = state ∧ e.detail = detail ∧ e.toolchainOrigin? = origin
+
+/-- Boundary-evidence admission succeeds exactly for the fields of some evidence of the kind
+(`boundaryEvidence_admission_preserves`, `boundaryEvidence_roundtrip`). -/
+theorem admitBoundaryEvidence_isOk_iff (kind : BoundaryKind) (state : Correspondence)
+    (detail : Option String) (origin : Option ToolchainOrigin) :
+    (admitBoundaryEvidence kind state detail origin).isOk = true ↔
+      BoundaryFieldsOK kind state detail origin := by
+  constructor
+  · intro accepted
+    cases admitted : admitBoundaryEvidence kind state detail origin with
+    | ok e => exact ⟨e, boundaryEvidence_admission_preserves kind state detail origin e admitted⟩
+    | error _ => rw [admitted] at accepted; cases accepted
+  · rintro ⟨e, rfl, rfl, rfl⟩
+    rw [boundaryEvidence_roundtrip]
+    rfl
+
+/-- The arguments of `admitBoundaryEvidence`, as the fields of one structure, in the order of
+the arguments. -/
+structure BoundaryFields where
+  /-- The kind of the boundary. -/
+  kind : BoundaryKind
+  /-- The observed correspondence. -/
+  state : Correspondence
+  /-- The observed detail. -/
+  detail : Option String
+  /-- The observed toolchain origin. -/
+  origin : Option ToolchainOrigin
+
+/-- `admitBoundaryEvidence` accepts exactly the fields of some evidence of the kind
+(`admitBoundaryEvidence_isOk_iff`): it accepts an unresolved external boundary and refuses a
+trusted native-runtime boundary with no origin. The result type depends on the kind, so the
+kind of decision is one of `Regula.Dependent`, on the structure of the four arguments; that the
+admitted evidence has the supplied fields is `boundaryEvidence_admission_preserves`. -/
+theorem checked_admitBoundaryEvidence :
+    Regula.ExecutableContract admitBoundaryEvidence (fun admit =>
+      Regula.Dependent.Decides (·.isOk = true)
+        (fun input : BoundaryFields =>
+          BoundaryFieldsOK input.kind input.state input.detail input.origin)
+        (fun input => admit input.kind input.state input.detail input.origin)) :=
+  ⟨.of_iff (fun input =>
+      admitBoundaryEvidence_isOk_iff input.kind input.state input.detail input.origin)
+    ⟨⟨.external, .unresolved, none, none⟩,
+      (admitBoundaryEvidence_isOk_iff .external .unresolved none none).mpr
+        ⟨.unresolved none, rfl, rfl, rfl⟩⟩
+    ⟨⟨.nativeRuntime, .trusted, none, none⟩, by decide⟩⟩
 
 /-- Canonical toolchain-origin admission preserves its module and exact path observation. -/
 theorem toolchainOrigin_roundtrip (o : ToolchainOrigin) :
@@ -1441,16 +1514,18 @@ theorem EvaluatorRole.checked_parse : Regula.ExecutableContract EvaluatorRole.pa
     (Regula.Decides (·.isSome = true) fun text => ∃ x : EvaluatorRole, text = x.spelling) :=
   ⟨.of_roundtrip roundtrip canonical .command (unwritten := "") rfl⟩
 
-/-- `DecisionKind.ofStructureName?` accepts exactly the three structures' names
-(`DecisionKind.ofStructureName?_eq_some_iff`): the collector reads a registration's kind with
-it, so this is the registered decision behind "a head constant is read as a kind exactly when it
-is that kind's structure". -/
+/-- `DecisionKind.ofStructureName?` accepts exactly the six structures' names, the two of each
+kind (`DecisionKind.ofStructureName?_eq_some_iff`): the collector reads a registration's kind
+with it, so this is the registered decision behind "a head constant is read as a kind exactly
+when it is one of that kind's structures". It accepts `Regula.DecidesSoundly` and refuses the
+anonymous name. -/
 theorem DecisionKind.checked_ofStructureName :
     Regula.ExecutableContract DecisionKind.ofStructureName?
       (Regula.Decides (·.isSome = true) fun name =>
-        ∃ kind : DecisionKind, name = kind.structureName) :=
-  ⟨.of_roundtrip (fun kind => (ofStructureName?_eq_some_iff _ kind).mpr rfl)
-    (fun name kind read => ((ofStructureName?_eq_some_iff name kind).mp read).symm)
-    .«sound» (unwritten := .anonymous) rfl⟩
+        ∃ kind : DecisionKind, name = kind.structureName ∨ name = kind.dependentStructureName) :=
+  ⟨.of_iff (fun name => by
+      rw [Option.isSome_iff_exists]
+      exact exists_congr fun kind => ofStructureName?_eq_some_iff name kind)
+    ⟨``Regula.DecidesSoundly, rfl⟩ ⟨.anonymous, by decide⟩⟩
 
 end RegulaPolicy

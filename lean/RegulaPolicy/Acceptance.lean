@@ -77,6 +77,7 @@ structure Accepted {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles 
   policy : AllPolicyOK p roles s
 
 /-- Recompute completeness and actual pure policy relations after payload admission. -/
+@[regula_decision]
 def accept {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
     (s : ResultTable p) : Except AcceptanceFailure (Accepted p roles s) :=
   if hc : CompleteFor p s then
@@ -190,6 +191,7 @@ structure Finalized {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles
 
 /-- The sole pure finalization path collects every response, then recomputes the approved
 policies for every independently required slot. Neither stage can supply a shorter plan. -/
+@[regula_decision]
 def finalize {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
     (inputs : List (Nat × JobObservation)) : Except FinalizationFailure
     (Finalized p roles inputs) :=
@@ -673,5 +675,121 @@ theorem combined_policy {pc dc : Claim} {documents : Array SourceSnapshot}
   ⟨⟨accepted.project.result.accepted.complete, accepted.project.result.accepted.policy⟩,
     ⟨accepted.documentation.result.accepted.complete,
         accepted.documentation.result.accepted.policy⟩⟩
+
+/-! Decision kinds of `accept` and `finalize`. The type of each argument after the claim and the
+census depends on an earlier argument, and the result type on all of them, so each is decided on
+a structure whose fields are its five arguments (`AcceptInput`, `FinalizeInput`) with a kind of
+`Regula.Dependent`. The witnesses are over `witnessPlan`. -/
+
+/-- The arguments of `accept`, as the fields of one structure, in the order of the arguments. -/
+structure AcceptInput where
+  /-- The claim. -/
+  claim : Claim
+  /-- The census. -/
+  census : Census
+  /-- The admitted plan of the claim and census. -/
+  plan : Plan claim census
+  /-- The role receipts of the census. -/
+  roles : CensusRoles census
+  /-- The result table of the plan. -/
+  table : ResultTable plan
+
+/-- The arguments of `finalize`, as the fields of one structure, in the order of the
+arguments. -/
+structure FinalizeInput where
+  /-- The claim. -/
+  claim : Claim
+  /-- The census. -/
+  census : Census
+  /-- The admitted plan of the claim and census. -/
+  plan : Plan claim census
+  /-- The role receipts of the census. -/
+  roles : CensusRoles census
+  /-- The supplied responses, each with its slot. -/
+  inputs : List (Nat × JobObservation)
+
+/-- The role receipts of the witness census, which has no environment. -/
+def witnessRoles : CensusRoles witnessCensus := fun slot => slot.elim0
+
+/-- A completed observation of each job of `witnessPlan`, with the evidence its stage requires:
+the witness census for discovery, a clean build, and a scan of the claim's document with no
+fence. -/
+def witnessObservations : List (Nat × JobObservation) :=
+  [(0, ⟨⟨witnessClaim, .discovery, .scope, by decide, rfl, trivial⟩, witnessClaim.val.snapshot,
+      .completed, .discovery witnessCensus⟩),
+    (1, ⟨⟨witnessClaim, .build, .scope, by decide, rfl, trivial⟩, witnessClaim.val.snapshot,
+      .completed, .build ⟨0, #[], #[]⟩⟩),
+    (2, ⟨⟨witnessClaim, .documentScan, .scope, by decide, rfl, trivial⟩,
+      witnessClaim.val.snapshot, .completed, .documentScan ⟨#[⟨"README.md", ""⟩], #[], #[]⟩⟩)]
+
+/-- The witness observations are a batch `finalize` accepts for `witnessPlan`. -/
+theorem witness_inputsOK : InputsOK witnessPlan witnessRoles witnessObservations := by
+  refine ⟨⟨by decide, ?_⟩, ?_⟩
+  · intro entry member
+    simp only [witnessObservations, List.mem_cons, List.not_mem_nil, or_false] at member
+    rcases member with rfl | rfl | rfl <;>
+      simp [requiredSlots, ResultState.empty, ResultBound, witnessPlan]
+  · intro slot member
+    have bound : slot < 3 := by simpa [witnessPlan] using member
+    match slot, bound with
+    | 0, _ =>
+      exact ⟨_, List.mem_cons_self, rfl, rfl, rfl, by simp [StageOK]⟩
+    | 1, _ =>
+      exact ⟨_, List.mem_cons_of_mem _ List.mem_cons_self, rfl, rfl, rfl,
+        by simp [StageOK, BuildOK]⟩
+    | 2, _ =>
+      exact ⟨_, List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self), rfl, rfl,
+        rfl, by simp [StageOK, DocumentOK, witnessClaim, witnessCensus]⟩
+
+/-- Acceptance succeeds exactly for a complete table that meets every policy (`accept_iff`). -/
+theorem accept_isOk_iff {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
+    (s : ResultTable p) :
+    (accept p roles s).isOk = true ↔ CompleteFor p s ∧ AllPolicyOK p roles s := by
+  rw [← accept_iff]
+  cases accept p roles s <;> simp [Except.isOk, Except.toBool]
+
+/-- Finalization succeeds exactly for the inputs `InputsOK` admits (`finalize_iff`). -/
+theorem finalize_isOk_iff {c : Claim} {i : Census} (p : Plan c i) (roles : CensusRoles i)
+    (inputs : List (Nat × JobObservation)) :
+    (finalize p roles inputs).isOk = true ↔ InputsOK p roles inputs := by
+  rw [← finalize_iff]
+  cases finalize p roles inputs <;> simp [Except.isOk, Except.toBool]
+
+/-- `accept` accepts exactly a result table that is complete for its plan and meets every
+planned job's policy (`accept_iff`), for every claim, census, plan and role receipt: for
+`witnessPlan` it accepts the table collected from `witnessObservations` and refuses the empty
+table. The accepted value carries both proofs (`Accepted`). -/
+theorem checked_accept : Regula.ExecutableContract @accept (fun accept =>
+    Regula.Dependent.Decides (·.isOk = true)
+      (fun input : AcceptInput =>
+        CompleteFor input.plan input.table ∧ AllPolicyOK input.plan input.roles input.table)
+      (fun input => accept input.plan input.roles input.table)) :=
+  ⟨.of_iff (fun input => accept_isOk_iff input.plan input.roles input.table)
+    (by
+      obtain ⟨result, _⟩ :=
+        (finalize_iff witnessPlan witnessRoles witnessObservations).mpr witness_inputsOK
+      exact ⟨⟨witnessClaim, witnessCensus, witnessPlan, witnessRoles, result.table⟩,
+        (accept_isOk_iff witnessPlan witnessRoles result.table).mpr
+          ⟨result.accepted.complete, result.accepted.policy⟩⟩)
+    ⟨⟨witnessClaim, witnessCensus, witnessPlan, witnessRoles, .empty⟩, fun accepted => by
+      obtain ⟨_, slots⟩ := ((accept_isOk_iff witnessPlan witnessRoles .empty).mp accepted).1
+      obtain ⟨_, member, _⟩ := slots 0 (by simp [witnessPlan])
+      simp [ResultState.empty] at member⟩⟩
+
+/-- `finalize` accepts exactly the responses `InputsOK` admits (`finalize_iff`), for every
+claim, census, plan and role receipt: for `witnessPlan` it accepts `witnessObservations` and
+refuses no responses. The accepted value carries the collected table and its acceptance
+(`Finalized`). -/
+theorem checked_finalize : Regula.ExecutableContract @finalize (fun finalize =>
+    Regula.Dependent.Decides (·.isOk = true)
+      (fun input : FinalizeInput => InputsOK input.plan input.roles input.inputs)
+      (fun input => finalize input.plan input.roles input.inputs)) :=
+  ⟨.of_iff (fun input => finalize_isOk_iff input.plan input.roles input.inputs)
+    ⟨⟨witnessClaim, witnessCensus, witnessPlan, witnessRoles, witnessObservations⟩,
+      (finalize_isOk_iff witnessPlan witnessRoles witnessObservations).mpr witness_inputsOK⟩
+    ⟨⟨witnessClaim, witnessCensus, witnessPlan, witnessRoles, []⟩, fun accepted => by
+      obtain ⟨_, member, _⟩ := ((finalize_isOk_iff witnessPlan witnessRoles []).mp accepted).2 0
+        (by simp [witnessPlan])
+      cases member⟩⟩
 
 end RegulaPolicy
