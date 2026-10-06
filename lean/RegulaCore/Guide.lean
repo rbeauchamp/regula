@@ -534,11 +534,13 @@ def guide : RuleId → Guide
         and `Roles.safetyHelpers_iff` binds both families to the same inventory. The comparison \
         that records a recursion helper's observation is the pure decision \
         `RegulaPolicy.Erasure.reproduces` over the regenerated and the observed values, the \
-        observations of their terms and whether the observing pass finished: \
-        `Erasure.equalWithin_iff` proves it accepts exactly the \
-        values `Erasure.EqualWithin` relates, one constructor for each comparison rule, and \
-        `Erasure.checked_reproduces` registers the kind. The observations themselves and the \
-        regeneration (`Regula.Collect`) are operational."
+        observations of their terms and whether the observing pass finished. \
+        `Erasure.reproduces_iff` proves that it accepts exactly a regeneration whose pass \
+        finished, that added at least one definition, and whose every value `Erasure.EqualWithin` \
+        relates to the observed value of its name; `Erasure.equalWithin_iff` proves that the \
+        comparison of two values accepts exactly the values that relation relates, one \
+        constructor for each comparison rule; and `Erasure.checked_reproduces` registers the \
+        kind. The observations themselves and the regeneration (`Regula.Collect`) are operational."
       sources :=
           ["lean/RegulaPolicy/Decision.lean", "lean/RegulaPolicy/Erasure.lean",
               "lean/Regula/Collect.lean", "lean/RegulaCore/Policy.lean"] }

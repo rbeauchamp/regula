@@ -647,9 +647,9 @@ erasure, is split into an observing pass and a pure decision that has one.
 | Exact relation | `Erasure.equalWithin_iff` | For every two terms, pairing of variables, depth and pair of observations, the executed comparison answers `true` exactly when `Erasure.EqualWithin` relates the terms within that depth. |
 | The registered decision | `Erasure.reproduces_iff`, `Erasure.checked_reproduces` | `reproduces` accepts exactly a regeneration whose pass finished, that added a definition, and whose every value is related, within `Erasure.depthLimit` (100000), to the observed value of its name. It accepts one whose two values are erased and refuses one that added no definition. |
 | A pass that stops is refused | `Erasure.reproduces_eq_false_of_unfinished` | A regeneration whose `finished` is `false` is refused, whatever the pass recorded: a bound, exhausted depth or a refused part cannot be followed by an acceptance. It does not prove that the pass reports its own run truthfully. |
-| One constructor for each rule | The constructors of `Erasure.EqualWithin` | `closed` (Lean's expression equality, no free variable), `erased` (both a proof or a type), `mdataLeft`, `mdataRight`, `fvar`, `const`, `lit`, `sort`, `proj`, `fixpoint` (the arguments of a well-founded fixpoint that carry its computation, `Erasure.Fixpoint`), `threadedLeft` and `threadedRight` (a `match` that passes a variable through against the direct one, only under a recorded kernel-checked law, `Erasure.Threads`), `app`, `lam`, `forallE` and `letE`. A new case of `Erasure.step`, `Erasure.structural` or `Erasure.application` without a constructor, or a constructor without its case, makes `equalWithin_iff` fail to check. A change inside a definition that selects the parts a rule compares (`threadedParts`, `alternative`, `openLambdas`, `standingFor`, `paired`) does not: the relation and the comparison share those definitions, so such a change alters both, and it is a review item. |
+| One constructor for each rule | The constructors of `Erasure.EqualWithin` | `closed` (Lean's expression equality, no free variable), `erased` (both a proof or a type), `mdataLeft`, `mdataRight`, `fvar`, `const`, `lit`, `sort`, `proj`, `fixpoint` (the arguments of a well-founded fixpoint that carry its computation, `Erasure.Fixpoint`), `threadedLeft` and `threadedRight` (a `match` that passes a variable through against the direct one, only under a recorded kernel-checked law, `Erasure.Threads`), `app`, `lam`, `forallE` and `letE`. A new case of `Erasure.step`, `Erasure.structural` or `Erasure.application` without a constructor, or a constructor without its case, makes `equalWithin_iff` fail to check. The two threading rules name `threadedParts` and not the parts themselves, so a change of which parts it selects adds no constructor; it fails `Erasure.threadedParts_eq_ok_iff` and `Erasure.alternative_eq_ok_iff`, which state the selection, and a change of the pairs under which the further variable stands for the passed one fails `Erasure.mem_standingFor_left` and `Erasure.mem_standingFor_right`. A change inside `openLambdas` or `paired`, which those statements and the relation share with the comparison, fails no theorem and is a review item. |
 | The parts of a fixpoint | `Erasure.Fixpoint`, `Erasure.fixpointArguments?_eq_some_iff`, `Erasure.fixpointArguments?_eq_none_iff` | The `fixpoint` rule states which arguments it compares without the executed selection: the domain, the motive, the functional and the arguments after it of `WellFounded.fix` or `WellFounded.Nat.fix`. The executed `fixpointArguments?` selects exactly those, so a change of the selection fails these theorems. The rule does not compare the combinator or its universe levels: an application of `WellFounded.fix` is related to one of `WellFounded.Nat.fix` with equal such arguments, as the comparison on `main` did. |
-| A variable stands for one binder | `Erasure.newVariables`, `Erasure.under_eq_ok_iff`, `Erasure.under_eq_error_of_reused`, `Erasure.alternative_eq_ok_iff`, `Erasure.alternative_eq_error_of_reused` | A binder rule and each alternative of a threaded `match` read a body only with variables that no pair holds, on either side, and that differ from each other. A binder whose variable is not new is refused, whatever `Observations.bound` answers. So no answer of the pass makes the relation pair one variable with two binders on one path, as `fun a b => a` against `fun a b => b` would need. |
+| A variable stands for one binder | `Erasure.newVariables`, `Erasure.under_eq_ok_iff`, `Erasure.under_eq_error_of_reused`, `Erasure.alternative_eq_ok_iff`, `Erasure.alternative_eq_error_of_reused`, `Erasure.alternative_eq_error_of_unpaired`, `Erasure.threadedParts_eq_ok_iff`, `Erasure.unpaired_push`, `Erasure.alternative_holds`, `Erasure.step_keeps_pairs`, `Erasure.Reached.newVariables_eq_false` | A binder rule and each alternative of a threaded `match` read a body only with variables that no pair holds, on either side, and that differ from each other. A binder whose variable is not new is refused, whatever `Observations.bound` answers. For a threaded pair the two threading rules take their parts from `threadedParts`; `threadedParts_eq_ok_iff` proves that those parts are the kept arguments position by position and then one part of `alternative` for every alternative, and `alternative_eq_ok_iff` that each such part is read with new variables. Those theorems are the test of one rule against the pairs it is given. For a path, three more hold. The part for a body holds, in a pair, each variable the body is read with (`unpaired_push` for a binder rule, `alternative_holds` for an alternative). For the further variable of an alternative that is so because `alternative` refuses a passed variable that no pair holds (`alternative_eq_error_of_unpaired`): its pairs are those of the passed variable. Every part of a step keeps the pairs of the step (`step_keeps_pairs`). So a variable that a pair holds at one part is not new at any part the comparison comes to from it (`Reached.newVariables_eq_false`, over `Erasure.Reached`: a part, and each part of a step from a part it comes to), and no answer of the pass makes the relation pair one variable with two binders on one path, as `fun a b => a` against `fun a b => b` would need. This is about the binders the comparison opens. A free variable of the two values it starts from is in no pair; a regenerated or observed value has none. |
 | Outside `closed`, unobserved is refused, and so is an erased term against a kept one | `Erasure.equalWithin_unobserved_left`, `Erasure.equalWithin_unobserved_right`, `Erasure.equalWithin_erased_kept`, `Erasure.equalWithin_kept_erased` (each for two terms the `closed` rule does not relate) | A term the pass was not asked about has no observation, and no rule relates it by its erasure or its structure. A structural rule applies only where both terms are observed not to be erased, so no rule but `closed` relates an erased term to a kept one. `closed` reads no observation: it relates only two terms that Lean's expression equality identifies and that have no free variable, and for two such terms the erasure of one is the erasure of the other when the observations are truthful. That is argued, not proved: `equalWithin_iff` holds for every pair of observations. With truthful observations the relation is the standard's sentence: the two values are the same once every proof and every type of each is erased. |
 | Threading pairs | `Erasure.mem_standingFor_left`, `Erasure.mem_standingFor_right` | The pairs under which the variable an alternative binds stands for the variable passed relate that variable alone, and to exactly the variables the passed one was paired with. |
 
@@ -661,7 +661,12 @@ They do not prove:
   `Environment.addDeclCore` accepted the threading law, where what Lean records about the applied
   constant gave the decomposition; and `finished` is what the pass reports of its own run. All are
   the pass's, and a wrong answer is a wrong observation, not a refuted theorem. The variable the
-  pass gives a binder is not among these hypotheses: the comparison refuses one that is not new;
+  pass gives a binder is not among these hypotheses: the comparison refuses one that is not new.
+  That the pass's fresh variables are new, and that a pair holds each variable passed to a
+  threaded `match` where the two values have no free variable, is argued in
+  `Collect.observeEqual` and is not proved. Where either argument fails, the comparison refuses
+  the pair (`Erasure.under_eq_error_of_reused`, `Erasure.alternative_eq_error_of_reused`,
+  `Erasure.alternative_eq_error_of_unpaired`): the failure cannot make it accept;
 - anything about Lean's own functions the comparison runs and the relation names as it runs them:
   expression equality (`Expr.eqv`), the free-variable test, `Expr.instantiate1`, the head and
   arguments of an application, and the equality of names, universe levels and literals. Several
@@ -675,8 +680,12 @@ They do not prove:
   a threaded `match` equal to the direct one with each alternative applied to the variable
   passed, and the alternatives are compared with the bound variable standing for it; and every
   other rule compares the same constructor part by part. For the threaded rules, which parts are
-  compared is `threadedParts`, the definition the relation shares with the comparison: how the
-  relation can constrain that selection without a copy of it is open
+  compared is `threadedParts`, the definition the relation shares with the comparison.
+  `threadedParts_eq_ok_iff` and `alternative_eq_ok_iff` state that selection as theorems about
+  the definition: the kept arguments position by position, and for every alternative the two
+  bodies under its opened binders, with new variables. Two shared definitions have no statement
+  of their own: `openLambdas` (how the leading binders of an alternative are opened) and `paired`
+  (how two lists are paired by position). A change inside either is a review item
   ([#199](https://github.com/rbeauchamp/regula/issues/199));
 - the regeneration that supplies the values, the selection of the observed definitions by name,
   or the kernel's check of the recursion equation, which are as described under
@@ -702,10 +711,11 @@ terms, compares structure only where compilation keeps both (`Erasure.Kept`), an
 which exactly one is erased (`Erasure.equalWithin_erased_kept`, `Erasure.equalWithin_kept_erased`).
 `closed` is the exception because it reads no observation. It relates only two terms that Lean's
 expression equality identifies and that have no free variable, and for two such terms the erasure
-of one is the erasure of the other when the observations are truthful: the pass asks Lean about
-both in one environment, and the answer for a term with no free variable does not depend on the
-variables the term is under. That is argued, not proved, because `equalWithin_iff` holds for every
-pair of observations. With truthful observations `Erasure.EqualWithin` is therefore the standard's
+of one is the erasure of the other when the observations are truthful: Lean would answer alike
+for both in the inspected environment, since its answer for a term with no free variable does not
+depend on the variables the term is under. That is an argument, not an observation the pass made:
+for two such terms the comparison asks for no observation. It is not proved, because
+`equalWithin_iff` holds for every pair of observations. With truthful observations `Erasure.EqualWithin` is therefore the standard's
 sentence.
 
 What the narrowing changes is this. For one regeneration it only refuses more: a pair of values
@@ -1461,8 +1471,8 @@ consulted. The rest is argued, with no theorem:
   returns an origin only when `Collect.regenerationMatches` accepts the definitions a regeneration
   added and the kernel then checks the recursion equation. The verdict of that comparison is the
   pure decision `Erasure.reproduces`, whose only arguments are those definitions' values, the
-  observed values of their names and the observations of their terms: no assignment, status or
-  environment is among them, which its signature shows. Its observing pass runs after the saved
+  observed values of their names, the observations of their terms and whether the observing pass
+  finished: no assignment, status or environment is among them, which its signature shows. Its observing pass runs after the saved
   state, environment included, is restored and Lean's caches are emptied, so it reads the observed
   definitions in the inspected environment whatever assignment the regeneration ran under. Every question the search asks
   (`Collect.decisionIn`) is undone the same way, and its answers reach nothing but the list of
@@ -1753,7 +1763,7 @@ write, and what authenticates each:
 | Matcher metadata, in reduction | `Meta.whnfMatcher`, `Meta.reduceMatcher` | The constant's own value is unfolded. |
 | A matcher's equations and splitter | The proof search of `threadingLawChecked` | Guidance only: the kernel checks the theorem found. |
 | Projection metadata | The `paramProj` preprocessing step; unfolding a projection function | `paramProj` moves only `wfParam`, the identity; the function's own value is unfolded. |
-| `Structural.eqnInfoExt`, `WF.eqnInfoExt`, reducibility statuses | The regeneration | Selection only, never an argument of the comparison: `Erasure.reproduces` takes the two values and their observations and nothing else. |
+| `Structural.eqnInfoExt`, `WF.eqnInfoExt`, reducibility statuses | The regeneration | Selection only, never an argument of the comparison: `Erasure.reproduces` takes the two values, their observations and whether the pass finished, and nothing else. |
 | `T.rec` | The structural compiler | A recursor is created by the kernel with its inductive type. |
 | Matcher and `casesOn` metadata, in Lean's compilers during the regeneration | `MatcherApp.addArg`, which passes the function standing for the recursive calls through a `match` | Selection only: the kernel checks the recursion equation of the base (`Collect.recursionEquationChecked`). The regeneration alone admitted `Fixtures.Mutations.MatcherMetadataUnsafeRecForge`. |
 | `T.below`, `T.brecOn` of an inductive type of the audited module | The structural compiler, by name | Selection only: the kernel checks the recursion equation of the base. Lean generates them with an `inductive`; a module that adds an inductive type by metaprogram can declare others, and the regeneration alone admitted `Fixtures.Mutations.AuthoredCompanionUnsafeRecForge`. |

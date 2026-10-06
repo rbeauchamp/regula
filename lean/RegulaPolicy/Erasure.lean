@@ -90,7 +90,8 @@ checked, at inspection. Both depend on state the audited project writes. Lean's 
 reads reducibility statuses. For `threading`, what Lean records about the applied constant gives
 the decomposition, and what the pass records is that the kernel checked the threading law for
 it. `bound` is the pass's own choice of a variable, and the comparison does not rely on it: it
-refuses a variable that is not new (`newVariables`).
+refuses a variable that a pair holds (`newVariables`), and a pair holds every variable it read a
+body with on the path to the term (`unpaired_push`, `alternative_holds`, `Reached.holds`).
 
 A regenerated or observed value is closed, and the comparison reads a body only with the variable
 `bound` gives its binder, so a term with a free variable names the binders it is under. -/
@@ -150,6 +151,11 @@ def Side.orient (side : Side) (pairs : Pairs) (threaded direct : Expr) : Part :=
   | .left => ⟨pairs, threaded, direct⟩
   | .right => ⟨pairs, direct, threaded⟩
 
+/-- `Side.orient` keeps the pairs it was given. -/
+theorem Side.orient_pairs (side : Side) (pairs : Pairs) (threaded direct : Expr) :
+    (side.orient pairs threaded direct).pairs = pairs := by
+  cases side <;> rfl
+
 /-- The pair that reads `x`, a variable of `side`, and `y`, a variable of the other side, as the
 same variable. -/
 def Side.pair (side : Side) (x y : FVarId) : FVarId × FVarId :=
@@ -161,16 +167,50 @@ def Side.pair (side : Side) (x y : FVarId) : FVarId × FVarId :=
 def paired (pairs : Pairs) (xs ys : Array Expr) : List Part :=
   (xs.toList.zip ys.toList).map fun (x, y) => ⟨pairs, x, y⟩
 
-/-- Whether no pair of `pairs` holds the variable `x`, on either side. -/
+/-- A part that `paired` yields has the pairs it was given. -/
+theorem pairs_of_mem_paired {pairs : Pairs} {xs ys : Array Expr} {part : Part}
+    (member : part ∈ paired pairs xs ys) : part.pairs = pairs := by
+  obtain ⟨⟨x, y⟩, _, rfl⟩ := List.mem_map.mp member
+  rfl
+
+/-- Whether no pair of `pairs` holds the variable `x`, on either side. Two variables are compared
+by their names, which is all a variable is, so that a theorem can state that a pair holds a
+variable. -/
 def unpaired (pairs : Pairs) (x : FVarId) : Bool :=
-  pairs.all fun pair => pair.1 != x && pair.2 != x
+  pairs.all fun pair => pair.1.name != x.name && pair.2.name != x.name
 
 /-- Whether the variables `introduced` are new: no pair of `pairs` holds one of them, on either
-side, and no two of them are the same. The comparison reads a body only with new variables, so a
-variable stands for one binder of one side on the path it is read on. -/
+side, and no two of them are the same. The comparison reads a body only with new variables, and
+the part for that body holds each of them in a pair (`unpaired_push`, `alternative_holds`). So a
+later binder on the path is refused that variable (`Reached.newVariables_eq_false`). -/
 def newVariables (pairs : Pairs) : List FVarId → Bool
   | [] => true
   | x :: rest => unpaired pairs x && !rest.contains x && newVariables pairs rest
+
+/-- `unpaired` reads the pairs of two arrays one array after the other: no pair of the two holds
+a variable exactly where no pair of either holds it. -/
+theorem unpaired_append (pairs more : Pairs) (x : FVarId) :
+    unpaired (pairs ++ more) x = (unpaired pairs x && unpaired more x) := by
+  simp [unpaired]
+
+/-- A variable that a pair of `pairs` holds, on either side, is not unpaired. -/
+theorem unpaired_eq_false_of_mem {pairs : Pairs} {pair : FVarId × FVarId} {x : FVarId}
+    (member : pair ∈ pairs) (holds : pair.1 = x ∨ pair.2 = x) : unpaired pairs x = false := by
+  cases free : unpaired pairs x with
+  | false => rfl
+  | true =>
+    have each := Array.all_eq_true'.mp free pair member
+    rcases holds with rfl | rfl <;> simp at each
+
+/-- A variable that a pair holds is not new: `newVariables` refuses every list that has it. -/
+theorem newVariables_eq_false_of_held {pairs : Pairs} {x : FVarId}
+    (held : unpaired pairs x = false) :
+    ∀ {variables : List FVarId}, x ∈ variables → newVariables pairs variables = false
+  | [], member => by cases member
+  | y :: rest, member => by
+    rcases List.mem_cons.mp member with rfl | later
+    · simp [newVariables, held]
+    · simp [newVariables, newVariables_eq_false_of_held held later]
 
 /-- The arguments of a well-founded fixpoint application that carry its computation: for
 `WellFounded.fix α C r hwf F x…` and `WellFounded.Nat.fix α motive h F x…` (the two combinators
@@ -317,10 +357,12 @@ direct one. `threaded` binds `binders` pattern variables and then one more, whic
 variable `passed`; `direct` binds the same pattern variables. The two bodies are compared with the
 pattern variables paired in order and the further variable standing for `passed`
 (`standingFor`). The variables must be new (`newVariables`): the pattern variables of both
-alternatives and the further variable. An error is the refusal the comparison comes to instead: a
-variable the pass did not give, an alternative that does not bind those variables, or a variable
-that is not new. `seen` holds the observations of the
-threaded side, `side`, and `other` those of the direct side. -/
+alternatives and the further variable. A pair must hold `passed` on the threaded side, so that
+`standingFor` gives the further variable a pair, and a later binder is refused that variable as
+it is refused each other one. An error is the refusal the comparison comes to instead: a variable
+the pass did not give, an alternative that does not bind those variables, a variable that is not
+new, or a passed variable that no pair holds. `seen` holds the observations of the threaded side,
+`side`, and `other` those of the direct side. -/
 def alternative (side : Side) (seen other : Observations) (pairs : Pairs) (passed : FVarId)
     (binders : Nat) (threaded direct : Expr) : Except Refusal Part :=
   match openLambdas seen.bound binders threaded #[] with
@@ -335,7 +377,8 @@ def alternative (side : Side) (seen other : Observations) (pairs : Pairs) (passe
           match seen.bound body with
           | none => .error (.unobserved (.bound side body))
           | some further =>
-            if newVariables pairs (xs.toList ++ ys.toList ++ [further]) then
+            if newVariables pairs (xs.toList ++ ys.toList ++ [further]) &&
+                !(standingFor side pairs passed further).isEmpty then
               .ok (side.orient
                 (pairs ++ (xs.zip ys).map (fun (x, y) => side.pair x y) ++
                   standingFor side pairs passed further)
@@ -508,16 +551,23 @@ runs, because Lean's equality of universe levels and of expressions has no speci
 them by.
 
 A binder rule (`lam`, `forallE`, `letE`) and each alternative of a threaded `match` reads a body
-only with new variables (`newVariables`), so no answer of `Observations.bound` makes one variable
-stand for two binders on one path.
+only with new variables (`newVariables`), and the part for that body holds each of them in a pair
+(`unpaired_push`, `alternative_holds`). Every later part keeps that pair (`step_keeps_pairs`). So
+no answer of `Observations.bound` makes one variable stand for two binders on one path
+(`Reached.newVariables_eq_false`). That is about the binders the comparison opens, not about a
+free variable of the two terms it starts from: `reproduces` starts with no pairs, and a
+regenerated or observed value has no free variable.
 
 What the relation shares with the comparison: the two rules for a threaded `match` take the parts
 they compare from `threadedParts` (with `alternative`, `openLambdas` and `standingFor`), and
 every rule that pairs arguments position by position uses `paired`. A constructor of those rules
 states when the rule applies and that every part is related. Which parts those are is the shared
-definition, so a change inside one of them changes the relation and the comparison together and
-is a matter for review, not a failed proof. The `fixpoint` rule states its parts by `Fixpoint`,
-which `fixpointArguments?_eq_some_iff` ties to the executed selection. -/
+definition. `threadedParts_eq_ok_iff` and `alternative_eq_ok_iff` state the selection of the
+threaded rules as theorems about those definitions, so a change of that selection fails them,
+and `mem_standingFor_left` and `mem_standingFor_right` state the pairs of `standingFor`. A change
+inside `openLambdas` or `paired` changes the relation and the comparison together and is a
+matter for review, not a failed proof. The `fixpoint` rule states its parts by
+`Fixpoint`, which `fixpointArguments?_eq_some_iff` ties to the executed selection. -/
 inductive EqualWithin (left right : Observations) : Nat → Pairs → Expr → Expr → Prop where
   /-- Two terms that Lean's expression equality identifies, neither with a free variable. -/
   | closed {depth : Nat} {pairs : Pairs} {a b : Expr} :
@@ -675,18 +725,25 @@ theorem under_eq_ok_iff (left right : Observations) (pairs : Pairs) (a b : Expr)
           exact absurd new' new
 
 /-- A binder whose variable is not new is refused, whatever the pass gave: a variable that a pair
-already holds, on either side, or one variable for both binders. So no observation of the pass can
-make one variable stand for two binders on one path. -/
+already holds, on either side, or one variable for both binders. This is the test of one rule
+against the pairs it is given; `Reached.newVariables_eq_false` states what follows for a path. -/
 theorem under_eq_error_of_reused (left right : Observations) (pairs : Pairs) (a b : Expr)
     (before : List Part) (body body' : Expr) {x y : FVarId} (bound : left.bound a = some x)
     (bound' : right.bound b = some y) (reused : newVariables pairs [x, y] = false) :
     under left right pairs a b before body body' = .error .different := by
   simp [under, bound, bound', reused]
 
+/-- The pairs with which a binder rule reads the two bodies hold both of its variables. -/
+theorem unpaired_push (pairs : Pairs) (x y : FVarId) :
+    unpaired (pairs.push (x, y)) x = false ∧ unpaired (pairs.push (x, y)) y = false :=
+  ⟨unpaired_eq_false_of_mem (pair := (x, y)) (by simp) (.inl rfl),
+    unpaired_eq_false_of_mem (pair := (x, y)) (by simp) (.inr rfl)⟩
+
 /-- `alternative` yields a part exactly where both alternatives open to `binders` pattern
 variables, the threaded one then binds one more variable, those variables are new (the pattern
-variables of both and the further one), and the part compares the two bodies under them. So an
-alternative is compared only with new variables, whatever the pass gave. -/
+variables of both and the further one), a pair holds the passed variable on the threaded side, and
+the part compares the two bodies under them. So an alternative is compared only with new
+variables, whatever the pass gave. -/
 theorem alternative_eq_ok_iff (side : Side) (seen other : Observations) (pairs : Pairs)
     (passed : FVarId) (binders : Nat) (threaded direct : Expr) (part : Part) :
     alternative side seen other pairs passed binders threaded direct = .ok part ↔
@@ -696,6 +753,7 @@ theorem alternative_eq_ok_iff (side : Side) (seen other : Observations) (pairs :
         (xs.size = binders ∧ ys.size = binders) ∧
         seen.bound (.lam name type inner info) = some further ∧
         newVariables pairs (xs.toList ++ ys.toList ++ [further]) = true ∧
+        (standingFor side pairs passed further).isEmpty = false ∧
         part = side.orient
           (pairs ++ (xs.zip ys).map (fun (x, y) => side.pair x y) ++
             standingFor side pairs passed further)
@@ -714,12 +772,14 @@ theorem alternative_eq_ok_iff (side : Side) (seen other : Observations) (pairs :
     split at found <;> try cases found
     rename_i further bound
     split at found <;> try cases found
-    rename_i new
-    exact ⟨xs, ys, name, type, inner, info, body', further, opened, opened', sizes, bound, new,
-      rfl⟩
+    rename_i accepted
+    rw [Bool.and_eq_true, Bool.not_eq_true'] at accepted
+    exact ⟨xs, ys, name, type, inner, info, body', further, opened, opened', sizes, bound,
+      accepted.1, accepted.2, rfl⟩
   · rintro ⟨xs, ys, name, type, inner, info, body', further, opened, opened', sizes, bound, new,
-      rfl⟩
-    simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, new]
+      standing, rfl⟩
+    simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, new, standing,
+      Bool.not_false, Bool.and_self]
 
 /-- An alternative one of whose variables is not new is refused, whatever the pass gave: a
 pattern variable or the further variable that a pair already holds, on either side, or two of
@@ -735,7 +795,201 @@ theorem alternative_eq_error_of_reused (side : Side) (seen other : Observations)
     (reused : newVariables pairs (xs.toList ++ ys.toList ++ [further]) = false) :
     alternative side seen other pairs passed binders threaded direct = .error .different := by
   simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, reused,
-    Bool.false_eq_true]
+    Bool.false_and, Bool.false_eq_true]
+
+/-- An alternative whose passed variable no pair holds on the threaded side is refused, whatever
+the pass gave: `standingFor` then gives the further variable no pair. -/
+theorem alternative_eq_error_of_unpaired (side : Side) (seen other : Observations) (pairs : Pairs)
+    (passed : FVarId) (binders : Nat) (threaded direct : Expr) {xs ys : Array FVarId}
+    {name : Name} {type inner body' : Expr} {info : Lean.BinderInfo} {further : FVarId}
+    (opened : openLambdas seen.bound binders threaded #[] =
+      .opened xs (.lam name type inner info))
+    (opened' : openLambdas other.bound binders direct #[] = .opened ys body')
+    (sizes : xs.size = binders ∧ ys.size = binders)
+    (bound : seen.bound (.lam name type inner info) = some further)
+    (unpaired : (standingFor side pairs passed further).isEmpty = true) :
+    alternative side seen other pairs passed binders threaded direct = .error .different := by
+  simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, unpaired,
+    Bool.not_true, Bool.and_false, Bool.false_eq_true]
+
+/-- The pairs with which the two bodies of an alternative are compared hold every variable the
+bodies are read with: the pattern variables of both alternatives and the further variable. -/
+theorem alternative_holds (side : Side) (seen other : Observations) (pairs : Pairs)
+    (passed : FVarId) (binders : Nat) (threaded direct : Expr) {xs ys : Array FVarId}
+    {name : Name} {type inner body' : Expr} {info : Lean.BinderInfo} {further : FVarId}
+    {part : Part}
+    (opened : openLambdas seen.bound binders threaded #[] =
+      .opened xs (.lam name type inner info))
+    (opened' : openLambdas other.bound binders direct #[] = .opened ys body')
+    (bound : seen.bound (.lam name type inner info) = some further)
+    (found : alternative side seen other pairs passed binders threaded direct = .ok part)
+    {v : FVarId} (member : v ∈ xs.toList ++ ys.toList ++ [further]) :
+    unpaired part.pairs v = false := by
+  obtain ⟨xs', ys', name', type', inner', info', body'', further', opened₁, opened₂, sizes, bound₁,
+    _, standing, rfl⟩ := (alternative_eq_ok_iff ..).mp found
+  cases opened.symm.trans opened₁
+  cases opened'.symm.trans opened₂
+  cases bound.symm.trans bound₁
+  rw [Side.orient_pairs, unpaired_append, unpaired_append]
+  simp only [List.mem_append, List.mem_singleton, Array.mem_toList_iff] at member
+  rcases member with (onThreaded | onDirect) | rfl
+  · obtain ⟨i, bounds, rfl⟩ := Array.mem_iff_getElem.mp onThreaded
+    have held : unpaired ((xs.zip ys).map fun (x, y) => side.pair x y) xs[i] = false :=
+      unpaired_eq_false_of_mem (pair := side.pair xs[i] (ys[i]'(by omega)))
+        (Array.mem_map.mpr ⟨(xs[i], ys[i]'(by omega)),
+          Array.mem_iff_getElem.mpr ⟨i, by simp; omega, by simp⟩, rfl⟩)
+        (by cases side <;> simp [Side.pair])
+    simp [held]
+  · obtain ⟨i, bounds, rfl⟩ := Array.mem_iff_getElem.mp onDirect
+    have held : unpaired ((xs.zip ys).map fun (x, y) => side.pair x y) ys[i] = false :=
+      unpaired_eq_false_of_mem (pair := side.pair (xs[i]'(by omega)) ys[i])
+        (Array.mem_map.mpr ⟨(xs[i]'(by omega), ys[i]),
+          Array.mem_iff_getElem.mpr ⟨i, by simp; omega, by simp⟩, rfl⟩)
+        (by cases side <;> simp [Side.pair])
+    simp [held]
+  · obtain ⟨⟨x, y⟩, standingMember⟩ := Array.isEmpty_eq_false_iff_exists_mem.mp standing
+    have held : unpaired (standingFor side pairs passed v) v = false :=
+      unpaired_eq_false_of_mem standingMember (by
+        cases side
+        · exact .inl ((mem_standingFor_left ..).mp standingMember).1
+        · exact .inr ((mem_standingFor_right ..).mp standingMember).1)
+    simp [held]
+
+/-- Two lists are as long, and `related` holds of their members position by position. -/
+inductive Positionwise {α β : Type} (related : α → β → Prop) : List α → List β → Prop where
+  /-- Two empty lists. -/
+  | nil : Positionwise related [] []
+  /-- Two related heads before two lists that are related position by position. -/
+  | cons {a : α} {b : β} {as : List α} {bs : List β} :
+      related a b → Positionwise related as bs → Positionwise related (a :: as) (b :: bs)
+
+/-- A relation that holds position by position is kept by a weaker relation. -/
+theorem Positionwise.imp {α β : Type} {related weaker : α → β → Prop}
+    (implies : ∀ a b, related a b → weaker a b) {as : List α} {bs : List β}
+    (holds : Positionwise related as bs) : Positionwise weaker as bs := by
+  induction holds with
+  | nil => exact .nil
+  | cons head _ tail => exact .cons (implies _ _ head) tail
+
+/-- A member of the second of two lists that are related position by position is related to a
+member of the first. -/
+theorem Positionwise.exists_of_mem {α β : Type} {related : α → β → Prop} {as : List α}
+    {bs : List β} (holds : Positionwise related as bs) {b : β} (member : b ∈ bs) :
+    ∃ a, related a b := by
+  induction holds with
+  | nil => cases member
+  | cons head _ tail =>
+    rcases List.mem_cons.mp member with rfl | later
+    · exact ⟨_, head⟩
+    · exact tail later
+
+/-- A list mapped in `Except` succeeds exactly where every element does, with the results in
+the order of the elements. -/
+theorem mapM_eq_ok_iff {α β ε : Type} (f : α → Except ε β) :
+    ∀ (elements : List α) (results : List β),
+      elements.mapM f = .ok results ↔
+        Positionwise (fun element result => f element = .ok result) elements results
+  | [], results => by
+    constructor
+    · intro mapped
+      cases mapped
+      exact .nil
+    · intro related
+      cases related
+      rfl
+  | element :: rest, results => by
+    rw [List.mapM_cons]
+    constructor
+    · intro mapped
+      cases first : f element with
+      | error refusal => rw [first] at mapped; cases mapped
+      | ok result =>
+        rw [first] at mapped
+        cases others : rest.mapM f with
+        | error refusal => rw [others] at mapped; cases mapped
+        | ok tail =>
+          rw [others] at mapped
+          cases mapped
+          exact .cons first ((mapM_eq_ok_iff f rest tail).mp others)
+    · intro related
+      cases related with
+      | cons first others =>
+        rw [first, (mapM_eq_ok_iff f rest _).mpr others]
+        rfl
+
+/-- `threadedParts` yields parts exactly where the arguments other than the alternatives and the
+variable passed are as many on both sides, every alternative yields its part (`alternative`), and
+the parts are those arguments position by position and then the alternatives' parts in order. So
+every part of a threaded `match` that comes from an alternative is a part `alternative` yields,
+which reads its bodies only with new variables (`alternative_eq_ok_iff`), and no alternative is
+left out. A change of the selection inside `threadedParts` fails this theorem. -/
+theorem threadedParts_eq_ok_iff (side : Side) (seen other : Observations) (pairs : Pairs)
+    (shape : Threading) (passed : FVarId) (targs dargs : Array Expr) (parts : List Part) :
+    threadedParts side seen other pairs shape passed targs dargs = .ok parts ↔
+      (targs.extract 0 shape.head ++
+          targs.extract (shape.head + shape.alternatives.size + 1)).size =
+        (dargs.extract 0 shape.head ++ dargs.extract (shape.head + shape.alternatives.size)).size ∧
+      ∃ alternatives : List Part,
+        Positionwise
+          (fun (entry : Nat × Nat) (part : Part) =>
+            ∃ t d, targs[shape.head + entry.2]? = some t ∧ dargs[shape.head + entry.2]? = some d ∧
+              alternative side seen other pairs passed entry.1 t d = .ok part)
+          shape.alternatives.toList.zipIdx alternatives ∧
+        parts =
+          ((targs.extract 0 shape.head ++
+              targs.extract (shape.head + shape.alternatives.size + 1)).toList.zip
+            (dargs.extract 0 shape.head ++
+              dargs.extract (shape.head + shape.alternatives.size)).toList).map
+            (fun (t, d) => side.orient pairs t d) ++ alternatives := by
+  have each : ∀ (entry : Nat × Nat) (part : Part),
+      (match targs[shape.head + entry.2]?, dargs[shape.head + entry.2]? with
+        | some t, some d => alternative side seen other pairs passed entry.1 t d
+        | _, _ => Except.error Refusal.different) = .ok part ↔
+      ∃ t d, targs[shape.head + entry.2]? = some t ∧ dargs[shape.head + entry.2]? = some d ∧
+        alternative side seen other pairs passed entry.1 t d = .ok part := by
+    intro entry part
+    constructor
+    · intro found
+      split at found
+      · rename_i t d onThreaded onDirect
+        exact ⟨t, d, onThreaded, onDirect, found⟩
+      · cases found
+    · rintro ⟨t, d, onThreaded, onDirect, found⟩
+      simp only [onThreaded, onDirect, found]
+  unfold threadedParts
+  simp only
+  split
+  · rename_i sizes
+    generalize mapped :
+      List.mapM (m := Except Refusal) (β := Part) _ shape.alternatives.toList.zipIdx = result
+    cases result with
+    | error refusal =>
+      constructor
+      · intro found
+        cases found
+      · rintro ⟨_, alternatives, related, _⟩
+        have accepted := (mapM_eq_ok_iff _ _ _).mpr
+          (Positionwise.imp (fun entry part found => (each entry part).mpr found) related)
+        cases mapped.symm.trans accepted
+    | ok alternatives =>
+      have related := (mapM_eq_ok_iff _ _ _).mp mapped
+      constructor
+      · intro found
+        have same : Except.ok (_ ++ alternatives) = Except.ok parts := found
+        exact ⟨sizes, alternatives,
+          Positionwise.imp (fun entry part found => (each entry part).mp found) related,
+          (Except.ok.inj same).symm⟩
+      · rintro ⟨_, alternatives', related', rfl⟩
+        have accepted := (mapM_eq_ok_iff _ _ _).mpr
+          (Positionwise.imp (fun entry part found => (each entry part).mpr found) related')
+        cases mapped.symm.trans accepted
+        rfl
+  · rename_i sizes
+    constructor
+    · intro found
+      cases found
+    · rintro ⟨same, _⟩
+      exact absurd same sizes
 
 /-- `threaded` reduces to parts exactly where `threaded` is the threaded form of the `match` that
 `direct` applies (`Threads`), and then to the parts of `threadedParts`. -/
@@ -828,6 +1082,138 @@ theorem application_eq_ok_iff (left right : Observations) (pairs : Pairs) (a b :
     · have notLeft := threaded_eq_none .left left right pairs a b (by omega)
       have notRight := threaded_eq_none .right right left pairs b a (by omega)
       simp [application, fixed, fixed', notLeft, notRight, sizes]
+
+/-- Every part of a threaded `match` keeps the pairs of the step, and has its further pairs after
+them. -/
+theorem threadedParts_keeps_pairs {side : Side} {seen other : Observations} {pairs : Pairs}
+    {shape : Threading} {passed : FVarId} {targs dargs : Array Expr} {parts : List Part}
+    (found : threadedParts side seen other pairs shape passed targs dargs = .ok parts)
+    {part : Part} (member : part ∈ parts) : ∃ added : Pairs, part.pairs = pairs ++ added := by
+  obtain ⟨_, alternatives, related, rfl⟩ := (threadedParts_eq_ok_iff ..).mp found
+  rcases List.mem_append.mp member with outer | inner
+  · obtain ⟨⟨t, d⟩, _, rfl⟩ := List.mem_map.mp outer
+    exact ⟨#[], by simp [Side.orient_pairs]⟩
+  · obtain ⟨entry, t, d, _, _, accepted⟩ := related.exists_of_mem inner
+    obtain ⟨xs, ys, name, type, body, info, body', further, _, _, _, _, _, _, rfl⟩ :=
+      (alternative_eq_ok_iff ..).mp accepted
+    exact ⟨_, by rw [Side.orient_pairs, Array.append_assoc]⟩
+
+/-- Every part of a structural step keeps the pairs of the step, and has its further pairs after
+them. -/
+theorem structural_keeps_pairs {left right : Observations} {pairs : Pairs} {a b : Expr}
+    {parts : List Part} (found : structural left right pairs a b = .ok parts) {part : Part}
+    (member : part ∈ parts) : ∃ added : Pairs, part.pairs = pairs ++ added := by
+  have same : ∀ {part : Part}, part.pairs = pairs → ∃ added : Pairs, part.pairs = pairs ++ added :=
+    fun kept => ⟨#[], by simp [kept]⟩
+  unfold structural at found
+  split at found
+  · cases found
+    cases List.mem_singleton.mp member
+    exact same rfl
+  · cases found
+    cases List.mem_singleton.mp member
+    exact same rfl
+  · split at found
+    · cases found
+      cases member
+    · cases found
+  · split at found
+    · cases found
+      cases member
+    · cases found
+  · split at found
+    · cases found
+      cases member
+    · cases found
+  · split at found
+    · cases found
+      cases member
+    · cases found
+  · split at found
+    · cases found
+      cases List.mem_singleton.mp member
+      exact same rfl
+    · cases found
+  · rcases (application_eq_ok_iff ..).mp found with
+      ⟨xs, ys, _, _, _, rfl⟩ |
+      ⟨_, _, ⟨shape, passed, _, threadedFound⟩ | ⟨shape, passed, _, threadedFound⟩ | ⟨_, rfl⟩⟩
+    · exact same (pairs_of_mem_paired member)
+    · exact threadedParts_keeps_pairs threadedFound member
+    · exact threadedParts_keeps_pairs threadedFound member
+    · rcases List.mem_cons.mp member with rfl | argument
+      · exact same rfl
+      · exact same (pairs_of_mem_paired argument)
+  · obtain ⟨x, y, _, _, _, rfl⟩ := (under_eq_ok_iff ..).mp found
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+      or_false] at member
+    rcases member with rfl | rfl
+    · exact same rfl
+    · exact ⟨#[(x, y)], by simp⟩
+  · obtain ⟨x, y, _, _, _, rfl⟩ := (under_eq_ok_iff ..).mp found
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+      or_false] at member
+    rcases member with rfl | rfl
+    · exact same rfl
+    · exact ⟨#[(x, y)], by simp⟩
+  · obtain ⟨x, y, _, _, _, rfl⟩ := (under_eq_ok_iff ..).mp found
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+      or_false] at member
+    rcases member with rfl | rfl | rfl
+    · exact same rfl
+    · exact same rfl
+    · exact ⟨#[(x, y)], by simp⟩
+  · cases found
+
+/-- Every part of a step keeps the pairs of the step, and has its further pairs after them: no
+rule of the comparison removes or replaces a pair. -/
+theorem step_keeps_pairs {left right : Observations} {pairs : Pairs} {a b : Expr}
+    {parts : List Part} (found : step left right pairs a b = .ok parts) {part : Part}
+    (member : part ∈ parts) : ∃ added : Pairs, part.pairs = pairs ++ added := by
+  unfold step at found
+  split at found
+  · cases found
+    cases member
+  · split at found
+    · cases found
+    · cases found
+    · cases found
+      cases member
+    · exact structural_keeps_pairs found member
+    · cases found
+
+/-- The parts the comparison comes to from the part `start`: `start` itself, and each part of a
+step (`step`) from a part it comes to. `equalWithin` compares only such parts: `start`, then
+parts of its step, then parts of theirs. -/
+inductive Reached (left right : Observations) (start : Part) : Part → Prop where
+  /-- The part the comparison starts from. -/
+  | start : Reached left right start start
+  /-- A part of the step from a part the comparison comes to. -/
+  | part {whole part : Part} {parts : List Part} :
+      Reached left right start whole →
+      step left right whole.pairs whole.left whole.right = .ok parts → part ∈ parts →
+      Reached left right start part
+
+/-- A variable that a pair holds at `start` is held by a pair at every part the comparison comes
+to from `start`. -/
+theorem Reached.holds {left right : Observations} {start part : Part}
+    (reached : Reached left right start part) {v : FVarId}
+    (held : unpaired start.pairs v = false) : unpaired part.pairs v = false := by
+  induction reached with
+  | start => exact held
+  | part _ found member kept =>
+    obtain ⟨added, same⟩ := step_keeps_pairs found member
+    rw [same, unpaired_append, kept, Bool.false_and]
+
+/-- One variable does not stand for two binders on one path, whatever the pass gave: a variable
+`v` that a pair holds at `start` is not new at any part the comparison comes to from `start`. So
+a binder rule there refuses `v` (`under_eq_error_of_reused`), and so does an alternative
+(`alternative_eq_error_of_reused`). A rule that reads a body with a variable starts such a path:
+the part for the body holds the variable (`unpaired_push`, `alternative_holds`). -/
+theorem Reached.newVariables_eq_false {left right : Observations} {start part : Part}
+    (reached : Reached left right start part) {v : FVarId}
+    (held : unpaired start.pairs v = false) {variables : List FVarId} (member : v ∈ variables) :
+    newVariables part.pairs variables = false :=
+  newVariables_eq_false_of_held (reached.holds held) member
 
 /-- Where compilation keeps both of two terms and their structure reduces the comparison to parts
 that are all related, the two terms are related: each rule of `structural` is a constructor of

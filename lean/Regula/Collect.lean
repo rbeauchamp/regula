@@ -359,11 +359,11 @@ private def observe (need : RegulaPolicy.Erasure.Need) : StateRefT Observing Met
       | .right => { state with right := { state.right with
           threading := state.right.threading.insert application shape? } }
 
-/-- The observations one step of the comparison may ask the pass for: more than any step needs,
-since a step asks for the erasure of its two terms, one decomposition, and one variable for each
-binder of the alternatives of a `match`. A step that still needs an observation after them is
-left as it is: the pass stops and reports that it did not finish, which
-`RegulaPolicy.Erasure.reproduces` refuses (`reproduces_eq_false_of_unfinished`). -/
+/-- The budget of observations for one step of the comparison. A step asks for the erasure of
+its two terms, one decomposition, and one variable for each binder of the alternatives of a
+`match`, so a `match` with enough binders needs more than the budget. A step that still needs an
+observation after the budget is left as it is: the pass stops and reports that it did not finish,
+which `RegulaPolicy.Erasure.reproduces` refuses (`reproduces_eq_false_of_unfinished`). -/
 private def stepNeeds : Nat := 1000000
 
 /-- One step of the pure comparison of `a` with `b` (`RegulaPolicy.Erasure.step`), with each
@@ -395,8 +395,12 @@ not finish (`RegulaPolicy.Erasure.reproduces_eq_false_of_unfinished`).
 
 The pass binds each binder a fresh variable (`observe`), and a term cannot hold itself as a part,
 so the variables of one path are different and the comparison's test that they are new
-(`RegulaPolicy.Erasure.newVariables`) holds for them; the test, not this argument, is what the
-verdict rests on. -/
+(`RegulaPolicy.Erasure.newVariables`) holds for them. The two values the pass is given have no
+free variable, so each free variable of a part is the variable of a binder the comparison opened,
+which a pair holds: the comparison's test that a pair holds the variable passed to a threaded
+`match` (`RegulaPolicy.Erasure.alternative`) holds too. Both are arguments, and the second rests
+on what `Expr.instantiate1` does to the free variables of a term, which has no specification.
+The tests, not these arguments, are what the verdict rests on. -/
 private def observeEqual : Nat → RegulaPolicy.Erasure.Pairs → Expr → Expr →
     StateRefT Observing MetaM Bool
   | 0, _, _, _ => return false
