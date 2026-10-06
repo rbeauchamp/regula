@@ -683,21 +683,59 @@ theorem under_eq_error_of_reused (left right : Observations) (pairs : Pairs) (a 
     under left right pairs a b before body body' = .error .different := by
   simp [under, bound, bound', reused]
 
-/-- An alternative of a threaded `match` yields a part only where its variables are new: the
-pattern variables of both alternatives and the further variable of the threaded one. -/
-theorem newVariables_of_alternative (side : Side) (seen other : Observations) (pairs : Pairs)
-    (passed : FVarId) (binders : Nat) (threaded direct : Expr) (part : Part)
-    (found : alternative side seen other pairs passed binders threaded direct = .ok part) :
-    ∃ xs ys further, newVariables pairs (xs ++ ys ++ [further]) = true := by
-  unfold alternative at found
-  split at found <;> try cases found
-  split at found <;> try cases found
-  split at found <;> try cases found
-  split at found <;> try cases found
-  split at found <;> try cases found
-  split at found <;> try cases found
-  rename_i new
-  exact ⟨_, _, _, new⟩
+/-- `alternative` yields a part exactly where both alternatives open to `binders` pattern
+variables, the threaded one then binds one more variable, those variables are new (the pattern
+variables of both and the further one), and the part compares the two bodies under them. So an
+alternative is compared only with new variables, whatever the pass gave. -/
+theorem alternative_eq_ok_iff (side : Side) (seen other : Observations) (pairs : Pairs)
+    (passed : FVarId) (binders : Nat) (threaded direct : Expr) (part : Part) :
+    alternative side seen other pairs passed binders threaded direct = .ok part ↔
+      ∃ xs ys name type inner info body' further,
+        openLambdas seen.bound binders threaded #[] = .opened xs (.lam name type inner info) ∧
+        openLambdas other.bound binders direct #[] = .opened ys body' ∧
+        (xs.size = binders ∧ ys.size = binders) ∧
+        seen.bound (.lam name type inner info) = some further ∧
+        newVariables pairs (xs.toList ++ ys.toList ++ [further]) = true ∧
+        part = side.orient
+          (pairs ++ (xs.zip ys).map (fun (x, y) => side.pair x y) ++
+            standingFor side pairs passed further)
+          (inner.instantiate1 (.fvar further)) body' := by
+  constructor
+  · intro found
+    unfold alternative at found
+    split at found <;> try cases found
+    rename_i xs body opened
+    split at found <;> try cases found
+    rename_i ys body' opened'
+    split at found <;> try cases found
+    rename_i sizes
+    split at found <;> try cases found
+    rename_i name type inner info
+    split at found <;> try cases found
+    rename_i further bound
+    split at found <;> try cases found
+    rename_i new
+    exact ⟨xs, ys, name, type, inner, info, body', further, opened, opened', sizes, bound, new,
+      rfl⟩
+  · rintro ⟨xs, ys, name, type, inner, info, body', further, opened, opened', sizes, bound, new,
+      rfl⟩
+    simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, new]
+
+/-- An alternative one of whose variables is not new is refused, whatever the pass gave: a
+pattern variable or the further variable that a pair already holds, on either side, or two of
+them that are the same. -/
+theorem alternative_eq_error_of_reused (side : Side) (seen other : Observations) (pairs : Pairs)
+    (passed : FVarId) (binders : Nat) (threaded direct : Expr) {xs ys : Array FVarId}
+    {name : Name} {type inner body' : Expr} {info : Lean.BinderInfo} {further : FVarId}
+    (opened : openLambdas seen.bound binders threaded #[] =
+      .opened xs (.lam name type inner info))
+    (opened' : openLambdas other.bound binders direct #[] = .opened ys body')
+    (sizes : xs.size = binders ∧ ys.size = binders)
+    (bound : seen.bound (.lam name type inner info) = some further)
+    (reused : newVariables pairs (xs.toList ++ ys.toList ++ [further]) = false) :
+    alternative side seen other pairs passed binders threaded direct = .error .different := by
+  simp only [alternative, opened, opened', sizes, and_self, ↓reduceIte, bound, reused,
+    Bool.false_eq_true]
 
 /-- `threaded` reduces to parts exactly where `threaded` is the threaded form of the `match` that
 `direct` applies (`Threads`), and then to the parts of `threadedParts`. -/

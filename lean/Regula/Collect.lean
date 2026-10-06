@@ -309,34 +309,41 @@ term of `need`, in the context of the variables the pass bound, and never the ot
 
 A `checkerLimit?` reached is thrown, as is any other failure of an observation. -/
 private def observe (need : RegulaPolicy.Erasure.Need) : StateRefT Observing MetaM Unit := do
-  let state ← get
-  let record (side : RegulaPolicy.Erasure.Side) (change : SideObserved → SideObserved)
-      (state : Observing) : Observing :=
-    match side with
-    | .left => { state with left := change state.left }
-    | .right => { state with right := change state.right }
+  -- Only the context and the instances are read before the observation. Each table is then
+  -- updated inside `modify`, where the state is not shared, so an insert does not copy the table.
+  let context := (← get).context
+  let known := (← get).instances
   match need with
   | .erased side term =>
-    let erased ← Meta.withLCtx state.context state.instances (erasedByCompilation term)
-    set (record side (fun seen => { seen with erased := seen.erased.insert term erased }) state)
+    let erased ← Meta.withLCtx context known (erasedByCompilation term)
+    modify fun state =>
+      match side with
+      | .left => { state with left := { state.left with
+          erased := state.left.erased.insert term erased } }
+      | .right => { state with right := { state.right with
+          erased := state.right.erased.insert term erased } }
   | .bound side binder =>
     let fresh ← mkFreshFVarId
     let (context, type?) := match binder with
       | .lam name type _ info | .forallE name type _ info =>
-        (state.context.mkLocalDecl fresh name type info, some type)
-      | .letE name type value _ _ => (state.context.mkLetDecl fresh name type value, some type)
-      | _ => (state.context, none)
+        (context.mkLocalDecl fresh name type info, some type)
+      | .letE name type value _ _ => (context.mkLetDecl fresh name type value, some type)
+      | _ => (context, none)
     let instances ← match type? with
-      | some type => Meta.withLCtx context state.instances do
+      | some type => Meta.withLCtx context known do
           match ← Meta.isClass? type with
-          | some className => pure (state.instances.push { className, fvar := mkFVar fresh })
-          | none => pure state.instances
-      | none => pure state.instances
-    set { record side (fun seen => { seen with bound := seen.bound.insert binder fresh }) state
-      with context, instances }
+          | some className => pure (known.push { className, fvar := mkFVar fresh })
+          | none => pure known
+      | none => pure known
+    modify fun state =>
+      match side with
+      | .left => { state with context, instances, left := { state.left with
+          bound := state.left.bound.insert binder fresh } }
+      | .right => { state with context, instances, right := { state.right with
+          bound := state.right.bound.insert binder fresh } }
   | .threading side application =>
-    let scope := scopeOf state.context application
-    let instances := state.instances.filter fun (inScope : LocalInstance) =>
+    let scope := scopeOf context application
+    let instances := known.filter fun (inScope : LocalInstance) =>
       scope.contains inScope.fvar.fvarId!
     let shape? ← Meta.withLCtx scope instances do
       let some matched ← Meta.matchMatcherApp? (alsoCasesOn := true) application | return none
@@ -345,8 +352,12 @@ private def observe (need : RegulaPolicy.Erasure.Need) : StateRefT Observing Met
       return some ({ params := matched.params.size, discriminants := matched.discrs.size,
                      alternatives := matched.altNumParams, motiveLevel := matched.uElimPos? } :
         RegulaPolicy.Erasure.Threading)
-    set (record side
-      (fun seen => { seen with threading := seen.threading.insert application shape? }) state)
+    modify fun state =>
+      match side with
+      | .left => { state with left := { state.left with
+          threading := state.left.threading.insert application shape? } }
+      | .right => { state with right := { state.right with
+          threading := state.right.threading.insert application shape? } }
 
 /-- The observations one step of the comparison may ask the pass for: more than any step needs,
 since a step asks for the erasure of its two terms, one decomposition, and one variable for each
