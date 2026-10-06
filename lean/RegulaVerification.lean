@@ -5,11 +5,12 @@ import Lean
 Cold-start verification plan and operational interpreter. This module imports only
 the pinned toolchain, so it can run before any root-package artifacts exist. Argument
 selection has soundness and round-trip proofs; the interpreter consumes its proof-bearing
-selection. Recipes name Lake targets, not a source-file census. The interpreter runs every
-command of the selected recipe (`inOrder_append_beside`) and reports success only when `passed`
-accepts how each one ended (`passed_covers`); it starts the gate of ordinary acceptance beside
-the others once that gate is built (`prebuild`, `beside`, `beside_prebuilt`). Process effects
-remain trusted IO under the shell's single 420-second process-group deadline. -/
+selection. Recipes name Lake targets, not a source-file census. The interpreter schedules every
+command of the selected recipe (`inOrder_append_beside`), starts a command only while every end
+known so far passed, waits for each command it started, and reports success only when `passed`
+accepts how each scheduled command ended (`passed_covers`); it starts the gate of ordinary
+acceptance beside the others once that gate is built (`prebuild`, `beside`, `beside_prebuilt`).
+Process effects remain trusted IO under the shell's single 420-second process-group deadline. -/
 namespace RegulaVerification
 
 /-- Closed vocabulary of supported verification invocations. -/
@@ -569,8 +570,9 @@ def beginAttempt (args : List String) : IO Unit := do
     if ← System.FilePath.pathExists siteOutput then IO.FS.removeDirAll siteOutput
 
 /-- Cold-start driver; all builds and checks stay within the inherited outer deadline. After the
-preliminary checks and the mode's `prebuild`, it runs every command of the mode
-(`inOrder_append_beside`) and joins each one before it reports. It reports success, and first
+preliminary checks and the mode's `prebuild`, it schedules every command of the mode
+(`inOrder_append_beside`), starts one only while every end known so far passed, and waits for
+each one it started before it reports. It reports success, and first
 moves a record the mode promotes (`promoted`), only when `passed` accepts how every one of those
 commands ended (`passed_covers`). -/
 def run (args : List String) : IO Unit := do
