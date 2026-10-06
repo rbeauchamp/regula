@@ -1869,7 +1869,9 @@ same way. Lean gives a file with a `module` header an imported theorem, such as 
 function of a proof field, as an axiom, so that environment cannot say whether an argument of the
 decided function is a field. The collector then records the registration with no failure of its
 kind, and the adapter reports the reading as incomplete and names `lake lint`, which reads the
-kind from an environment that has every declaration. Recoverable compiler errors can leave
+kind from an environment that has every declaration. This deferral is operational collector code
+(`hiddenField?` in `Regula.Collect`): the pure policy finds no contract failure in that record,
+and no theorem about the editor decision covers the deferral. Recoverable compiler errors can leave
 hole-bearing declarations, which still yield [RG1002] while the original compiler error is preserved; unavailable collection is
 reported as such. A module or project finding keeps its module or project location: Lean hosts
 module findings at the end of the in-memory file and configuration refusals at the owning

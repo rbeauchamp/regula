@@ -1026,7 +1026,13 @@ def guide : RuleId → Guide
         "In the editor, this rule marks results that need fresh evidence only the project command \
           collects, and those messages name `lake lint`. The editor also reports it, as \
           incomplete, when its own analysis of a declaration fails or the module has elaboration \
-          errors."]
+          errors.",
+        "In a file with a `module` header, the editor also reports a decision kind as incomplete \
+          when its decided function gives the implementation an argument that applies, to the \
+          variable of that function, a constant that the environment has only as an axiom. Lean \
+          gives such a file an imported theorem in that form, and the projection function of a \
+          proof field is a theorem, so the editor cannot tell whether the argument is a field \
+          (limitations of RG1007). The message names `lake lint`, which reads the kind."]
       rationaleDetail := []
       proofShape := [
         "The replayed declaration must type-check in the kernel with exactly its stated type and \
@@ -1053,8 +1059,12 @@ def guide : RuleId → Guide
           ["DECL-01", "DECL-02", "FOUND-05", "SCOPE-02", "TYPE-01", "THEOREM-01", "THEOREM-03",
               "THEOREM-07", "DECL-03", "DECL-04", "COMP-02", "COMP-04", "BUILD-01", "BUILD-04"]
       linkage := "Acceptance side only: an accepted run satisfies `RegulaPolicy.AdmissionOK`. \
-        The editor's deferral to the project audit is \
-        `Regula.Checker.Policy.editor_decision_pending`."
+        The editor's deferral to the project audit of a result that needs generated-role \
+        evidence is `Regula.Checker.Policy.editor_decision_pending`. Its deferral of a decision \
+        kind that it does not read is operational collector code (`hiddenField?` in \
+        `Regula.Collect`), which that theorem does not cover: the collector records the \
+        registration with no failure of its kind, so the editor decision reports no RG1007 \
+        finding for that record, and the linter reports the reading as incomplete."
       sources :=
           ["lean/Regula/Checker/Admission.lean", "lean/Regula/Checker/SourceAudit.lean",
               "lean/Regula/Checker/SourceBinding.lean"] }
