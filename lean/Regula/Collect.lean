@@ -32,6 +32,7 @@ public import Lean.Meta.DiscrTree.Util
 public import Lean.ProjFns
 public import Lean.Util.FoldConsts
 public import RegulaPolicy.Domain
+public import RegulaPolicy.Erasure
 public import Regula.Contract
 public import Regula.Decision
 
@@ -50,6 +51,7 @@ namespace Regula.Collect
 open Lean Elab Command
 open RegulaPolicy (DeclarationKind BoundaryKind Correspondence Safety Reducibility RecursionOrigin
   NativeTactic)
+open RegulaPolicy.Erasure (fixpointArguments?)
 
 private initialize capabilityCache : IO.Ref (Option RegulaPolicy.Compiler.LegacyCompilerTrust) ←
   IO.mkRef none
@@ -144,18 +146,6 @@ def withoutSmartUnfolding {α : Type} (act : CommandElabM α) : CommandElabM α 
 
 /-- The root under which a regeneration names the definitions it adds. -/
 private def regenerationRoot : Name := `_regula_regeneration
-
-/-- The arguments of a well-founded fixpoint application that carry its computation: for
-`WellFounded.fix α C r hwf F x…` and `WellFounded.Nat.fix α motive h F x…` (the two combinators
-Lean 4.34.0's well-founded recursion uses) the domain, the motive, the functional and the
-remaining arguments, without the relation `r`, its well-foundedness proof or the measure `h`. -/
-private def fixpointArguments? (e : Expr) : Option (Array Expr) :=
-  let args := e.getAppArgs
-  if e.isAppOf ``WellFounded.fix && args.size ≥ 5 then
-    some (#[args[0]!, args[1]!, args[4]!] ++ args.extract 5 args.size)
-  else if e.isAppOf ``WellFounded.Nat.fix && args.size ≥ 4 then
-    some (#[args[0]!, args[1]!, args[3]!] ++ args.extract 4 args.size)
-  else none
 
 /-- Whether `e` is a proof or a type in the current local context: what Lean's code generator
 erases. -/
@@ -258,139 +248,139 @@ private def threadingLawChecked (threaded : Meta.MatcherApp) : MetaM Bool := do
   finally
     saved.restore
 
-/-- `threaded` and `direct` as the two forms of one `match` that Lean's recursion compilers choose
-between (`MatcherApp.addArg`): applications of the same constant, which Lean records as a matcher
-or a `casesOn` (`Meta.matchMatcherApp?`), where `threaded` passes a variable as one more argument
-after the alternatives and binds it once more, after the pattern variables, in every alternative,
-and where the kernel checks the threading law of `threaded` (`threadingLawChecked`), so that what
-Lean records decides nothing by itself. Returns the two applications and that variable. The
-matcher's universe levels must agree except the motive's, which the added binder changes. -/
-private def threadedMatch? (threaded direct : Expr) :
-    MetaM (Option (Meta.MatcherApp × Meta.MatcherApp × FVarId)) := do
-  unless threaded.getAppNumArgs == direct.getAppNumArgs + 1 do return none
-  let some threaded ← Meta.matchMatcherApp? (alsoCasesOn := true) threaded | return none
-  let some direct ← Meta.matchMatcherApp? (alsoCasesOn := true) direct | return none
-  let levels := fun (app : Meta.MatcherApp) => match app.uElimPos? with
-    | some motiveLevel => app.matcherLevels.eraseIdxIfInBounds motiveLevel
-    | none => app.matcherLevels
-  unless threaded.matcherName == direct.matcherName && threaded.uElimPos? == direct.uElimPos?
-      && levels threaded == levels direct do return none
-  let some (Expr.fvar passed) := threaded.remaining[0]? | return none
-  unless ← threadingLawChecked threaded do return none
-  return some (threaded, direct, passed)
+/-- What the observing pass has recorded of the terms of one side: each table holds the answers
+given so far, by term. `Expr` equality and hashing identify terms that differ only in binder
+names and annotations, on which no observation depends. -/
+private structure SideObserved where
+  /-- Whether a term is a proof or a type in its own context (`erasedByCompilation`). -/
+  erased : Std.HashMap Expr Bool := {}
+  /-- The variable a binder's body is read with. -/
+  bound : Std.HashMap Expr FVarId := {}
+  /-- The decomposition of an application for which the kernel checked the threading law, or that
+  the pass found none. -/
+  threading : Std.HashMap Expr (Option RegulaPolicy.Erasure.Threading) := {}
 
-/-- The pairs under which `bound`, a variable the threaded side has just bound, stands for
-`passed`, a variable of the same side: `bound` with every variable of the other side that `passed`
-is paired with. The threaded side is the left one when `left`. -/
-private def standingFor (left : Bool) (pairs : Array (FVarId × FVarId)) (passed bound : FVarId) :
-    Array (FVarId × FVarId) :=
-  pairs.filterMap fun (x, y) =>
-    if left then (if x.name == passed.name then some (bound, y) else none)
-    else (if y.name == passed.name then some (x, bound) else none)
+/-- The recorded observations as the pure comparison reads them: a term the pass was not asked
+about has none. -/
+private def SideObserved.observations (seen : SideObserved) : RegulaPolicy.Erasure.Observations :=
+  { erased := (seen.erased[·]?), bound := (seen.bound[·]?), threading := (seen.threading[·]?) }
 
-/-- With the threaded side on the left, `standingFor` pairs `bound` alone, and with exactly the
-variables `passed` is paired with: it relates no two variables that `pairs` does not, other than
-through `bound`. This states nothing about the comparison that uses the pairs. -/
-private theorem mem_standingFor_left (pairs : Array (FVarId × FVarId))
-    (passed bound x y : FVarId) :
-    (x, y) ∈ standingFor true pairs passed bound ↔ x = bound ∧ (passed, y) ∈ pairs := by
-  cases passed
-  simp only [standingFor, Array.mem_filterMap, Prod.exists]
-  constructor
-  · rintro ⟨⟨a⟩, b, member, selected⟩
-    split at selected <;> simp_all
-  · rintro ⟨rfl, member⟩
-    exact ⟨_, _, member, by simp⟩
+/-- The state of the observing pass of one regeneration: what it has recorded of each side, and
+the local context that declares every variable it has bound, of both sides, with the local
+instances among them. A variable is declared once, with its binder's own type, so a term names the
+variables it is read under and one context serves every term. -/
+private structure Observing where
+  /-- The observations of the regenerated values' terms. -/
+  left : SideObserved := {}
+  /-- The observations of the observed values' terms. -/
+  right : SideObserved := {}
+  /-- The variables bound so far, in the order bound. -/
+  context : LocalContext
+  /-- The local instances among those variables. -/
+  instances : LocalInstances
 
-/-- `mem_standingFor_left` with the threaded side on the right. -/
-private theorem mem_standingFor_right (pairs : Array (FVarId × FVarId))
-    (passed bound x y : FVarId) :
-    (x, y) ∈ standingFor false pairs passed bound ↔ y = bound ∧ (x, passed) ∈ pairs := by
-  cases passed
-  simp only [standingFor, Array.mem_filterMap, Prod.exists]
-  constructor
-  · rintro ⟨a, ⟨b⟩, member, selected⟩
-    split at selected <;> simp_all
-  · rintro ⟨rfl, member⟩
-    exact ⟨_, _, member, by simp⟩
+/-- The part of `context` that declares the variables `e` mentions and, in turn, the variables
+their declarations mention: the least context `e` is well typed in. A declaration mentions only
+variables declared before it, so one pass from the last declaration to the first finds them. -/
+private def scopeOf (context : LocalContext) (e : Expr) : LocalContext :=
+  let mentioned := Id.run <| context.foldrM (init := (collectFVars {} e).fvarSet)
+    fun declaration mentioned =>
+      if mentioned.contains declaration.fvarId then
+        let found := collectFVars {} declaration.type
+        let found := match declaration.value? (allowNondep := true) with
+          | some value => collectFVars found value
+          | none => found
+        return found.fvarIds.foldl (fun mentioned used => mentioned.insert used) mentioned
+      else return mentioned
+  context.foldl (init := {}) fun scope declaration =>
+    if mentioned.contains declaration.fvarId then scope.addDecl declaration else scope
 
-/-- Whether `a` and `b` are equal up to compilation erasure: the same expression after every proof
-and every type of each side, decided in that side's own local context, is erased, with the
-variables they bind paired, each well-founded fixpoint reduced to `fixpointArguments?`, and a
-`match` that passes a variable through (`threadedMatch?`) taken as the `match` that uses the
-variable directly: `(match d with | pᵢ => fun w => bᵢ) v` against `match d with | pᵢ => bᵢ'`
-compares each `bᵢ` with `bᵢ'`, `w` standing for `v`. That step is taken only where the kernel
-checks the threading law (`threadingLawChecked`), by which the first side equals the `match` whose
-alternatives are `fun w => bᵢ` applied to `v`; comparing `bᵢ` with `w` standing for `v` compares
-those alternatives, reduced, with the other side's. The two sides then compile to code that
-computes the same; their recursion, relations and termination proofs may differ. A pair
-`(x, y)` of `pairs` reads: `x` on the left and `y` on the right are the same variable. `fuel`
-bounds the depth; exhausting it answers `false`. -/
-private def equalErased (fuel : Nat) (pairs : Array (FVarId × FVarId)) (a b : Expr) :
-    MetaM Bool := do
-  match fuel with
-  | 0 => return false
-  | fuel + 1 =>
-    if a == b && !a.hasFVar && !b.hasFVar then return true
-    if (← erasedByCompilation a) && (← erasedByCompilation b) then return true
-    let all := fun (pairs : Array (FVarId × FVarId)) (xs ys : Array Expr) => do
-      if xs.size != ys.size then return false
-      for i in [:xs.size] do
-        unless ← equalErased fuel pairs xs[i]! ys[i]! do return false
-      return true
-    -- `threaded` on the left when `left`, on the right otherwise.
-    let threadedEqual := fun (left : Bool) (threaded direct : Meta.MatcherApp)
-        (passed : FVarId) => do
-      let sides := fun (pairs : Array (FVarId × FVarId)) (xs ys : Array Expr) =>
-        if left then all pairs xs ys else all pairs ys xs
-      unless ← sides pairs (threaded.params.push threaded.motive ++ threaded.discrs
-          ++ threaded.remaining.extract 1)
-          (direct.params.push direct.motive ++ direct.discrs ++ direct.remaining) do
-        return false
-      for i in [:threaded.alts.size] do
-        let numParams := threaded.altNumParams[i]!
-        let equal ← Meta.lambdaBoundedTelescope threaded.alts[i]! numParams fun xs body =>
-          Meta.lambdaBoundedTelescope direct.alts[i]! numParams fun ys body' => do
-            unless xs.size == numParams && ys.size == numParams do return false
-            let .lam name type body info := body | return false
-            Meta.withLocalDecl name info type fun bound => do
-              let pair := fun (x y : FVarId) => if left then (x, y) else (y, x)
-              let params := (xs.zip ys).map fun (x, y) => pair x.fvarId! y.fvarId!
-              sides (pairs ++ params ++ standingFor left pairs passed bound.fvarId!)
-                #[body.instantiate1 bound] #[body']
-        unless equal do return false
-      return true
-    match a, b with
-    | .mdata _ a', _ => equalErased fuel pairs a' b
-    | _, .mdata _ b' => equalErased fuel pairs a b'
-    | .fvar x, .fvar y => return x == y || pairs.contains (x, y)
-    | .const n us, .const m vs => return n == m && us == vs
-    | .lit l, .lit l' => return l == l'
-    | .sort u, .sort v => return u == v
-    | .proj s i e, .proj s' i' e' => return s == s' && i == i' && (← equalErased fuel pairs e e')
-    | .app .., .app .. =>
-      match fixpointArguments? a, fixpointArguments? b with
-      | some xs, some ys => all pairs xs ys
-      | none, none =>
-        if let some (threaded, direct, passed) ← threadedMatch? a b then
-          threadedEqual true threaded direct passed
-        else if let some (threaded, direct, passed) ← threadedMatch? b a then
-          threadedEqual false threaded direct passed
-        else if ← equalErased fuel pairs a.getAppFn b.getAppFn then
-          all pairs a.getAppArgs b.getAppArgs
-        else return false
-      | _, _ => return false
-    | .lam n t body bi, .lam _ t' body' bi' | .forallE n t body bi, .forallE _ t' body' bi' =>
-      unless ← equalErased fuel pairs t t' do return false
-      Meta.withLocalDecl n bi t fun x => Meta.withLocalDecl n bi' t' fun y =>
-        equalErased fuel (pairs.push (x.fvarId!, y.fvarId!)) (body.instantiate1 x)
-          (body'.instantiate1 y)
-    | .letE n t v body _, .letE _ t' v' body' _ =>
-      unless (← equalErased fuel pairs t t') && (← equalErased fuel pairs v v') do return false
-      Meta.withLetDecl n t v fun x => Meta.withLetDecl n t' v' fun y =>
-        equalErased fuel (pairs.push (x.fvarId!, y.fvarId!)) (body.instantiate1 x)
-          (body'.instantiate1 y)
-    | _, _ => return false
+/-- Record the observation `need` names: the one step of the observing pass. It reads only the
+term of `need`, in the context of the variables the pass bound, and never the other side's term.
+
+- `erased`: whether the term is a proof or a type (`erasedByCompilation`).
+- `bound`: a fresh variable, declared with the binder's own type (and, for a `let`, its value).
+- `threading`: where Lean records the application as a matcher or `casesOn` application
+  (`Meta.matchMatcherApp?`) that passes a variable as its first argument after the alternatives,
+  and Lean's kernel checks the threading law of that application (`threadingLawChecked`, over the
+  variables the application's own terms mention, `scopeOf`), the decomposition the law was checked
+  for; otherwise that there is none. What Lean records only proposes the decomposition: the
+  recorded answer is that the kernel checked the law for it.
+
+A `checkerLimit?` reached is thrown, as is any other failure of an observation. -/
+private def observe (need : RegulaPolicy.Erasure.Need) : StateRefT Observing MetaM Unit := do
+  let state ← get
+  let record (side : RegulaPolicy.Erasure.Side) (change : SideObserved → SideObserved)
+      (state : Observing) : Observing :=
+    match side with
+    | .left => { state with left := change state.left }
+    | .right => { state with right := change state.right }
+  match need with
+  | .erased side term =>
+    let erased ← Meta.withLCtx state.context state.instances (erasedByCompilation term)
+    set (record side (fun seen => { seen with erased := seen.erased.insert term erased }) state)
+  | .bound side binder =>
+    let fresh ← mkFreshFVarId
+    let (context, type?) := match binder with
+      | .lam name type _ info | .forallE name type _ info =>
+        (state.context.mkLocalDecl fresh name type info, some type)
+      | .letE name type value _ _ => (state.context.mkLetDecl fresh name type value, some type)
+      | _ => (state.context, none)
+    let instances ← match type? with
+      | some type => Meta.withLCtx context state.instances do
+          match ← Meta.isClass? type with
+          | some className => pure (state.instances.push { className, fvar := mkFVar fresh })
+          | none => pure state.instances
+      | none => pure state.instances
+    set { record side (fun seen => { seen with bound := seen.bound.insert binder fresh }) state
+      with context, instances }
+  | .threading side application =>
+    let scope := scopeOf state.context application
+    let instances := state.instances.filter fun (inScope : LocalInstance) =>
+      scope.contains inScope.fvar.fvarId!
+    let shape? ← Meta.withLCtx scope instances do
+      let some matched ← Meta.matchMatcherApp? (alsoCasesOn := true) application | return none
+      let some (Expr.fvar _) := matched.remaining[0]? | return none
+      unless ← threadingLawChecked matched do return none
+      return some ({ params := matched.params.size, discriminants := matched.discrs.size,
+                     alternatives := matched.altNumParams, motiveLevel := matched.uElimPos? } :
+        RegulaPolicy.Erasure.Threading)
+    set (record side
+      (fun seen => { seen with threading := seen.threading.insert application shape? }) state)
+
+/-- The observations one step of the comparison may ask for before it is refused: more than any
+step needs, since a step asks for the erasure of its two terms, one decomposition, and one variable
+for each binder of the alternatives of a `match`. -/
+private def stepNeeds : Nat := 1000000
+
+/-- One step of the pure comparison of `a` with `b` (`RegulaPolicy.Erasure.step`), with each
+observation it asks for recorded (`observe`) until it asks for no more. -/
+private def stepObserved (pairs : RegulaPolicy.Erasure.Pairs) (a b : Expr) :
+    StateRefT Observing MetaM RegulaPolicy.Erasure.Step := do
+  for _ in [:stepNeeds] do
+    let state ← get
+    match RegulaPolicy.Erasure.step state.left.observations state.right.observations pairs a b with
+    | .error (.unobserved need) => observe need
+    | settled => return settled
+  return .error .different
+
+/-- The observing pass over two terms: record every observation the pure comparison of `a` with
+`b` asks for, to depth `fuel`, by taking the comparison's own steps (`stepObserved`) part by part
+in its order, and stopping at the first part it refuses. So the pass asks Lean what the
+comparison reads and nothing else, and carries no comparison rule of its own. The answer returned
+only says whether to go on observing: the verdict is `RegulaPolicy.Erasure.reproduces` over what
+was recorded, which refuses whatever was left unobserved.
+
+The recursion fixtures that `checkerSelftest fixtures` runs test this pass and the regeneration
+against the pinned toolchain, which is the external boundary. They are not tests of the comparison
+rules: `RegulaPolicy.Erasure.equalWithin_iff` proves those for every pair of terms. -/
+private def observeEqual : Nat → RegulaPolicy.Erasure.Pairs → Expr → Expr →
+    StateRefT Observing MetaM Bool
+  | 0, _, _, _ => return false
+  | fuel + 1, pairs, a, b => do
+    match ← stepObserved pairs a b with
+    | .ok parts => parts.allM fun part => observeEqual fuel part.pairs part.left part.right
+    | .error _ => return false
 
 /-- Whether `value` mentions a constant of `theorems`. -/
 private def mentionsTheorem (theorems : NameMap TheoremVal) (value : Expr) : Bool :=
@@ -457,13 +447,25 @@ private def regeneratedDefinitions (before after : Environment) : Option (Array 
       | _ => none)
 
 /-- Whether each regenerated definition equals up to compilation erasure the observed definition of
-its name in the current environment; at least one must have been regenerated. -/
+its name in the current environment; at least one must have been regenerated. The observing pass
+(`observeEqual`) records what the comparison asks about each pair of values, in order, and stops at
+the first pair it refuses. The verdict is then the pure decision
+`RegulaPolicy.Erasure.reproduces`, run through its registered contract, over the regenerated and
+the observed values and those observations alone (`RegulaPolicy.Erasure.reproduces_iff`): nothing
+else of the environment, and nothing that selected the regeneration, is an argument of it. -/
 private def regenerationMatches (regenerated : Array (Name × Expr)) : MetaM Bool := do
-  if regenerated.isEmpty then return false
-  for (name, value) in regenerated do
-    let some (.defnInfo observed) := (← getEnv).find? name | return false
-    unless ← equalErased 100000 #[] value observed.value do return false
-  return true
+  let env ← getEnv
+  let definitions := regenerated.toList.map fun (name, value) =>
+    (value, match env.find? name with
+      | some (.defnInfo observed) => some observed.value
+      | _ => none)
+  let observing := definitions.allM fun
+    | (value, some observed) => observeEqual RegulaPolicy.Erasure.depthLimit #[] value observed
+    | (_, none) => pure false
+  let (_, seen) ← observing.run
+    { context := ← getLCtx, instances := ← Meta.getLocalInstances }
+  return RegulaPolicy.Erasure.checked_reproduces.run
+    { regenerated := seen.left.observations, observed := seen.right.observations, definitions }
 
 /-- The relation of a well-founded fixpoint, as `WF.mkFix` of Lean 4.34.0 takes it: `w` of
 `WellFounded.fix α C w.1 hwf F`, and `invImage h Nat.lt_wfRel` of `WellFounded.Nat.fix α motive h

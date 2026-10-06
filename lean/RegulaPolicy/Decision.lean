@@ -76,7 +76,7 @@ recursion equation for the helper's value (`Declaration.unsafeRecRegenerated`), 
 Lean-linked base (`Declaration.unsafeRecBase`) is an inventory definition of the same module and
 type, neither `partial` nor `unsafe`, with every axiom within Standard-Logical. Where that
 observation is truthful, the base is Lean's compilation of the helper's own recursion up to the
-comparison the checker makes (`Collect.equalErased`: compilation erasure, with a `match` that
+comparison the checker makes (`Erasure.reproduces`: compilation erasure, with a `match` that
 passes a variable through taken as the direct one where the kernel checks the two equal), so its
 kernel-checked value carries the decreasing proofs of the recursion Lean compiled, after its
 well-founded preprocessing; those proofs rest on no `sorryAx` or project axiom. The theorem states
@@ -180,9 +180,11 @@ def labelOf (axioms : Array Name) (native : Array Name := #[]) : FoundationClass
 
 /-- Raw computational kernel over supplied role sets; callers can supply arbitrary
 sets here. This is not an admission or authorization API. Production decisions
-use `policyFor`, whose inventory and Roles arguments enforce the receipt boundary. -/
+use `policyFor`, whose inventory and Roles arguments enforce the receipt boundary. It takes
+`Declaration.Inspected`, the record without its project-written part, so it reads no field an
+audited project writes; the role sets are the caller's. -/
 @[regula_decision]
-def declarationFailure (decl : Declaration) (claim : InspectionRequest)
+def declarationFailure (decl : Declaration.Inspected) (claim : InspectionRequest)
     (native : Array Name := #[]) (unsafeHelpers : Array Name := #[]) :
     Option DeclarationFailure :=
   if decl.kind == .«axiom» then
@@ -382,7 +384,7 @@ private theorem conditional_none {α : Type u} (p : Prop) [Decidable p] (a b : O
 request and supplied role set. `policyFor` additionally requires inventory-bound Roles. Raw
 computational helpers
 do not establish that receipt or any whole-project acceptance claim. -/
-theorem declarationFailure_none_iff (d : Declaration) (r : InspectionRequest)
+theorem declarationFailure_none_iff (d : Declaration.Inspected) (r : InspectionRequest)
     (native helpers : Array Name) :
     declarationFailure d r native helpers = none ↔ DeclarationOK d r native helpers := by
   simp only [declarationFailure, DeclarationOK, KnownDependencies, SafetyOK,
@@ -402,20 +404,18 @@ Lean holds is the collector's, and that the role sets are the inventory's is `po
 `Roles` argument, whose type depends on the inventory and so has theorems
 (`policyFor_none_iff`) and no kind. -/
 theorem checked_declarationFailure : Regula.ExecutableContract @declarationFailure
-    (fun (failure : Declaration → InspectionRequest → Array Name → Array Name →
+    (fun (failure : Declaration.Inspected → InspectionRequest → Array Name → Array Name →
         Option DeclarationFailure) =>
     Regula.Decides (· = none)
-      (fun input : ((Declaration × InspectionRequest) × Array Name) × Array Name =>
+      (fun input : ((Declaration.Inspected × InspectionRequest) × Array Name) × Array Name =>
         DeclarationOK input.1.1.1 input.1.1.2 input.1.2 input.2)
       (Function.uncurry (Function.uncurry (Function.uncurry failure)))) :=
-  let recorded (kind : DeclarationKind) : Declaration :=
+  let recorded (kind : DeclarationKind) : Declaration.Inspected :=
     { name := `subject, «module» := `Module, kind, «type» := "", prettyType := "", isProp := false
-      isUnsafe := false, isPartial := false, safety := none, «instance» := false
-      «noncomputable» := false, implementedBy := none, «extern» := false, internal := false
-      «private» := false, projection := false, matcher := false, recursive := false
-      unsafeRecBase := none, levelParams := #[], all := #[], hints := none, valueConstants := #[]
-      unsafeRecRegenerated := none, constructorIndex := none, nativeStatement := none
-      nativeReplay := none, recordedRanges := none, generatedFrom := none, axioms := #[] }
+      isUnsafe := false, isPartial := false, safety := none, internal := false
+      «private» := false, unsafeRecBase := none, levelParams := #[], all := #[], hints := none
+      valueConstants := #[], unsafeRecRegenerated := none, constructorIndex := none
+      nativeStatement := none, nativeReplay := none, axioms := #[] }
   ⟨.of_iff (fun input => declarationFailure_none_iff input.1.1.1 input.1.1.2 input.1.2 input.2)
     ⟨(((recorded .«definition», .conforming .«kernelOnly»), #[]), #[]),
       by simp [Function.uncurry, declarationFailure, recorded]⟩
@@ -448,7 +448,8 @@ theorem checked_decisionFailure : Regula.ExecutableContract @decisionFailure
 
 /-- The declaration's own requirements never report the decision failure: `decisionFailure` is
 its only source. -/
-theorem declarationFailure_ne_decisionContract (d : Declaration) (r : InspectionRequest)
+theorem declarationFailure_ne_decisionContract (d : Declaration.Inspected)
+    (r : InspectionRequest)
     (native helpers : Array Name) :
     declarationFailure d r native helpers ≠ some .decisionContract := by
   unfold declarationFailure
@@ -658,7 +659,7 @@ theorem foundationFor_least (i : Inventory) (roles : Roles i) (d : Declaration)
   exact ⟨by simp [foundationFor, hd, labelOf_logical i roles _ ha], leastFoundation_spec _ ha⟩
 
 /-- Decision instances used by acceptance execute the same proved checker function. -/
-instance (d : Declaration) (r : InspectionRequest) (native helpers : Array Name) :
+instance (d : Declaration.Inspected) (r : InspectionRequest) (native helpers : Array Name) :
     Decidable (DeclarationOK d r native helpers) :=
   decidable_of_iff (declarationFailure d r native helpers = none)
     (declarationFailure_none_iff d r native helpers)
@@ -736,7 +737,7 @@ theorem foundationFor_iff (i : Inventory) (roles : Roles i) (d : Declaration)
 
 /-- The actual declaration diagnostic is the first failed independent requirement. All
 success and refusal outputs, including their precedence, follow this same relation. -/
-theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest)
+theorem declarationFailure_ordered (d : Declaration.Inspected) (r : InspectionRequest)
     (native helpers : Array Name) :
     OrderedDecision (declarationRequirements d r native helpers)
         (declarationFailure d r native helpers) := by
@@ -756,7 +757,7 @@ theorem declarationFailure_ordered (d : Declaration) (r : InspectionRequest)
     (repeat' split) <;> (try simp_all) <;> grind
 
 /-- Exact outcome equivalence follows from existence and uniqueness of the first failure. -/
-theorem declarationFailure_iff (d : Declaration) (r : InspectionRequest)
+theorem declarationFailure_iff (d : Declaration.Inspected) (r : InspectionRequest)
     (native helpers : Array Name)
     (result : Option DeclarationFailure) :
     declarationFailure d r native helpers = result ↔

@@ -1,0 +1,873 @@
+module
+
+public import Lean.Expr
+public import Regula.Contract
+meta import Regula.Decision
+
+/-! # Equality up to compilation erasure
+
+The pure decision of the recursion-helper comparison (RG1006):
+whether each definition that Lean's recursion compiler regenerated from a helper is, up to what
+compilation erases, the observed definition of its name.
+
+The comparison is split in two. An observing pass (`Regula.Collect.observeEqual`) runs in
+`MetaM` and records, for the terms it is asked about, `Observations`: whether a term is a proof or
+a type, the variable a binder's body is read with, and a decomposition of a `match` application
+whose threading law Lean's kernel checked. `reproduces` is the decision. It is a pure, total
+function of the regenerated and the observed values and of those observations, and of nothing
+else: no environment, no attribute, no reducibility status and no name the audited project can
+write is among its arguments. What selects a regeneration (a termination argument, a status
+assignment, matcher metadata) is therefore not an argument of the decision.
+
+`EqualWithin` is the relation the decision is proved against: one constructor for each rule the
+comparison applies. `equalWithin_iff` proves that the executed comparison answers `true` exactly
+for the related terms, for every pair of terms and every observation, and `checked_reproduces`
+registers the kind.
+
+**Not claimed.** The theorem starts from the observations: that an observation is what Lean
+answers for the term is the observing pass's, and is not proved. That two related terms compile
+to code that computes the same is the adequacy of the relation, which is argued in
+`docs/guides/proofs-and-boundaries.md` and is not a theorem. `Expr` equality, free-variable
+tests, instantiation and the equality of names, universe levels and literals are Lean's own
+functions, which the relation names as the comparison runs them. -/
+
+@[expose] public section
+
+namespace RegulaPolicy.Erasure
+open Lean (Expr FVarId Name Level)
+
+/-- One of the two terms compared. In `reproduces` the left one is a regenerated value and the
+right one the observed value of its name. -/
+inductive Side where
+  /-- The first term. -/
+  | left
+  /-- The second term. -/
+  | right
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The other side. -/
+def Side.other : Side → Side
+  | .left => .right
+  | .right => .left
+
+/-- The pairs under which the variables of the two terms are read: `(x, y)` says that `x` in the
+left term and `y` in the right term are the same variable. -/
+abbrev Pairs := Array (FVarId × FVarId)
+
+/-- A decomposition of the arguments of a `match` application `M ps motive ds alts v rest…`: how
+many parameters `ps` come before the motive, how many discriminants `ds` after it, and for each
+alternative how many pattern variables it binds. The observing pass records one for an
+application only where Lean's kernel checked the threading law of that application for exactly
+this decomposition (`Observations.threading`). -/
+structure Threading where
+  /-- The parameters before the motive. -/
+  params : Nat
+  /-- The discriminants after the motive. -/
+  discriminants : Nat
+  /-- For each alternative, in order, the pattern variables it binds. -/
+  alternatives : Array Nat
+  /-- The position of the motive's universe level among the levels of the constant, if it has
+  one. -/
+  motiveLevel : Option Nat
+  deriving Repr, DecidableEq, Inhabited
+
+/-- The arguments before the alternatives: the parameters, the motive and the discriminants. -/
+def Threading.head (shape : Threading) : Nat := shape.params + 1 + shape.discriminants
+
+/-- Whether the levels `us` and `vs` of the constant agree apart from the motive's level, which
+the binder a threaded `match` adds to its motive changes. -/
+def Threading.sameLevels (shape : Threading) (us vs : List Level) : Bool :=
+  match shape.motiveLevel with
+  | some position =>
+    us.toArray.eraseIdxIfInBounds position == vs.toArray.eraseIdxIfInBounds position
+  | none => us.toArray == vs.toArray
+
+/-- What the observing pass shows of the terms of one side. Each field answers for a term as it
+stands under the variables the pass bound, and `none` says that the pass was not asked about it.
+All three are toolchain observations: none is read from state the audited project writes.
+
+A regenerated or observed value is closed, and the comparison reads a body only with the variable
+`bound` gives its binder, so a term with a free variable names the binders it is under. -/
+structure Observations where
+  /-- Whether the term is a proof or a type in its own local context: what Lean's code generator
+  erases (`Meta.isProof` or `Meta.isType`). -/
+  erased : Expr → Option Bool
+  /-- For a binder (`fun`, `∀` or `let`): the variable its body is read with. The pass declares it
+  with the binder's own type, and for a `let` its value. -/
+  bound : Expr → Option FVarId
+  /-- For an application: `some none` where the pass found no decomposition whose threading law
+  the kernel checked, and `some (some shape)` where Lean's kernel checked, with no axiom outside
+  Standard-Logical, the threading law of the application for `shape`: with `M` the applied
+  constant, `ps` its first `shape.params` arguments and the next one the motive
+  `fun ds => A ds → R ds`,
+
+  `∀ ds alts (w : A ds), M ps (fun ds => A ds → R ds) ds alts w = M ps R ds (fun xs => altsᵢ xs w)`
+
+  where alternative `i` binds `shape.alternatives[i]` pattern variables `xs`. What Lean records
+  about `M` only proposes the decomposition; the kernel's check is what is recorded. -/
+  threading : Expr → Option (Option Threading)
+
+/-- An observation the comparison needs and was not given. -/
+inductive Need where
+  /-- Whether `term`, of `side`, is erased. -/
+  | erased (side : Side) (term : Expr)
+  /-- The variable of `binder`, of `side`. -/
+  | bound (side : Side) (binder : Expr)
+  /-- The checked decomposition of `application`, of `side`. -/
+  | threading (side : Side) (application : Expr)
+
+/-- Two terms to compare, with the pairs their variables are read under. -/
+structure Part where
+  /-- The pairs of variables. -/
+  pairs : Pairs
+  /-- The left term. -/
+  left : Expr
+  /-- The right term. -/
+  right : Expr
+
+/-- Why a step does not reduce comparing two terms to comparing parts. -/
+inductive Refusal where
+  /-- The terms are not equal up to erasure. -/
+  | different
+  /-- The step needs an observation it was not given. Without it the terms are not accepted. -/
+  | unobserved (need : Need)
+
+/-- What comparing two terms comes to in one step: the parts whose terms must all be equal for
+the two terms to be equal up to erasure (none, where the step itself settles that they are), or
+the refusal. -/
+abbrev Step := Except Refusal (List Part)
+
+/-- The part that compares `threaded`, a term of `side`, with `direct`, a term of the other
+side. -/
+def Side.orient (side : Side) (pairs : Pairs) (threaded direct : Expr) : Part :=
+  match side with
+  | .left => ⟨pairs, threaded, direct⟩
+  | .right => ⟨pairs, direct, threaded⟩
+
+/-- The pair that reads `x`, a variable of `side`, and `y`, a variable of the other side, as the
+same variable. -/
+def Side.pair (side : Side) (x y : FVarId) : FVarId × FVarId :=
+  match side with
+  | .left => (x, y)
+  | .right => (y, x)
+
+/-- The parts that compare the terms of `xs` and `ys` position by position, each under `pairs`. -/
+def paired (pairs : Pairs) (xs ys : Array Expr) : List Part :=
+  (xs.toList.zip ys.toList).map fun (x, y) => ⟨pairs, x, y⟩
+
+/-- The arguments of a well-founded fixpoint application that carry its computation: for
+`WellFounded.fix α C r hwf F x…` and `WellFounded.Nat.fix α motive h F x…` (the two combinators
+Lean 4.34.0's well-founded recursion uses) the domain, the motive, the functional and the
+remaining arguments, without the relation `r`, its well-foundedness proof or the measure `h`. -/
+def fixpointArguments? (e : Expr) : Option (Array Expr) :=
+  let args := e.getAppArgs
+  if e.isAppOf ``WellFounded.fix && args.size ≥ 5 then
+    some (#[args[0]!, args[1]!, args[4]!] ++ args.extract 5 args.size)
+  else if e.isAppOf ``WellFounded.Nat.fix && args.size ≥ 4 then
+    some (#[args[0]!, args[1]!, args[3]!] ++ args.extract 4 args.size)
+  else none
+
+/-- The pairs under which `bound`, a variable the threaded side has just bound, stands for
+`passed`, a variable of the same side: `bound` with every variable of the other side that `passed`
+is paired with. `side` is the threaded side. -/
+def standingFor (side : Side) (pairs : Pairs) (passed bound : FVarId) : Pairs :=
+  pairs.filterMap fun (x, y) =>
+    match side with
+    | .left => if x.name == passed.name then some (bound, y) else none
+    | .right => if y.name == passed.name then some (x, bound) else none
+
+/-- With the threaded side on the left, `standingFor` pairs `bound` alone, and with exactly the
+variables `passed` is paired with: it relates no two variables that `pairs` does not, other than
+through `bound`. This states nothing about the comparison that uses the pairs. -/
+theorem mem_standingFor_left (pairs : Pairs) (passed bound x y : FVarId) :
+    (x, y) ∈ standingFor .left pairs passed bound ↔ x = bound ∧ (passed, y) ∈ pairs := by
+  cases passed
+  simp only [standingFor, Array.mem_filterMap, Prod.exists]
+  constructor
+  · rintro ⟨⟨a⟩, b, member, selected⟩
+    split at selected <;> simp_all
+  · rintro ⟨rfl, member⟩
+    exact ⟨_, _, member, by simp⟩
+
+/-- `mem_standingFor_left` with the threaded side on the right. -/
+theorem mem_standingFor_right (pairs : Pairs) (passed bound x y : FVarId) :
+    (x, y) ∈ standingFor .right pairs passed bound ↔ y = bound ∧ (x, passed) ∈ pairs := by
+  cases passed
+  simp only [standingFor, Array.mem_filterMap, Prod.exists]
+  constructor
+  · rintro ⟨a, ⟨b⟩, member, selected⟩
+    split at selected <;> simp_all
+  · rintro ⟨rfl, member⟩
+    exact ⟨_, _, member, by simp⟩
+
+/-- A term with its leading `fun` binders opened. -/
+inductive Opened where
+  /-- The pass gave no variable for `binder`. -/
+  | unobserved (binder : Expr)
+  /-- The variables of the binders opened, in order, and the term under them. -/
+  | opened (variables : Array FVarId) (body : Expr)
+
+/-- `e` with at most `count` leading `fun` binders opened, each body read with the variable
+`bound` gives its binder, after the variables `xs` already opened. Only a term that is a `fun` as
+it stands is opened: nothing is reduced, as in Lean's `Meta.lambdaBoundedTelescope`. -/
+def openLambdas (bound : Expr → Option FVarId) : Nat → Expr → Array FVarId → Opened
+  | count + 1, e@(.lam _ _ body _), xs =>
+    match bound e with
+    | some x => openLambdas bound count (body.instantiate1 (.fvar x)) (xs.push x)
+    | none => .unobserved e
+  | _, e, xs => .opened xs e
+
+/-- The part that compares one alternative of a threaded `match` with the same alternative of the
+direct one. `threaded` binds `binders` pattern variables and then one more, which stands for the
+variable `passed`; `direct` binds the same pattern variables. The two bodies are compared with the
+pattern variables paired in order and the further variable standing for `passed`
+(`standingFor`). An error is the refusal the comparison comes to instead: a variable the pass did
+not give, or an alternative that does not bind those variables. `seen` holds the observations of the
+threaded side, `side`, and `other` those of the direct side. -/
+def alternative (side : Side) (seen other : Observations) (pairs : Pairs) (passed : FVarId)
+    (binders : Nat) (threaded direct : Expr) : Except Refusal Part :=
+  match openLambdas seen.bound binders threaded #[] with
+  | .unobserved binder => .error (.unobserved (.bound side binder))
+  | .opened xs body =>
+    match openLambdas other.bound binders direct #[] with
+    | .unobserved binder => .error (.unobserved (.bound side.other binder))
+    | .opened ys body' =>
+      if xs.size = binders ∧ ys.size = binders then
+        match body with
+        | .lam _ _ inner _ =>
+          match seen.bound body with
+          | none => .error (.unobserved (.bound side body))
+          | some further =>
+            .ok (side.orient
+              (pairs ++ (xs.zip ys).map (fun (x, y) => side.pair x y) ++
+                standingFor side pairs passed further)
+              (inner.instantiate1 (.fvar further)) body')
+        | _ => .error .different
+      else .error .different
+
+/-- The parts that compare a threaded `match` application with the direct one, given the
+arguments `targs` of the threaded application, of `side`, and `dargs` of the direct one: the
+parameters, the motive, the discriminants and the arguments after the variable passed, position by
+position, and then each alternative (`alternative`). The alternatives themselves and the variable
+passed are not among the arguments compared position by position. An error is the refusal the
+comparison comes to instead. -/
+def threadedParts (side : Side) (seen other : Observations) (pairs : Pairs) (shape : Threading)
+    (passed : FVarId) (targs dargs : Array Expr) : Step :=
+  let count := shape.alternatives.size
+  let kept := targs.extract 0 shape.head ++ targs.extract (shape.head + count + 1)
+  let direct := dargs.extract 0 shape.head ++ dargs.extract (shape.head + count)
+  if kept.size = direct.size then
+    let outer := (kept.toList.zip direct.toList).map fun (t, d) => side.orient pairs t d
+    let alternatives := shape.alternatives.toList.zipIdx.mapM fun (binders, index) =>
+      match targs[shape.head + index]?, dargs[shape.head + index]? with
+      | some t, some d => alternative side seen other pairs passed binders t d
+      | _, _ => .error .different
+    alternatives.map (outer ++ ·)
+  else .error .different
+
+/-- `threaded`, an application of `side`, is the threaded form of the `match` that `direct`
+applies, under the decomposition `shape` and with the variable `passed`: it has one more argument,
+both apply the same constant at levels that agree apart from the motive's, the pass recorded that
+the kernel checked the threading law of `threaded` for `shape`, and the argument after the
+alternatives is the variable `passed`. `seen` holds the observations of `side`. -/
+structure Threads (seen : Observations) (threaded direct : Expr) (shape : Threading)
+    (passed : FVarId) : Prop where
+  /-- `threaded` has one more argument than `direct`. -/
+  more : threaded.getAppArgs.size = direct.getAppArgs.size + 1
+  /-- Both apply the same constant, at levels that agree apart from the motive's. -/
+  same : ∃ name us name' vs, threaded.getAppFn = .const name us ∧
+    direct.getAppFn = .const name' vs ∧ (name == name') = true ∧ shape.sameLevels us vs = true
+  /-- The kernel checked the threading law of `threaded` for `shape`. -/
+  law : seen.threading threaded = some (some shape)
+  /-- The argument after the alternatives is the variable `passed`. -/
+  passes : threaded.getAppArgs[shape.head + shape.alternatives.size]? = some (.fvar passed)
+
+/-- The step that compares `threaded`, an application of `side`, as the threaded form of the
+`match` that `direct` applies; `none` where it is not that form (`Threads`). Where the pass was not
+asked for the decomposition, the step is the refusal that names that need. -/
+def threaded (side : Side) (seen other : Observations) (pairs : Pairs) (threaded direct : Expr) :
+    Option Step :=
+  if threaded.getAppArgs.size = direct.getAppArgs.size + 1 then
+    match threaded.getAppFn, direct.getAppFn with
+    | .const name us, .const name' vs =>
+      if name == name' then
+        match seen.threading threaded with
+        | none => some (.error (.unobserved (.threading side threaded)))
+        | some none => none
+        | some (some shape) =>
+          if shape.sameLevels us vs then
+            match threaded.getAppArgs[shape.head + shape.alternatives.size]? with
+            | some (.fvar passed) =>
+              some (threadedParts side seen other pairs shape passed threaded.getAppArgs
+                direct.getAppArgs)
+            | _ => none
+          else none
+      else none
+    | _, _ => none
+  else none
+
+/-- The step that compares two applications: two well-founded fixpoints by the arguments that
+carry their computation (`fixpointArguments?`), a threaded `match` with the direct one
+(`threaded`), on either side, and any other two by their heads and their arguments. -/
+def application (left right : Observations) (pairs : Pairs) (a b : Expr) : Step :=
+  match fixpointArguments? a, fixpointArguments? b with
+  | some xs, some ys => if xs.size = ys.size then .ok (paired pairs xs ys) else .error .different
+  | none, none =>
+    match threaded .left left right pairs a b with
+    | some result => result
+    | none =>
+      match threaded .right right left pairs b a with
+      | some result => result
+      | none =>
+        if a.getAppArgs.size = b.getAppArgs.size then
+          .ok (⟨pairs, a.getAppFn, b.getAppFn⟩ :: paired pairs a.getAppArgs b.getAppArgs)
+        else .error .different
+  | _, _ => .error .different
+
+/-- The step that compares the bodies of two binders `a` and `b` after the parts `before`: each
+body is read with the variable the pass gave its binder, and the two variables are paired. -/
+def under (left right : Observations) (pairs : Pairs) (a b : Expr) (before : List Part)
+    (body body' : Expr) : Step :=
+  match left.bound a with
+  | none => .error (.unobserved (.bound .left a))
+  | some x =>
+    match right.bound b with
+    | none => .error (.unobserved (.bound .right b))
+    | some y =>
+      .ok (before ++
+        [⟨pairs.push (x, y), body.instantiate1 (.fvar x), body'.instantiate1 (.fvar y)⟩])
+
+/-- The step that compares two terms by their structure, which the comparison takes where
+compilation keeps both of them. -/
+def structural (left right : Observations) (pairs : Pairs) (a b : Expr) : Step :=
+  match a, b with
+  | .mdata _ a', _ => .ok [⟨pairs, a', b⟩]
+  | _, .mdata _ b' => .ok [⟨pairs, a, b'⟩]
+  | .fvar x, .fvar y => if x == y || pairs.contains (x, y) then .ok [] else .error .different
+  | .const n us, .const m vs => if n == m && us == vs then .ok [] else .error .different
+  | .lit l, .lit l' => if l == l' then .ok [] else .error .different
+  | .sort u, .sort v => if u == v then .ok [] else .error .different
+  | .proj s i e, .proj s' i' e' =>
+    if s == s' && i == i' then .ok [⟨pairs, e, e'⟩] else .error .different
+  | .app .., .app .. => application left right pairs a b
+  | .lam _ t body _, .lam _ t' body' _ => under left right pairs a b [⟨pairs, t, t'⟩] body body'
+  | .forallE _ t body _, .forallE _ t' body' _ =>
+    under left right pairs a b [⟨pairs, t, t'⟩] body body'
+  | .letE _ t v body _, .letE _ t' v' body' _ =>
+    under left right pairs a b [⟨pairs, t, t'⟩, ⟨pairs, v, v'⟩] body body'
+  | _, _ => .error .different
+
+/-- One step of the comparison of `a` with `b`. Two terms that Lean's expression equality
+identifies and that have no free variable are equal. Otherwise the erasure of each is read: two
+erased terms are equal, two terms that compilation keeps are compared by their structure
+(`structural`), and an erased term is different from a kept one. -/
+def step (left right : Observations) (pairs : Pairs) (a b : Expr) : Step :=
+  if a == b && !a.hasFVar && !b.hasFVar then .ok []
+  else
+    match left.erased a, right.erased b with
+    | none, _ => .error (.unobserved (.erased .left a))
+    | some _, none => .error (.unobserved (.erased .right b))
+    | some true, some true => .ok []
+    | some false, some false => structural left right pairs a b
+    | some _, some _ => .error .different
+
+/-- Whether `a` and `b` are equal up to compilation erasure, to depth `fuel`: the steps of `step`,
+each part compared in turn. A step that needs an observation it was not given answers `false`, and
+so does exhausted `fuel`. -/
+def equalWithin (left right : Observations) : Nat → Pairs → Expr → Expr → Bool
+  | 0, _, _, _ => false
+  | fuel + 1, pairs, a, b =>
+    match step left right pairs a b with
+    | .ok all => all.all fun part => equalWithin left right fuel part.pairs part.left part.right
+    | .error _ => false
+
+/-- Compilation keeps both `a` and `b`: each is observed not to be erased. A term whose erasure
+the pass was not asked about is not kept, and neither is a pair of which exactly one term is
+erased, so no structural rule relates an erased term to a kept one. -/
+def Kept (left right : Observations) (a b : Expr) : Prop :=
+  left.erased a = some false ∧ right.erased b = some false
+
+/-- `a` and `b` are equal up to compilation erasure, by a derivation of depth at most the index:
+one constructor for each rule the comparison applies. `left` and `right` hold the observations of
+the two sides. A pair `(x, y)` of `pairs` reads `x` on the left and `y` on the right as the same
+variable.
+
+Every rule but `closed` and `erased` compares two terms by their structure, and applies only where
+compilation keeps both of them (`Kept`). So the two terms are the same once every proof and every
+type of each, decided in its own context, is erased: an erased term is related to an erased term
+(`erased`) and to no kept one. The equalities of names, universe levels, literals and
+variables are stated as the Boolean tests the comparison runs, because Lean's equality of
+universe levels and of expressions has no specification to state them by. -/
+inductive EqualWithin (left right : Observations) : Nat → Pairs → Expr → Expr → Prop where
+  /-- Two terms that Lean's expression equality identifies, neither with a free variable. -/
+  | closed {depth : Nat} {pairs : Pairs} {a b : Expr} :
+      (a == b && !a.hasFVar && !b.hasFVar) = true → EqualWithin left right (depth + 1) pairs a b
+  /-- Two terms that compilation erases: each a proof or a type in its own context. -/
+  | erased {depth : Nat} {pairs : Pairs} {a b : Expr} :
+      left.erased a = some true → right.erased b = some true →
+      EqualWithin left right (depth + 1) pairs a b
+  /-- Metadata around the left term is passed over. -/
+  | mdataLeft {depth : Nat} {pairs : Pairs} {data : Lean.MData} {a b : Expr} :
+      Kept left right (.mdata data a) b → EqualWithin left right depth pairs a b →
+      EqualWithin left right (depth + 1) pairs (.mdata data a) b
+  /-- Metadata around the right term is passed over, where the left term has none. -/
+  | mdataRight {depth : Nat} {pairs : Pairs} {data : Lean.MData} {a b : Expr} :
+      Kept left right a (.mdata data b) → (∀ data' a', a ≠ .mdata data' a') →
+      EqualWithin left right depth pairs a b →
+      EqualWithin left right (depth + 1) pairs a (.mdata data b)
+  /-- Two variables that are the same variable or are paired. -/
+  | fvar {depth : Nat} {pairs : Pairs} {x y : FVarId} :
+      Kept left right (.fvar x) (.fvar y) → (x == y || pairs.contains (x, y)) = true →
+      EqualWithin left right (depth + 1) pairs (.fvar x) (.fvar y)
+  /-- The same constant at the same universe levels. -/
+  | const {depth : Nat} {pairs : Pairs} {n m : Name} {us vs : List Level} :
+      Kept left right (.const n us) (.const m vs) → (n == m && us == vs) = true →
+      EqualWithin left right (depth + 1) pairs (.const n us) (.const m vs)
+  /-- The same literal. -/
+  | lit {depth : Nat} {pairs : Pairs} {l l' : Lean.Literal} :
+      Kept left right (.lit l) (.lit l') → (l == l') = true →
+      EqualWithin left right (depth + 1) pairs (.lit l) (.lit l')
+  /-- The same sort. -/
+  | sort {depth : Nat} {pairs : Pairs} {u v : Level} :
+      Kept left right (.sort u) (.sort v) → (u == v) = true →
+      EqualWithin left right (depth + 1) pairs (.sort u) (.sort v)
+  /-- The same projection of equal structures. -/
+  | proj {depth : Nat} {pairs : Pairs} {s s' : Name} {i i' : Nat} {e e' : Expr} :
+      Kept left right (.proj s i e) (.proj s' i' e') → (s == s' && i == i') = true →
+      EqualWithin left right depth pairs e e' →
+      EqualWithin left right (depth + 1) pairs (.proj s i e) (.proj s' i' e')
+  /-- Two well-founded fixpoints whose arguments that carry the computation
+  (`fixpointArguments?`) are as many and are equal one by one. Their relations, measures and
+  well-foundedness proofs are not compared. -/
+  | fixpoint {depth : Nat} {pairs : Pairs} {f x g y : Expr} {xs ys : Array Expr} :
+      Kept left right (.app f x) (.app g y) →
+      fixpointArguments? (.app f x) = some xs → fixpointArguments? (.app g y) = some ys →
+      xs.size = ys.size →
+      (∀ part ∈ paired pairs xs ys, EqualWithin left right depth part.pairs part.left part.right) →
+      EqualWithin left right (depth + 1) pairs (.app f x) (.app g y)
+  /-- A `match` on the left that passes a variable through, against the `match` on the right that
+  uses the variable directly (`Threads`), neither a well-founded fixpoint: every part of
+  `threadedParts` is equal. The rule applies only where the pass recorded that Lean's kernel
+  checked the threading law of the left application (`Threads.law`). -/
+  | threadedLeft {depth : Nat} {pairs : Pairs} {f x g y : Expr} {shape : Threading}
+      {passed : FVarId} {parts : List Part} :
+      Kept left right (.app f x) (.app g y) →
+      fixpointArguments? (.app f x) = none → fixpointArguments? (.app g y) = none →
+      Threads left (.app f x) (.app g y) shape passed →
+      threadedParts .left left right pairs shape passed (Expr.app f x).getAppArgs
+        (Expr.app g y).getAppArgs = .ok parts →
+      (∀ part ∈ parts, EqualWithin left right depth part.pairs part.left part.right) →
+      EqualWithin left right (depth + 1) pairs (.app f x) (.app g y)
+  /-- `threadedLeft` with the `match` that passes the variable through on the right. -/
+  | threadedRight {depth : Nat} {pairs : Pairs} {f x g y : Expr} {shape : Threading}
+      {passed : FVarId} {parts : List Part} :
+      Kept left right (.app f x) (.app g y) →
+      fixpointArguments? (.app f x) = none → fixpointArguments? (.app g y) = none →
+      Threads right (.app g y) (.app f x) shape passed →
+      threadedParts .right right left pairs shape passed (Expr.app g y).getAppArgs
+        (Expr.app f x).getAppArgs = .ok parts →
+      (∀ part ∈ parts, EqualWithin left right depth part.pairs part.left part.right) →
+      EqualWithin left right (depth + 1) pairs (.app f x) (.app g y)
+  /-- Two applications, neither a well-founded fixpoint, with equal heads and with arguments that
+  are as many and are equal one by one. -/
+  | app {depth : Nat} {pairs : Pairs} {f x g y : Expr} :
+      Kept left right (.app f x) (.app g y) →
+      fixpointArguments? (.app f x) = none → fixpointArguments? (.app g y) = none →
+      (Expr.app f x).getAppArgs.size = (Expr.app g y).getAppArgs.size →
+      EqualWithin left right depth pairs (Expr.app f x).getAppFn (Expr.app g y).getAppFn →
+      (∀ part ∈ paired pairs (Expr.app f x).getAppArgs (Expr.app g y).getAppArgs,
+        EqualWithin left right depth part.pairs part.left part.right) →
+      EqualWithin left right (depth + 1) pairs (.app f x) (.app g y)
+  /-- Two functions with equal binder types and with bodies that are equal when each is read
+  with its own variable and the two variables are paired. -/
+  | lam {depth : Nat} {pairs : Pairs} {n n' : Name} {t t' body body' : Expr}
+      {bi bi' : Lean.BinderInfo} {x y : FVarId} :
+      Kept left right (.lam n t body bi) (.lam n' t' body' bi') →
+      left.bound (.lam n t body bi) = some x → right.bound (.lam n' t' body' bi') = some y →
+      EqualWithin left right depth pairs t t' →
+      EqualWithin left right depth (pairs.push (x, y)) (body.instantiate1 (.fvar x))
+        (body'.instantiate1 (.fvar y)) →
+      EqualWithin left right (depth + 1) pairs (.lam n t body bi) (.lam n' t' body' bi')
+  /-- Two function types, compared as two functions are. -/
+  | forallE {depth : Nat} {pairs : Pairs} {n n' : Name} {t t' body body' : Expr}
+      {bi bi' : Lean.BinderInfo} {x y : FVarId} :
+      Kept left right (.forallE n t body bi) (.forallE n' t' body' bi') →
+      left.bound (.forallE n t body bi) = some x →
+      right.bound (.forallE n' t' body' bi') = some y →
+      EqualWithin left right depth pairs t t' →
+      EqualWithin left right depth (pairs.push (x, y)) (body.instantiate1 (.fvar x))
+        (body'.instantiate1 (.fvar y)) →
+      EqualWithin left right (depth + 1) pairs (.forallE n t body bi) (.forallE n' t' body' bi')
+  /-- Two `let` terms with equal types and values and with bodies that are equal when each is
+  read with its own variable and the two variables are paired. -/
+  | letE {depth : Nat} {pairs : Pairs} {n n' : Name} {t t' v v' body body' : Expr}
+      {nondep nondep' : Bool} {x y : FVarId} :
+      Kept left right (.letE n t v body nondep) (.letE n' t' v' body' nondep') →
+      left.bound (.letE n t v body nondep) = some x →
+      right.bound (.letE n' t' v' body' nondep') = some y →
+      EqualWithin left right depth pairs t t' → EqualWithin left right depth pairs v v' →
+      EqualWithin left right depth (pairs.push (x, y)) (body.instantiate1 (.fvar x))
+        (body'.instantiate1 (.fvar y)) →
+      EqualWithin left right (depth + 1) pairs (.letE n t v body nondep)
+        (.letE n' t' v' body' nondep')
+
+
+/-- `under` reduces to parts exactly where the pass gave each of the two binders a variable: the
+parts before, and then the two bodies read with those variables, paired. -/
+theorem under_eq_ok_iff (left right : Observations) (pairs : Pairs) (a b : Expr)
+    (before : List Part) (body body' : Expr) (parts : List Part) :
+    under left right pairs a b before body body' = .ok parts ↔
+      ∃ x y, left.bound a = some x ∧ right.bound b = some y ∧
+        parts = before ++
+          [⟨pairs.push (x, y), body.instantiate1 (.fvar x), body'.instantiate1 (.fvar y)⟩] := by
+  unfold under
+  cases onLeft : left.bound a with
+  | none => simp
+  | some x =>
+    cases onRight : right.bound b with
+    | none => simp
+    | some y =>
+      constructor
+      · intro found
+        exact ⟨x, y, rfl, rfl, (Except.ok.inj found).symm⟩
+      · rintro ⟨x', y', same, same', rfl⟩
+        cases same
+        cases same'
+        rfl
+
+/-- `threaded` reduces to parts exactly where `threaded` is the threaded form of the `match` that
+`direct` applies (`Threads`), and then to the parts of `threadedParts`. -/
+theorem threaded_eq_some_ok_iff (side : Side) (seen other : Observations) (pairs : Pairs)
+    (t d : Expr) (parts : List Part) :
+    threaded side seen other pairs t d = some (.ok parts) ↔
+      ∃ shape passed, Threads seen t d shape passed ∧
+        threadedParts side seen other pairs shape passed t.getAppArgs d.getAppArgs =
+          .ok parts := by
+  constructor
+  · intro found
+    unfold threaded at found
+    split at found <;> try cases found
+    rename_i more
+    split at found <;> try cases found
+    rename_i name us name' vs function function'
+    split at found <;> try cases found
+    rename_i named
+    split at found <;> try cases found
+    rename_i shape law
+    split at found <;> try cases found
+    rename_i levels
+    split at found <;> try cases found
+    rename_i passed passes
+    exact ⟨shape, passed, ⟨more, ⟨name, us, name', vs, function, function', named, levels⟩, law,
+      passes⟩, Option.some.inj found⟩
+  · rintro ⟨shape, passed, ⟨more, ⟨name, us, name', vs, function, function', named, levels⟩, law,
+      passes⟩, found⟩
+    simp [threaded, more, function, function', named, law, levels, passes, found]
+
+/-- `threaded` does not apply where `threaded` does not have exactly one more argument than
+`direct`. -/
+theorem threaded_eq_none (side : Side) (seen other : Observations) (pairs : Pairs) (t d : Expr)
+    (sizes : t.getAppArgs.size ≠ d.getAppArgs.size + 1) :
+    threaded side seen other pairs t d = none := by
+  simp [threaded, sizes]
+
+/-- `application` reduces to parts by exactly one of its four rules: two well-founded fixpoints,
+a threaded `match` on the left, one on the right, or two other applications with as many
+arguments. -/
+theorem application_eq_ok_iff (left right : Observations) (pairs : Pairs) (a b : Expr)
+    (parts : List Part) :
+    application left right pairs a b = .ok parts ↔
+      (∃ xs ys, fixpointArguments? a = some xs ∧ fixpointArguments? b = some ys ∧
+        xs.size = ys.size ∧ parts = paired pairs xs ys) ∨
+      (fixpointArguments? a = none ∧ fixpointArguments? b = none ∧
+        ((∃ shape passed, Threads left a b shape passed ∧
+            threadedParts .left left right pairs shape passed a.getAppArgs b.getAppArgs =
+              .ok parts) ∨
+          (∃ shape passed, Threads right b a shape passed ∧
+            threadedParts .right right left pairs shape passed b.getAppArgs a.getAppArgs =
+              .ok parts) ∨
+          (a.getAppArgs.size = b.getAppArgs.size ∧
+            parts =
+              ⟨pairs, a.getAppFn, b.getAppFn⟩ :: paired pairs a.getAppArgs b.getAppArgs))) := by
+  constructor
+  · intro found
+    unfold application at found
+    split at found
+    · rename_i xs ys fixed fixed'
+      split at found
+      · rename_i sizes
+        exact .inl ⟨xs, ys, fixed, fixed', sizes, (Except.ok.inj found).symm⟩
+      · cases found
+    · rename_i fixed fixed'
+      refine .inr ⟨fixed, fixed', ?_⟩
+      split at found
+      · rename_i result onLeft
+        subst found
+        exact .inl ((threaded_eq_some_ok_iff ..).mp onLeft)
+      · split at found
+        · rename_i result onRight
+          subst found
+          exact .inr (.inl ((threaded_eq_some_ok_iff ..).mp onRight))
+        · split at found
+          · rename_i sizes
+            exact .inr (.inr ⟨sizes, (Except.ok.inj found).symm⟩)
+          · cases found
+    · cases found
+  · rintro (⟨xs, ys, fixed, fixed', sizes, rfl⟩ | ⟨fixed, fixed', onLeft | onRight | ⟨sizes, rfl⟩⟩)
+    · simp [application, fixed, fixed', sizes]
+    · obtain ⟨shape, passed, threads, found⟩ := onLeft
+      simp [application, fixed, fixed',
+        (threaded_eq_some_ok_iff ..).mpr ⟨shape, passed, threads, found⟩]
+    · obtain ⟨shape, passed, threads, found⟩ := onRight
+      have notLeft := threaded_eq_none .left left right pairs a b
+        (by have := threads.more; omega)
+      simp [application, fixed, fixed', notLeft,
+        (threaded_eq_some_ok_iff ..).mpr ⟨shape, passed, threads, found⟩]
+    · have notLeft := threaded_eq_none .left left right pairs a b (by omega)
+      have notRight := threaded_eq_none .right right left pairs b a (by omega)
+      simp [application, fixed, fixed', notLeft, notRight, sizes]
+
+/-- Where compilation keeps both of two terms and their structure reduces the comparison to parts
+that are all related, the two terms are related: each rule of `structural` is a constructor of
+`EqualWithin`. -/
+theorem EqualWithin.of_structural {left right : Observations} {depth : Nat} {pairs : Pairs}
+    {a b : Expr} {parts : List Part} (kept : Kept left right a b)
+    (found : structural left right pairs a b = .ok parts)
+    (related : ∀ part ∈ parts, EqualWithin left right depth part.pairs part.left part.right) :
+    EqualWithin left right (depth + 1) pairs a b := by
+  unfold structural at found
+  split at found
+  · cases found
+    exact .mdataLeft kept (related _ (List.mem_singleton.mpr rfl))
+  · rename_i notMData
+    cases found
+    exact .mdataRight kept (fun data' a' same => notMData data' a' same)
+      (related _ (List.mem_singleton.mpr rfl))
+  · split at found
+    · exact .fvar kept ‹_›
+    · cases found
+  · split at found
+    · exact .const kept ‹_›
+    · cases found
+  · split at found
+    · exact .lit kept ‹_›
+    · cases found
+  · split at found
+    · exact .sort kept ‹_›
+    · cases found
+  · split at found
+    · cases found
+      exact .proj kept ‹_› (related _ (List.mem_singleton.mpr rfl))
+    · cases found
+  · rcases (application_eq_ok_iff ..).mp found with
+      ⟨xs, ys, fixed, fixed', sizes, rfl⟩ |
+      ⟨fixed, fixed', ⟨shape, passed, threads, threadedFound⟩ |
+        ⟨shape, passed, threads, threadedFound⟩ | ⟨sizes, rfl⟩⟩
+    · exact .fixpoint kept fixed fixed' sizes related
+    · exact .threadedLeft kept fixed fixed' threads threadedFound related
+    · exact .threadedRight kept fixed fixed' threads threadedFound related
+    · simp only [List.mem_cons, forall_eq_or_imp] at related
+      exact .app kept fixed fixed' sizes related.1 related.2
+  · obtain ⟨x, y, bound, bound', rfl⟩ := (under_eq_ok_iff ..).mp found
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
+      forall_eq_or_imp, forall_eq] at related
+    exact .lam kept bound bound' related.1 related.2
+  · obtain ⟨x, y, bound, bound', rfl⟩ := (under_eq_ok_iff ..).mp found
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
+      forall_eq_or_imp, forall_eq] at related
+    exact .forallE kept bound bound' related.1 related.2
+  · obtain ⟨x, y, bound, bound', rfl⟩ := (under_eq_ok_iff ..).mp found
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false,
+      forall_eq_or_imp, forall_eq] at related
+    exact .letE kept bound bound' related.1 related.2.1 related.2.2
+  · cases found
+
+/-- Where a step reduces the comparison to parts that are all related, the two terms are
+related. -/
+theorem EqualWithin.of_step {left right : Observations} {depth : Nat} {pairs : Pairs}
+    {a b : Expr} {parts : List Part} (found : step left right pairs a b = .ok parts)
+    (related : ∀ part ∈ parts, EqualWithin left right depth part.pairs part.left part.right) :
+    EqualWithin left right (depth + 1) pairs a b := by
+  unfold step at found
+  split at found
+  · exact .closed ‹_›
+  · split at found
+    · cases found
+    · cases found
+    · exact .erased ‹_› ‹_›
+    · exact .of_structural ⟨‹_›, ‹_›⟩ found related
+    · cases found
+
+/-- Soundness of the executed comparison: two terms it accepts are related. -/
+theorem EqualWithin.of_equalWithin {left right : Observations} :
+    ∀ (fuel : Nat) (pairs : Pairs) (a b : Expr),
+      equalWithin left right fuel pairs a b = true → EqualWithin left right fuel pairs a b
+  | 0, _, _, _, accepted => by simp [equalWithin] at accepted
+  | fuel + 1, pairs, a, b, accepted => by
+    simp only [equalWithin] at accepted
+    split at accepted
+    · rename_i all found
+      exact .of_step found fun part member =>
+        EqualWithin.of_equalWithin fuel part.pairs part.left part.right
+          (List.all_eq_true.mp accepted part member)
+    · cases accepted
+
+/-- Where compilation keeps both of two terms and their structure reduces the comparison to parts
+that the comparison accepts, it accepts the two terms. -/
+theorem equalWithin_of_structural {left right : Observations} {fuel : Nat} {pairs : Pairs}
+    {a b : Expr} {parts : List Part} (kept : Kept left right a b)
+    (found : structural left right pairs a b = .ok parts)
+    (accepted : ∀ part ∈ parts,
+      equalWithin left right fuel part.pairs part.left part.right = true) :
+    equalWithin left right (fuel + 1) pairs a b = true := by
+  by_cases closed : (a == b && !a.hasFVar && !b.hasFVar) = true
+  · simp [equalWithin, step, closed]
+  · obtain ⟨keptLeft, keptRight⟩ := kept
+    simpa [equalWithin, step, closed, keptLeft, keptRight, found] using accepted
+
+/-- Completeness of the executed comparison: it accepts every two related terms. -/
+theorem equalWithin_of_related {left right : Observations} {fuel : Nat} {pairs : Pairs}
+    {a b : Expr} (related : EqualWithin left right fuel pairs a b) :
+    equalWithin left right fuel pairs a b = true := by
+  induction related with
+  | closed closed => simp [equalWithin, step, closed]
+  | @erased depth pairs a b erasedLeft erasedRight =>
+    by_cases closed : (a == b && !a.hasFVar && !b.hasFVar) = true
+    · simp [equalWithin, step, closed]
+    · simp [equalWithin, step, closed, erasedLeft, erasedRight]
+  | mdataLeft kept _ accepted =>
+    exact equalWithin_of_structural kept (parts := [⟨_, _, _⟩]) rfl (by simpa using accepted)
+  | @mdataRight depth pairs data a b kept notMData _ accepted =>
+    refine equalWithin_of_structural kept (parts := [⟨pairs, a, b⟩]) ?_ (by simpa using accepted)
+    cases a with
+    | mdata data' a' => exact absurd rfl (notMData data' a')
+    | _ => rfl
+  | fvar kept same =>
+    exact equalWithin_of_structural kept (parts := []) (by simp [structural, same]) (by simp)
+  | const kept same =>
+    exact equalWithin_of_structural kept (parts := []) (by simp [structural, same]) (by simp)
+  | lit kept same =>
+    exact equalWithin_of_structural kept (parts := []) (by simp [structural, same]) (by simp)
+  | sort kept same =>
+    exact equalWithin_of_structural kept (parts := []) (by simp [structural, same]) (by simp)
+  | @proj depth pairs s s' i i' e e' kept same _ accepted =>
+    exact equalWithin_of_structural kept (parts := [⟨pairs, e, e'⟩]) (by simp [structural, same])
+      (by simpa using accepted)
+  | fixpoint kept fixed fixed' sizes _ accepted =>
+    exact equalWithin_of_structural kept
+      ((application_eq_ok_iff ..).mpr (.inl ⟨_, _, fixed, fixed', sizes, rfl⟩)) accepted
+  | threadedLeft kept fixed fixed' threads found _ accepted =>
+    exact equalWithin_of_structural kept
+      ((application_eq_ok_iff ..).mpr (.inr ⟨fixed, fixed', .inl ⟨_, _, threads, found⟩⟩))
+      accepted
+  | threadedRight kept fixed fixed' threads found _ accepted =>
+    exact equalWithin_of_structural kept
+      ((application_eq_ok_iff ..).mpr
+        (.inr ⟨fixed, fixed', .inr (.inl ⟨_, _, threads, found⟩)⟩)) accepted
+  | app kept fixed fixed' sizes _ _ acceptedHead acceptedArguments =>
+    refine equalWithin_of_structural kept
+      ((application_eq_ok_iff ..).mpr (.inr ⟨fixed, fixed', .inr (.inr ⟨sizes, rfl⟩)⟩)) ?_
+    intro part member
+    rcases List.mem_cons.mp member with rfl | member
+    · exact acceptedHead
+    · exact acceptedArguments part member
+  | lam kept bound bound' _ _ acceptedType acceptedBody =>
+    refine equalWithin_of_structural kept
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', rfl⟩) ?_
+    intro part member
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+      or_false] at member
+    rcases member with rfl | rfl
+    · exact acceptedType
+    · exact acceptedBody
+  | forallE kept bound bound' _ _ acceptedType acceptedBody =>
+    refine equalWithin_of_structural kept
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', rfl⟩) ?_
+    intro part member
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+      or_false] at member
+    rcases member with rfl | rfl
+    · exact acceptedType
+    · exact acceptedBody
+  | letE kept bound bound' _ _ _ acceptedType acceptedValue acceptedBody =>
+    refine equalWithin_of_structural kept
+      ((under_eq_ok_iff ..).mpr ⟨_, _, bound, bound', rfl⟩) ?_
+    intro part member
+    simp only [List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil,
+      or_false] at member
+    rcases member with rfl | rfl | rfl
+    · exact acceptedType
+    · exact acceptedValue
+    · exact acceptedBody
+
+/-- The executed comparison answers `true` exactly for the terms `EqualWithin` relates, for every
+observation, depth, pairing and pair of terms. The theorem is about `equalWithin` itself, the
+function `reproduces` runs. It starts from the observations: it does not say that an observation
+is what Lean answers, or that related terms compile to code that computes the same. -/
+theorem equalWithin_iff (left right : Observations) (fuel : Nat) (pairs : Pairs) (a b : Expr) :
+    equalWithin left right fuel pairs a b = true ↔ EqualWithin left right fuel pairs a b :=
+  ⟨EqualWithin.of_equalWithin fuel pairs a b, equalWithin_of_related⟩
+
+/-- The depth to which the comparison reads two values. Two values that differ only below it are
+not accepted. -/
+def depthLimit : Nat := 100000
+
+/-- The definitions one regeneration added, each with the observed definition of its name, and
+what the observing pass shows of the terms of each side. This is all the decision reads. -/
+structure Regeneration where
+  /-- The observations of the terms of the regenerated values. -/
+  regenerated : Observations
+  /-- The observations of the terms of the observed values. -/
+  observed : Observations
+  /-- Each regenerated value with the value of the observed definition of its name, and `none`
+  where the inspected environment holds no definition of that name. -/
+  definitions : List (Expr × Option Expr)
+
+/-- Whether a regeneration reproduces the observed definitions: it added at least one definition,
+and each one's value equals, up to compilation erasure, the value of the observed definition of
+its name (`equalWithin`, to `depthLimit`, with no variables paired). A regenerated definition with
+no observed definition of its name is not reproduced. -/
+@[regula_decision]
+def reproduces (regeneration : Regeneration) : Bool :=
+  !regeneration.definitions.isEmpty && regeneration.definitions.all fun definition =>
+    match definition.2 with
+    | some observed =>
+      equalWithin regeneration.regenerated regeneration.observed depthLimit #[] definition.1
+        observed
+    | none => false
+
+/-- The regeneration added at least one definition, and each one's value is related by
+`EqualWithin`, within `depthLimit`, to the value of the observed definition of its name. -/
+def Reproduction (regeneration : Regeneration) : Prop :=
+  regeneration.definitions ≠ [] ∧ ∀ definition ∈ regeneration.definitions,
+    ∃ observed, definition.2 = some observed ∧
+      EqualWithin regeneration.regenerated regeneration.observed depthLimit #[] definition.1
+        observed
+
+/-- `reproduces` answers `true` exactly for a regeneration that is a `Reproduction`. -/
+theorem reproduces_iff (regeneration : Regeneration) :
+    reproduces regeneration = true ↔ Reproduction regeneration := by
+  simp only [reproduces, Reproduction, Bool.and_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true,
+    List.isEmpty_eq_false_iff, List.all_eq_true]
+  refine and_congr_right fun _ => forall₂_congr fun definition _ => ?_
+  cases observed : definition.2 with
+  | none => simp
+  | some value => simp [equalWithin_iff]
+
+/-- `reproduces` accepts exactly the regenerations that reproduce the observed definitions
+(`reproduces_iff`): it accepts one definition whose two values are erased, and refuses a
+regeneration that added no definition. The decision reads the two values and the observations
+and nothing else. That each observation is what Lean answers is the observing pass's, and that
+related values compile to the same code is argued; neither is part of this kind. -/
+theorem checked_reproduces :
+    Regula.ExecutableContract reproduces (Regula.Decides (· = true) Reproduction) :=
+  let erased : Observations :=
+    { erased := fun _ => some true, bound := fun _ => none, threading := fun _ => none }
+  ⟨.of_iff reproduces_iff
+    ⟨⟨erased, erased, [(.sort .zero, some (.sort .zero))]⟩,
+      (reproduces_iff _).mpr ⟨by simp, fun definition member => by
+        obtain rfl := List.mem_singleton.mp member
+        exact ⟨_, rfl, .erased (depth := 99999) rfl rfl⟩⟩⟩
+    ⟨⟨erased, erased, []⟩, by simp [reproduces]⟩⟩
+
+end RegulaPolicy.Erasure

@@ -306,6 +306,45 @@ interfaces do not imply a library-wide exemption.
 | Correspondence | `DefeqComparison.classify_checked_iff`, `classify_trusted_iff`, `classify_unresolved_iff` | Checked exactly for a completed comparison with admitted evidence, trusted exactly for a completed one without, unresolved exactly for one that did not complete. |
 | Expected diagnostics | `matchesPattern_iff`, `orderedLiterals_iff` | The restricted pattern's ordered leftmost-split match within one effective-error message. |
 
+### Where each field of a declaration's record comes from
+
+`RegulaPolicy.Declaration` is the record the collector builds for one constant
+(`Collect.declaration`), and the policy theorems above take it as given. Its type has three parts,
+and each field is declared in the part that says where its value comes from
+([`RegulaPolicy/Domain.lean`](../../lean/RegulaPolicy/Domain.lean)):
+
+| Part of the record | Source of its fields | Fields |
+| --- | --- | --- |
+| `Declaration.KernelChecked` | Kernel-checked declaration data: a field of the constant's `ConstantInfo`, or a pure function of such fields. | `name`, `kind`, `type`, `isUnsafe`, `isPartial`, `safety`, `internal`, `private`, `unsafeRecBase`, `levelParams`, `all`, `hints`, `valueConstants`, `nativeStatement` |
+| `Declaration.ToolchainObserved` | A toolchain observation: the answer of Lean's elaborator, compiler or kernel, or of the checker's own observing code, at inspection. | `module`, `prettyType`, `isProp`, `axioms`, `unsafeRecRegenerated`, `constructorIndex`, `nativeReplay`, `executableContract` |
+| `Declaration.ProjectWritten` | Environment state an audited project can write: an extension's entry, an attribute, a declaration range. | `instance`, `noncomputable`, `implementedBy`, `extern`, `projection`, `matcher`, `recursive`, `recordedRanges`, `generatedFrom`, `decisionResult` |
+
+`Declaration.Inspected` is the first two parts, and `Declaration` adds the third. A decision or a
+relation whose argument is `Declaration.Inspected` cannot name a field of
+`Declaration.ProjectWritten`: Lean rejects the reference, and reading such a field takes a change
+of the signature that every caller sees. Moving a field to another part is rejected the same way
+at each use that takes the narrower part. What takes which part:
+
+| Decision or relation | Argument | Fields it can read |
+| --- | --- | --- |
+| `declarationFailure`, `DeclarationOK` and its conjuncts (`KnownDependencies`, `SafetyOK`, `CompilerPolicyOK`, `ContractOK`, `ProfileOK`), `FoundationOK`, `declarationRequirements` and their theorems (`declarationFailure_none_iff`, `declarationFailure_iff`, `declarationFailure_ne_decisionContract`) | `Declaration.Inspected` | Kernel-checked data and toolchain observations. No project-written field. The role sets are separate arguments. |
+| `Erasure.reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | No record: two values and `Erasure.Observations` | Toolchain observations of the terms of the two values. |
+| `decisionFailure`, `DecisionOK` | `Declaration` | `decisionResult`, the project's own registration, and `name`. |
+| `NativeTeachingOK`, `RecursiveHelperOK`, `ConstructorIndexHelperOK` and the `authorized…` validators | `Declaration` | Every part. Each also requires project-written fields to have the value a generated helper has (`implementedBy = none`, `extern = false`, no recorded range), which narrows what is admitted and authenticates nothing. |
+| `policyFor`, `memberFailure`, `operationalFailure`, the editor decision | `Declaration` | Every part, through the decisions above: each passes `declarationFailure` the inspected part. |
+
+**Limits.** The parts classify the source of a value. They do not make an observation truthful,
+and that `Collect.declaration` fills each field from the source its part names is by inspection of
+that function, not proved. A toolchain observation can depend on project-written state where the
+toolchain's own answer does, and the docstring of each such field says where: `isProp` does not
+unfold an irreducible definition; `prettyType` uses the notations in force; `executableContract`
+reads Lean's `noncomputable` mark for one refusal; `constructorIndex` requires that no replacement,
+`extern` implementation or range is recorded; `nativeReplay` runs compiled code; and what a project
+writes selects which regeneration `unsafeRecRegenerated` reports, while the pure comparison and the
+kernel decide it. The role validators and the decisions that take the whole `Declaration` still
+read project-written fields: narrowing them is the rest of
+[#199](https://github.com/rbeauchamp/regula/issues/199).
+
 **Consumers** (paths from `lean/Regula/`):
 
 | Operational caller | Proved pure function | Remaining boundary |
@@ -345,7 +384,7 @@ the call through each success owner.
 | [RG1001]–[RG1003] | `declarationFailure_iff`, `policyFor_ordered`, `foundationFor_iff` | Ownership and transitive-axiom acquisition (`Lean.collectAxioms`). |
 | [RG1004] | The above plus `authorizedNativeAxioms_iff`, `native_generated`, `native_provenance`, `compilerTrustingAxiomName_iff` | Transcript and replay truth; authorization permits teaching only. |
 | [RG1005] | `foundationFor_least`, `leastFoundation_ext`, `policyFor_conforming_iff` | The least containing profile of the observed axioms, not the least possible axioms for the proposition. |
-| [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule` | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
+| [RG1006] | The helper authorization `_iff` theorems, `Roles.safetyHelpers_iff`, `policyFor_conforming_iff`, `subject_contract`, `partialParent_rule`; for the comparison that records a recursion helper's observation, `Erasure.equalWithin_iff`, `Erasure.reproduces_iff` and the kind `Erasure.checked_reproduces` ([below](#the-recursion-helper-comparison-decision-and-observing-pass)) | Exact helper metadata, the relevant recorded recursion-helper or constructor-index observation and the base's axioms are checked. A `partial def`'s helper always has a finding naming its opaque parent when that parent is in the inventory. A recursion helper's observation is recorded only where Lean's kernel checked, at that audit, the base's recursion equation for each helper of the group (`Collect.recursionEquationChecked`); that check is the collector's, not a theorem of the policy. The collector observations, the step from the recursion equation to the values the helper returns, compiled-code correspondence and execution coverage are not proved. A recursion helper's termination still trusts Lean's well-founded preprocessing (standard §7.4); a constructor wrapper's native object-tag correspondence remains trusted. |
 | [RG1007] | `ContractOK` through `ruleFor`; `DecisionKind.ofStructureName?_eq_some_iff` (a head constant is read as a decision kind exactly when it is that kind's structure) | Recorded contract failures are enforced; Probe's extraction of the proposition and root, the reduction that exposes a requirement's head constant, the search that finds a mention of the implementation in a decision's acceptance predicate or specification, proof admission and adequacy are not proved by this relation. |
 | [RG1008] | `policyFor_decisionContract_iff`, `Roles.decided_iff`, `policyFor_ordered` through `ruleFor`; `decisionFailure_none_iff` for the self-audit's direct use; `editor_decision_ne_decisionContract` (the editor never renders it) | A registered decision without a `Decidable` result or an accepted decision contract in its inventory is reported, among the declarations that meet their other requirements. Reading the registrations of every loaded module and the result type by reduction (`Regula.decisionRegistrations`, `Collect.decisionResult?`, `returnsDecidable`) is the collector's, and so are each recorded contract and the refusal of a registration that names a declaration outside the inventory (`Collect.ownedDecisionRegistrations`). A result type the reduction does not unfold to `Decidable _` counts as another form, which fails closed. Which functions are registered, and each specification's adequacy, are review. |
 | [RG2004] | `policyFor_ordered` (membership first), `CensusOK`, `PlanOK` | Complete Lake and environment ownership acquisition. |
@@ -456,6 +495,7 @@ Two-way decisions (`Regula.Decides`), each with an accepted and a refused input:
 | `Regula.Checker.Frontend.coordinateCheck` (accepts on `.ok`) | `CoordinatesAgree` | Transcript coordinates, checked before inventory admission (`checked_scope`). |
 | The spelling parsers `DeclarationKind.parse?`, `BoundaryKind.parse?`, `Correspondence.parse?`, `FoundationClass.parse?`, `ConformingProfile.parse?`, `ExecutionClaim.parse?`, `EvidenceMode.parse?`, `Safety.parse?`, `Reducibility.parse?`, `RecursionOrigin.parse?`, `DecisionKind.parse?`, `DecisionResult.parse?`, `EvaluatorRole.parse?`, `Profile.parse?` and `RuleId.parse?` | The text is the spelling of a value (`roundtrip`, `canonical`) | Transport of closed vocabularies. |
 | `RegulaPolicy.DecisionKind.ofStructureName?` | The name is a kind's structure | Reading a registration's kind ([RG1007]). |
+| `RegulaPolicy.Erasure.reproduces` | `Erasure.Reproduction`: the regeneration added a definition, and each value is related by `Erasure.EqualWithin` to the observed value of its name | The recursion-helper comparison of [RG1006], over the two values and the recorded observations of their terms ([below](#the-recursion-helper-comparison-decision-and-observing-pass)). |
 | `Regula.SourceTexts.intern` | One `sourceTexts` member, `null`, and string `sourceText` members (`intern_isOk_iff`) | Writing a result document. |
 | `Regula.Markdown.documentErrors`, `Regula.Prose.bareMentions`, `Regula.Site.linkErrors`, `Regula.Site.missingAnchors`, `Regula.Site.rowsMismatch` | Their `_nil_iff` and `_eq_none_iff` relations | The rule-ID checks of Markdown and of the rendered standard, and the site's link, anchor and checklist checks. |
 | `RegulaQualification.evaluate`, `validateDecoded`, `Registry.validate`, `Native.validate`, `Launcher.equivalent` | `Satisfied` and their `_exact` relations | Qualification evidence. |
@@ -499,7 +539,7 @@ Decisions with no kind, and what stands instead:
 ### Decisions not registered with `regula_decision`
 
 Every decision of the three tables with a kind is registered with `@[regula_decision]`, so
-[RG1008] requires its contract: 40 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
+[RG1008] requires its contract: 41 functions of `RegulaPolicy`, 9 of `RegulaCore`, 9 of
 `RegulaQualification`, 3 of `AuditApp`, 8 of `RegulaProvision`, 2 of `RegulaVerification` and 11 of the excluded `Regula` library, where the
 `self-audit` diagnostic decides the rule. Twelve of them are registered from another module of
 their library, with
@@ -561,10 +601,99 @@ registers explicitly and a declaration whose
 [generated-from relation](#generated-declaration-families) a project wrote
 (`Fixtures.Mutations.DecisionProjection`, `Fixtures.Mutations.DecisionForgedAttribution`).
 
-The producers that run in `MetaM` or `IO` (the recursion-helper comparison, native replay,
-contract recognition and reach, receipt validation, root and closure discovery and the fence
-scanner) are not pure decisions and have no kind; the sections below state what is proved and
-what is observed for each.
+### The recursion-helper comparison: decision and observing pass
+
+A producer that runs in `MetaM` or `IO` is not a pure decision and has no kind. The comparison of
+[RG1006], which decides whether a regenerated definition is the observed one up to compilation
+erasure, is split into an observing pass and a pure decision that has one.
+
+- **The decision** is `RegulaPolicy.Erasure.reproduces`, a pure, total function of the claimed
+  policy library ([`RegulaPolicy/Erasure.lean`](../../lean/RegulaPolicy/Erasure.lean)). Its one
+  argument, `Erasure.Regeneration`, holds, for each definition a regeneration added, its value and
+  the value of the observed definition of its name (or that the inspected environment holds
+  none), and the `Erasure.Observations` of the terms of each side. It takes nothing else: no
+  environment, reducibility status, attribute, matcher record or termination argument is among
+  its arguments, so whatever selected the regeneration cannot enter the decision without a change
+  of that signature. It is registered with `@[regula_decision]`, `Erasure.checked_reproduces`
+  registers the kind `Regula.Decides`, and the collector takes the verdict from
+  `checked_reproduces.run` (`Collect.regenerationMatches`).
+- **The observing pass** is `Collect.observeEqual` with `Collect.observe`, in `MetaM`. It takes the
+  comparison's own steps (`Erasure.step`) in the comparison's order and, where a step asks for an
+  observation it was not given (`Erasure.Need`), records it: whether a term is a proof or a type
+  (`Meta.isProof`, `Meta.isType`), a fresh variable for a binder, or a decomposition of a `match`
+  application whose threading law Lean's kernel checked (`Collect.threadingLawChecked`). The pass
+  holds no comparison rule, an observation of a term never reads the other side's term, and what
+  the pass returns only says whether to go on observing. Whatever it leaves unobserved the
+  decision refuses.
+
+**Proved**, about `Erasure.equalWithin`, the function `reproduces` runs (kernel-checked in the
+claimed library, with `propext` and `Quot.sound` only):
+
+| Property | Declarations | Meaning and limit |
+| --- | --- | --- |
+| Exact relation | `Erasure.equalWithin_iff` | For every two terms, pairing of variables, depth and pair of observations, the executed comparison answers `true` exactly when `Erasure.EqualWithin` relates the terms within that depth. |
+| The registered decision | `Erasure.reproduces_iff`, `Erasure.checked_reproduces` | `reproduces` accepts exactly a regeneration that added a definition and whose every value is related, within `Erasure.depthLimit` (100000), to the observed value of its name. It accepts one whose two values are erased and refuses one that added no definition. |
+| One constructor for each rule | The constructors of `Erasure.EqualWithin` | `closed` (Lean's expression equality, no free variable), `erased` (both a proof or a type), `mdataLeft`, `mdataRight`, `fvar`, `const`, `lit`, `sort`, `proj`, `fixpoint` (the arguments of a well-founded fixpoint that carry its computation, `Erasure.fixpointArguments?`), `threadedLeft` and `threadedRight` (a `match` that passes a variable through against the direct one, only under a recorded kernel-checked law, `Erasure.Threads`), `app`, `lam`, `forallE` and `letE`. A rule added to the comparison without a constructor, or a constructor without its rule, makes `equalWithin_iff` fail to check. |
+| Unobserved is refused, and so is an erased term against a kept one | `Erasure.EqualWithin`, `Erasure.Kept` (every rule but `closed` reads the erasure of both terms) | A term the pass was not asked about has no observation, and no rule relates it by its erasure or its structure. A structural rule applies only where both terms are observed not to be erased, so the relation is the standard's sentence: the two values are the same once every proof and every type of each is erased. |
+| Threading pairs | `Erasure.mem_standingFor_left`, `Erasure.mem_standingFor_right` | The pairs under which the variable an alternative binds stands for the variable passed relate that variable alone, and to exactly the variables the passed one was paired with. |
+
+**Hypotheses and trusted boundary.** The theorems start from the observations and the two values.
+They do not prove:
+
+- that an observation is what Lean answers. Erasure is `Meta.isProof` or `Meta.isType` of the
+  term in the context of the variables the pass bound; a recorded decomposition is one for which
+  `Environment.addDeclCore` accepted the threading law. Both are the pass's, and a wrong answer
+  is a wrong observation, not a refuted theorem;
+- anything about Lean's own functions the comparison runs and the relation names as it runs them:
+  expression equality (`Expr.eqv`), the free-variable test, `Expr.instantiate1`, the head and
+  arguments of an application, and the equality of names, universe levels and literals. Several
+  are implemented in C++ and have no specification to state a rule by, so the leaf rules are
+  stated as those Boolean tests;
+- the adequacy of the relation: that two related values compile to code that computes the same.
+  That is argued, with no theorem, rule by rule: a proof or a type has no code; a well-founded
+  fixpoint's relation, measure and well-foundedness proof have none either; the kernel-checked
+  law makes a threaded `match` equal to the direct one with each alternative applied to the
+  variable passed, and the alternatives are compared with the bound variable standing for it;
+  and every other rule compares the same constructor part by part. The relation's vocabulary
+  (`fixpointArguments?`, `threadedParts`, `alternative`, `openLambdas`, `standingFor`, `paired`)
+  is the comparison's own: a constructor states when its rule applies and that every part is
+  related, and which parts those are is the definition both share;
+- the regeneration that supplies the values, the selection of the observed definitions by name,
+  or the kernel's check of the recursion equation, which are as described under
+  [editor feedback](#editor-feedback).
+
+**What the pass reads that a project can write.** Reducibility statuses, where Lean decides
+whether a term is a proof or a type: an irreducible definition can make Lean answer that a proof
+or a type is neither, which sends the comparison to the structural rules or, where the other term
+is erased, refuses the pair, and it cannot make Lean answer that a term with code is erased, since
+a reduction step is a definitional equality under every assignment of statuses (argued from Lean's
+source, not checked). And matcher and `casesOn`
+metadata, which proposes the decomposition whose law the kernel then checks or refuses. Neither
+is an argument of the decision.
+
+**The counterexample that narrowed the rule.** Standard §7.4 says the two values are the same
+once every proof and every type of each is erased. Until this split the comparison accepted two
+terms outright only where both were erased, and where exactly one was erased it went on to compare
+the two by their structure, as it does where neither is. So it accepted
+`fun (h : 0 = 0) => h` against `fun (n : Nat) => n`: the binder types are both types, and the
+bodies are paired variables, of which the first is a proof and the second is not. Stating the
+relation exposed that case. The comparison now reads the erasure of both terms, compares structure
+only where compilation keeps both (`Erasure.Kept`), and refuses a pair of which exactly one is
+erased. `Erasure.EqualWithin` is therefore the standard's sentence, and `equalWithin_iff` refuses
+that pair with every other of its kind: no constructor relates an erased term to a kept one. The
+rule only refuses more than it did, so it admits no helper the earlier comparison refused. The two
+values the collector compares are kernel-checked values of one declared type, and no helper is
+known whose verdict the narrowing changes.
+
+**Observed.** `checkerSelftest fixtures` exercises the pass and the regeneration against the pinned
+toolchain: every helper of the positive recursion fixtures is admitted, and each forged helper of
+the mutation fixtures is rejected. Those fixtures test this external boundary, not the comparison
+rules, which the theorem settles.
+
+The other producers of [#199](https://github.com/rbeauchamp/regula/issues/199) (native-axiom
+replay matching, contract recognition and reach, receipt validation, root and closure discovery,
+the fence scanner and the diagnostic and policy codecs) are not yet split and have no kind; the
+sections below state what is proved and what is observed for each.
 
 ## Producers
 
@@ -1040,22 +1169,26 @@ over a `casesOn`, overlapping alternatives, a named equation and numeric literal
 `Fixtures.Mutations.ReducibilityChangeUnsafeRecForge` admits a faithful copy of such a helper and
 rejects one that computes with another function, on each of the two paths. Lean records no
 reducibility with a definition, so nothing is restored. The first path is the comparison:
-`Collect.equalErased` takes a `match` that passes a variable through (`Collect.threadedMatch?`: the
+`Erasure.equalWithin` takes a `match` that passes a variable through (`Erasure.Threads`: the
 same constant, applied to the variable as one more argument, every alternative binding it once
 more) as the `match` that uses the variable directly, comparing each alternative's body with the
-bound variable standing for the one passed. Lean's compilers choose between these two forms by
-`isDefEq` on the type of the recursive-call function (`MatcherApp.addArg`), so the choice depends
-on what unfolds. The comparison takes that step only after `Collect.threadingLawChecked`: for the
-constant `M`, parameters and motive `fun ds => A ds → R ds` at hand, it states
+bound variable standing for the one passed (`Erasure.threadedParts`). Lean's compilers choose
+between these two forms by `isDefEq` on the type of the recursive-call function
+(`MatcherApp.addArg`), so the choice depends on what unfolds. The comparison takes that step only
+where its observing pass recorded that `Collect.threadingLawChecked` succeeded for the application
+(`Erasure.Observations.threading`): for the
+constant `M`, parameters and motive `fun ds => A ds → R ds` at hand, the pass states
 
 `∀ ds alts (w : A ds), M ps (fun ds => A ds → R ds) ds alts w = M ps R ds (fun xs => altsᵢ xs w)`
 
-over the variables in scope, finds a proof (`Split.splitMatch`, or `cases` on the major premise,
-then `rfl`), and has Lean's kernel check it (`Environment.addDeclCore`) with no axiom outside
-Standard-Logical; the theorem and every constant the search realizes are then discarded. What Lean
-records about `M` (that it is a matcher or a `casesOn`, how many pattern variables an alternative
-binds) is metadata the audited module can write, and decides nothing: it says where to look and how
-to search, and the kernel decides. `Fixtures.Mutations.FakeMatcherUnsafeRecForge` registers two
+over the variables the application's terms mention (`Collect.scopeOf`), finds a proof
+(`Split.splitMatch`, or `cases` on the major premise, then `rfl`), and has Lean's kernel check it
+(`Environment.addDeclCore`) with no axiom outside Standard-Logical; the theorem and every constant
+the search realizes are then discarded. What Lean records about `M` (that it is a matcher or a
+`casesOn`, how many pattern variables an alternative binds) is metadata the audited module can
+write, and decides nothing: it proposes the decomposition the law is stated for, and the pass
+records a decomposition only where the kernel checked that law (`Collect.observe`). The pure
+comparison reads that record and never the metadata. `Fixtures.Mutations.FakeMatcherUnsafeRecForge` registers two
 functions that return their last argument as matchers; under that description two leaves that
 compute different values are the two forms of one `match`, and a helper forged with the other leaf
 is rejected, where the law cannot be stated for the constant and where it can and is false
@@ -1067,11 +1200,14 @@ definition given the status its declaration shows (`Collect.withoutIrreducible`:
 structural argument against the
 parameters the helper's value binds, since the observed type need not show them. What is
 machine-checked: at each use of the first path, the kernel's check of the threading law, relative
-to the inspected environment, whose owned declarations the gate replays (standard §7.3); and
-`mem_standingFor_left` and `mem_standingFor_right`, by which the pairs under which the bound
-variable stands for the passed one relate the bound variable alone, and to exactly the variables
-the passed one was paired with. Neither states anything about the comparison as a whole. The rest
-is argued, with no theorem: that comparing an alternative's body with the bound variable standing
+to the inspected environment, whose owned declarations the gate replays (standard §7.3);
+`Erasure.mem_standingFor_left` and `Erasure.mem_standingFor_right`, by which the pairs under which
+the bound variable stands for the passed one relate the bound variable alone, and to exactly the
+variables the passed one was paired with; and `Erasure.equalWithin_iff`, by which the executed
+comparison accepts exactly the terms `Erasure.EqualWithin` relates, whose two rules for this path
+(`threadedLeft`, `threadedRight`) apply only under a recorded law
+([the comparison's decision](#the-recursion-helper-comparison-decision-and-observing-pass)). The
+rest is argued, with no theorem: that comparing an alternative's body with the bound variable standing
 for the passed one is the comparison, up to erasure, of the law's right-hand side with the other
 side; that ignoring the motive's universe level of the matcher loses nothing, universe levels
 being erased; and that the second environment, like the termination argument, only selects which
@@ -1282,18 +1418,21 @@ consulted. The rest is argued, with no theorem:
 
 - Soundness. An assignment only selects which regeneration runs. `Collect.unsafeRecRegeneration`
   returns an origin only when `Collect.regenerationMatches` accepts the definitions a regeneration
-  added and the kernel then checks the recursion equation, and that comparison takes those
-  definitions alone as its argument and runs after the saved state, environment included, is
-  restored and Lean's caches are emptied, so it reads the observed definitions in the inspected
-  environment whatever assignment the regeneration ran under. Every question the search asks
+  added and the kernel then checks the recursion equation. The verdict of that comparison is the
+  pure decision `Erasure.reproduces`, whose only arguments are those definitions' values, the
+  observed values of their names and the observations of their terms: no assignment, status or
+  environment is among them, which its signature shows. Its observing pass runs after the saved
+  state, environment included, is restored and Lean's caches are emptied, so it reads the observed
+  definitions in the inspected environment whatever assignment the regeneration ran under. Every question the search asks
   (`Collect.decisionIn`) is undone the same way, and its answers reach nothing but the list of
   assignments. The fallback's assignments are read from statuses, kernel
   hints and module membership, and select a regeneration like the others.
   So no assignment, and no failure to find one, admits a helper whose value differs
   from its base: a search that finds nothing returns no origin, and one that stops at its bound
-  throws. The comparison does consult state the audited module can write (the inspected
-  environment's own statuses, where it decides what is a proof or a type, and matcher metadata), as
-  it did before the search; an assignment adds nothing to that. That a regeneration under any
+  throws. The observing pass does consult state the audited module can write (the inspected
+  environment's own statuses, where Lean decides what is a proof or a type, and matcher metadata,
+  which proposes a decomposition for the kernel to check), as the comparison did before the search;
+  an assignment adds nothing to that, and the decision reads the pass's answers, not that state. That a regeneration under any
   assignment is Lean's compilation of the helper's recursion is the same trust as for the
   environment with no definition irreducible: the fixed-parameter analysis keeps a parameter outside
   the fixpoint only where `isDefEq` accepts that every recursive call passes it unchanged, `isDefEq`
@@ -1569,21 +1708,23 @@ write, and what authenticates each:
 | `f._unsafe_rec` → `f` | `Compiler.isUnsafeRecName?` | Selection only: the helper is admitted only where the regeneration from its value reproduces `f` and every auxiliary definition, and the kernel checks the recursion equation of `f` for that value. |
 | `f._unary`, `f._mutual`, and `f._f` and `f._sunfold` of the helper's base | Added by the regeneration under its root; `Collect.wfRegeneration` reads the observed unary definition's relation | Each regenerated definition must equal the observed one of its name. The relation only selects: the comparison drops it, and the well-foundedness proof is the observed kernel-checked one. |
 | `g._sunfold` of any other constant | Lean's smart unfolding; formerly also `Collect.unfoldReferences` | Not read: every observation runs with smart unfolding off, and the search's closure follows no `_sunfold` declaration. |
-| Matcher and `casesOn` metadata, in the comparison | `Collect.threadedMatch?` | The kernel-checked threading law of each application (`Collect.threadingLawChecked`). |
+| Matcher and `casesOn` metadata, in the comparison's observing pass | `Collect.observe` | The kernel-checked threading law of each application (`Collect.threadingLawChecked`): the pass records a decomposition only where the law is checked, and the pure comparison reads that record alone (`Erasure.Threads.law`). |
 | Matcher metadata, in reduction | `Meta.whnfMatcher`, `Meta.reduceMatcher` | The constant's own value is unfolded. |
 | A matcher's equations and splitter | The proof search of `threadingLawChecked` | Guidance only: the kernel checks the theorem found. |
 | Projection metadata | The `paramProj` preprocessing step; unfolding a projection function | `paramProj` moves only `wfParam`, the identity; the function's own value is unfolded. |
-| `Structural.eqnInfoExt`, `WF.eqnInfoExt`, reducibility statuses | The regeneration | Selection only, never an argument of the comparison. |
+| `Structural.eqnInfoExt`, `WF.eqnInfoExt`, reducibility statuses | The regeneration | Selection only, never an argument of the comparison: `Erasure.reproduces` takes the two values and their observations and nothing else. |
 | `T.rec` | The structural compiler | A recursor is created by the kernel with its inductive type. |
 | Matcher and `casesOn` metadata, in Lean's compilers during the regeneration | `MatcherApp.addArg`, which passes the function standing for the recursive calls through a `match` | Selection only: the kernel checks the recursion equation of the base (`Collect.recursionEquationChecked`). The regeneration alone admitted `Fixtures.Mutations.MatcherMetadataUnsafeRecForge`. |
 | `T.below`, `T.brecOn` of an inductive type of the audited module | The structural compiler, by name | Selection only: the kernel checks the recursion equation of the base. Lean generates them with an `inductive`; a module that adds an inductive type by metaprogram can declare others, and the regeneration alone admitted `Fixtures.Mutations.AuthoredCompanionUnsafeRecForge`. |
 | `f.eq_def`, by name; `Structural.eqnInfoExt` and the other records from which `Meta.getUnfoldEqnFor?` realizes a theorem, for the base and for the regenerated definition | The proof search of `recursionEquationChecked` | Guidance only: every constant the search adds is replaced by its value (`Collect.closedOver`), and the kernel of the inspected environment checks the proof against the statement the checker built. |
 No theorem covers the regeneration itself, which runs in Lean's elaborator; since the equation
-check, it selects the base and carries no claim about what the helper computes. The comparison
+check, it selects the base and carries no claim about what the helper computes. The comparison's
+verdict is a pure decision with a kind
+([above](#the-recursion-helper-comparison-decision-and-observing-pass)); its observing pass
 never uses `Meta.isDefEq`: where two values differ under a recursive call, its lazy unfolding of
 the self-referential helper does not terminate. The regeneration runs Lean's elaborator in the
-report worker and is undone before the comparison, which reads the observed definitions and decides
-erasure in the inspected environment; a comparison that throws counts as no regeneration. The
+report worker and is undone before the comparison, whose pass reads the observed definitions and
+observes erasure in the inspected environment; a pass that throws counts as no regeneration. The
 report's other elaborator observations (`Meta.isProp`, the pretty-printed type, and `Probe`'s
 executable-root classification) run under Lean's default limits. When one fails,
 the report worker's error names the module, the declaration (for an execution walk, its root) and
