@@ -88,8 +88,12 @@ library is the claimed surface on which that support is checked:
 | Statements about Mathlib's own definitions (`Nat.Perfect`, `Relation.ReflTransGen`, `Even`) | `MathlibAudit.Research`, `MathlibAudit.Refinement`, `MathlibAudit.Basic` |
 | `lake lint` through the `regula/lint` driver in a Mathlib project | The package's `lintDriver` |
 
-These modules are the Mathlib forms of lessons whose Lean/Std forms the standard displays; the
-standard links each one where it teaches the lesson. Run the check with its own setup:
+These modules are the Mathlib forms of lessons whose Lean/Std forms the standard displays. The
+standard links five of them where it teaches the lesson: `MathlibAudit.Models`,
+`MathlibAudit.DocClaims`, `MathlibAudit.Economy`, `MathlibAudit.Refinement` and
+`MathlibAudit.Research`. It has no link to `MathlibAudit.Basic` (small positive controls) or
+`MathlibAudit.DocPrelude` (the real-valued glossary types that `MathlibAudit.DocClaims` imports).
+Run the check with its own setup:
 
 ```sh
 lean --run lean/RegulaProvision.lean mathlib   # setup: the shared, read-only Mathlib (network on first use)
