@@ -115,12 +115,31 @@ In one local probe (14 processors, two threads for each side), the second build 
 jobs. None of those jobs was a module that the gate imports. The gate recorded the same input
 identity as the sequential run.
 
-That probe shows that the arrangement operates. It does not show the hosted gain, because the
-local machine has processors that the work does not use. The hosted times of the new schedule
-are in the pull request that closed [issue 246](https://github.com/rbeauchamp/regula/issues/246).
+That probe shows that the arrangement operates. It does not show the hosted gain. The hosted
+times of the new schedule are in the pull request that closed
+[issue 246](https://github.com/rbeauchamp/regula/issues/246).
 Two items are not established. The first item is that two Lake processes in one build directory
 do not interfere (one of them builds nothing here). The second item is an upper bound of the
 time of the step.
+
+Four pairs of local runs compared the new schedule with the sequential run of the first
+acceptance step, on one machine with 14 processors. Each run started with no build output of the
+root package, and other projects used the machine during the runs. The times of the runs were
+158 s to 194 s. In each pair, the difference of the two times was smaller than 8 s
+(+7.2 s, +1.0 s, -0.5 s and -3.9 s, new schedule minus sequential run). Thus those runs showed no
+gain.
+
+With the new schedule, the gate started 32 s to 37 s earlier in the step and took 32 s to 39 s
+longer. Lake logged the durations of the jobs of the isolated build of the gate. Their sum was
+182 s to 261 s with the new schedule and 103 s to 116 s with the sequential run. Thus the second
+assumption was not correct on that machine.
+
+In the last pair, the processor time of the step was 727 s with the new schedule and 703 s with
+the sequential run. Thus the two schedules used approximately the same processor time in that
+pair. The measurement does not identify the cause of the longer durations. During that pair,
+other processes used approximately three to four processors, and the unused memory of the
+machine decreased to approximately 100 MB. The hosted runner is a different machine with four
+processors. Thus these runs do not show the hosted result.
 
 An independent review of the first version found one path on which the driver did not wait for
 the gate. On that path, the line that reported the failure of a different command could raise an

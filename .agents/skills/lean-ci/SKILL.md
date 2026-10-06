@@ -98,7 +98,9 @@ faster sample.
   started process.
 - Make the pass decision in one pure function of the end of each command, with a decision
   contract. Do not make that decision in the control flow. Do a measurement of the gain on the
-  hosted runner. A machine with more processors shows a gain that is too large.
+  hosted runner. The change removes no work, and thus it decreases the time only if processors
+  were idle before the change. A different machine does not show the hosted gain. On a local
+  machine that other work also used, four pairs of runs showed no gain.
 - When the bound still exceeds the target, divide the checks into shards under an approved
   budget each, and size them on the slowest observed run. Let every check carry its one shard
   where it is listed and select by that tag, so cover and disjointness are a theorem about the
