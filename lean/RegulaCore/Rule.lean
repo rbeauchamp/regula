@@ -625,7 +625,7 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           `Spec` stated without `check`. Decide several arguments through `Function.uncurry`, or \
           on a structure whose fields are the arguments: `fun g => Decides accepts Spec (fun x : \
           Input => g x.a x.b)`. For a result type that depends on the arguments, decide \
-          `Regula.Dependent.isSome g`, `isOk g` or `val g`."]
+          `Regula.Dependent.isSome g` or `isOk g`."]
       examples := {
         language := .lean
         audience := .adopter
@@ -656,8 +656,8 @@ def descriptor : (id : RuleId) → RuleDescriptor id
           satisfy `Spec`) or `DecidesCompletely` (may accept inputs that do not).",
         "Decide several arguments on their product, `ExecutableContract f (fun g => Decides \
           accepts Spec (Function.uncurry g))`, or on a structure whose fields are the arguments; \
-          for a result type that depends on the arguments, decide `Regula.Dependent.isSome g`, \
-          `isOk g` or `val g` (RG1007).",
+          for a result type that depends on the arguments, decide `Regula.Dependent.isSome g` \
+          or `isOk g` (RG1007).",
         "Return the proof with the verdict: `def f (x : α) : Decidable (Spec x)`. Each result \
           then carries a proof of `Spec x` or of its negation, and no contract is needed."]
       examples := {

@@ -565,10 +565,11 @@ def guide : RuleId → Guide
           on its arguments, on a packing of them, or with its result erased. A packing is `f` \
           applied to every field of the variable of one function, each field once and in the \
           order of the fields, where the variable's type has one constructor and no index \
-          (`RegulaPolicy.FieldPacking.covers`); or `Function.uncurry` applied to `f` or to a \
-          packing. An erasure is `Regula.Dependent.isSome`, `Regula.Dependent.isOk` or \
-          `Regula.Dependent.val` applied to one of those. No other way of supplying the \
-          arguments is read as a packing, and no other function of the result as an erasure.",
+          (`RegulaPolicy.FieldPacking.covers`). `Function.uncurry` and the two erasures \
+          (`Regula.Dependent.isSome` and `Regula.Dependent.isOk`) can each be applied, any \
+          number of times, to `f` or to that field application. No other way of supplying the \
+          arguments is read as a packing, and no other function of the result as an erasure: \
+          these three constants are read by name.",
         "A function that fixes an argument or gives a field twice decides `f` on part of its \
           domain. A structure with a field that `f` does not take, such as a proof about the \
           other fields, can restrict the domain, and so can an index: a type with an index holds \
@@ -579,10 +580,9 @@ def guide : RuleId → Guide
           from Lean's record of projection functions, which a project can write.",
         "It rejects a decision registration whose decided function has a result that is a \
           function: `f` with an argument left, through `f` itself, `Function.uncurry` or a field \
-          application, or `Regula.Dependent.val` of a function-valued subtype. The result type \
-          of the kind, with every definition unfolded, then has a leading binder, and the \
-          finding gives the number of them. The decision on the packing and on that number is \
-          one pure function (`RegulaPolicy.DecidedFunction.covers`).",
+          application. The result type of the kind, with every definition unfolded, then has a \
+          leading binder, and the finding gives the number of them. The decision on the packing \
+          and on that number is one pure function (`RegulaPolicy.DecidedFunction.covers`).",
         "That refusal is a conservative structural restriction. A kind whose acceptance predicate \
           reads a function-valued result at one fixed value of the argument is the kind of one \
           slice of `f` (`Regula.Decides.iff_slice`) and says nothing of `f` at another value. A \
@@ -628,10 +628,10 @@ def guide : RuleId → Guide
           universe parameter `u`.",
         "Where the result type depends on the arguments, the kind is stated about an erasure of \
           the result, a function whose type does not depend on the input: \
-          `Regula.Dependent.isSome g` for an `Option` of a payload, `Regula.Dependent.isOk g` for \
-          an `Except` of one, both to `Bool`, and `Regula.Dependent.val g` for a value with a \
-          proof. So `R` is `fun g => Regula.Decides (· = true) spec (Regula.Dependent.isOk g)`, \
-          and the acceptance predicate reads the erased result and nothing else."]
+          `Regula.Dependent.isSome g` for an `Option` of a payload and `Regula.Dependent.isOk g` \
+          for an `Except` of one, both to `Bool`. So `R` is `fun g => Regula.Decides (· = true) \
+          spec (Regula.Dependent.isOk g)`, and the acceptance predicate reads the erased result \
+          and nothing else."]
       established := [
         "The registration is closed, names an eligible executable constant, and Lean checked a \
           proof of the stated predicate about it.",
@@ -663,12 +663,22 @@ def guide : RuleId → Guide
       limitations := [
         "Term-parameterized and partial-application registrations are unsupported shapes, not \
           proofs of incorrectness; restate them as closed full-domain contracts.",
-        "A result type whose dependency on the input none of the three erasures removes, such as \
-          an inductive family indexed by the input, has no kind: return `Decidable _`, or \
-          register an ordinary requirement, which is reported with no kind. A registration \
-          cannot supply an erasure of its own: one stated for every payload type can read the \
-          payload type, and \"the payload type has a value\" is the specification of a \
-          proof-carrying payload, whatever the function returns.",
+        "A result type whose dependency on the input neither erasure removes, such as an \
+          inductive family indexed by the input, has no kind: return `Decidable _`, or register \
+          an ordinary requirement, which is reported with no kind. A registration cannot supply \
+          an erasure of its own: one stated for every payload type can read the payload type, \
+          and \"the payload type has a value\" is the specification of a proof-carrying \
+          payload, whatever the function returns.",
+        "A result of a subtype type that depends on the input, `{r : ρ // P x r}`, has no kind \
+          until [issue 243](https://github.com/rbeauchamp/regula/issues/243) is decided: an \
+          erasure that returns the value of the subtype would keep a free acceptance predicate \
+          on a data value. Such a function returns `Decidable p`, or is registered with an \
+          ordinary requirement.",
+        "In a file with a `module` header, the editor does not read a decision kind whose \
+          decided function applies to its variable an imported constant that Lean gives the \
+          file as an axiom, as it gives the projection function of a proof field: the editor \
+          cannot tell whether that argument is a field. It reports the reading as incomplete \
+          under RG2005 and names `lake lint`, which reads the kind.",
         "The fields are those of one structure: a field of a field, as in a nested pair, is not \
           read as a field. Nested dependent pairs are also costly: each projection of a pair \
           carries the pair's type, so the elaborated statement grows by a large factor with each \
@@ -747,8 +757,8 @@ def guide : RuleId → Guide
           `Regula.DecidesCompletely` for a declared one-way guarantee, in the library that \
           declares `f`. RG1007 gives the supported shape of the registration, with a structure \
           of the arguments for a function with a dependent argument type or a type argument, \
-          and an erasure of the result (`Regula.Dependent.isSome`, `isOk` or `val`) for one with \
-          a dependent result type.",
+          and an erasure of the result (`Regula.Dependent.isSome` or `isOk`) for one with a \
+          dependent result type.",
         "Or a result type `Decidable (spec x)`, as a `DecidablePred spec` instance has."]
       established := [
         "Every owned declaration registered with `@[regula_decision]` whose result type is not \
@@ -777,9 +787,9 @@ def guide : RuleId → Guide
           stops the audit without a verdict, naming the module and the declaration: that \
           inventory records no declaration to decide the requirement for. Register a function \
           in a module of the library that declares it.",
-        "A function whose result type depends on its arguments in a way none of the three \
-          erasures removes, or for which no accepted or refused input can be given with a proof, \
-          has no decision kind (limitations of RG1007). Return `Decidable _`, or leave the \
+        "A function whose result type depends on its arguments in a way neither erasure \
+          removes, or for which no accepted or refused input can be given with a proof, has no \
+          decision kind (limitations of RG1007). Return `Decidable _`, or leave the \
           function unregistered and record why.",
         "A function in `IO`, `MetaM` or another monad comes into scope through the pure decision \
           it runs: register that decision.",

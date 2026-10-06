@@ -733,14 +733,16 @@ Two forms cover the functions that this form does not reach (standard §3.8):
   levels.
 - **A result type that depends on the arguments**, such as `Except String (Admitted x)`. State
   one of the three kinds about an erasure of the result that `Regula.Contract` provides:
-  `Regula.Dependent.isOk g` (whether an `Except` result is `.ok`), `Regula.Dependent.isSome g`
-  (whether an `Option` result is `some`) or `Regula.Dependent.val g` (the value of a subtype
-  result). The registration is `fun g => Regula.Decides (· = true) Spec (Regula.Dependent.isOk
-  g)`, or the same with `g` applied to the fields of a structure. [RG1007] reads these three
-  erasures and no other: an erasure of your own can read the type of the payload, and so can
-  accept or refuse by what the type is and not by what the function returns. A result type
-  that none of the three fits has no kind; return `Decidable p`, or register another
-  requirement.
+  `Regula.Dependent.isOk g` (whether an `Except` result is `.ok`) or `Regula.Dependent.isSome g`
+  (whether an `Option` result is `some`). The registration is `fun g => Regula.Decides (· =
+  true) Spec (Regula.Dependent.isOk g)`, or the same with `g` applied to the fields of a
+  structure. [RG1007] reads these two erasures and no other: an erasure of your own can read
+  the type of the payload, and so can accept or refuse by what the type is and not by what the
+  function returns. A result type that neither erasure fits has no kind; return `Decidable p`,
+  or register an ordinary requirement. A result of a subtype type that depends on the input,
+  such as `{r : Nat // r ≤ x}`, is such a type until
+  [#243](https://github.com/rbeauchamp/regula/issues/243) is decided: an erasure that returns
+  the value of the subtype would keep a free acceptance predicate on a data value.
 
 The account reports the kind of such a registration as it does for every other one.
 

@@ -3,7 +3,7 @@ Mutation of `Fixtures.Positive.DependentDecisionKinds`, at the toolchain boundar
 review's first finding: the registration supplies an erasure of its own, which reads the payload
 type and not the result. The function refuses every input, and "the payload type has a value" is
 its specification, so Lean accepts a two-way kind about the erased function. The checker reads
-only the three erasures of `Regula.Contract`, so it must refuse the registration under RG1007
+only the two erasures of `Regula.Contract`, so it must refuse the registration under RG1007
 and name the function the kind decides.
 -/
 import Regula.Contract

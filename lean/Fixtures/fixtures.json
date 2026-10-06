@@ -157,8 +157,6 @@
    "(Regula.Dependent.isSome parse)) positive?",
    "executable-contract=smallEven? decision-kind=sound requires=(fun parse",
    "executable-contract=belowTen? decision-kind=complete requires=(fun parse",
-   "executable-contract=positiveFlag decision-kind=sound-and-complete requires=(fun check",
-   "(Regula.Dependent.val check)) positiveFlag",
    "executable-contract=low decision-kind=sound-and-complete requires=(fun check",
    "fun input => check input.fst input.snd)",
    "executable-contract=inhabited decision-kind=sound-and-complete requires=(fun check",
@@ -208,11 +206,6 @@
    "failure=decision contract decides `hasPayload refuseAll`, not its implementation `refuseAll`"
   ]
  },
- "Fixtures.Mutations.DecisionPayloadAcceptance": {
-  "expect": "fail",
-  "reason": "compile-error",
-  "pattern": "Unknown identifier `Regula.Dependent.Decides`"
- },
  "Fixtures.Mutations.DecisionIndexedPacking": {
   "expect": "fail",
   "reason": "executable-contract",
@@ -226,8 +219,7 @@
   "output": [
    "failure=decision contract decides `fun p => lowUnless p.fst p.snd`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `lowUnless` applied to every argument",
    "failure=decision contract decides `smallUnless`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `smallUnless` applied to every argument",
-   "failure=decision contract decides `Function.uncurry sumUnless`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `sumUnless` applied to every argument",
-   "failure=decision contract decides `Regula.Dependent.val wrappedUnless`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `wrappedUnless` applied to every argument"
+   "failure=decision contract decides `Function.uncurry sumUnless`, whose result is a function of 1 more argument(s); a kind is read only about a result that is not a function, so state it about the implementation `sumUnless` applied to every argument"
   ]
  },
  "Fixtures.Positive.DecisionRegistration": {

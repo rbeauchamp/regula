@@ -3,10 +3,10 @@ Positive control for decision kinds about functions with dependent or polymorphi
 toolchain boundary: the collector reads each erasure and each field application from the term
 Lean elaborates. Each registration below must be accepted and recorded with the kind its
 requirement states: a two-way kind and each one-way kind about `Regula.Dependent.isSome` of a
-function whose result type depends on its argument; a kind about `Regula.Dependent.val` of a
-function that returns a value with a proof; a kind about a function with an argument whose type
-depends on an earlier one, on a dependent pair; a kind about a function with a type argument at
-its own universe parameter; a kind about a function with a proof argument, on a subtype;
+function whose result type depends on its argument; a kind about a function with an argument
+whose type depends on an earlier one, on a dependent pair; a kind about a function with a type
+argument at its own universe parameter; a kind about a function with a proof argument, on a
+subtype;
 `Function.uncurry` over the fields of a pair; and a kind reached only through an alias, about
 `Regula.Dependent.isOk` of a three-argument function on a structure declared for its arguments.
 Each function is registered with `@[regula_decision]`, so RG1008 must accept every one of them
@@ -59,15 +59,6 @@ theorem belowTen?_decidesCompletely :
        have below : n < 10 := Nat.lt_trans holds (by decide)
        simp [Regula.Dependent.isSome, belowTen?, below]
      refused := ⟨10, by simp [Regula.Dependent.isSome, belowTen?]⟩ }⟩
-
-/-- Whether a number is positive, with the proof that the flag says so. -/
-@[regula_decision] def positiveFlag (n : Nat) : {flag : Bool // flag = true ↔ 0 < n} :=
-  ⟨decide (0 < n), decide_eq_true_iff⟩
-
-theorem positiveFlag_decides :
-    Regula.ExecutableContract positiveFlag (fun check =>
-      Regula.Decides (· = true) (fun n => 0 < n) (Regula.Dependent.val check)) :=
-  ⟨.of_iff (Regula.Dependent.val_property positiveFlag) ⟨1, by decide⟩ ⟨0, by decide⟩⟩
 
 /-- Whether an index below `limit + 1` is below three. The type of the second argument depends
 on the first, and the result type on neither. -/

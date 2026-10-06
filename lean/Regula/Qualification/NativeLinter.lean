@@ -193,6 +193,8 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
         "/-! Collector qualification control. -/\nset_option doc.verso true\n")
     let moduleStyle := base.replace "import Regula.Linter" "module\nimport Regula.Linter" |>.replace
       "@[regula_material] theorem" "@[regula_material] public theorem"
+    let moduleDecision := moduleStyle.replace "import Regula.Linter"
+      "import Regula.Linter\nimport Regula.Contract"
     let inspect := base ++ "run_cmd Lean.Elab.Command.liftCoreM <| Lean.addDecl (.axiomDecl {\n  \
       name := `hiddenAxiom, levelParams := [], type := Lean.mkSort .zero, isUnsafe := false \
       })\nrun_cmd do\n  let env ← Lean.getEnv\n  let ds ← Regula.Collect.currentModule\n  unless \
@@ -230,6 +232,24 @@ def checkAt (root scratch : FilePath) (launcher : Launcher.State) (jobs : Nat :=
       { label := "ModuleMissing", source :=
           (moduleStyle.replace "/-! Collector qualification control. -/\n" "").replace
           claimDoc "", ids := ["RG5001", "RG5002"] },
+      -- A `module` file sees the imported projection function of a proof field as an axiom. The
+      -- editor defers a decision kind that applies it, and refuses one whose fields it reads.
+      { label := "ModuleDecisionDeferred", source := moduleDecision ++
+          "def halfLow (n : Nat) (_even : n % 2 = 0) : Bool := decide (n / 2 < 3)\n" ++
+          "theorem halfLow_decides : Regula.ExecutableContract halfLow (fun check =>\n" ++
+          "  Regula.Decides (· = true) (fun input => input.val < 6)\n" ++
+          "    (fun input : {n : Nat // n % 2 = 0} => check input.1 input.2)) :=\n" ++
+          "  ⟨.of_iff (fun input => by simp only [halfLow, decide_eq_true_eq]; omega)\n" ++
+          "    ⟨⟨0, rfl⟩, by decide⟩ ⟨⟨6, rfl⟩, by decide⟩⟩\n",
+        ids := ["RG2005"], detail := some "Subtype.property has no value" },
+      { label := "ModuleDecisionRead", source := moduleDecision ++
+          "def bothBelow (first second : Nat) : Bool := decide (first < 3) && decide (second < \
+            3)\n" ++
+          "theorem bothBelow_decides : Regula.ExecutableContract bothBelow (fun check =>\n" ++
+          "  Regula.Decides (· = true) (fun input => input.1 < 3)\n" ++
+          "    (fun input : Nat × Nat => check input.1 input.1)) :=\n" ++
+          "  ⟨.of_iff (fun input => by simp [bothBelow]) ⟨(0, 5), by decide⟩ ⟨(3, 0), by decide⟩⟩\n",
+        ids := ["RG1007"] },
       { label := "Collect", source := inspect },
       -- RG5001 beyond presence: a command before the module docstring, and a repeated import.
       { label := "MisplacedDoc", source :=

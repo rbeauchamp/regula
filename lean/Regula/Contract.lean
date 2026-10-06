@@ -54,16 +54,16 @@ type that depends on its arguments. They can be used separately:
   proof about the other fields, can restrict the domain; and a type with an index holds only
   the tuples whose fields compute that index.
 * **An erasure of the result.** A result type that depends on the input is decided through one
-  of three functions of this module, each of which forgets the part of the result whose type
+  of two functions of this module, each of which forgets the part of the result whose type
   depends on the input: `Dependent.isSome f` for `f : ∀ x, Option (payload x)` and
-  `Dependent.isOk f` for `f : ∀ x, Except (ε x) (payload x)`, both to `Bool`, and
-  `Dependent.val f` for `f : ∀ x, {r : ρ // P x r}`, to `ρ`. The kind is one of the three above
-  about the erased function, as in `Decides (· = true) spec (Dependent.isOk f)`, so the type of
-  its acceptance predicate has no payload in it, and the predicate reads the erased result and
-  nothing else. The linter reads these three erasures and no other, so a registration cannot
-  supply an erasure of its own. An acceptance predicate or an erasure that is stated for every
-  payload type can read the payload type: "the payload type has a value" is the specification
-  of a proof-carrying payload, whatever the function returns.
+  `Dependent.isOk f` for `f : ∀ x, Except (ε x) (payload x)`, both to `Bool`. The kind is one
+  of the three above about the erased function, as in
+  `Decides (· = true) spec (Dependent.isOk f)`, so the type of its acceptance predicate has no
+  payload in it, and the predicate reads the erased result and nothing else. The linter reads
+  these two erasures and no other, so a registration cannot supply an erasure of its own. An
+  acceptance predicate or an erasure that is stated for every payload type can read the payload
+  type: "the payload type has a value" is the specification of a proof-carrying payload,
+  whatever the function returns.
 
 A kind is stated about the function applied to every one of its arguments: the result type of
 the function that is decided is not a function type. This restriction is structural, and it is
@@ -73,16 +73,17 @@ of that argument gives exactly the kind of the slice of the function at `b`
 (`Decides.iff_slice`), which says nothing of the function at another value. One that quantifies
 over that argument can constrain every value. The linter does not read the acceptance predicate:
 it refuses every kind whose result type is a function type, a kind of the second form included,
-in each form of the decided function (the function itself, `Function.uncurry` of it, a field
-application, and `Dependent.val`). The remedy is the same for both: supply the remaining
-argument, with one more `Function.uncurry` (`packing_uncurry_covers`) or as a field of the
-structure.
+in each form of the decided function (the function itself, `Function.uncurry` of it, and a
+field application). The remedy is the same for both: supply the remaining argument, with one
+more `Function.uncurry` (`packing_uncurry_covers`) or as a field of the structure.
 
 A kind about a function with universe parameters is stated at those parameters, so that it
 holds of every instance; the linter refuses a kind stated at other universe levels. A result
-type whose dependency on the input none of the three erasures removes, such as an inductive
-family indexed by the input, has no kind: return `Decidable _`, or register an ordinary
-requirement.
+type whose dependency on the input neither erasure removes, such as an inductive family indexed
+by the input, has no kind: return `Decidable _`, or register an ordinary requirement. A result
+of a subtype type that depends on the input, `{r : ρ // P x r}`, is such a type until
+https://github.com/rbeauchamp/regula/issues/243 is decided: an erasure that returns the value of
+the subtype would keep a free acceptance predicate on a data value.
 
 Nested dependent pairs are not a form for three or more arguments. Each projection of a pair
 carries the pair's type, so the elaborated statement grows by a large factor with each argument,
@@ -92,10 +93,12 @@ structure. A structure declared for the arguments has projections of constant si
 None of the kinds says that `spec` is the intended specification, that `accepts` is the intended
 reading of a result, that every caller acts on the verdict, or which value an accepting result
 carries. Those remain review. A constant function has no two-way kind
-(`Decides.not_of_constant`). But when the result of `f` determines its input, as the result of
-the identity function does, an acceptance predicate can restate the specification:
-`Decides spec spec id` holds of every specification that some input satisfies and some input
-does not.
+(`Decides.not_of_constant`); a sound kind about one proves the specification of every input
+(`DecidesSoundly.spec_of_constant`), and a complete kind about one refutes it of every input
+(`DecidesCompletely.not_spec_of_constant`). But when the result of `f` determines its input, as
+the result of the identity function does, an acceptance predicate can restate the
+specification: `Decides spec spec id` holds of every specification that some input satisfies
+and some input does not.
 -/
 
 @[expose] public section
@@ -360,11 +363,6 @@ def isOk {α : Sort u} {ε : α → Type v} {payload : α → Type w}
     (f : ∀ x, Except (ε x) (payload x)) (x : α) : Bool :=
   (f x).isOk
 
-/-- The value of a result with its proof forgotten: `val f x = (f x).val`. The proved property
-can depend on the input; the type of the erased function does not. -/
-def val {α : Sort u} {ρ : Sort v} {P : α → ρ → Prop} (f : ∀ x, {r : ρ // P x r}) (x : α) : ρ :=
-  (f x).val
-
 /-- The erased result of `isSome` is `true` exactly when the result holds a payload. -/
 theorem isSome_eq_true_iff {α : Sort u} {payload : α → Type v} (f : ∀ x, Option (payload x))
     (x : α) : isSome f x = true ↔ ∃ value, f x = some value := by
@@ -380,11 +378,6 @@ theorem isOk_eq_true_iff {α : Sort u} {ε : α → Type v} {payload : α → Ty
   cases f x with
   | error _ => exact ⟨fun holds => absurd holds Bool.false_ne_true, fun ⟨_, same⟩ => nomatch same⟩
   | ok value => exact ⟨fun _ => ⟨value, rfl⟩, fun _ => rfl⟩
-
-/-- The erased result of `val` is the value of the result, which has the proved property. -/
-theorem val_property {α : Sort u} {ρ : Sort v} {P : α → ρ → Prop} (f : ∀ x, {r : ρ // P x r})
-    (x : α) : P x (val f x) :=
-  (f x).property
 
 end Dependent
 

@@ -5,9 +5,8 @@ argument left. The result of the decided function is then a function, the accept
 reads it at `false`, and the kind is the kind of that one slice (`Regula.Decides.iff_slice`):
 each function below refuses an input that satisfies the specification, at `true`. Lean accepts
 each proof. The checker must refuse each registration under RG1007 and give the number of
-arguments that are left. The four registrations are the four forms that reach the class: a field
-application (the reviewer's registration), the constant itself, `Function.uncurry`, and
-`Regula.Dependent.val` of a function-valued subtype.
+arguments that are left. The three registrations are the three forms that reach the class: a
+field application (the reviewer's registration), the constant itself, and `Function.uncurry`.
 -/
 import Regula.Contract
 
@@ -41,14 +40,3 @@ theorem sumUnless_decides :
         (fun p : Nat × Nat => p.1 + p.2 < 3) (Function.uncurry g)) :=
   ⟨.of_iff (fun p => by simp [sumUnless, Function.uncurry]) ⟨(0, 0), by decide⟩
     ⟨(3, 0), by decide⟩⟩
-
-/-- A function of one argument whose result is a function with a proof. -/
-def wrappedUnless (n : Nat) : {h : Bool → Bool // h true = false} :=
-  ⟨fun b => !b && decide (n < 3), by simp⟩
-
-theorem wrappedUnless_decides :
-    Regula.ExecutableContract wrappedUnless (fun g =>
-      Regula.Decides (fun h : Bool → Bool => h false = true) (fun n => n < 3)
-        (Regula.Dependent.val g)) :=
-  ⟨.of_iff (fun n => by simp [Regula.Dependent.val, wrappedUnless]) ⟨0, by decide⟩
-    ⟨3, by decide⟩⟩

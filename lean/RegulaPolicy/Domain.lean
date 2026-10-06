@@ -736,12 +736,6 @@ theorem FieldPacking.covers_iff (packing : FieldPacking) :
     packing.covers = true ↔ packing.Covers := by
   simp [covers, Covers, and_assoc]
 
-/-- A packing that covers gives the implementation as many arguments as the type has fields. -/
-theorem FieldPacking.Covers.length_eq {packing : FieldPacking} (covers : packing.Covers) :
-    packing.arguments.length = packing.fields := by
-  rw [covers.2.2]
-  simp
-
 /-- What the collector reads, from the kernel-checked statement, of the function that a decision
 kind is stated about, when that function is the implementation's constant or a field application
 of it, under any number of applications of `Function.uncurry` and of the erasures of
@@ -761,8 +755,7 @@ every field (`FieldPacking.Covers`), and no result of the function takes an argu
 A term can be applied only when its type reduces to a function type, so a result type with no
 leading binder is the type of a result that takes no argument. The implementation then has no
 argument after those that its constant, the field application and the surrounding
-`Function.uncurry` applications supply, and a result that `Regula.Dependent.val` returns is not
-itself a function.
+`Function.uncurry` applications supply.
 
 The condition on the result is structural and conservative. With an argument left, an
 acceptance predicate that reads the function-valued result at one fixed value of that argument
