@@ -173,19 +173,21 @@ theorem pairs_of_mem_paired {pairs : Pairs} {xs ys : Array Expr} {part : Part}
   obtain ⟨⟨x, y⟩, _, rfl⟩ := List.mem_map.mp member
   rfl
 
-/-- Whether no pair of `pairs` holds the variable `x`, on either side. Two variables are compared
-by their names, which is all a variable is, so that a theorem can state that a pair holds a
-variable. -/
+/-- Whether no pair of `pairs` holds the variable `x`, on either side (`unpaired_eq_true_iff`).
+Two variables are compared by their names, which is all a variable is, so that a theorem can
+state that a pair holds a variable. -/
 def unpaired (pairs : Pairs) (x : FVarId) : Bool :=
   pairs.all fun pair => pair.1.name != x.name && pair.2.name != x.name
 
 /-- Whether the variables `introduced` are new: no pair of `pairs` holds one of them, on either
-side, and no two of them are the same. The comparison reads a body only with new variables, and
+side, and no two of them are the same (`newVariables_eq_true_iff`). Two variables are compared by
+their names, as in `unpaired`. The comparison reads a body only with new variables, and
 the part for that body holds each of them in a pair (`unpaired_push`, `alternative_holds`). So a
 later binder on the path is refused that variable (`Reached.newVariables_eq_false`). -/
 def newVariables (pairs : Pairs) : List FVarId → Bool
   | [] => true
-  | x :: rest => unpaired pairs x && !rest.contains x && newVariables pairs rest
+  | x :: rest =>
+    unpaired pairs x && rest.all (fun y => y.name != x.name) && newVariables pairs rest
 
 /-- `unpaired` reads the pairs of two arrays one array after the other: no pair of the two holds
 a variable exactly where no pair of either holds it. -/
@@ -201,6 +203,41 @@ theorem unpaired_eq_false_of_mem {pairs : Pairs} {pair : FVarId × FVarId} {x : 
   | true =>
     have each := Array.all_eq_true'.mp free pair member
     rcases holds with rfl | rfl <;> simp at each
+
+/-- `unpaired` answers `true` exactly where no pair holds the variable, on either side. -/
+theorem unpaired_eq_true_iff (pairs : Pairs) (x : FVarId) :
+    unpaired pairs x = true ↔ ∀ pair ∈ pairs, pair.1 ≠ x ∧ pair.2 ≠ x := by
+  have named : ∀ y : FVarId, (y.name != x.name) = true ↔ y ≠ x := by
+    intro y
+    cases x
+    cases y
+    simp
+  simp only [unpaired, Array.all_eq_true', Bool.and_eq_true, named]
+
+/-- The variables are new exactly where no pair holds one of them, on either side, and no two of
+them are the same. -/
+theorem newVariables_eq_true_iff (pairs : Pairs) :
+    ∀ variables : List FVarId,
+      newVariables pairs variables = true ↔
+        (∀ x ∈ variables, unpaired pairs x = true) ∧ variables.Nodup
+  | [] => by simp [newVariables]
+  | x :: rest => by
+    have named : ∀ y : FVarId, (y.name != x.name) = true ↔ y ≠ x := by
+      intro y
+      cases x
+      cases y
+      simp
+    have differs : (rest.all fun y => y.name != x.name) = true ↔ x ∉ rest := by
+      simp only [List.all_eq_true, named]
+      exact ⟨fun each member => each x member rfl, fun absent y member same =>
+        absent (same ▸ member)⟩
+    simp only [newVariables, Bool.and_eq_true, differs, newVariables_eq_true_iff pairs rest,
+      List.mem_cons, forall_eq_or_imp, List.nodup_cons]
+    constructor
+    · rintro ⟨⟨free, absent⟩, others, distinct⟩
+      exact ⟨⟨free, others⟩, absent, distinct⟩
+    · rintro ⟨⟨free, others⟩, absent, distinct⟩
+      exact ⟨⟨free, absent⟩, others, distinct⟩
 
 /-- A variable that a pair holds is not new: `newVariables` refuses every list that has it. -/
 theorem newVariables_eq_false_of_held {pairs : Pairs} {x : FVarId}
@@ -558,16 +595,26 @@ no answer of `Observations.bound` makes one variable stand for two binders on on
 free variable of the two terms it starts from: `reproduces` starts with no pairs, and a
 regenerated or observed value has no free variable.
 
-What the relation shares with the comparison: the two rules for a threaded `match` take the parts
-they compare from `threadedParts` (with `alternative`, `openLambdas` and `standingFor`), and
-every rule that pairs arguments position by position uses `paired`. A constructor of those rules
-states when the rule applies and that every part is related. Which parts those are is the shared
-definition. `threadedParts_eq_ok_iff` and `alternative_eq_ok_iff` state the selection of the
-threaded rules as theorems about those definitions, so a change of that selection fails them,
-and `mem_standingFor_left` and `mem_standingFor_right` state the pairs of `standingFor`. A change
-inside `openLambdas` or `paired` changes the relation and the comparison together and is a
-matter for review, not a failed proof. The `fixpoint` rule states its parts by
-`Fixpoint`, which `fixpointArguments?_eq_some_iff` ties to the executed selection. -/
+What the relation shares with the comparison. The relation is stated with definitions the
+comparison runs, so a change inside one of them changes the relation and the comparison together.
+A constructor states when its rule applies and that every part is related. Which parts those
+are, and which variables are new, is what the shared definitions compute. The two rules for a
+threaded `match` take their parts from `threadedParts`, which uses `alternative`, `openLambdas`,
+`standingFor`, `Side.orient`, `Side.pair` and `Threading.head`. `Threads` reads a decomposition
+with `Threading.head` and `Threading.sameLevels`. Every rule that pairs arguments position by
+position uses `paired`, and every rule that reads a body uses `newVariables` with `unpaired`.
+
+Theorems state these of them exactly, so a change fails a theorem: when `threadedParts` and
+`alternative` yield parts and which (`threadedParts_eq_ok_iff`, `alternative_eq_ok_iff`), the
+pairs of `standingFor` (`mem_standingFor_left`, `mem_standingFor_right`), and the test of
+`newVariables` and of `unpaired` (`newVariables_eq_true_iff`, `unpaired_eq_true_iff`). Of
+`Side.orient` and `paired` a theorem states only the pairs of their parts (`Side.orient_pairs`,
+`pairs_of_mem_paired`), not which term is on which side or which terms are paired. No theorem
+states what `openLambdas`, `Side.pair`, `Threading.head` and `Threading.sameLevels` compute: the
+theorems name them, and the relation means what they are written to compute. `Side.other` only
+names the side in a refusal, and no rule reads it. A change inside a shared definition, in a part
+that no theorem states, is a matter for review, not a failed proof. The `fixpoint` rule states
+its parts by `Fixpoint`, which `fixpointArguments?_eq_some_iff` ties to the executed selection. -/
 inductive EqualWithin (left right : Observations) : Nat → Pairs → Expr → Expr → Prop where
   /-- Two terms that Lean's expression equality identifies, neither with a free variable. -/
   | closed {depth : Nat} {pairs : Pairs} {a b : Expr} :
