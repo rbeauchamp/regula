@@ -809,12 +809,13 @@ structure PlanInput where
 
 /-- `admitPlan` accepts exactly the jobs `PlanJobsOK` admits (`admitPlan_isOk_iff`): for the
 witness claim and census it accepts the three required jobs and refuses no jobs. The result type
-depends on the claim and the census, so the kind is one of `Regula.Dependent`, on the structure
-of the three arguments; that the admitted plan has the supplied jobs is `admitPlan_exact`. -/
+depends on the claim and the census, so the decision is of whether the result is a success
+(`Regula.Dependent.isOk`), on the structure of the three arguments; that the admitted plan has
+the supplied jobs is `admitPlan_exact`. -/
 theorem checked_admitPlan : Regula.ExecutableContract admitPlan (fun admit =>
-    Regula.Dependent.Decides (·.isOk = true)
+    Regula.Decides (· = true)
       (fun input : PlanInput => PlanJobsOK input.claim input.census input.jobs)
-      (fun input => admit input.claim input.census input.jobs)) :=
+      (Regula.Dependent.isOk fun input => admit input.claim input.census input.jobs)) :=
   ⟨.of_iff (fun input => admitPlan_isOk_iff input.claim input.census input.jobs)
     ⟨⟨witnessClaim, witnessCensus, witnessPlan.jobs⟩,
       (admitPlan_isOk_iff witnessClaim witnessCensus witnessPlan.jobs).mpr

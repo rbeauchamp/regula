@@ -1,15 +1,18 @@
 /-
-Positive control for the decision kinds of `Regula.Dependent` and for a kind stated about the
-implementation applied to the fields of a structure, at the toolchain boundary: the collector
-reads each kind and each such application from the term Lean elaborates. Each registration below
-must be accepted and recorded with the kind its requirement states: a two-way kind and each
-one-way kind about a function whose result type depends on its argument; a kind of `Regula`
-about a function with an argument whose type depends on an earlier one, on a dependent pair; a
-kind about a function with a type argument at its own universe parameter; a kind about a
-function with a proof argument, on a subtype; `Function.uncurry` over the fields of a pair; and a
-kind reached only through an alias, about a three-argument function on a structure declared for
-its arguments. Each function is registered with `@[regula_decision]`, so RG1008 must accept every
-one of them through its contract.
+Positive control for decision kinds about functions with dependent or polymorphic types, at the
+toolchain boundary: the collector reads each erasure and each field application from the term
+Lean elaborates. Each registration below must be accepted and recorded with the kind its
+requirement states: a two-way kind and each one-way kind about `Regula.Dependent.isSome` of a
+function whose result type depends on its argument; a kind about `Regula.Dependent.val` of a
+function that returns a value with a proof; a kind about a function with an argument whose type
+depends on an earlier one, on a dependent pair; a kind about a function with a type argument at
+its own universe parameter; a kind about a function with a proof argument, on a subtype;
+`Function.uncurry` over the fields of a pair; and a kind reached only through an alias, about
+`Regula.Dependent.isOk` of a three-argument function on a structure declared for its arguments.
+Each function is registered with `@[regula_decision]`, so RG1008 must accept every one of them
+through its contract. The closing theorem is the control of the second review's first finding:
+a function that refuses every input has no two-way kind, whatever the acceptance predicate and
+the specification.
 -/
 import Regula.Contract
 import Regula.Decision
@@ -20,13 +23,13 @@ universe u
 @[regula_decision] def positive? (n : Nat) : Option {m : Nat // m = n ∧ 0 < m} :=
   if h : 0 < n then some ⟨n, rfl, h⟩ else none
 
-theorem positive?_isSome (n : Nat) : (positive? n).isSome = true ↔ 0 < n := by
-  unfold positive?
+theorem positive?_isSome (n : Nat) : Regula.Dependent.isSome positive? n = true ↔ 0 < n := by
+  unfold Regula.Dependent.isSome positive?
   split <;> simp_all
 
 theorem positive?_decides :
-    Regula.ExecutableContract positive?
-      (Regula.Dependent.Decides (·.isSome = true) fun n => 0 < n) :=
+    Regula.ExecutableContract positive? (fun parse =>
+      Regula.Decides (· = true) (fun n => 0 < n) (Regula.Dependent.isSome parse)) :=
   ⟨.of_iff positive?_isSome ⟨1, (positive?_isSome 1).mpr (by decide)⟩
     ⟨0, fun accepted => absurd ((positive?_isSome 0).mp accepted) (by decide)⟩⟩
 
@@ -36,26 +39,35 @@ the even `4`. -/
   if h : n % 2 = 0 ∧ n < 4 then some ⟨n, rfl, h.1⟩ else none
 
 theorem smallEven?_decidesSoundly :
-    Regula.ExecutableContract smallEven?
-      (Regula.Dependent.DecidesSoundly (·.isSome = true) fun n => n % 2 = 0) :=
+    Regula.ExecutableContract smallEven? (fun parse =>
+      Regula.DecidesSoundly (· = true) (fun n => n % 2 = 0) (Regula.Dependent.isSome parse)) :=
   ⟨{ sound := fun n accepted => by
-       unfold smallEven? at accepted
+       unfold Regula.Dependent.isSome smallEven? at accepted
        split at accepted
        next h => exact h.1
        next => cases accepted
-     accepted := ⟨0, by simp [smallEven?]⟩ }⟩
+     accepted := ⟨0, by simp [Regula.Dependent.isSome, smallEven?]⟩ }⟩
 
 /-- A number below ten, with that proof: complete for "below four", and it accepts `5`. -/
 @[regula_decision] def belowTen? (n : Nat) : Option {m : Nat // m = n ∧ m < 10} :=
   if h : n < 10 then some ⟨n, rfl, h⟩ else none
 
 theorem belowTen?_decidesCompletely :
-    Regula.ExecutableContract belowTen?
-      (Regula.Dependent.DecidesCompletely (·.isSome = true) fun n => n < 4) :=
+    Regula.ExecutableContract belowTen? (fun parse =>
+      Regula.DecidesCompletely (· = true) (fun n => n < 4) (Regula.Dependent.isSome parse)) :=
   ⟨{ complete := fun n holds => by
        have below : n < 10 := Nat.lt_trans holds (by decide)
-       simp [belowTen?, below]
-     refused := ⟨10, by simp [belowTen?]⟩ }⟩
+       simp [Regula.Dependent.isSome, belowTen?, below]
+     refused := ⟨10, by simp [Regula.Dependent.isSome, belowTen?]⟩ }⟩
+
+/-- Whether a number is positive, with the proof that the flag says so. -/
+@[regula_decision] def positiveFlag (n : Nat) : {flag : Bool // flag = true ↔ 0 < n} :=
+  ⟨decide (0 < n), decide_eq_true_iff⟩
+
+theorem positiveFlag_decides :
+    Regula.ExecutableContract positiveFlag (fun check =>
+      Regula.Decides (· = true) (fun n => 0 < n) (Regula.Dependent.val check)) :=
+  ⟨.of_iff (Regula.Dependent.val_property positiveFlag) ⟨1, by decide⟩ ⟨0, by decide⟩⟩
 
 /-- Whether an index below `limit + 1` is below three. The type of the second argument depends
 on the first, and the result type on neither. -/
@@ -121,17 +133,25 @@ structure LowIndexInput where
   /-- Whether the wider bound applies. -/
   wide : Bool
 
-/-- A kind reached through an alias, about a three-argument function on the structure of its
-arguments. -/
+/-- A kind reached through an alias, about whether a three-argument function succeeds, on the
+structure of its arguments. -/
 def LowIndexContract
     (admit : (limit : Nat) → (index : Fin (limit + 1)) → Bool →
       Except String {found : Fin (limit + 1) // found = index}) : Prop :=
-  Regula.Dependent.Decides (·.isOk = true)
+  Regula.Decides (· = true)
     (fun input : LowIndexInput => input.index.val < (if input.wide then 4 else 3))
-    (fun input => admit input.limit input.index input.wide)
+    (Regula.Dependent.isOk fun input => admit input.limit input.index input.wide)
 
 theorem lowIndex_decides : Regula.ExecutableContract lowIndex LowIndexContract :=
   ⟨.of_iff (fun input => by
       by_cases low : input.index.val < (if input.wide then 4 else 3) <;>
-        simp [lowIndex, low, Except.isOk, Except.toBool])
+        simp [Regula.Dependent.isOk, lowIndex, low, Except.isOk, Except.toBool])
     ⟨⟨0, 0, false⟩, by decide⟩ ⟨⟨3, 3, false⟩, by decide⟩⟩
+
+/-- The function of the second review's first finding: it refuses every input. -/
+def never (_ : Bool) : Bool := false
+
+/-- `never` has no two-way kind, whatever the acceptance predicate and the specification. -/
+theorem never_not_decides (accepts : Bool → Prop) (spec : Bool → Prop) :
+    ¬ Regula.Decides accepts spec never :=
+  Regula.Decides.not_of_constant false

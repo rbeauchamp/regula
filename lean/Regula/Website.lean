@@ -11,7 +11,8 @@ which supplies rule semantics. Collector completion remains an explicit trusted 
 
 The three admissions below (`admitExampleRequest`, `admitExampleSources`,
 `admitDemonstration`) return the admitted value with its proof, so each result type depends on
-the arguments, and each is registered as a decision with a kind of `Regula.Dependent`. -/
+the arguments, and each is registered as a decision of whether its result is a success
+(`Regula.Dependent.isOk`). -/
 namespace Regula.Website
 open Lean RegistryCodec
 
@@ -108,12 +109,13 @@ theorem admitExampleRequest_isOk_iff (expected observed : ExampleRequest) :
 
 /-- `admitExampleRequest` accepts exactly an observed request equal to the frozen one
 (`admitExampleRequest_isOk_iff`): it accepts a request against itself and refuses a request of
-another kind. The result type depends on both requests, so the kind is one of
-`Regula.Dependent`, on the pair of the two arguments. -/
+another kind. The result type depends on both requests, so the decision is of whether the
+result is a success (`Regula.Dependent.isOk`), on the pair of the two arguments. -/
 theorem checked_admitExampleRequest :
     Regula.ExecutableContract admitExampleRequest (fun admit =>
-      Regula.Dependent.Decides (·.isOk = true) (fun input => input.2 = input.1)
-        (fun input : ExampleRequest × ExampleRequest => admit input.1 input.2)) :=
+      Regula.Decides (· = true) (fun input => input.2 = input.1)
+        (Regula.Dependent.isOk fun input : ExampleRequest × ExampleRequest =>
+          admit input.1 input.2)) :=
   let request (kind : String) : ExampleRequest := ⟨kind, "", "", none, none, #[]⟩
   ⟨.of_iff (fun input => admitExampleRequest_isOk_iff input.1 input.2)
     ⟨⟨request "file", request "file"⟩,
@@ -189,13 +191,15 @@ structure ExampleSourcesInput where
 /-- `admitExampleSources` accepts exactly the sources `ExampleSourcesOK` admits
 (`admitExampleSources_isOk_iff`): it accepts one expected source whose text is the displayed
 text, and refuses no observed source. The result type depends on the three arguments, so the
-kind is one of `Regula.Dependent`, on the structure of those arguments. -/
+decision is of whether the result is a success (`Regula.Dependent.isOk`), on the structure of
+those arguments. -/
 theorem checked_admitExampleSources :
     Regula.ExecutableContract admitExampleSources (fun admit =>
-      Regula.Dependent.Decides (·.isOk = true)
+      Regula.Decides (· = true)
         (fun input : ExampleSourcesInput =>
           ExampleSourcesOK input.expected input.observed input.displayed)
-        (fun input => admit input.expected input.observed input.displayed)) :=
+        (Regula.Dependent.isOk fun input =>
+          admit input.expected input.observed input.displayed)) :=
   ⟨.of_iff (fun input =>
       admitExampleSources_isOk_iff input.expected input.observed input.displayed)
     ⟨⟨#[⟨"Example.lean", "text"⟩], #[⟨"Example.lean", "text"⟩], "text"⟩,
@@ -320,12 +324,14 @@ theorem admitDemonstration_isOk_iff (request : DemonstrationRequest)
 /-- `admitDemonstration` accepts exactly the observations `DemonstrationOK` admits
 (`admitDemonstration_isOk_iff`): for a request of one incomplete finding of its rule, it accepts
 the completed observation of that finding under the same binding and refuses the same
-observation of a crashed production. The result type depends on both arguments, so the kind is
-one of `Regula.Dependent`, on the pair of the two arguments. -/
+observation of a crashed production. The result type depends on both arguments, so the decision
+is of whether the result is a success (`Regula.Dependent.isOk`), on the pair of the two
+arguments. -/
 theorem checked_admitDemonstration :
     Regula.ExecutableContract admitDemonstration (fun admit =>
-      Regula.Dependent.Decides (·.isOk = true) (fun input => DemonstrationOK input.1 input.2)
-        (fun input : DemonstrationRequest × BoundObservation => admit input.1 input.2)) :=
+      Regula.Decides (· = true) (fun input => DemonstrationOK input.1 input.2)
+        (Regula.Dependent.isOk fun input : DemonstrationRequest × BoundObservation =>
+          admit input.1 input.2)) :=
   let binding : ExampleBinding :=
     ⟨⟨⟨#[], ⟨"lakefile", ""⟩, ⟨"lean", "commit", "revision"⟩, #[]⟩, by decide⟩, .freshFile,
       ⟨"file", "", "", none, none, #[]⟩⟩

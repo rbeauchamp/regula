@@ -715,19 +715,26 @@ Two forms cover the functions that this form does not reach (standard §3.8):
   (`Prod`, `Sigma`, `PSigma` or `Subtype`). Give each field once and leave none out: [RG1007]
   refuses a function that fixes an argument or repeats a field, because it decides the function
   on part of its domain, and a structure with a field the function does not take, because such
-  a field can restrict the domain. Do not nest dependent pairs for three or more arguments:
+  a field can restrict the domain. The type must have one constructor and no index, as a type
+  declared with `structure` has: a type with an index holds only some of the tuples of its
+  fields. Do not nest dependent pairs for three or more arguments:
   each projection of a pair carries the pair's type, and the statement grows by a large factor
   with each argument. State a kind about a function with universe parameters at those
   parameters (`@check.{u}` in a theorem with the universe parameter `u`), with witnesses at
   every universe level, such as a list of `PUnit`; [RG1007] refuses a kind stated at other
   levels.
-- **A result type that depends on the arguments**, such as `Except String (Admitted x)`. Use the
-  kind of the same name in `Regula.Dependent`: `Regula.Dependent.Decides (·.isOk = true) Spec`.
-  Its acceptance predicate is stated for every payload type, so it cannot name the input: write
-  it as a predicate of the result (`(·.isOk = true)`, `(·.isSome = true)`). If Lean cannot infer
-  the result former, name it: `Regula.Dependent.Decides (Result := Except String) ...`.
+- **A result type that depends on the arguments**, such as `Except String (Admitted x)`. State
+  one of the three kinds about an erasure of the result that `Regula.Contract` provides:
+  `Regula.Dependent.isOk g` (whether an `Except` result is `.ok`), `Regula.Dependent.isSome g`
+  (whether an `Option` result is `some`) or `Regula.Dependent.val g` (the value of a subtype
+  result). The registration is `fun g => Regula.Decides (· = true) Spec (Regula.Dependent.isOk
+  g)`, or the same with `g` applied to the fields of a structure. [RG1007] reads these three
+  erasures and no other: an erasure of your own can read the type of the payload, and so can
+  accept or refuse by what the type is and not by what the function returns. A result type
+  that none of the three fits has no kind; return `Decidable p`, or register another
+  requirement.
 
-The account reports a kind of `Regula.Dependent` as the kind of the same direction.
+The account reports the kind of such a registration as it does for every other one.
 
 To make that registration a requirement, mark the function with `@[regula_decision]` (`import
 Regula.Decision`, or `meta import Regula.Decision` in a file that is a `module`). A function whose

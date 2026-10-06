@@ -35,44 +35,54 @@ implementation stays the constant its callers run.
 
 ## Dependent and polymorphic decisions
 
-Two forms cover a function with an argument whose type depends on an earlier argument, with a
-type or instance argument, or with a result type that depends on its arguments. They can be
-used separately:
+The three kinds are the only kinds. Two forms bring under them a function with an argument whose
+type depends on an earlier argument, with a type, instance or proof argument, or with a result
+type that depends on its arguments. They can be used separately:
 
 * **The fields of a structure.** State the kind about the function that applies `f` to every
   field of one structure, in the order of the fields: `fun input : Input => f input.a input.b
   input.c`, where `Input` is a structure whose fields are the arguments of `f`. The type of a
-  field can depend on an earlier field, and a field can be a type or an instance. A value of a
-  structure is its constructor applied to its fields, and each field of the constructor applied
-  to arguments is that argument (both by definition), so the kind's quantifiers over the
-  structure are the quantifiers over the arguments. For two arguments the structure can be a
-  pair: `Prod`, `Sigma`, `PSigma` or `Subtype`. `Function.uncurry f` is this form at `Prod`
-  (`uncurry_eq_fields`). The linter reads no other way of supplying the arguments as this form:
-  a function that fixes an argument or gives a field twice decides `f` on part of its domain,
-  and a structure with a field that `f` does not take, such as a proof about the other fields,
-  can restrict the domain.
-* **A result type that depends on the input.** `Dependent.DecidesSoundly`,
-  `Dependent.DecidesCompletely` and `Dependent.Decides` state the three kinds about a function
-  `f : ∀ x, Result (payload x)`: the result type is one type former `Result`, such as `Option`
-  or `Except ε`, applied to a payload type that depends on the input. The acceptance predicate
-  is `accepts : ∀ {τ}, Result τ → Prop`. It is stated for every payload type, outside the scope
-  of the input, so it reads the result and the payload type and not the input the result was
-  computed from: `fun x _ => spec x`, which would make both directions hold of every `f`, is not
-  an acceptance predicate. The fields are those of the three kinds above, which are the case of
-  a result type that does not vary (`Dependent.decides_const` and its companions).
+  field can depend on an earlier field, and a field can be a type, an instance or a proof. For
+  two arguments the structure can be a pair (`Prod`, `Sigma`, `PSigma` or `Subtype`), and
+  `Function.uncurry f` is this form at `Prod` (`uncurry_eq_fields`). The kind about that
+  function is the kind about `f` when every tuple of arguments is the fields of some value
+  (`Decides.of_packing` and its one-way forms). A type with one constructor and no index has
+  that property: the constructor takes every tuple of fields to a value of the type, and Lean's
+  kernel reduces each projection of that value to the field. The linter reads no other way of
+  supplying the arguments as this form. A function that fixes an argument or gives a field twice
+  decides `f` on part of its domain; a structure with a field that `f` does not take, such as a
+  proof about the other fields, can restrict the domain; and a type with an index holds only
+  the tuples whose fields compute that index.
+* **An erasure of the result.** A result type that depends on the input is decided through one
+  of three functions of this module, each of which forgets the part of the result whose type
+  depends on the input: `Dependent.isSome f` for `f : ∀ x, Option (payload x)` and
+  `Dependent.isOk f` for `f : ∀ x, Except (ε x) (payload x)`, both to `Bool`, and
+  `Dependent.val f` for `f : ∀ x, {r : ρ // P x r}`, to `ρ`. The kind is one of the three above
+  about the erased function, as in `Decides (· = true) spec (Dependent.isOk f)`, so the type of
+  its acceptance predicate has no payload in it, and the predicate reads the erased result and
+  nothing else. The linter reads these three erasures and no other, so a registration cannot
+  supply an erasure of its own. An acceptance predicate or an erasure that is stated for every
+  payload type can read the payload type: "the payload type has a value" is the specification
+  of a proof-carrying payload, whatever the function returns.
 
 A kind about a function with universe parameters is stated at those parameters, so that it
 holds of every instance; the linter refuses a kind stated at other universe levels. A result
-type that depends on the input in another way, such as an inductive family indexed by the input
-or a subtype of `Bool`, has no kind: return `Decidable _`, or register an ordinary requirement.
+type whose dependency on the input none of the three erasures removes, such as an inductive
+family indexed by the input, has no kind: return `Decidable _`, or register an ordinary
+requirement.
 
 Nested dependent pairs are not a form for three or more arguments. Each projection of a pair
 carries the pair's type, so the elaborated statement grows by a large factor with each argument,
 whichever way the pairs nest, and the linter does not read a field of a field as a field of the
 structure. A structure declared for the arguments has projections of constant size.
 
-None of the kinds says that `spec` is the intended specification, that every caller acts on the
-verdict, or which value an accepting result carries. Those remain review.
+None of the kinds says that `spec` is the intended specification, that `accepts` is the intended
+reading of a result, that every caller acts on the verdict, or which value an accepting result
+carries. Those remain review. A constant function has no two-way kind
+(`Decides.not_of_constant`). But when the result of `f` determines its input, as the result of
+the identity function does, an acceptance predicate can restate the specification:
+`Decides spec spec id` holds of every specification that some input satisfies and some input
+does not.
 -/
 
 @[expose] public section
@@ -202,6 +212,65 @@ theorem DecidesSoundly.not_of_accepts_all (acceptsAll : ∀ x, accepts (f x))
 
 end
 
+section
+variable {α : Sort u} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop}
+
+/-- A constant function has no two-way kind, whatever the acceptance predicate and the
+specification: it accepts every input or refuses every input, and a two-way kind needs an input
+of each outcome. -/
+theorem Decides.not_of_constant (result : ρ) : ¬ Decides accepts spec (fun _ : α => result) :=
+  fun decides => decides.accepted.elim fun _ accepted =>
+    decides.refused.elim fun _ refused => refused accepted
+
+/-- A constant function with a sound kind accepts every input, so the specification holds of
+every input. -/
+theorem DecidesSoundly.spec_of_constant {result : ρ}
+    (decides : DecidesSoundly accepts spec (fun _ : α => result)) (x : α) : spec x :=
+  decides.accepted.elim fun _ accepted => decides.sound x accepted
+
+/-- A constant function with a complete kind refuses every input, so the specification holds of
+no input. -/
+theorem DecidesCompletely.not_spec_of_constant {result : ρ}
+    (decides : DecidesCompletely accepts spec (fun _ : α => result)) (x : α) : ¬ spec x :=
+  fun holds => decides.refused.elim fun _ refused => refused (decides.complete x holds)
+
+end
+
+section
+variable {σ : Sort w} {α : Sort u} {ρ : Sort v} {accepts : ρ → Prop} {spec : α → Prop}
+  {f : α → ρ} {fields : σ → α}
+
+/-- A sound kind about `f` on a packing of its arguments is the sound kind about `f`, when every
+argument is `fields s` for some packed value `s`. Without that hypothesis the packed kind says
+nothing of an argument that no packed value has. -/
+theorem DecidesSoundly.of_packing (covers : ∀ x, ∃ s, fields s = x)
+    (decides : DecidesSoundly accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
+    DecidesSoundly accepts spec f :=
+  { sound := fun x accepted => (covers x).elim fun s same =>
+      same ▸ decides.sound s (same ▸ accepted)
+    accepted := decides.accepted.elim fun s accepted => ⟨fields s, accepted⟩ }
+
+/-- A complete kind about `f` on a packing of its arguments is the complete kind about `f`, when
+every argument is `fields s` for some packed value `s`. -/
+theorem DecidesCompletely.of_packing (covers : ∀ x, ∃ s, fields s = x)
+    (decides : DecidesCompletely accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
+    DecidesCompletely accepts spec f :=
+  { complete := fun x holds => (covers x).elim fun s same =>
+      same ▸ decides.complete s (same ▸ holds)
+    refused := decides.refused.elim fun s refused => ⟨fields s, refused⟩ }
+
+/-- A two-way kind about `f` on a packing of its arguments is the two-way kind about `f`, when
+every argument is `fields s` for some packed value `s`. This is the property a kind stated about
+the fields of a structure relies on: for a type with one constructor and no index, the
+constructor makes every tuple of fields the fields of a value. -/
+theorem Decides.of_packing (covers : ∀ x, ∃ s, fields s = x)
+    (decides : Decides accepts (fun s => spec (fields s)) (fun s => f (fields s))) :
+    Decides accepts spec f :=
+  { toDecidesSoundly := .of_packing covers decides.toDecidesSoundly
+    toDecidesCompletely := .of_packing covers decides.toDecidesCompletely }
+
+end
+
 /-- `Function.uncurry f` is `f` applied to the two fields of a pair, in order: a kind stated
 through `Function.uncurry` is the kind stated about the fields of a structure, at the structure
 `Prod`. -/
@@ -210,118 +279,44 @@ theorem uncurry_eq_fields {α : Type u} {β : Type v} {φ : Sort w} (f : α → 
 
 namespace Dependent
 
-/-- A sound decision whose result type depends on its input: `f x` has type
-`Result (payload x)`, one type former `Result` applied to a payload type that depends on `x`,
-as `Except ε (Admitted x)` is `Except ε` applied to `Admitted x`. `f` accepts only inputs that
-satisfy `spec`, and accepts at least one input.
+/-- Whether an optional result holds a payload, with the payload forgotten:
+`isSome f x = (f x).isSome`. The payload type can depend on the input; the type of the erased
+function does not, so a decision kind about `isSome f` has an acceptance predicate of `Bool`. -/
+def isSome {α : Sort u} {payload : α → Type v} (f : ∀ x, Option (payload x)) (x : α) : Bool :=
+  (f x).isSome
 
-`accepts` says which results are acceptances, for every payload type: `(·.isOk = true)` for an
-`Except` result, `(·.isSome = true)` for an `Option` result. It is stated outside the scope of
-the input, so it reads the result and the payload type and not the input the result was computed
-from, and the witness stays a statement about `f`.
+/-- Whether a result is a success, with the payload and the error forgotten:
+`isOk f x = (f x).isOk`. The payload type and the error type can depend on the input; the type
+of the erased function does not. -/
+def isOk {α : Sort u} {ε : α → Type v} {payload : α → Type w}
+    (f : ∀ x, Except (ε x) (payload x)) (x : α) : Bool :=
+  (f x).isOk
 
-**Not claimed:** completeness. `f` may refuse inputs that satisfy `spec`. Neither is it claimed
-that `spec` is the intended specification, nor which value an accepting result carries. -/
-structure DecidesSoundly {α : Sort u} {payload : α → Sort v} {Result : Sort v → Sort w}
-    (accepts : ∀ {τ : Sort v}, Result τ → Prop) (spec : α → Prop)
-    (f : ∀ x, Result (payload x)) : Prop where
-  /-- Soundness: every input `f` accepts satisfies the specification. -/
-  sound : ∀ x, accepts (f x) → spec x
-  /-- `f` accepts some input. Without this the function that refuses every input would be
-  sound for every specification. -/
-  accepted : ∃ x, accepts (f x)
+/-- The value of a result with its proof forgotten: `val f x = (f x).val`. The proved property
+can depend on the input; the type of the erased function does not. -/
+def val {α : Sort u} {ρ : Sort v} {P : α → ρ → Prop} (f : ∀ x, {r : ρ // P x r}) (x : α) : ρ :=
+  (f x).val
 
-/-- A complete decision whose result type depends on its input, as for
-`Dependent.DecidesSoundly`: `f` accepts every input that satisfies `spec`, and refuses at least
-one input.
+/-- The erased result of `isSome` is `true` exactly when the result holds a payload. -/
+theorem isSome_eq_true_iff {α : Sort u} {payload : α → Type v} (f : ∀ x, Option (payload x))
+    (x : α) : isSome f x = true ↔ ∃ value, f x = some value := by
+  unfold isSome
+  cases f x with
+  | none => exact ⟨fun holds => absurd holds Bool.false_ne_true, fun ⟨_, same⟩ => nomatch same⟩
+  | some value => exact ⟨fun _ => ⟨value, rfl⟩, fun _ => rfl⟩
 
-**Not claimed:** soundness. `f` may accept inputs that do not satisfy `spec`. Neither is it
-claimed that `spec` is the intended specification, nor which value an accepting result
-carries. -/
-structure DecidesCompletely {α : Sort u} {payload : α → Sort v} {Result : Sort v → Sort w}
-    (accepts : ∀ {τ : Sort v}, Result τ → Prop) (spec : α → Prop)
-    (f : ∀ x, Result (payload x)) : Prop where
-  /-- Completeness: `f` accepts every input that satisfies the specification. -/
-  complete : ∀ x, spec x → accepts (f x)
-  /-- `f` refuses some input. Without this the function that accepts every input would be
-  complete for every specification. -/
-  refused : ∃ x, ¬ accepts (f x)
+/-- The erased result of `isOk` is `true` exactly when the result is a success with a payload. -/
+theorem isOk_eq_true_iff {α : Sort u} {ε : α → Type v} {payload : α → Type w}
+    (f : ∀ x, Except (ε x) (payload x)) (x : α) : isOk f x = true ↔ ∃ value, f x = .ok value := by
+  unfold isOk
+  cases f x with
+  | error _ => exact ⟨fun holds => absurd holds Bool.false_ne_true, fun ⟨_, same⟩ => nomatch same⟩
+  | ok value => exact ⟨fun _ => ⟨value, rfl⟩, fun _ => rfl⟩
 
-/-- A sound and complete decision whose result type depends on its input, as for
-`Dependent.DecidesSoundly`: `f` accepts exactly the inputs that satisfy `spec`
-(`Dependent.Decides.iff`), and both outcomes occur.
-
-**Not claimed:** that `spec` is the intended specification, that it is stated independently of
-`f` in substance, or which value an accepting result carries. -/
-structure Decides {α : Sort u} {payload : α → Sort v} {Result : Sort v → Sort w}
-    (accepts : ∀ {τ : Sort v}, Result τ → Prop) (spec : α → Prop)
-    (f : ∀ x, Result (payload x)) : Prop
-    extends DecidesSoundly @accepts spec f, DecidesCompletely @accepts spec f
-
-section
-variable {α : Sort u} {payload : α → Sort v} {Result : Sort v → Sort w}
-  {accepts : ∀ {τ : Sort v}, Result τ → Prop} {spec : α → Prop} {f : ∀ x, Result (payload x)}
-
-/-- The two directions of a `Dependent.Decides` as one equivalence. -/
-theorem Decides.iff (decides : Decides @accepts spec f) (x : α) : accepts (f x) ↔ spec x :=
-  ⟨decides.sound x, decides.complete x⟩
-
-/-- A two-way theorem about `f` and one witness of each outcome give the two-way kind. -/
-theorem Decides.of_iff (iff : ∀ x, accepts (f x) ↔ spec x) (accepted : ∃ x, accepts (f x))
-    (refused : ∃ x, ¬ accepts (f x)) : Decides @accepts spec f :=
-  { sound := fun x => (iff x).mp, accepted, complete := fun x => (iff x).mpr, refused }
-
-/-- The specification of a sound decision is satisfiable: the accepted input satisfies it. -/
-theorem DecidesSoundly.satisfiable (decides : DecidesSoundly @accepts spec f) : ∃ x, spec x :=
-  decides.accepted.elim fun x h => ⟨x, decides.sound x h⟩
-
-/-- The specification of a complete decision is refutable: the refused input does not satisfy
-it. -/
-theorem DecidesCompletely.refutable (decides : DecidesCompletely @accepts spec f) :
-    ∃ x, ¬ spec x :=
-  decides.refused.elim fun x h => ⟨x, fun holds => h (decides.complete x holds)⟩
-
-/-- A function that refuses every input has no sound kind, whatever the specification. -/
-theorem DecidesSoundly.not_of_refuses_all (refuses : ∀ x, ¬ accepts (f x)) :
-    ¬ DecidesSoundly @accepts spec f :=
-  fun decides => decides.accepted.elim refuses
-
-/-- A function that accepts every input has no complete kind, whatever the specification. -/
-theorem DecidesCompletely.not_of_accepts_all (acceptsAll : ∀ x, accepts (f x)) :
-    ¬ DecidesCompletely @accepts spec f :=
-  fun decides => decides.refused.elim fun x h => h (acceptsAll x)
-
-end
-
-section
-variable {α : Sort u} {ρ : Sort w} {accepts : ρ → Prop} {spec : α → Prop} {f : α → ρ}
-
-/-- `Regula.DecidesSoundly` is `Dependent.DecidesSoundly` at a result type that does not vary:
-the result former ignores the payload type, whatever `payload` is. -/
-theorem decidesSoundly_const (payload : α → Sort v) :
-    DecidesSoundly (payload := payload) (Result := fun _ => ρ) (fun {_} => accepts) spec f ↔
-      Regula.DecidesSoundly accepts spec f :=
-  ⟨fun decides => ⟨decides.sound, decides.accepted⟩,
-    fun decides => ⟨decides.sound, decides.accepted⟩⟩
-
-/-- `Regula.DecidesCompletely` is `Dependent.DecidesCompletely` at a result type that does not
-vary. -/
-theorem decidesCompletely_const (payload : α → Sort v) :
-    DecidesCompletely (payload := payload) (Result := fun _ => ρ) (fun {_} => accepts) spec f ↔
-      Regula.DecidesCompletely accepts spec f :=
-  ⟨fun decides => ⟨decides.complete, decides.refused⟩,
-    fun decides => ⟨decides.complete, decides.refused⟩⟩
-
-/-- `Regula.Decides` is `Dependent.Decides` at a result type that does not vary. -/
-theorem decides_const (payload : α → Sort v) :
-    Decides (payload := payload) (Result := fun _ => ρ) (fun {_} => accepts) spec f ↔
-      Regula.Decides accepts spec f :=
-  ⟨fun decides => ⟨(decidesSoundly_const payload).mp decides.toDecidesSoundly,
-      (decidesCompletely_const payload).mp decides.toDecidesCompletely⟩,
-    fun decides => ⟨(decidesSoundly_const payload).mpr decides.toDecidesSoundly,
-      (decidesCompletely_const payload).mpr decides.toDecidesCompletely⟩⟩
-
-end
+/-- The erased result of `val` is the value of the result, which has the proved property. -/
+theorem val_property {α : Sort u} {ρ : Sort v} {P : α → ρ → Prop} (f : ∀ x, {r : ρ // P x r})
+    (x : α) : P x (val f x) :=
+  (f x).property
 
 end Dependent
 

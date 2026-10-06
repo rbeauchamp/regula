@@ -153,9 +153,12 @@
   "expect": "pass",
   "claim": "standard-logical",
   "output": [
-   "executable-contract=positive? decision-kind=sound-and-complete requires=Regula.Dependent.Decides ",
-   "executable-contract=smallEven? decision-kind=sound requires=Regula.Dependent.DecidesSoundly ",
-   "executable-contract=belowTen? decision-kind=complete requires=Regula.Dependent.DecidesCompletely ",
+   "executable-contract=positive? decision-kind=sound-and-complete requires=(fun parse",
+   "(Regula.Dependent.isSome parse)) positive?",
+   "executable-contract=smallEven? decision-kind=sound requires=(fun parse",
+   "executable-contract=belowTen? decision-kind=complete requires=(fun parse",
+   "executable-contract=positiveFlag decision-kind=sound-and-complete requires=(fun check",
+   "(Regula.Dependent.val check)) positiveFlag",
    "executable-contract=low decision-kind=sound-and-complete requires=(fun check",
    "fun input => check input.fst input.snd)",
    "executable-contract=inhabited decision-kind=sound-and-complete requires=(fun check",
@@ -196,6 +199,25 @@
   "reason": "executable-contract",
   "output": [
    "failure=decision contract decides its implementation `inhabited` at the universe levels [0], not at its own universe parameters"
+  ]
+ },
+ "Fixtures.Mutations.DecisionOwnErasure": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `hasPayload refuseAll`, not its implementation `refuseAll`"
+  ]
+ },
+ "Fixtures.Mutations.DecisionPayloadAcceptance": {
+  "expect": "fail",
+  "reason": "compile-error",
+  "pattern": "Unknown identifier `Regula.Dependent.Decides`"
+ },
+ "Fixtures.Mutations.DecisionIndexedPacking": {
+  "expect": "fail",
+  "reason": "executable-contract",
+  "output": [
+   "failure=decision contract decides `fun input => check (Limited.field true input)`, not its implementation `check`"
   ]
  },
  "Fixtures.Positive.DecisionRegistration": {

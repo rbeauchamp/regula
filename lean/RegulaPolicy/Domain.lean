@@ -607,17 +607,15 @@ def Ranges.admitted (r : Ranges) : Ranges :=
 
 /-- Which directions of a decision a registered contract's requirement states, one value for
 each of the structures `Regula.DecidesSoundly`, `Regula.DecidesCompletely` and `Regula.Decides`
-(`DecisionKind.structureName`), which is also the value of that structure's form for a result
-type that depends on the input (`DecisionKind.dependentStructureName`); parsing cannot
-manufacture an unknown constructor. -/
+(`DecisionKind.structureName`); parsing cannot manufacture an unknown constructor. -/
 inductive DecisionKind where
-  /-- `Regula.DecidesSoundly` or `Regula.Dependent.DecidesSoundly`: the function accepts only
-  inputs that satisfy the specification. -/
+  /-- `Regula.DecidesSoundly`: the function accepts only inputs that satisfy the
+  specification. -/
   | «sound»
-  /-- `Regula.DecidesCompletely` or `Regula.Dependent.DecidesCompletely`: the function accepts
-  every input that satisfies the specification. -/
+  /-- `Regula.DecidesCompletely`: the function accepts every input that satisfies the
+  specification. -/
   | «complete»
-  /-- `Regula.Decides` or `Regula.Dependent.Decides`: both directions. -/
+  /-- `Regula.Decides`: both directions. -/
   | «soundAndComplete»
   deriving Repr, DecidableEq, Inhabited
 
@@ -655,14 +653,7 @@ def DecisionKind.structureName : DecisionKind → Lean.Name
   | .«complete» => ``Regula.DecidesCompletely
   | .«soundAndComplete» => ``Regula.Decides
 
-/-- The structure of `Regula.Contract` that states each kind about a function whose result type
-depends on its input. -/
-def DecisionKind.dependentStructureName : DecisionKind → Lean.Name
-  | .«sound» => ``Regula.Dependent.DecidesSoundly
-  | .«complete» => ``Regula.Dependent.DecidesCompletely
-  | .«soundAndComplete» => ``Regula.Dependent.Decides
-
-/-- The kind one of whose two structures `name` is; `none` for every other name
+/-- The kind whose structure `name` is; `none` for every other name
 (`DecisionKind.ofStructureName?_eq_some_iff`). The collector applies it to the head constant of
 a registration's reduced requirement. -/
 @[regula_decision]
@@ -670,27 +661,17 @@ def DecisionKind.ofStructureName? : Lean.Name → Option DecisionKind
   | .str (.str .anonymous "Regula") "DecidesSoundly" => some .«sound»
   | .str (.str .anonymous "Regula") "DecidesCompletely" => some .«complete»
   | .str (.str .anonymous "Regula") "Decides" => some .«soundAndComplete»
-  | .str (.str (.str .anonymous "Regula") "Dependent") "DecidesSoundly" => some .«sound»
-  | .str (.str (.str .anonymous "Regula") "Dependent") "DecidesCompletely" => some .«complete»
-  | .str (.str (.str .anonymous "Regula") "Dependent") "Decides" => some .«soundAndComplete»
   | _ => none
 
-/-- A name is read as a kind exactly when it is one of that kind's two structures. -/
+/-- A name is read as a kind exactly when it is that kind's structure. -/
 theorem DecisionKind.ofStructureName?_eq_some_iff (name : Lean.Name) (kind : DecisionKind) :
-    ofStructureName? name = some kind ↔
-      name = kind.structureName ∨ name = kind.dependentStructureName := by
+    ofStructureName? name = some kind ↔ name = kind.structureName := by
   constructor
   · intro h
     unfold ofStructureName? at h
-    split at h <;> cases h <;> first | (left; rfl) | (right; rfl)
-  · rintro (rfl | rfl) <;> cases kind <;> rfl
-
-/-- No structure of `Regula` is a structure of `Regula.Dependent`. So a name `ofStructureName?`
-reads as `kind` is `kind.structureName` or `kind.dependentStructureName` and not both, and the
-collector takes the structure's implicit arguments from which of the two it is. -/
-theorem DecisionKind.structureName_ne_dependentStructureName (a b : DecisionKind) :
-    a.structureName ≠ b.dependentStructureName := by
-  cases a <;> cases b <;> intro h <;> cases h
+    split at h <;> cases h <;> rfl
+  · rintro rfl
+    cases kind <;> rfl
 
 /-- What a registration of the kind establishes about the implementation, as the account
 states it. -/
@@ -714,6 +695,52 @@ does not establish. -/
 theorem DecisionKind.leavesOpen_eq_none_iff (kind : DecisionKind) :
     kind.leavesOpen = none ↔ kind = .«soundAndComplete» := by
   cases kind <;> simp [leavesOpen]
+
+/-- What the collector reads, from kernel-checked declarations, of a decided function that
+applies the implementation to arguments under one binder (`fun input => f a₁ … aₙ`): the shape of
+the inductive type of whose value the first argument is a field, and which field of the bound
+variable each argument is. -/
+structure FieldPacking where
+  /-- The number of constructors of that type. -/
+  constructors : Nat
+  /-- The number of indices of that type. -/
+  indices : Nat
+  /-- The number of fields of its first constructor. -/
+  fields : Nat
+  /-- For each argument in order, the position of the field of the bound variable that it is;
+  `none` for an argument that is not a field of the bound variable in that type. -/
+  arguments : List (Option Nat)
+  deriving Repr, DecidableEq
+
+/-- The packing covers every argument of the implementation: the type has one constructor and no
+index, and the arguments are its fields, each once and in the order of the fields.
+
+With one constructor and no index, the constructor takes every tuple of fields to a value of the
+binder's type, and Lean's kernel reduces each projection of that value to the field. So every
+tuple of arguments is the fields of a packed value, which is the hypothesis of
+`Regula.Decides.of_packing`. An index breaks this: the constructor's result has the index its
+fields compute, so the binder's type holds only the tuples with that index. -/
+def FieldPacking.Covers (packing : FieldPacking) : Prop :=
+  packing.constructors = 1 ∧ packing.indices = 0 ∧
+    packing.arguments = (List.range packing.fields).map some
+
+/-- Whether the packing covers every argument of the implementation (`FieldPacking.covers_iff`).
+The collector reads a decided function as a field application only when this holds. -/
+@[regula_decision]
+def FieldPacking.covers (packing : FieldPacking) : Bool :=
+  packing.constructors == 1 && packing.indices == 0 &&
+    packing.arguments == (List.range packing.fields).map some
+
+/-- The executed decision accepts exactly the packings that cover every argument. -/
+theorem FieldPacking.covers_iff (packing : FieldPacking) :
+    packing.covers = true ↔ packing.Covers := by
+  simp [covers, Covers, and_assoc]
+
+/-- A packing that covers gives the implementation as many arguments as the type has fields. -/
+theorem FieldPacking.Covers.length_eq {packing : FieldPacking} (covers : packing.Covers) :
+    packing.arguments.length = packing.fields := by
+  rw [covers.2.2]
+  simp
 
 /-- What the collector observes of a function registered with `@[regula_decision]`: whether its
 result type is `Decidable _`, the form whose every result carries a proof of the decided
@@ -765,8 +792,8 @@ structure ExecutableContract where
   the collector found no problem. -/
   failure : Option String
   /-- The decision kind, when the requirement reduces to an application of
-  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`, or of the structure
-  of the same name in `Regula.Dependent`; `none` for every other requirement. -/
+  `Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`; `none` for every
+  other requirement. -/
   kind : Option DecisionKind := none
   deriving Repr, DecidableEq
 
@@ -1183,14 +1210,16 @@ structure BoundaryFields where
 /-- `admitBoundaryEvidence` accepts exactly the fields of some evidence of the kind
 (`admitBoundaryEvidence_isOk_iff`): it accepts an unresolved external boundary and refuses a
 trusted native-runtime boundary with no origin. The result type depends on the kind, so the
-kind of decision is one of `Regula.Dependent`, on the structure of the four arguments; that the
-admitted evidence has the supplied fields is `boundaryEvidence_admission_preserves`. -/
+decision is of whether the result is a success (`Regula.Dependent.isOk`), on the structure of
+the four arguments; that the admitted evidence has the supplied fields is
+`boundaryEvidence_admission_preserves`. -/
 theorem checked_admitBoundaryEvidence :
     Regula.ExecutableContract admitBoundaryEvidence (fun admit =>
-      Regula.Dependent.Decides (·.isOk = true)
+      Regula.Decides (· = true)
         (fun input : BoundaryFields =>
           BoundaryFieldsOK input.kind input.state input.detail input.origin)
-        (fun input => admit input.kind input.state input.detail input.origin)) :=
+        (Regula.Dependent.isOk fun input =>
+          admit input.kind input.state input.detail input.origin)) :=
   ⟨.of_iff (fun input =>
       admitBoundaryEvidence_isOk_iff input.kind input.state input.detail input.origin)
     ⟨⟨.external, .unresolved, none, none⟩,
@@ -1514,18 +1543,26 @@ theorem EvaluatorRole.checked_parse : Regula.ExecutableContract EvaluatorRole.pa
     (Regula.Decides (·.isSome = true) fun text => ∃ x : EvaluatorRole, text = x.spelling) :=
   ⟨.of_roundtrip roundtrip canonical .command (unwritten := "") rfl⟩
 
-/-- `DecisionKind.ofStructureName?` accepts exactly the six structures' names, the two of each
-kind (`DecisionKind.ofStructureName?_eq_some_iff`): the collector reads a registration's kind
-with it, so this is the registered decision behind "a head constant is read as a kind exactly
-when it is one of that kind's structures". It accepts `Regula.DecidesSoundly` and refuses the
-anonymous name. -/
+/-- `DecisionKind.ofStructureName?` accepts exactly the three structures' names
+(`DecisionKind.ofStructureName?_eq_some_iff`): the collector reads a registration's kind with
+it, so this is the registered decision behind "a head constant is read as a kind exactly when it
+is that kind's structure". -/
 theorem DecisionKind.checked_ofStructureName :
     Regula.ExecutableContract DecisionKind.ofStructureName?
       (Regula.Decides (·.isSome = true) fun name =>
-        ∃ kind : DecisionKind, name = kind.structureName ∨ name = kind.dependentStructureName) :=
-  ⟨.of_iff (fun name => by
-      rw [Option.isSome_iff_exists]
-      exact exists_congr fun kind => ofStructureName?_eq_some_iff name kind)
-    ⟨``Regula.DecidesSoundly, rfl⟩ ⟨.anonymous, by decide⟩⟩
+        ∃ kind : DecisionKind, name = kind.structureName) :=
+  ⟨.of_roundtrip (fun kind => (ofStructureName?_eq_some_iff _ kind).mpr rfl)
+    (fun name kind read => ((ofStructureName?_eq_some_iff name kind).mp read).symm)
+    .«sound» (unwritten := .anonymous) rfl⟩
+
+/-- `FieldPacking.covers` accepts exactly the packings that cover every argument
+(`FieldPacking.covers_iff`): the collector reads a field application with it. It accepts the two
+fields, in order, of a type with one constructor and no index, and refuses the one field of a
+type with one constructor and an index, whose values are only some of the field tuples. -/
+theorem FieldPacking.checked_covers :
+    Regula.ExecutableContract FieldPacking.covers
+      (Regula.Decides (· = true) FieldPacking.Covers) :=
+  ⟨.of_iff covers_iff ⟨⟨1, 0, 2, [some 0, some 1]⟩, by decide⟩
+    ⟨⟨1, 1, 1, [some 0]⟩, by decide⟩⟩
 
 end RegulaPolicy

@@ -2043,9 +2043,7 @@ structure ContractScope where
   /-- Constants whose closure under `unfoldReferences` was searched without reaching it. -/
   free : IO.Ref NameSet
   /-- Constants whose closure under `unfoldReferences` was searched without reaching a decision
-  kind: a structure `RegulaPolicy.DecisionKind.ofStructureName?` reads as one
-  (`Regula.DecidesSoundly`, `Regula.DecidesCompletely`, `Regula.Decides` or one of the three of
-  `Regula.Dependent`). -/
+  kind (`Regula.DecidesSoundly`, `Regula.DecidesCompletely` or `Regula.Decides`). -/
   decisionFree : IO.Ref NameSet
   /-- Every declaration `@[regula_decision]` registers in the environment
   (`Regula.decisionRegistrations`), computed once for all of its declarations. -/
@@ -2102,9 +2100,8 @@ def ContractScope.mayReach (scope : ContractScope) (env : Environment) (type : E
     BaseIO Bool :=
   scope.reaches env (· == ``Regula.ExecutableContract) scope.free type
 
-/-- Whether reducing `requirement` can produce a decision kind: whether a structure
-`RegulaPolicy.DecisionKind.ofStructureName?` reads as a kind, one of the three of `Regula` or of
-the three of `Regula.Dependent`, is among the constants it mentions, closed under
+/-- Whether reducing `requirement` can produce a decision kind: whether `Regula.DecidesSoundly`,
+`Regula.DecidesCompletely` or `Regula.Decides` is among the constants it mentions, closed under
 `unfoldReferences`, by the argument of `ContractScope.mayReach`. -/
 def ContractScope.mayReachDecision (scope : ContractScope) (env : Environment)
     (requirement : Expr) : BaseIO Bool :=
@@ -2190,41 +2187,66 @@ private def boundField? (env : Environment) (argument : Expr) : Option (Name × 
       some (structureName, index)
   | _ => none
 
+/-- What the kernel-checked declarations say of a term that, under one binder, applies a constant
+to `arguments`: the shape of the inductive type of whose value the first argument is a field,
+and for each argument the field of the bound variable in that type that it is (`boundField?`).
+`none` when the first argument is no field or its type has no constructor. -/
+private def fieldPacking? (env : Environment) (arguments : Array Expr) :
+    Option RegulaPolicy.FieldPacking := do
+  let (typeName, _) ← boundField? env (← arguments[0]?)
+  let .inductInfo type ← env.find? typeName | none
+  let .ctorInfo first ← env.find? (← type.ctors.head?) | none
+  some {
+    constructors := type.ctors.length
+    indices := type.numIndices
+    fields := first.numFields
+    arguments := arguments.toList.map fun argument =>
+      (boundField? env argument).bind fun (name, index) =>
+        if name == typeName then some index else none }
+
 /-- The universe levels at which `body` names the constant `implementation`, when `body`, under
-one binder, is that constant applied to every field of the bound variable and to nothing else:
-the arguments are the fields of one structure, each once, in the order of the fields, and the
-structure has no other field. `none` for every other term. A field left out, given twice or out
-of order, and a field the constant does not take, are each such a term. -/
+one binder, is that constant applied to a packing of its arguments that covers every one of them
+(`RegulaPolicy.FieldPacking.covers`, proved exact in `FieldPacking.covers_iff`): the arguments
+are the fields of the bound variable, each once and in the order of the fields, and the
+variable's type has one constructor and no index. `none` for every other term. A field left out,
+given twice or out of order, a field the constant does not take, and a type with an index, whose
+values are only some of the tuples of its fields, are each such a term. -/
 private def fieldApplicationLevels? (env : Environment) (implementation : Name) (body : Expr) :
     Option (List Level) := do
   let .const name levels := body.getAppFn | none
   guard (name == implementation)
-  let arguments := body.getAppArgs
-  let (structureName, _) ← boundField? env (← arguments[0]?)
-  let .inductInfo structureInfo ← env.find? structureName | none
-  let [constructorName] := structureInfo.ctors | none
-  let .ctorInfo constructorInfo ← env.find? constructorName | none
-  guard (constructorInfo.numFields == arguments.size)
-  guard <| arguments.zipIdx.all fun (argument, index) =>
-    boundField? env argument == some (structureName, index)
+  let packing ← fieldPacking? env body.getAppArgs
+  guard packing.covers
   some levels
 
+/-- Whether `function`, applied to one more argument, packs or erases that argument, a function,
+without changing which inputs it is defined on: `Function.uncurry` at its three implicit
+arguments, which packs two arguments into a pair, or one of the three erasures of
+`Regula.Contract` at its implicit arguments (`Regula.Dependent.isSome`, `Regula.Dependent.isOk`,
+`Regula.Dependent.val`), each of which forgets the part of the result whose type depends on the
+input. These four constants are read by name and no other function is. -/
+private def packsOrErases (function : Expr) : Bool :=
+  function.isAppOfArity ``Function.uncurry 3 ||
+    function.isAppOfArity ``Regula.Dependent.isSome 2 ||
+    function.isAppOfArity ``Regula.Dependent.isOk 3 ||
+    function.isAppOfArity ``Regula.Dependent.val 3
+
 /-- The universe levels at which `decided` names the constant `implementation`, when `decided` is
-that constant on its arguments or on a packing of them: the constant itself; the constant
-applied to every field of the variable of one binder, in order (`fieldApplicationLevels?`); or
-`Function.uncurry` applied any number of times to one of the two. The function a decision kind
-is stated about is then the registered implementation on a structure of its arguments or on a
-product of them. `none` for every other term, so no other way of supplying the arguments is read
-as a packing. -/
+that constant on its arguments, on a packing of them or with its result erased: the constant
+itself; the constant applied to every field of the variable of one binder, in order
+(`fieldApplicationLevels?`); or `Function.uncurry` or an erasure of `Regula.Contract`
+(`packsOrErases`) applied any number of times to one of the two. The function a decision kind is
+stated about is then the registered implementation on a structure of its arguments or on a
+product of them, with the part of its result forgotten whose type depends on the input. `none`
+for every other term, so no other way of supplying the arguments is read as a packing, and no
+other function of the result as an erasure. -/
 private def decidedLevels? (env : Environment) (implementation : Name) :
     Expr → Option (List Level)
   | .const name levels => if name == implementation then some levels else none
   | .mdata _ decided => decidedLevels? env implementation decided
   | .lam _ _ body _ => fieldApplicationLevels? env implementation body
   | .app function decided =>
-      if function.isAppOfArity ``Function.uncurry 3 then
-        decidedLevels? env implementation decided
-      else none
+      if packsOrErases function then decidedLevels? env implementation decided else none
   | _ => none
 
 /-- Whether `levels` are universe parameters, no two of them the same. A registration is stated
@@ -2236,29 +2258,26 @@ private def ownParameters (levels : List Level) : Bool :=
 
 /-- The decision kind of a registration's requirement, with the acceptance predicate, the
 specification and the decided function it states: `requirement` reduced to weak head normal form
-at the ambient transparency is an application of one of the kind's two structures
-(`RegulaPolicy.DecisionKind.ofStructureName?`) to its implicit arguments and those three. The
-implicit arguments are two types for a structure of `Regula` and three, the domain, the payload
-family and the result former, for one of `Regula.Dependent`. `none` for every other requirement.
-The requirement is reduced only when `ContractScope.mayReachDecision` admits that the reduction
-can produce a kind, as a declared type is in `executableContract?`. -/
+at the ambient transparency is an application of the kind's structure
+(`RegulaPolicy.DecisionKind.ofStructureName?`) to its two type arguments and those three. `none`
+for every other requirement. The requirement is reduced only when
+`ContractScope.mayReachDecision` admits that the reduction can produce a kind, as a declared type
+is in `executableContract?`. -/
 private def decisionRequirement? (env : Environment) (scope : ContractScope) (requirement : Expr) :
     MetaM (Option (RegulaPolicy.DecisionKind × Expr × Expr × Expr)) := do
   unless (← scope.mayReachDecision env requirement) do return none
   let reduced ← Meta.whnf requirement
-  let some structureName := reduced.getAppFn.constName? | return none
-  let some kind := RegulaPolicy.DecisionKind.ofStructureName? structureName | return none
+  let some kind := reduced.getAppFn.constName?.bind RegulaPolicy.DecisionKind.ofStructureName?
+    | return none
   let args := reduced.getAppArgs
-  let implicit := if structureName == kind.structureName then 2 else 3
-  let (some accepts, some spec, some decided) :=
-    (args[implicit]?, args[implicit + 1]?, args[implicit + 2]?) | return none
-  unless args.size == implicit + 3 do return none
+  let (some accepts, some spec, some decided) := (args[2]?, args[3]?, args[4]?) | return none
+  unless args.size == 5 do return none
   return some (kind, accepts, spec, decided)
 
 /-- Why a decision registration of `implementation` is refused: the kind is stated about a
-function other than the implementation on its arguments, on the fields of a structure or on a
-product (`decidedLevels?`), so it says nothing of the registered constant across its domain; it
-is stated about the implementation at universe levels other than
+function other than the implementation on its arguments, on a packing of them or with its result
+erased (`decidedLevels?`), so it says nothing of the registered constant, or nothing of a part of
+its domain; it is stated about the implementation at universe levels other than
 its own parameters (`ownParameters`), so it says nothing of the other universe instances; or the
 acceptance predicate or the specification mentions the implementation (`mentionChain?`), as the
 tautology `spec := fun x => f x = true` does. `none` when none of these holds. This establishes
@@ -2273,9 +2292,10 @@ private def decisionFailure? (env : Environment) (implementation : Name)
       state it without the implementation"
   let some levels := decidedLevels? env implementation decided.eta
     | return some s!"decision contract decides `{← Meta.ppExpr decided}`, not its implementation \
-      `{implementation}`; state the kind about the implementation, or for a function of several \
-      arguments about `Function.uncurry` of it or about it applied to every field of one \
-      structure, in order"
+      `{implementation}`; state the kind about the implementation, about `Function.uncurry` of \
+      it, or about it applied to every field of one structure with no index, in order, and for \
+      a result type that depends on the input about `Regula.Dependent.isSome`, `isOk` or `val` \
+      of that function"
   unless ownParameters levels do
     return some s!"decision contract decides its implementation `{implementation}` at the \
       universe levels {levels}, not at its own universe parameters; state the kind for every \

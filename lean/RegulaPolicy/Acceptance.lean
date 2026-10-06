@@ -678,8 +678,9 @@ theorem combined_policy {pc dc : Claim} {documents : Array SourceSnapshot}
 
 /-! Decision kinds of `accept` and `finalize`. The type of each argument after the claim and the
 census depends on an earlier argument, and the result type on all of them, so each is decided on
-a structure whose fields are its five arguments (`AcceptInput`, `FinalizeInput`) with a kind of
-`Regula.Dependent`. The witnesses are over `witnessPlan`. -/
+a structure whose fields are its five arguments (`AcceptInput`, `FinalizeInput`), and the
+decision is of whether the result is a success (`Regula.Dependent.isOk`). The witnesses are over
+`witnessPlan`. -/
 
 /-- The arguments of `accept`, as the fields of one structure, in the order of the arguments. -/
 structure AcceptInput where
@@ -760,10 +761,10 @@ planned job's policy (`accept_iff`), for every claim, census, plan and role rece
 `witnessPlan` it accepts the table collected from `witnessObservations` and refuses the empty
 table. The accepted value carries both proofs (`Accepted`). -/
 theorem checked_accept : Regula.ExecutableContract @accept (fun accept =>
-    Regula.Dependent.Decides (·.isOk = true)
+    Regula.Decides (· = true)
       (fun input : AcceptInput =>
         CompleteFor input.plan input.table ∧ AllPolicyOK input.plan input.roles input.table)
-      (fun input => accept input.plan input.roles input.table)) :=
+      (Regula.Dependent.isOk fun input => accept input.plan input.roles input.table)) :=
   ⟨.of_iff (fun input => accept_isOk_iff input.plan input.roles input.table)
     (by
       obtain ⟨result, _⟩ :=
@@ -781,9 +782,9 @@ claim, census, plan and role receipt: for `witnessPlan` it accepts `witnessObser
 refuses no responses. The accepted value carries the collected table and its acceptance
 (`Finalized`). -/
 theorem checked_finalize : Regula.ExecutableContract @finalize (fun finalize =>
-    Regula.Dependent.Decides (·.isOk = true)
+    Regula.Decides (· = true)
       (fun input : FinalizeInput => InputsOK input.plan input.roles input.inputs)
-      (fun input => finalize input.plan input.roles input.inputs)) :=
+      (Regula.Dependent.isOk fun input => finalize input.plan input.roles input.inputs)) :=
   ⟨.of_iff (fun input => finalize_isOk_iff input.plan input.roles input.inputs)
     ⟨⟨witnessClaim, witnessCensus, witnessPlan, witnessRoles, witnessObservations⟩,
       (finalize_isOk_iff witnessPlan witnessRoles witnessObservations).mpr witness_inputsOK⟩

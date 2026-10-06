@@ -33,11 +33,13 @@ theorem checked_dependencyFree : Regula.ExecutableContract dependencyFree
 /-- `select` accepts exactly the argument lists of the supported invocations, as `parseMode`
 does (`select_exact`): it accepts the empty list and refuses an unsupported argument. Its result
 type depends on the arguments, since the selected mode carries the proof that the arguments are
-that mode's, so the kind is one of `Regula.Dependent`. -/
-theorem checked_select : Regula.ExecutableContract select
-    (Regula.Dependent.Decides (·.isSome = true) (fun args => ∃ mode, args = arguments mode)) :=
-  have isSome (args : List String) : (select args).isSome = (parseMode args).isSome := by
-    rw [← select_exact, Option.isSome_map]
+that mode's, so the decision is of whether a mode is selected (`Regula.Dependent.isSome`). -/
+theorem checked_select : Regula.ExecutableContract select (fun selected =>
+    Regula.Decides (· = true) (fun args => ∃ mode, args = arguments mode)
+      (Regula.Dependent.isSome selected)) :=
+  have isSome (args : List String) :
+      Regula.Dependent.isSome select args = (parseMode args).isSome := by
+    rw [Regula.Dependent.isSome, ← select_exact, Option.isSome_map]
   ⟨.of_iff (fun args => by rw [isSome]; exact checked_parseMode.evidence.iff args)
     ⟨[], by rw [isSome]; decide⟩ ⟨["unsupported"], by rw [isSome]; decide⟩⟩
 
